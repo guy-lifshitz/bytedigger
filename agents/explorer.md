@@ -46,7 +46,7 @@ If a `## Project Constitution` block is provided in your prompt:
 
 ## Output Format
 
-Provide a comprehensive analysis with:
+Provide a detailed analysis with:
 
 - **Entry points** with file:line references
 - **Execution flow** step-by-step with data transformations
