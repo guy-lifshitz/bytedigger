@@ -1,0 +1,20 @@
+{
+  "validation_model": "opus",
+  "agent_model": "sonnet",
+  "exploration_model": "haiku",
+  "satisfaction_thresholds": {
+    "SIMPLE": 80,
+    "FEATURE": 85,
+    "COMPLEX": 90
+  },
+  "reviewers": {
+    "SIMPLE": 3,
+    "FEATURE": 6,
+    "COMPLEX": 6
+  },
+  "gates_enabled": true,
+  "tdd_mandatory": true,
+  "worktree_auto": true,
+  "constitution_path": "./constitution.md",
+  "logging": false
+}

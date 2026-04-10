@@ -1,0 +1,13 @@
+{
+  "name": "bytedigger",
+  "version": "1.0.0",
+  "description": "Phased, gate-enforced build pipeline for AI code generation. TDD mandatory, reviews scored, skipping blocked.",
+  "author": { "name": "Guy Lifshitz" },
+  "homepage": "https://github.com/shtofadhor/bytedigger",
+  "repository": "https://github.com/shtofadhor/bytedigger",
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "commands": "./commands/"
+}
