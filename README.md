@@ -2,6 +2,8 @@
 
 > The build pipeline AI coding tools forgot to ship.
 
+**⚠️ Alpha** — Pipeline structure and phase docs are complete. Gate enforcement hook (`scripts/build-gate.sh`) is not yet implemented. Expect rough edges. Test reports and issues welcome.
+
 ## What it does
 
 ByteDigger is a Claude Code plugin that forces AI agents through an 8-phase build pipeline with mandatory TDD, multi-agent code review, and gate enforcement. No skipping phases. No excuses for missing tests.
