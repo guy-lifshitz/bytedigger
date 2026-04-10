@@ -1,0 +1,13 @@
+# Build artifacts (generated during /build pipeline runs)
+build-state.yaml
+build-metadata.json
+build-spec.md
+build-tests.md
+build-red-output.log
+build-green-output.log
+build-architecture.md
+build-review-*.md
+build-opus-validation.md
+build-plan-review.md
+build-test-integrity-review.md
+.bytedigger/
