@@ -60,6 +60,7 @@ Complexity is detected in Phase 0 based on file count, dependency graph, and whe
 - **Constitution system** -- project-specific rules (style guide, forbidden patterns, arch constraints) loaded into every agent
 - **Observability** -- structured JSON events for every phase transition, gate pass/fail, agent spawn
 - **`--dry-run` mode** -- see the full plan (phases, agents, estimated tokens) without spending anything
+- **Learning interface** -- pluggable system that extracts patterns from completed builds and injects relevant learnings into future ones
 
 ## Configuration
 
@@ -82,6 +83,29 @@ Drop a `bytedigger.json` in your project root:
 ```
 
 All fields are optional. Defaults are sane. Override `tdd_mandatory` at your own risk.
+
+### Learning interface
+
+ByteDigger can remember what worked across builds. After each completed pipeline, Phase 7 extracts patterns (what broke, what helped, anti-patterns discovered). Before the next build, Phase 0 injects relevant learnings into the agent context so it doesn't repeat mistakes.
+
+Configure the backend in `bytedigger.json`:
+
+```json
+{
+  "learning": {
+    "backend": "file",
+    "store_path": ".bytedigger/learnings"
+  }
+}
+```
+
+| Backend | Storage | Use case |
+|---------|---------|----------|
+| `none` | Disabled | Default. Opt-in only. |
+| `file` | `.bytedigger/learnings/{category}.md` | Simple, git-trackable, human-readable |
+| `sqlite` | Extension point | Not yet implemented |
+
+The learning store script (`scripts/learning-store.sh`) supports two subcommands: `extract` (save a learning) and `inject` (retrieve relevant learnings by keyword match).
 
 ## How it compares
 

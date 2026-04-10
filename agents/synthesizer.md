@@ -27,9 +27,21 @@ After a feature has been implemented and reviewed, you produce a concise complet
 
 ### 2. New Learnings
 Patterns or anti-patterns discovered during this build that should be remembered:
-- Format: `[category] — [lesson]`
+- Format: `- [category] --- [lesson]` (use three dashes, not em-dash)
 - Categories: architecture, bug-fix, code-quality, workflow, performance
 - Only include genuinely reusable insights, not task-specific details
+
+**Write learnings to `{scratchpad}/reviews/learnings-raw.md`** using this exact format:
+
+```markdown
+## New Learnings
+
+- [architecture] --- Service layer should wrap all DB calls
+- [bug-fix] --- Always validate input before DB insert
+```
+
+The file must exist even if there are no learnings (write an empty `## New Learnings` header).
+Phase 7 runs `learning-store.sh extract` on this file after you return.
 
 ### 3. Summary Digest
 One short paragraph: "Built X, which does Y. Touched N files. Reviewers found M issues (all fixed). Ready for [testing/PR/deploy]."

@@ -260,6 +260,19 @@ gate_phase_6() {
 
 gate_phase_7() {
   yaml_field_equals "review_complete" "pass" || true
+
+  # Soft learning validation: when backend != none, warn if learnings_extracted is missing.
+  # This never hard-blocks — learning failures must never stop the pipeline.
+  local backend
+  backend=$(grep "^learning_backend:" "$BUILD_STATE" 2>/dev/null | sed 's/^learning_backend:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+  if [ -n "$backend" ] && [ "$backend" != "none" ]; then
+    local extracted
+    extracted=$(grep "^learnings_extracted:" "$BUILD_STATE" 2>/dev/null | sed 's/^learnings_extracted:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+    if [ -z "$extracted" ]; then
+      # Warn only — do not add to MISSING_FIELDS (soft, never blocks)
+      echo "WARN: learnings_extracted not set in build-state.yaml (backend=$backend)" >&2
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------

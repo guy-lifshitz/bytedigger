@@ -42,7 +42,13 @@ Document results and summarize the build.
 ## Actions
 
 1. Launch Haiku synthesizer agent (use agent definition: `agents/synthesizer.md`) with: original request, path to `build-state.yaml`, path to architecture spec. Agent reads files itself — do NOT inline review verdicts or scores in the prompt.
-2. Present summary:
+2. **After synthesizer returns, extract learnings** (before any cleanup):
+   ```bash
+   SCRATCHPAD=$(python3 -c "import re,pathlib;m=re.search(r'scratchpad_dir:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else '')")
+   bash scripts/learning-store.sh extract "$SCRATCHPAD" || true
+   ```
+   This persists `{scratchpad}/reviews/learnings-raw.md` entries to `.bytedigger/learnings/`.
+3. Present summary:
    - What was built (3-5 bullets)
    - Key decisions and trade-offs
 
@@ -68,7 +74,16 @@ Document results and summarize the build.
 - Delete `build-opus-validation.md` from CWD if it exists (Opus validation artifact)
 - Delete `build-plan-review.md` from CWD if it exists (Phase 4.5 plan review artifact)
 - Delete `build-metadata.json` from CWD if it exists (build metadata — on FAILED, keep for `/build continue`)
-- Delete scratchpad directory: `[[ "$SCRATCHPAD_DIR" == .bytedigger* ]] && rm -rf "$SCRATCHPAD_DIR"` (read path from `build-state.yaml` → `scratchpad_dir`; only delete if path is `.bytedigger`)
+- Delete scratchpad transient subdirs only (preserves `.bytedigger/learnings/` for future builds):
+  ```bash
+  SCRATCHPAD_DIR=$(python3 -c "import re,pathlib;m=re.search(r'scratchpad_dir:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else '')")
+  if [[ "$SCRATCHPAD_DIR" == .bytedigger* ]]; then
+    for subdir in research architecture specs tests reviews; do
+      rm -rf "${SCRATCHPAD_DIR}/${subdir}"
+    done
+  fi
+  ```
+  Do NOT `rm -rf` the entire scratchpad dir — that would destroy `.bytedigger/learnings/`.
 - Delete `.bytedigger-orchestrator-pid` from CWD
 - If pipeline FAILED: leave for `/build continue`
 

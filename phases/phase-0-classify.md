@@ -53,6 +53,16 @@ echo "Scratchpad created: $SCRATCHPAD"
 
 `.bytedigger/` lives in project CWD — persists with worktree and survives reboots. Add to `.gitignore` if not already present.
 
+**Inject prior learnings** (after scratchpad creation, before Phase 1):
+```bash
+SCRATCHPAD=$(python3 -c "import re,pathlib;m=re.search(r'scratchpad_dir:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else '')")
+KEYWORDS=$(python3 -c "import re,pathlib;m=re.search(r'task:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else 'build')" | tr ' ' '\n' | awk 'length>3' | tr '\n' ' ')
+bash scripts/learning-store.sh inject "$KEYWORDS" > "${SCRATCHPAD}/research/prior-learnings.md" 2>/dev/null || true
+# Remove empty prior-learnings.md (no learnings found)
+[ -s "${SCRATCHPAD}/research/prior-learnings.md" ] || rm -f "${SCRATCHPAD}/research/prior-learnings.md"
+```
+If `learning.backend` is `none`, this exits immediately and writes no files. Agents in Phase 2+ will find `research/prior-learnings.md` if learnings exist.
+
 **Arm orchestrator guard** (tool enforcement — blocks orchestrator from editing code files):
 ```bash
 touch .bytedigger-orchestrator-pid

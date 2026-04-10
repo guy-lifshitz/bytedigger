@@ -16,5 +16,11 @@
   "tdd_mandatory": true,
   "worktree_auto": true,
   "constitution_path": "./constitution.md",
-  "logging": false
+  "logging": false,
+  "learning": {
+    "backend": "none",
+    "max_inject": 10,
+    "max_stored": 200,
+    "storage_path": ".bytedigger/learnings"
+  }
 }
