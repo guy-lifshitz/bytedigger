@@ -24,6 +24,10 @@ ByteDigger fixes that. It's the process discipline layer that sits between "buil
 
 Each arrow is a gate. Gates have pass criteria. Fail a gate, you don't move forward.
 
+## Dependencies
+
+- **python3** — Required by `build-state-guard.sh` hook for JSON parsing and command pattern matching. The hook fails open (allows operations) if python3 is not available.
+
 ## Quick start
 
 ```bash
