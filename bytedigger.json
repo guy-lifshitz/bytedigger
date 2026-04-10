@@ -18,7 +18,7 @@
   "constitution_path": "./constitution.md",
   "logging": false,
   "learning": {
-    "backend": "none",
+    "backend": "file",
     "max_inject": 10,
     "max_stored": 200,
     "storage_path": ".bytedigger/learnings"
