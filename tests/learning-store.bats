@@ -30,7 +30,7 @@ EOF
   mkdir -p "$TMPDIR/.bytedigger/learnings"
 
   # Create a scratchpad dir structure (for extract tests)
-  mkdir -p "$TMPDIR/.hal-build/reviews"
+  mkdir -p "$TMPDIR/.bytedigger-build/reviews"
 }
 
 teardown() {
@@ -156,12 +156,12 @@ EOF
 }
 EOF
   # Write a learnings-raw.md to confirm it won't be read
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- Service layer should wrap all DB calls
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   # No category file should have been created
   [ ! -f "$TMPDIR/.bytedigger/learnings/architecture.md" ]
@@ -171,13 +171,13 @@ EOF
 # Test 7: extract with valid learnings-raw.md (2 entries) → 2 entries appended
 # ---------------------------------------------------------------------------
 @test "T07_extract_valid_raw_md_two_entries_appended" {
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- Service layer should wrap all DB calls
 - [bug-fix] --- Always validate input before DB insert
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   # architecture.md must exist and contain the lesson
   [ -f "$TMPDIR/.bytedigger/learnings/architecture.md" ]
@@ -195,12 +195,12 @@ EOF
 @test "T08_extract_generates_correct_tag_format" {
   # Use a lesson with known short words (<=3 chars) that must be excluded:
   # "DB" (2), "all" (3), "the" (3), "to" (2) should NOT appear in tags
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [code-quality] --- Use DB to wrap all the nested conditions early
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   [ -f "$TMPDIR/.bytedigger/learnings/code-quality.md" ]
   # Tags comment must exist with lowercase comma-separated words longer than 3 chars
@@ -227,12 +227,12 @@ EOF
 # Test 9: extract adds source and date metadata
 # ---------------------------------------------------------------------------
 @test "T09_extract_adds_source_and_date_metadata" {
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- Separate concerns between layers
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   [ -f "$TMPDIR/.bytedigger/learnings/architecture.md" ]
   # Must have source field matching forge-* pattern
@@ -258,12 +258,12 @@ EOF
   # Pre-populate architecture.md with exactly max_stored (5) entries (each entry = 2 lines)
   _write_entries "$TMPDIR/.bytedigger/learnings/architecture.md" 5
   # Add one more via extract
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- New entry that should push oldest out
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   # Count bullet entries (lines starting with "- ")
   entry_count=$(grep -c "^- " "$TMPDIR/.bytedigger/learnings/architecture.md" || true)
@@ -279,7 +279,7 @@ EOF
 # ---------------------------------------------------------------------------
 @test "T11_extract_missing_raw_md_exits_0_count_0" {
   # No learnings-raw.md in scratchpad
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   grep -q "learnings_extracted: 0" "$TMPDIR/build-state.yaml"
 }
@@ -288,7 +288,7 @@ EOF
 # Test 12: extract skips malformed lines
 # ---------------------------------------------------------------------------
 @test "T12_extract_skips_malformed_lines" {
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- Good entry that should be stored
@@ -297,7 +297,7 @@ EOF
 - [MALFORMED without closing bracket --- should be skipped
 - just plain text, no structure
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   # Only 2 valid entries
   grep -q "learnings_extracted: 2" "$TMPDIR/build-state.yaml"
@@ -309,12 +309,12 @@ EOF
 # Test 13: extract sanitizes category to safe filename
 # ---------------------------------------------------------------------------
 @test "T13_extract_sanitizes_category_to_safe_filename" {
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [Code Quality] --- Use early returns to reduce nesting
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   # "Code Quality" → "code-quality.md" (lowercase, spaces to dashes)
   [ -f "$TMPDIR/.bytedigger/learnings/code-quality.md" ]
@@ -332,12 +332,12 @@ EOF
   "tdd_mandatory": true
 }
 EOF
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- This should not be stored when backend is none
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   # No learnings directory should be modified
   [ ! -f "$TMPDIR/.bytedigger/learnings/architecture.md" ]
@@ -377,26 +377,26 @@ EOF
 EOF
 
   # Simulate Phase 0: run inject and redirect stdout to prior-learnings.md
-  mkdir -p "$TMPDIR/.hal-build/research"
+  mkdir -p "$TMPDIR/.bytedigger-build/research"
   bash "$SCRIPT" inject "service database" --config "$TMPDIR/bytedigger.json" \
-    > "$TMPDIR/.hal-build/research/prior-learnings.md"
+    > "$TMPDIR/.bytedigger-build/research/prior-learnings.md"
   local exit_code=$?
   [ "$exit_code" -eq 0 ]
-  [ -f "$TMPDIR/.hal-build/research/prior-learnings.md" ]
-  grep -q "Service layer wraps database calls" "$TMPDIR/.hal-build/research/prior-learnings.md"
+  [ -f "$TMPDIR/.bytedigger-build/research/prior-learnings.md" ]
+  grep -q "Service layer wraps database calls" "$TMPDIR/.bytedigger-build/research/prior-learnings.md"
 }
 
 # ---------------------------------------------------------------------------
 # Test 17: Phase 7 with backend=file persists learnings to .bytedigger/learnings/
 # ---------------------------------------------------------------------------
 @test "T17_phase7_backend_file_persists_learnings" {
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [performance] --- Cache expensive queries with TTL of 5 minutes
 - [workflow] --- Always run tests before committing
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   [ -f "$TMPDIR/.bytedigger/learnings/performance.md" ]
   grep -q "Cache expensive queries" "$TMPDIR/.bytedigger/learnings/performance.md"
@@ -409,12 +409,12 @@ EOF
 # ---------------------------------------------------------------------------
 @test "T18_full_cycle_extract_then_inject" {
   # Build N: extract a learning
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- Always use dependency injection for testability
 EOF
-  bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ -f "$TMPDIR/.bytedigger/learnings/architecture.md" ]
 
   # Build N+1: inject should find it
@@ -462,12 +462,12 @@ EOF
   grep -q "learning_backend: file" "$TMPDIR/build-state.yaml"
 
   # Extract also must not crash
-  cat > "$TMPDIR/.hal-build/reviews/learnings-raw.md" <<'EOF'
+  cat > "$TMPDIR/.bytedigger-build/reviews/learnings-raw.md" <<'EOF'
 ## New Learnings
 
 - [architecture] --- New entry despite corrupt existing file
 EOF
-  run bash "$SCRIPT" extract "$TMPDIR/.hal-build" --config "$TMPDIR/bytedigger.json"
+  run bash "$SCRIPT" extract "$TMPDIR/.bytedigger-build" --config "$TMPDIR/bytedigger.json"
   [ "$status" -eq 0 ]
   # Extraction count must be recorded (even if 0 or 1)
   grep -q "learnings_extracted:" "$TMPDIR/build-state.yaml"
