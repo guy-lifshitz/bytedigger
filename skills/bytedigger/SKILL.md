@@ -15,7 +15,7 @@ description: Full-cycle feature development with research, architecture, TDD enf
 - `/build "fix bug Y"` — classifies as SIMPLE, streamlined pipeline (skip explore/architect)
 - `/build "task" --supervised` — always show checkpoints
 - `/build "task" --auto` — skip all human gates
-- `/build "task" --pr` — SHIP Protocol after implementation (commit → branch → PR → review)
+- `/build "task" --pr` — SHIP Protocol after implementation (branch → stage → commit → push → PR)
 - `/build --init` — create project constitution
 - `/build "task" --dry-run` — classify and show execution plan without running pipeline
 - `/build "task" --atomic-commits` — enable Red/Green/Refactor commits at each TDD step (default ON for COMPLEX)
