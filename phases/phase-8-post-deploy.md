@@ -1,4 +1,4 @@
-# Phase 8: Post-Deploy Housekeeping
+# Phase 8: Post-Deploy Cleanup
 
 **State update:** `current_phase: "8"`
 
@@ -17,17 +17,7 @@ Execute the post-deploy script:
 bash scripts/post-deploy.sh --cwd "$(pwd)" --state-file ./build-state.yaml
 ```
 
-This script runs three steps, all informational (never blocks):
-
-### Security Scan
-- Runs `gitleaks detect` and `trivy fs` if installed
-- Writes `phase_8_security_scan: pass|fail|skipped` to state
-- Findings are logged, never block the pipeline
-
-### SBOM Generation
-- Runs `trivy fs --format cyclonedx` if installed
-- Output: `.bytedigger/sbom.cdx.json` (CycloneDX standard)
-- Writes `phase_8_sbom: generated|skipped` to state
+This script runs cleanup, informational only (never blocks):
 
 ### Cleanup
 - Prunes gone branches (tracking deleted remotes)
@@ -39,13 +29,11 @@ This script runs three steps, all informational (never blocks):
 
 Log summary:
 ```
-Phase 8: security_scan=[pass|fail|skipped] sbom=[generated|skipped] cleanup=complete
+Phase 8: cleanup=complete
 ```
 
 ## State Log
 
 ```yaml
-phase_8_security_scan: pass|fail|skipped
-phase_8_sbom: generated|skipped
 phase_8_cleanup: complete
 ```

@@ -130,7 +130,7 @@ claude plugin add shtofadhor/bytedigger
 | 5 | Implement | TDD implementation via worker agents | -- |
 | 6 | Review | Multi-agent quality review, Opus satisfaction scoring | -- |
 | 7 | Synthesize | Summarize build, extract learnings, update state | -- |
-| 8 | Post-Deploy | Security scan (gitleaks/trivy), SBOM (CycloneDX), cleanup (worktrees/temp/branches) | Never |
+| 8 | Post-Deploy | Cleanup: prune gone branches, remove temp files, remove merged worktrees | Never |
 
 SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 
@@ -143,7 +143,7 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 | `scripts/learning-store.sh` | Read/write learnings from .bytedigger/learnings/ |
 | `scripts/ship.sh` | SHIP protocol — commit, push, open PR after build |
 | `scripts/security-scan.sh` | Security scan runner for Phase 0.5 |
-| `scripts/post-deploy.sh` | Post-deploy housekeeping (security scan, SBOM, cleanup) |
+| `scripts/post-deploy.sh` | Post-deploy cleanup (prune branches, temp files, merged worktrees) |
 | `hooks/build-state-guard.sh` | Blocks deletion of build-state.yaml mid-pipeline |
 
 ## Hooks
@@ -163,7 +163,7 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 
 ## Tests
 
-97 BATS tests across 7 suites.
+109 BATS tests across 8 suites.
 
 ```bash
 # Run all tests
@@ -178,10 +178,11 @@ bats tests/build-gate.bats
 | `tests/build-gate.bats` | 19 |
 | `tests/build-state-guard.bats` | 20 |
 | `tests/learning-store.bats` | 20 |
+| `tests/post-deploy-cleanup.bats` | 19 |
+| `tests/post-deploy.bats` | 3 |
 | `tests/pre-build-gate.bats` | 8 |
 | `tests/security-scan.bats` | 8 |
 | `tests/ship-protocol.bats` | 12 |
-| `tests/post-deploy.bats` | 10 |
 
 ## Learning System
 
