@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-build-gate.sh — pre-build branch + session collision guard for ByteDigger
+# pre-build-gate.sh — CWD mutex collision guard for ByteDigger
 # Usage: pre-build-gate.sh --complexity <level> --session-file <path>
 set -euo pipefail
 
@@ -31,134 +31,138 @@ if [[ -z "$COMPLEXITY" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Branch detection
-# ---------------------------------------------------------------------------
-BRANCH=$(git branch --show-current 2>/dev/null || echo "")
-
-# ---------------------------------------------------------------------------
-# Worktree enforcement
+# TRIVIAL exemption — exit immediately, no file writes
 # ---------------------------------------------------------------------------
 COMPLEXITY_UPPER=$(echo "$COMPLEXITY" | tr '[:lower:]' '[:upper:]')
-
-is_protected_branch() {
-  [[ "$1" == "main" || "$1" == "master" ]]
-}
-
-is_complex_task() {
-  [[ "$1" == "FEATURE" || "$1" == "COMPLEX" ]]
-}
-
-if is_protected_branch "$BRANCH"; then
-  if is_complex_task "$COMPLEXITY_UPPER"; then
-    echo "ERROR: Blocked — branch '$BRANCH' is protected. $COMPLEXITY_UPPER tasks are not allowed on $BRANCH. Please create a feature branch." >&2
-    exit 1
-  else
-    # SIMPLE/TRIVIAL on main — warn but allow
-    echo "WARNING: Running SIMPLE task directly on '$BRANCH' branch is unusual. Proceed with caution." >&2
-    # Fall through to session check below (still register session)
-  fi
+if [[ "$COMPLEXITY_UPPER" == "TRIVIAL" ]]; then
+  exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Session collision detection
+# Get CWD and branch
 # ---------------------------------------------------------------------------
-# Build new session entry (used if we proceed)
-NEW_SESSION_ID="sess-$(date -u +%s)-$$"
-NEW_SESSION_BRANCH="$BRANCH"
-NEW_SESSION_STARTED=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+CWD=$(pwd)
+BRANCH=$(git branch --show-current 2>/dev/null || echo "")
 
-if [[ -n "$SESSION_FILE" && -f "$SESSION_FILE" ]]; then
-  # Parse existing sessions using python3 (portable JSON)
-  SESSIONS_JSON=$(python3 - "$SESSION_FILE" "$BRANCH" <<'PYEOF'
-import json, sys, time, datetime
+# ---------------------------------------------------------------------------
+# Advisory lock (mkdir-based — atomic on POSIX)
+# ---------------------------------------------------------------------------
+LOCK_DIR="${SESSION_FILE}.lock"
+LOCK_TIMEOUT=5
+LOCK_INTERVAL=0.1
+STALE_THRESHOLD=30
+
+acquire_lock() {
+  local elapsed=0
+  while true; do
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      # Write timestamp into lock for stale detection
+      echo "$(date +%s)" > "$LOCK_DIR/ts"
+      return 0
+    fi
+    # Check for stale lock
+    if [[ -f "$LOCK_DIR/ts" ]]; then
+      local lock_ts
+      lock_ts=$(cat "$LOCK_DIR/ts" 2>/dev/null || echo 0)
+      local now_ts
+      now_ts=$(date +%s)
+      local age=$(( now_ts - lock_ts ))
+      if [[ $age -gt $STALE_THRESHOLD ]]; then
+        rm -rf "$LOCK_DIR"
+        continue
+      fi
+    fi
+    elapsed=$(echo "$elapsed + $LOCK_INTERVAL" | bc)
+    local elapsed_int
+    elapsed_int=$(echo "$elapsed" | cut -d. -f1)
+    if [[ "${elapsed_int:-0}" -ge "$LOCK_TIMEOUT" ]]; then
+      echo "ERROR: Could not acquire session lock after ${LOCK_TIMEOUT}s" >&2
+      exit 1
+    fi
+    sleep "$LOCK_INTERVAL"
+  done
+}
+
+release_lock() {
+  rm -rf "$LOCK_DIR"
+}
+
+acquire_lock
+trap release_lock EXIT
+
+# ---------------------------------------------------------------------------
+# Session management via python3
+# ---------------------------------------------------------------------------
+SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+STARTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+python3 - "$SESSION_FILE" "$CWD" "$BRANCH" "$SESSION_ID" "$STARTED_AT" "$COMPLEXITY_UPPER" <<'PYEOF'
+import json, sys, time, datetime, os
 
 session_file = sys.argv[1]
-branch = sys.argv[2]
+cwd          = sys.argv[2]
+branch       = sys.argv[3]
+session_id   = sys.argv[4]
+started_at   = sys.argv[5]
+complexity   = sys.argv[6]
 
-with open(session_file) as f:
-    data = json.load(f)
+# Load sessions — JSON array format
+sessions = []
+if os.path.isfile(session_file):
+    try:
+        with open(session_file) as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            sessions = data
+    except Exception:
+        sessions = []
 
-sessions = data.get("sessions", [])
-cutoff = int(time.time()) - 86400  # 24h ago as local epoch
-
-# Filter out stale sessions
-# Note: timestamps may be stored as local time with Z suffix (from BSD date without -u)
-# Use time.mktime (local timezone) for comparison to match how they were created
+# Clean stale sessions (>24h old)
+cutoff = time.time() - 86400
 active = []
 for s in sessions:
     started = s.get("started_at", "")
     try:
-        # Strip Z and parse as naive datetime, then convert via mktime (local time)
         ts = started.rstrip("Z").replace("T", " ")
         dt = datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-        epoch = int(time.mktime(dt.timetuple()))
+        epoch = time.mktime(dt.timetuple())
     except Exception:
         epoch = 0
     if epoch >= cutoff:
         active.append(s)
 
-# Check for collision on same branch
-collision = any(s.get("branch") == branch for s in active)
+# Collision check: exact match, parent, or child overlap
+def paths_overlap(a, b):
+    """Return True if a == b, a is a parent of b, or b is a parent of a."""
+    if a == b:
+        return True
+    # Ensure trailing slash for prefix check
+    a_slash = a.rstrip("/") + "/"
+    b_slash = b.rstrip("/") + "/"
+    return b.startswith(a_slash) or a.startswith(b_slash)
 
-if collision:
-    print("COLLISION")
-    sys.exit(0)
+for s in active:
+    s_cwd = s.get("cwd", "")
+    if paths_overlap(cwd, s_cwd):
+        if cwd == s_cwd:
+            msg = f"ERROR: Session collision — another active build is already running at CWD '{cwd}'. Wait for it to finish or clean up the session file."
+        else:
+            msg = f"ERROR: Path overlap/parent-child conflict — active session at '{s_cwd}' overlaps with requested CWD '{cwd}'."
+        print(msg, file=sys.stderr)
+        sys.exit(1)
 
-print(json.dumps(active))
-PYEOF
-)
-
-  if [[ "$SESSIONS_JSON" == "COLLISION" ]]; then
-    echo "ERROR: Session collision — another active session is already running on branch '$BRANCH'. Wait for it to finish or clean up .bytedigger-sessions.json." >&2
-    exit 1
-  fi
-
-  # Write updated session file with stale entries removed + new session appended
-  # Write SESSIONS_JSON to a temp file to avoid injection and pipe/heredoc conflict
-  SESSIONS_TMP=$(mktemp)
-  printf '%s' "$SESSIONS_JSON" > "$SESSIONS_TMP"
-  python3 - "$SESSION_FILE" "$NEW_SESSION_ID" "$NEW_SESSION_BRANCH" "$NEW_SESSION_STARTED" "$$" "$SESSIONS_TMP" <<'PYEOF'
-import json, sys
-
-session_file   = sys.argv[1]
-new_id         = sys.argv[2]
-new_branch     = sys.argv[3]
-new_started_at = sys.argv[4]
-new_pid        = int(sys.argv[5])
-sessions_tmp   = sys.argv[6]
-
-with open(sessions_tmp) as f:
-    active_sessions = json.load(f)
-
+# Register new session
 new_session = {
-    "id": new_id,
-    "branch": new_branch,
-    "started_at": new_started_at,
-    "pid": new_pid
+    "session_id": session_id,
+    "cwd": cwd,
+    "branch": branch,
+    "started_at": started_at,
+    "complexity": complexity,
 }
-active_sessions.append(new_session)
+active.append(new_session)
 
-data = {"sessions": active_sessions}
 with open(session_file, "w") as f:
-    json.dump(data, f, indent=2)
+    json.dump(active, f, indent=2)
+
+sys.exit(0)
 PYEOF
-  rm -f "$SESSIONS_TMP"
-
-elif [[ -n "$SESSION_FILE" ]]; then
-  # Session file doesn't exist — create it with the new session
-  python3 - <<PYEOF
-import json
-
-new_session = {
-    "id": "$NEW_SESSION_ID",
-    "branch": "$NEW_SESSION_BRANCH",
-    "started_at": "$NEW_SESSION_STARTED",
-    "pid": $$
-}
-data = {"sessions": [new_session]}
-with open("$SESSION_FILE", "w") as f:
-    json.dump(data, f, indent=2)
-PYEOF
-fi
-
-exit 0
