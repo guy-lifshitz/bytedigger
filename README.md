@@ -12,7 +12,8 @@ A build pipeline that takes a feature request through classify, explore, archite
 
 ```mermaid
 flowchart TD
-    P0[Phase 0: Classify] -->|gate| P1[Phase 1: Discover]
+    P0[Phase 0: Classify] -->|gate| P05[Phase 0.5: Pre-Build Gate]
+    P05 -->|gate| P1[Phase 1: Discover]
     P1 -->|gate| P2[Phase 2: Explore]
     P2 -->|gate| P3[Phase 3: Clarify]
     P3 -->|gate| P4[Phase 4: Architect]
@@ -21,6 +22,7 @@ flowchart TD
     P5 -->|gate| P6[Phase 6: Review]
     P6 -->|gate| P7[Phase 7: Synthesize]
 
+    style P05 fill:#2d3748,color:#fff
     style P45 fill:#744210,color:#fff
     style P5 fill:#22543d,color:#fff
     style P6 fill:#742a2a,color:#fff

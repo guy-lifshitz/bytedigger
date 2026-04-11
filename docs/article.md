@@ -12,7 +12,7 @@ We took a different approach. ByteDigger is not a simulated dev team. It's a pip
 
 The tradeoffs are real. A team of agents is more flexible - they can improvise, adjust scope mid-conversation, handle ambiguity. A pipeline is rigid - phases run in order, gates check specific conditions, no exceptions. We chose rigidity. In six months of building with this system, we've never once wished the agents could skip a gate. We've wished they were faster. But never less rigorous.
 
-ByteDigger is about 70% of our internal system. The core is all here: 8-phase pipeline, gate enforcement, TDD with BDD validation, multi-agent review, learning loop, DevOps validation, crash recovery. What's still internal: an observability dashboard that tracks every phase transition, batch execution for running multiple pipelines in parallel, session collision detection, automatic documentation cascade that flags which docs need updating after each build. These will come. The 70% that shipped is the part that enforces quality. The 30% still internal is operational tooling.
+ByteDigger is about 70% of our internal system. The core is all here: 8-phase pipeline, gate enforcement, TDD with BDD validation, multi-agent review, learning loop, DevOps validation, crash recovery, pre-build gate (worktree enforcement, session collision detection), and the SHIP protocol for automated branch-to-PR workflows. What's still internal: an observability dashboard that tracks every phase transition, batch execution for running multiple pipelines in parallel, automatic documentation cascade that flags which docs need updating after each build. These will come. The 70% that shipped is the part that enforces quality. The 30% still internal is operational tooling.
 
 Everyone talks about AI writing code. That's not news anymore. The real problem starts one step later: someone has to check that code. And when that someone is also you, the solo developer, you become the bottleneck.
 
@@ -82,7 +82,7 @@ This caught assertion theater on the first run. Mock-testing-mocks on the second
 
 One concept matters before the gates: `build-state.yaml`. A YAML file tracking pipeline progress. Every phase writes its status (PENDING, IN_PROGRESS, COMPLETED, FAILED). Gates read it to decide whether the next phase can start. If Claude Code crashes or your laptop restarts, the pipeline resumes from where it left off. The pipeline's memory. No re-running completed phases, no lost progress.
 
-## The Arms Race: 8 Hook-Enforced Gates (Plus Soft Checks)
+## The Arms Race: 9 Hook-Enforced Gates (Plus Soft Checks)
 
 With the validation layer working, I kept finding new ways AI tries to cut corners. So I kept adding gates to block progression at critical checkpoints.
 
@@ -91,15 +91,16 @@ With the validation layer working, I kept finding new ways AI tries to cut corne
 | 1 | Phase Progression | All transitions | `build-state.yaml` status before allowing next phase | Skipped phases, out-of-order execution |
 | 2 | Dependency Pre-check | Phase 0 | Required tools and packages exist before build starts | Missing runtime deps, broken environments |
 | 3 | Security Routing | Phase 0 | Detects auth/crypto/secrets files; triggers Phase 4 audit | Security-sensitive areas get extra scrutiny |
-| 4 | DevOps Validator | Phase 5.4 | Runs terraform validate, hadolint, checkov, trivy | Broken infra configs caught before shipping |
-| 5 | Spec Completeness | Phase 4.5 | Opus reviews build-spec.md against requirements | Missing acceptance criteria, vague specs |
-| 6 | RED Test Validity | Phase 5 | All tests must FAIL before implementation exists | Tautological tests, assertion theater |
-| 7 | BDD-Test Mapping | Phase 5 | Forward + reverse map between Gherkin and tests | Orphan tests, missing scenario coverage |
-| 8 | Spec Compliance | Phase 5 | Every acceptance criterion in both Gherkin and tests | Drift between spec and test suite |
-| 9 | Test Integrity Guard | Phase 5.5 | Diffs RED tests vs GREEN tests | Assertion gaming, modified test expectations |
-| 10 | Semantic Skip Detector | Phase 6 | Scans reviews for "acceptable risk", "fix later" | Rubber-stamp reviews, deferred issues |
-| 11 | Boy Scout Rule | Phase 6 | Per-file checklist: dead imports, types, naming | Code quality regression |
-| 12 | Review Completion | Phase 7 | All review findings fixed and signed off | Skipped cleanup, ignored review comments |
+| 4 | Pre-Build Gate | Phase 0.5 | Worktree isolation, session collision, security scan (HIGH/MEDIUM/LOW) | Concurrent builds corrupting state, known vulnerability patterns |
+| 5 | DevOps Validator | Phase 5.4 | Runs terraform validate, hadolint, checkov, trivy | Broken infra configs caught before shipping |
+| 6 | Spec Completeness | Phase 4.5 | Opus reviews build-spec.md against requirements | Missing acceptance criteria, vague specs |
+| 7 | RED Test Validity | Phase 5 | All tests must FAIL before implementation exists | Tautological tests, assertion theater |
+| 8 | BDD-Test Mapping | Phase 5 | Forward + reverse map between Gherkin and tests | Orphan tests, missing scenario coverage |
+| 9 | Spec Compliance | Phase 5 | Every acceptance criterion in both Gherkin and tests | Drift between spec and test suite |
+| 10 | Test Integrity Guard | Phase 5.5 | Diffs RED tests vs GREEN tests | Assertion gaming, modified test expectations |
+| 11 | Semantic Skip Detector | Phase 6 | Scans reviews for "acceptable risk", "fix later" | Rubber-stamp reviews, deferred issues |
+| 12 | Boy Scout Rule | Phase 6 | Per-file checklist: dead imports, types, naming | Code quality regression |
+| 13 | Review Completion | Phase 7 | All review findings fixed and signed off | Skipped cleanup, ignored review comments |
 
 Each gate was born from a specific failure mode we hit in production. Hooks and rules exist in other AI coding systems too. Cursor has rules files, other tools have configuration hooks. The difference: ByteDigger uses hooks for enforcement, not configuration. A gate blocks pipeline progression until the check passes. It's not a suggestion. It's a wall.
 
@@ -133,7 +134,7 @@ The pipeline has built-in resilience. build-state.yaml persists across crashes -
 
 **Speed trade-off:** Not fast. FEATURE tasks take 30-45 minutes, complex builds 1-3 hours. But "fast generation + 45 minutes of manual review" often takes longer than "slow generation + zero review." Total time is what matters.
 
-**PR workflow.** Our internal system includes `/build --pr` which creates a branch, commits, pushes, and opens a PR automatically. This isn't in the open source release yet, but it's on the roadmap. Phase 6 uses specialized review agents (code reviewer, silent failure hunter, type design analyzer, test analyzer, security reviewer), following the pattern established by Anthropic's pr-review-toolkit. These agents run in parallel and vote on fixes with confidence scoring.
+**PR workflow.** `/build --pr` creates a branch, stages changes, commits, pushes, and opens a PR automatically via `scripts/ship.sh`. It's in the open source release. Phase 6 uses specialized review agents (code reviewer, silent failure hunter, type design analyzer, test analyzer, security reviewer), following the pattern established by Anthropic's pr-review-toolkit. These agents run in parallel and vote on fixes with confidence scoring.
 
 **Honest limitations:**
 
@@ -152,7 +153,7 @@ claude plugin add shtofadhor/bytedigger
 /build "add email verification"
 ```
 
-8 phases, 8 hook-enforced gates, mandatory TDD, 3-7 review agents per build.
+8 phases, 9 hook-enforced gates, mandatory TDD, 3-7 review agents per build.
 
 The methodology - phased pipeline, gates, TDD+BDD, multi-agent review - isn't tied to Claude Code. The phases are markdown instructions. The gates are validation logic. Adapt it for Cursor, Windsurf, Copilot Workspace, or custom setups. ByteDigger is a Claude Code plugin today, but the patterns are universal. If your agents write code, they need external validation.
 
