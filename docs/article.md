@@ -12,7 +12,7 @@ We took a different approach. ByteDigger is not a simulated dev team. It's a pip
 
 The tradeoffs are real. A team of agents is more flexible - they can improvise, adjust scope mid-conversation, handle ambiguity. A pipeline is rigid - phases run in order, gates check specific conditions, no exceptions. We chose rigidity. In six months of building with this system, we've never once wished the agents could skip a gate. We've wished they were faster. But never less rigorous.
 
-ByteDigger is about 70% of our internal system. The core is all here: 8-phase pipeline, gate enforcement, TDD with BDD validation, multi-agent review, learning loop, DevOps validation, crash recovery, pre-build gate (worktree enforcement, session collision detection), and the SHIP protocol for automated branch-to-PR workflows. What's still internal: an observability dashboard that tracks every phase transition, batch execution for running multiple pipelines in parallel, automatic documentation cascade that flags which docs need updating after each build. These will come. The 70% that shipped is the part that enforces quality. The 30% still internal is operational tooling.
+ByteDigger is about 70% of our internal system. The core is all here: 9-phase pipeline, gate enforcement, TDD with BDD validation, multi-agent review, learning loop, DevOps validation, crash recovery, pre-build gate (worktree enforcement, session collision detection), the SHIP protocol for automated branch-to-PR workflows, and Phase 8 post-deploy housekeeping (security scan, SBOM generation, worktree/branch cleanup). What's still internal: an observability dashboard that tracks every phase transition, batch execution for running multiple pipelines in parallel, automatic documentation cascade that flags which docs need updating after each build. These will come. The 70% that shipped is the part that enforces quality. The 30% still internal is operational tooling.
 
 Everyone talks about AI writing code. That's not news anymore. The real problem starts one step later: someone has to check that code. And when that someone is also you, the solo developer, you become the bottleneck.
 
@@ -153,7 +153,7 @@ claude plugin add shtofadhor/bytedigger
 /build "add email verification"
 ```
 
-8 phases, 9 hook-enforced gates, mandatory TDD, 3-7 review agents per build.
+9 phases, 9 hook-enforced gates, mandatory TDD, 3-7 review agents per build.
 
 The methodology - phased pipeline, gates, TDD+BDD, multi-agent review - isn't tied to Claude Code. The phases are markdown instructions. The gates are validation logic. Adapt it for Cursor, Windsurf, Copilot Workspace, or custom setups. ByteDigger is a Claude Code plugin today, but the patterns are universal. If your agents write code, they need external validation.
 

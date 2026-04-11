@@ -1,6 +1,6 @@
 # ByteDigger
 
-CI/CD for AI code generation. 8 phases, gate-enforced, TDD mandatory.
+CI/CD for AI code generation. 9 phases, gate-enforced, TDD mandatory.
 
 > [How we automated ourselves out of code review](docs/article.md) -- the full story behind this pipeline.
 
@@ -21,6 +21,7 @@ flowchart TD
     P45 -->|gate| P5[Phase 5: Implement]
     P5 -->|gate| P6[Phase 6: Review]
     P6 -->|gate| P7[Phase 7: Synthesize]
+    P7 --> P8[Phase 8: Post-Deploy]
 
     style P05 fill:#2d3748,color:#fff
     style P45 fill:#744210,color:#fff
@@ -37,7 +38,7 @@ flowchart TD
 | Aider | -- | -- | -- | -- | -- |
 | Cursor | -- | -- | -- | -- | -- |
 | Copilot Workspace | partial | -- | -- | -- | -- |
-| **ByteDigger** | **8 phases** | **hook-enforced** | **mandatory** | **3-6 agents** | **cross-build** |
+| **ByteDigger** | **9 phases** | **hook-enforced** | **mandatory** | **3-6 agents** | **cross-build** |
 
 ## Quick Start
 
@@ -129,6 +130,7 @@ claude plugin add shtofadhor/bytedigger
 | 5 | Implement | TDD implementation via worker agents | -- |
 | 6 | Review | Multi-agent quality review, Opus satisfaction scoring | -- |
 | 7 | Synthesize | Summarize build, extract learnings, update state | -- |
+| 8 | Post-Deploy | Security scan (gitleaks/trivy), SBOM (CycloneDX), cleanup (worktrees/temp/branches) | Never |
 
 SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 
@@ -141,6 +143,7 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 | `scripts/learning-store.sh` | Read/write learnings from .bytedigger/learnings/ |
 | `scripts/ship.sh` | SHIP protocol — commit, push, open PR after build |
 | `scripts/security-scan.sh` | Security scan runner for Phase 0.5 |
+| `scripts/post-deploy.sh` | Post-deploy housekeeping (security scan, SBOM, cleanup) |
 | `hooks/build-state-guard.sh` | Blocks deletion of build-state.yaml mid-pipeline |
 
 ## Hooks
@@ -160,7 +163,7 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 
 ## Tests
 
-87 BATS tests across 6 suites.
+97 BATS tests across 7 suites.
 
 ```bash
 # Run all tests
@@ -178,6 +181,7 @@ bats tests/build-gate.bats
 | `tests/pre-build-gate.bats` | 8 |
 | `tests/security-scan.bats` | 8 |
 | `tests/ship-protocol.bats` | 12 |
+| `tests/post-deploy.bats` | 10 |
 
 ## Learning System
 
