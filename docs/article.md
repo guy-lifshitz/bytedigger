@@ -12,11 +12,13 @@ We took a different approach. ByteDigger is not a simulated dev team. It's a pip
 
 The tradeoffs are real. A team of agents is more flexible - they can improvise, adjust scope mid-conversation, handle ambiguity. A pipeline is rigid - phases run in order, gates check specific conditions, no exceptions. We chose rigidity. In six months of building with this system, we've never once wished the agents could skip a gate. We've wished they were faster. But never less rigorous.
 
+ByteDigger is about 70% of our internal system. The core is all here: 8-phase pipeline, gate enforcement, TDD with BDD validation, multi-agent review, learning loop, DevOps validation, crash recovery. What's still internal: an observability dashboard that tracks every phase transition, batch execution for running multiple pipelines in parallel, session collision detection, automatic documentation cascade that flags which docs need updating after each build. These will come. The 70% that shipped is the part that enforces quality. The 30% still internal is operational tooling.
+
 Everyone talks about AI writing code. That's not news anymore. The real problem starts one step later: someone has to check that code. And when that someone is also you, the solo developer, you become the bottleneck.
 
 I'd ask Claude for a feature, get 400 lines back, and spend an hour reading every one of them. Net time saved? Maybe 30 minutes on a good day. So naturally, you think: let AI review AI code. Makes sense. Except that's where it gets ugly. AI reviewing AI produces what I call assertion theater. Tests that technically pass but verify nothing. Reviews that say "looks good" without catching real issues. The reviewer and the writer collude, not out of malice, but because they share the same blind spots.
 
-StrongDM's Software Factory ([factory.strongdm.ai](https://factory.strongdm.ai), [github.com/strongdm/attractor](https://github.com/strongdm/attractor)) is one of the most serious efforts here. A graph-based pipeline where neither code nor reviews are human. They validate quality via holdout end-to-end scenarios at the end of the run. Smart approach. But we found that validating only at the end lets bad assumptions compound across phases. ByteDigger validates at every phase transition: 12 gate hooks, BDD validation, a 4-step Opus audit, semantic skip detection.
+StrongDM's Software Factory ([factory.strongdm.ai](https://factory.strongdm.ai), [github.com/strongdm/attractor](https://github.com/strongdm/attractor)) is one of the most serious efforts here. A graph-based pipeline where neither code nor reviews are human. They validate quality via holdout end-to-end scenarios at the end of the run. Smart approach. But we found that validating only at the end lets bad assumptions compound across phases. ByteDigger validates at every phase transition: 8 hook-enforced gates, BDD validation, a 4-step Opus audit, semantic skip detection.
 
 ## The Spec Phase: Not a Failure, But Not Enough
 
@@ -125,11 +127,13 @@ Most AI coding tools stop at code generation. We wanted the full cycle: requirem
 
 We've tested this across TypeScript, Python, Swift, Bash, and infrastructure-as-code (Terraform, Kubernetes YAML, Dockerfiles). The pipeline is language-agnostic because phases are markdown instructions, not language-specific tooling.
 
+The pipeline has built-in resilience. build-state.yaml persists across crashes - if Claude Code restarts mid-build, /build continue picks up from the last completed phase. Worktree isolation means every FEATURE+ build runs on a separate git branch. If something goes wrong, rollback is: delete the worktree. Main branch never sees incomplete work.
+
 **What's hard:** Architectural decisions still need a human. "Add email verification" works great. "Event sourcing or CRUD?" requires context the AI doesn't have.
 
 **Speed trade-off:** Not fast. FEATURE tasks take 30-45 minutes, complex builds 1-3 hours. But "fast generation + 45 minutes of manual review" often takes longer than "slow generation + zero review." Total time is what matters.
 
-**PR workflow.** `/build --pr` creates a branch, commits, pushes, and opens a PR. Phase 6 uses specialized review agents (code reviewer, silent failure hunter, type design analyzer, test analyzer, security reviewer), following the pattern established by Anthropic's pr-review-toolkit. These agents run in parallel and vote on fixes with confidence scoring. Use the best available tools, don't reinvent review.
+**PR workflow.** Our internal system includes `/build --pr` which creates a branch, commits, pushes, and opens a PR automatically. This isn't in the open source release yet, but it's on the roadmap. Phase 6 uses specialized review agents (code reviewer, silent failure hunter, type design analyzer, test analyzer, security reviewer), following the pattern established by Anthropic's pr-review-toolkit. These agents run in parallel and vote on fixes with confidence scoring.
 
 **Honest limitations:**
 
