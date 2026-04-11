@@ -6,6 +6,12 @@
 
 ---
 
+YouTube is full of "team of AI agents" demos. An architect agent, a coder agent, a QA agent - they chat with each other and produce code. It looks impressive. It's also unpredictable. Agents negotiate, lose context, skip steps when they decide it's fine. There's no enforcement.
+
+We took a different approach. ByteDigger is not a simulated dev team. It's a pipeline. A conveyor belt with quality control at every station. The difference matters: teams negotiate, pipelines enforce. A team can agree to skip testing "just this once." A pipeline can't - the gate blocks progression, period.
+
+The tradeoffs are real. A team of agents is more flexible - they can improvise, adjust scope mid-conversation, handle ambiguity. A pipeline is rigid - phases run in order, gates check specific conditions, no exceptions. We chose rigidity. In six months of building with this system, we've never once wished the agents could skip a gate. We've wished they were faster. But never less rigorous.
+
 Everyone talks about AI writing code. That's not news anymore. The real problem starts one step later: someone has to check that code. And when that someone is also you, the solo developer, you become the bottleneck.
 
 I'd ask Claude for a feature, get 400 lines back, and spend an hour reading every one of them. Net time saved? Maybe 30 minutes on a good day. So naturally, you think: let AI review AI code. Makes sense. Except that's where it gets ugly. AI reviewing AI produces what I call assertion theater. Tests that technically pass but verify nothing. Reviews that say "looks good" without catching real issues. The reviewer and the writer collude, not out of malice, but because they share the same blind spots.
