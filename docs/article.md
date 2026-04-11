@@ -127,7 +127,7 @@ Most AI coding tools stop at code generation. We wanted the full cycle: requirem
 
 We've tested this across TypeScript, Python, Swift, Bash, and infrastructure-as-code (Terraform, Kubernetes YAML, Dockerfiles). The pipeline is language-agnostic because phases are markdown instructions, not language-specific tooling.
 
-The pipeline has built-in resilience. build-state.yaml persists across crashes - if Claude Code restarts mid-build, /build continue picks up from the last completed phase. Worktree isolation means every FEATURE+ build runs on a separate git branch. If something goes wrong, rollback is: delete the worktree. Main branch never sees incomplete work.
+The pipeline has built-in resilience. build-state.yaml persists across crashes - if Claude Code restarts mid-build, `/build continue` picks up from the last completed phase. Worktree isolation means every FEATURE+ build runs on a separate git branch. If something goes wrong, rollback is: delete the worktree. Main branch never sees incomplete work. A pre-build gate detects session collisions - if another build is already running on the same project, it blocks. Two agents writing to the same build-state.yaml simultaneously would corrupt the pipeline state. The gate prevents that.
 
 **What's hard:** Architectural decisions still need a human. "Add email verification" works great. "Event sourcing or CRUD?" requires context the AI doesn't have.
 
