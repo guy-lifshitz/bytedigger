@@ -12,7 +12,8 @@ A build pipeline that takes a feature request through classify, explore, archite
 
 ```mermaid
 flowchart TD
-    P0[Phase 0: Classify] -->|gate| P1[Phase 1: Discover]
+    P0[Phase 0: Classify] -->|gate| P05[Phase 0.5: Pre-Build Gate]
+    P05 -->|gate| P1[Phase 1: Discover]
     P1 -->|gate| P2[Phase 2: Explore]
     P2 -->|gate| P3[Phase 3: Clarify]
     P3 -->|gate| P4[Phase 4: Architect]
@@ -21,6 +22,7 @@ flowchart TD
     P5 -->|gate| P6[Phase 6: Review]
     P6 -->|gate| P7[Phase 7: Synthesize]
 
+    style P05 fill:#2d3748,color:#fff
     style P45 fill:#744210,color:#fff
     style P5 fill:#22543d,color:#fff
     style P6 fill:#742a2a,color:#fff
@@ -98,6 +100,94 @@ claude plugin add shtofadhor/bytedigger
 - checkov — Infrastructure security scanning
 - trivy — Container and IaC vulnerability detection
 - gitleaks — Secrets detection in code
+
+## Usage
+
+```
+/build "task"                    # auto-classify, autonomous
+/build "task" --pr               # SHIP: commit + push + PR after build
+/build "task" --supervised       # pause after each phase for review
+/build "task" --auto             # skip all human gates
+/build "task" --dry-run          # classify only, show plan, stop
+/build "task" --worktree         # isolate in git worktree
+/build "task" --atomic-commits   # commit at each TDD step
+/build --init                    # create project constitution
+/build continue                  # resume interrupted pipeline
+```
+
+## Pipeline Phases
+
+| Phase | Name | What | Skip (SIMPLE) |
+|-------|------|------|---------------|
+| 0 | Classify | Determine complexity tier, create build-state.yaml | -- |
+| 0.5 | Pre-Build Gate | Worktree enforcement, session collision check, inject learnings | -- |
+| 1 | Discovery | Read task context, identify affected files | -- |
+| 2 | Explore | Deep codebase exploration, trace patterns and dependencies | skipped |
+| 3 | Clarify | Fill ambiguities before architecture | skipped |
+| 4 | Architect | Design implementation approach (Opus) | skipped |
+| 4.5 | Spec | Turn architecture into verifiable build-spec.md | skipped |
+| 5 | Implement | TDD implementation via worker agents | -- |
+| 6 | Review | Multi-agent quality review, Opus satisfaction scoring | -- |
+| 7 | Synthesize | Summarize build, extract learnings, update state | -- |
+
+SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/build-gate.sh` | Phase gate enforcement — validates phase transitions in build-state.yaml |
+| `scripts/pre-build-gate.sh` | Pre-build checks — worktree policy, session collision detection |
+| `scripts/learning-store.sh` | Read/write learnings from .bytedigger/learnings/ |
+| `scripts/ship.sh` | SHIP protocol — commit, push, open PR after build |
+| `scripts/security-scan.sh` | Security scan runner for Phase 0.5 |
+| `hooks/build-state-guard.sh` | Blocks deletion of build-state.yaml mid-pipeline |
+
+## Hooks
+
+| Event | Handler | What it does |
+|-------|---------|--------------|
+| PreToolUse (Bash) | `hooks/build-state-guard.sh` | Blocks `rm`/`unlink` on build-state.yaml while pipeline is running |
+| SubagentStop | `scripts/build-gate.sh` | Validates phase gate before next phase can start |
+
+## Agents
+
+| Agent | Model | Role |
+|-------|-------|------|
+| architect | Opus | Designs implementation blueprints from codebase patterns |
+| explorer | Haiku/Sonnet | Traces execution paths, maps architecture layers |
+| synthesizer | Haiku | Post-build summary, learning extraction |
+
+## Tests
+
+87 BATS tests across 6 suites.
+
+```bash
+# Run all tests
+bats tests/
+
+# Run individual suite
+bats tests/build-gate.bats
+```
+
+| File | Tests |
+|------|-------|
+| `tests/build-gate.bats` | 19 |
+| `tests/build-state-guard.bats` | 20 |
+| `tests/learning-store.bats` | 20 |
+| `tests/pre-build-gate.bats` | 8 |
+| `tests/security-scan.bats` | 8 |
+| `tests/ship-protocol.bats` | 12 |
+
+## Learning System
+
+Post-build learnings are extracted by the synthesizer agent and stored in `.bytedigger/learnings/`. Phase 0.5 injects relevant learnings from previous builds into the current context.
+
+Default backend: `file`. Configurable via `bytedigger.json`:
+
+```json
+"learning": { "backend": "file", "storage_path": ".bytedigger/learnings" }
+```
 
 ## Read More
 

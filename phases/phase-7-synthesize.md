@@ -97,13 +97,16 @@ Docs: [updated / N docs refreshed]
 Next: [manual test / PR / done]
 ```
 
-## SHIP Protocol (--pr flag, after synthesis)
+## 7.5 SHIP Protocol (if --pr flag)
 
-1. `git checkout -b build/[slug]`
-2. `git add [files] && git commit -m "feat: [desc]"` (or use worktree branch)
-3. `git push -u origin build/[slug]`
-4. `gh pr create --title "..." --body "..."`
-5. Return PR URL
+If `--pr` flag was passed in the build invocation:
+
+1. Run: `bash scripts/ship.sh --pr --state ./build-state.yaml`
+2. Verify: `ship_complete: true` exists in build-state.yaml
+3. Log PR URL from `ship_pr_url` field
+4. If ship.sh fails (exit non-zero) → log warning, continue synthesis (SHIP is best-effort, not a gate)
+
+**State log:** `ship_complete: true|false | ship_pr_url: <url>`
 
 ## Model Selection
 
