@@ -111,9 +111,13 @@ The gates aren't limited to application code. Two areas proved just as important
 
 Both features are already in the ByteDigger open source release.
 
+Most AI coding tools stop at code generation. We wanted the full cycle: requirements to deployment. The DevOps module (Phase 5.6) handles infrastructure validation - terraform validate, container scanning, secrets detection. That's dev to deploy in one pipeline. What's still missing: product requirements (PRD). I write those myself. Turning a business goal into a technical spec is still a human job. The pipeline starts at "here's what to build", not "here's what the business needs."
+
 ## What Actually Works and What Doesn't
 
 **What works:** TDD + BDD + a separate validation model. No single technique is enough. Together they cover each other's gaps. The gates enable working with unfamiliar languages. I built HalVoice, a native SwiftUI app, without ever having written Swift. I can't read the code. But the pipeline writes tests, validates them with BDD, reviews with 6 agents, and enforces gates. When gates are reliable enough, the human doesn't need to understand the implementation language - the pipeline IS the quality layer. On the other end, our security agent BARK is 15,000 lines of Python with 3,500 tests, all built through this pipeline. No QA team. Typed languages like TypeScript give AI more guardrails through the compiler. Untyped languages like Python give it more rope. Gate enforcement partially closes that gap - TDD and review catch what a type system would have caught.
+
+We've tested this across TypeScript, Python, Swift, Bash, and infrastructure-as-code (Terraform, Kubernetes YAML, Dockerfiles). The pipeline is language-agnostic because phases are markdown instructions, not language-specific tooling.
 
 **What's hard:** Architectural decisions still need a human. "Add email verification" works great. "Event sourcing or CRUD?" requires context the AI doesn't have.
 
