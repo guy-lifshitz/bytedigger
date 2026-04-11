@@ -80,8 +80,14 @@ if [[ -z "$CLASSIFICATION" ]]; then
 fi
 
 if [[ -z "$CLASSIFICATION" ]]; then
-  CLASSIFICATION="LOW"
-  [[ $HAS_INFRA -eq 1 ]] && PATTERNS_FOUND+=("INFRA")
+  # Fail-closed: if no files were provided/scanned, we can't confirm safety → MEDIUM
+  if [[ -z "$FILES" ]]; then
+    CLASSIFICATION="MEDIUM"
+    PATTERNS_FOUND+=("unanalyzed")
+  else
+    CLASSIFICATION="LOW"
+    [[ $HAS_INFRA -eq 1 ]] && PATTERNS_FOUND+=("INFRA")
+  fi
 fi
 
 # ---------------------------------------------------------------------------

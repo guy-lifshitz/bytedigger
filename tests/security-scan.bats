@@ -136,11 +136,11 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# Test 8: empty file list → LOW + exit 0
+# Test 8: empty file list → MEDIUM + exit 0 (fail-closed: can't confirm safety)
 # ---------------------------------------------------------------------------
 
 @test "T08_handles_empty_file_list" {
   run bash "$SCRIPT" --cwd "$TMPDIR" --files "" --state-file "$TMPDIR/build-state.yaml"
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qi "LOW"
+  echo "$output" | grep -qi "MEDIUM"
 }
