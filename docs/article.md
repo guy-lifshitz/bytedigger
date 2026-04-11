@@ -74,16 +74,16 @@ This caught assertion theater on the first run. Mock-testing-mocks on the second
 
 One concept matters before the gates: `build-state.yaml`. A YAML file tracking pipeline progress. Every phase writes its status (PENDING, IN_PROGRESS, COMPLETED, FAILED). Gates read it to decide whether the next phase can start. If Claude Code crashes or your laptop restarts, the pipeline resumes from where it left off. The pipeline's memory. No re-running completed phases, no lost progress.
 
-## The Arms Race: 12 Gates and Counting
+## The Arms Race: 8 Hook-Enforced Gates (Plus Soft Checks)
 
-With the validation layer working, I kept finding new ways AI tries to cut corners. So I kept adding gates.
+With the validation layer working, I kept finding new ways AI tries to cut corners. So I kept adding gates to block progression at critical checkpoints.
 
 | # | Gate | Phase | What It Checks | What It Catches |
 |---|------|-------|----------------|-----------------|
 | 1 | Phase Progression | All transitions | `build-state.yaml` status before allowing next phase | Skipped phases, out-of-order execution |
 | 2 | Dependency Pre-check | Phase 0 | Required tools and packages exist before build starts | Missing runtime deps, broken environments |
-| 3 | Security Scanner | Phase 0 | Files for auth/crypto/secrets patterns (HIGH/MED/LOW) | Unreviewed security-sensitive changes |
-| 4 | DevOps Validator | Phase 0 | Detects .tf, Dockerfile, K8s, Helm files | Broken infra configs shipping without validation |
+| 3 | Security Routing | Phase 0 | Detects auth/crypto/secrets files; triggers Phase 4 audit | Security-sensitive areas get extra scrutiny |
+| 4 | DevOps Validator | Phase 5.4 | Runs terraform validate, hadolint, checkov, trivy | Broken infra configs caught before shipping |
 | 5 | Spec Completeness | Phase 4.5 | Opus reviews build-spec.md against requirements | Missing acceptance criteria, vague specs |
 | 6 | RED Test Validity | Phase 5 | All tests must FAIL before implementation exists | Tautological tests, assertion theater |
 | 7 | BDD-Test Mapping | Phase 5 | Forward + reverse map between Gherkin and tests | Orphan tests, missing scenario coverage |
@@ -91,7 +91,7 @@ With the validation layer working, I kept finding new ways AI tries to cut corne
 | 9 | Test Integrity Guard | Phase 5.5 | Diffs RED tests vs GREEN tests | Assertion gaming, modified test expectations |
 | 10 | Semantic Skip Detector | Phase 6 | Scans reviews for "acceptable risk", "fix later" | Rubber-stamp reviews, deferred issues |
 | 11 | Boy Scout Rule | Phase 6 | Per-file checklist: dead imports, types, naming | Code quality regression |
-| 12 | Post-Review Block | Phase 7 | Boy Scout findings addressed, all reviews resolved | Skipped cleanup, ignored review comments |
+| 12 | Review Completion | Phase 7 | All review findings fixed and signed off | Skipped cleanup, ignored review comments |
 
 Each gate was born from a specific failure mode we hit in production. Hooks and rules exist in other AI coding systems too. Cursor has rules files, other tools have configuration hooks. The difference: ByteDigger uses hooks for enforcement, not configuration. A gate blocks pipeline progression until the check passes. It's not a suggestion. It's a wall.
 
@@ -105,7 +105,7 @@ We use Plannotator (our open-source review UI) for human review when needed. The
 
 The gates aren't limited to application code. Two areas proved just as important.
 
-**Security scanning.** Phase 0 scans all touched files for patterns: authentication flows, cryptographic operations, secrets handling. Findings get classified HIGH, MEDIUM, or LOW. HIGH triggers a security architect in Phase 4 and a dedicated security reviewer in Phase 6. This runs before any code is written, so security-sensitive areas get extra scrutiny from the start.
+**Security routing.** Phase 0 detects authentication flows, cryptographic operations, and secrets files. When found, Phase 4 adds a security architect role and Phase 6 adds a dedicated security reviewer. This runs before any code is written, so security-sensitive areas get extra scrutiny from the start.
 
 **DevOps validation.** Phase 0 detects infrastructure files: Terraform, Dockerfiles, K8s manifests, Helm charts, GitHub Actions. When ByteDigger detects these files, it automatically adds DevOps validation as Phase 5.6. That phase runs linting tools (automated checkers that catch syntax errors, misconfigurations, and security issues before code runs): `terraform validate`, `hadolint`, `actionlint`, `kubectl dry-run`, `helm lint`. On top of that, security scanners from established tooling: `checkov` and `trivy` for infrastructure security, `gitleaks` for secrets detection. We didn't build custom validators. We took HashiCorp's guidance for Terraform and integrated best-of-breed open source security tools into the pipeline. CRITICAL and HIGH findings must be fixed (up to 3 auto-fix cycles) before the pipeline proceeds. These tools are installed separately (see README for the full list). If they're not installed, validation is skipped gracefully.
 
@@ -113,13 +113,13 @@ Both features are already in the ByteDigger open source release.
 
 ## What Actually Works and What Doesn't
 
-**What works:** TDD + BDD + a separate validation model. No single technique is enough. Together they cover each other's gaps.
+**What works:** TDD + BDD + a separate validation model. No single technique is enough. Together they cover each other's gaps. The gates enable working with unfamiliar languages. I built HalVoice, a native SwiftUI app, without ever having written Swift. I can't read the code. But the pipeline writes tests, validates them with BDD, reviews with 6 agents, and enforces gates. When gates are reliable enough, the human doesn't need to understand the implementation language - the pipeline IS the quality layer. On the other end, our security agent BARK is 15,000 lines of Python with 3,500 tests, all built through this pipeline. No QA team. Typed languages like TypeScript give AI more guardrails through the compiler. Untyped languages like Python give it more rope. Gate enforcement partially closes that gap - TDD and review catch what a type system would have caught.
 
 **What's hard:** Architectural decisions still need a human. "Add email verification" works great. "Event sourcing or CRUD?" requires context the AI doesn't have.
 
 **Speed trade-off:** Not fast. FEATURE tasks take 30-45 minutes, complex builds 1-3 hours. But "fast generation + 45 minutes of manual review" often takes longer than "slow generation + zero review." Total time is what matters.
 
-**PR workflow.** `/build --pr` creates a branch, commits, pushes, and opens a PR. Phase 6 integrates Anthropic's pr-review-toolkit: six specialized review agents (code reviewer, silent failure hunter, type design analyzer, test analyzer, comment analyzer, code simplifier). This is both a dependency and a best practice. Use the best available tools, don't reinvent review.
+**PR workflow.** `/build --pr` creates a branch, commits, pushes, and opens a PR. Phase 6 uses specialized review agents (code reviewer, silent failure hunter, type design analyzer, test analyzer, security reviewer), following the pattern established by Anthropic's pr-review-toolkit. These agents run in parallel and vote on fixes with confidence scoring. Use the best available tools, don't reinvent review.
 
 **Honest limitations:**
 
@@ -138,7 +138,7 @@ claude plugin add shtofadhor/bytedigger
 /build "add email verification"
 ```
 
-8 phases, 12 hook-enforced gates, mandatory TDD, 3-6 review agents per build.
+8 phases, 8 hook-enforced gates, mandatory TDD, 3-7 review agents per build.
 
 The methodology - phased pipeline, gates, TDD+BDD, multi-agent review - isn't tied to Claude Code. The phases are markdown instructions. The gates are validation logic. Adapt it for Cursor, Windsurf, Copilot Workspace, or custom setups. ByteDigger is a Claude Code plugin today, but the patterns are universal. If your agents write code, they need external validation.
 
