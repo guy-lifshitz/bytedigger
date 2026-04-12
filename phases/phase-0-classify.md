@@ -45,18 +45,19 @@ hooks/build-gate.sh uses this file to detect complexity downgrade attempts. If b
 
 **Create scratchpad directory** (shared workspace for cross-phase findings):
 ```bash
-SCRATCHPAD=".bytedigger"
+SCRATCHPAD="$(pwd)/.bytedigger"  # ABSOLUTE path — survives worktree CWD switches
 mkdir -p "$SCRATCHPAD"/{research,architecture,specs,tests,reviews}
 echo "scratchpad_dir: \"$SCRATCHPAD\"" >> build-state.yaml
 echo "Scratchpad created: $SCRATCHPAD"
 ```
 
-`.bytedigger/` lives in project CWD — persists with worktree and survives reboots. Add to `.gitignore` if not already present.
+`.bytedigger/` lives in project CWD — persists with worktree and survives reboots. Add to `.gitignore` if not already present. **Always store absolute path** in build-state.yaml so agents in any CWD (including worktrees) can locate it.
 
 **Inject prior learnings** (after scratchpad creation, before Phase 1):
 ```bash
-SCRATCHPAD=$(python3 -c "import re,pathlib;m=re.search(r'scratchpad_dir:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else '')")
-KEYWORDS=$(python3 -c "import re,pathlib;m=re.search(r'task:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else 'build')" | tr ' ' '\n' | awk 'length>3' | tr '\n' ' ')
+SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[[:space:]]*//; s/^"//; s/"$//')
+KEYWORDS=$(grep '^task:' build-state.yaml | sed 's/^task:[[:space:]]*//; s/^"//; s/"$//' | tr ' ' '\n' | awk 'length>3' | tr '\n' ' ')
+[ -z "$KEYWORDS" ] && KEYWORDS="build"
 bash scripts/learning-store.sh inject "$KEYWORDS" > "${SCRATCHPAD}/research/prior-learnings.md" 2>/dev/null || true
 # Remove empty prior-learnings.md (no learnings found)
 [ -s "${SCRATCHPAD}/research/prior-learnings.md" ] || rm -f "${SCRATCHPAD}/research/prior-learnings.md"
@@ -202,9 +203,24 @@ Then STOP.
 If `--worktree` flag is set OR complexity is COMPLEX with `--pr` flag:
 
 1. Create git worktree: `git worktree add .bytedigger/worktrees/build-[slug]-[timestamp] -b build/[slug]`
-2. **Copy `build-state.yaml` to worktree:** `cp build-state.yaml <worktree-path>/` — without this, ALL gates are blind and pipeline runs unprotected
-3. All subsequent phases run in the worktree CWD, not the original. Switch CWD before proceeding.
-4. Record worktree path in `build-state.yaml` (in worktree): `worktree_path: ".bytedigger/worktrees/build-..."`
+2. **Copy state files into worktree** — without this, ALL gates are blind and pipeline runs unprotected:
+   ```bash
+   WT=<worktree-path>
+   cp build-state.yaml "$WT/"
+   [ -f build-metadata.json ] && cp build-metadata.json "$WT/"
+   ```
+3. **Re-anchor scratchpad inside worktree** — the `.bytedigger/` created in main checkout is unreachable from worktree CWD. Recreate inside worktree and rewrite `scratchpad_dir` to its absolute path:
+   ```bash
+   NEW_SCRATCH="$(cd "$WT" && pwd)/.bytedigger"
+   mkdir -p "$NEW_SCRATCH"/{research,architecture,specs,tests,reviews}
+   python3 -c "import re,pathlib;p=pathlib.Path('$WT/build-state.yaml');t=p.read_text();t=re.sub(r'scratchpad_dir:.*', f'scratchpad_dir: \"$NEW_SCRATCH\"', t);p.write_text(t)"
+   ```
+4. All subsequent phases run in the worktree CWD, not the original. Switch CWD before proceeding.
+5. **Record ABSOLUTE worktree path** in `build-state.yaml` (in worktree). Relative paths break later cleanup which may run from any CWD:
+   ```bash
+   WT_ABS="$(cd "$WT" && pwd)"
+   echo "worktree_path: \"$WT_ABS\"" >> "$WT/build-state.yaml"
+   ```
 
 **Cleanup:**
 - On successful SHIP (PR created): worktree persists until PR merged, then `git worktree remove [path]`

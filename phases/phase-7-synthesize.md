@@ -10,7 +10,7 @@ python3 -c "import re,datetime,pathlib;f=pathlib.Path('build-state.yaml');t=f.re
 
 **Scratchpad Verification:** Before proceeding, verify scratchpad exists:
 ```bash
-SCRATCHPAD=$(python3 -c "import re,pathlib;m=re.search(r'scratchpad_dir:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else '')")
+SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[[:space:]]*//; s/^"//; s/"$//')
 [ -n "$SCRATCHPAD" ] && { [ -d "$SCRATCHPAD" ] || mkdir -p "$SCRATCHPAD"/{research,architecture,specs,tests,reviews}; }
 ```
 
@@ -44,7 +44,7 @@ Document results and summarize the build.
 1. Launch Haiku synthesizer agent (use agent definition: `agents/synthesizer.md`) with: original request, path to `build-state.yaml`, path to architecture spec. Agent reads files itself — do NOT inline review verdicts or scores in the prompt.
 2. **After synthesizer returns, extract learnings** (before any cleanup):
    ```bash
-   SCRATCHPAD=$(python3 -c "import re,pathlib;m=re.search(r'scratchpad_dir:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else '')")
+   SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[[:space:]]*//; s/^"//; s/"$//')
    bash scripts/learning-store.sh extract "$SCRATCHPAD" || true
    ```
    This persists `{scratchpad}/reviews/learnings-raw.md` entries to `.bytedigger/learnings/`.
@@ -76,8 +76,9 @@ Document results and summarize the build.
 - Delete `build-metadata.json` from CWD if it exists (build metadata — on FAILED, keep for `/build continue`)
 - Delete scratchpad transient subdirs only (preserves `.bytedigger/learnings/` for future builds):
   ```bash
-  SCRATCHPAD_DIR=$(python3 -c "import re,pathlib;m=re.search(r'scratchpad_dir:\s*[\"'\'']*([^\"'\''\\n]+)',pathlib.Path('build-state.yaml').read_text());print(m.group(1).strip() if m else '')")
-  if [[ "$SCRATCHPAD_DIR" == .bytedigger* ]]; then
+  SCRATCHPAD_DIR=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[[:space:]]*//; s/^"//; s/"$//')
+  # Safety guard: only clean dirs whose basename is .bytedigger (works for both relative and absolute paths)
+  if [[ -n "$SCRATCHPAD_DIR" && "$(basename "$SCRATCHPAD_DIR")" == ".bytedigger" ]]; then
     for subdir in research architecture specs tests reviews; do
       rm -rf "${SCRATCHPAD_DIR}/${subdir}"
     done
