@@ -56,6 +56,12 @@ if [[ -z "$TASK" ]]; then
   TASK="unnamed-build"
 fi
 
+# Validate TASK does not contain newlines or backticks (injection prevention)
+if printf '%s' "$TASK" | grep -qE $'[\n`]'; then
+  printf '%s\n' "invalid task string: contains newline or backtick" >&2
+  exit 1
+fi
+
 # Extract files_modified list using awk (lines starting with "  - ")
 FILES_MODIFIED=$(awk '/^files_modified:/{found=1; next} found && /^  - /{sub(/^  - /, ""); print; next} found{found=0}' "$STATE_PATH")
 
@@ -70,7 +76,7 @@ _is_sensitive() {
   # Check the full path for directory patterns first
   case "$f" in
     node_modules/*) return 0 ;;
-    .hal-build/*)   return 0 ;;
+    .bytedigger/*)  return 0 ;;  # scratchpad dir used by ByteDigger pipeline
   esac
   # Check the basename for file patterns (handles nested paths like config/.env)
   case "$base" in
@@ -119,7 +125,7 @@ fi
 # Commit
 # ---------------------------------------------------------------------------
 
-git commit -m "$TASK"
+git commit -m "$TASK" --
 
 # ---------------------------------------------------------------------------
 # Push
