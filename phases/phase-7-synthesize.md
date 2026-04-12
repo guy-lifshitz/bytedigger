@@ -59,7 +59,7 @@ Document results and summarize the build.
    ```
    This persists `{scratchpad}/reviews/learnings-raw.md` entries to `.bytedigger/learnings/`.
 
-3. **Update documentation** (recommended):
+4. **Update documentation** (recommended):
 
    **Living Documents checklist (check ALL that apply)**
    Ask: what did this build change? Then update accordingly:

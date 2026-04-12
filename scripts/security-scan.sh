@@ -107,6 +107,8 @@ echo "security_patterns_found: $PATTERNS_STR"
 # ---------------------------------------------------------------------------
 
 if [[ -n "$STATE_FILE" && -f "$STATE_FILE" ]]; then
+  # Remove any pre-existing keys before appending to avoid duplicates
+  sed -i.bak '/^security_classification:/d; /^security_patterns_found:/d' "$STATE_FILE" && rm -f "${STATE_FILE}.bak"
   printf 'security_classification: %s\n' "$CLASSIFICATION" >> "$STATE_FILE"
   printf 'security_patterns_found: %s\n' "$PATTERNS_STR"   >> "$STATE_FILE"
 fi

@@ -155,6 +155,15 @@ PYEOF
   else
     COMPLEXITY="$yaml_complexity"
   fi
+
+  # M7: DevOps reviewer override — add +3 if security_classification=HIGH or devops_profile=true
+  local sec_class="" devops_prof=""
+  sec_class=$(grep "^security_classification:" "$BUILD_STATE" 2>/dev/null | sed 's/^security_classification:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  devops_prof=$(grep "^devops_profile:" "$BUILD_STATE" 2>/dev/null | sed 's/^devops_profile:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  DEVOPS_EXTRA_REVIEWERS=0
+  if [ "$sec_class" = "HIGH" ] || [ "$devops_prof" = "true" ]; then
+    DEVOPS_EXTRA_REVIEWERS=3
+  fi
 }
 
 # ---------------------------------------------------------------------------

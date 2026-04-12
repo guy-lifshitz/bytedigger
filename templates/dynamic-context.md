@@ -29,7 +29,9 @@ Models are configurable via `bytedigger.json`.
 | FEATURE/COMPLEX | 6 | + comment-analyzer, type-design-analyzer, code-simplifier |
 | DevOps (all) | +3 | InfraSec (Sonnet), OpsSafety (Sonnet), QualityCost (Haiku) |
 
-Launch all parallel (`run_in_background: true`) | Log: `phase_6_reviewers_launched: <N> | phase_6_reviewers_expected: <3|4|6|7>` | If launched != expected → STOP
+**DevOps override:** If `security_classification == "HIGH"` OR `devops_profile == "true"` in `build-state.yaml`, add +3 DevOps reviewers to the base count. Expected totals: SIMPLE=6, FEATURE/COMPLEX=9.
+
+Launch all parallel (`run_in_background: true`) | Log: `phase_6_reviewers_launched: <N> | phase_6_reviewers_expected: <3|4|6|7|9>` | If launched != expected → STOP
 
 ## Satisfaction Scoring
 

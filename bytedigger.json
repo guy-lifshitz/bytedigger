@@ -12,6 +12,9 @@
     "FEATURE": 6,
     "COMPLEX": 6
   },
+  "simple_reviewers": 3,
+  "feature_reviewers": 6,
+  "complex_reviewers": 6,
   "gates_enabled": true,
   "tdd_mandatory": true,
   "worktree_auto": true,

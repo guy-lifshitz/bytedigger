@@ -149,7 +149,7 @@ cmd_inject() {
   fi
 
   # No learnings directory or no md files → count 0, empty stdout
-  if [ ! -d "$storage_abs" ] || [ -z "$(ls "$storage_abs"/*.md 2>/dev/null)" ]; then
+  if [ ! -d "$storage_abs" ] || ! compgen -G "$storage_abs/*.md" > /dev/null 2>&1; then
     _write_state "$cwd" "learnings_injected" "0" || true
     _write_state "$cwd" "learning_backend" "$BACKEND" || true
     exit 0

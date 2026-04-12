@@ -57,8 +57,10 @@ state_files = ['build-state.yaml', '.bytedigger-orchestrator-pid']
 for sf in state_files:
     if re.search(r'(rm|unlink)\b.*' + re.escape(sf), normalized):
         sys.exit(1)
-# Block rm -rf . / rm -fr . variants (any flag order containing r and f)
-if re.search(r'rm\s+-[a-z]*[rf][a-z]*[rf][a-z]*\s+\.(\s|$|;|\||&)', normalized):
+# Block rm -r[f]* . / rm -R[f]* . variants (single or combined recursive flag, targeting bare .)
+# Matches: rm -r ., rm -R ., rm -rf ., rm -fr ., rm -rfv ., etc.
+# Does NOT match: rm -r ./specific-file (dot must be followed by whitespace/end/shell separator)
+if re.search(r'rm\s+-[a-zA-Z]*[rR][a-zA-Z]*\s+\.(\s|$|;|\||&)', normalized):
     sys.exit(1)
 sys.exit(0)
 " 2>/dev/null; then

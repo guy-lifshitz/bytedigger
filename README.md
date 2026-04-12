@@ -200,4 +200,4 @@ Default backend: `file`. Configurable via `bytedigger.json`:
 
 ## License
 
-MIT -- Guy Lifshitz
+MIT -- shtofadhor
