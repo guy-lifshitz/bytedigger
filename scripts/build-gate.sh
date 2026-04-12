@@ -194,6 +194,22 @@ get_complexity() {
 
 gate_phase_4() {
   yaml_field_equals "phase_4_architect" "complete" || true
+
+  # C3: scratchpad_stale check — at least one findings-*.md must exist in research/
+  local scratchpad_dir=""
+  scratchpad_dir=$(grep "^scratchpad_dir:" "$BUILD_STATE" 2>/dev/null | sed 's/^scratchpad_dir:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  if [ -n "$scratchpad_dir" ]; then
+    local research_dir="$scratchpad_dir/research"
+    if ! compgen -G "$research_dir/findings-*.md" > /dev/null 2>&1; then
+      # Mark stale in build-state.yaml
+      if grep -q "^scratchpad_stale:" "$BUILD_STATE" 2>/dev/null; then
+        local tmp_file="${BUILD_STATE}.tmp"
+        grep -v "^scratchpad_stale:" "$BUILD_STATE" > "$tmp_file" && mv "$tmp_file" "$BUILD_STATE"
+      fi
+      echo "scratchpad_stale: true" >> "$BUILD_STATE"
+      hard_block "scratchpad_stale: no findings-*.md found in $research_dir — Phase 2 exploration must complete before Phase 4"
+    fi
+  fi
 }
 
 gate_phase_45() {
@@ -241,10 +257,10 @@ gate_phase_5() {
 }
 
 gate_phase_6() {
-  # Check findings
-  local findings_total findings_fixed
-  findings_total=$(grep "^findings_total:" "$BUILD_STATE" 2>/dev/null | sed 's/^findings_total:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
-  findings_fixed=$(grep "^findings_fixed:" "$BUILD_STATE" 2>/dev/null | sed 's/^findings_fixed:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+  # C1: use correct schema field names (phase_6_findings_total / phase_6_findings_fixed)
+  local findings_total="" findings_fixed=""
+  findings_total=$(grep "^phase_6_findings_total:" "$BUILD_STATE" 2>/dev/null | sed 's/^phase_6_findings_total:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  findings_fixed=$(grep "^phase_6_findings_fixed:" "$BUILD_STATE" 2>/dev/null | sed 's/^phase_6_findings_fixed:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
 
   if ! [[ "$findings_total" =~ ^[0-9]+$ ]]; then findings_total=0; fi
   if ! [[ "$findings_fixed" =~ ^[0-9]+$ ]]; then findings_fixed=0; fi
@@ -253,6 +269,20 @@ gate_phase_6() {
     if [ -z "$findings_fixed" ] || [ "$findings_fixed" -lt "$findings_total" ] 2>/dev/null; then
       MISSING_FIELDS+=("unfixed findings: ${findings_fixed:-0}/${findings_total} fixed")
     fi
+  fi
+
+  # C4: hard block if findings_skipped > 0
+  local findings_skipped=""
+  findings_skipped=$(grep "^phase_6_findings_skipped:" "$BUILD_STATE" 2>/dev/null | sed 's/^phase_6_findings_skipped:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  if [[ "$findings_skipped" =~ ^[0-9]+$ ]] && [ "$findings_skipped" -gt 0 ]; then
+    hard_block "phase_6_findings_skipped=$findings_skipped — all findings must be fixed, zero exceptions (build.md:137)"
+  fi
+
+  # C4: hard block if post_review_gate != pass
+  local post_review_gate=""
+  post_review_gate=$(grep "^post_review_gate:" "$BUILD_STATE" 2>/dev/null | sed 's/^post_review_gate:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  if [ -n "$post_review_gate" ] && [ "$post_review_gate" != "pass" ]; then
+    hard_block "post_review_gate=$post_review_gate — must be 'pass' before proceeding to Phase 7 (build.md:137, phase-6-review.md:271)"
   fi
 
   scan_semantic_skip
@@ -385,7 +415,12 @@ esac
 
 [ "${#MISSING_FIELDS[@]}" -eq 0 ] && exit 0
 
-# Loop prevention (not for 5.3 — already handled inside)
+# C2: Check for hard blocks before loop prevention.
+# Hard blocks (findings_skipped, post_review_gate) must always fire regardless of bypass counter.
+# These are already handled via hard_block() calls inside gate functions (exit 1 directly),
+# so if we reach here, any remaining MISSING_FIELDS are soft blocks subject to loop prevention.
+
+# Loop prevention (not for 5.3 — already handled inside; hard blocks already exited via hard_block())
 if loop_prevention "$CURRENT_PHASE"; then
   exit 0  # bypassed
 fi

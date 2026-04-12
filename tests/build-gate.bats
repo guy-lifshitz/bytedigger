@@ -217,7 +217,7 @@ EOF
 # 3. Phase 6 review gates
 # ---------------------------------------------------------------------------
 
-@test "test_phase_6_unfixed_findings_blocks — findings_total 5 findings_fixed 3 → exit 2" {
+@test "test_phase_6_unfixed_findings_blocks — phase_6_findings_total 5 phase_6_findings_fixed 3 → exit 2" {
   cat > "$TMPDIR/build-state.yaml" <<EOF
 task: "test"
 complexity: FEATURE
@@ -227,14 +227,14 @@ last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 plan_review: approved
 opus_validation: pass
 phase_53_green: true
-findings_total: 5
-findings_fixed: 3
+phase_6_findings_total: 5
+phase_6_findings_fixed: 3
 EOF
   run bash "$SCRIPT" < /dev/null
   [ "$status" -eq 2 ]
 }
 
-@test "test_phase_6_all_findings_fixed_passes — findings_total equals findings_fixed → exit 0" {
+@test "test_phase_6_all_findings_fixed_passes — phase_6_findings_total equals phase_6_findings_fixed → exit 0" {
   cat > "$TMPDIR/build-state.yaml" <<EOF
 task: "test"
 complexity: FEATURE
@@ -244,14 +244,118 @@ last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 plan_review: approved
 opus_validation: pass
 phase_53_green: true
-findings_total: 5
-findings_fixed: 5
+phase_6_findings_total: 5
+phase_6_findings_fixed: 5
+phase_6_findings_skipped: 0
+post_review_gate: pass
 EOF
   # Also need a review file without skip markers
   mkdir -p "$TMPDIR/review"
   echo "All issues resolved." > "$TMPDIR/review/phase6-review.md"
   run bash "$SCRIPT" < /dev/null
   [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# C1: schema field name fix tests
+# ---------------------------------------------------------------------------
+
+@test "C1_phase_6_old_field_names_not_read — findings_total/findings_fixed (old names) do not block" {
+  # Old field names should NOT trigger the gate (schema fix: gate now reads phase_6_* prefix)
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "6"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+plan_review: approved
+opus_validation: pass
+phase_53_green: true
+findings_total: 5
+findings_fixed: 2
+phase_6_findings_skipped: 0
+post_review_gate: pass
+EOF
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# C3: scratchpad_stale check
+# ---------------------------------------------------------------------------
+
+@test "C3_phase_4_missing_findings_md_hard_blocks — no findings-*.md in research → exit 1" {
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "4"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+phase_4_architect: complete
+scratchpad_dir: "$TMPDIR/scratch"
+EOF
+  mkdir -p "$TMPDIR/scratch/research"
+  # No findings-*.md files
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq 1 ]
+  grep -q "scratchpad_stale" "$TMPDIR/build-state.yaml"
+}
+
+@test "C3_phase_4_with_findings_md_passes — findings-*.md present → exit 0" {
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "4"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+phase_4_architect: complete
+scratchpad_dir: "$TMPDIR/scratch"
+EOF
+  mkdir -p "$TMPDIR/scratch/research"
+  echo "findings" > "$TMPDIR/scratch/research/findings-codebase.md"
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# C4: findings_skipped and post_review_gate hard blocks
+# ---------------------------------------------------------------------------
+
+@test "C4_phase_6_findings_skipped_hard_blocks — phase_6_findings_skipped > 0 → exit 1" {
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "6"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+plan_review: approved
+opus_validation: pass
+phase_53_green: true
+phase_6_findings_total: 5
+phase_6_findings_fixed: 4
+phase_6_findings_skipped: 1
+EOF
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq 1 ]
+}
+
+@test "C4_phase_6_post_review_gate_fail_hard_blocks — post_review_gate != pass → exit 1" {
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "6"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+plan_review: approved
+opus_validation: pass
+phase_53_green: true
+phase_6_findings_total: 3
+phase_6_findings_fixed: 3
+phase_6_findings_skipped: 0
+post_review_gate: fail
+EOF
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq 1 ]
 }
 
 @test "test_phase_6_semantic_skip_detected_blocks — review file contains 'fix later' → exit 2" {
@@ -291,6 +395,51 @@ EOF
   [ "$status" -eq 0 ]
   # The yaml should now contain a bypass marker
   grep -q "gate_bypass" "$TMPDIR/build-state.yaml"
+}
+
+# ---------------------------------------------------------------------------
+# C2: loop bypass must NOT exempt Phase 6 hard blocks
+# ---------------------------------------------------------------------------
+
+@test "C2_bypass_counter_does_not_exempt_findings_skipped_hard_block — exit 1 even at counter 10" {
+  # Even with gate_block_counter >> 3, hard blocks (exit 1) must still fire
+  # because hard_block() calls exit 1 directly before loop_prevention() is reached
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "6"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+plan_review: approved
+opus_validation: pass
+phase_53_green: true
+phase_6_findings_total: 5
+phase_6_findings_fixed: 5
+phase_6_findings_skipped: 2
+gate_block_counter: 10
+EOF
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq 1 ]
+}
+
+@test "C2_bypass_counter_does_not_exempt_post_review_gate_hard_block — exit 1 even at counter 10" {
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "6"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+plan_review: approved
+opus_validation: pass
+phase_53_green: true
+phase_6_findings_total: 3
+phase_6_findings_fixed: 3
+phase_6_findings_skipped: 0
+post_review_gate: fail
+gate_block_counter: 10
+EOF
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq 1 ]
 }
 
 # ---------------------------------------------------------------------------
