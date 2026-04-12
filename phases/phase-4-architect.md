@@ -77,6 +77,11 @@ All architect agents: **maxTurns: 30**.
 
 2. Wait for blueprints, form recommendation
 
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml — strip surrounding quotes before comparing (`grep '^mode:' build-state.yaml | sed "s/^mode:[[:space:]]*//;s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": select best approach from architect outputs, log chosen approach + reasoning to `build-state.yaml` (`phase_4_approach`, `phase_4_files_count`), proceed to Phase 4.5 immediately — no `build-architecture.md`, no wait
+3. If mode == "SUPERVISED": save `build-architecture.md`, wait for explicit approval before writing state and continuing
+
 ### SUPERVISED Mode
 - Save architecture plan to `build-architecture.md` in CWD
 - Wait for approval

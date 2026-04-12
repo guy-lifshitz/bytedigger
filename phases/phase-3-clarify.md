@@ -35,6 +35,11 @@ You are an agent filling gaps and resolving ambiguities before architecture and 
 1. Review codebase findings + original request
 2. Identify underspecified aspects: edge cases, error handling, integration points, scope
 
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml — strip surrounding quotes before comparing (`grep '^mode:' build-state.yaml | sed "s/^mode:[[:space:]]*//;s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": skip user interaction — document all assumptions explicitly in scratchpad (`{scratchpad_dir}/specs/assumptions.md`), proceed to Phase 4
+3. If mode == "SUPERVISED": present questions to user, wait for answers, document resolved answers, then proceed
+
 ### SUPERVISED Mode
 - Present questions to user, wait for answers
 

@@ -42,15 +42,22 @@ Document results and summarize the build.
 ## Actions
 
 1. Launch Haiku synthesizer agent (use agent definition: `agents/synthesizer.md`) with: original request, path to `build-state.yaml`, path to architecture spec. Agent reads files itself — do NOT inline review verdicts or scores in the prompt.
-2. **After synthesizer returns, extract learnings** (before any cleanup):
+
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml — strip surrounding quotes before comparing (`grep '^mode:' build-state.yaml | sed "s/^mode:[[:space:]]*//;s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": log Haiku summary output to scratchpad, proceed immediately to learning extraction (step 2) — do NOT pause to present to user
+3. If mode == "SUPERVISED": present summary to user (What was built + learnings bullets), wait for acknowledgement, then proceed to step 2
+
+2. Present summary (SUPERVISED only — see flow above):
+   - What was built (3-5 bullets)
+   - Key decisions and trade-offs
+
+3. **After synthesizer returns, extract learnings** (before any cleanup):
    ```bash
    SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[[:space:]]*//; s/^"//; s/"$//')
    bash scripts/learning-store.sh extract "$SCRATCHPAD" || true
    ```
    This persists `{scratchpad}/reviews/learnings-raw.md` entries to `.bytedigger/learnings/`.
-3. Present summary:
-   - What was built (3-5 bullets)
-   - Key decisions and trade-offs
 
 3. **Update documentation** (recommended):
 

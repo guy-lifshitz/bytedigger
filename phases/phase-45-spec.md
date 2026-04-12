@@ -75,6 +75,11 @@ What to test, expected outcomes (derived from acceptance criteria).
 
 - Verify against explorer findings — conflicts with existing patterns?
 
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml — strip surrounding quotes before comparing (`grep '^mode:' build-state.yaml | sed "s/^mode:[[:space:]]*//;s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": write `build-spec.md`, run Plan-Review Gate (automated reviewer — always mandatory, not interactive), write `plan_review: pass`, proceed to Phase 5 — no user wait
+3. If mode == "SUPERVISED": follow Spec Review flow below (present for review + wait), then run Plan-Review Gate, then proceed
+
 ## SUPERVISED Mode — Spec Review
 
 1. Write full spec to `./build-spec.md` in project CWD

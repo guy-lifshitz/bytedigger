@@ -26,6 +26,8 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **AUTONOMOUS MODE ENFORCEMENT:** When mode = AUTONOMOUS, proceed through ALL phases without stopping. Do NOT pause between phases, do NOT ask for user confirmation, do NOT present intermediate results for approval. The only valid stops are: (1) a gate HARD BLOCK (exit non-zero), (2) pipeline completion, (3) unrecoverable error. **SUPERVISED mode:** pause after each phase for user review.
 
+> **PAUSE-POINT HARD RULE:** Every pause/wait/approval point in this document is wrapped in an explicit mode check below. If you add a new pause point anywhere in the pipeline, you MUST wrap it in `if mode == AUTONOMOUS / SUPERVISED`. There are NO implicit pauses. When reading `mode` from build-state.yaml, strip surrounding quotes before comparing (see `yaml_parser_quote_strip` pattern: `sed "s/^['\"]//;s/['\"]$//"` or equivalent).
+
 ---
 
 **Scratchpad:** Phase 0 creates `.bytedigger/` (in project CWD) with subdirs (research/, architecture/, specs/, tests/, reviews/). Workers write findings to scratchpad files. Path stored in `build-state.yaml` as `scratchpad_dir`. **Scratchpad Health:** Every phase verifies scratchpad_dir exists before proceeding. If missing, it recreates the directory structure automatically. Persists with worktree, survives reboots.
@@ -56,9 +58,19 @@ Launch 2-3 Explore agents (FEATURE: Haiku | COMPLEX: Sonnet, use `name:` param):
 
 **SUPERVISED:** Present questions to user | **AUTONOMOUS:** Document assumptions, proceed
 
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": agent documents assumptions, writes them to scratchpad, proceeds to Phase 4 — no user interaction
+3. If mode == "SUPERVISED": agent presents questions to user, waits for answers before proceeding
+
 ## PHASE 4: ARCHITECTURE DESIGN (Skip if SIMPLE)
 
 Agents read `{scratchpad_dir}/research/` first. Always launch fresh architect agents (2-3) (COMPLEX or HIGH security_classification: add security architect) | Model: Opus (configurable via `bytedigger.json` → `validation_model`). Write decisions to `{scratchpad_dir}/architecture/`. **SUPERVISED:** Save to `build-architecture.md`, wait approval | **AUTONOMOUS:** Select best approach
+
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": select best approach from architect outputs, log chosen approach + reasoning to `build-state.yaml` (`phase_4_approach`, `phase_4_files_count`), proceed to Phase 4.5 immediately — no `build-architecture.md`, no wait
+3. If mode == "SUPERVISED": save `build-architecture.md`, wait for explicit approval before writing state and continuing
 
 **State log:** `phase_4_architect: complete | phase_4_approach: "<summary>" | phase_4_files_count: <N>`
 
@@ -69,6 +81,11 @@ Sonnet writes `build-spec.md`: User Stories (min 2, BDD) | Files (CREATE/MODIFY)
 **Plan-Review Gate (MANDATORY FEATURE/COMPLEX):** Separate Opus reviewer → SHIP or REVISE (max 2 cycles) → Write `plan_review: pass` to build-state.yaml
 
 **Phase 5 entry blocks** on missing `plan_review: pass`
+
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": write spec, run Plan-Review Gate (gate is always mandatory — it's automated, not interactive), write `plan_review: pass`, proceed to Phase 5 — no user wait
+3. If mode == "SUPERVISED": write spec, present for review, wait for user to return, apply feedback, then run Plan-Review Gate, then proceed
 
 ## PHASE 5: IMPLEMENTATION (TDD — MANDATORY, no exceptions)
 
@@ -130,6 +147,11 @@ Process: Collect ALL issues (single list) → Task agent fixes EVERY finding →
 **Entry Gate:** `review_complete: pass` exists
 
 **7.1 Summary:** Launch Haiku with: original request | files modified | review verdicts | architecture → What was built (3-5 bullets) + learnings. **AUTONOMOUS:** log output only, do NOT stop for user review. **SUPERVISED:** present to user before proceeding.
+
+**Orchestrator flow:**
+1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
+2. If mode == "AUTONOMOUS": log Haiku summary output to scratchpad, proceed immediately to learning extraction — no pause to present to user
+3. If mode == "SUPERVISED": present summary to user (What was built + learnings bullets), wait for acknowledgement, then proceed
 
 **7.1b Learning Extraction:** After synthesizer returns, run `bash scripts/learning-store.sh extract "$SCRATCHPAD"` — persists `reviews/learnings-raw.md` to `.bytedigger/learnings/`. Writes `learnings_extracted: <N>` to build-state.yaml. Gracefully exits 0 on any error.
 
