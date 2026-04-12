@@ -45,6 +45,17 @@ CWD=$(pwd)
 BRANCH=$(git branch --show-current 2>/dev/null || echo "")
 
 # ---------------------------------------------------------------------------
+# H1: Worktree enforcement — FEATURE/COMPLEX must NOT run on main/master
+# See phases/phase-05-inject.md:19
+# ---------------------------------------------------------------------------
+if [[ "$COMPLEXITY_UPPER" == "FEATURE" || "$COMPLEXITY_UPPER" == "COMPLEX" ]]; then
+  if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+    echo "ERROR: Worktree enforcement — $COMPLEXITY_UPPER builds must run on a feature branch, not '$BRANCH'. Create a worktree or checkout a feature branch first (phase-05-inject.md:19)." >&2
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Advisory lock (mkdir-based — atomic on POSIX)
 # ---------------------------------------------------------------------------
 LOCK_DIR="${SESSION_FILE}.lock"

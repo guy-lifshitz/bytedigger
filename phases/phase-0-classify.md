@@ -215,8 +215,12 @@ If `--worktree` flag is set OR complexity is COMPLEX with `--pr` flag:
    mkdir -p "$NEW_SCRATCH"/{research,architecture,specs,tests,reviews}
    python3 -c "import re,pathlib;p=pathlib.Path('$WT/build-state.yaml');t=p.read_text();t=re.sub(r'scratchpad_dir:.*', f'scratchpad_dir: \"$NEW_SCRATCH\"', t);p.write_text(t)"
    ```
-4. All subsequent phases run in the worktree CWD, not the original. Switch CWD before proceeding.
-5. **Record ABSOLUTE worktree path** in `build-state.yaml` (in worktree). Relative paths break later cleanup which may run from any CWD:
+4. **Re-arm tool guard after CWD switch** — the `.bytedigger-orchestrator-pid` from the main checkout is unreachable from the worktree. Touch it inside the worktree so the PreToolUse hook stays armed:
+   ```bash
+   touch "$WT/.bytedigger-orchestrator-pid"
+   ```
+5. All subsequent phases run in the worktree CWD, not the original. Switch CWD before proceeding.
+6. **Record ABSOLUTE worktree path** in `build-state.yaml` (in worktree). Relative paths break later cleanup which may run from any CWD:
    ```bash
    WT_ABS="$(cd "$WT" && pwd)"
    echo "worktree_path: \"$WT_ABS\"" >> "$WT/build-state.yaml"

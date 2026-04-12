@@ -262,19 +262,20 @@ sys.exit(0)
 }
 
 # ---------------------------------------------------------------------------
-# T08: FEATURE on main branch is allowed (regression — old gate blocked this)
+# T08: FEATURE on main branch is blocked (worktree enforcement — phase-05-inject.md:19)
 # ---------------------------------------------------------------------------
 
-@test "T08_feature_on_main_allowed" {
+@test "T08_feature_on_main_blocked" {
   local project_dir
   project_dir=$(mktemp -d)
 
   # Mock git returning "main"
   _mock_git_branch "main"
 
-  # New CWD model does NOT gate on branch — must exit 0
+  # Worktree enforcement: FEATURE on main/master → must exit 1 with clear message
   run bash -c "cd '$project_dir' && bash '$SCRIPT' --complexity FEATURE --session-file '$SESSION_FILE'"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -qi "worktree\|main\|master\|feature branch"
 
   rm -rf "$project_dir"
 }
