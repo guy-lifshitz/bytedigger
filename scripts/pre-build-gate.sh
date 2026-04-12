@@ -59,12 +59,19 @@ fi
 # Advisory lock (mkdir-based — atomic on POSIX)
 # ---------------------------------------------------------------------------
 LOCK_DIR="${SESSION_FILE}.lock"
-LOCK_TIMEOUT=5
-LOCK_INTERVAL=0.1
-STALE_THRESHOLD=30
+# Timeouts in milliseconds (pure-bash integer math — no bc dependency)
+LOCK_TIMEOUT_MS=5000   # 5 seconds
+LOCK_INTERVAL_MS=100   # 0.1 seconds per retry
+STALE_THRESHOLD=30     # seconds
+
+_now_ms() {
+  # date +%s%3N gives epoch in milliseconds (GNU/macOS gdate); fallback: seconds*1000
+  date +%s%3N 2>/dev/null || echo $(( $(date +%s) * 1000 ))
+}
 
 acquire_lock() {
-  local elapsed=0
+  local start_ms
+  start_ms=$(_now_ms)
   while true; do
     if mkdir "$LOCK_DIR" 2>/dev/null; then
       # Write timestamp into lock for stale detection
@@ -83,14 +90,14 @@ acquire_lock() {
         continue
       fi
     fi
-    elapsed=$(echo "$elapsed + $LOCK_INTERVAL" | bc)
-    local elapsed_int
-    elapsed_int=$(echo "$elapsed" | cut -d. -f1)
-    if [[ "${elapsed_int:-0}" -ge "$LOCK_TIMEOUT" ]]; then
-      echo "ERROR: Could not acquire session lock after ${LOCK_TIMEOUT}s" >&2
+    local now_ms elapsed_ms
+    now_ms=$(_now_ms)
+    elapsed_ms=$(( now_ms - start_ms ))
+    if [[ $elapsed_ms -ge $LOCK_TIMEOUT_MS ]]; then
+      echo "ERROR: Could not acquire session lock after $((LOCK_TIMEOUT_MS / 1000))s" >&2
       exit 1
     fi
-    sleep "$LOCK_INTERVAL"
+    sleep "0.1"  # 100ms between retries (LOCK_INTERVAL_MS)
   done
 }
 

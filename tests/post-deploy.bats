@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# RED tests for scripts/post-deploy.sh — Phase 8 post-deploy steps
-# All tests MUST fail until post-deploy.sh is implemented.
+# Tests for scripts/post-deploy.sh — Phase 8 post-deploy steps
+# post-deploy.sh is implemented: these tests verify real behavior.
 
 SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/scripts/post-deploy.sh"
 
