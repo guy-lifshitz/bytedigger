@@ -1,0 +1,73 @@
+bun test v1.3.5 (1e86cebd)
+
+ 30 pass
+ 0 fail
+ 62 expect() calls
+Ran 30 tests across 3 files. [61.00ms]
+1..10
+ok 1 D1 dispatcher: gate_backend absent routes to bash, exit code matches direct bash invocation
+ok 2 D2 dispatcher: gate_backend=bash routes to bash
+ok 3 D3 dispatcher: gate_backend=ts with bun present invokes bun build-phase-gate.ts
+ok 4 D4 dispatcher: gate_backend=ts without bun on PATH fails closed (exit 1)
+not ok 5 D5 dispatcher: shadow mode with matching verdicts returns bash verdict, no mismatch logged
+# (in test file tests/gate-dispatcher.bats, line 132)
+#   `[ ! -s "$TMPDIR/.bytedigger/gate-shadow/mismatches.jsonl" ]' failed
+ok 6 D6 dispatcher: shadow mode with diverging verdicts writes JSONL entry (forced divergence)
+ok 7 D7 dispatcher: unknown gate_backend value defaults to bash with stderr warning
+ok 8 D8 dispatcher: missing bytedigger.json defaults to bash
+ok 9 D9 dispatcher: GATE_BACKEND env var overrides gate_backend in config
+ok 10 D10 dispatcher: piping JSON to stdin completes within 5s (no stall)
+1..26
+ok 1 test_no_state_file_exits_0 — no build-state.yaml means not a build session
+ok 2 test_gates_disabled_exits_0 — bytedigger.json gates_enabled false skips all checks
+ok 3 test_stale_state_exits_0 — build-state.yaml older than 600s is ignored
+ok 4 test_phase_4_missing_architect_blocks — phase 4 without phase_4_architect → exit 2
+ok 5 test_phase_4_complete_passes — phase 4 with architect complete and findings → exit 0
+ok 6 test_phase_5_entry_missing_plan_review_blocks — FEATURE phase 5 without plan_review → exit 2
+ok 7 test_phase_5_simple_skips_plan_review — SIMPLE phase 5 without plan_review → exit 0
+ok 8 test_phase_51_missing_red_output_blocks — phase 5.1 without build-red-output.log → exit 2
+ok 9 test_phase_51_red_output_no_failures_blocks — log exists but contains no FAIL → exit 2
+ok 10 test_phase_52_missing_opus_validation_blocks — phase 5.2 without opus_validation pass → exit 2
+ok 11 test_phase_53_green_hard_blocks — phase 5.3 missing phase_53_green → exit 1 (hard block)
+ok 12 test_phase_55_assertion_gaming_hard_blocks — assertion_gaming_detected true → exit 1
+ok 13 test_phase_6_unfixed_findings_blocks — phase_6_findings_total 5 phase_6_findings_fixed 3 → exit 2
+ok 14 test_phase_6_all_findings_fixed_passes — phase_6_findings_total equals phase_6_findings_fixed → exit 0
+ok 15 C1_phase_6_old_field_names_not_read — findings_total/findings_fixed (old names) do not block
+ok 16 C3_phase_4_missing_findings_md_hard_blocks — no findings-*.md in research → exit 1
+ok 17 C3_phase_4_with_findings_md_passes — findings-*.md present → exit 0
+ok 18 C4_phase_6_findings_skipped_hard_blocks — phase_6_findings_skipped > 0 → exit 1
+ok 19 C4_phase_6_post_review_gate_fail_hard_blocks — post_review_gate != pass → exit 1
+ok 20 test_phase_6_semantic_skip_detected_blocks — review file contains 'fix later' → exit 2
+ok 21 test_loop_prevention_bypasses_after_3_blocks — gate_block_counter 3 → exit 0 with bypass marker
+ok 22 C2_bypass_counter_does_not_exempt_findings_skipped_hard_block — exit 1 even at counter 10
+ok 23 C2_bypass_counter_does_not_exempt_post_review_gate_hard_block — exit 1 even at counter 10
+ok 24 test_missing_config_uses_defaults — no bytedigger.json still enforces gates
+ok 25 test_complexity_downgrade_hard_blocks — metadata FEATURE but yaml says SIMPLE → exit 1
+ok 26 test_stdin_drained_without_blocking — piping JSON to stdin completes within 5s
+1..26
+ok 1 test_no_state_file_exits_0 — no build-state.yaml means not a build session
+ok 2 test_gates_disabled_exits_0 — bytedigger.json gates_enabled false skips all checks
+ok 3 test_stale_state_exits_0 — build-state.yaml older than 600s is ignored
+ok 4 test_phase_4_missing_architect_blocks — phase 4 without phase_4_architect → exit 2
+ok 5 test_phase_4_complete_passes — phase 4 with architect complete and findings → exit 0
+ok 6 test_phase_5_entry_missing_plan_review_blocks — FEATURE phase 5 without plan_review → exit 2
+ok 7 test_phase_5_simple_skips_plan_review — SIMPLE phase 5 without plan_review → exit 0
+ok 8 test_phase_51_missing_red_output_blocks — phase 5.1 without build-red-output.log → exit 2
+ok 9 test_phase_51_red_output_no_failures_blocks — log exists but contains no FAIL → exit 2
+ok 10 test_phase_52_missing_opus_validation_blocks — phase 5.2 without opus_validation pass → exit 2
+ok 11 test_phase_53_green_hard_blocks — phase 5.3 missing phase_53_green → exit 1 (hard block)
+ok 12 test_phase_55_assertion_gaming_hard_blocks — assertion_gaming_detected true → exit 1
+ok 13 test_phase_6_unfixed_findings_blocks — phase_6_findings_total 5 phase_6_findings_fixed 3 → exit 2
+ok 14 test_phase_6_all_findings_fixed_passes — phase_6_findings_total equals phase_6_findings_fixed → exit 0
+ok 15 C1_phase_6_old_field_names_not_read — findings_total/findings_fixed (old names) do not block
+ok 16 C3_phase_4_missing_findings_md_hard_blocks — no findings-*.md in research → exit 1
+ok 17 C3_phase_4_with_findings_md_passes — findings-*.md present → exit 0
+ok 18 C4_phase_6_findings_skipped_hard_blocks — phase_6_findings_skipped > 0 → exit 1
+ok 19 C4_phase_6_post_review_gate_fail_hard_blocks — post_review_gate != pass → exit 1
+ok 20 test_phase_6_semantic_skip_detected_blocks — review file contains 'fix later' → exit 2
+ok 21 test_loop_prevention_bypasses_after_3_blocks — gate_block_counter 3 → exit 0 with bypass marker
+ok 22 C2_bypass_counter_does_not_exempt_findings_skipped_hard_block — exit 1 even at counter 10
+ok 23 C2_bypass_counter_does_not_exempt_post_review_gate_hard_block — exit 1 even at counter 10
+ok 24 test_missing_config_uses_defaults — no bytedigger.json still enforces gates
+ok 25 test_complexity_downgrade_hard_blocks — metadata FEATURE but yaml says SIMPLE → exit 1
+ok 26 test_stdin_drained_without_blocking — piping JSON to stdin completes within 5s

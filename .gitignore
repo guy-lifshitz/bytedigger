@@ -11,3 +11,6 @@ build-opus-validation.md
 build-plan-review.md
 build-test-integrity-review.md
 .bytedigger/
+.bytedigger/gate-shadow/
+node_modules/
+bun.lockb

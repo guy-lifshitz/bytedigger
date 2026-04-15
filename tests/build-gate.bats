@@ -2,7 +2,7 @@
 # RED tests for scripts/build-gate.sh
 # All tests MUST fail until implementation is written.
 
-SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/scripts/build-gate.sh"
+SCRIPT="${GATE_SCRIPT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/scripts/build-gate.sh}"
 PLUGIN_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 
 setup() {
