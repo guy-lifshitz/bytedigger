@@ -175,8 +175,8 @@ process.exit(1);
 EOF
 
   cd "$TMPDIR"
-  GATE_DISPATCHER_BASH_OVERRIDE="$TMPDIR/fake-bash-gate.sh" \
-  GATE_DISPATCHER_TS_OVERRIDE="$TMPDIR/fake-ts-gate.ts" \
+  GATE_DISPATCHER_BASH_TEST_OVERRIDE="$TMPDIR/fake-bash-gate.sh" \
+  GATE_DISPATCHER_TS_TEST_OVERRIDE="$TMPDIR/fake-ts-gate.ts" \
     run bash "$DISPATCHER" < /dev/null
   # Dispatcher returns the bash (stub) verdict.
   [ "$status" -eq 0 ]

@@ -21,9 +21,12 @@ cat > /dev/null 2>/dev/null || true
 
 SD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SD/.." && pwd)"
-# Allow test harnesses to override gate binaries to force a known divergence.
-BASH_GATE="${GATE_DISPATCHER_BASH_OVERRIDE:-$SD/build-gate.sh}"
-TS_GATE="${GATE_DISPATCHER_TS_OVERRIDE:-$SD/ts/build-phase-gate.ts}"
+# Test-only seam: GATE_DISPATCHER_{BASH,TS}_TEST_OVERRIDE let bats tests
+# substitute fake gate binaries to force a known divergence. The _TEST_
+# suffix is load-bearing — operators must NOT set these as configuration.
+# Production paths resolve from $SD and cannot be configured via env.
+BASH_GATE="${GATE_DISPATCHER_BASH_TEST_OVERRIDE:-$SD/build-gate.sh}"
+TS_GATE="${GATE_DISPATCHER_TS_TEST_OVERRIDE:-$SD/ts/build-phase-gate.ts}"
 
 # ---------------------------------------------------------------------------
 # Config discovery (mirrors build-gate.sh load_config)

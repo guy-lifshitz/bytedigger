@@ -40,29 +40,32 @@ import { resolveConfigPath } from "./lib/config-reader.ts";
 // Types — discriminated union GateVerdict keeps illegal states unrepresentable.
 // ---------------------------------------------------------------------------
 
+// Aliases below are referenced by GateVerdict arms — single source of truth
+// for the decision / severity / exit-code vocabulary. Changing e.g. Severity
+// here propagates to the discriminated union and to hardBlock's Extract<>.
 export type Decision = "pass" | "block";
 export type Severity = "soft" | "hard";
 export type ExitCode = 0 | 1 | 2;
 
 export type GateVerdict =
   | {
-      readonly decision: "pass";
+      readonly decision: Extract<Decision, "pass">;
       readonly phase?: string;
-      readonly exit_code: 0;
+      readonly exit_code: Extract<ExitCode, 0>;
     }
   | {
-      readonly decision: "block";
-      readonly severity: "soft";
+      readonly decision: Extract<Decision, "block">;
+      readonly severity: Extract<Severity, "soft">;
       readonly reason: string;
       readonly phase?: string;
-      readonly exit_code: 2;
+      readonly exit_code: Extract<ExitCode, 2>;
     }
   | {
-      readonly decision: "block";
-      readonly severity: "hard";
+      readonly decision: Extract<Decision, "block">;
+      readonly severity: Extract<Severity, "hard">;
       readonly reason: string;
       readonly phase?: string;
-      readonly exit_code: 1;
+      readonly exit_code: Extract<ExitCode, 1>;
     };
 
 export interface DispatchInput {
@@ -73,15 +76,21 @@ export interface DispatchInput {
 // Verdict smart constructors — exported so Phase 2+ consumers never hand-roll.
 // ---------------------------------------------------------------------------
 
-export function pass(phase?: string): GateVerdict {
+export function pass(phase?: string): Extract<GateVerdict, { decision: "pass" }> {
   return { decision: "pass", phase, exit_code: 0 };
 }
 
-export function softBlock(reason: string, phase?: string): GateVerdict {
+export function softBlock(
+  reason: string,
+  phase?: string,
+): Extract<GateVerdict, { severity: "soft" }> {
   return { decision: "block", severity: "soft", reason, phase, exit_code: 2 };
 }
 
-export function hardBlock(reason: string, phase?: string): GateVerdict {
+export function hardBlock(
+  reason: string,
+  phase?: string,
+): Extract<GateVerdict, { severity: "hard" }> {
   return { decision: "block", severity: "hard", reason, phase, exit_code: 1 };
 }
 
@@ -96,11 +105,11 @@ interface ByteDiggerConfig {
   readonly feature_reviewers: number;
   readonly complex_reviewers: number;
   /**
-   * disablePhase7 — Phase 7 stub escape hatch reserved for future learning-DB
-   * wiring. Default false. Today the flag is read but never acted on because
-   * checkPhase7 is a one-line stub that always passes. When unification
-   * Phase 2 lands, setting this true will keep Phase 7 silent for projects
-   * that opt out of the learning-DB hook.
+   * disablePhase7 — when true, skips the bash-parity `review_complete`
+   * soft-block in `checkPhase7` (see lines ~540-560). Reserved for projects
+   * that will opt out of the learning-DB hook in unification Phase 2.
+   * Default false: Phase 7 enforces `review_complete == pass`, mirroring
+   * `gate_phase_7` in build-gate.sh.
    */
   readonly disablePhase7: boolean;
 }
@@ -148,7 +157,7 @@ function loadConfig(): ByteDiggerConfig {
 
 interface GlobalResult {
   readonly missingFields: readonly string[];
-  readonly hardBlock?: GateVerdict;
+  readonly hardBlock?: Extract<GateVerdict, { severity: "hard" }>;
 }
 
 export function runGlobalPrePhaseChecks(cwd: string): GlobalResult {
@@ -699,30 +708,52 @@ export function loopPreventionCLI(statePath: string, phase: string): boolean {
   return false;
 }
 
-function cliOutputBlock(verdict: GateVerdict): never {
-  if (verdict.decision !== "block") {
-    // Unreachable — type narrowing enforces block here.
-    process.exit(0);
+/**
+ * Wire-format payload emitted on stdout for a block verdict. Centralizes the
+ * `HARD BLOCK:` prefix rule so cliOutputBlock, emitFatalBlock, and the
+ * bun-not-found branch of gate-dispatcher.sh all agree on the shape.
+ *
+ * PARITY NOTE: bash build-gate.sh emits `{"decision","reason"}` on soft
+ * blocks and `{"decision","severity":"hard","reason"}` on hard blocks
+ * (the `severity` field was only added on the hard path for operator
+ * visibility). TS must mirror that exactly or shadow-mode byte-compare
+ * in gate-dispatcher.sh will flag every soft block as a divergence.
+ * Hence `severity` is conditionally omitted for soft verdicts.
+ */
+type WirePayload =
+  | { readonly decision: "block"; readonly reason: string }
+  | {
+      readonly decision: "block";
+      readonly severity: "hard";
+      readonly reason: string;
+    };
+
+function toWirePayload(
+  v: Extract<GateVerdict, { decision: "block" }>,
+): WirePayload {
+  if (v.severity === "hard") {
+    return {
+      decision: "block",
+      severity: "hard",
+      reason: `HARD BLOCK: ${v.reason}`,
+    };
   }
-  const payload = {
-    decision: "block",
-    reason:
-      verdict.severity === "hard"
-        ? `HARD BLOCK: ${verdict.reason}`
-        : verdict.reason,
-  };
+  return { decision: "block", reason: v.reason };
+}
+
+function cliOutputBlock(
+  verdict: Extract<GateVerdict, { decision: "block" }>,
+): never {
+  const payload = toWirePayload(verdict);
   process.stdout.write(JSON.stringify(payload) + "\n");
   process.exit(verdict.exit_code);
 }
 
 function emitFatalBlock(msg: string): never {
   // Top-level fatal: emit JSON hard block to stdout so the harness sees a
-  // real verdict, not an empty pipe. Matches dispatcher bun-not-found path.
-  const payload = {
-    decision: "block",
-    severity: "hard",
-    reason: `HARD BLOCK: gate fatal: ${msg}`,
-  };
+  // real verdict, not an empty pipe. Matches dispatcher bun-not-found path
+  // and cliOutputBlock shape (via toWirePayload).
+  const payload = toWirePayload(hardBlock(`gate fatal: ${msg}`));
   process.stdout.write(JSON.stringify(payload) + "\n");
   process.stderr.write(`[build-phase-gate] fatal: ${msg}\n`);
   process.exit(1);
@@ -766,8 +797,9 @@ function mainCLI(): void {
   const verdict = dispatchPhase({ cwd });
 
   if (verdict.decision === "pass") {
-    process.exit(0);
+    return process.exit(0);
   }
+  // verdict now narrows to a block arm (soft | hard).
 
   // Hard blocks exit immediately — bypass loop prevention.
   if (verdict.severity === "hard") {
@@ -777,7 +809,7 @@ function mainCLI(): void {
   // Soft block: apply loop prevention.
   const bypassed = loopPreventionCLI(statePath, phase);
   if (bypassed) {
-    process.exit(0);
+    return process.exit(0);
   }
   cliOutputBlock(verdict);
 }

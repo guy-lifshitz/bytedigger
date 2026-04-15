@@ -11,6 +11,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { dispatchPhase, loopPreventionCLI } from "../build-phase-gate.ts";
+import type { GateVerdict } from "../build-phase-gate.ts";
+
+// Compile-time regression: the discriminated union must reject illegal
+// exit_code / severity / mutation states. These lines exist solely to fail
+// `tsc --noEmit` if the union ever loosens; if any @ts-expect-error stops
+// triggering, the test file itself will fail to type-check.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _illegalPassExit: GateVerdict =
+  // @ts-expect-error exit_code 1 is illegal on a pass verdict
+  { decision: "pass", exit_code: 1 };
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _blockMissingSeverity: GateVerdict =
+  // @ts-expect-error block verdict requires a severity discriminator
+  { decision: "block", exit_code: 1, reason: "x" };
+function _mutateVerdict(v: GateVerdict): void {
+  // @ts-expect-error decision is readonly
+  v.decision = "pass";
+}
 
 let dir: string;
 const savedCwd = process.cwd();
