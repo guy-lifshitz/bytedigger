@@ -83,6 +83,7 @@ claude plugin add shtofadhor/bytedigger
 
 - `"bash"` (default) — the original `scripts/build-phase-gate.sh` enforcer.
 - `"ts"` — the TypeScript port at `scripts/ts/build-phase-gate.ts`, executed via `bun`. Requires `bun` on PATH; fails closed if missing.
+- `"shadow"` — A/B mode: runs both backends, returns the bash verdict (source of truth), and logs mismatches to `.bytedigger/gate-shadow/` for parity validation. Use this for the bake period before flipping to `"ts"`.
 
 You can override the JSON flag per run with the `GATE_BACKEND` environment variable (env wins over config):
 
