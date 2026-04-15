@@ -1,0 +1,12 @@
+{
+  "name": "bytedigger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "test:ts": "bun test scripts/ts/__tests__",
+    "typecheck": "tsc --noEmit",
+    "gate": "bun run scripts/ts/build-phase-gate.ts"
+  }
+}

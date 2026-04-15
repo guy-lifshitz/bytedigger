@@ -16,6 +16,7 @@
   "feature_reviewers": 6,
   "complex_reviewers": 6,
   "gates_enabled": true,
+  "gate_backend": "bash",
   "tdd_mandatory": true,
   "worktree_auto": true,
   "constitution_path": "./constitution.md",
