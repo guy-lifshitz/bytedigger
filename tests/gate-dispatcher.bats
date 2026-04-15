@@ -134,36 +134,75 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# D6 — shadow mode, verdicts differ → mismatch logged
+# D6 — shadow mode, verdicts differ → mismatch JSONL is written with correct shape
+#
+# LEGITIMATE_REFACTOR: previous assertion (`wc -l ≥ 0`) was tautological AND
+# wrapped in `if -f file` so the whole block was skipped when mismatches.jsonl
+# didn't exist. Rewriter 5 (G2) flagged this as BLOCKING: the test exercised
+# zero code in GREEN. This version forces divergence via GATE_DISPATCHER_*_OVERRIDE
+# stubs and asserts the file exists + has exactly one record + the record has
+# the expected JSON keys with the right types.
 # ---------------------------------------------------------------------------
-@test "D6 dispatcher: shadow mode with diverging verdicts writes JSONL entry" {
+@test "D6 dispatcher: shadow mode with diverging verdicts writes JSONL entry (forced divergence)" {
   command -v bun >/dev/null 2>&1 || skip "bun not installed"
+  command -v python3 >/dev/null 2>&1 || skip "python3 not installed"
   cat > "$TMPDIR/bytedigger.json" <<'EOF'
 {
   "gates_enabled": true,
   "gate_backend": "shadow"
 }
 EOF
-  # Use a state file likely to expose any porting gap (phase 5.3 hardness).
   cat > "$TMPDIR/build-state.yaml" <<EOF
 task: "test"
 complexity: FEATURE
 mode: AUTONOMOUS
-current_phase: "5.3"
+current_phase: "4"
 last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-plan_review: approved
-opus_validation: pass
+phase_4_architect: complete
 EOF
+  # Force divergence: bash stub prints a pass verdict; TS stub prints a
+  # hard-block verdict. Different stdout AND different exit codes → the
+  # mismatch logger MUST fire.
+  cat > "$TMPDIR/fake-bash-gate.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '{"decision":"pass"}'
+exit 0
+EOF
+  chmod +x "$TMPDIR/fake-bash-gate.sh"
+  cat > "$TMPDIR/fake-ts-gate.ts" <<'EOF'
+process.stdout.write(JSON.stringify({decision: "block", reason: "HARD BLOCK: forced divergence with embedded \"quote\" and backslash \\"}) + "\n");
+process.exit(1);
+EOF
+
   cd "$TMPDIR"
-  run bash "$DISPATCHER" < /dev/null
-  # Returns bash verdict regardless
-  [ "$status" -eq 1 ]
-  # If verdicts diverge, the mismatch file MUST exist with at least one record.
-  # We don't enforce divergence (RED stub guarantees it), but test the logging path.
-  if [ -f "$TMPDIR/.bytedigger/gate-shadow/mismatches.jsonl" ]; then
-    record_count=$(wc -l < "$TMPDIR/.bytedigger/gate-shadow/mismatches.jsonl")
-    [ "$record_count" -ge 0 ]
-  fi
+  GATE_DISPATCHER_BASH_OVERRIDE="$TMPDIR/fake-bash-gate.sh" \
+  GATE_DISPATCHER_TS_OVERRIDE="$TMPDIR/fake-ts-gate.ts" \
+    run bash "$DISPATCHER" < /dev/null
+  # Dispatcher returns the bash (stub) verdict.
+  [ "$status" -eq 0 ]
+  # The mismatch file MUST exist and be non-empty.
+  [ -f "$TMPDIR/.bytedigger/gate-shadow/mismatches.jsonl" ]
+  [ -s "$TMPDIR/.bytedigger/gate-shadow/mismatches.jsonl" ]
+  # Exactly one record, valid JSON with the six required keys + correct types.
+  record_count=$(wc -l < "$TMPDIR/.bytedigger/gate-shadow/mismatches.jsonl")
+  [ "$record_count" -eq 1 ]
+  run python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    rec = json.loads(f.read().strip())
+assert set(["ts","bash_code","ts_code","bash_stdout","ts_stdout"]).issubset(rec.keys()), rec
+assert isinstance(rec["bash_code"], int), rec["bash_code"]
+assert isinstance(rec["ts_code"], int), rec["ts_code"]
+assert rec["bash_code"] == 0, rec["bash_code"]
+assert rec["ts_code"] == 1, rec["ts_code"]
+assert "HARD BLOCK" in rec["ts_stdout"], rec["ts_stdout"]
+# Embedded-quote + backslash round-trip safety:
+assert "quote" in rec["ts_stdout"], rec["ts_stdout"]
+assert rec["ts"].endswith("Z"), rec["ts"]
+print("OK")
+' "$TMPDIR/.bytedigger/gate-shadow/mismatches.jsonl"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "OK"
 }
 
 # ---------------------------------------------------------------------------
@@ -224,4 +263,6 @@ EOF
   payload='{"type":"subagentStop","session_id":"abc","exit_code":0}'
   run perl -e 'alarm 5; exec @ARGV' bash -c "printf '%s\n' '$payload' | bash '$DISPATCHER'"
   [ "$status" -ne 142 ]
+  # Tighten: must be a known valid gate exit code (pass/hard/soft).
+  [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || [ "$status" -eq 2 ]
 }

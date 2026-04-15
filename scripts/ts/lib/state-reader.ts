@@ -1,15 +1,16 @@
 /**
  * state-reader.ts — bash-parity YAML field extractor.
  *
- * Ported from HAL SYSTEM/cli/build/lib/state-reader.ts. Replicates the
- * grep + sed pipeline used by scripts/build-gate.sh (anchored line-regex
- * extract, strip key prefix, strip surrounding quotes and whitespace).
+ * Originally ported from HAL (SYSTEM/cli/build/lib/state-reader.ts) — no
+ * longer tracked upstream; this file is the canonical ByteDigger copy.
+ * Replicates the grep + sed pipeline used by scripts/build-gate.sh
+ * (anchored line-regex extract, strip key prefix, strip surrounding quotes
+ * and whitespace).
  *
  * Missing file returns null. Missing field returns null. Empty value -> "".
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -50,70 +51,4 @@ export function readStateField(
   if (matches.length === 0) return null;
   const rawLine = mode === "last" ? matches[matches.length - 1]! : matches[0]!;
   return stripKeyAndQuotes(rawLine, field);
-}
-
-/**
- * Read multiple fields in a single pass. Useful when batching many field
- * lookups to avoid re-reading the file.
- */
-export function readStateFields(
-  yamlPath: string,
-  spec: string[] | { first?: string[]; last?: string[] },
-): Record<string, string | null> {
-  const firstFields: string[] = Array.isArray(spec) ? spec : (spec.first ?? []);
-  const lastFields: string[] = Array.isArray(spec) ? [] : (spec.last ?? []);
-  const allFields = [...firstFields, ...lastFields];
-
-  const result: Record<string, string | null> = {};
-  if (!existsSync(yamlPath)) {
-    for (const f of allFields) result[f] = null;
-    return result;
-  }
-  let content: string;
-  try {
-    content = readFileSync(yamlPath, "utf8");
-  } catch {
-    for (const f of allFields) result[f] = null;
-    return result;
-  }
-  content = content.replace(/\r/g, "");
-  const lines = content.split("\n");
-
-  const matchMap: Record<string, string[]> = {};
-  for (const f of allFields) matchMap[f] = [];
-  for (const line of lines) {
-    for (const f of allFields) {
-      if (line.startsWith(f + ":")) matchMap[f]!.push(line);
-    }
-  }
-  const lastSet = new Set(lastFields);
-  for (const f of allFields) {
-    const matches = matchMap[f]!;
-    if (matches.length === 0) {
-      result[f] = null;
-    } else if (lastSet.has(f)) {
-      result[f] = stripKeyAndQuotes(matches[matches.length - 1]!, f);
-    } else {
-      result[f] = stripKeyAndQuotes(matches[0]!, f);
-    }
-  }
-  return result;
-}
-
-export function readStateFileMtime(yamlPath: string): number | null {
-  if (!existsSync(yamlPath)) return null;
-  try {
-    return Math.floor(statSync(yamlPath).mtimeMs / 1000);
-  } catch {
-    return null;
-  }
-}
-
-export function stateFileSha256(yamlPath: string): string | null {
-  if (!existsSync(yamlPath)) return null;
-  try {
-    return createHash("sha256").update(readFileSync(yamlPath)).digest("hex");
-  } catch {
-    return null;
-  }
 }

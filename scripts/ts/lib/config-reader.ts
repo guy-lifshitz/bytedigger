@@ -1,16 +1,17 @@
 /**
- * config-reader.ts — ByteDigger config resolver.
+ * config-reader.ts — ByteDigger config path resolver.
  *
  * Resolves bytedigger.json path in priority order:
  *   1. BYTEDIGGER_CONFIG env var (absolute path to file)
  *   2. CLAUDE_PLUGIN_ROOT/bytedigger.json
- *   3. ../../bytedigger.json relative to this file (worktree root)
+ *   3. ../../../bytedigger.json relative to this file
+ *      (walks lib → ts → scripts → repo root)
  *
- * readConfigField never throws — missing file, malformed JSON, and missing
- * keys all return undefined. Fail-closed safe for dispatcher use.
+ * Parsing lives in build-phase-gate.ts::loadConfig so that failures can
+ * log to stderr with the right context instead of being silently swallowed
+ * by a "never throws" helper.
  */
 
-import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 export function resolveConfigPath(): string {
@@ -21,17 +22,4 @@ export function resolveConfigPath(): string {
   // Resolve relative to this source file: scripts/ts/lib/config-reader.ts
   const here = dirname(new URL(import.meta.url).pathname);
   return join(here, "..", "..", "..", "bytedigger.json");
-}
-
-export function readConfigField<T = unknown>(key: string): T | undefined {
-  try {
-    const path = resolveConfigPath();
-    if (!existsSync(path)) return undefined;
-    const raw = readFileSync(path, "utf8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const v = parsed[key];
-    return v === undefined ? undefined : (v as T);
-  } catch {
-    return undefined;
-  }
 }

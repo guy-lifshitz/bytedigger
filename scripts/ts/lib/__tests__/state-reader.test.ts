@@ -1,4 +1,5 @@
-// RED — Phase 5.1. Tests fail until state-reader.ts is ported from HAL.
+// Unit tests for state-reader.ts — bash-parity YAML field extraction.
+// Covers spec §7.3 U1–U3.
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

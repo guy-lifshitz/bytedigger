@@ -1,15 +1,16 @@
-// RED — Phase 5.1. Tests fail until build-phase-gate.ts is ported from HAL.
-// Covers spec §7.3 U1–U10 + the four shadow-mode fix regressions (§6.4):
+// Unit tests for build-phase-gate.ts — per-phase dispatch contract.
+// Covers spec §7.3 U4–U10 + the four shadow-mode fix regressions (§6.4):
 //   - 42f72651 EAGAIN retry / fail-closed bun
 //   - f4feb1b2 Phase 0.5 alignment / posix_spawn ENOENT
 //   - 30583611 volume reduction (only mismatches)
 //   - c33d8a93 complexity downgrade hard block
+// (U1–U3 live in lib/__tests__/state-reader.test.ts.)
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync, utimesSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { dispatchPhase } from "../build-phase-gate.ts";
+import { dispatchPhase, loopPreventionCLI } from "../build-phase-gate.ts";
 
 let dir: string;
 const savedCwd = process.cwd();
@@ -34,10 +35,6 @@ afterEach(() => {
   process.chdir(savedCwd);
   rmSync(dir, { recursive: true, force: true });
 });
-
-// ---------------------------------------------------------------------------
-// U1–U3 covered in lib/__tests__/state-reader.test.ts
-// ---------------------------------------------------------------------------
 
 describe("dispatchPhase — phase routing & exit code contract", () => {
   test("U4 — phase 4 with missing build-architecture.md returns soft block", () => {
@@ -112,7 +109,7 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
     expect(v.reason || "").toMatch(/stale|freshness|bypass.*12/i);
   });
 
-  test("U8 — phase 7 with disablePhase7 unset returns pass (Phase 7 stubbed in Phase 1)", () => {
+  test("U8 — phase 7 with review_complete=pass returns pass (Phase 7 stubbed, parity with bash gate_phase_7)", () => {
     writeState({
       task: "x",
       complexity: "FEATURE",
@@ -122,10 +119,25 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
       plan_review: "approved",
       opus_validation: "pass",
       phase_53_green: "true",
+      review_complete: "pass",
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("pass");
     expect(v.exit_code).toBe(0);
+  });
+
+  test("U8b — phase 7 missing review_complete → soft block (bash parity)", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("block");
+    expect(v.severity).toBe("soft");
+    expect(v.exit_code).toBe(2);
   });
 
   test("U10 — phase 5.5 with assertion_gaming_detected:true → hard block", () => {
@@ -160,6 +172,37 @@ describe("dispatchPhase — Phase 0.5 alignment (commit f4feb1b2)", () => {
     expect(v.decision).toBe("block");
   });
 
+  test("phase 0.5 with pre_build_gate=fail explicitly → soft block naming pre_build_gate", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "0.5",
+      last_updated: nowIso(),
+      pre_build_gate: "fail",
+      phase_05_learnings: "complete",
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("block");
+    expect(v.severity).toBe("soft");
+    expect(v.reason || "").toMatch(/pre_build_gate/);
+  });
+
+  test("phase 0.5 with pre_build_gate=pass but phase_05_learnings unset → soft block naming phase_05_learnings", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "0.5",
+      last_updated: nowIso(),
+      pre_build_gate: "pass",
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("block");
+    expect(v.severity).toBe("soft");
+    expect(v.reason || "").toMatch(/phase_05_learnings/);
+  });
+
   test("phase 0.5 with pre_build_gate=pass and learnings complete → pass", () => {
     writeState({
       task: "x",
@@ -169,8 +212,6 @@ describe("dispatchPhase — Phase 0.5 alignment (commit f4feb1b2)", () => {
       last_updated: nowIso(),
       pre_build_gate: "pass",
       phase_05_learnings: "complete",
-      phase_05_constitution: "none",
-      phase_05_security: "LOW",
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("pass");
@@ -178,29 +219,115 @@ describe("dispatchPhase — Phase 0.5 alignment (commit f4feb1b2)", () => {
 });
 
 describe("dispatchPhase — phase 5.3 hardness exception (HAL line 795)", () => {
-  test("ALL missing 5.3 fields produce HARD blocks (not soft)", () => {
-    const fields = ["phase_53_green", "phase_53_minimal", "phase_53_passing"];
-    for (const f of fields) {
-      writeState({
-        task: "x",
-        complexity: "FEATURE",
-        mode: "AUTONOMOUS",
-        current_phase: "5.3",
-        last_updated: nowIso(),
-        plan_review: "approved",
-        opus_validation: "pass",
-      });
-      const v = dispatchPhase({ cwd: dir });
-      expect(v.severity).toBe("hard");
-      expect(v.exit_code).toBe(1);
-    }
+  test("missing phase_53_green produces HARD block (exit 1)", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "5.3",
+      last_updated: nowIso(),
+      plan_review: "approved",
+      opus_validation: "pass",
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.severity).toBe("hard");
+    expect(v.exit_code).toBe(1);
+  });
+
+  test("phase_53_green=complete → pass", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "5.3",
+      last_updated: nowIso(),
+      plan_review: "approved",
+      opus_validation: "pass",
+      phase_53_green: "complete",
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("pass");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GAP_FILL: loopPreventionCLI — 35 LOC of counter-based bypass logic that
+// previously had zero unit coverage. Reviewer 5 flagged this as BLOCKING (G1).
+// These tests close the gap — not RED-regressions, net-new coverage.
+// ---------------------------------------------------------------------------
+describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () => {
+  function statePath(): string {
+    return join(dir, "build-state.yaml");
+  }
+
+  test("count=0 increments to 1, no bypass", () => {
+    writeState({ current_phase: "4" });
+    const bypassed = loopPreventionCLI(statePath(), "4");
+    expect(bypassed).toBe(false);
+    const content = readFileSync(statePath(), "utf8");
+    expect(content).toMatch(/^gate_block_counter: 1$/m);
+    expect(content).not.toMatch(/gate_bypass:/);
+  });
+
+  test("count=3 increments to 4, writes gate_bypass, returns true", () => {
+    writeState({ current_phase: "5.1", gate_block_counter: "3" });
+    const bypassed = loopPreventionCLI(statePath(), "5.1");
+    expect(bypassed).toBe(true);
+    const content = readFileSync(statePath(), "utf8");
+    expect(content).toMatch(/^gate_block_counter: 4$/m);
+    expect(content).toMatch(/^gate_bypass: true$/m);
+    expect(content).toMatch(/^gate_bypass_phase: 5\.1$/m);
+  });
+
+  test("counter is rewritten, not duplicated (strip + append)", () => {
+    writeState({ current_phase: "4", gate_block_counter: "1" });
+    loopPreventionCLI(statePath(), "4");
+    const content = readFileSync(statePath(), "utf8");
+    const occurrences = content.match(/^gate_block_counter:/gm) || [];
+    expect(occurrences.length).toBe(1);
+    expect(content).toMatch(/^gate_block_counter: 2$/m);
+  });
+
+  test("quoted counter \"2\" parses correctly", () => {
+    // Build state file with explicitly quoted counter value.
+    writeFileSync(
+      statePath(),
+      'current_phase: "4"\ngate_block_counter: "2"\n',
+    );
+    const bypassed = loopPreventionCLI(statePath(), "4");
+    expect(bypassed).toBe(false);
+    const content = readFileSync(statePath(), "utf8");
+    expect(content).toMatch(/^gate_block_counter: 3$/m);
+  });
+
+  test("malformed counter (non-numeric) falls through to 0 → 1", () => {
+    writeFileSync(
+      statePath(),
+      'current_phase: "4"\ngate_block_counter: abc\n',
+    );
+    const bypassed = loopPreventionCLI(statePath(), "4");
+    expect(bypassed).toBe(false);
+    const content = readFileSync(statePath(), "utf8");
+    expect(content).toMatch(/^gate_block_counter: 1$/m);
+  });
+
+  test("atomic write preserves other state fields", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      current_phase: "4",
+      gate_block_counter: "1",
+    });
+    loopPreventionCLI(statePath(), "4");
+    const content = readFileSync(statePath(), "utf8");
+    expect(content).toMatch(/task: "x"/);
+    expect(content).toMatch(/complexity: "FEATURE"/);
+    expect(content).toMatch(/^gate_block_counter: 2$/m);
   });
 });
 
 describe("CLI invocation — fail-closed posix_spawn ENOENT (commit 42f72651/f4feb1b2)", () => {
-  test("CLI exits non-zero when invoked as a script (RED stub returns 99; GREEN must return ≥0 with valid verdict)", () => {
-    // This test simply asserts the CLI is invokable via bun. Once GREEN, it must
-    // produce a JSON verdict on stdout for known state files. RED stub exits 99.
+  test("CLI smoke test: Phase 4 + no build-architecture.md must exit 2 (soft block)", () => {
     writeState({
       task: "x",
       complexity: "FEATURE",
@@ -217,7 +344,6 @@ describe("CLI invocation — fail-closed posix_spawn ENOENT (commit 42f72651/f4f
       encoding: "utf8",
       timeout: 15000,
     });
-    // GREEN expectation: exit code 2 (soft block, missing build-architecture.md)
     expect(res.status).toBe(2);
   });
 });

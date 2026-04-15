@@ -2,19 +2,25 @@
 /**
  * build-phase-gate.ts — ByteDigger TypeScript phase gate.
  *
- * Mirrors scripts/build-gate.sh bit-for-bit for exit codes and verdict shape,
- * plus a small number of TS-only extensions tested by the bun unit suite:
+ * Mirrors scripts/build-gate.sh bit-for-bit for exit codes, verdict shape,
+ * and reason strings (including doc-ref suffixes), plus a small number of
+ * TS-only extensions tested by the bun unit suite:
  *   - BYPASS #12: stale-artifact freshness check (build-opus-validation.md vs
- *     build-state.yaml mtime)
- *   - Phase 0.5 gate (bash exits 0 for phases 0-3; TS adds 0.5 handling)
- *   - Phase 7 stub (disabled unless disablePhase7 flag flipped)
+ *     build-state.yaml mtime) — TS-only, soft block.
+ *   - Phase 0.5 gate (bash exits 0 for phases 0-3; TS adds 0.5 handling).
+ *   - Phase 7 stub — always passes in Phase 1 of the ByteDigger/HALForge
+ *     unification; learning-DB validation lands in unification Phase 2.
+ *     The `disablePhase7` config flag is reserved for that wiring.
  *
  * Exit codes (CLI and exit_code field on Verdict):
  *   0 — pass / gates disabled / not a build session / bypass
- *   1 — hard block (downgrade, 5.3 green, 5.5 assertion gaming, 6 findings_skipped)
+ *   1 — hard block (downgrade, 5.3 green, 5.5 assertion gaming, 6 findings_skipped,
+ *       6 post_review_gate, 7 review_complete != pass)
  *   2 — soft block (missing fields, stale artifact)
  *
- * Safety: never reads stdin (C3 — safety.md).
+ * Safety: never reads stdin — the harness pipes JSON to the hook, and draining
+ * it in-process would stall the harness. scripts/gate-dispatcher.sh drains on
+ * our behalf before invoking bun.
  */
 
 import {
@@ -22,6 +28,7 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -30,37 +37,51 @@ import { readStateField } from "./lib/state-reader.ts";
 import { resolveConfigPath } from "./lib/config-reader.ts";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — discriminated union GateVerdict keeps illegal states unrepresentable.
 // ---------------------------------------------------------------------------
 
 export type Decision = "pass" | "block";
 export type Severity = "soft" | "hard";
+export type ExitCode = 0 | 1 | 2;
 
-export interface GateVerdict {
-  decision: Decision;
-  severity?: Severity;
-  reason?: string;
-  phase?: string;
-  exit_code: number;
-}
+export type GateVerdict =
+  | {
+      readonly decision: "pass";
+      readonly phase?: string;
+      readonly exit_code: 0;
+    }
+  | {
+      readonly decision: "block";
+      readonly severity: "soft";
+      readonly reason: string;
+      readonly phase?: string;
+      readonly exit_code: 2;
+    }
+  | {
+      readonly decision: "block";
+      readonly severity: "hard";
+      readonly reason: string;
+      readonly phase?: string;
+      readonly exit_code: 1;
+    };
 
 export interface DispatchInput {
-  cwd: string;
+  readonly cwd: string;
 }
 
 // ---------------------------------------------------------------------------
-// Verdict helpers
+// Verdict smart constructors — exported so Phase 2+ consumers never hand-roll.
 // ---------------------------------------------------------------------------
 
-function pass(phase?: string): GateVerdict {
+export function pass(phase?: string): GateVerdict {
   return { decision: "pass", phase, exit_code: 0 };
 }
 
-function softBlock(reason: string, phase?: string): GateVerdict {
+export function softBlock(reason: string, phase?: string): GateVerdict {
   return { decision: "block", severity: "soft", reason, phase, exit_code: 2 };
 }
 
-function hardBlock(reason: string, phase?: string): GateVerdict {
+export function hardBlock(reason: string, phase?: string): GateVerdict {
   return { decision: "block", severity: "hard", reason, phase, exit_code: 1 };
 }
 
@@ -69,12 +90,19 @@ function hardBlock(reason: string, phase?: string): GateVerdict {
 // ---------------------------------------------------------------------------
 
 interface ByteDiggerConfig {
-  gates_enabled: boolean;
-  tdd_mandatory: boolean;
-  simple_reviewers: number;
-  feature_reviewers: number;
-  complex_reviewers: number;
-  disablePhase7: boolean;
+  readonly gates_enabled: boolean;
+  readonly tdd_mandatory: boolean;
+  readonly simple_reviewers: number;
+  readonly feature_reviewers: number;
+  readonly complex_reviewers: number;
+  /**
+   * disablePhase7 — Phase 7 stub escape hatch reserved for future learning-DB
+   * wiring. Default false. Today the flag is read but never acted on because
+   * checkPhase7 is a one-line stub that always passes. When unification
+   * Phase 2 lands, setting this true will keep Phase 7 silent for projects
+   * that opt out of the learning-DB hook.
+   */
+  readonly disablePhase7: boolean;
 }
 
 function loadConfig(): ByteDiggerConfig {
@@ -86,9 +114,16 @@ function loadConfig(): ByteDiggerConfig {
     complex_reviewers: 6,
     disablePhase7: false,
   };
+  let path: string;
   try {
-    const path = resolveConfigPath();
-    if (!existsSync(path)) return defaults;
+    path = resolveConfigPath();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[gate] WARN: failed to resolve config path: ${msg} — using defaults\n`);
+    return defaults;
+  }
+  if (!existsSync(path)) return defaults;
+  try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     return {
       gates_enabled: parsed.gates_enabled !== false,
@@ -98,7 +133,11 @@ function loadConfig(): ByteDiggerConfig {
       complex_reviewers: Number(parsed.complex_reviewers ?? 6),
       disablePhase7: parsed.disablePhase7 === true,
     };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[gate] WARN: failed to parse ${path}: ${msg} — using defaults\n`,
+    );
     return defaults;
   }
 }
@@ -108,8 +147,8 @@ function loadConfig(): ByteDiggerConfig {
 // ---------------------------------------------------------------------------
 
 interface GlobalResult {
-  missingFields: string[];
-  hardBlock?: GateVerdict;
+  readonly missingFields: readonly string[];
+  readonly hardBlock?: GateVerdict;
 }
 
 export function runGlobalPrePhaseChecks(cwd: string): GlobalResult {
@@ -123,7 +162,11 @@ export function runGlobalPrePhaseChecks(cwd: string): GlobalResult {
     try {
       const meta = JSON.parse(readFileSync(metadataPath, "utf8")) as { complexity?: string };
       trustedComplexity = (meta.complexity ?? "").toString().trim();
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[gate] WARN: failed to parse build-metadata.json: ${msg}\n`,
+      );
       return {
         missingFields,
         hardBlock: hardBlock(
@@ -151,7 +194,11 @@ export function runGlobalPrePhaseChecks(cwd: string): GlobalResult {
       const s = statSync(statePath);
       stateMtime = Math.floor((s.birthtimeMs || s.mtimeMs) / 1000);
       if (stateMtime <= 0) stateMtime = Math.floor(s.mtimeMs / 1000);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[gate] WARN: stat build-state.yaml failed: ${msg}\n`,
+      );
       stateMtime = 0;
     }
     if (stateMtime > 0) {
@@ -172,8 +219,10 @@ export function runGlobalPrePhaseChecks(cwd: string): GlobalResult {
               `${a} is STALE (predates build-state.yaml creation — BYPASS #12 freshness check). Regenerate for current session.`,
             );
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Convert silent miss into an explicit soft finding.
+          missingFields.push(`${a} stat failed: ${msg}`);
         }
       }
     }
@@ -194,8 +243,9 @@ function getComplexity(cwd: string): string {
       const meta = JSON.parse(readFileSync(metaPath, "utf8")) as { complexity?: string };
       const mc = (meta.complexity ?? "").toString().trim().toUpperCase();
       if (mc) return mc;
-    } catch {
-      // fall through
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[gate] WARN: getComplexity parse failed: ${msg}\n`);
     }
   }
   return (readStateField(statePath, "complexity") ?? "").trim().toUpperCase();
@@ -243,18 +293,32 @@ function checkPhase4(cwd: string): GateVerdict {
       try {
         const entries = readdirSync(researchDir);
         hasFindings = entries.some((f) => /^findings-.*\.md$/.test(f));
-      } catch {
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Permission error is fail-closed (triggers hard block below) but
+        // surface the cause so operators can diagnose.
+        process.stderr.write(
+          `[gate] WARN: readdir ${researchDir} failed: ${msg}\n`,
+        );
         hasFindings = false;
       }
     }
     if (!hasFindings) {
+      // Mirror bash strip-then-append: if a prior scratchpad_stale line exists,
+      // remove it and re-append so the persisted state is `scratchpad_stale: true`.
       try {
         const content = readFileSync(statePath, "utf8");
-        if (!content.includes("scratchpad_stale")) {
-          appendFileSync(statePath, "scratchpad_stale: true\n");
-        }
-      } catch {
-        // ignore
+        const filtered = content
+          .split("\n")
+          .filter((l) => !/^scratchpad_stale:/.test(l))
+          .join("\n");
+        const normalized = filtered.endsWith("\n") ? filtered : filtered + "\n";
+        writeFileAtomic(statePath, normalized + "scratchpad_stale: true\n");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `[gate] WARN: failed to persist scratchpad_stale: ${msg}\n`,
+        );
       }
       return hardBlock(
         `scratchpad_stale: no findings-*.md found in ${researchDir} — Phase 2 exploration must complete before Phase 4`,
@@ -267,10 +331,17 @@ function checkPhase4(cwd: string): GateVerdict {
   return pass("4");
 }
 
-// Bash uses: printf '%s; ' "${MISSING_FIELDS[@]}"
-// → "a; b; c; " (trailing "; ")
-function joinMissing(fields: string[]): string {
+// Bash uses `printf '%s; ' "${MISSING_FIELDS[@]}"` which appends `"; "` after
+// every entry including the last — shadow mode compares stdout byte-for-byte,
+// so the trailing separator is load-bearing.
+function joinMissing(fields: readonly string[]): string {
   return fields.map((f) => `${f}; `).join("");
+}
+
+function writeFileAtomic(path: string, content: string): void {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, content);
+  renameSync(tmp, path);
 }
 
 function checkPhase45(cwd: string): GateVerdict {
@@ -288,12 +359,15 @@ function checkPhase51(cwd: string): GateVerdict {
     missing.push("missing artifact: build-red-output.log");
   } else {
     let content = "";
+    let readError: string | null = null;
     try {
       content = readFileSync(redLog, "utf8");
-    } catch {
-      content = "";
+    } catch (err) {
+      readError = err instanceof Error ? err.message : String(err);
     }
-    if (!/FAIL|ERROR|FAILED|not ok/.test(content)) {
+    if (readError) {
+      missing.push(`build-red-output.log unreadable: ${readError}`);
+    } else if (!/FAIL|ERROR|FAILED|not ok/.test(content)) {
       missing.push("build-red-output.log contains no failures (tests must be RED)");
     }
   }
@@ -378,14 +452,19 @@ const SKIP_PHRASES: readonly string[] = [
 
 function scanSemanticSkip(cwd: string): string[] {
   const hits: string[] = [];
-  // find -maxdepth 2 \( -name "build-review-*.md" -o -name "*review*.md" \)
+  // Mirror bash find(1) parity: depth-2 walk matching both build-review-*.md
+  // and *review*.md — the second pattern is a superset of the first.
   const matches: string[] = [];
   const walk = (dir: string, depth: number): void => {
     if (depth > 2) return;
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Convert silent miss into a soft-block finding — attackers could
+      // otherwise suppress the semantic skip scan with a chmod.
+      hits.push(`semantic skip scan FAILED on ${dir}: ${msg}`);
       return;
     }
     for (const e of entries) {
@@ -393,7 +472,7 @@ function scanSemanticSkip(cwd: string): string[] {
       if (e.isDirectory()) {
         walk(p, depth + 1);
       } else if (e.isFile()) {
-        if (/^build-review-.*\.md$/.test(e.name) || /review.*\.md$/.test(e.name)) {
+        if (/review.*\.md$/.test(e.name)) {
           matches.push(p);
         }
       }
@@ -405,7 +484,9 @@ function scanSemanticSkip(cwd: string): string[] {
     let content = "";
     try {
       content = readFileSync(file, "utf8");
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      hits.push(`semantic skip scan FAILED on ${file}: ${msg}`);
       continue;
     }
     const lc = content.toLowerCase();
@@ -433,7 +514,7 @@ function checkPhase6(cwd: string): GateVerdict {
   const skippedRaw = (readStateField(statePath, "phase_6_findings_skipped") ?? "").trim();
   if (/^[0-9]+$/.test(skippedRaw) && parseInt(skippedRaw, 10) > 0) {
     return hardBlock(
-      `phase_6_findings_skipped=${skippedRaw} — all findings must be fixed, zero exceptions`,
+      `phase_6_findings_skipped=${skippedRaw} — all findings must be fixed, zero exceptions (build.md:137)`,
       "6",
     );
   }
@@ -441,7 +522,7 @@ function checkPhase6(cwd: string): GateVerdict {
   const postReview = (readStateField(statePath, "post_review_gate") ?? "").trim();
   if (postReview && postReview !== "pass") {
     return hardBlock(
-      `post_review_gate=${postReview} — must be 'pass' before proceeding to Phase 7`,
+      `post_review_gate=${postReview} — must be 'pass' before proceeding to Phase 7 (build.md:137, phase-6-review.md:271)`,
       "6",
     );
   }
@@ -454,20 +535,18 @@ function checkPhase6(cwd: string): GateVerdict {
 }
 
 function checkPhase7(cwd: string): GateVerdict {
-  // Phase 7 is stubbed in Phase 1: pass unless disablePhase7 is explicitly flipped
-  // to false (requires learning DB not present in ByteDigger).
+  // Phase 7 stubbed until learning DB lands (unification Phase 2).
+  //
+  // Parity with bash: bash gate_phase_7 pushes to MISSING_FIELDS when
+  // review_complete != "pass" → soft block. TS mirrors that behavior.
+  // The disablePhase7 escape hatch skips the check entirely (reserved for
+  // future learning-DB wiring — see ByteDiggerConfig.disablePhase7).
   const cfg = loadConfig();
-  if (cfg.disablePhase7) {
-    // placeholder for future learning-DB validation; for now, still pass.
-    return pass("7");
-  }
-  // Soft check: review_complete should be set. Bash does a warn-only; the TS
-  // unit test supplies plan_review/opus_validation/phase_53_green and expects pass.
+  if (cfg.disablePhase7) return pass("7");
   const statePath = join(cwd, "build-state.yaml");
-  const reviewComplete = (readStateField(statePath, "review_complete") ?? "").trim();
-  if (!reviewComplete) {
-    // not blocking — pass to match TS unit test U8
-    return pass("7");
+  const v = (readStateField(statePath, "review_complete") ?? "").trim();
+  if (v !== "pass") {
+    return softBlock(`review_complete=pass (got: ${v || "<missing>"})`, "7");
   }
   return pass("7");
 }
@@ -570,19 +649,26 @@ function cliResolveCwd(): string {
   return process.cwd();
 }
 
-function loopPreventionCLI(statePath: string, phase: string): boolean {
+export function loopPreventionCLI(statePath: string, phase: string): boolean {
   // Returns true if bypass triggered (should exit 0), false if still blocking.
   let countRaw = "";
   try {
     const content = readFileSync(statePath, "utf8");
     const m = content.match(/^gate_block_counter:\s*(\S*)/m);
     countRaw = m ? m[1]!.replace(/["']/g, "") : "";
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[gate] WARN: loopPreventionCLI read failed: ${msg}\n`,
+    );
     countRaw = "";
   }
   const count = parseInt(countRaw, 10) || 0;
   const newCount = count + 1;
 
+  // Atomic rewrite: tempfile + rename, so a crash mid-write cannot corrupt
+  // build-state.yaml. NOTE: still not concurrency-safe across parallel
+  // gate processes — defer full flock to unification Phase 2 / batch-build.
   try {
     const content = readFileSync(statePath, "utf8");
     const filtered = content
@@ -590,16 +676,23 @@ function loopPreventionCLI(statePath: string, phase: string): boolean {
       .filter((l) => !/^gate_block_counter:/.test(l))
       .join("\n");
     const normalized = filtered.endsWith("\n") ? filtered : filtered + "\n";
-    writeFileSync(statePath, normalized + `gate_block_counter: ${newCount}\n`);
-  } catch {
-    // ignore
+    writeFileAtomic(statePath, normalized + `gate_block_counter: ${newCount}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // best-effort: state-file update is advisory, primary verdict must still emit
+    process.stderr.write(
+      `[gate] WARN: loopPreventionCLI write failed: ${msg}\n`,
+    );
   }
 
   if (newCount > 3) {
     try {
       appendFileSync(statePath, `gate_bypass: true\ngate_bypass_phase: ${phase}\n`);
-    } catch {
-      // ignore
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[gate] WARN: loopPreventionCLI append gate_bypass failed: ${msg}\n`,
+      );
     }
     return true;
   }
@@ -607,19 +700,36 @@ function loopPreventionCLI(statePath: string, phase: string): boolean {
 }
 
 function cliOutputBlock(verdict: GateVerdict): never {
+  if (verdict.decision !== "block") {
+    // Unreachable — type narrowing enforces block here.
+    process.exit(0);
+  }
   const payload = {
     decision: "block",
     reason:
       verdict.severity === "hard"
-        ? `HARD BLOCK: ${verdict.reason ?? ""}`
-        : (verdict.reason ?? ""),
+        ? `HARD BLOCK: ${verdict.reason}`
+        : verdict.reason,
   };
   process.stdout.write(JSON.stringify(payload) + "\n");
   process.exit(verdict.exit_code);
 }
 
+function emitFatalBlock(msg: string): never {
+  // Top-level fatal: emit JSON hard block to stdout so the harness sees a
+  // real verdict, not an empty pipe. Matches dispatcher bun-not-found path.
+  const payload = {
+    decision: "block",
+    severity: "hard",
+    reason: `HARD BLOCK: gate fatal: ${msg}`,
+  };
+  process.stdout.write(JSON.stringify(payload) + "\n");
+  process.stderr.write(`[build-phase-gate] fatal: ${msg}\n`);
+  process.exit(1);
+}
+
 function mainCLI(): void {
-  // Safety: never read stdin (C3 invariant).
+  // Safety: never read stdin — gate-dispatcher.sh drains on our behalf.
   const cfg = loadConfig();
   if (!cfg.gates_enabled) {
     process.exit(0);
@@ -637,8 +747,11 @@ function mainCLI(): void {
     const now = Math.floor(Date.now() / 1000);
     const mtime = Math.floor(statSync(statePath).mtimeMs / 1000);
     if (now - mtime > 600) process.exit(0);
-  } catch {
-    // ignore
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[gate] WARN: stat build-state.yaml for staleness check failed: ${msg}\n`,
+    );
   }
 
   const phase = (readStateField(statePath, "current_phase") ?? "").trim();
@@ -674,7 +787,6 @@ if (import.meta.main) {
     mainCLI();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[build-phase-gate] fatal: ${msg}\n`);
-    process.exit(1);
+    emitFatalBlock(msg);
   }
 }
