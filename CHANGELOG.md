@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **TypeScript phase gate backend** (Phase 1 of ByteDigger-HALForge unification): ported HAL's TS gate engine into `scripts/ts/build-phase-gate.ts` (~824 lines) with supporting libs (`config-reader.ts`, `state-reader.ts`) and 30 TS unit tests. Bash-parity contract enforced by 26 dispatcher parity tests.
+- **`gate_backend` config flag** in `bytedigger.json` — selects gate engine (`"bash"` default, `"ts"` opt-in). Fail-closed on unknown values.
+- **`GATE_BACKEND` environment override** — per-run override of the config flag (env wins over JSON). Useful for CI experiments and shadow comparisons.
+- **`scripts/gate-dispatcher.sh`** — fail-closed dispatcher wired into `hooks/hooks.json`; preserves exact backend exit codes, WARNs to stderr on config parse failure (never silently defaults), and fails closed on missing `bun` or unknown backend.
+- 10 BATS dispatcher tests + 26 ts-via-dispatcher parity tests (92/92 total in this sprint).
+
 ### Security
 
 - Removed HAL credential leak from phase artifacts
