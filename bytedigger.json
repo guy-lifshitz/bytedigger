@@ -10,7 +10,8 @@
   "reviewers": {
     "SIMPLE": 3,
     "FEATURE": 6,
-    "COMPLEX": 6
+    "COMPLEX": 6,
+    "mode": "auto"
   },
   "simple_reviewers": 3,
   "feature_reviewers": 6,
@@ -27,5 +28,9 @@
     "max_inject": 10,
     "max_stored": 200,
     "storage_path": ".bytedigger/learnings"
-  }
+  },
+  "observability": {
+    "enabled": true
+  },
+  "activeWorkInjection": true
 }

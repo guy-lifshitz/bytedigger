@@ -8,9 +8,8 @@
  *   - BYPASS #12: stale-artifact freshness check (build-opus-validation.md vs
  *     build-state.yaml mtime) — TS-only, soft block.
  *   - Phase 0.5 gate (bash exits 0 for phases 0-3; TS adds 0.5 handling).
- *   - Phase 7 stub — always passes in Phase 1 of the ByteDigger/HALForge
- *     unification; learning-DB validation lands in unification Phase 2.
- *     The `disablePhase7` config flag is reserved for that wiring.
+ *   - Phase 7 gate — enforces review_complete == pass (bash parity), with TRIVIAL skip
+ *     and disablePhase7 escape hatch. Learning-DB validation deferred to unification Phase 2.
  *
  * Exit codes (CLI and exit_code field on Verdict):
  *   0 — pass / gates disabled / not a build session / bypass
@@ -95,8 +94,14 @@ export function hardBlock(
 }
 
 // ---------------------------------------------------------------------------
-// Config (bytedigger.json) — used by CLI; dispatchPhase itself is pure.
+// Config (bytedigger.json) — used by CLI; dispatchPhase reads build-state.yaml and may write state fields (post-review gate).
 // ---------------------------------------------------------------------------
+
+export type ReviewerMode = "toolkit" | "generic" | "auto";
+
+export interface ReviewersConfig {
+  readonly mode: ReviewerMode;
+}
 
 export interface ByteDiggerConfig {
   readonly gates_enabled: boolean;
@@ -106,7 +111,7 @@ export interface ByteDiggerConfig {
   readonly complex_reviewers: number;
   /**
    * disablePhase7 — when true, skips the bash-parity `review_complete`
-   * soft-block in `checkPhase7` (see lines ~540-560). Reserved for projects
+   * skips the bash-parity review_complete soft-block in checkPhase7(). Reserved for projects
    * that will opt out of the learning-DB hook in unification Phase 2.
    * Default false: Phase 7 enforces `review_complete == pass`, mirroring
    * `gate_phase_7` in build-gate.sh.
@@ -119,6 +124,12 @@ export interface ByteDiggerConfig {
    * Default false: project context is included (standard behavior).
    */
   readonly omitProjectContext: boolean;
+  /** observability — controls event emission. Default: { enabled: true }. */
+  readonly observability: { readonly enabled: boolean };
+  /** activeWorkInjection — inject ## Active Work section into agent prompts. Default: true. */
+  readonly activeWorkInjection: boolean;
+  /** reviewers — reviewer selection configuration. */
+  readonly reviewers: ReviewersConfig;
 }
 
 function parseBool(val: unknown, defaultVal: boolean): boolean {
@@ -132,6 +143,11 @@ function parseReviewerCount(val: unknown, defaultVal: number): number {
   return Number.isFinite(n) ? n : defaultVal;
 }
 
+export function parseReviewerMode(val: unknown, defaultVal: ReviewerMode): ReviewerMode {
+  if (val === "toolkit" || val === "generic" || val === "auto") return val;
+  return defaultVal;
+}
+
 export function loadConfig(): ByteDiggerConfig {
   const defaults: ByteDiggerConfig = {
     gates_enabled: true,
@@ -141,6 +157,9 @@ export function loadConfig(): ByteDiggerConfig {
     complex_reviewers: 6,
     disablePhase7: false,
     omitProjectContext: false,
+    observability: { enabled: true },
+    activeWorkInjection: true,
+    reviewers: { mode: "auto" },
   };
   let path: string;
   try {
@@ -161,6 +180,19 @@ export function loadConfig(): ByteDiggerConfig {
       complex_reviewers: parseReviewerCount(parsed.complex_reviewers ?? 6, 6),
       disablePhase7: parsed.disablePhase7 === true,
       omitProjectContext: parseBool(parsed.omitProjectContext, false),
+      observability: {
+        enabled: parseBool(
+          (parsed.observability as Record<string, unknown> | undefined)?.enabled,
+          true,
+        ),
+      },
+      activeWorkInjection: parseBool(parsed.activeWorkInjection, true),
+      reviewers: {
+        mode: parseReviewerMode(
+          (parsed.reviewers as Record<string, unknown> | undefined)?.mode ?? "auto",
+          "auto",
+        ),
+      },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -372,6 +404,120 @@ function writeFileAtomic(path: string, content: string): void {
   renameSync(tmp, path);
 }
 
+// ---------------------------------------------------------------------------
+// F3: Post-Review Gate helpers
+// ---------------------------------------------------------------------------
+
+interface SemanticScanResult {
+  readonly count: number;
+  readonly details: string[];
+}
+
+function loadSemanticSkipPhrases(): readonly string[] {
+  const phrasesPath = process.env.BYTEDIGGER_PHRASES_PATH
+    ?? join(dirname(new URL(import.meta.url).pathname), "lib", "semantic-skip-phrases.json");
+  let raw: string;
+  try {
+    raw = readFileSync(phrasesPath, "utf8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`FATAL: cannot load semantic-skip-phrases.json from ${phrasesPath}: ${msg}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`FATAL: semantic-skip-phrases.json is not valid JSON: ${msg}`);
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (!obj || !Array.isArray(obj.phrases)) {
+    throw new Error("FATAL: semantic-skip-phrases.json schema invalid: missing phrases array");
+  }
+  for (const p of obj.phrases) {
+    if (typeof p !== "string") {
+      throw new Error(`FATAL: semantic-skip-phrases.json schema invalid: non-string phrase: ${String(p)}`);
+    }
+  }
+  return obj.phrases as string[];
+}
+
+export function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replace(/\u2019/g, "'");
+}
+
+export function writeStateField(statePath: string, field: string, value: string): void {
+  try {
+    const content = readFileSync(statePath, "utf8");
+    const filtered = content
+      .split("\n")
+      .filter((l) => !l.startsWith(field + ":"))
+      .join("\n");
+    const normalized = filtered.endsWith("\n") ? filtered : filtered + "\n";
+    writeFileAtomic(statePath, normalized + `${field}: ${value}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[gate] WARN: writeStateField(${field}) failed: ${msg}\n`);
+  }
+}
+
+const SKIP_PHRASES: readonly string[] = loadSemanticSkipPhrases();
+
+export function scanSemanticSkipPhrases(cwd: string): SemanticScanResult {
+  const details: string[] = [];
+  const matches: string[] = [];
+
+  const walk = (dir: string, depth: number): boolean => {
+    if (depth > 2) return true;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      details.push(`scan failed on ${dir}: ${msg}`);
+      if (depth === 1) return false;
+      return true;
+    }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(p, depth + 1);
+      } else if (e.isFile() && /review.*\.md$/.test(e.name)) {
+        matches.push(p);
+      }
+    }
+    return true;
+  };
+
+  const rootReadable = walk(cwd, 1);
+  if (!rootReadable) {
+    return { count: -1, details };
+  }
+
+  let count = 0;
+  for (const file of matches) {
+    let fileContent = "";
+    try {
+      fileContent = readFileSync(file, "utf8");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      count++;
+      details.push(`${basename(file)}: UNREADABLE (${msg})`);
+      continue;
+    }
+    const normalizedContent = normalizeForMatch(fileContent);
+    for (const phrase of SKIP_PHRASES) {
+      if (normalizedContent.includes(normalizeForMatch(phrase))) {
+        count++;
+        details.push(`${basename(file)}: ${phrase}`);
+        break;
+      }
+    }
+  }
+
+  return { count, details };
+}
+
 function checkPhase45(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
   if (getComplexity(cwd) === "SIMPLE") return pass("4.5");
@@ -457,113 +603,60 @@ function checkPhase55(cwd: string): GateVerdict {
   return pass("5.5");
 }
 
-const SKIP_PHRASES: readonly string[] = [
-  "not our responsibility",
-  "not related",
-  "acceptable risk",
-  "pre-existing",
-  "out of scope",
-  "known issue",
-  "fix later",
-  "will address in follow-up",
-  "good enough",
-  "wont fix",
-  "defer",
-  "low severity, skip",
-  "low priority, skip",
-  "cosmetic",
-  "won't fix",
-  "wontfix",
-  "technical debt",
-  "acceptable for",
-];
-
-function scanSemanticSkip(cwd: string): string[] {
-  const hits: string[] = [];
-  // Mirror bash find(1) parity: depth-2 walk matching both build-review-*.md
-  // and *review*.md — the second pattern is a superset of the first.
-  const matches: string[] = [];
-  const walk = (dir: string, depth: number): void => {
-    if (depth > 2) return;
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Convert silent miss into a soft-block finding — attackers could
-      // otherwise suppress the semantic skip scan with a chmod.
-      hits.push(`semantic skip scan FAILED on ${dir}: ${msg}`);
-      return;
-    }
-    for (const e of entries) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) {
-        walk(p, depth + 1);
-      } else if (e.isFile()) {
-        if (/review.*\.md$/.test(e.name)) {
-          matches.push(p);
-        }
-      }
-    }
-  };
-  walk(cwd, 1);
-
-  for (const file of matches) {
-    let content = "";
-    try {
-      content = readFileSync(file, "utf8");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      hits.push(`semantic skip scan FAILED on ${file}: ${msg}`);
-      continue;
-    }
-    const lc = content.toLowerCase();
-    for (const phrase of SKIP_PHRASES) {
-      if (lc.includes(phrase.toLowerCase())) {
-        hits.push(`semantic skip detected: '${phrase}' in ${basename(file)}`);
-      }
-    }
-  }
-  return hits;
-}
-
 function checkPhase6(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
-  const missing: string[] = [];
 
   const totalRaw = (readStateField(statePath, "phase_6_findings_total") ?? "").trim();
   const fixedRaw = (readStateField(statePath, "phase_6_findings_fixed") ?? "").trim();
-  const total = /^[0-9]+$/.test(totalRaw) ? parseInt(totalRaw, 10) : 0;
-  const fixed = /^[0-9]+$/.test(fixedRaw) ? parseInt(fixedRaw, 10) : 0;
-  if (total > 0 && fixed < total) {
-    missing.push(`unfixed findings: ${fixed}/${total} fixed`);
-  }
+  const numTotal = /^[0-9]+$/.test(totalRaw) ? parseInt(totalRaw, 10) : 0;
+  const numFixed = /^[0-9]+$/.test(fixedRaw) ? parseInt(fixedRaw, 10) : 0;
 
   const skippedRaw = (readStateField(statePath, "phase_6_findings_skipped") ?? "").trim();
-  if (/^[0-9]+$/.test(skippedRaw) && parseInt(skippedRaw, 10) > 0) {
+  const numSkipped = /^[0-9]+$/.test(skippedRaw) ? parseInt(skippedRaw, 10) : 0;
+
+  if (numSkipped > 0) {
     return hardBlock(
       `phase_6_findings_skipped=${skippedRaw} — all findings must be fixed, zero exceptions (build.md:137)`,
       "6",
     );
   }
 
-  const postReview = (readStateField(statePath, "post_review_gate") ?? "").trim();
-  if (postReview && postReview !== "pass") {
+  // F3: Boy Scout Rule — total must equal fixed when skipped=0
+  if (numSkipped === 0 && numTotal > numFixed) {
+    writeStateField(statePath, "semantic_skip_check", "fail");
     return hardBlock(
-      `post_review_gate=${postReview} — must be 'pass' before proceeding to Phase 7 (build.md:137, phase-6-review.md:271)`,
+      `Boy Scout Rule VIOLATION: ${numTotal - numFixed} findings unaccounted for (total=${numTotal} fixed=${numFixed})`,
       "6",
     );
   }
 
-  // Semantic skip scan
-  missing.push(...scanSemanticSkip(cwd));
+  // F3: Semantic skip phrase scan
+  const scan = scanSemanticSkipPhrases(cwd);
+  if (scan.count === -1) {
+    return hardBlock(
+      "semantic skip scan FAILED — review directory unreadable. Pipeline blocked.",
+      "6",
+    );
+  }
+  if (scan.count > 0 && numSkipped === 0) {
+    writeStateField(statePath, "semantic_skip_check", "fail");
+    writeStateField(statePath, "semantic_skip_phrases_found", String(scan.count));
+    return hardBlock(
+      `SEMANTIC SKIP detected: ${scan.count} forbidden phrase(s) in review files (phase_6_findings_skipped=0): ${scan.details.slice(0, 3).join("; ")}`,
+      "6",
+    );
+  }
 
-  if (missing.length > 0) return softBlock(joinMissing(missing), "6");
+  // F3: Write success state fields
+  writeStateField(statePath, "post_review_gate", "pass");
+  writeStateField(statePath, "semantic_skip_check", "pass");
+  writeStateField(statePath, "semantic_skip_phrases_found", String(scan.count));
+
   return pass("6");
 }
 
 function checkPhase7(cwd: string): GateVerdict {
-  // Phase 7 stubbed until learning DB lands (unification Phase 2).
+  // Phase 7: review_complete gate (learning DB deferred to unification Phase 2).
   //
   // Parity with bash: bash gate_phase_7 pushes to MISSING_FIELDS when
   // review_complete != "pass" → soft block. TS mirrors that behavior.

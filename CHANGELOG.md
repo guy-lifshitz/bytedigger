@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2 — Sprint B (2026-04-16)
+
+#### Added
+
+- **F3: Post-review gate** — Semantic-skip enforcement in `checkPhase6` with Boy Scout Rule. New modules: `loadSemanticSkipPhrases`, `normalizeForMatch`, `writeStateField`, `scanSemanticSkipPhrases`. Semantic skip phrases defined in `semantic-skip-phrases.json` (18 forbidden phrases that trigger auto-reject).
+- **F7: Observability events** — New `emit.ts` module with event streaming to stderr (JSONL format). Functions: `emitEvent`, `emitPhaseStart/End/Skip`, `emitGateResult`, `emitBuildComplete`. Integrates with HAL forwarding when `HAL_DIR` environment variable is set.
+- **F9: Active Work injection** — Memory reader module (`memory-reader.ts`) extracts `## Active Work` section from project MEMORY.md. Caps: 10 items max, 500 chars total. Config flag: `activeWorkInjection` (boolean) in `bytedigger.json`.
+- **F10: Reviewers config** — New `ReviewersConfig` interface with `ReviewerMode` type (toolkit/generic/auto). Functions: `parseReviewerMode`. Config: `reviewers.mode` in `bytedigger.json`.
+
+#### Tests
+
+- 96 tests total (53 new + 43 baseline). Satisfaction: 87%.
+
+---
+
 ### Phase 2 — Sprint A (2026-04-16)
 
 #### Added
