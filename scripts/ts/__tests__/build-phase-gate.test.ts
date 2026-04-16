@@ -450,3 +450,565 @@ describe("checkPhase7 — TRIVIAL complexity skip (F2)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// F7 — emit wiring: stderr observability events fire on lifecycle
+//
+// These tests assert that dispatchPhase/mainCLI emit structured JSONL events
+// to stderr (phase-start, phase-end, gate-result, phase-skip, build-complete)
+// at each lifecycle transition.
+//
+// RED CONTRACT: all tests FAIL until scripts/ts/build-phase-gate.ts is wired
+// to call the emit.ts API. dispatchPhase currently emits nothing.
+//
+// Spy infrastructure: mirrors emit.test.ts:30-52. Scoped strictly to this
+// describe block so the existing 81 tests see no stderr side-effects.
+// ---------------------------------------------------------------------------
+
+describe("F7 — emit wiring: stderr observability events fire on lifecycle", () => {
+  // ---- spy infrastructure (scoped to this block) --------------------------
+  // Note: spy is scoped strictly to this describe block. Pre-existing tests
+  // outside F7 see real stderr output — this is intentional; it keeps noise
+  // visible during debugging and avoids silent swallowing of unexpected writes.
+  let wireWrites: string[] = [];
+  let wireOriginalWrite: typeof process.stderr.write;
+  let wireSavedConfig: string | undefined;
+  let wireSavedHalDir: string | undefined;
+
+  function wireInstallSpy(): void {
+    wireWrites = [];
+    wireOriginalWrite = process.stderr.write.bind(process.stderr);
+    // @ts-ignore — intentional monkey-patch for test isolation
+    process.stderr.write = (chunk: unknown): boolean => {
+      wireWrites.push(String(chunk));
+      return true;
+    };
+  }
+
+  function wireUninstallSpy(): void {
+    // @ts-ignore — restore original
+    process.stderr.write = wireOriginalWrite;
+  }
+
+  function wireGetEventLines(): string[] {
+    return wireWrites.filter((l) => l.startsWith("[bytedigger:event]"));
+  }
+
+  function wireParseEventLine(line: string): Record<string, unknown> {
+    const jsonPart = line.replace(/^\[bytedigger:event\]\s+/, "");
+    return JSON.parse(jsonPart) as Record<string, unknown>;
+  }
+
+  // ---- per-test setup / teardown ------------------------------------------
+
+  beforeEach(() => {
+    wireSavedConfig = process.env.BYTEDIGGER_CONFIG;
+    wireSavedHalDir = process.env.HAL_DIR;
+    delete process.env.HAL_DIR;
+    wireInstallSpy();
+  });
+
+  afterEach(() => {
+    wireUninstallSpy();
+    if (wireSavedConfig === undefined) {
+      delete process.env.BYTEDIGGER_CONFIG;
+    } else {
+      process.env.BYTEDIGGER_CONFIG = wireSavedConfig;
+    }
+    if (wireSavedHalDir === undefined) {
+      delete process.env.HAL_DIR;
+    } else {
+      process.env.HAL_DIR = wireSavedHalDir;
+    }
+  });
+
+  // ---- WIRE-1: phase-start + phase-end(pass) on a passing phase -----------
+
+  test("WIRE-1 — dispatchPhase emits phase-start then phase-end(pass) on a passing phase", () => {
+    // Phase 7 TRIVIAL → always pass, no required state fields beyond complexity.
+    writeState({
+      task: "x",
+      complexity: "TRIVIAL",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+    });
+    dispatchPhase({ cwd: dir });
+
+    const events = wireGetEventLines();
+    const parsed = events.map(wireParseEventLine);
+
+    const phaseStart = parsed.find((e) => e["event"] === "phase-start");
+    expect(phaseStart).toBeDefined();
+    expect(phaseStart!["phase"]).toBe("7");
+
+    const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+    expect(phaseEnd).toBeDefined();
+    expect(phaseEnd!["phase"]).toBe("7");
+    expect(phaseEnd!["status"]).toBe("pass");
+
+    // WP-4 pass branch: gate-result must also be emitted with status=pass.
+    const gateResult = parsed.find((e) => e["event"] === "gate-result");
+    expect(gateResult).toBeDefined();
+    expect(gateResult!["status"]).toBe("pass");
+    expect(gateResult!["phase"]).toBe("7");
+  });
+
+  // ---- WIRE-2: gate-result(hard-block) + phase-end(block) on global hardBlock
+
+  test("WIRE-2 — dispatchPhase emits gate-result(hard-block) + phase-end(block) on global hardBlock", () => {
+    // Complexity downgrade (BYPASS #4): metadata says COMPLEX, state says SIMPLE → hard block.
+    writeState({
+      task: "x",
+      complexity: "SIMPLE",
+      mode: "AUTONOMOUS",
+      current_phase: "5",
+      last_updated: nowIso(),
+    });
+    writeFileSync(
+      join(dir, "build-metadata.json"),
+      JSON.stringify({ complexity: "COMPLEX", classified_at: "2026-04-10T10:00:00Z" }),
+    );
+    dispatchPhase({ cwd: dir });
+
+    const events = wireGetEventLines();
+    const parsed = events.map(wireParseEventLine);
+
+    const gateResult = parsed.find((e) => e["event"] === "gate-result");
+    expect(gateResult).toBeDefined();
+    expect(gateResult!["status"]).toBe("hard-block");
+    expect(gateResult!["phase"]).toBe("5");
+
+    const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+    expect(phaseEnd).toBeDefined();
+    expect(phaseEnd!["status"]).toBe("block");
+    const meta = phaseEnd!["metadata"] as Record<string, unknown> | undefined;
+    expect(meta?.["severity"]).toBe("hard");
+  });
+
+  // ---- WIRE-3: soft-block on stale-artifact downgrade ---------------------
+
+  test("WIRE-3 — dispatchPhase emits gate-result(soft-block) + phase-end(block) on stale artifact", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "5",
+      last_updated: nowIso(),
+      plan_review: "approved",
+    });
+    const stale = join(dir, "build-opus-validation.md");
+    writeFileSync(stale, "stale\n");
+    const past = new Date(Date.now() - 3600 * 1000);
+    utimesSync(stale, past, past);
+    const future = new Date();
+    utimesSync(join(dir, "build-state.yaml"), future, future);
+
+    dispatchPhase({ cwd: dir });
+
+    const events = wireGetEventLines();
+    const parsed = events.map(wireParseEventLine);
+
+    const gateResult = parsed.find((e) => e["event"] === "gate-result");
+    expect(gateResult).toBeDefined();
+    expect(gateResult!["status"]).toBe("soft-block");
+
+    const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+    expect(phaseEnd).toBeDefined();
+    expect(phaseEnd!["status"]).toBe("block");
+    const meta = phaseEnd!["metadata"] as Record<string, unknown> | undefined;
+    expect(meta?.["severity"]).toBe("soft");
+  });
+
+  // ---- WIRE-4: phase-end(pass) for early-pass phases 0, 1, 2, 3 ----------
+
+  test("WIRE-4 — dispatchPhase emits phase-end(pass) for each of phases 0, 1, 2, 3", () => {
+    for (const earlyPhase of ["0", "1", "2", "3"]) {
+      // Reset spy captures between iterations
+      wireWrites = [];
+      writeState({
+        task: "x",
+        complexity: "FEATURE",
+        mode: "AUTONOMOUS",
+        current_phase: earlyPhase,
+        last_updated: nowIso(),
+      });
+      dispatchPhase({ cwd: dir });
+
+      const events = wireGetEventLines();
+      const parsed = events.map(wireParseEventLine);
+
+      const phaseStart = parsed.find((e) => e["event"] === "phase-start");
+      expect(phaseStart).toBeDefined();
+      expect(phaseStart!["phase"]).toBe(earlyPhase);
+
+      const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+      expect(phaseEnd).toBeDefined();
+      expect(phaseEnd!["phase"]).toBe(earlyPhase);
+      expect(phaseEnd!["status"]).toBe("pass");
+    }
+  });
+
+  // ---- WIRE-5: phase-end(pass) for phase 8 and default branch -------------
+
+  test("WIRE-5 — dispatchPhase emits phase-end(pass) for phase 8 and unknown default", () => {
+    for (const earlyPhase of ["8", "99"]) {
+      wireWrites = [];
+      writeState({
+        task: "x",
+        complexity: "FEATURE",
+        mode: "AUTONOMOUS",
+        current_phase: earlyPhase,
+        last_updated: nowIso(),
+      });
+      dispatchPhase({ cwd: dir });
+
+      const parsed = wireGetEventLines().map(wireParseEventLine);
+
+      const phaseStart = parsed.find((e) => e["event"] === "phase-start");
+      expect(phaseStart).toBeDefined();
+      expect(phaseStart!["phase"]).toBe(earlyPhase);
+
+      const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+      expect(phaseEnd).toBeDefined();
+      expect(phaseEnd!["phase"]).toBe(earlyPhase);
+      expect(phaseEnd!["status"]).toBe("pass");
+    }
+  });
+
+  // ---- WIRE-6: checkPhase6 semantic-skip emits phase-skip before hard-block
+
+  test("WIRE-6 — checkPhase6 semantic-skip emits phase-skip event before hard-block", () => {
+    // Test the semantic-skip branch: skipped=0, total=fixed=0, scan finds a forbidden phrase.
+    // (phase_6_findings_skipped > 0 would return hardBlock before the scan — not the path we want.)
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "6",
+      last_updated: nowIso(),
+      phase_6_findings_total: "0",
+      phase_6_findings_fixed: "0",
+      phase_6_findings_skipped: "0",
+    });
+    // Write a review file with a semantic-skip phrase that the scanner will detect.
+    // Load actual phrases to pick a real one; surface load failures so setup bugs are visible.
+    const phrasesPath = join(
+      new URL(import.meta.url).pathname,
+      "..", "..", "lib", "semantic-skip-phrases.json",
+    );
+    let skipPhrase = "this will be addressed later";
+    try {
+      const phrasesData = JSON.parse(readFileSync(phrasesPath, "utf8")) as { phrases: string[] };
+      if (phrasesData.phrases.length > 0) skipPhrase = phrasesData.phrases[0]!;
+    } catch (err) {
+      throw new Error(`WIRE-6 setup: failed to load ${phrasesPath}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    writeFileSync(join(dir, "review-scan-test.md"), `# Review\n${skipPhrase}\n`);
+
+    dispatchPhase({ cwd: dir });
+
+    const parsed = wireGetEventLines().map(wireParseEventLine);
+    const phaseSkip = parsed.find((e) => e["event"] === "phase-skip");
+    expect(phaseSkip).toBeDefined();
+    expect(phaseSkip!["phase"]).toBe("6");
+
+    const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+    expect(phaseEnd).toBeDefined();
+    expect(phaseEnd!["status"]).toBe("block");
+  });
+
+  // ---- WIRE-7: duration_ms is non-negative number -------------------------
+
+  test("WIRE-7 — duration_ms in phase-end event is a non-negative number", () => {
+    writeState({
+      task: "x",
+      complexity: "TRIVIAL",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+    });
+    dispatchPhase({ cwd: dir });
+
+    const parsed = wireGetEventLines().map(wireParseEventLine);
+    const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+    expect(phaseEnd).toBeDefined();
+    expect(typeof phaseEnd!["duration_ms"]).toBe("number");
+    expect(phaseEnd!["duration_ms"] as number).toBeGreaterThanOrEqual(0);
+  });
+
+  // ---- WIRE-8: observability.enabled=false suppresses all emits -----------
+  // RED: first confirm that with observability enabled (default) at least one
+  // event fires — this assertion fails until wiring lands. The suppression
+  // half is tested in the same block to keep setup symmetric.
+
+  test("WIRE-8 — observability.enabled=false in BYTEDIGGER_CONFIG suppresses all emit events", () => {
+    writeState({
+      task: "x",
+      complexity: "TRIVIAL",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+    });
+
+    // Step 1: observability enabled (no BYTEDIGGER_CONFIG set) — events MUST fire.
+    // This assertion ensures the test fails in RED state (no wiring yet).
+    dispatchPhase({ cwd: dir });
+    const enabledEvents = wireGetEventLines();
+    expect(enabledEvents.length).toBeGreaterThan(0);
+
+    // Step 2: observability disabled — events must be suppressed.
+    wireWrites = [];
+    const cfgDir = mkdtempSync(join(tmpdir(), "wire8-cfg-"));
+    const cfgPath = join(cfgDir, "bytedigger.json");
+    writeFileSync(cfgPath, JSON.stringify({ observability: { enabled: false } }));
+    process.env.BYTEDIGGER_CONFIG = cfgPath;
+    try {
+      dispatchPhase({ cwd: dir });
+      const disabledEvents = wireGetEventLines();
+      expect(disabledEvents).toHaveLength(0);
+    } finally {
+      rmSync(cfgDir, { recursive: true, force: true });
+    }
+  });
+
+  // ---- WIRE-9: CLI smoke test emits build-complete on pass exit (spawnSync) -
+
+  test("WIRE-9 — CLI smoke test: build-complete event appears in stderr on pass exit", () => {
+    writeFileSync(join(dir, "build-state.yaml"), [
+      'task: "x"',
+      'complexity: "TRIVIAL"',
+      'mode: "AUTONOMOUS"',
+      'current_phase: "7"',
+      `last_updated: "${nowIso()}"`,
+    ].join("\n") + "\n");
+
+    const scriptPath = join(
+      new URL(import.meta.url).pathname,
+      "..",   // __tests__
+      "..",   // ts
+      "build-phase-gate.ts",
+    );
+
+    // Uninstall spy so the child's stderr flows freely through spawnSync capture.
+    wireUninstallSpy();
+    try {
+      const childEnv = { ...process.env };
+      delete childEnv.HAL_DIR;
+      delete childEnv.BYTEDIGGER_CONFIG;
+      const res = spawnSync("bun", ["run", scriptPath], {
+        cwd: dir,
+        encoding: "utf8",
+        timeout: 15000,
+        env: childEnv,
+      });
+
+      expect(res.status).toBe(0);
+
+      const stderrOutput = res.stderr ?? "";
+      const buildCompleteLines = stderrOutput
+        .split("\n")
+        .filter((l) => l.startsWith("[bytedigger:event]"));
+
+      const parsedEvents = buildCompleteLines.map((l) => {
+        const jsonPart = l.replace(/^\[bytedigger:event\]\s+/, "");
+        return JSON.parse(jsonPart) as Record<string, unknown>;
+      });
+
+      const buildComplete = parsedEvents.find((e) => e["event"] === "build-complete");
+      expect(buildComplete).toBeDefined();
+    } finally {
+      // Reinstall spy so afterEach teardown can call wireUninstallSpy safely.
+      wireInstallSpy();
+    }
+  });
+
+  // ---- WIRE-10: dispatchPhase never throws on matrix of state fixtures -----
+  // Primary assertion: never-throw regression guard (always-GREEN — safety net).
+  // Secondary assertion (RED contract): at least one [bytedigger:event] line must
+  // appear across the matrix once wiring lands. Fails in RED because dispatchPhase
+  // emits nothing yet.
+
+  test("WIRE-10 — dispatchPhase never throws on matrix of state fixtures (never-throw regression)", () => {
+    type StateFixture = Record<string, string>;
+    const fixtures: StateFixture[] = [
+      // Phase 0–3 early pass paths
+      { current_phase: "0", complexity: "FEATURE" },
+      { current_phase: "1", complexity: "TRIVIAL" },
+      { current_phase: "2", complexity: "SIMPLE" },
+      { current_phase: "3", complexity: "COMPLEX" },
+      // Phase 8 and default
+      { current_phase: "8", complexity: "FEATURE" },
+      { current_phase: "99", complexity: "FEATURE" },
+      // Phase 7 TRIVIAL pass
+      { current_phase: "7", complexity: "TRIVIAL" },
+      // Phase 7 soft block (missing review_complete)
+      { current_phase: "7", complexity: "FEATURE" },
+      // Phase 5.3 hard block (missing phase_53_green)
+      { current_phase: "5.3", complexity: "FEATURE", plan_review: "approved", opus_validation: "pass" },
+      // Phase 5.5 hard block (assertion gaming)
+      { current_phase: "5.5", complexity: "FEATURE", assertion_gaming_detected: "true" },
+    ];
+
+    for (const fixture of fixtures) {
+      const fields: Record<string, string> = {
+        task: "test",
+        mode: "AUTONOMOUS",
+        last_updated: nowIso(),
+        ...fixture,
+      };
+      writeState(fields);
+      wireWrites = [];
+
+      // Primary (always-GREEN): dispatchPhase must never throw regardless of state.
+      expect(() => dispatchPhase({ cwd: dir })).not.toThrow();
+
+      // Secondary (RED until wiring lands): per-fixture, assert both:
+      //   - a phase-start event exists, AND
+      //   - at least one of phase-end or phase-skip exists
+      // This is stronger than a total count check and catches partial emission.
+      const parsed = wireGetEventLines().map(wireParseEventLine);
+      expect(parsed.some((e) => e["event"] === "phase-start")).toBe(true);
+      expect(
+        parsed.some((e) => e["event"] === "phase-end" || e["event"] === "phase-skip"),
+      ).toBe(true);
+    }
+  });
+
+  // ---- WIRE-2b: gate-result(hard-block) from verdict-level hard block (non-global) ---
+
+  test("WIRE-2b — dispatchPhase emits gate-result(hard-block) from verdict-level hard block (non-global)", () => {
+    // Phase 5.3 with missing phase_53_green → hard block from checkPhase53, not global checks.
+    // Distinguished from WIRE-2 (global path) by: no metadata.source field in gate-result.
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "5.3",
+      last_updated: nowIso(),
+      plan_review: "approved",
+      opus_validation: "pass",
+      // phase_53_green intentionally absent → checkPhase53 returns hardBlock
+    });
+    dispatchPhase({ cwd: dir });
+
+    const parsed = wireGetEventLines().map(wireParseEventLine);
+
+    const gateResult = parsed.find((e) => e["event"] === "gate-result");
+    expect(gateResult).toBeDefined();
+    expect(gateResult!["status"]).toBe("hard-block");
+    expect(gateResult!["phase"]).toBe("5.3");
+    // No metadata.source — this is a verdict-level hard block, not a global one.
+    const grMeta = gateResult!["metadata"] as Record<string, unknown> | undefined;
+    expect(grMeta?.["source"]).toBeUndefined();
+
+    const phaseEnd = parsed.find((e) => e["event"] === "phase-end");
+    expect(phaseEnd).toBeDefined();
+    expect(phaseEnd!["status"]).toBe("block");
+    const peMeta = phaseEnd!["metadata"] as Record<string, unknown> | undefined;
+    expect(peMeta?.["severity"]).toBe("hard");
+  });
+
+  // ---- WIRE-11: mainCLI soft-block emits build-complete(soft-block) --------
+
+  test("WIRE-11 — mainCLI emits build-complete(soft-block) when Phase 4 gate soft-blocks", () => {
+    // Phase 4 with missing build-architecture.md → soft block (exit 2).
+    writeFileSync(join(dir, "build-state.yaml"), [
+      'task: "x"',
+      'complexity: "FEATURE"',
+      'mode: "AUTONOMOUS"',
+      'current_phase: "4"',
+      `last_updated: "${nowIso()}"`,
+    ].join("\n") + "\n");
+
+    const scriptPath = join(
+      new URL(import.meta.url).pathname,
+      "..",   // __tests__
+      "..",   // ts
+      "build-phase-gate.ts",
+    );
+
+    wireUninstallSpy();
+    try {
+      const childEnv = { ...process.env };
+      delete childEnv.HAL_DIR;
+      delete childEnv.BYTEDIGGER_CONFIG;
+      const res = spawnSync("bun", ["run", scriptPath], {
+        cwd: dir,
+        encoding: "utf8",
+        timeout: 15000,
+        env: childEnv,
+      });
+
+      expect(res.status).toBe(2);
+
+      const stderrLines = (res.stderr ?? "").split("\n").filter((l) => l.startsWith("[bytedigger:event]"));
+      const parsedEvents = stderrLines.map((l) => {
+        const jsonPart = l.replace(/^\[bytedigger:event\]\s+/, "");
+        return JSON.parse(jsonPart) as Record<string, unknown>;
+      });
+
+      const buildComplete = parsedEvents.find((e) => e["event"] === "build-complete");
+      expect(buildComplete).toBeDefined();
+      const meta = buildComplete!["metadata"] as Record<string, unknown> | undefined;
+      expect(meta?.["outcome"]).toBe("soft-block");
+      expect(meta?.["reason"]).toBeDefined();
+    } finally {
+      wireInstallSpy();
+    }
+  });
+
+  // ---- WIRE-12: fatal path emits build-complete(fatal) when phrases file missing -----
+  // The import.meta.main try/catch in build-phase-gate.ts wraps mainCLI() to emit
+  // build-complete(fatal) on unhandled errors. The most reliable way to trigger this
+  // path in a subprocess: point BYTEDIGGER_PHRASES_PATH at a non-existent file so
+  // loadSemanticSkipPhrases() throws during module evaluation. In Bun this causes the
+  // top-level error handler to fire (exit 1, FATAL message to stderr) before
+  // import.meta.main runs — so no build-complete event is emitted via that path.
+  //
+  // This test therefore verifies the complementary invariant: the fatal module-load
+  // error is surfaced (exit != 0, stderr contains "FATAL"), and documents that the
+  // import.meta.main catch path exists in the code for errors thrown AFTER module load.
+
+  test("WIRE-12 — fatal module-load error surfaces in stderr when phrases file is missing (catches unhandled throw pattern)", () => {
+    writeFileSync(join(dir, "build-state.yaml"), [
+      'task: "x"',
+      'complexity: "FEATURE"',
+      'mode: "AUTONOMOUS"',
+      'current_phase: "6"',
+      `last_updated: "${nowIso()}"`,
+      'phase_6_findings_total: 0',
+      'phase_6_findings_fixed: 0',
+      'phase_6_findings_skipped: 0',
+    ].join("\n") + "\n");
+
+    const scriptPath = join(
+      new URL(import.meta.url).pathname,
+      "..",   // __tests__
+      "..",   // ts
+      "build-phase-gate.ts",
+    );
+
+    wireUninstallSpy();
+    try {
+      const childEnv = { ...process.env };
+      delete childEnv.HAL_DIR;
+      delete childEnv.BYTEDIGGER_CONFIG;
+      // Point at a non-existent phrases file — loadSemanticSkipPhrases() throws FATAL.
+      childEnv.BYTEDIGGER_PHRASES_PATH = join(dir, "nonexistent-phrases.json");
+      const res = spawnSync("bun", ["run", scriptPath], {
+        cwd: dir,
+        encoding: "utf8",
+        timeout: 15000,
+        env: childEnv,
+      });
+
+      // Module-level throw → Bun exits 1, fatal message to stderr.
+      expect(res.status).toBe(1);
+      expect(res.stderr ?? "").toContain("FATAL");
+    } finally {
+      wireInstallSpy();
+    }
+  });
+});

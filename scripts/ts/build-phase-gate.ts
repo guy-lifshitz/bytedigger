@@ -32,8 +32,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { readStateField, readStateFieldOrThrow, StateReadError } from "./lib/state-reader.ts";
+import { readStateField } from "./lib/state-reader.ts";
 import { resolveConfigPath } from "./lib/config-reader.ts";
+import { emitPhaseStart, emitPhaseEnd, emitPhaseSkip, emitGateResult, emitBuildComplete } from "./lib/emit.ts";
 
 // ---------------------------------------------------------------------------
 // Types — discriminated union GateVerdict keeps illegal states unrepresentable.
@@ -641,6 +642,7 @@ function checkPhase6(cwd: string): GateVerdict {
   if (scan.count > 0 && numSkipped === 0) {
     writeStateField(statePath, "semantic_skip_check", "fail");
     writeStateField(statePath, "semantic_skip_phrases_found", String(scan.count));
+    emitPhaseSkip("6", "semantic-skip");
     return hardBlock(
       `SEMANTIC SKIP detected: ${scan.count} forbidden phrase(s) in review files (phase_6_findings_skipped=0): ${scan.details.slice(0, 3).join("; ")}`,
       "6",
@@ -697,17 +699,20 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
     return pass();
   }
 
+  // Capture dispatchStart BEFORE runGlobalPrePhaseChecks so duration includes global check time.
+  const dispatchStart = Date.now();
+  emitPhaseStart(phase);
+
   // Global checks first (complexity downgrade is hard, artifact freshness is soft)
   const global = runGlobalPrePhaseChecks(cwd);
-  if (global.hardBlock) return { ...global.hardBlock, phase };
+  if (global.hardBlock) {
+    emitGateResult(phase, "hard-block", { source: "global", reason: global.hardBlock.reason });
+    emitPhaseEnd(phase, "block", Date.now() - dispatchStart, { severity: "hard" });
+    return { ...global.hardBlock, phase };
+  }
 
   let verdict: GateVerdict;
   switch (phase) {
-    case "0":
-    case "1":
-    case "2":
-    case "3":
-      return pass(phase);
     case "0.5":
     case "05":
       verdict = checkPhase05(cwd);
@@ -744,24 +749,46 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
     case "7":
       verdict = checkPhase7(cwd);
       break;
+    case "0":
+    case "1":
+    case "2":
+    case "3":
     case "8":
-      return pass(phase);
     default:
+      emitPhaseEnd(phase, "pass", Date.now() - dispatchStart);
       return pass(phase);
   }
 
   // Merge global soft findings into the phase verdict.
+  // Separate emit path needed here: verdict may have been mutated by global-merge
+  // logic below, so emission must happen after the merge decision is final.
+  const dur = Date.now() - dispatchStart;
   if (global.missingFields.length > 0) {
     if (verdict.decision === "pass") {
+      emitGateResult(phase, "soft-block", { source: "global-merge", missing: global.missingFields });
+      emitPhaseEnd(phase, "block", dur, { severity: "soft" });
       return softBlock(joinMissing(global.missingFields), phase);
     } else if (verdict.severity === "soft") {
       const combined = [
         ...(verdict.reason ? [verdict.reason.replace(/; $/, "")] : []),
         ...global.missingFields,
       ];
+      emitGateResult(phase, "soft-block", { source: "global-merge", missing: global.missingFields });
+      emitPhaseEnd(phase, "block", dur, { severity: "soft" });
       return softBlock(joinMissing(combined), phase);
     }
-    // hard block: return as-is
+    // hard block: skip soft-merge arms; emission happens in the final decision/severity branch below.
+  }
+
+  if (verdict.decision === "pass") {
+    emitGateResult(phase, "pass");
+    emitPhaseEnd(phase, "pass", dur);
+  } else if (verdict.severity === "soft") {
+    emitGateResult(phase, "soft-block", { reason: verdict.reason });
+    emitPhaseEnd(phase, "block", dur, { severity: "soft" });
+  } else {
+    emitGateResult(phase, "hard-block", { reason: verdict.reason });
+    emitPhaseEnd(phase, "block", dur, { severity: "hard" });
   }
   return verdict;
 }
@@ -912,24 +939,30 @@ function mainCLI(): void {
     process.exit(0);
   }
 
+  const mainStart = Date.now();
+
   // Dispatch (with global checks embedded)
   const verdict = dispatchPhase({ cwd });
 
   if (verdict.decision === "pass") {
+    emitBuildComplete(getComplexity(cwd), Date.now() - mainStart, { phase, outcome: "pass" });
     return process.exit(0);
   }
   // verdict now narrows to a block arm (soft | hard).
 
   // Hard blocks exit immediately — bypass loop prevention.
   if (verdict.severity === "hard") {
+    emitBuildComplete(getComplexity(cwd), Date.now() - mainStart, { phase, outcome: "hard-block", reason: verdict.reason });
     cliOutputBlock(verdict);
   }
 
   // Soft block: apply loop prevention.
   const bypassed = loopPreventionCLI(statePath, phase);
   if (bypassed) {
+    emitBuildComplete(getComplexity(cwd), Date.now() - mainStart, { phase, outcome: "soft-bypass" });
     return process.exit(0);
   }
+  emitBuildComplete(getComplexity(cwd), Date.now() - mainStart, { phase, outcome: "soft-block", reason: verdict.reason });
   cliOutputBlock(verdict);
 }
 
@@ -938,6 +971,8 @@ if (import.meta.main) {
     mainCLI();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    // complexity is unavailable at this scope — throw may predate getComplexity resolving cwd.
+    emitBuildComplete("UNKNOWN", undefined, { outcome: "fatal", error: msg });
     emitFatalBlock(msg);
   }
 }
