@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2 — F7 (2026-04-16)
+
+#### Added
+
+- **F7: Observability emit wiring** — 12 wire points across `dispatchPhase`, `mainCLI`, and `checkPhase6` calling 5 `emit.ts` wrapper functions. Resolves dead-code gap from Sprint B where `emit.ts` existed but had zero call sites. Wire points: F7-WP-1..10 (core observability workflow), F7-WP-2b (checkPhase6 post-review), F7-WP-11 (mainCLI pre-dispatch), F7-WP-12 (mainCLI post-dispatch).
+
+#### Fixed
+
+- **Dead import removal** — Removed 9 unused imports introduced in Sprint A (`readStateFieldOrThrow`, `StateReadError`) from locations that switched to new observability API. Code tidying per Boy Scout Rule.
+- **Switch-arm optimization** — Collapsed switch statement arms in `checkPhase6` (0/1/2/3/8/default cases merged to reduce duplication per Boy Scout Rule).
+
+#### Tests
+
+- 13 new tests (WIRE-1..10, WIRE-2b, WIRE-11, WIRE-12) validating emit.ts integration. 109/109 passing.
+- Test file: ~580 lines added.
+- build-phase-gate.ts: ~55 lines added, ~12 lines modified.
+
+#### Review
+
+- 6 reviewers, 20 findings fixed. 3 deferred to Sprint C per agreement 94AF6D1F.
+- Satisfaction: 97%.
+
+#### Reference
+
+- Agreement: 44BE98DD
+
+---
+
 ### Phase 2 — Sprint B (2026-04-16)
 
 #### Added
