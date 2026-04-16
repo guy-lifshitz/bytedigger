@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Phase 2 — Sprint A (2026-04-16)
+
+#### Added
+
+- **`omitProjectContext` config flag** — Explorer and Architect agents can skip CLAUDE.md injection to save 10-45K tokens per build. Default: `false` (backward compatible). Controlled via `bytedigger.json`.
+- **TRIVIAL tier skip path** — `checkPhase7` gate now bypasses `review_complete` check for TRIVIAL complexity builds, enabling direct Phase 0 → edit → Phase 7/8 flow for trivial fixes.
+- **State-reader hardening** (F4) — New `StateReadError` class with `Error.cause` chain distinguishes file-not-found (returns `null`) from file-unreadable (throws). TOCTOU race protection via ENOENT check. Integrated into `dispatchPhase` for primary state read.
+- **Config parsing helpers** — `parseBool` for boolean fields, `parseReviewerCount` with NaN guard for numeric config values.
+- **`ByteDiggerConfig` interface export** — Now exported from main build-phase-gate module for type safety in consuming code.
+
+#### Fixed
+
+- **Cross-platform file freshness** — Changed `birthtimeMs` → `mtimeMs` for consistent file age detection across macOS and Linux.
+- **Hard-coded test paths** — Worktree path resolution now uses `import.meta.url` instead of hard-coded paths (fixes Phase 1 regression).
+- **10 Phase 6 review findings** — Standardized error logging, added numeric guards, resolved all medium-priority quality improvements.
+
+#### Tests
+
+- 43 tests passing (0 failures). State-reader: 9 new unit tests + 2 integration scenarios.
+- TRIVIAL skip path: 3 test cases confirming bypass behavior.
+
+---
+
+### Phase 1 (2026-04-15)
+
+#### Added
 
 - **TypeScript phase gate backend** (Phase 1 of ByteDigger-HALForge unification): ported HAL's TS gate engine into `scripts/ts/build-phase-gate.ts` (~824 lines) with supporting libs (`config-reader.ts`, `state-reader.ts`) and 30 TS unit tests. Bash-parity contract enforced by 26 dispatcher parity tests.
 - **`gate_backend` config flag** in `bytedigger.json` — selects gate engine (`"bash"` default, `"ts"` opt-in, `"shadow"` for A/B parity validation). Fail-closed on unknown values.

@@ -69,26 +69,34 @@ claude plugin add shtofadhor/bytedigger
 {
   "validation_model": "opus",
   "agent_model": "sonnet",
+  "exploration_model": "haiku",
   "satisfaction_thresholds": { "SIMPLE": 80, "FEATURE": 85, "COMPLEX": 90 },
   "gates_enabled": true,
   "gate_backend": "bash",
   "tdd_mandatory": true,
+  "omitProjectContext": false,
   "learning": { "backend": "file", "storage_path": ".bytedigger/learnings" }
 }
 ```
 
-### Gate backend selection
+### Configuration flags
 
-`gate_backend` selects the phase-gate engine:
+**Core gates:**
+- `gate_backend` — Phase-gate engine selection. Values:
+  - `"bash"` (default) — the original `scripts/build-phase-gate.sh` enforcer.
+  - `"ts"` — the TypeScript port at `scripts/ts/build-phase-gate.ts`, executed via `bun`. Requires `bun` on PATH; fails closed if missing.
+  - `"shadow"` — A/B mode: runs both backends, returns the bash verdict (source of truth), and logs mismatches to `.bytedigger/gate-shadow/` for parity validation. Use this for the bake period before flipping to `"ts"`.
 
-- `"bash"` (default) — the original `scripts/build-phase-gate.sh` enforcer.
-- `"ts"` — the TypeScript port at `scripts/ts/build-phase-gate.ts`, executed via `bun`. Requires `bun` on PATH; fails closed if missing.
-- `"shadow"` — A/B mode: runs both backends, returns the bash verdict (source of truth), and logs mismatches to `.bytedigger/gate-shadow/` for parity validation. Use this for the bake period before flipping to `"ts"`.
+**Agent context:**
+- `omitProjectContext` (default: `false`) — If true, Explorer and Architect agents skip CLAUDE.md injection, reducing token usage by 10-45K per build. Backward compatible; off by default.
 
-You can override the JSON flag per run with the `GATE_BACKEND` environment variable (env wins over config):
+**Per-run overrides:**
+
+You can override the gate backend with the `GATE_BACKEND` environment variable (env wins over config):
 
 ```bash
-GATE_BACKEND=ts bytedigger build "fix the thing"
+GATE_BACKEND=ts /build "fix the thing"
+GATE_BACKEND=shadow /build "compare backends"
 ```
 
 Unknown values, missing `bun`, or dispatcher errors all fail closed with a JSON block reason — the dispatcher never silently falls back.
