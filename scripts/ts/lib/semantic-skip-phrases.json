@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "description": "Forbidden semantic-skip phrases for ByteDigger review gate. Any of these in a build-review-*.md file indicates a reviewer dismissed a finding without fixing it.",
+  "phrases": [
+    "not our responsibility",
+    "not related",
+    "acceptable risk",
+    "pre-existing",
+    "out of scope",
+    "known issue",
+    "fix later",
+    "will address in follow-up",
+    "good enough",
+    "wont fix",
+    "defer",
+    "low severity, skip",
+    "low priority, skip",
+    "cosmetic",
+    "won't fix",
+    "wontfix",
+    "technical debt",
+    "acceptable for"
+  ]
+}

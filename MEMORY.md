@@ -6,7 +6,9 @@
 
 - **Phase 2 — Sprint A** ✅ DONE (2026-04-16) — PR #5 merged. Commit `1e706ed`. Features: (F1) `omitProjectContext` config flag — Explorer/Architect skip CLAUDE.md to save 10-45K tokens per build. Default: false. (F2) TRIVIAL tier skip — `checkPhase7` bypasses `review_complete` for trivial builds. (F4) State-reader hardening — `StateReadError` class + `readStateFieldOrThrow`, TOCTOU protection. Review findings: parseBool, parseReviewerCount NaN guard, birthtimeMs→mtimeMs, ByteDiggerConfig export, cross-platform consistency. Tests: 43/43. Docs updated: README (config), CHANGELOG (Phase 2 section), MEMORY. Next: flip `gate_backend` to `shadow`, then `ts` after bake.
 
-- **Phase 2 — Sprint B** — NEXT — Flip `gate_backend` default from `bash` → `shadow` for 7-day bake period, monitor `.bytedigger/gate-shadow/` for mismatches, then flip to `ts`. Add `@types/node` dev dep to clean up `tsc --noEmit` pre-existing `process is not defined` errors. Retire `scripts/build-phase-gate.sh` after `ts` is default + bake clean.
+- **Phase 2 — Sprint B** ✅ DONE (2026-04-16) — F3: Post-review gate with semantic-skip enforcement (18 forbidden phrases in semantic-skip-phrases.json, Boy Scout Rule in checkPhase6). F7: Observability events module (emit.ts, JSONL to stderr, HAL forwarding). F9: Active Work injection from MEMORY.md (10 items, 500 chars, config flag `activeWorkInjection`). F10: Reviewers config (ReviewersConfig interface, `reviewers.mode` in bytedigger.json). Tests: 96 total (53 new), 87% satisfaction. Docs: CHANGELOG (Sprint B section), README (new config flags), MEMORY updated.
+
+- **Phase 2 — Sprint C** — NEXT — Flip `gate_backend` default from `bash` → `shadow` for 7-day bake period, monitor `.bytedigger/gate-shadow/` for mismatches, then flip to `ts`. Add `@types/node` dev dep to clean up `tsc --noEmit` pre-existing `process is not defined` errors. Retire `scripts/build-phase-gate.sh` after `ts` is default + bake clean.
 
 - **Phase 3 — LATER** — HALForge becomes a thin config layer over ByteDigger TS engine (Option D). Extract shared core into a package boundary.
 

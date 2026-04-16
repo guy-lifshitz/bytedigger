@@ -75,6 +75,8 @@ claude plugin add shtofadhor/bytedigger
   "gate_backend": "bash",
   "tdd_mandatory": true,
   "omitProjectContext": false,
+  "activeWorkInjection": false,
+  "reviewers": { "mode": "auto" },
   "learning": { "backend": "file", "storage_path": ".bytedigger/learnings" }
 }
 ```
@@ -89,6 +91,15 @@ claude plugin add shtofadhor/bytedigger
 
 **Agent context:**
 - `omitProjectContext` (default: `false`) — If true, Explorer and Architect agents skip CLAUDE.md injection, reducing token usage by 10-45K per build. Backward compatible; off by default.
+
+**Memory injection:**
+- `activeWorkInjection` (default: `false`) — If true, Phase 0.5 reads `## Active Work` from project MEMORY.md and injects it into build context. Caps: 10 items, 500 chars total. Useful for tracking in-flight work across builds.
+
+**Post-review enforcement:**
+- Semantic-skip phrases are defined in `semantic-skip-phrases.json` (18 forbidden phrases). Phase 6 enforces Boy Scout Rule: if a PR description matches any phrase, gate fails closed regardless of satisfaction score.
+
+**Reviewers:**
+- `reviewers.mode` (values: `"toolkit"`, `"generic"`, `"auto"`, default: `"auto"`) — Controls reviewer agent selection. `"toolkit"` uses pr-review-toolkit if available, `"generic"` uses basic review agents, `"auto"` selects based on available dependencies.
 
 **Per-run overrides:**
 
