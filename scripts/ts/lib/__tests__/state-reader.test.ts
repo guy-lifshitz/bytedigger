@@ -1,10 +1,10 @@
 // Unit tests for state-reader.ts — bash-parity YAML field extraction.
-// Covers spec §7.3 U1–U3.
+// Covers spec §7.3 U1–U3 + Phase 2 Sprint A F4 (U4–U8).
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readStateField } from "../state-reader.ts";
+import { readStateField, readStateFieldOrThrow, StateReadError } from "../state-reader.ts";
 
 let dir: string;
 let yaml: string;
@@ -67,5 +67,68 @@ describe("readStateField — line-regex extraction (HAL parity)", () => {
   test("U3d — unquoted scalars returned as-is", () => {
     writeFileSync(yaml, "complexity: FEATURE\n");
     expect(readStateField(yaml, "complexity")).toBe("FEATURE");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4: readStateFieldOrThrow — missing vs unreadable distinction at library layer
+// Tests U4–U8 (Phase 2 Sprint A spec).
+// ---------------------------------------------------------------------------
+describe("readStateFieldOrThrow — missing vs unreadable distinction (F4)", () => {
+  test("U4 — returns null for missing file (file does not exist)", () => {
+    // Missing file must return null (not throw), same as readStateField.
+    const result = readStateFieldOrThrow(join(dir, "does-not-exist.yaml"), "anything");
+    expect(result).toBeNull();
+  });
+
+  test("U5 — throws StateReadError for unreadable file (chmod 000)", () => {
+    // Unreadable file (permission denied) must throw StateReadError,
+    // NOT return null. This is the key distinction vs readStateField.
+    writeFileSync(yaml, "task: x\n");
+    chmodSync(yaml, 0o000);
+    try {
+      expect(() => readStateFieldOrThrow(yaml, "task")).toThrow(StateReadError);
+    } finally {
+      // Restore permissions so afterEach rmSync can clean up.
+      chmodSync(yaml, 0o644);
+    }
+  });
+
+  test("U6 — returns field value for valid readable file", () => {
+    writeFileSync(yaml, 'complexity: "FEATURE"\n');
+    const result = readStateFieldOrThrow(yaml, "complexity");
+    expect(result).toBe("FEATURE");
+  });
+
+  test("U7 — StateReadError message contains the file path", () => {
+    writeFileSync(yaml, "task: x\n");
+    chmodSync(yaml, 0o000);
+    try {
+      let caught: unknown = null;
+      try {
+        readStateFieldOrThrow(yaml, "task");
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(StateReadError);
+      if (caught instanceof StateReadError) {
+        expect(caught.message).toContain(yaml);
+      }
+    } finally {
+      chmodSync(yaml, 0o644);
+    }
+  });
+
+  test("U8 — readStateField (original) still returns null for unreadable file (regression)", () => {
+    // readStateField must NOT be changed to throw — it must remain null-returning
+    // for unreadable files. This test ensures F4 does not regress existing behavior.
+    writeFileSync(yaml, "task: x\n");
+    chmodSync(yaml, 0o000);
+    try {
+      const result = readStateField(yaml, "task");
+      expect(result).toBeNull();
+    } finally {
+      chmodSync(yaml, 0o644);
+    }
   });
 });

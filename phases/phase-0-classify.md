@@ -107,7 +107,7 @@ If `/build continue` was invoked:
 
 ## Complexity Classification
 
-- **TRIVIAL**: docs/config edit <10 lines -> direct edit, skip pipeline
+- **TRIVIAL**: docs/config edit <10 lines → write `build-state.yaml` with `complexity: TRIVIAL` and `mode: AUTONOMOUS`, do direct edit, then proceed directly to Phase 7 (skips Phases 1–6; Phase 7 gate bypasses `review_complete` and `phase_5_implement` checks for TRIVIAL)
 - **SIMPLE**: bug fix ONLY — fixing broken behavior, 1-3 files, clear root cause, NO new functionality. Examples: null pointer fix, typo fix, broken import, test fix. If the task adds ANY new behavior or capability → it is NOT SIMPLE.
 - **FEATURE**: adds new functionality OR changes existing behavior, any file count, clear spec -> AUTONOMOUS mode, full pipeline. Examples: new endpoint, new UI component, new skill, refactoring a module, adding a config option. **DEFAULT for ambiguous cases** — when in doubt, classify as FEATURE, not SIMPLE.
 - **COMPLEX**: 4+ files, architecture/refactor/design, ambiguous scope, cross-cutting concerns -> SUPERVISED mode, full pipeline
@@ -173,7 +173,7 @@ Display: `Profile: DEVOPS | Type: [Terraform/Docker/K8s/etc.]`
 1. Project context check
 2. DevOps detection
 3. Classify complexity (TRIVIAL / SIMPLE / FEATURE / COMPLEX)
-4. If TRIVIAL: direct edit, stop
+4. If TRIVIAL: write `build-state.yaml` fields (`complexity: TRIVIAL`, `mode: AUTONOMOUS`), do the direct edit, then skip ahead to Phase 7 (do NOT run Phases 1–6)
 5. Create todo list with phases (SIMPLE skips Phases 2-4)
 6. Determine and display mode: `Mode: [AUTONOMOUS|SUPERVISED] -- [reason] | Complexity: [level]`
 7. Look up model allocation from the Model Allocation table based on complexity level
