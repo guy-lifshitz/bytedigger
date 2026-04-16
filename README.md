@@ -220,6 +220,54 @@ bats tests/build-gate.bats
 | `tests/security-scan.bats` | 8 |
 | `tests/ship-protocol.bats` | 12 |
 
+## Observability & Events
+
+The gate engine emits structured JSONL events to stderr on every phase transition, enabling real-time observability of the build pipeline.
+
+**Event Format:** Each event is written to stderr with the prefix `[bytedigger:event]` followed by JSON, one line per event:
+
+```
+[bytedigger:event] {"event":"phase-start","phase":"5","timestamp":"2026-04-16T14:23:45.123Z"}
+[bytedigger:event] {"event":"phase-end","phase":"5","status":"pass","duration_ms":2341,"timestamp":"2026-04-16T14:26:26.456Z"}
+```
+
+**Event Types:** Five event types document the full gate lifecycle:
+
+| Event | Purpose |
+|-------|---------|
+| `phase-start` | Phase began (no pre-gate duration) |
+| `phase-end` | Phase concluded with verdict (pass/block) |
+| `phase-skip` | Phase skipped (SIMPLE tier, TRIVIAL complexity) |
+| `gate-result` | Gate verdict (pass/soft-block/hard-block) |
+| `build-complete` | Build finished (all phases done or fatal error) |
+
+**Common Payload Fields:**
+
+- `event` (string) — Event type from list above
+- `phase` (string, optional) — Phase identifier (0, 0.5, 1, …, 7, 8)
+- `status` (string, optional) — Gate verdict (`pass`, `block`, `soft-block`, `hard-block`) or complexity tier
+- `duration_ms` (number, optional) — Milliseconds elapsed
+- `metadata` (object, optional) — Contextual details (see `docs/events.md`)
+- `timestamp` (string, ISO 8601) — UTC wall-clock time
+
+**Enable/Disable:** Events are enabled by default. Control via `bytedigger.json`:
+
+```json
+{
+  "observability": { "enabled": false }
+}
+```
+
+**HAL Forwarding:** If `HAL_DIR` environment variable is set, the gate engine also forwards `phase-start` and `phase-done` (mapped from `phase-end` with `status=pass`) events to HAL's forge emit subprocess for orchestrator consumption. Forwarding is fire-and-forget with a 500ms timeout cap; emission to stderr always succeeds independently.
+
+**Consumer Example:** Extract and parse events from a build log:
+
+```bash
+bun run gate ... 2>&1 | grep '^\[bytedigger:event\]' | sed 's/^\[bytedigger:event\] //' | jq
+```
+
+See [docs/events.md](docs/events.md) for complete event schema, metadata vocabulary, HAL mapping semantics, and wiring architecture.
+
 ## Learning System
 
 Post-build learnings are extracted by the synthesizer agent and stored in `.bytedigger/learnings/`. Phase 0.5 injects relevant learnings from previous builds into the current context.
