@@ -20,7 +20,9 @@ Before starting Phase 7, orchestrator MUST verify in `build-state.yaml`:
 - `review_complete: pass` — Phase 6 quality review passed
 - `phase_5_implement: complete` — Implementation finished
 
-If either field is missing → **STOP. Previous phase incomplete.**
+**TRIVIAL bypass:** If `complexity: TRIVIAL` in `build-state.yaml`, skip both checks above — TRIVIAL builds do not run Phase 6 review or Phase 5 implementation, so neither field will be set. Proceed directly to synthesis and state cleanup.
+
+If either field is missing (and complexity is NOT TRIVIAL) → **STOP. Previous phase incomplete.**
 
 Document results and summarize the build.
 

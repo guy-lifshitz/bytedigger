@@ -20,6 +20,7 @@
   "tdd_mandatory": true,
   "worktree_auto": true,
   "constitution_path": "./constitution.md",
+  "omitProjectContext": false,
   "logging": false,
   "learning": {
     "backend": "file",

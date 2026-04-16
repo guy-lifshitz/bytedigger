@@ -1,5 +1,5 @@
 // Unit tests for build-phase-gate.ts — per-phase dispatch contract.
-// Covers spec §7.3 U4–U10 + the four shadow-mode fix regressions (§6.4):
+// Covers spec §7.3 U4–U12 + the four shadow-mode fix regressions (§6.4):
 //   - 42f72651 EAGAIN retry / fail-closed bun
 //   - f4feb1b2 Phase 0.5 alignment / posix_spawn ENOENT
 //   - 30583611 volume reduction (only mismatches)
@@ -353,9 +353,12 @@ describe("CLI invocation — fail-closed posix_spawn ENOENT (commit 42f72651/f4f
       current_phase: "4",
       last_updated: nowIso(),
     });
+    // F5: resolve script path relative to this test file, not a hard-coded worktree name.
     const scriptPath = join(
-      savedCwd.includes("phase1-ts-gates") ? savedCwd : "/Users/guylifshitz/Projects/bytedigger/.batch-worktrees/phase1-ts-gates",
-      "scripts/ts/build-phase-gate.ts",
+      new URL(import.meta.url).pathname,
+      "..",  // __tests__
+      "..",  // ts
+      "build-phase-gate.ts",
     );
     const res = spawnSync("bun", ["run", scriptPath], {
       cwd: dir,
@@ -363,5 +366,87 @@ describe("CLI invocation — fail-closed posix_spawn ENOENT (commit 42f72651/f4f
       timeout: 15000,
     });
     expect(res.status).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F2: TRIVIAL complexity skip in checkPhase7
+// Spec: when complexity=TRIVIAL, checkPhase7 must return PASS even without
+// review_complete. regression: SIMPLE still soft-blocks. disablePhase7 wins.
+// ---------------------------------------------------------------------------
+describe("checkPhase7 — TRIVIAL complexity skip (F2)", () => {
+  test("U9 — complexity=TRIVIAL returns PASS even without review_complete", () => {
+    writeState({
+      task: "x",
+      complexity: "TRIVIAL",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+      // review_complete intentionally absent
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("pass");
+    expect(v.exit_code).toBe(0);
+  });
+
+  test("U10 — complexity=TRIVIAL with review_complete=fail still returns pass", () => {
+    writeState({
+      task: "x",
+      complexity: "TRIVIAL",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+      review_complete: "fail",
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("pass");
+    expect(v.exit_code).toBe(0);
+  });
+
+  test("U12 — complexity=SIMPLE without review_complete still soft-blocks (regression)", () => {
+    writeState({
+      task: "x",
+      complexity: "SIMPLE",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+      // review_complete intentionally absent
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("block");
+    expect(v.severity).toBe("soft");
+    expect(v.exit_code).toBe(2);
+  });
+
+  test("U11 — disablePhase7=true takes priority over TRIVIAL check (returns PASS via config skip)", () => {
+    // disablePhase7=true in config means checkPhase7 returns pass() immediately,
+    // regardless of complexity. This test verifies the short-circuit path.
+    // We write complexity=SIMPLE (would soft-block under normal path) and set
+    // BYTEDIGGER_CONFIG to a file with disablePhase7:true.
+    const cfgDir = mkdtempSync(join(tmpdir(), "bpg-cfg-"));
+    const cfgPath = join(cfgDir, "bytedigger.json");
+    writeFileSync(cfgPath, JSON.stringify({ disablePhase7: true }));
+    const savedBytediggerConfig = process.env.BYTEDIGGER_CONFIG;
+    process.env.BYTEDIGGER_CONFIG = cfgPath;
+    try {
+      writeState({
+        task: "x",
+        complexity: "SIMPLE",
+        mode: "AUTONOMOUS",
+        current_phase: "7",
+        last_updated: nowIso(),
+        // review_complete intentionally absent — would soft-block without disablePhase7
+      });
+      const v = dispatchPhase({ cwd: dir });
+      expect(v.decision).toBe("pass");
+      expect(v.exit_code).toBe(0);
+    } finally {
+      if (savedBytediggerConfig === undefined) {
+        delete process.env.BYTEDIGGER_CONFIG;
+      } else {
+        process.env.BYTEDIGGER_CONFIG = savedBytediggerConfig;
+      }
+      rmSync(cfgDir, { recursive: true, force: true });
+    }
   });
 });

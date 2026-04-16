@@ -33,7 +33,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { readStateField } from "./lib/state-reader.ts";
+import { readStateField, readStateFieldOrThrow, StateReadError } from "./lib/state-reader.ts";
 import { resolveConfigPath } from "./lib/config-reader.ts";
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ export function hardBlock(
 // Config (bytedigger.json) — used by CLI; dispatchPhase itself is pure.
 // ---------------------------------------------------------------------------
 
-interface ByteDiggerConfig {
+export interface ByteDiggerConfig {
   readonly gates_enabled: boolean;
   readonly tdd_mandatory: boolean;
   readonly simple_reviewers: number;
@@ -112,9 +112,27 @@ interface ByteDiggerConfig {
    * `gate_phase_7` in build-gate.sh.
    */
   readonly disablePhase7: boolean;
+  /**
+   * omitProjectContext — when true, Explorer agents in Phase 2 must NOT
+   * include CLAUDE.md / project context in their prompts. Useful for projects
+   * where the global context is noisy or irrelevant to the exploration task.
+   * Default false: project context is included (standard behavior).
+   */
+  readonly omitProjectContext: boolean;
 }
 
-function loadConfig(): ByteDiggerConfig {
+function parseBool(val: unknown, defaultVal: boolean): boolean {
+  if (val === true || val === "true") return true;
+  if (val === false || val === "false") return false;
+  return defaultVal;
+}
+
+function parseReviewerCount(val: unknown, defaultVal: number): number {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : defaultVal;
+}
+
+export function loadConfig(): ByteDiggerConfig {
   const defaults: ByteDiggerConfig = {
     gates_enabled: true,
     tdd_mandatory: true,
@@ -122,6 +140,7 @@ function loadConfig(): ByteDiggerConfig {
     feature_reviewers: 6,
     complex_reviewers: 6,
     disablePhase7: false,
+    omitProjectContext: false,
   };
   let path: string;
   try {
@@ -135,12 +154,13 @@ function loadConfig(): ByteDiggerConfig {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     return {
-      gates_enabled: parsed.gates_enabled !== false,
-      tdd_mandatory: parsed.tdd_mandatory !== false,
-      simple_reviewers: Number(parsed.simple_reviewers ?? 3),
-      feature_reviewers: Number(parsed.feature_reviewers ?? 6),
-      complex_reviewers: Number(parsed.complex_reviewers ?? 6),
+      gates_enabled: parsed.gates_enabled !== false && parsed.gates_enabled !== "false",
+      tdd_mandatory: parsed.tdd_mandatory !== false && parsed.tdd_mandatory !== "false",
+      simple_reviewers: parseReviewerCount(parsed.simple_reviewers ?? 3, 3),
+      feature_reviewers: parseReviewerCount(parsed.feature_reviewers ?? 6, 6),
+      complex_reviewers: parseReviewerCount(parsed.complex_reviewers ?? 6, 6),
       disablePhase7: parsed.disablePhase7 === true,
+      omitProjectContext: parseBool(parsed.omitProjectContext, false),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -201,8 +221,7 @@ export function runGlobalPrePhaseChecks(cwd: string): GlobalResult {
     let stateMtime = 0;
     try {
       const s = statSync(statePath);
-      stateMtime = Math.floor((s.birthtimeMs || s.mtimeMs) / 1000);
-      if (stateMtime <= 0) stateMtime = Math.floor(s.mtimeMs / 1000);
+      stateMtime = Math.floor(s.mtimeMs / 1000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -550,8 +569,15 @@ function checkPhase7(cwd: string): GateVerdict {
   // review_complete != "pass" → soft block. TS mirrors that behavior.
   // The disablePhase7 escape hatch skips the check entirely (reserved for
   // future learning-DB wiring — see ByteDiggerConfig.disablePhase7).
+  //
+  // F2: TRIVIAL builds skip Phase 6 review entirely, so review_complete is
+  // never set. Return pass immediately for TRIVIAL complexity.
   const cfg = loadConfig();
   if (cfg.disablePhase7) return pass("7");
+
+  const complexity = getComplexity(cwd);
+  if (complexity === "TRIVIAL") return pass("7");
+
   const statePath = join(cwd, "build-state.yaml");
   const v = (readStateField(statePath, "review_complete") ?? "").trim();
   if (v !== "pass") {

@@ -64,6 +64,8 @@ Exploration agents get:
 - Feature request, keywords, constitution
 - They do NOT get: prior conversations, architecture decisions
 
+**`omitProjectContext` flag:** If `omitProjectContext: true` is set in `bytedigger.json`, do NOT include CLAUDE.md or any project context in Explorer agent prompts. This is useful when the global context is noisy or irrelevant to the exploration task. Default behavior (false) includes project context.
+
 **Output Schema:** End your report with: `Scope:` / `Result:` / `Key files:` / `Files changed:` / `Issues:`. Do NOT emit text between tool calls — work silently, report once at the end. Write findings to scratchpad BEFORE reporting.
 
 ## Agent Status Protocol
