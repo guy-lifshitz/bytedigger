@@ -16,6 +16,8 @@ SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[
 
 Deep review using specialized reviewer agents and Opus satisfaction scoring.
 
+**LAUNCH RULE (applies to EVERY Agent / Task call in this phase — reviewer panel, first fix agent, subsequent fresh fix agent for remaining findings, COMPLEX 3-Opus evaluators, SIMPLE/FEATURE single Opus satisfaction):** Pass `run_in_background: true`. No exceptions, including sequential launches. Orchestrator never pauses on "end-your-response" from a bg agent — it continues with next non-overlapping work (state update, scratchpad write, next-agent spawn). Gate hard-blocks still stop the pipeline; anti-pause only forbids wrongful waits.
+
 **WORKER AGENT CONSTRAINTS (include in every fix-agent prompt):**
 - You are a fix worker inside /build pipeline. Use Edit/Write/Bash directly.
 - NEVER call Skill tool (you don't have access, attempts waste turns).
@@ -246,10 +248,8 @@ You fix **everything you find**, not just what you changed:
 2. Launch Task agent to fix **EVERY** finding on the list (CRITICAL + HIGH + MEDIUM). Agent prompt MUST include:
    - **"Fix ALL findings. Every finding passed confidence >=80 and severity >=MEDIUM filters — they are all real issues. Report each fix with file:line."**
    - **TEST INTEGRITY: If fixing a finding causes tests to fail, fix the CODE — never adjust test assertions to match broken behavior. Tests verify spec behavior. The only valid reason to change a test is if the SPEC changed."**
-3. **Orchestrator validates:** If agent reports "fixed N of M" where N < M → spawn **fresh fix agent** with remaining findings:
-   - **Try SendMessage first** (agent may still be alive for same-phase continuation)
-   - **If SendMessage fails** (agent already completed) → spawn fresh Task agent with full context
-   - Either way, prompt MUST include the actual remaining findings:
+3. **Orchestrator validates:** If agent reports "fixed N of M" where N < M → spawn **fresh Task agent** with `run_in_background: true` (NEVER SendMessage to the previous fix agent — per `sendmessage_silent_resume` learning, SendMessage to a completed agent silently auto-resumes with empty context and gets lost; always spawn fresh with `Agent(name: new, run_in_background: true)`):
+   - Prompt MUST include the actual remaining findings:
    ```
    You are a fix agent in Phase 6 Review. [N] of [M] findings were fixed. [M-N] remain.
    REMAINING FINDINGS (from review agents):

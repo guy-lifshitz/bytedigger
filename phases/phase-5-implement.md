@@ -16,6 +16,8 @@ SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[
 
 Build the feature via Task agents. Never write code directly as orchestrator.
 
+**LAUNCH RULE (applies to EVERY Agent / Task call in this phase — RED delegate, Gherkin writer, Opus validator, GREEN spawn, boy-scout re-anchor, Test Integrity Opus reviewer, COMPLEX worker dispatch):** Pass `run_in_background: true`. No exceptions, including sequential launches. Orchestrator never pauses on "end-your-response" from a bg agent — it continues with next non-overlapping work (state update, next-phase prep, checkpoint write). Gate hard-blocks still stop the pipeline; anti-pause only forbids wrongful waits.
+
 **WORKER AGENT CONSTRAINTS (include in every Task agent prompt):**
 - You are a worker inside /build pipeline. Use Edit/Write/Bash directly.
 - NEVER call Skill tool (you don't have access, attempts waste turns).
