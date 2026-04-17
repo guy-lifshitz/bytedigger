@@ -6,12 +6,19 @@
 //   - c33d8a93 complexity downgrade hard block
 // (U1–U3 live in lib/__tests__/state-reader.test.ts.)
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, utimesSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, utimesSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { dispatchPhase, loopPreventionCLI } from "../build-phase-gate.ts";
 import type { GateVerdict } from "../build-phase-gate.ts";
+import { StateReadError } from "../lib/state-reader.ts";
+// checkPhase4 + checkPhase53 are exported — namespace import gives us a single
+// import point for both named and namespace-style access. Tests F4-3 and F4-4
+// exercise those exports directly.
+import * as _gate from "../build-phase-gate.ts";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _gateAny = _gate as any;
 
 // Compile-time regression: the discriminated union must reject illegal
 // exit_code / severity / mutation states. These lines exist solely to fail
@@ -1010,5 +1017,176 @@ describe("F7 — emit wiring: stderr observability events fire on lifecycle", ()
     } finally {
       wireInstallSpy();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4 TOCTOU wiring — 5 scenarios (all GREEN)
+//
+// Wires readStateFieldOrThrow + StateReadError into build-phase-gate.ts.
+// checkPhase4 and checkPhase53 are exported; dispatchPhase throws StateReadError
+// for chmod-000 YAML; mainCLI emits "state file unreadable" to stderr.
+// ---------------------------------------------------------------------------
+
+describe("F4 TOCTOU wiring", () => {
+  let f4Dir: string;
+  let f4StatePath: string;
+
+  beforeEach(() => {
+    f4Dir = mkdtempSync(join(tmpdir(), "f4-toctou-"));
+    f4StatePath = join(f4Dir, "build-state.yaml");
+  });
+
+  afterEach(() => {
+    // Permissions are always restored inside each test's try/finally, but
+    // we add a best-effort restore here as a safety net before cleanup.
+    try { chmodSync(f4StatePath, 0o644); } catch (_) { /* already restored or file absent */ }
+    rmSync(f4Dir, { recursive: true, force: true });
+  });
+
+  // F4-1: dispatchPhase with chmod-000 YAML must throw StateReadError.
+  // After GREEN: line 707 uses readStateFieldOrThrow; StateReadError bubbles out of dispatchPhase.
+  // RED: readStateField returns null silently — dispatchPhase returns pass(), does not throw.
+  test("F4-1 — dispatchPhase with chmod-000 build-state.yaml throws StateReadError with correct filePath", () => {
+    writeFileSync(f4StatePath, [
+      'task: "x"',
+      'complexity: "FEATURE"',
+      'mode: "AUTONOMOUS"',
+      'current_phase: "4"',
+    ].join("\n") + "\n");
+    chmodSync(f4StatePath, 0o000);
+    try {
+      try {
+        dispatchPhase({ cwd: f4Dir });
+        expect.unreachable("expected StateReadError to be thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(StateReadError);
+        expect((err as StateReadError).filePath).toBe(f4StatePath);
+      }
+    } finally {
+      chmodSync(f4StatePath, 0o644);
+    }
+  });
+
+  // F4-2a: defense-in-depth regression guard for the existsSync early-return at :720
+  // that precedes the readStateFieldOrThrow at :727. A missing state file must never
+  // throw — dispatchPhase must return a pass() verdict.
+  test("F4-2a — dispatchPhase with missing build-state.yaml returns pass verdict (defense-in-depth regression guard)", () => {
+    // f4StatePath does NOT exist — we deliberately skip writeFileSync.
+    const verdict = dispatchPhase({ cwd: f4Dir });
+    expect(verdict.decision).toBe("pass");
+  });
+
+  // F4-2b: export-contract check — checkPhase4 must be exported in GREEN state.
+  test("F4-2b — checkPhase4 is exported (export contract)", () => {
+    expect(typeof _gateAny.checkPhase4).toBe("function");
+  });
+
+  // F4-3: checkPhase4 with chmod-000 YAML must return a hard-block verdict with
+  // reason containing "scratchpad_dir".
+  // Exercises the try/catch at readStateFieldOrThrow via direct checkPhase4 invocation —
+  // hard-blocks with reason referencing the unreadable field (scratchpad_dir).
+  test("F4-3 — checkPhase4 with chmod-000 build-state.yaml returns hard-block verdict naming scratchpad_dir", () => {
+    writeFileSync(f4StatePath, [
+      'task: "x"',
+      'complexity: "FEATURE"',
+      'current_phase: "4"',
+    ].join("\n") + "\n");
+    chmodSync(f4StatePath, 0o000);
+    let verdict: GateVerdict;
+    try {
+      verdict = _gateAny.checkPhase4(f4Dir) as GateVerdict;
+    } finally {
+      chmodSync(f4StatePath, 0o644);
+    }
+    expect(verdict.decision).toBe("block");
+    expect(verdict.severity).toBe("hard");
+    expect(verdict.reason).toMatch(/scratchpad_dir/);
+  });
+
+  // F4-4: checkPhase53 with chmod-000 YAML must return a hard-block verdict with
+  // reason containing "phase_53_green".
+  // Exercises the try/catch at readStateFieldOrThrow via direct checkPhase53 invocation —
+  // hard-blocks with reason referencing the unreadable field (phase_53_green).
+  test("F4-4 — checkPhase53 with chmod-000 build-state.yaml returns hard-block verdict naming phase_53_green", () => {
+    writeFileSync(f4StatePath, [
+      'task: "x"',
+      'complexity: "FEATURE"',
+      'current_phase: "5.3"',
+    ].join("\n") + "\n");
+    chmodSync(f4StatePath, 0o000);
+    let verdict: GateVerdict;
+    try {
+      verdict = _gateAny.checkPhase53(f4Dir) as GateVerdict;
+    } finally {
+      chmodSync(f4StatePath, 0o644);
+    }
+    expect(verdict.decision).toBe("block");
+    expect(verdict.severity).toBe("hard");
+    expect(verdict.reason).toMatch(/phase_53_green/);
+  });
+
+  // F4-5: CLI (spawnSync) with chmod-000 YAML must exit 1, emit "state file unreadable"
+  // to stderr, and write a hard-block JSON verdict to stdout.
+  // After GREEN: import.meta.main catch adds StateReadError branch → emitFatalBlock
+  // with message "state file unreadable: <path>: <err.message>".
+  // RED: mainCLI returns pass() (readStateField null-tolerant) → exit 0, no stderr message.
+  test("F4-5 — CLI with chmod-000 build-state.yaml exits 1, stderr matches /state file unreadable/, stdout contains hard-block JSON", () => {
+    writeFileSync(f4StatePath, [
+      'task: "x"',
+      'complexity: "FEATURE"',
+      'mode: "AUTONOMOUS"',
+      'current_phase: "4"',
+    ].join("\n") + "\n");
+    chmodSync(f4StatePath, 0o000);
+
+    const scriptPath = join(
+      new URL(import.meta.url).pathname,
+      "..",   // __tests__
+      "..",   // ts
+      "build-phase-gate.ts",
+    );
+
+    let res: ReturnType<typeof spawnSync>;
+    try {
+      const childEnv = { ...process.env };
+      delete childEnv.HAL_DIR;
+      delete childEnv.BYTEDIGGER_CONFIG;
+      res = spawnSync("bun", ["run", scriptPath], {
+        cwd: f4Dir,
+        encoding: "utf8",
+        timeout: 15000,
+        env: childEnv,
+      });
+    } finally {
+      chmodSync(f4StatePath, 0o644);
+    }
+
+    expect(res.status).toBe(1);
+    expect(res.stderr ?? "").toMatch(/state file unreadable/);
+
+    // stdout must contain a valid JSON object with decision=block, severity=hard.
+    const stdoutTrimmed = (res.stdout ?? "").trim();
+    expect(stdoutTrimmed).toBeTruthy();
+    const parsed = JSON.parse(stdoutTrimmed) as Record<string, unknown>;
+    expect(parsed["decision"]).toBe("block");
+    expect(parsed["severity"]).toBe("hard");
+
+    // Observability contract: stderr must contain a build-complete event with
+    // outcome="fatal" and a filePath field (guards emitBuildComplete payload shape).
+    const stderrLines = (res.stderr ?? "").split("\n");
+    const eventLines = stderrLines.filter((l) => l.startsWith("[bytedigger:event]"));
+    const parsedEvents = eventLines.map((l) => {
+      try {
+        return JSON.parse(l.replace(/^\[bytedigger:event\]\s+/, "")) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    }).filter(Boolean) as Record<string, unknown>[];
+    const buildComplete = parsedEvents.find((e) => e["event"] === "build-complete");
+    expect(buildComplete).toBeDefined();
+    const meta = buildComplete!["metadata"] as Record<string, unknown> | undefined;
+    expect(meta?.["outcome"]).toBe("fatal");
+    expect(meta?.["filePath"]).toBeDefined();
   });
 });

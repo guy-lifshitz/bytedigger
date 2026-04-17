@@ -32,7 +32,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { readStateField } from "./lib/state-reader.ts";
+import { readStateField, readStateFieldOrThrow, StateReadError } from "./lib/state-reader.ts";
 import { resolveConfigPath } from "./lib/config-reader.ts";
 import { emitPhaseStart, emitPhaseEnd, emitPhaseSkip, emitGateResult, emitBuildComplete } from "./lib/emit.ts";
 
@@ -348,7 +348,7 @@ function fieldMissing(
   return null;
 }
 
-function checkPhase4(cwd: string): GateVerdict {
+export function checkPhase4(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
   const missing: string[] = [];
 
@@ -356,7 +356,17 @@ function checkPhase4(cwd: string): GateVerdict {
   if (m) missing.push(m);
 
   // scratchpad_stale: research dir must contain findings-*.md
-  const scratchpad = (readStateField(statePath, "scratchpad_dir") ?? "").trim();
+  // Use OrThrow here so an unreadable state file produces a hard block rather than
+  // being silently treated as field-missing (which would let the gate pass).
+  let scratchpad: string;
+  try {
+    scratchpad = (readStateFieldOrThrow(statePath, "scratchpad_dir") ?? "").trim();
+  } catch (err) {
+    if (err instanceof StateReadError) {
+      return hardBlock(`FATAL: build-state.yaml unreadable (scratchpad_dir): ${err.message}`, "4");
+    }
+    throw err;
+  }
   if (scratchpad) {
     const researchDir = join(scratchpad, "research");
     let hasFindings = false;
@@ -571,9 +581,19 @@ function checkPhase52(cwd: string): GateVerdict {
   return pass("5.2");
 }
 
-function checkPhase53(cwd: string): GateVerdict {
+export function checkPhase53(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
-  const green = (readStateField(statePath, "phase_53_green") ?? "").trim();
+  // Use OrThrow here so an unreadable state file produces a hard block rather than
+  // being silently treated as field-missing (which would let the gate pass).
+  let green: string;
+  try {
+    green = (readStateFieldOrThrow(statePath, "phase_53_green") ?? "").trim();
+  } catch (err) {
+    if (err instanceof StateReadError) {
+      return hardBlock(`FATAL: build-state.yaml unreadable (phase_53_green): ${err.message}`, "5.3");
+    }
+    throw err;
+  }
   if (green !== "complete") {
     return hardBlock(
       "phase_53_green not complete — GREEN phase must pass before proceeding",
@@ -704,7 +724,9 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
     return pass();
   }
 
-  const phase = (readStateField(statePath, "current_phase") ?? "").trim();
+  // readStateFieldOrThrow: null on ENOENT (not-a-build-session) vs StateReadError on read failed.
+  // Empty phase also means not-a-build-session; unreadable file throws to caller.
+  const phase = (readStateFieldOrThrow(statePath, "current_phase") ?? "").trim();
   if (!phase) {
     return pass();
   }
@@ -915,8 +937,9 @@ function cliOutputBlock(
 
 function emitFatalBlock(msg: string): never {
   // Top-level fatal: emit JSON hard block to stdout so the harness sees a
-  // real verdict, not an empty pipe. Matches dispatcher bun-not-found path
-  // and cliOutputBlock shape (via toWirePayload).
+  // real verdict, not an empty pipe. Matches dispatcher bun-not-found path,
+  // cliOutputBlock shape (via toWirePayload), and the StateReadError branch
+  // in the import.meta.main catch.
   const payload = toWirePayload(hardBlock(`gate fatal: ${msg}`));
   process.stdout.write(JSON.stringify(payload) + "\n");
   process.stderr.write(`[build-phase-gate] fatal: ${msg}\n`);
@@ -949,7 +972,8 @@ function mainCLI(): void {
     );
   }
 
-  const phase = (readStateField(statePath, "current_phase") ?? "").trim();
+  // readStateFieldOrThrow: StateReadError bubbles to import.meta.main catch → StateReadError branch.
+  const phase = (readStateFieldOrThrow(statePath, "current_phase") ?? "").trim();
   if (!phase) {
     process.stderr.write(
       "WARN: build-state.yaml has no current_phase — skipping gate\n",
@@ -990,6 +1014,12 @@ if (import.meta.main) {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     // complexity is unavailable at this scope — throw may predate getComplexity resolving cwd.
+    if (err instanceof StateReadError) {
+      // State file exists but is unreadable (e.g. permission denied).
+      // Relies on emitFatalBlock: never. If return type regresses, restore explicit return to prevent double-emit below.
+      emitBuildComplete("UNKNOWN", undefined, { outcome: "fatal", error: err.message, filePath: err.filePath });
+      emitFatalBlock(`state file unreadable: ${err.filePath}: ${err.message}`);
+    }
     emitBuildComplete("UNKNOWN", undefined, { outcome: "fatal", error: msg });
     emitFatalBlock(msg);
   }
