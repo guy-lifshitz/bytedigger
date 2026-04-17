@@ -375,3 +375,37 @@ The following enhancements are documented in agreement **94AF6D1F** (Sprint C ba
 - **emitVerdict helper** — A convenience function to emit gate-result + phase-end atomically, reducing wiring code duplication
 
 See MEMORY.md or `bash SYSTEM/cli/agreements/show 94AF6D1F` for details.
+
+---
+
+## PhaseEndMetadata & missingFields (addendum)
+
+### `missingFields` on `phase-end` metadata
+
+When `runGlobalPrePhaseChecks()` returns a non-empty `missingFields` array, the dispatcher propagates it into the `phase-end` event `metadata` under the key `missingFields`:
+
+```json
+{"event":"phase-end","phase":"5","status":"block","duration_ms":36,"metadata":{"severity":"soft","source":"global-merge","missingFields":["billing.plan","user.tier"]},"timestamp":"..."}
+```
+
+Key properties:
+- `missingFields` is emitted only when the array is non-empty. The `global.missingFields.length > 0` guard inside `dispatchPhase` ensures empty arrays are never serialized.
+- This key exists on `phase-end` metadata only. It enables a single `jq` filter on `phase-end` without having to correlate with the preceding `gate-result` event.
+- See `PhaseEndMetadata` in `scripts/ts/lib/emit.ts` for the authoritative type.
+
+### `missing` on `gate-result` is UNCHANGED
+
+The `missing` key on `gate-result` events (emitted via `emitGateResult`) is **not renamed** and remains `missing`. Both keys coexist:
+
+| Event | Key | Type |
+|---|---|---|
+| `gate-result` | `missing` | `string[]` |
+| `phase-end` | `metadata.missingFields` | `string[]` |
+
+Do not conflate `gate-result.missing` with `phase-end.metadata.missingFields` — they carry the same field names but are on separate event types. The naming divergence is a known wart that will not be reconciled because `gate-result.missing` is a stable public key.
+
+### `emitVerdict` → `emitGateResult` (spec term mapping)
+
+The spec term `emitVerdict` used in earlier design documents maps to the existing implementation symbol `emitGateResult` (exported from `scripts/ts/lib/emit.ts`). No rename or new function was introduced.
+
+`emitGateResult` is invoked in `dispatchPhase` at every terminal branch — hard-block (global and phase-level), soft-block (global-merge and phase-level), and pass — and nowhere else.

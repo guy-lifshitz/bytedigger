@@ -19,6 +19,7 @@ import {
   emitGateResult,
   emitBuildComplete,
 } from "../lib/emit.ts";
+import type { PhaseEndMetadata } from "../lib/emit.ts";
 
 // ---------------------------------------------------------------------------
 // Spy infrastructure — capture stderr writes per-test
@@ -211,5 +212,43 @@ describe("F7 — emit.ts: observability.enabled=false suppresses output", () => 
     } finally {
       rmSync(cfgDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E11, E13 — PhaseEndMetadata typed metadata tests
+// ---------------------------------------------------------------------------
+
+describe("F7 — emit.ts: PhaseEndMetadata typed metadata (E11, E13)", () => {
+  beforeEach(() => {
+    installStderrSpy();
+  });
+
+  afterEach(() => {
+    uninstallStderrSpy();
+  });
+
+  test("E11 — emitPhaseEnd JSONL includes missingFields when metadata has non-empty missingFields", () => {
+    emitPhaseEnd("test-phase", "block", 100, {
+      severity: "soft",
+      missingFields: ["fieldA", "fieldB"],
+    });
+
+    const lines = getEventLines();
+    expect(lines).toHaveLength(1);
+    const payload = parseEventLine(lines[0]!);
+    const metadata = payload["metadata"] as Record<string, unknown>;
+    expect(Array.isArray(metadata["missingFields"])).toBe(true);
+    expect(metadata["missingFields"]).toEqual(["fieldA", "fieldB"]);
+  });
+
+  test("E13 — PhaseEndMetadata rejects invalid severity at compile time (runtime shape assertion)", () => {
+    // @ts-expect-error: "medium" is not assignable to PhaseEndSeverity
+    const badMeta: PhaseEndMetadata = { severity: "medium" };
+    // Runtime assertion: valid shapes still serialize correctly
+    const goodMeta: PhaseEndMetadata = { severity: "soft", source: "test" };
+    expect(goodMeta.severity).toBe("soft");
+    // Suppress unused variable warning
+    void badMeta;
   });
 });

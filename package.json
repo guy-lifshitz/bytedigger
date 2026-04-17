@@ -8,5 +8,9 @@
     "test:ts": "bun test scripts/ts/__tests__",
     "typecheck": "tsc --noEmit",
     "gate": "bun run scripts/ts/build-phase-gate.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "bun-types": "^1.3.12"
   }
 }

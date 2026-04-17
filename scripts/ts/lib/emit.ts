@@ -30,7 +30,8 @@ export interface EmitPayload {
   readonly phase?: string;
   readonly status?: string;
   readonly duration_ms?: number;
-  readonly metadata?: Record<string, unknown>;
+  /** Accepts any object shape — typed wrappers (e.g. PhaseEndMetadata) are assignable without an index signature. */
+  readonly metadata?: object;
   readonly timestamp: string;
 }
 
@@ -83,7 +84,7 @@ export function emitEvent(
     if (payload.status !== undefined) jsonObj.status = payload.status;
     if (payload.duration_ms !== undefined) jsonObj.duration_ms = payload.duration_ms;
     if (payload.metadata !== undefined && Object.keys(payload.metadata).length > 0) {
-      jsonObj.metadata = payload.metadata;
+      jsonObj.metadata = payload.metadata as Record<string, unknown>;
     }
     jsonObj.timestamp = timestamp;
 
@@ -139,13 +140,44 @@ export function emitPhaseStart(phase: string, metadata?: Record<string, unknown>
   emitEvent({ event: "phase-start", phase, metadata });
 }
 
+export type PhaseEndSeverity = "soft" | "hard";
+
+/**
+ * Typed metadata for `phase-end` events emitted by `emitPhaseEnd`.
+ *
+ * Invariants (enforced by convention in dispatchPhase; not expressible purely in the type):
+ * - `severity` is expected on `status:"block"` emissions; omit on `status:"pass"`.
+ * - `missingFields` is meaningful only when `source === "global-merge"`.
+ * - `missingFields` MUST be non-empty when present; callers must omit the key for empty arrays.
+ *   (Defense-in-depth: `emitPhaseEnd` strips `missingFields: []` internally.)
+ * - `reason` pairs with hard-block and soft-block verdicts and carries a human-readable string.
+ *
+ * The index signature has been intentionally omitted. Extend this interface explicitly
+ * when new metadata keys are needed — closed interfaces are trivially extensible in TypeScript
+ * and prevent silent typos (e.g. `servrity`) from compiling undetected.
+ */
+export interface PhaseEndMetadata {
+  severity?: PhaseEndSeverity;
+  missingFields?: readonly string[];
+  source?: string;
+  reason?: string;
+}
+
 export function emitPhaseEnd(
   phase: string,
   status: "pass" | "block",
   duration_ms: number,
-  metadata?: Record<string, unknown>,
+  metadata?: PhaseEndMetadata,
 ): void {
-  emitEvent({ event: "phase-end", phase, status, duration_ms, metadata });
+  // Defense-in-depth: strip missingFields if the caller passes an empty array.
+  // The dispatcher already guards this, but never-throw callers elsewhere should not
+  // produce {"missingFields":[]} in the JSONL stream. Never throws.
+  let sanitized = metadata;
+  if (metadata?.missingFields !== undefined && metadata.missingFields.length === 0) {
+    const { missingFields: _dropped, ...rest } = metadata;
+    sanitized = rest as PhaseEndMetadata;
+  }
+  emitEvent({ event: "phase-end", phase, status, duration_ms, metadata: sanitized });
 }
 
 export function emitPhaseSkip(phase: string, reason?: string): void {

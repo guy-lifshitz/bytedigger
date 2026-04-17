@@ -44,6 +44,16 @@ import { emitPhaseStart, emitPhaseEnd, emitPhaseSkip, emitGateResult, emitBuildC
 // for the decision / severity / exit-code vocabulary. Changing e.g. Severity
 // here propagates to the discriminated union and to hardBlock's Extract<>.
 export type Decision = "pass" | "block";
+/**
+ * Severity classifies GateVerdict block outcomes: "soft" allows a downgrade
+ * (sprint continues with warning), "hard" halts the build immediately.
+ *
+ * Note: `emit.ts` exports `PhaseEndSeverity = "soft" | "hard"` for the same
+ * string values in a different context (phase-end metadata). They cannot be
+ * unified here without a dependency cycle inversion (emit.ts must not import
+ * from build-phase-gate.ts). Both types are intentional — Severity drives gate
+ * logic; PhaseEndSeverity labels observability metadata.
+ */
 export type Severity = "soft" | "hard";
 export type ExitCode = 0 | 1 | 2;
 
@@ -707,7 +717,11 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
   const global = runGlobalPrePhaseChecks(cwd);
   if (global.hardBlock) {
     emitGateResult(phase, "hard-block", { source: "global", reason: global.hardBlock.reason });
-    emitPhaseEnd(phase, "block", Date.now() - dispatchStart, { severity: "hard" });
+    emitPhaseEnd(phase, "block", Date.now() - dispatchStart, {
+      severity: "hard",
+      source: "global",
+      reason: global.hardBlock.reason,
+    });
     return { ...global.hardBlock, phase };
   }
 
@@ -764,17 +778,21 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
   // logic below, so emission must happen after the merge decision is final.
   const dur = Date.now() - dispatchStart;
   if (global.missingFields.length > 0) {
+    // Shared emission payloads for the soft global-merge arms below.
+    const gateMeta = { source: "global-merge", missing: global.missingFields };
+    const phaseEndMeta = { severity: "soft" as const, source: "global-merge", missingFields: global.missingFields };
+
     if (verdict.decision === "pass") {
-      emitGateResult(phase, "soft-block", { source: "global-merge", missing: global.missingFields });
-      emitPhaseEnd(phase, "block", dur, { severity: "soft" });
+      emitGateResult(phase, "soft-block", gateMeta);
+      emitPhaseEnd(phase, "block", dur, phaseEndMeta);
       return softBlock(joinMissing(global.missingFields), phase);
     } else if (verdict.severity === "soft") {
       const combined = [
         ...(verdict.reason ? [verdict.reason.replace(/; $/, "")] : []),
         ...global.missingFields,
       ];
-      emitGateResult(phase, "soft-block", { source: "global-merge", missing: global.missingFields });
-      emitPhaseEnd(phase, "block", dur, { severity: "soft" });
+      emitGateResult(phase, "soft-block", gateMeta);
+      emitPhaseEnd(phase, "block", dur, phaseEndMeta);
       return softBlock(joinMissing(combined), phase);
     }
     // hard block: skip soft-merge arms; emission happens in the final decision/severity branch below.
