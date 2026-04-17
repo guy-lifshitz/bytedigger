@@ -118,6 +118,7 @@ Unknown values, missing `bun`, or dispatcher errors all fail closed with a JSON 
 - No integration with project management (Linear, Jira, GitHub Issues)
 - Requires Claude Code (not standalone)
 - python3 optional (state guard hook, gracefully degrades without)
+- SQLite backend for learning system requires sqlite3, openssl, python3 (hard deps when `backend: sqlite`)
 - Gate enforcement requires hooks -- works as Claude Code plugin only
 
 ## Requirements
@@ -127,6 +128,11 @@ Unknown values, missing `bun`, or dispatcher errors all fail closed with a JSON 
 
 **Optional:**
 - python3 — State guard hook (gracefully degrades without)
+
+**SQLite learning backend (required when `backend: sqlite`):**
+- sqlite3 — DB engine
+- openssl — ID generation (`openssl rand -hex 8`)
+- python3 — JSON extraction from `bytedigger.json` config
 
 **DevOps validation tools** — Only needed if working with infrastructure code (.tf, Dockerfile, K8s YAML, etc.). Phase 5.6 DevOps validation runs only when these files are detected. If tools aren't installed, validation is skipped gracefully.
 - terraform — Infrastructure-as-code validation
@@ -176,7 +182,8 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 |--------|---------|
 | `scripts/build-gate.sh` | Phase gate enforcement — validates phase transitions in build-state.yaml |
 | `scripts/pre-build-gate.sh` | Pre-build checks — worktree policy, session collision detection |
-| `scripts/learning-store.sh` | Read/write learnings from .bytedigger/learnings/ |
+| `scripts/learning-store.sh` | Learning-store dispatcher — selects file or sqlite backend, `exec`s delegate |
+| `scripts/learning-store-sqlite.sh` | SQLite learning-store delegate — inject/extract backed by sqlite3 CLI |
 | `scripts/ship.sh` | SHIP protocol — commit, push, open PR after build |
 | `scripts/security-scan.sh` | Security scan runner for Phase 0.5 |
 | `scripts/post-deploy.sh` | Post-deploy cleanup (prune branches, temp files, merged worktrees) |
@@ -214,6 +221,7 @@ bats tests/build-gate.bats
 | `tests/build-gate.bats` | 19 |
 | `tests/build-state-guard.bats` | 20 |
 | `tests/learning-store.bats` | 20 |
+| `tests/learning-store-sqlite.bats` | 9 |
 | `tests/post-deploy-cleanup.bats` | 19 |
 | `tests/post-deploy.bats` | 3 |
 | `tests/pre-build-gate.bats` | 8 |
@@ -277,6 +285,26 @@ Default backend: `file`. Configurable via `bytedigger.json`:
 ```json
 "learning": { "backend": "file", "storage_path": ".bytedigger/learnings" }
 ```
+
+### SQLite backend (F6)
+
+Set `backend: "sqlite"` and provide a DB path to use the SQLite learning-store delegate:
+
+```json
+"learning": { "backend": "sqlite", "storage_path": ".bytedigger/learnings" }
+```
+
+Override the DB path at runtime with `LEARNING_DB_URL`:
+
+```bash
+LEARNING_DB_URL=/path/to/learnings.db /build "my feature"
+```
+
+When `LEARNING_DB_URL` is set, it takes precedence over `bytedigger.json` config. The dispatcher (`scripts/learning-store.sh`) selects the backend and `exec`s the delegate (`scripts/learning-store-sqlite.sh`). Schema: 13-column `learning_entries` table with `UNIQUE(pattern, approach)` constraint (see `tests/fixtures/learning-schema.sql`).
+
+**Hard deps for sqlite backend:** `sqlite3`, `openssl`, `python3` must be on PATH. Failure without these deps is closed (non-zero exit), not a silent fallback.
+
+The `scripts/learning-store.sh` script also writes `learning_backend: sqlite` to `build-state.yaml` on each inject so the post-build gate can assert backend selection.
 
 ## Read More
 

@@ -78,17 +78,30 @@ _write_state() {
   local key="$2"
   local value="$3"
   local state_file="$cwd/build-state.yaml"
+  local tmp="${state_file}.tmp"
 
-  {
+  if ! {
     if [ -f "$state_file" ]; then
-      grep -v "^${key}:" "$state_file" || true
+      grep -v "^${key}:" "$state_file" 2>/dev/null || {
+        local g=$?
+        [ "$g" -gt 1 ] && echo "[learning-store] ERROR: state-file grep failed rc=${g} on ${state_file}" >&2
+        true
+      }
     fi
     echo "${key}: ${value}"
-  } > "${state_file}.tmp" && mv "${state_file}.tmp" "$state_file" || true
-}
+  } > "$tmp"; then
+    echo "[learning-store] ERROR: state-file tmp-write failed: ${tmp} (key=${key})" >&2
+    rm -f "$tmp" 2>/dev/null
+    return 1
+  fi
 
-# NOTE: tag generation and category sanitization are handled inline
-# within the python3 block in cmd_extract() for reliability.
+  if ! mv "$tmp" "$state_file"; then
+    echo "[learning-store] ERROR: state-file atomic-rename failed: ${tmp} -> ${state_file} (key=${key})" >&2
+    rm -f "$tmp" 2>/dev/null
+    return 1
+  fi
+  return 0
+}
 
 # ---------------------------------------------------------------------------
 # Section 2: inject subcommand
@@ -135,7 +148,7 @@ cmd_inject() {
       exec "$sqlite_script" inject "$keywords" --config "$config_file"
     else
       # sqlite script not present — fall back to none silently
-      _write_state "$cwd" "learning_skip_reason" "sqlite_unavailable" || true
+      _write_state "$cwd" "learning_skip_reason" "sqlite_unavailable"
       exit 0
     fi
   fi
@@ -279,7 +292,7 @@ cmd_extract() {
     if [ -x "$sqlite_script" ]; then
       exec "$sqlite_script" extract "$scratchpad_dir" --config "$config_file"
     else
-      _write_state "$cwd" "learning_skip_reason" "sqlite_unavailable" || true
+      _write_state "$cwd" "learning_skip_reason" "sqlite_unavailable"
       exit 0
     fi
   fi
@@ -413,9 +426,6 @@ PYEOF
   _write_state "$cwd" "learnings_extracted" "$extracted_count" || true
   exit 0
 }
-
-# NOTE: Trimming is handled inline within the python3 block in cmd_extract()
-# via the trim_entries() function (no separate shell wrapper needed).
 
 # ---------------------------------------------------------------------------
 # Section 4: argument parsing + dispatch
