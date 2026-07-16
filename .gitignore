@@ -27,3 +27,7 @@ dist/
 .hal-build/
 engine_py/build/
 engine_py/*.egg-info/
+
+# HAL orchestrator state -- never commit
+MEMORY.md
+.hal-orchestrator-pid
