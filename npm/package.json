@@ -1,0 +1,17 @@
+{
+  "name": "bytedigger",
+  "version": "0.1.0",
+  "description": "Pointer package for ByteDigger — a verified agentic TDD engine (Python). See the GitHub repo for the real thing.",
+  "keywords": ["tdd", "agents", "llm", "code-generation", "verification"],
+  "homepage": "https://github.com/guy-lifshitz/bytedigger",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guy-lifshitz/bytedigger.git"
+  },
+  "license": "MIT",
+  "author": "Guy Lifshitz",
+  "bin": {
+    "bytedigger": "bin/bytedigger.js"
+  },
+  "files": ["bin/", "README.md"]
+}
