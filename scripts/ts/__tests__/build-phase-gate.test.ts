@@ -25,13 +25,11 @@ const _gateAny = _gate as any;
 // `tsc --noEmit` if the union ever loosens; if any @ts-expect-error stops
 // triggering, the test file itself will fail to type-check.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _illegalPassExit: GateVerdict =
-  // @ts-expect-error exit_code 1 is illegal on a pass verdict
-  { decision: "pass", exit_code: 1 };
+// @ts-expect-error exit_code 1 is illegal on a pass verdict
+const _illegalPassExit: GateVerdict = { decision: "pass", exit_code: 1 };
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _blockMissingSeverity: GateVerdict =
-  // @ts-expect-error block verdict requires a severity discriminator
-  { decision: "block", exit_code: 1, reason: "x" };
+// @ts-expect-error block verdict requires a severity discriminator
+const _blockMissingSeverity: GateVerdict = { decision: "block", exit_code: 1, reason: "x" };
 function _mutateVerdict(v: GateVerdict): void {
   // @ts-expect-error decision is readonly
   v.decision = "pass";
@@ -72,6 +70,7 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("soft");
     expect(v.exit_code).toBe(2);
   });
@@ -88,6 +87,7 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.exit_code).toBe(1);
   });
@@ -106,6 +106,7 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
     );
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.exit_code).toBe(1);
     expect(v.reason || "").toMatch(/complexity|downgrade|bypass.*4/i);
@@ -129,6 +130,7 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
     utimesSync(join(dir, "build-state.yaml"), future, future);
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("soft");
     expect(v.exit_code).toBe(2);
     expect(v.reason || "").toMatch(/stale|freshness|bypass.*12/i);
@@ -161,6 +163,7 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("soft");
     expect(v.exit_code).toBe(2);
   });
@@ -179,6 +182,7 @@ describe("dispatchPhase — phase routing & exit code contract", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.exit_code).toBe(1);
   });
@@ -195,6 +199,7 @@ describe("dispatchPhase — Phase 0.5 alignment (commit f4feb1b2)", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
   });
 
   test("phase 0.5 with pre_build_gate=fail explicitly → soft block naming pre_build_gate", () => {
@@ -209,6 +214,7 @@ describe("dispatchPhase — Phase 0.5 alignment (commit f4feb1b2)", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("soft");
     expect(v.reason || "").toMatch(/pre_build_gate/);
   });
@@ -224,6 +230,7 @@ describe("dispatchPhase — Phase 0.5 alignment (commit f4feb1b2)", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("soft");
     expect(v.reason || "").toMatch(/phase_05_learnings/);
   });
@@ -255,6 +262,7 @@ describe("dispatchPhase — phase 5.3 hardness exception (HAL line 795)", () => 
       opus_validation: "pass",
     });
     const v = dispatchPhase({ cwd: dir });
+    if (v.decision !== "block") throw new Error("expected block verdict, got pass");
     expect(v.severity).toBe("hard");
     expect(v.exit_code).toBe(1);
   });
@@ -421,6 +429,7 @@ describe("checkPhase7 — TRIVIAL complexity skip (F2)", () => {
     });
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("soft");
     expect(v.exit_code).toBe(2);
   });
@@ -1100,6 +1109,7 @@ describe("F4 TOCTOU wiring", () => {
       chmodSync(f4StatePath, 0o644);
     }
     expect(verdict.decision).toBe("block");
+    if (verdict.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(verdict.severity).toBe("hard");
     expect(verdict.reason).toMatch(/scratchpad_dir/);
   });
@@ -1122,6 +1132,7 @@ describe("F4 TOCTOU wiring", () => {
       chmodSync(f4StatePath, 0o644);
     }
     expect(verdict.decision).toBe("block");
+    if (verdict.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(verdict.severity).toBe("hard");
     expect(verdict.reason).toMatch(/phase_53_green/);
   });
@@ -1147,7 +1158,7 @@ describe("F4 TOCTOU wiring", () => {
       "build-phase-gate.ts",
     );
 
-    let res: ReturnType<typeof spawnSync>;
+    let res: import("node:child_process").SpawnSyncReturns<string>;
     try {
       const childEnv = { ...process.env };
       delete childEnv.HAL_DIR;

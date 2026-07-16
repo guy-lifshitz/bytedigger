@@ -129,6 +129,7 @@ describe("F3 — Post-Review Gate: Boy Scout Rule", () => {
     const v = dispatchPhase({ cwd: dir });
 
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.exit_code).toBe(1);
     expect(v.reason).toMatch(/phase_6_findings_skipped/);
@@ -144,6 +145,7 @@ describe("F3 — Post-Review Gate: Boy Scout Rule", () => {
     const v = dispatchPhase({ cwd: dir });
 
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.exit_code).toBe(1);
     expect(v.reason).toMatch(/Boy Scout Rule/i);
@@ -193,6 +195,7 @@ describe("F3 — Post-Review Gate: Semantic phrase detection", () => {
     const v = dispatchPhase({ cwd: dir });
 
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.exit_code).toBe(1);
     expect(v.reason).toMatch(/SEMANTIC SKIP/i);
@@ -212,6 +215,7 @@ describe("F3 — Post-Review Gate: Semantic phrase detection", () => {
     const v = dispatchPhase({ cwd: dir });
 
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.reason).toMatch(/SEMANTIC SKIP/i);
   });
@@ -228,6 +232,7 @@ describe("F3 — Post-Review Gate: Semantic phrase detection", () => {
     const v = dispatchPhase({ cwd: dir });
 
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     // Must be the findings_skipped block, not SEMANTIC SKIP
     expect(v.reason).toMatch(/phase_6_findings_skipped/);
     expect(v.reason).not.toMatch(/SEMANTIC SKIP/i);
@@ -246,6 +251,7 @@ describe("F3 — Post-Review Gate: Semantic phrase detection", () => {
 
     // Semantic phrase "technical debt" must trigger hard block
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.reason).toMatch(/SEMANTIC SKIP/i);
   });
@@ -261,6 +267,7 @@ describe("F3 — Post-Review Gate: Semantic phrase detection", () => {
     const v = dispatchPhase({ cwd: dir });
 
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.reason).toMatch(/SEMANTIC SKIP/i);
   });
@@ -305,6 +312,7 @@ describe("F3 — Post-Review Gate: Semantic phrase detection", () => {
 
     // "pre-existing" and "technical debt" are forbidden phrases — must be detected
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     expect(v.reason).toMatch(/SEMANTIC SKIP/i);
   });
@@ -379,6 +387,7 @@ describe("F3 — Post-Review Gate: State writes (writeStateField idempotency)", 
 
     // Hard block because phrases found and skipped=0
     expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable: decision asserted above");
     expect(v.severity).toBe("hard");
     const state = readState();
     // semantic_skip_phrases_found must be written with the count (2 phrases)

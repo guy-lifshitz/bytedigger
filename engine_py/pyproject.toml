@@ -26,7 +26,7 @@ classifiers = [
 dependencies = ["typing_extensions>=4"]
 
 [project.optional-dependencies]
-dbos = ["dbos==2.22.0"]
+dbos = ["dbos==2.27.0"]
 # pyyaml: lazy runtime import in ac_dsl.py (yaml AC-block parsing); 8 AC-DSL
 # tests fail without it (GH877)
 test = ["pytest>=8", "pytest-timeout>=2.4.0", "pyyaml>=6"]
