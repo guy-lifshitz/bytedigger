@@ -2,8 +2,6 @@
 
 <p align="center"><img src="docs/assets/bytedigger-title.png" alt="ByteDigger" width="480"></p>
 
-**Everybody lies. The gates don't.**
-
 The review loop exists because you can't trust the code and can't afford the laps. ByteDigger removes both reasons.
 
 Coding agents lie like everyone else: they'll mock the very unit you asked them to test, then report green with a straight face. You can keep paying a review loop to catch them lap after lap -- or you can catch the lie before the code exists. That's the whole idea here. The spec compiles into checks a machine can run, failing tests survive a hostile audit before anyone writes the implementation, and the expensive model gets spent once -- on the build, not on the do-overs.
