@@ -24,3 +24,4 @@ build/
 dist/
 *.log
 .pytest_cache/
+.hal-build/

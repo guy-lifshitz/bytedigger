@@ -58,6 +58,17 @@ try:
     _pydantic_openai_backend_mod.register()  # explicit (idempotent, overwrite=True); raises ImportError w/ pip-extra hint if pydantic_ai absent — swallowed here
 except Exception:
     pass  # reference battery optional; minimal-core packages / no-pydantic_ai installs may omit it
+try:
+    import lib.reference_backends.pydantic_anthropic as _pydantic_anthropic_backend_mod  # noqa: F401  — GH860 reference backend
+    _pydantic_anthropic_backend_mod.register()  # explicit (idempotent, overwrite=True); raises ImportError w/ pip-extra hint if pydantic_ai/anthropic absent — swallowed here
+except Exception:
+    pass  # reference battery optional; minimal-core packages / no-pydantic_ai/anthropic installs may omit it
+try:
+    import lib.reference_backends.agent_sdk as _agent_sdk_backend_mod  # noqa: F401  — GH885 reference backend
+    _agent_sdk_backend_mod.register()  # explicit (idempotent, overwrite=True); raises ImportError w/ pip hint if claude_agent_sdk absent — swallowed here
+except Exception as _agent_sdk_reg_err:
+    import logging  # noqa: PLC0415 — local import, module-level import order untouched
+    logging.getLogger(__name__).debug("agent-sdk reference backend unavailable: %s", _agent_sdk_reg_err)  # optional battery; no-claude-agent-sdk installs omit it
 
 
 def make_engine(event_log_path: str | None = None) -> WorkflowEngine:

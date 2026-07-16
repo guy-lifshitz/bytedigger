@@ -1,0 +1,13 @@
+# Gitleaks config. Extends the default ruleset; allowlist below covers
+# known non-secrets only.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets"
+regexes = [
+    # Claude Code public OAuth client_id (shipped in every CLI install, not a
+    # credential) -- referenced by lib/reference_backends/anthropic_oauth.py.
+    '''9d1c250a-e61b-44d9-88ed-5944d1962f5e''',
+]
