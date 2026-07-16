@@ -4,22 +4,24 @@
 
 The review loop exists because you can't trust the code and can't afford the laps. ByteDigger removes both reasons.
 
-Coding agents lie like everyone else: they'll mock the very unit you asked them to test, then report green with a straight face. You can keep paying a review loop to catch them lap after lap -- or you can catch the lie before the code exists. That's the whole idea here. The spec compiles into checks a machine can run, failing tests survive a hostile audit before anyone writes the implementation, and the expensive model gets spent once -- on the build, not on the do-overs.
-
 > [Shrinking the Human in the Loop](docs/article.md) -- the story of how this pipeline came to be.
 
-## Why this is different
+## What it is
 
-Four familiar ways to get AI-written code, one shared flaw:
+ByteDigger is a software factory: a CI that drives a Python state machine through the whole SDLC -- research, spec, failing tests, implementation, review -- with TDD at the core and agents as replaceable workers inside. The spec compiles into machine-runnable checks, so "done" is a table of checks passing, not anyone's judgment. That is what buys the autonomy: the pipeline runs unattended because the checks don't need you, not because you trust the agent. Maximally autonomous because maximally deterministic.
 
-- **Coding agents** -- Copilot, Cursor, Claude Code on its own -- write the tests, write the code, run the tests, report green. They grade their own homework.
-- **Agent frameworks and harnesses** orchestrate the calls, then take the agent's word that the work is done.
-- **AI review loops** add a second model to check the first. Same training, same blind spots: when a test gets bent to match broken code, writer and reviewer both call it green.
-- **Software factories** loop agents at scale for throughput: autonomous, and blind. A dumb factory ships unverified work faster.
+## Why the other factories are blind
 
-ByteDigger is the pipeline itself: a CI that drives a Python state machine through the whole SDLC, built on TDD, the spec compiled into checks a machine can run. That is what buys the autonomy -- the pipeline runs unattended not because you trust the agent, but because the checks don't need you. A smart factory, maximally autonomous because maximally deterministic -- checks that run as code, not as another model's opinion:
+Four familiar ways to get AI-written code, and the bill each one hands you:
 
-| | typical agent stack | ByteDigger |
+- **Coding agents** -- Copilot, Cursor, Claude Code on its own -- write the tests, write the code, run the tests, report green. Green means nothing, so you re-read all 400 lines anyway.
+- **Agent frameworks and harnesses** orchestrate the calls, then take the agent's word that the work is done. More code, faster, and the same re-reading bill.
+- **AI review loops** add a second model to check the first. You pay tokens per lap, and the reviewer misses what the writer missed -- same training, same blind spots.
+- **Software factories** loop agents at scale for throughput. The same blindness, multiplied: a backlog of merges nobody verified.
+
+ByteDigger verifies the acceptance signal itself, with checks that run as code, not as another model's opinion:
+
+| | typical factory | ByteDigger |
 |---|---|---|
 | who verifies the work | the agent; you trust its report | the engine runs the tests in a subprocess it owns and checks every claim against the real git diff |
 | gamed tests | a test that mocks its own unit ships; assertions bend to match reality | deterministic lints reject both, no model involved |
@@ -30,11 +32,11 @@ ByteDigger is the pipeline itself: a CI that drives a Python state machine throu
 
 `pip install -e engine_py`, run the [keyless demo](examples/verified-tdd-run/), point it at your own LLM in [20 lines](examples/library/custom_backend.py). Also ships as a Claude Code plugin (`/build`).
 
-## Security first, shift left
+## The two pillars
 
-The usual fix is a review loop after generation: expensive, slow to converge, reviewer and writer sharing blind spots. ByteDigger moves the checks to before the code exists. The spec freezes with an AC table and a file allowlist, so scope drift dies at write time. Failing tests face a hostile audit before a single line of implementation.
+**Security shifts left.** The spec freezes with an AC table and a file allowlist, so scope drift dies at write time. Failing tests face a hostile audit before a single line of implementation. Secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt: allowlist validation, argument-vector subprocess calls, parameterized queries, path containment. A deterministic semgrep + gitleaks gate scans what lands; a changed Dockerfile, Kubernetes manifest, or Terraform file routes the build into a fail-closed scan and adds a CIS/OWASP/SLSA devops reviewer alongside the OWASP Top 10 one. A mypy gate holds the typing line: a change that adds new type errors does not pass. Reviewers still run at the end; the design goal is that they find nothing.
 
-The generated code itself is held to a security standard, not just scanned after the fact. Secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt: allowlist validation, argument-vector subprocess calls, parameterized queries, path containment. A deterministic semgrep + gitleaks gate scans what lands. The review panel includes an OWASP Top 10 security reviewer; a changed Dockerfile, Kubernetes manifest, or Terraform file routes the build into a fail-closed scan and adds a CIS/OWASP/SLSA devops reviewer. A mypy gate holds the typing line: a change that adds new type errors does not pass. Reviewers still run at the end; the design goal is that they find nothing.
+**Economics run deterministic-first.** Every check lives at the cheapest layer that can produce it -- regex, AST, a diff, a byte count -- and a model gets called only when code cannot decide. When a gate fails, a cheap model drafts the repair and the gate re-runs as the authority, so the expensive model is spent once, on the build. A crashed build resumes from its event log and never repays a completed model call. The spend is not vibes: cost and token rollups per run, phase, and cycle come straight from that log.
 
 ## The pipeline
 
@@ -65,21 +67,15 @@ The mechanisms doing the heavy lifting, each one shipping as code in `engine_py/
 - **Durable resume** -- success-only sentinels plus an append-only event log with replay; a sticky error can never replay as progress.
 - **Learning loop** -- phase 7 extracts categorized learnings from each build; an injection step feeds them, plus a project constitution and security rules, into the next build's context.
 
-## What's in the box
-
-The core is a sequential workflow engine (`engine_py/`) with phases registered as workflows: research, spec, implement (the RED/gate/GREEN loop), review, synthesize. State comes from replaying an append-only JSONL event log -- there is no mutable state file to drift or race.
-
-The spec itself has a machine-readable half. Alongside the prose, an `AC-checks` yaml block maps each acceptance criterion to a mechanical check from a closed registry -- file-contains, command-exit-code and friends -- validated at spec-freeze time and executed as code, so "done" is the AC table passing rather than anyone's judgment. A criterion that can't live without judgment has to declare itself as one (`llm_rubric`), which keeps the escape hatch visible instead of ambient. Specs stop being documentation that drifts; they compile.
-
-The engine installs with zero runtime dependencies and no LLM vendor baked in. Anthropic, Azure OpenAI, and Claude Code backends ship as references; plugging in your own is [about 20 lines](examples/library/custom_backend.py).
-
 ## Under the hood
 
-The pipeline sketch above is seven boxes; the engine behind it is 27 workflow modules, phase 0 research through phase 8 post-deploy -- including a spec-lite lane for small tasks, a DevOps pipeline, integrity and smoke phases, and a review fastpath for simple changes. When the changed files include a Dockerfile, Kubernetes manifest, Terraform, or CI config, phase 0.6 detects the artifact type and routes the build into a fail-closed security scan whose allowlist waivers carry expiry dates.
+The pipeline sketch above is seven boxes; the engine behind it is 27 workflow modules, phase 0 research through phase 8 post-deploy -- including a spec-lite lane for small tasks, a DevOps pipeline, integrity and smoke phases, and a review fastpath for simple changes. The engine installs with zero runtime dependencies and no LLM vendor baked in.
+
+The spec itself has a machine-readable half. Alongside the prose, an `AC-checks` yaml block maps each acceptance criterion to a mechanical check from a closed registry -- file-contains, command-exit-code and friends -- validated at spec-freeze time and executed as code. A criterion that can't live without judgment has to declare itself as one (`llm_rubric`), which keeps the escape hatch visible instead of ambient. Specs stop being documentation that drifts; they compile.
 
 Beyond the headline lints above, the deterministic set includes spec-cite (every path:line citation in the spec verified against the real repository before freeze), net-new delta (the RED-to-GREEN improvement must be net-new passes, not reshuffled counts), token-consistency, presence-triad, re-entry AC, suite-safety, and forbidden-import -- each one a codified post-mortem. A test-integrity diff guard classifies post-RED test edits and hard-fails on assertion gaming; a scope lint flags implementation writes outside the spec's file allowlist.
 
-When a gate fails, a cheap model fronts the FAIL branch to draft the repair; the gate re-runs afterwards and stays the correctness authority. A restart governor caps re-invocation (and knows a crash-start from a gate-start), and every subprocess goes through one spawn chokepoint with a mandatory timeout, so an unbounded hang is impossible by construction. An optional DBOS backend adds durable run listing and status. Cost and token rollups per run, phase, and cycle come straight from the event log, and every REVISE or FAIL reason lands in durable JSONL ledgers -- a reject log and a spec-defect ledger with a bounded reroute budget for specs that turn out defective.
+A restart governor caps re-invocation (and knows a crash-start from a gate-start), and every subprocess goes through one spawn chokepoint with a mandatory timeout, so an unbounded hang is impossible by construction. An optional DBOS backend adds durable run listing and status. Every REVISE or FAIL reason lands in durable JSONL ledgers -- a reject log and a spec-defect ledger with a bounded reroute budget for specs that turn out defective.
 
 On the learning side, phase 7 synthesizes categorized learnings from each build into a pluggable store: markdown files under `.bytedigger/learnings/` by default, and a reference SQLite shell backend with a documented schema shows how to plug in your own. Before implementation, an injection step assembles a context folder: matched learnings from whichever store you wired in, a project constitution discovered by precedence, quality-gate rules, security rules, active-work context. Lessons from build N are in the prompt for build N+1.
 
