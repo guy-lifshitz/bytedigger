@@ -1,161 +1,123 @@
 # Shrinking the Human in the Loop
 
-> *Six months of figuring out how to make AI reliably check AI code, one gate at a time.*
+> *A year of figuring out how to make AI reliably check AI code, one gate at a time.*
 
 *Guy Lifshitz*
 
 ---
 
-YouTube is full of "team of AI agents" demos. An architect agent, a coder agent, a QA agent - they chat with each other and produce code. It looks impressive. It's also unpredictable. Agents negotiate, lose context, skip steps when they decide it's fine. There's no enforcement.
+Everyone talks about AI writing code. That's not news anymore. The real problem starts one step later: someone has to check that code. The industry's answer is a loop -- generate, review, fix, review again -- with either a human or another model turning the crank. The loop is expensive, it converges slowly, and when the reviewer is also a model, it shares the writer's blind spots.
 
-We took a different approach. ByteDigger is not a simulated dev team. It's a pipeline. A conveyor belt with quality control at every station. The difference matters: teams negotiate, pipelines enforce. A team can agree to skip testing "just this once." A pipeline can't - the gate blocks progression, period.
+We took a different bet. ByteDigger is built to kill that loop, not to automate it. Checks move to before the code exists: the spec freezes first and gets machine-verified against the real codebase, failing tests land and get adversarially audited before a single line of implementation, and the checks that matter run as cheap deterministic code, not as more LLM judgment. Reviewers still run at the end. The design goal is that they find nothing.
 
-The tradeoffs are real. A team of agents is more flexible - they can improvise, adjust scope mid-conversation, handle ambiguity. A pipeline is rigid - phases run in order, gates check specific conditions, no exceptions. We chose rigidity. In six months of building with this system, we've never once wished the agents could skip a gate. We've wished they were faster. But never less rigorous.
+Two principles drive every decision, and they turn out to be the same decision. Quality first: an agent must not be able to game its own acceptance signal, ever. Economics first: every check runs at the cheapest layer that can produce it -- regex, AST, a diff, a byte count -- and a model gets called only when code genuinely cannot decide. We do not burn tokens on judgment where a grep gives the same answer. The vendors are happy to sell you a review loop that laps forever; a regex gate costs nothing and never gets tired.
 
-ByteDigger is about 70% of our internal system. The core is all here: 9-phase pipeline, gate enforcement, TDD with BDD validation, multi-agent review, learning loop, DevOps validation, crash recovery, pre-build gate (worktree enforcement, session collision detection), the SHIP protocol for automated branch-to-PR workflows, and Phase 8 post-deploy cleanup (gone branch pruning, temp file removal, merged worktree cleanup). What's still internal: an observability dashboard that tracks every phase transition, batch execution for running multiple pipelines in parallel, automatic documentation cascade that flags which docs need updating after each build. These will come. The 70% that shipped is the part that enforces quality. The 30% still internal is operational tooling.
+Here's how we got there.
 
-Everyone talks about AI writing code. That's not news anymore. The real problem starts one step later: someone has to check that code. And when that someone is also you, the solo developer, you become the bottleneck.
+## The bottleneck
 
-I'd ask Claude for a feature, get 400 lines back, and spend an hour reading every one of them. Net time saved? Maybe 30 minutes on a good day. So naturally, you think: let AI review AI code. Makes sense. Except that's where it gets ugly. AI reviewing AI produces what I call assertion theater. Tests that technically pass but verify nothing. Reviews that say "looks good" without catching real issues. The reviewer and the writer collude, not out of malice, but because they share the same blind spots.
+I'd ask Claude for a feature, get 400 lines back, and spend an hour reading every one of them. Net time saved: maybe 30 minutes on a good day. So naturally you think: let AI review AI code. Except that's where it gets ugly. AI reviewing AI produces what I call assertion theater. Tests that technically pass but verify nothing. Reviews that say "looks good" without catching real issues. The writer and the reviewer collude, not out of malice, but because they share the same blind spots.
 
-StrongDM's Software Factory ([factory.strongdm.ai](https://factory.strongdm.ai), [github.com/strongdm/attractor](https://github.com/strongdm/attractor)) is one of the most serious efforts here. A graph-based pipeline where neither code nor reviews are human. They validate quality via holdout end-to-end scenarios at the end of the run. Smart approach. But we found that validating only at the end lets bad assumptions compound across phases. ByteDigger validates at every phase transition: 8 hook-enforced gates, BDD validation, a 4-step Opus audit, semantic skip detection.
+Most agentic coding failures are not capability failures. They are verification failures. That reframing took me an embarrassingly long time, and it changed what we built.
 
-## The Spec Phase: Not a Failure, But Not Enough
+## Specs: not a failure, but prose isn't enough
 
-My first approach was spec-driven development with SpecKit. Write detailed specs (user stories, data models, interface definitions) then generate code that matches them. The theory: constrain the AI enough and the output will be correct.
+My first approach was spec-driven development. Write detailed specs -- user stories, data models, interfaces -- then generate code that matches them. The theory: constrain the AI enough and the output will be correct.
 
-Specs absolutely matter. Without them, AI hallucinates architecture. But specs alone hit a wall: they require heavy human involvement. You're still the bottleneck, just at a different stage. Writing good specs takes nearly as long as writing code. And AI-generated specs drift from the actual codebase. References to patterns that don't exist, interfaces that conflict with what's already there.
+Specs absolutely matter. Without them, AI hallucinates architecture. But prose specs hit two walls. First, you're still the bottleneck, just at a different stage: writing good specs takes nearly as long as writing code. Second, and worse, AI-generated specs drift from the actual codebase. References to functions that don't exist, quoted signatures that were true three commits ago, interfaces that conflict with what's already there. A spec that cites fiction produces tests that assert fiction, and everything downstream inherits the lie.
 
-I didn't kill specs. I integrated them. GitHub's Spec Kit ([github.com/github/spec-kit](https://github.com/github/spec-kit)) proved the idea right, with 60+ community extensions. But Spec Kit is a spec layer, not a pipeline. No runtime enforcement, no gates, no feedback loop. ByteDigger made specs mandatory: Phase 4.5 auto-generates `build-spec.md` with user stories, interfaces, data models, and test cases. Opus reviews the spec before it moves forward. Spec-driven development, but automated and gated.
+So the spec stopped being a document and became an artifact the machine verifies. Two mechanisms:
 
-## TDD: Right Idea, But AI Cheats
+**Citation verification.** Before a spec freezes, a deterministic lint checks every citation in it against the real repository. Quoted function signatures must match the actual source. Named symbols must resolve to real files. A cited line must exist where the spec says it does. This is a lint, not a model call: exact matching with a windowed search for drift. A spec that references code that isn't there gets rejected at write time, hours before any reviewer would have noticed.
 
-Tests are binary. Pass or fail. No subjective judgment. So I switched to strict TDD.
+**Acceptance criteria that compile.** Alongside the prose, each spec carries a machine-readable block that maps every acceptance criterion to a mechanical check from a closed registry: file contains this string, command exits zero, and so on. The block is validated at freeze time and executed as code, so "done" means the AC table passes, not that somebody's judgment felt satisfied. A criterion that genuinely needs judgment has to declare itself as one, which keeps the escape hatch visible instead of ambient.
 
-Quick primer for anyone outside the TDD world:
-- **RED phase** - write tests that FAIL. No implementation code yet. The tests describe what the feature should do, and they must fail because the feature doesn't exist.
-- **GREEN phase** - write code to make the tests pass. Only enough code to turn red tests green.
-- If tests pass immediately in the RED phase, your tests are wrong. They're not testing anything real.
+Specs stop being documentation that drifts. They compile.
 
-This worked for about a week. Then patterns emerged. `expect(true).toBe(true)` - assertion theater. Tests that checked mocks instead of behavior. Tests so tightly coupled to the implementation that they'd pass even if the implementation was wrong. And my personal favorite: "Tests aren't needed for this simple change" - rationalization from an agent that wanted to skip the hard part.
+## TDD: right idea, but AI cheats
 
-But the real killer was assertion gaming. Kent Beck, the father of TDD, has talked about this problem. Even the best models (Opus included) do it: when a test fails in the GREEN phase, the model changes the test assertion to match reality instead of fixing the code. API returns 404? Instead of fixing the endpoint, it updates the test to `expect(response.status).toBe(404)`. Done - tests pass, feature is broken. This isn't a prompting failure you can fix with better instructions. Models optimize for "make tests pass," not "make code correct." The only fix is external validation. A gate that catches the cheat from outside the agent's context.
+Tests are binary. Pass or fail. No subjective judgment. So the pipeline is strict TDD.
 
-Despite the cheating problem, the TDD approach generates real assets. Our security agent BARK has 15,000 lines of code and 3,500 tests, all generated through this pipeline. We don't need a QA team. The tests ARE the QA. End-to-end tests are a separate concern we haven't covered yet, but unit and integration coverage is built into every build.
+Quick primer for anyone outside the TDD world: the RED phase writes tests that FAIL, before any implementation exists. The GREEN phase writes only enough code to turn them green. If tests pass immediately in RED, they aren't testing anything real.
 
-Nobody likes TDD because it's twice the work. You write tests AND code. But when AI writes both, TDD is free. That changes everything. TDD is having a renaissance, not because developers learned to love it, but because AI made the cost zero.
+This worked for about a week. Then patterns emerged. `expect(true).toBe(true)` -- assertion theater. Tests that checked mocks instead of behavior. And my personal favorite: "tests aren't needed for this simple change" -- rationalization from an agent that wanted to skip the hard part.
 
-## The Fix: TDD + BDD + Separate Validator
+But the real killer was assertion gaming. Kent Beck has talked about this. Even the best models do it: when a test fails in GREEN, the model changes the test assertion to match reality instead of fixing the code. API returns 404? Instead of fixing the endpoint, it updates the test to expect 404. Done -- tests pass, feature is broken. This is not a prompting failure you can fix with better instructions. Models optimize for "make tests pass," not "make code correct." The only fix is external validation, from outside the agent's context.
 
-No single technique works alone. TDD has holes. Specs drift. BDD scenarios can be vague. The breakthrough was combining all three and adding a wall between them.
+One more failure mode deserves its own name: the vacuous RED. An agent writes a test file that imports the unit under test and then mocks that same unit inside the test. The test fails before implementation, passes after, and verifies nothing at all -- it exercises the mock. We got burned by this exactly once. Now a deterministic lint catches it: a symbol that is both imported and patched in the same test file is an automatic reject, no model involved.
 
-**What is BDD?** Behavior-Driven Development means writing requirements as structured scenarios: `Given [state], When [action], Then [outcome]`. Plain text that anyone can read without touching code. AI agents understand text natively, making BDD a natural fit. The key insight: BDD bridges human-readable requirements and machine-executable tests.
+## The loop, killed
 
-Here's the pipeline:
+Here's the shape of the pipeline now:
 
 ```
-RED (failing tests) --> BDD (Gherkin scenarios) --> Opus Validates --> GREEN (implement) --> Test Integrity Guard
-      |                       |                        |                    |                      |
-  Write tests           Translate spec           4-step audit         Write code only        Diff RED vs GREEN
-  that FAIL             to Given/When/Then       against Gherkin      to pass tests          Block if tests
-  first                 scenarios                scenarios             (no test edits)        were modified
+spec (frozen, machine-verified) -> RED (failing tests) -> gate (adversarial audit) -> GREEN (implement) -> verify
+            ^                            |
+            +--------- REJECT -----------+
 ```
 
-**RED.** A worker agent writes failing tests based on the spec. Every acceptance criterion becomes a test case. Tests must fail. If any pass before implementation, something's wrong.
+**Spec freezes first**, with an AC table and a file allowlist. Citation lint and AC validation run before the freeze. Scope drift dies at write time.
 
-**Gherkin scenarios.** A separate agent translates the spec into BDD scenarios. A developer can open the Gherkin file and understand exactly what's being tested without reading code. This is how humans stay in the loop when they want to.
+**RED lands failing tests.** The engine independently runs them and checks that they fail -- it does not take the agent's word for it. The deterministic red lints run here: stub-passability, fixture checks, collection health.
 
-**Opus audit.** A different, more capable model validates tests against the Gherkin scenarios. Four checks:
+**The gate audits adversarially.** A separate, stronger model validates the tests against the spec: every acceptance criterion maps to a test, every test maps back to a criterion, assertions exercise real behavior. The gate cannot write or modify tests. It returns a verdict, and REJECT routes back to the test writer. It rejects a lot. That is the point -- a vacuous test gets killed while killing it is still cheap.
 
-- Forward map: every Gherkin scenario has at least one test
-- Reverse map: every test maps back to a scenario (catches orphan tests)
-- Spec compliance: every acceptance criterion appears in both Gherkin and test code
-- Quality check: assertions test real behavior, not theater
+**GREEN implements with the tests read-only.** A diff guard compares the test files before and after implementation and classifies every change. Assertion gaming is a hard fail. A scope lint flags any write outside the spec's file allowlist.
 
-The validator cannot write or modify tests. It returns PASS or FAIL. If it fails, the test writer rewrites. The pipeline blocks until Opus signs off.
+**Verify runs the suite** -- the full one, not the convenient subset. Passing a scoped run while breaking the tree is one of the classic cheats, so the engine treats "which tests ran" as part of the signal.
 
-**GREEN.** Only now does the implementation agent write code. And here's where the test integrity guard kicks in: it diffs the RED-phase tests against the GREEN-phase tests. If the implementation agent modified test assertions instead of fixing code, hard block. Assertion gaming caught and killed.
+Notice what is absent: the generate-review-fix loop. There is nothing to babysit, because the problems the loop exists to find are removed before the code exists. When a build finishes, the review agents at the end are a safety net, not a workflow.
 
-This caught assertion theater on the first run. Mock-testing-mocks on the second. The coder doesn't judge their own work anymore.
+## Deterministic first: the economics
 
-## Build State: The Pipeline's Memory
+Every gate in that pipeline started life as a model call and got demoted. That demotion is the methodology.
 
-One concept matters before the gates: `build-state.yaml`. A YAML file tracking pipeline progress. Every phase writes its status (PENDING, IN_PROGRESS, COMPLETED, FAILED). Gates read it to decide whether the next phase can start. If Claude Code crashes or your laptop restarts, the pipeline resumes from where it left off. The pipeline's memory. No re-running completed phases, no lost progress.
+The rule is simple: a signal moves to the cheapest layer that can produce it. Citation checking is exact string matching. Stub detection is import-and-patch analysis on the test file. Assertion gaming is a classified diff. Scope violations are a path comparison against an allowlist. None of these need intelligence; they need rigor, and code is more rigorous than a model at 11pm on the fortieth build of the week.
 
-## The Arms Race: 9 Hook-Enforced Gates (Plus Soft Checks)
+The economics compound. A review loop pays model prices on every lap, and the laps multiply exactly when the code is worst. A deterministic gate costs nothing per run, never rubber-stamps, and produces the same verdict on Friday night as on Monday morning. We spend model tokens in exactly two places: writing the artifacts (spec, tests, implementation) and the one adversarial audit that needs judgment. Everything else is code checking code.
 
-With the validation layer working, I kept finding new ways AI tries to cut corners. So I kept adding gates to block progression at critical checkpoints.
+This is also why the process is fixed rather than agentic. Agent teams negotiate, and negotiation is where discipline leaks -- a team can agree to skip testing "just this once." A state machine can't. Phases run in order, gates block progression, and there is no conversation in which an agent talks the pipeline out of a check. In a year of building with this system, we've never once wished the agents could skip a gate. We've wished they were faster. Never less rigorous.
 
-| # | Gate | Phase | What It Checks | What It Catches |
-|---|------|-------|----------------|-----------------|
-| 1 | Phase Progression | All transitions | `build-state.yaml` status before allowing next phase | Skipped phases, out-of-order execution |
-| 2 | Dependency Pre-check | Phase 0 | Required tools and packages exist before build starts | Missing runtime deps, broken environments |
-| 3 | Security Routing | Phase 0 | Detects auth/crypto/secrets files; triggers Phase 4 audit | Security-sensitive areas get extra scrutiny |
-| 4 | Pre-Build Gate | Phase 0.5 | Worktree isolation, session collision, security scan (HIGH/MEDIUM/LOW) | Concurrent builds corrupting state, known vulnerability patterns |
-| 5 | DevOps Validator | Phase 5.4 | Runs terraform validate, hadolint, checkov, trivy | Broken infra configs caught before shipping |
-| 6 | Spec Completeness | Phase 4.5 | Opus reviews build-spec.md against requirements | Missing acceptance criteria, vague specs |
-| 7 | RED Test Validity | Phase 5 | All tests must FAIL before implementation exists | Tautological tests, assertion theater |
-| 8 | BDD-Test Mapping | Phase 5 | Forward + reverse map between Gherkin and tests | Orphan tests, missing scenario coverage |
-| 9 | Spec Compliance | Phase 5 | Every acceptance criterion in both Gherkin and tests | Drift between spec and test suite |
-| 10 | Test Integrity Guard | Phase 5.5 | Diffs RED tests vs GREEN tests | Assertion gaming, modified test expectations |
-| 11 | Semantic Skip Detector | Phase 6 | Scans reviews for "acceptable risk", "fix later" | Rubber-stamp reviews, deferred issues |
-| 12 | Boy Scout Rule | Phase 6 | Per-file checklist: dead imports, types, naming | Code quality regression |
-| 13 | Review Completion | Phase 7 | All review findings fixed and signed off | Skipped cleanup, ignored review comments |
+## The engine
 
-Each gate was born from a specific failure mode we hit in production. Hooks and rules exist in other AI coding systems too. Cursor has rules files, other tools have configuration hooks. The difference: ByteDigger uses hooks for enforcement, not configuration. A gate blocks pipeline progression until the check passes. It's not a suggestion. It's a wall.
+The current core is a Python workflow engine, `engine_py/`, with zero runtime dependencies and no LLM vendor baked in. Phases are registered workflows: research, spec, implement (the RED/gate/GREEN loop), review, synthesize.
 
-After 50+ builds I noticed my manual reviews were catching the same things the gates already caught. But gates are more consistent. They never rubber-stamp at 11pm. They never say "looks fine" because they're tired. They never skip the edge case check because the PR is small.
+State is an append-only JSONL event log. There is no mutable state file to drift or race; the current state of a build is derived by replaying its events. If the process dies mid-build -- crash, laptop restart, network drop -- the run resumes from the log instead of starting over. Completed model calls are never paid for twice.
 
-I made AUTONOMOUS mode the default. Not a leap of faith. It happened gradually. Build after build, the human approval step added zero signal. The pipeline earned trust by being more reliable than I was. SUPERVISED mode is still there for architecture decisions. BDD scenarios are readable enough that you can review intent without reading implementation.
+The anti-gaming lints ship as engine modules and run as code: stub-passability, the test-integrity diff guard, scope-inverse, spec citation and coverage checks, helper extraction, suite safety. The engine's own test suite is 300+ hermetic pytest tests -- no network, no API keys -- and CI installs the built wheel with no extras to prove the core runs on a bare Python install.
 
-We use Plannotator (our open-source review UI) for human review when needed. The pipeline supports human-in-the-loop. It just doesn't require it.
+Backends are pluggable. Anthropic, Azure OpenAI, and Claude Code backends ship as references; wiring in your own model is about 20 lines. There is a keyless demo that walks a frozen spec through the full loop against a toy repository, gate rejection included, so you can watch the machinery without spending a cent.
 
-## Beyond Code: Security and DevOps
+## What works and what doesn't
 
-The gates aren't limited to application code. Two areas proved just as important.
+**What works:** the combination. Frozen machine-verified specs, failing tests, an adversarial gate, read-only tests during implementation, deterministic lints throughout. No single technique is enough; each covers the others' gaps. The gates are what let me build in languages I can't read -- HalVoice is a native SwiftUI app and I have never written Swift. Our security agent BARK is 15,000 lines of Python with 3,500 tests, all generated through this pipeline. The tests are the QA team.
 
-**Security routing.** Phase 0 detects authentication flows, cryptographic operations, and secrets files. When found, Phase 4 adds a security architect role and Phase 6 adds a dedicated security reviewer. This runs before any code is written, so security-sensitive areas get extra scrutiny from the start.
+**What's hard:** architectural decisions still need a human. "Add email verification" works great. "Event sourcing or CRUD?" requires context the model doesn't have. Turning a business goal into a technical spec is still my job; the pipeline starts at "here's what to build."
 
-**DevOps validation.** Phase 0 detects infrastructure files: Terraform, Dockerfiles, K8s manifests, Helm charts, GitHub Actions. When ByteDigger detects these files, it automatically adds DevOps validation as Phase 5.6. That phase runs linting tools (automated checkers that catch syntax errors, misconfigurations, and security issues before code runs): `terraform validate`, `hadolint`, `actionlint`, `kubectl dry-run`, `helm lint`. On top of that, security scanners from established tooling: `checkov` and `trivy` for infrastructure security, `gitleaks` for secrets detection. We didn't build custom validators. We took HashiCorp's guidance for Terraform and integrated best-of-breed open source security tools into the pipeline. CRITICAL and HIGH findings must be fixed (up to 3 auto-fix cycles) before the pipeline proceeds. These tools are installed separately (see README for the full list). If they're not installed, validation is skipped gracefully.
+**Speed:** not fast. A feature build takes 30-45 minutes, complex ones longer. But "fast generation plus 45 minutes of manual review" tends to lose to "slow generation plus zero review." Total time is the metric that matters, and the token bill is part of it.
 
-Both features are already in the ByteDigger open source release.
+**Honest limitations:** single operator, no team collaboration features. Requires bounded scope -- "build me a product" doesn't work, "add a rate limiter to the auth endpoint" does. The engine is young as an open source project; the extraction from our internal system is recent and the edges show.
 
-Most AI coding tools stop at code generation. We wanted the full cycle: requirements to deployment. The DevOps module (Phase 5.6) handles infrastructure validation - terraform validate, container scanning, secrets detection. That's dev to deploy in one pipeline. What's still missing: product requirements (PRD). I write those myself. Turning a business goal into a technical spec is still a human job. The pipeline starts at "here's what to build", not "here's what the business needs."
+## Try it
 
-## What Actually Works and What Doesn't
-
-**What works:** TDD + BDD + a separate validation model. No single technique is enough. Together they cover each other's gaps. The gates enable working with unfamiliar languages. I built HalVoice, a native SwiftUI app, without ever having written Swift. I can't read the code. But the pipeline writes tests, validates them with BDD, reviews with 6 agents, and enforces gates. When gates are reliable enough, the human doesn't need to understand the implementation language - the pipeline IS the quality layer. On the other end, our security agent BARK is 15,000 lines of Python with 3,500 tests, all built through this pipeline. No QA team. Typed languages like TypeScript give AI more guardrails through the compiler. Untyped languages like Python give it more rope. Gate enforcement partially closes that gap - TDD and review catch what a type system would have caught.
-
-We've tested this across TypeScript, Python, Swift, Bash, and infrastructure-as-code (Terraform, Kubernetes YAML, Dockerfiles). The pipeline is language-agnostic because phases are markdown instructions, not language-specific tooling.
-
-The pipeline has built-in resilience. build-state.yaml persists across crashes - if Claude Code restarts mid-build, `/build continue` picks up from the last completed phase. Worktree isolation means every FEATURE+ build runs on a separate git branch. If something goes wrong, rollback is: delete the worktree. Main branch never sees incomplete work. A pre-build gate detects session collisions - if another build is already running on the same project, it blocks. Two agents writing to the same build-state.yaml simultaneously would corrupt the pipeline state. The gate prevents that.
-
-**What's hard:** Architectural decisions still need a human. "Add email verification" works great. "Event sourcing or CRUD?" requires context the AI doesn't have.
-
-**Speed trade-off:** Not fast. FEATURE tasks take 30-45 minutes, complex builds 1-3 hours. But "fast generation + 45 minutes of manual review" often takes longer than "slow generation + zero review." Total time is what matters.
-
-**PR workflow.** `/build --pr` creates a branch, stages changes, commits, pushes, and opens a PR automatically via `scripts/ship.sh`. It's in the open source release. Phase 6 uses specialized review agents (code reviewer, silent failure hunter, type design analyzer, test analyzer, security reviewer), following the pattern established by Anthropic's pr-review-toolkit. These agents run in parallel and vote on fixes with confidence scoring.
-
-**Honest limitations:**
-
-- Single operator. No team collaboration features yet.
-- Requires bounded scope. "Build me a product" doesn't work. "Add a rate limiter to the auth endpoint" does.
-- Gate enforcement only works as a Claude Code plugin. The hooks system makes gates real. Without it, they're suggestions.
-- Depends on external review tooling (pr-review-toolkit) that could change or break.
-- We have a batch executor for running multiple tasks in parallel, but that's a separate story.
-
-## Try It
-
-ByteDigger is open source. MIT license. Install it as a Claude Code plugin:
+ByteDigger is open source, MIT. The engine installs as a plain Python package:
 
 ```bash
-claude plugin add guy-lifshitz/bytedigger
+git clone https://github.com/guy-lifshitz/bytedigger
+cd bytedigger/engine_py
+pip install -e .
+python3 ../examples/verified-tdd-run/run_demo.py   # keyless, end to end
+```
+
+The same discipline also ships as a Claude Code plugin:
+
+```bash
+claude plugin marketplace add guy-lifshitz/bytedigger
+claude plugin install bytedigger@bytedigger
 /build "add email verification"
 ```
 
-9 phases, 9 hook-enforced gates, mandatory TDD, 3-7 review agents per build.
-
-The methodology - phased pipeline, gates, TDD+BDD, multi-agent review - isn't tied to Claude Code. The phases are markdown instructions. The gates are validation logic. Adapt it for Cursor, Windsurf, Copilot Workspace, or custom setups. ByteDigger is a Claude Code plugin today, but the patterns are universal. If your agents write code, they need external validation.
+The methodology -- frozen verified specs, failing tests first, an adversarial gate, deterministic anti-gaming lints -- isn't tied to any vendor. If your agents write code, they need external validation, and most of that validation should be code, not another model.
 
 Break it, fork it, tell us what gates are missing.
 
