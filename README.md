@@ -18,7 +18,7 @@ ByteDigger verifies the acceptance signal itself, with checks that run as code, 
 |---|---|---|
 | who verifies the work | the agent; you trust its report | the engine runs the tests in a subprocess it owns and checks every claim against the real git diff |
 | gamed tests | a test that mocks its own unit ships; assertions bend to match reality | deterministic lints reject both, no model involved |
-| security | a scan later in CI, maybe | changed Dockerfile or Terraform detected up front; fail-closed scan inside the build |
+| security | a scan later in CI, maybe | OWASP ASVS defaults ride in the generation prompt; a changed Dockerfile or Terraform routes into a fail-closed scan |
 | crash mid-build | start over, pay again | resume from the last success sentinel |
 | learning | every build starts amnesiac | learnings extracted, stored, injected into the next build |
 | reviewer findings | prose, unverified | every path:line:quote citation checked against disk |
@@ -27,7 +27,9 @@ ByteDigger verifies the acceptance signal itself, with checks that run as code, 
 
 ## Security first, shift left
 
-The usual fix is a review loop after generation: expensive, slow to converge, reviewer and writer sharing blind spots. ByteDigger moves the checks to before the code exists. The spec freezes with an AC table and a file allowlist, so scope drift dies at write time. Failing tests face a hostile audit before a single line of implementation. Secure-codegen rules ride inside the generation prompt, and a semgrep gate lints the tests as they land. The engine detects a changed Dockerfile, Kubernetes manifest, or Terraform file up front and routes the build into a fail-closed security scan. Reviewers still run at the end; the design goal is that they find nothing.
+The usual fix is a review loop after generation: expensive, slow to converge, reviewer and writer sharing blind spots. ByteDigger moves the checks to before the code exists. The spec freezes with an AC table and a file allowlist, so scope drift dies at write time. Failing tests face a hostile audit before a single line of implementation.
+
+The generated code itself is held to a security standard, not just scanned after the fact. Secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt: allowlist validation, argument-vector subprocess calls, parameterized queries, path containment. A deterministic semgrep + gitleaks gate scans what lands. The review panel includes an OWASP Top 10 security reviewer; a changed Dockerfile, Kubernetes manifest, or Terraform file routes the build into a fail-closed scan and adds a CIS/OWASP/SLSA devops reviewer. A mypy gate holds the typing line: a change that adds new type errors does not pass. Reviewers still run at the end; the design goal is that they find nothing.
 
 ## The pipeline
 
