@@ -94,7 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **P1 Gates (Phase 6 checks)**: Repaired dead control flow in post-review validation; findings_skipped and post_review_gate now hard-block non-compliant states; scratchpad stale detection enforced at Phase 4 gate
 - **P2 Enforcement (Worktree)**: Added mandatory worktree enforcement on main/master branches; loop bypass closure prevents re-entry during active build
 - **P3 Robustness**: Simplified drain_stdin anti-pattern; removed bc dependency (replaced with bash arithmetic); post-deploy stub tests now pass
-- **P4 Polish**: Resolved eight medium audit findings; unified authorship attribution to shtofadhor across all phases and scripts
+- **P4 Polish**: Resolved eight medium audit findings; unified authorship attribution across all phases and scripts
 - **Regression**: Ported AUTONOMOUS pause regression fix — explicit flow-mode checks at pause points (Phases 3, 4, 4.5, 7) prevent silent pauses during autonomous mode
 
 ### Changed

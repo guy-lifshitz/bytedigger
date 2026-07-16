@@ -44,7 +44,8 @@ flowchart TD
 
 ```bash
 # Install as Claude Code plugin
-claude plugin add shtofadhor/bytedigger
+claude plugin marketplace add guy-lifshitz/bytedigger
+claude plugin install bytedigger@bytedigger
 
 # Run
 /build "add email verification"
@@ -312,4 +313,4 @@ The `scripts/learning-store.sh` script also writes `learning_backend: sqlite` to
 
 ## License
 
-MIT -- shtofadhor
+MIT -- Guy Lifshitz

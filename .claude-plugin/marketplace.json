@@ -1,0 +1,15 @@
+{
+  "name": "bytedigger",
+  "owner": {
+    "name": "Guy Lifshitz"
+  },
+  "plugins": [
+    {
+      "name": "bytedigger",
+      "source": "./",
+      "description": "Phased, gate-enforced build pipeline for AI code generation. TDD mandatory, reviews scored, skipping blocked.",
+      "version": "1.0.0"
+    }
+  ],
+  "description": "Phased, gate-enforced build pipeline for AI code generation. TDD mandatory, reviews scored, skipping blocked."
+}

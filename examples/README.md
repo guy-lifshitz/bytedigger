@@ -6,7 +6,8 @@ Two ways to run ByteDigger: as a Claude Code skill, or as a plain Python library
 
 ```bash
 # Plugin install -- skill, commands, phases, hooks in one step
-claude plugin add shtofadhor/bytedigger
+claude plugin marketplace add guy-lifshitz/bytedigger
+claude plugin install bytedigger@bytedigger
 
 # Or drop the skill into a single project by hand
 cp -r examples/claude-code-skill ~/.claude/skills/bytedigger

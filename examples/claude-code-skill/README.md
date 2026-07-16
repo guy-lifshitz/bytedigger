@@ -5,7 +5,8 @@ Run ByteDigger as a `/build` skill inside Claude Code.
 ## Option 1: plugin (recommended)
 
 ```bash
-claude plugin add shtofadhor/bytedigger
+claude plugin marketplace add guy-lifshitz/bytedigger
+claude plugin install bytedigger@bytedigger
 ```
 
 Installs the skill, commands, per-phase agent instructions, and gate hooks in one step. Nothing else to configure -- skip the rest of this page.
@@ -16,7 +17,7 @@ For a single project, or when you can't install plugins:
 
 ```bash
 # 1. Clone the pipeline somewhere stable
-git clone https://github.com/shtofadhor/bytedigger ~/tools/bytedigger
+git clone https://github.com/guy-lifshitz/bytedigger ~/tools/bytedigger
 
 # 2. Drop the skill into your project (or ~/.claude/skills/ for all projects)
 mkdir -p .claude/skills/bytedigger

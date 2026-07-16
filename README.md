@@ -36,7 +36,7 @@ The engine installs with zero runtime dependencies and no LLM vendor baked in. A
 Five minutes, no API key needed:
 
 ```bash
-git clone https://github.com/shtofadhor/bytedigger
+git clone https://github.com/guy-lifshitz/bytedigger
 cd bytedigger/engine_py
 
 python3 -m venv .venv && source .venv/bin/activate
@@ -64,7 +64,8 @@ Backend setup (env vars, model aliases, selection) is in [docs/backends.md](docs
 The same discipline is available as a Claude Code plugin -- `/build "add email verification"` classifies the task, routes it through the phase pipeline, and enforces the TDD loop with hooks between phases:
 
 ```bash
-claude plugin add shtofadhor/bytedigger
+claude plugin marketplace add guy-lifshitz/bytedigger
+claude plugin install bytedigger@bytedigger
 ```
 
 See [examples/claude-code-skill/](examples/claude-code-skill/) for a manual per-project install and [docs/plugin.md](docs/plugin.md) for the full plugin reference (configuration flags, complexity routing, reviewer modes). The plugin predates the Python engine and is the layer we still drive day to day; the engine is the extracted, host-independent core of it.

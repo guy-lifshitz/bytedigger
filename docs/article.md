@@ -149,7 +149,7 @@ The pipeline has built-in resilience. build-state.yaml persists across crashes -
 ByteDigger is open source. MIT license. Install it as a Claude Code plugin:
 
 ```bash
-claude plugin add shtofadhor/bytedigger
+claude plugin add guy-lifshitz/bytedigger
 /build "add email verification"
 ```
 
@@ -159,4 +159,4 @@ The methodology - phased pipeline, gates, TDD+BDD, multi-agent review - isn't ti
 
 Break it, fork it, tell us what gates are missing.
 
-[github.com/shtofadhor/bytedigger](https://github.com/shtofadhor/bytedigger)
+[github.com/guy-lifshitz/bytedigger](https://github.com/guy-lifshitz/bytedigger)
