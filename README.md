@@ -34,6 +34,8 @@ Plenty of good projects wrap an LLM in a loop with tools and let it run -- SWE-a
 
 ByteDigger competes on verification. It builds the acceptance signal outside the agent: a spec that compiles to mechanical checks, tests audited by an adversarial gate before implementation exists, lints that are deterministic code rather than another model's opinion, an event log the worker can't rewrite. Generation quality is the backend's problem -- plug in whichever model you like. This engine owns the part everyone else outsources to hope: proving the green is real.
 
+And "proving" is literal. A reviewer's finding has to cite path, line, and quote; the verifier checks every citation against the actual file on disk, demotes a fabricated finding to an Unverified section, and recomputes the verdict without it. A disk-truth layer cross-checks RED and GREEN claims against the real git diff and the real test-runner subprocess output, not the agent's transcript. And before any pass/fail delta counts, the test command runs five times and must produce identical counts every run -- a flaky suite doesn't get to vote.
+
 ## What's in the box
 
 The core is a sequential workflow engine (`engine_py/`) with phases registered as workflows: research, spec, implement (the RED/gate/GREEN loop), review, synthesize. State comes from replaying an append-only JSONL event log -- there is no mutable state file to drift or race.
@@ -43,11 +45,25 @@ Around the loop sits a set of deterministic anti-gaming lints, run as code:
 - stub-passability: rejects a RED test file that mocks its own unit under test
 - test-integrity diff guard: classifies post-RED test edits, hard-fails on assertion gaming
 - scope-inverse: flags implementation writes outside the spec's file allowlist
-- spec-cite, spec-coverage, helper-extraction, suite-safety and friends
+- spec-cite: every path:line citation in the spec verified against the real repository before freeze
+- net-new delta: the RED-to-GREEN improvement must be net-new passes, not reshuffled counts
+- token-consistency, presence-triad, re-entry AC, suite-safety, forbidden-import -- each one a codified post-mortem
+
+When a gate fails, a cheap model fronts the FAIL branch to draft the repair; the gate re-runs afterwards and stays the correctness authority. A restart governor caps re-invocation (and knows a crash-start from a gate-start), and every subprocess goes through one spawn chokepoint with a mandatory timeout, so an unbounded hang is impossible by construction.
 
 The spec itself has a machine-readable half. Alongside the prose, an `AC-checks` yaml block maps each acceptance criterion to a mechanical check from a closed registry -- file-contains, command-exit-code and friends -- validated at spec-freeze time and executed as code, so "done" is the AC table passing rather than anyone's judgment. A criterion that can't live without judgment has to declare itself as one (`llm_rubric`), which keeps the escape hatch visible instead of ambient. Specs stop being documentation that drifts; they compile.
 
 The engine installs with zero runtime dependencies and no LLM vendor baked in. Anthropic, Azure OpenAI, and Claude Code backends ship as references; plugging in your own is [about 20 lines](examples/library/custom_backend.py).
+
+## Under the hood
+
+The pipeline sketch above is five boxes; the engine behind it is 27 workflow modules, phase 0 research through phase 8 post-deploy -- including a spec-lite lane for small tasks, a DevOps pipeline, integrity and smoke phases, and a review fastpath for simple changes. When the changed files include a Dockerfile, Kubernetes manifest, Terraform, or CI config, phase 0.6 detects the artifact type and routes the build into a fail-closed security scan whose allowlist waivers carry expiry dates.
+
+Durability is structural, not best-effort. The engine writes phase and step sentinels on success only, so a crashed build resumes mid-pipeline and a sticky error can never replay as progress; completed model calls are not paid for twice. An optional DBOS backend adds durable run listing and status. Cost and token rollups per run, phase, and cycle come straight from the event log, and every REVISE or FAIL reason lands in durable JSONL ledgers -- a reject log and a spec-defect ledger with a bounded reroute budget for specs that turn out defective.
+
+The engine also learns. Phase 7 synthesizes categorized learnings from each build into a pluggable store: markdown files under `.bytedigger/learnings/` by default, and a reference SQLite shell backend with a documented schema shows how to plug in your own. Before implementation, an injection step assembles a context folder: matched learnings from whichever store you wired in, a project constitution discovered by precedence, quality-gate rules, security rules, active-work context. Lessons from build N are in the prompt for build N+1.
+
+The engine even gates changes to itself: a commit-msg hook blocks any commit touching engine production code unless it co-stages an APPROVED audit document, and self-attested LLM verdicts get an anchor-hash and AC-parity cross-check against the on-disk files before they count.
 
 ## Quickstart
 
