@@ -78,7 +78,10 @@ from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinit
 from config_provider import get_config, timeout_policy_path, repo_top_level_dirs  # noqa: E402  GH285 C2
 from llm_subprocess import invoke_llm_subprocess
 from skip_logic import _resolve_decision_doc_path, detect_frozen_spec
-from _standards_context import get_standards_context
+try:
+    from ._standards_context import get_standards_context
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _standards_context import get_standards_context  # type: ignore[no-redef]
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib" / "plugins"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
@@ -93,7 +96,10 @@ from findings_sidecar import persist_findings_thread, load_findings_thread  # no
 from model_config import get_claude_critical, get_claude_spec_writer, get_claude_spec_reviewer  # noqa: E402
 from verdict_parse import verdict_under_heading  # noqa: E402
 from recoverable_gate import RecoverableGateMixin  # noqa: E402  E843349F
-from _recoverable_policy import resolve_policy  # noqa: E402  E843349F
+try:
+    from ._recoverable_policy import resolve_policy  # noqa: E402  E843349F
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _recoverable_policy import resolve_policy  # type: ignore[no-redef]  # noqa: E402  E843349F
 from plugins.checklist_convergence import (  # noqa: E402
     build_reviewer_prompt as _restricted_reviewer_prompt,
     build_writer_prompt as _restricted_writer_prompt,

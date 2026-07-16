@@ -138,8 +138,14 @@ from model_config import get_claude_critical, get_claude_primary, get_claude_dec
 from verdict_parse import last_line_anchored_marker  # noqa: E402
 from verdict_verify import _classify_parity, file_sha256  # noqa: E402  GH749/GH751
 from worktree_root import resolve_worktree_root as _resolve_worktree_root  # noqa: E402
-from _baseline_delta import run_baseline_delta_gate  # noqa: E402  GH561 §1r lane-2
-from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # noqa: E402,F401  #261 Stage 0  3F5599A6
+try:
+    from ._baseline_delta import run_baseline_delta_gate  # noqa: E402  GH561 §1r lane-2
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _baseline_delta import run_baseline_delta_gate  # type: ignore[no-redef]  # noqa: E402  GH561 §1r lane-2
+try:
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # noqa: E402,F401  #261 Stage 0  3F5599A6
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6
 
 # Step 7 (95D3E5F6) — W1 + disk-truth wiring. Phase 6 reviews CODE
 # (schema {id, severity, path, description}), not specs

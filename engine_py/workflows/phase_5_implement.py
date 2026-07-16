@@ -126,9 +126,15 @@ from anti_hallucination.helper import (  # noqa: E402
 from model_config import get_claude_critical, get_claude_fallback, get_claude_primary  # noqa: E402
 from plugins.disk_truth import git_diff_files, resolve_pre_phase_sha, run_test_command, test_subprocess_env, parse_structured_block, enforce, ValidationVerdict, SchemaViolation  # noqa: E402
 from net_new_delta import delta_verdict  # noqa: E402  585E30E3-P2
-from _baseline_delta import run_baseline_delta_gate  # noqa: E402  GH561 §1r lane-2
+try:
+    from ._baseline_delta import run_baseline_delta_gate  # noqa: E402  GH561 §1r lane-2
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _baseline_delta import run_baseline_delta_gate  # type: ignore[no-redef]  # noqa: E402  GH561 §1r lane-2
 from lib.plugins.checklist_convergence.impl_delta_retry_prompt import build_impl_delta_retry_prompt  # noqa: E402  GH496
-from _standards_context import get_standards_context  # noqa: E402
+try:
+    from ._standards_context import get_standards_context  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _standards_context import get_standards_context  # type: ignore[no-redef]  # noqa: E402
 from recoverable_gate import RecoverableGateMixin  # noqa: E402  E843349F
 from verdict_parse import last_line_anchored_marker  # noqa: E402
 from verdict_gate import run_gate as _run_verdict_gate  # noqa: E402  GH517 34E0B77B
@@ -157,7 +163,10 @@ from lib.step_sentinel import invalidate_cycle_sentinels  # noqa: E402  GH767 §
 
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
-from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # noqa: E402,F401  #261 Stage 0  3F5599A6
+try:
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # noqa: E402,F401  #261 Stage 0  3F5599A6
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6
 
 def _default_red_model() -> str:
     return get_claude_primary()

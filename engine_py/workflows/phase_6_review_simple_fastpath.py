@@ -15,16 +15,31 @@ from pathlib import Path
 from contracts import StepContract, StepResult, WorkflowDefinition
 
 # Reuse existing satisfaction steps + constants from phase_6_review.
-from phase_6_review import (
-    REVIEW_DOC_RELPATH,
-    FIX_DOC_RELPATH,
-    SPEC_DOC_RELPATH,
-    _build_satisfaction_prompt,
-    _invoke_satisfaction_llm,
-    _write_satisfaction_doc,
-    _detect_mass_unverified,
-    _resolve_scratchpad,
-)
+try:
+    from .phase_6_review import (
+        REVIEW_DOC_RELPATH,
+        FIX_DOC_RELPATH,
+        SPEC_DOC_RELPATH,
+        _build_satisfaction_prompt,
+        _invoke_satisfaction_llm,
+        _write_satisfaction_doc,
+        _detect_mass_unverified,
+    )
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_6_review import (  # type: ignore[no-redef]
+        REVIEW_DOC_RELPATH,
+        FIX_DOC_RELPATH,
+        SPEC_DOC_RELPATH,
+        _build_satisfaction_prompt,
+        _invoke_satisfaction_llm,
+        _write_satisfaction_doc,
+        _detect_mass_unverified,
+    )
+
+try:
+    from .phase_workflows_common import _resolve_scratchpad  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_workflows_common import _resolve_scratchpad  # type: ignore[no-redef]  # noqa: E402
 
 
 def _build_fastpath_stubs(ctx, _prev) -> StepResult:

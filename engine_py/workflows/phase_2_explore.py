@@ -65,7 +65,10 @@ from anti_hallucination.helper import (  # noqa: E402
 )
 from model_config import get_claude_explore  # noqa: E402
 import telemetry_ctx  # noqa: E402
-from graph_source import ensure_graph  # noqa: E402
+try:
+    from .graph_source import ensure_graph  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from graph_source import ensure_graph  # type: ignore[no-redef]  # noqa: E402
 from project_root import resolve_project_root  # noqa: E402
 from verdict_parse import last_line_anchored_marker  # noqa: E402
 from config_provider import timeout_policy_path  # noqa: E402  GH285 C2

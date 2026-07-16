@@ -1,16 +1,14 @@
 name: ci
 
-# Self-contained OSS CI: packaging + import health for the engine core on
-# stock GitHub infra. Installs WITHOUT the [dbos] extra to prove the core
-# is dependency-free; a pytest lane is a known follow-up once the test
-# suite is imported.
+# Self-contained OSS CI: packaging + import health + test suite for the
+# engine core on stock GitHub infra. Installs WITHOUT the [dbos] extra to
+# prove the core is dependency-free.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,7 +16,7 @@ concurrency:
 
 jobs:
   engine:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, bytedigger]
     timeout-minutes: 15
     defaults:
       run:
@@ -26,9 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: "python venv (self-hosted, system python3 - no setup-python)"
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ci-venv"
+          echo "$RUNNER_TEMP/ci-venv/bin" >> "$GITHUB_PATH"
 
       - name: pip install -e (packaging gate) — no dbos, no extras beyond test
         run: pip install --quiet -e ".[test]"
@@ -67,4 +66,33 @@ jobs:
           PY
 
       - name: CLI smoke
-        run: python run.py --help >/dev/null && echo "OK: run.py --help"
+        run: |
+          python run.py --help >/dev/null && echo "OK: run.py --help"
+
+  pytest:
+    runs-on: [self-hosted, bytedigger, heavy]
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: engine_py
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "python venv (self-hosted, system python3 - no setup-python)"
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ci-venv"
+          echo "$RUNNER_TEMP/ci-venv/bin" >> "$GITHUB_PATH"
+
+      - name: build wheel
+        run: |
+          pip install --quiet build
+          python -m build --wheel
+          rm -rf build  # setuptools build/ shadow tree breaks tree-grep tests
+
+      - name: install wheel — no dbos
+        run: |
+          pip install --quiet dist/*.whl pytest pytest-timeout pyyaml  # pyyaml: lazy import in ac_dsl.py
+          python -c "import engine, event_log, workflows; print('OK: wheel imports')"
+
+      - name: pytest — engine test suite (hermetic, no dbos, no network)
+        run: python -m pytest tests/ -q -p no:cacheprovider --timeout=120

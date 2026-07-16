@@ -39,7 +39,10 @@ from pathlib import Path
 
 import telemetry_ctx
 from contracts import StepContract, StepResult, WorkflowDefinition
-from _task_description import normalize_task_description  # noqa: E402
+try:
+    from ._task_description import normalize_task_description  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _task_description import normalize_task_description  # type: ignore[no-redef]  # noqa: E402
 from config_provider import get_config  # noqa: E402
 
 try:

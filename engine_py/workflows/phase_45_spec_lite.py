@@ -84,12 +84,22 @@ from llm_subprocess import invoke_llm_subprocess
 from io_utils import atomic_write
 from model_config import get_claude_critical, get_claude_spec_writer, get_claude_spec_reviewer
 from verdict_parse import verdict_under_heading  # noqa: E402
-from phase_1_discovery import _build_prompt as _build_phase1_prompt
-from phase_45_spec import (
-    _verify_spec_cite_prelint,
-    _verify_spec_completeness,
-    _verify_spec_lint,
-)
+try:
+    from .phase_1_discovery import _build_prompt as _build_phase1_prompt
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_1_discovery import _build_prompt as _build_phase1_prompt  # type: ignore[no-redef]
+try:
+    from .phase_45_spec import (
+        _verify_spec_cite_prelint,
+        _verify_spec_completeness,
+        _verify_spec_lint,
+    )
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_45_spec import (  # type: ignore[no-redef]
+        _verify_spec_cite_prelint,
+        _verify_spec_completeness,
+        _verify_spec_lint,
+    )
 from skip_logic import detect_frozen_spec
 from plugins.checklist_convergence import (
     build_reviewer_prompt as _restricted_reviewer_prompt,

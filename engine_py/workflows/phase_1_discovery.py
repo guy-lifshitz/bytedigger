@@ -55,8 +55,14 @@ from skip_logic import (  # noqa: E402
     passthrough_if_skipped,
     should_skip_phase,
 )
-from _task_description import normalize_task_description  # noqa: E402
-from graph_source import ensure_graph  # noqa: E402
+try:
+    from ._task_description import normalize_task_description  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _task_description import normalize_task_description  # type: ignore[no-redef]  # noqa: E402
+try:
+    from .graph_source import ensure_graph  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from graph_source import ensure_graph  # type: ignore[no-redef]  # noqa: E402
 from project_root import resolve_project_root  # noqa: E402
 from config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2

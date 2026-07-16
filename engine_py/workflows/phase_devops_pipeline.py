@@ -14,8 +14,14 @@ from __future__ import annotations
 
 from contracts import StepContract, StepResult, WorkflowDefinition
 
-from phase_0_6_artifact_detect import _detect_artifact
-from phase_5_devops_scan import _scan_artifact
+try:
+    from .phase_0_6_artifact_detect import _detect_artifact
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_0_6_artifact_detect import _detect_artifact  # type: ignore[no-redef]
+try:
+    from .phase_5_devops_scan import _scan_artifact
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_5_devops_scan import _scan_artifact  # type: ignore[no-redef]
 
 
 def _scan_artifact_with_propagation(ctx, prev) -> StepResult:
