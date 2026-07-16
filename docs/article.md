@@ -68,6 +68,8 @@ spec (frozen, machine-verified) -> RED (failing tests) -> gate (adversarial audi
 
 Notice what is absent: the generate-review-fix loop. There is nothing to babysit, because the pipeline removes the problems the loop exists to find before the code exists. When a build finishes, the review agents at the end are a safety net, not a workflow.
 
+Security is half the reason the review loop exists at all: you can't trust generated code, so you keep a reviewer watching it. That leg gets the same treatment. Secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt -- allowlist validation, argument-vector subprocess calls, parameterized queries, path containment -- so the code is born to a standard instead of scanned into one. A deterministic semgrep and gitleaks gate checks what lands, and the security reviewers at the end are there to find nothing.
+
 ## Deterministic first: the economics
 
 Every gate in that pipeline started life as a model call and got demoted. That demotion is the method.
@@ -75,6 +77,8 @@ Every gate in that pipeline started life as a model call and got demoted. That d
 The rule is simple: a signal moves to the cheapest layer that can produce it. Citation checking is exact string matching. Stub detection is import-and-patch analysis on the test file. Assertion gaming is a classified diff. Scope violations are a path comparison against an allowlist. None of these need intelligence; they need rigor, and code is more rigorous than a model at 11pm on the fortieth build of the week.
 
 The economics compound. A review loop pays model prices on every lap, and the laps multiply just when the code is worst. A deterministic gate costs nothing per run, never rubber-stamps, and produces the same verdict on Friday night as on Monday morning. We spend model tokens in two places: writing the artifacts (spec, tests, implementation) and the one adversarial audit that needs judgment. Everything else is code checking code.
+
+The rest of the loop's cost structure gets dismantled the same way. When a deterministic gate fails, a cheap model fronts the failure and drafts a directed repair; the gate re-runs and stays the authority, so the expensive model is spent once, on the build. A crashed build resumes from its event log and never repays a completed model call. And the spend is not vibes: cost and token rollups per run, phase, and cycle come straight from the same log.
 
 This is also why the process stays fixed rather than agentic. Agent teams negotiate, and negotiation is where discipline leaks -- a team can agree to skip testing "just this once." A state machine can't. Phases run in order, gates block progression, and there is no conversation in which an agent talks the pipeline out of a check. In a year of building with this system, we've never once wished the agents could skip a gate. We've wished they were faster. Never less rigorous.
 
@@ -161,6 +165,10 @@ The article describes the shape. This is the inventory, for anyone deciding whet
 
 **Security:**
 
+- secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt (`security/secure-codegen-rules.md`): allowlist validation, argument-vector subprocess calls, parameterized queries, path containment
+- deterministic semgrep + gitleaks gate (`security/security_lint.py`, with `semgrep-rules.yml` and `gitleaks.toml`) lints what lands
+- the review panel fields an OWASP Top 10 security reviewer; a detected DevOps artifact adds a CIS/OWASP/SLSA devops reviewer (`workflows/phase_6_review.py`)
+- mypy baseline gate (`lib/mypy_baseline.py`, wired into phase 5): a change that adds new type errors does not pass
 - phase 0.6 detects DevOps artifact types among the changed files (Dockerfile, Kubernetes manifest, Terraform, CI config) and routes the build into a fail-closed security scan (`workflows/phase_5_devops_scan.py`) whose allowlist waivers carry expiry dates
 - commit gate (`audit_gate.py`) -- a commit-msg hook blocks any commit touching engine production code unless an APPROVED audit document is co-staged
 
