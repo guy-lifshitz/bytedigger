@@ -9,6 +9,8 @@ and the sentinel-cache read (maybe_read_sentinel) are patched, both via
 module-attribute form (import engine; monkeypatch.setattr(engine, ...)).
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

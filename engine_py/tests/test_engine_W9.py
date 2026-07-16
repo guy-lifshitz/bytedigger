@@ -24,6 +24,8 @@ exercise the pure-Python _diff_changes function directly. Their pre-GREEN
 PASS/FAIL status depends only on whether Bug B is already fixed in engine.py.
 """
 
+from __future__ import annotations
+
 import pytest
 
 import engine

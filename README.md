@@ -74,6 +74,8 @@ git clone https://github.com/guy-lifshitz/bytedigger
 cd bytedigger/engine_py
 
 python3 -m venv .venv && source .venv/bin/activate
+
+pip install -U pip          # stock macOS 3.9 ships a pre-PEP660 pip that can't do editable installs
 pip install -e .
 
 # smoke: run a workflow, replay its event log
