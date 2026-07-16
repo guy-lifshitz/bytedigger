@@ -1,6 +1,10 @@
 # ByteDigger
 
-Everybody lies. Coding agents are no exception: they'll mock the very unit you asked them to test, then report green with a straight face. You can keep paying a review loop to catch them lap after lap -- or you can catch the lie before the code exists. That's the whole idea here. The spec compiles into checks a machine can run, failing tests survive a hostile audit before anyone writes the implementation, and the expensive model gets spent once -- on the build, not on the do-overs.
+**Everybody lies. The gates don't.**
+
+The review loop exists because you can't trust the code and can't afford the laps. ByteDigger removes both reasons.
+
+Coding agents lie like everyone else: they'll mock the very unit you asked them to test, then report green with a straight face. You can keep paying a review loop to catch them lap after lap -- or you can catch the lie before the code exists. That's the whole idea here. The spec compiles into checks a machine can run, failing tests survive a hostile audit before anyone writes the implementation, and the expensive model gets spent once -- on the build, not on the do-overs.
 
 > [Shrinking the Human in the Loop](docs/article.md) -- the story of how this pipeline came to be.
 
