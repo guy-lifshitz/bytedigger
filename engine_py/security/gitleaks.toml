@@ -1,0 +1,4 @@
+[extend]
+useDefault = true
+[allowlist]
+paths = ['''__tests__/''', '''briefing-archive/''', '''/tests/fixtures/''', '''archive/''']

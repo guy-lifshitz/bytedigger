@@ -123,6 +123,28 @@ class _DefaultConfigProvider:
         """Neutral repo top-level directory names — used in prompt guidance."""
         return ("src/", "tests/")
 
+def default_security_asset(name: str, legacy_default: Path) -> Path:
+    """Resolve a security asset shipped with the engine.
+
+    The upstream build tree keeps security assets OUTSIDE the package
+    (build_dir/security/, build_dir/security-lint.py) and phase code derives
+    those paths via Path(__file__).parents[2]. That nesting exists only in the
+    upstream checkout — from a pip install parents[2] lands in site-packages'
+    parent and resolves nothing. Order: legacy path first (upstream layout
+    keeps winning byte-for-byte), else the packaged copy that ships alongside
+    this module (engine_py/security/ in a checkout, security/ in
+    site-packages). Falls back to legacy_default when neither exists so
+    callers' fail-closed error paths (E_SECURITY_RULES_MISSING,
+    E_SEC_FRAGMENT_MISSING, E_SEC_LINT_UNAVAILABLE) keep firing with the
+    path they always reported."""
+    legacy_default = Path(legacy_default)
+    if legacy_default.exists():
+        return legacy_default
+    packaged = Path(__file__).resolve().parent / "security" / name
+    if packaged.exists():
+        return packaged
+    return legacy_default
+
 def default_config_provider() -> ConfigProvider:
     return _DefaultConfigProvider()
 

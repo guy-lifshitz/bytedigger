@@ -102,7 +102,7 @@ logger = logging.getLogger(__name__)
 
 from dataclasses import replace as _replace
 from contracts import LoopStepContract, RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
-from config_provider import get_config, int_value, timeout_policy_path  # noqa: E402  GH285 C2
+from config_provider import get_config, int_value, timeout_policy_path, default_security_asset  # noqa: E402  GH285 C2
 import flags_catalog  # noqa: E402  GH529
 from suite_safety import scan_suite_safety
 from stub_passability import scan_stub_passability
@@ -749,7 +749,8 @@ def _get_security_fragment(cfg: dict) -> str:
     """SECBUILD Child 1c (gh-340): static secure-codegen fragment for RED/GREEN
     prompts. Path overridable via org_config['security_fragment_path'] (B2 OSS
     seam). Raises FileNotFoundError — callers fail CLOSED (E_SEC_FRAGMENT_MISSING)."""
-    path = Path(cfg.get("security_fragment_path") or Path(__file__).parents[2] / "security" / "secure-codegen-fragment.md")
+    path = Path(cfg.get("security_fragment_path") or default_security_asset(
+        "secure-codegen-fragment.md", Path(__file__).parents[2] / "security" / "secure-codegen-fragment.md"))
     return path.read_text(encoding="utf-8")
 
 
@@ -3987,7 +3988,8 @@ def _verify_security_lint(ctx, prev) -> StepResult:
             duration_ms=0, step_name=step,
         )
 
-    script = Path(cfg.get("security_lint_script") or Path(__file__).parents[2] / "security-lint.py")
+    script = Path(cfg.get("security_lint_script") or default_security_asset(
+        "security_lint.py", Path(__file__).parents[2] / "security-lint.py"))
     if not script.is_file():
         return StepResult(
             status="error", data=None, duration_ms=0, step_name=step,

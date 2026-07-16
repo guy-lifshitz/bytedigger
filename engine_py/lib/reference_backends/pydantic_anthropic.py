@@ -36,7 +36,7 @@ from .pydantic_openai import (
 
 _PIP_EXTRA_HINT = (
     'pydantic_ai / anthropic is not installed. Install it via: '
-    'pip install "hal-build[agentic-pydantic-anthropic]"'
+    'pip install "bytedigger-engine[agentic-pydantic]" anthropic'
 )
 
 

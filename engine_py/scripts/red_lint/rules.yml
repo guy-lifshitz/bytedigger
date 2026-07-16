@@ -1,0 +1,125 @@
+rules:
+  - id: hardcoded-line-number-in-where-assertion
+    message: |
+      Hardcoded line number in `where=...:NNN` assertion. Codebase precedent
+      (engine.py:147 boundary_error) uses filename only — line numbers shift
+      with innocuous edits. Replace `where=foo.py:123` with `where=foo.py`.
+    severity: ERROR
+    languages: [python]
+    pattern-regex: '"[^"\n]*\bwhere=[A-Za-z_][A-Za-z0-9_/.-]*\.py:\d+[^"\n]*"'
+
+  - id: schema-referent-needs-verification
+    message: |
+      `schema=<TypeName>.<field>` referent uses CapitalizedName — verify the
+      type exists in codebase via `grep -rn "class <TypeName>" engine_py/`.
+      Today's regression: `schema=ReviewCycle.max_cycles=2` cited a type that
+      did not exist. Advisory only — humans/Opus must confirm.
+    severity: WARNING
+    languages: [python]
+    pattern-regex: '"[^"\n]*\bschema=[A-Z][A-Za-z0-9_]*\.[A-Za-z_][^"\n]*"'
+
+  - id: hardcoded-test-result-literal
+    message: |
+      `test_result "name" "true"` or `test_result "name" "false"` with literal
+      verdict. Verdict must be derived from a variable (`$success`, `$rc`) or
+      command substitution. Hardcoded verdict = broken contract — test cannot
+      transition between PASS/FAIL based on production behavior.
+      Source: 2026-05-08 B.1 attempt 1 RED-test fabrication.
+    severity: ERROR
+    languages: [bash]
+    pattern-regex: 'test_result\s+"[^"]*"\s+"(true|false)"'
+
+  - id: both-branches-fail-verdict
+    message: |
+      Both branches of if/else call `test_result` with the same literal verdict
+      ("false" or "true"). Test cannot transition based on production code —
+      contract is broken. Use a variable derived from production invocation.
+      Source: 2026-05-08 B.1 attempt 1 behavioral RED.
+    severity: ERROR
+    languages: [bash]
+    pattern-regex: 'then\s*\n[^\n]*test_result[^\n]*"(true|false)"[^\n]*\n[\s\S]{0,400}?\belse\s*\n[^\n]*test_result[^\n]*"\1"'
+
+  - id: heredoc-fixture-grep-tautology
+    message: |
+      Heredoc writes to `"$VAR"` then `grep` runs against the same `"$VAR"`.
+      Fixture and assertion target are identical — production code is never
+      invoked. Replace with: invoke production code, capture its output,
+      grep on the output.
+      Source: 2026-05-08 B.1 attempt 1 BT1-BT4 fixtures.
+    severity: ERROR
+    languages: [bash]
+    pattern-regex: 'cat\s*>\s*"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?\s*<<.*?EOF[\s\S]{0,800}?\bgrep\b[^\n]*"?\$\{?\1\}?"?'
+
+  # GH534 warn-only batch — flip-by:2026-08-07 (promote clean rules to ERROR)
+
+  - id: bash-grep-pcre
+    message: |
+      §1p-d: PCRE grep flag is not available in BSD grep / bash-3.2 environments — use ERE.
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: '\bgrep\s+-[A-Za-z]*P[A-Za-z]*\b'
+
+  - id: bash-case-expansion
+    message: |
+      §1p-c: `${var,,}` / `${var^^}` bash-4 case expansion is not available under bash-3.2 — use `tr`.
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: '\$\{[A-Za-z_][A-Za-z0-9_]*(,,|\^\^)\}'
+
+  - id: bash-find-tmp-no-slash
+    message: |
+      §1p-f: `find /tmp` without a trailing slash does not descend the macOS `/tmp` → `/private/tmp` symlink — use `find /tmp/`.
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: 'find\s+/tmp[^/]'
+
+  - id: bash-pcre-class-in-ere
+    message: |
+      §1p-e: PCRE character classes (`\w`, `\d`, `\s`) are not available inside BSD `grep -E` — use POSIX classes (`[[:alnum:]]` etc).
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: 'grep\s+-[A-Za-z]*E[A-Za-z]*\s+.[^\n]*\\[wds]'
+
+  - id: bash-quoted-eregex-rhs
+    message: |
+      §1p-a: quoted RHS of `=~` is matched as a literal string, not a regex — hoist to an unquoted variable (`re=...; [[ $x =~ $re ]]`).
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: '=~\s*"[^"\n]*"'
+
+  - id: jq-boolean-alternative-empty
+    message: |
+      §1k: jq boolean field `// empty` treats `false` as null — use `if has("k") then .k else empty end`.
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: '\.(enabled|disabled|danger|passing|ok|success|strict|converged|is_[a-z_]+|has_[a-z_]+)\s*//\s*empty'
+
+  - id: jq-fromdateiso8601-fractional
+    message: |
+      §1p-g: `fromdateiso8601` fails on fractional seconds — strip with `sub("\\.[0-9]+Z$";"Z")` before parsing.
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: '(?m)^(?!.*#)(?!.*sub\s*\().*\bjq\b.*fromdateiso8601'
+
+  - id: bash-cp-system-binary
+    message: |
+      §1t: `cp` of a signed system binary invalidates its codesign and gets SIGKILLed by AMFI — use `ln -s` instead.
+    severity: WARNING
+    languages: [bash]
+    pattern-regex: '\bcp\s+(-\w+\s+)?/(bin|usr/bin)/\S+'
+
+  - id: ts-mkdtemp-no-realpath
+    message: |
+      §1j: `mkdtempSync` returns an unresolved `/var/folders` path on macOS — wrap with `realpathSync(mkdtempSync(...))`.
+    severity: WARNING
+    languages: [ts, js]
+    pattern-regex: '(?m)^(?!.*realpathSync).*mkdtempSync\('
+
+  - id: ts-bare-binary-spawn
+    message: |
+      §1h: hardcoded binary name in a spawn call should be env-overridable — use `process.env.HAL_*_BIN ?? "<default>"`.
+    severity: WARNING
+    languages: [ts, js]
+    patterns:
+      - pattern-regex: "(spawn|spawnSync|execFile|execFileSync)\\(\\s*[\"'](claude|gh|semgrep|jq|bun)[\"']|Bun\\.spawn\\(\\[\\s*[\"'](claude|gh|semgrep|jq|bun)[\"']"
+      - pattern-not-regex: 'HAL_'

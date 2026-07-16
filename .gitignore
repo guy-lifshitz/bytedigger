@@ -25,3 +25,5 @@ dist/
 *.log
 .pytest_cache/
 .hal-build/
+engine_py/build/
+engine_py/*.egg-info/

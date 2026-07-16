@@ -51,14 +51,14 @@ dependency-free `native` durable backend; install `[dbos]` only if you set
 
 ```bash
 # list registered workflows
-bytedigger --list
+bytedigger-engine --list
 
 # round-trip smoke: run the echo workflow with an event log
-bytedigger --workflow echo --ctx-json '{"question":"hello"}' \
+bytedigger-engine --workflow echo --ctx-json '{"question":"hello"}' \
     --event-log /tmp/engine-events.jsonl
 
 # derive state by replaying the log
-bytedigger --derive-state /tmp/engine-events.jsonl
+bytedigger-engine --derive-state /tmp/engine-events.jsonl
 
 # test suite (from a source checkout)
 python3 -m pytest tests/
@@ -73,11 +73,11 @@ explicitly, pass `--no-hal` or set `HAL_ENGINE_NEUTRAL=1`:
 
 ```bash
 # from any project checkout — artifacts land in ./.hal-build/
-bytedigger --workflow echo --ctx-json '{}' --event-log .hal-build/events.jsonl
+bytedigger-engine --workflow echo --ctx-json '{}' --event-log .hal-build/events.jsonl
 
 # explicit overrides (equivalent)
-bytedigger --no-hal --workflow echo --ctx-json '{}'
-HAL_ENGINE_NEUTRAL=1 bytedigger --workflow echo --ctx-json '{}'
+bytedigger-engine --no-hal --workflow echo --ctx-json '{}'
+HAL_ENGINE_NEUTRAL=1 bytedigger-engine --workflow echo --ctx-json '{}'
 ```
 
 LLM steps are subprocess-based and backend-pluggable: any CLI that accepts a

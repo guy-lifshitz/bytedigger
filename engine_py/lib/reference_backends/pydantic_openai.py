@@ -51,7 +51,7 @@ _REAL_POPEN = subprocess.Popen
 
 _PIP_EXTRA_HINT = (
     "pydantic_ai is not installed. Install it via: "
-    "pip install verified-tdd-engine[agentic-pydantic]"
+    "pip install bytedigger-engine[agentic-pydantic]"
 )
 
 _MAX_TOOL_OUTPUT = 8000

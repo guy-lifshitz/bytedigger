@@ -21,12 +21,20 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Testing",
 ]
-dependencies = []
+# typing_extensions: hard import in lib/plugins/checklist_convergence (TypedDict
+# backports for py<3.12). Pure-python, no transitive deps.
+dependencies = ["typing_extensions>=4"]
 
 [project.optional-dependencies]
 dbos = ["dbos==2.22.0"]
-test = ["pytest>=8", "pytest-timeout>=2.4.0"]
+# pyyaml: lazy runtime import in ac_dsl.py (yaml AC-block parsing); 8 AC-DSL
+# tests fail without it (GH877)
+test = ["pytest>=8", "pytest-timeout>=2.4.0", "pyyaml>=6"]
 agentic-pydantic = ["pydantic-ai>=2.0,<3"]
+# security gate: semgrep drives the RED-lint and security-lint steps. The gate
+# fails closed with E_*_SEMGREP_MISSING when the binary is absent -- install
+# this extra (or semgrep some other way) to arm it.
+security = ["semgrep>=1.60"]
 
 [project.scripts]
 bytedigger-engine = "run:main"
@@ -84,7 +92,9 @@ py-modules = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["lib*", "workflows*"]
+include = ["lib*", "workflows*", "security*", "scripts*"]
 
 [tool.setuptools.package-data]
 "lib.plugins.anti_hallucination" = ["*.yaml", "*.md"]
+security = ["*.yml", "*.md", "*.toml", "*.txt"]
+"scripts.red_lint" = ["*.yml"]

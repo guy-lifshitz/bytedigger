@@ -1,0 +1,191 @@
+rules:
+  - id: hal-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: "subprocess call with shell=True is a shell-injection risk."
+    patterns:
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+
+  - id: hal-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: "eval()/exec() on untrusted input enables arbitrary code execution."
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  - id: hal-unsafe-yaml-load
+    languages: [python]
+    severity: ERROR
+    message: "yaml.load() without SafeLoader can execute arbitrary code."
+    patterns:
+      - pattern: yaml.load(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=SafeLoader, ...)
+
+  - id: hal-hardcoded-secret
+    languages: [generic]
+    severity: ERROR
+    message: "hardcoded secret-like literal assignment."
+    patterns:
+      - pattern-regex: '(?i)(password|passwd|api_key|apikey|secret_key)\s*=\s*["''][^"'']{6,}["'']'
+
+  - id: hal-sql-string-concat
+    languages: [python]
+    severity: WARNING
+    message: "SQL built via string concatenation/f-string is injection-prone; use parameterized queries."
+    patterns:
+      - pattern-either:
+          - pattern: $C.execute("..." + $X)
+          - pattern: $C.execute(f"...")
+
+  - id: hal-path-traversal-concat
+    languages: [python]
+    severity: WARNING
+    message: "file path built via string concatenation is traversal-prone."
+    patterns:
+      - pattern: open("..." + $X)
+
+  - id: hal-grep-count-echo-zero
+    languages: [generic]
+    severity: WARNING
+    message: "grep -c ... || echo 0 pattern; prefer a portable count helper (bash-3.2 §1p)."
+    paths:
+      include:
+        - "*.sh"
+    patterns:
+      - pattern-regex: 'grep -c .*\|\| echo 0'
+
+  - id: hal-bash4-builtin
+    languages: [generic]
+    severity: WARNING
+    message: "bash4+ builtin (declare -A/mapfile/readarray) breaks macOS bash 3.2 (§1p)."
+    paths:
+      include:
+        - "*.sh"
+    patterns:
+      - pattern-regex: 'declare -A|mapfile|readarray'
+
+  # ── learn-miner distillation seeds (GH343, SECBUILD Child 4, 2026-07-05) ──
+  # Clusters seen ≥3x across post-mortems/OFI log; seeded WARNING (warn-only),
+  # promote to ERROR after one clean week per the workflows.md §13 lint-candidate cadence.
+
+  - id: hal-regex-escape-chain
+    languages: [generic]
+    severity: WARNING
+    message: "manual regex-escape .replace() chain is order-sensitive (backslash must be escaped first); use re.escape() / a vetted escapeRegExp helper. [V1]"
+    patterns:
+      - pattern-regex: '\.replace\([^)]*\\\\[^)]*\)\s*\.replace\([^)]*\\\\'
+
+  - id: hal-untracked-sweep-no-state-exclusion
+    languages: [generic]
+    severity: WARNING
+    message: "untracked=True sweep: confirm volatile state dirs are excluded -- unscoped untracked sweeps have leaked state files into commits/reverts. [V15]"
+    paths:
+      include:
+        - "*.py"
+    patterns:
+      - pattern-regex: 'untracked\s*=\s*True'
+
+  - id: hal-mirrors-comment-debt
+    languages: [generic]
+    severity: WARNING
+    message: "comment starting with 'Mirrors X' marks duplicated logic (un-promoted refactor debt); extract a shared helper or file an OFI."
+    patterns:
+      - pattern-regex: '(#|//)\s+[Mm]irrors [A-Za-z_`]'
+
+  # ── GH397 JSONL append-safety chokepoint (2026-07-08) ──
+
+  - id: hal-jsonl-truncating-redirect
+    languages: [generic]
+    severity: ERROR
+    message: "truncating '>' redirect onto a .jsonl file corrupts/erases the append-only log; use '>>' via jsonl_append (SYSTEM/lib/jsonl-append.sh)."
+    paths:
+      include:
+        - "*.sh"
+      exclude:
+        - "*test*"
+        - "*__tests__*"
+        - "*/tests/*"
+    patterns:
+      # `>` must be a redirection operator: preceded by line-start, whitespace, or a
+      # command separator. This excludes prose false-positives like a comment's
+      # `<log-dir>/../events.jsonl` (the `>` there is preceded by a word char, part of `<...>`).
+      - pattern-regex: '(^|[ \t;&])>[ \t]*"?[A-Za-z0-9_.${}/-]*\.jsonl'
+      - pattern-not-regex: '^[ \t]*#'
+
+  - id: hal-jsonl-raw-append-outside-helper
+    languages: [generic]
+    severity: WARNING
+    message: "raw '>>' append onto a .jsonl file outside jsonl-append.sh; use jsonl_append for byte-cap + single-write safety. [GH397] flip-by:2026-07-22"
+    paths:
+      include:
+        - "*.sh"
+      exclude:
+        - "*test*"
+        - "*__tests__*"
+        - "*/tests/*"
+        - "*jsonl-append.sh"
+    patterns:
+      - pattern-regex: '>>[ \t]*"?[A-Za-z0-9_.${}/-]*\.jsonl'
+      - pattern-not-regex: 'jsonl_append'
+
+  # ── GH502 Friday-triage R1-R3 (2026-07-10) ──
+  # Clusters ≥3x from 2026-07-10 triage (Decisions/2026-07-10_friday_triage.md).
+  # Seeded WARNING; promote to ERROR after one clean week. flip-by:2026-07-17 (GH502).
+
+  - id: hal-silent-except-pass
+    languages: [python]
+    severity: ERROR
+    message: "silent 'except: pass' swallows failures with no log/stderr — silent-failure family (triage C3/C12); log or re-raise, or justify with a comment. [GH502-R1→GH825 promoted] kill-by:2026-09-30"
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+        - "*/tests/*"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try:
+                  ...
+              except:
+                  pass
+          - pattern: |
+              try:
+                  ...
+              except $E:
+                  pass
+          - pattern: |
+              try:
+                  ...
+              except $E as $N:
+                  pass
+
+  - id: hal-new-suppression-token
+    languages: [generic]
+    severity: WARNING
+    message: "Gate-escape token in prod .py (security-lint: allow / stub-passability: allow) — a GREEN/fix diff must not self-exempt (triage C4, GH371 class); generic noqa/type-ignore excluded as too noisy, full diff-scoped gate is P5. [GH502-R2] flip-by:2026-07-17"
+    paths:
+      include:
+        - "*.py"
+      exclude:
+        - "*test*"
+        - "*/tests/*"
+        - "*-lint.py"
+    patterns:
+      - pattern-regex: '#\s*(security-lint:\s*allow|stub-passability:\s*allow)'
+
+  - id: hal-cwd-rederive
+    languages: [generic]
+    severity: WARNING
+    message: "cwd/repo-root re-derivation (Path.cwd/os.getcwd/rev-parse --show-toplevel) in a phase file outside lib/git_cwd.py resolver — cwd-drift family (triage C9); pin the root once and pass it. [GH502-R3] flip-by:2026-07-17"
+    paths:
+      include:
+        - "phase_*.py"
+      exclude:
+        - "*test*"
+        - "*/tests/*"
+    patterns:
+      - pattern-regex: 'Path\.cwd\(\)|os\.getcwd\(\)|rev-parse[^"'']*--show-toplevel'

@@ -43,7 +43,7 @@ try:
     from ._task_description import normalize_task_description  # noqa: E402
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from _task_description import normalize_task_description  # type: ignore[no-redef]  # noqa: E402
-from config_provider import get_config  # noqa: E402
+from config_provider import get_config, default_security_asset  # noqa: E402
 
 try:
     from lib.observability.emit_resolver import emit_resolver_resolved
@@ -1005,7 +1005,10 @@ def _write_injection_files(ctx, prev) -> StepResult:
 
     if get_config().gate_enabled("HAL_SECURITY_RULES_INJECT"):
         rules_path = get_config().path(
-            "HAL_SECURITY_RULES_PATH", build_dir / "security" / "secure-codegen-rules.md"
+            "HAL_SECURITY_RULES_PATH",
+            default_security_asset(
+                "secure-codegen-rules.md", build_dir / "security" / "secure-codegen-rules.md"
+            ),
         )
         try:
             security_body = Path(rules_path).read_text(encoding="utf-8")
