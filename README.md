@@ -10,13 +10,14 @@ Coding agents lie like everyone else: they'll mock the very unit you asked them 
 
 ## Why this is different
 
-Three familiar ways to get AI-written code, one shared flaw:
+Four familiar ways to get AI-written code, one shared flaw:
 
 - **Coding agents** -- Copilot, Cursor, Claude Code on its own -- write the tests, write the code, run the tests, report green. They grade their own homework.
 - **Agent frameworks and harnesses** orchestrate the calls, then take the agent's word that the work is done.
 - **AI review loops** add a second model to check the first. Same training, same blind spots: when a test gets bent to match broken code, writer and reviewer both call it green.
+- **Software factories** loop agents at scale for throughput: autonomous, and blind. A dumb factory ships unverified work faster.
 
-ByteDigger verifies the acceptance signal itself, with checks that run as code, not as another model's opinion:
+ByteDigger is the pipeline itself: a CI that drives a Python state machine through the whole SDLC, built on TDD, the spec compiled into checks a machine can run. That is what buys the autonomy -- the pipeline runs unattended not because you trust the agent, but because the checks don't need you. A smart factory, maximally autonomous because maximally deterministic -- checks that run as code, not as another model's opinion:
 
 | | typical agent stack | ByteDigger |
 |---|---|---|
