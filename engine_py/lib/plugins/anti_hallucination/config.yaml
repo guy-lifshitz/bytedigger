@@ -1,0 +1,31 @@
+# Anti-hallucination plugin configuration.
+#
+# Schema:
+#   plugin: str          — plugin identifier
+#   version: int         — schema version (increment on breaking changes)
+#   applied_phases:      — map of phase_id -> phase config
+#     <phase_id>:
+#       enabled: bool    — whether the plugin is active for this phase
+#       # Future: per-phase overrides (e.g. confidence_threshold, prompt_section)
+
+plugin: anti_hallucination
+version: 1
+applied_phases:
+  phase_6_review:
+    enabled: true
+  phase_5_validation:
+    enabled: true
+  phase_5_integrity:
+    enabled: true
+  phase_6_satisfaction:
+    enabled: true
+  phase_45_spec:
+    enabled: true
+  phase_2_explore:
+    enabled: true
+  phase_4_architect:
+    enabled: true
+  phase_7_synthesize:
+    enabled: true
+  phase_5_implement:  # RED + GREEN workers (producer fragment)
+    enabled: true

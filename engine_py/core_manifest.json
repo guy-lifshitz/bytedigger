@@ -1,0 +1,109 @@
+{
+  "core_modules": [
+    "engine.py",
+    "execution_provenance.py",
+    "event_log.py",
+    "contracts.py",
+    "io_utils.py",
+    "error_locus.py",
+    "forbidden_import.py",
+    "helper_extraction.py",
+    "net_new_delta.py",
+    "workflows/_baseline_delta.py",
+    "precommit_lints.py",
+    "red_lint_checks.py",
+    "reproducibility.py",
+    "scope_inverse.py",
+    "spec_class.py",
+    "spec_cite.py",
+    "telemetry_ctx.py",
+    "corpus_extract.py",
+    "llm_subprocess.py",
+    "derive_state.py",
+    "event_sink.py",
+    "run.py",
+    "spec_coverage.py",
+    "stub_passability.py",
+    "suite_safety.py",
+    "lib/bounded_spawn.py",
+    "lib/dbos_list_runs.py",
+    "lib/dbos_status_run.py",
+    "lib/git_port.py",
+    "lib/git_write_port.py",
+    "lib/mypy_baseline.py",
+    "lib/restart_governor.py",
+    "lib/step_sentinel.py",
+    "lib/constitution_loader.py",
+    "lib/spec_retry_cycle.py",
+    "lib/timeout_policy.py",
+    "lib/observability/emit_resolver.py",
+    "lib/plugins/disk_truth/suite_boyscout.py",
+    "lib/plugins/disk_truth/test_runner.py",
+    "workflows/echo.py",
+    "workflows/phase_0_research.py",
+    "workflows/phase_5_integration_canary.py",
+    "workflows/phase_5_integrity.py",
+    "workflows/phase_6_fix_integrity.py",
+    "workflows/phase_6_review_simple_fastpath.py",
+    "workflows/phase_7_synthesize.py",
+    "workflows/phase_devops_pipeline.py",
+    "config_provider.py",
+    "workflows/phase_05_inject.py",
+    "audit_gate.py",
+    "tier_gate.py",
+    "reject_log.py",
+    "reject_stats.py",
+    "verdict_anchor.py",
+    "verdict_verify.py",
+    "resume_key_lint.py",
+    "workflows/__init__.py",
+    "workflows/_recoverable_policy.py",
+    "workflows/_standards_context.py",
+    "workflows/_task_description.py",
+    "workflows/graph_source.py",
+    "workflows/phase_0_6_artifact_detect.py",
+    "workflows/phase_1_discovery.py",
+    "workflows/phase_2_explore.py",
+    "workflows/phase_3_clarify.py",
+    "workflows/phase_45_spec.py",
+    "workflows/phase_45_spec_lite.py",
+    "workflows/phase_4_architect.py",
+    "workflows/phase_5_devops_scan.py",
+    "workflows/phase_5_implement.py",
+    "workflows/phase_6_review.py",
+    "workflows/phase_6_smoke.py",
+    "workflows/phase_8_post_deploy.py",
+    "workflows/phase_workflows_common.py"
+  ],
+  "host_modules": [
+    "hal_config_provider.py",
+    "model_flip_lint.py"
+  ],
+  "forbidden": {
+    "path_literals": [
+      "/Users/",
+      "~/.claude",
+      ".claude/"
+    ],
+    "string_refs": [
+      "SHARED/",
+      "MEMORY.md"
+    ],
+    "env_prefixes": [
+      "HAL_"
+    ],
+    "import_denylist": [
+      "continuity",
+      "coord",
+      "observability",
+      "models_config"
+    ]
+  },
+  "policy": {
+    "workflows_dir": "core \u2014 every workflows/*.py is core by policy (GH499 item 5); new workflow files MUST be added to core_modules",
+    "host_rationale": {
+      "hal_config_provider.py": "host-side by design (GH444); NOT part of the OSS package (excluded from pyproject packaging)",
+      "model_flip_lint.py": "host tooling \u2014 SHARED/config/models.json semantics baked in (GH499 item 3)"
+    }
+  }
+}

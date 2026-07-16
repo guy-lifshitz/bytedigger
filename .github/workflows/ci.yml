@@ -1,0 +1,70 @@
+name: ci
+
+# Self-contained OSS CI: packaging + import health for the engine core on
+# stock GitHub infra. Installs WITHOUT the [dbos] extra to prove the core
+# is dependency-free; a pytest lane is a known follow-up once the test
+# suite is imported.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: engine_py
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: pip install -e (packaging gate) — no dbos, no extras beyond test
+        run: pip install --quiet -e ".[test]"
+
+      - name: compileall — every shipped module byte-compiles
+        run: python -m compileall -q .
+
+      - name: import smoke — every packaged py-module importable without dbos
+        run: |
+          python - <<'PY'
+          import tomllib, importlib, sys
+          cfg = tomllib.load(open("pyproject.toml", "rb"))
+          mods = cfg["tool"]["setuptools"]["py-modules"]
+          failed = []
+          for m in mods:
+              try:
+                  importlib.import_module(m)
+              except Exception as e:
+                  failed.append(f"{m}: {type(e).__name__}: {e}")
+          if failed:
+              print("\n".join(failed)); sys.exit(1)
+          print(f"OK: {len(mods)} py-modules import clean without dbos")
+          PY
+
+      - name: manifest parity — every core_manifest root module is packaged
+        run: |
+          python - <<'PY'
+          import tomllib, json, sys
+          py = set(tomllib.load(open("pyproject.toml","rb"))["tool"]["setuptools"]["py-modules"])
+          man = {m[:-3] for m in json.load(open("core_manifest.json"))["core_modules"] if "/" not in m}
+          missing = sorted(man - py)
+          if missing:
+              print("manifest-not-packaged:", missing); sys.exit(1)
+          extra = sorted(py - man)
+          print(f"OK: {len(man)} manifest root modules packaged; closure extras: {extra}")
+          PY
+
+      - name: CLI smoke
+        run: python run.py --help >/dev/null && echo "OK: run.py --help"

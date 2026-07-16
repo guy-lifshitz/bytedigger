@@ -1,0 +1,90 @@
+# OSS packaging (manifest-driven). Package name is provisional pending the
+# publish decision; py-modules is generated 1:1 from core_manifest.json
+# core_modules (root entries) — host modules are deliberately NOT packaged.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bytedigger-engine"
+version = "0.1.0"
+description = "Verified agentic TDD engine: a frozen, event-sourced RED->validate->GREEN state machine with deterministic anti-reward-hacking gates."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Guy Lifshitz" }]
+requires-python = ">=3.9"
+keywords = ["tdd", "agents", "llm", "code-generation", "verification", "reward-hacking"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dbos = ["dbos==2.22.0"]
+test = ["pytest>=8", "pytest-timeout>=2.4.0"]
+agentic-pydantic = ["pydantic-ai>=2.0,<3"]
+
+[project.scripts]
+bytedigger-engine = "run:main"
+
+[tool.setuptools]
+# Root-level core_modules from core_manifest.json, plus the in-repo import
+# closure of those modules (second block) — the manifest is not yet
+# import-closed; closure deps are tracked for promotion into core_modules
+# upstream. Host modules (hal_config_provider, model_flip_lint) are
+# deliberately NOT packaged.
+py-modules = [
+    "audit_gate",
+    "config_provider",
+    "contracts",
+    "corpus_extract",
+    "derive_state",
+    "engine",
+    "error_locus",
+    "event_log",
+    "event_sink",
+    "execution_provenance",
+    "forbidden_import",
+    "helper_extraction",
+    "io_utils",
+    "llm_subprocess",
+    "net_new_delta",
+    "precommit_lints",
+    "red_lint_checks",
+    "reject_log",
+    "reject_stats",
+    "reproducibility",
+    "resume_key_lint",
+    "run",
+    "scope_inverse",
+    "spec_cite",
+    "spec_class",
+    "spec_coverage",
+    "stub_passability",
+    "suite_safety",
+    "telemetry_ctx",
+    "tier_gate",
+    "verdict_anchor",
+    "verdict_verify",
+    # --- import-closure deps (not yet in core_manifest core_modules) ---
+    "ac_dsl",
+    "error_codes",
+    "findings_sidecar",
+    "flags_catalog",
+    "format_conversion_cases",
+    "presence_triad",
+    "reentry_ac",
+    "skip_logic",
+    "token_consistency",
+    "verdict_gate",
+]
+
+[tool.setuptools.packages.find]
+include = ["lib*", "workflows*"]
+
+[tool.setuptools.package-data]
+"lib.plugins.anti_hallucination" = ["*.yaml", "*.md"]

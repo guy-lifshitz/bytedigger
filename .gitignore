@@ -14,3 +14,13 @@ build-test-integrity-review.md
 .bytedigger/gate-shadow/
 node_modules/
 bun.lockb
+
+# Python engine (OSS core)
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+*.log
+.pytest_cache/
