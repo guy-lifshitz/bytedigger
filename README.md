@@ -1,5 +1,7 @@
 # ByteDigger
 
+<p align="center"><img src="docs/assets/bytedigger-title.png" alt="ByteDigger" width="480"></p>
+
 **Everybody lies. The gates don't.**
 
 The review loop exists because you can't trust the code and can't afford the laps. ByteDigger removes both reasons.
