@@ -1,12 +1,12 @@
 # ByteDigger
 
-A verified-TDD engine for AI code generation. Frozen spec, failing tests first, an adversarial gate between the tests and the implementation, and deterministic lints that catch an agent gaming its own acceptance signal.
+Everybody lies. Coding agents are no exception: they'll mock the very unit you asked them to test, then report green with a straight face. You can keep paying a review loop to catch them lap after lap -- or you can catch the lie before the code exists. That's the whole idea here. The spec compiles into checks a machine can run, failing tests survive a hostile audit before anyone writes the implementation, and the expensive model gets spent once -- on the build, not on the do-overs.
 
 > [Shrinking the Human in the Loop](docs/article.md) -- the story of how this pipeline came to be.
 
 ## TL;DR
 
-AI agents don't fail at writing code, they fail at verifying it -- and they game their own tests. ByteDigger enforces the loop that prevents this: spec freezes, failing tests land and get adversarially audited, only then does implementation start, with deterministic lints (no LLM judgment) rejecting mocked-out tests, weakened assertions, and out-of-scope writes. Problems get removed before the code exists; there is no generate-review-fix loop to babysit. `pip install -e engine_py`, run the [keyless demo](examples/verified-tdd-run/), point it at your own LLM in [20 lines](examples/library/custom_backend.py). Also ships as a Claude Code plugin (`/build`).
+AI agents don't fail at writing code, they fail at verifying it -- and they game their own tests. ByteDigger enforces the loop that prevents this: spec freezes, failing tests land and face a hostile audit, only then does implementation start, with deterministic lints (no LLM judgment) rejecting mocked-out tests, weakened assertions, and out-of-scope writes. Problems get removed before the code exists; there is no generate-review-fix loop to babysit. `pip install -e engine_py`, run the [keyless demo](examples/verified-tdd-run/), point it at your own LLM in [20 lines](examples/library/custom_backend.py). Also ships as a Claude Code plugin (`/build`).
 
 ## The problem it solves
 
@@ -20,13 +20,19 @@ spec (frozen) -> RED (failing tests) -> gate (adversarial audit) -> GREEN (imple
                      +------- REJECT ---------+
 ```
 
-The spec freezes before any test exists. The engine independently checks that RED tests fail. An independent gate audits the spec and the tests for stub-passable assertions, missing forcing functions, and scope drift -- and rejects back rather than rubber-stamping. During GREEN the tests are read-only. Every step appends to an event log, so a killed run resumes instead of starting over.
+The spec freezes before any test exists. The engine checks for itself that RED tests fail. An independent gate audits the spec and the tests for stub-passable assertions, missing forcing functions, and scope drift -- and rejects back rather than rubber-stamping. During GREEN the tests are read-only. Every step appends to an event log, so a killed run resumes instead of starting over.
 
 ## Security first, shift left
 
-The standard way to make AI code trustworthy is a loop bolted on after generation: generate, review, fix, review again. The loop is expensive, converges slowly, and its reviewer shares the writer's blind spots -- both are models, often the same model.
+The standard way to make AI code trustworthy is a loop bolted on after generation: generate, review, fix, review again. The loop is expensive, takes forever to converge, and its reviewer shares the writer's blind spots -- both are models, often the same model.
 
-ByteDigger moves the checks to before the code exists. The spec freezes first, with an AC table and a file allowlist, so scope drift dies at write time. Failing tests come next and get adversarially audited before a single line of implementation -- a vacuous test gets rejected while rejecting it is still cheap. Secure-codegen rules ride inside the generation prompt itself, and a semgrep gate lints the tests as they land, so security guidance operates at codegen time, hours before any reviewer would have seen the diff. Reviewers still run at the end; the design goal is that they find nothing.
+ByteDigger moves the checks to before the code exists. The spec freezes first, with an AC table and a file allowlist, so scope drift dies at write time. Failing tests come next and face a hostile audit before a single line of implementation -- a vacuous test gets rejected while rejecting it is still cheap. Secure-codegen rules ride inside the generation prompt itself, and a semgrep gate lints the tests as they land, so security guidance operates at codegen time, hours before any reviewer would have seen the diff. Reviewers still run at the end; the design goal is that they find nothing.
+
+## Not another agent harness
+
+Plenty of good projects wrap an LLM in a loop with tools and let it run -- SWE-agent, OpenHands, Aider, the IDE agents. They compete on generation: better prompts, better context, better tool use. And they accept the agent's own test run as the acceptance signal -- the very signal agents game.
+
+ByteDigger competes on verification. It builds the acceptance signal outside the agent: a spec that compiles to mechanical checks, tests audited by an adversarial gate before implementation exists, lints that are deterministic code rather than another model's opinion, an event log the worker can't rewrite. Generation quality is the backend's problem -- plug in whichever model you like. This engine owns the part everyone else outsources to hope: proving the green is real.
 
 ## What's in the box
 
@@ -39,7 +45,7 @@ Around the loop sits a set of deterministic anti-gaming lints, run as code:
 - scope-inverse: flags implementation writes outside the spec's file allowlist
 - spec-cite, spec-coverage, helper-extraction, suite-safety and friends
 
-The spec itself has a machine-readable half. Alongside the prose, an `AC-checks` yaml block maps each acceptance criterion to a mechanical check from a closed registry -- file-contains, command-exit-code and friends -- validated at spec-freeze time and executed as code, so "done" is the AC table passing rather than anyone's judgment. A criterion that genuinely needs judgment has to declare itself as one (`llm_rubric`), which keeps the escape hatch visible instead of ambient. Specs stop being documentation that drifts; they compile.
+The spec itself has a machine-readable half. Alongside the prose, an `AC-checks` yaml block maps each acceptance criterion to a mechanical check from a closed registry -- file-contains, command-exit-code and friends -- validated at spec-freeze time and executed as code, so "done" is the AC table passing rather than anyone's judgment. A criterion that can't live without judgment has to declare itself as one (`llm_rubric`), which keeps the escape hatch visible instead of ambient. Specs stop being documentation that drifts; they compile.
 
 The engine installs with zero runtime dependencies and no LLM vendor baked in. Anthropic, Azure OpenAI, and Claude Code backends ship as references; plugging in your own is [about 20 lines](examples/library/custom_backend.py).
 
@@ -80,7 +86,7 @@ claude plugin marketplace add guy-lifshitz/bytedigger
 claude plugin install bytedigger@bytedigger
 ```
 
-Phase 6 runs a parallel reviewer panel (code review, silent-failure hunting, test coverage, and a security reviewer on high-risk changes) modeled on Anthropic's pr-review-toolkit; set `reviewers.mode: "toolkit"` to use the toolkit agents directly when installed. See [examples/claude-code-skill/](examples/claude-code-skill/) for a manual per-project install and [docs/plugin.md](docs/plugin.md) for the full plugin reference (configuration flags, complexity routing, reviewer modes). The plugin predates the Python engine and is the layer we still drive day to day; the engine is the extracted, host-independent core of it.
+Phase 6 runs a parallel reviewer panel (code review, silent-failure hunting, test coverage, and a security reviewer on high-risk changes) modeled on Anthropic's pr-review-toolkit; set `reviewers.mode: "toolkit"` to use the toolkit agents themselves when installed. See [examples/claude-code-skill/](examples/claude-code-skill/) for a manual per-project install and [docs/plugin.md](docs/plugin.md) for the full plugin reference (configuration flags, complexity routing, reviewer modes). The plugin predates the Python engine and is the layer we still drive day to day; the engine is the extracted, host-independent core of it.
 
 ## Bring your own LLM
 
@@ -105,11 +111,11 @@ Reference backends in `engine_py/lib/reference_backends/` cover the Anthropic Me
 
 ## Security
 
-The engine runs LLM-generated code -- that's the GREEN phase doing its job. Run it in a container or a throwaway worktree; the deterministic gates keep the model honest, they do not contain it. Keys come in through env vars only and never land in the event log. The threat model is spelled out in [docs/security.md](docs/security.md), and [SECURITY.md](SECURITY.md) has the private reporting channel for anything exploitable.
+The engine runs LLM-generated code -- that's the GREEN phase doing its job. Run it in a container or a throwaway worktree; the deterministic gates keep the model honest, they do not contain it. Keys come in through env vars only and never land in the event log. [docs/security.md](docs/security.md) spells out the threat model; [SECURITY.md](SECURITY.md) has the private reporting channel for anything exploitable.
 
 ## Non-goals
 
-Multi-agent orchestration frameworks are well covered elsewhere. This project is deliberately narrow: one sequential engine, one event log, and a growing set of deterministic gates that keep generated code honest.
+Multi-agent orchestration frameworks are well covered elsewhere. This project stays narrow on purpose: one sequential engine, one event log, and a growing set of deterministic gates that keep generated code honest.
 
 ## License
 
