@@ -661,6 +661,14 @@ def _grounded_citation_contract() -> str:
         "     verified this turn.\n"
         "  8. Never cite a symbol name you have not verified by Reading its\n"
         "     file this turn.\n"
+        # GH934: forbid citation-form for spec-introduced NEW symbols
+        "  9. A NEW symbol (field, variable, function, event, config key) that this\n"
+        "     spec itself INTRODUCES must NEVER appear in citation form — neither\n"
+        "     `<path>:\"<symbol>\"` nor `<path>:<line>` pointing at it. The cite-lint\n"
+        "     content-greps the file and a not-yet-existing symbol ALWAYS fails\n"
+        "     (E_SPEC_CITE_LINT_FAIL). Write introduced symbols as plain backtick\n"
+        "     code labelled NEW (rule 7), with no file: prefix. Citation form is\n"
+        "     reserved for EXISTING code you Read this turn.\n"
     )
 
 
