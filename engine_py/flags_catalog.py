@@ -241,6 +241,12 @@ FLAGS: dict[str, dict] = {
         "module": "llm_subprocess.py",
         "description": "Feature flag: allow legacy subprocess.communicate() path when set to '1'.",
     },
+    "HAL_AGENT_SDK_MAX_RESUMES": {
+        "kind": "int",
+        "default": "8",
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "Warm-session resume cap for the agent-sdk reference backend; after N resumes a fresh session is started.",
+    },
     "HAL_AGENT_SDK_STDERR_TAIL_LINES": {
         "kind": "int",
         "default": "50",
@@ -258,6 +264,18 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: HAL_STUB_PASSABILITY_GATE=0 disables the stub-passability RED lint.",
+    },
+    "HAL_SCHEMA_SMOKE_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_integrity.py",
+        "description": "Kill-switch: HAL_SCHEMA_SMOKE_GATE=0 disables the GH892 schema-smoke step (dry-run against a real schema snapshot).",
+    },
+    "HAL_FIXTURE_SCHEMA_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Kill-switch: HAL_FIXTURE_SCHEMA_GATE=0 disables the GH891 fixture-schema (reference-DDL subset) RED lint.",
     },
     "HAL_RED_1Q_GATE": {
         "kind": "gate",
@@ -511,7 +529,7 @@ FLAGS: dict[str, dict] = {
         "kind": "gate",
         "default": "0",
         "module": "engine-py-audit-gate.py + workflows/phase_5_implement.py",
-        "description": "=1 flips verdict-gate lint warn→block at both seams. 34E0B77B flip-by:2026-07-17.",
+        "description": "=1 flips verdict-gate lint warn→block at both seams. 34E0B77B flip-by:2026-08-01.",
     },
     "HAL_FLAG_UNREGISTERED_GATE": {
         "kind": "gate",
@@ -560,5 +578,11 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "workflows/phase_5_implement.py",
         "description": "Opt-in (default-OFF, flip-by:2026-08-14 Refs #767): HAL_SPEC_DEFECT_REROUTE=1 enables the bounded auto-reroute of a SPEC_DEFECT verdict from phase_5_implement back to phase_45_spec. Off → legacy TEST_GAP retry path, byte-identical.",
+    },
+    "HAL_RED_BASELINE_REFRESH": {
+        "kind": "flag",
+        "default": "0",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Operator opt-in (=1): on resume, re-freeze the RED frozen-hash baseline when every mismatch is head_moved (worktree==HEAD, committed operator RED change). Never blesses worktree_dirty.",
     },
 }

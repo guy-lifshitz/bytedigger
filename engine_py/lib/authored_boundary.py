@@ -223,3 +223,45 @@ def verify_red_test_hashes(
         if current.get(path) != digest and path not in allowed
     ]
     return sorted(tampered)
+
+
+# ─── GH921 — classify a frozen-hash mismatch (real tamper vs HEAD moved) ────
+
+
+def classify_red_hash_mismatches(frozen: "dict[str, str]", git_cwd: str) -> "dict[str, str]":
+    """For each ``path`` in ``frozen`` whose current content-hash differs from
+    the frozen digest, classify the mismatch:
+
+    - current is ``"__MISSING__"`` -> ``"missing"``
+    - ``git show HEAD:<path>`` succeeds and its digest == current worktree
+      digest -> ``"head_moved"`` (committed change; worktree clean vs HEAD)
+    - ``git show HEAD:<path>`` succeeds and its digest != current -> ``"worktree_dirty"``
+      (real tamper — uncommitted edit on top of HEAD)
+    - ``git show HEAD:<path>`` fails (path not in HEAD / git error) ->
+      ``"head_unreadable"`` (fail-CLOSED: treated as tamper)
+
+    Matching paths are omitted from the result. ``{}`` when nothing mismatches.
+    Never raises: subprocess errors are classified ``"head_unreadable"``."""
+    current = compute_red_test_hashes(list(frozen.keys()), git_cwd)
+    result: "dict[str, str]" = {}
+    for path, frozen_digest in frozen.items():
+        current_digest = current.get(path)
+        if current_digest == frozen_digest:
+            continue
+        if current_digest == "__MISSING__":
+            result[path] = "missing"
+            continue
+        try:
+            show = subprocess.run(
+                ["git", "show", f"HEAD:{path}"],
+                cwd=git_cwd, capture_output=True, timeout=30,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            result[path] = "head_unreadable"
+            continue
+        if show.returncode != 0:
+            result[path] = "head_unreadable"
+            continue
+        head_digest = hashlib.sha256(show.stdout).hexdigest()
+        result[path] = "head_moved" if head_digest == current_digest else "worktree_dirty"
+    return result
