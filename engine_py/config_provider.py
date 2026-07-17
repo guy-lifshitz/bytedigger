@@ -11,8 +11,26 @@ construction sites should call.
 """
 from __future__ import annotations
 import os
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Callable, Protocol, runtime_checkable
+
+_ENV_ALIAS_PREFIXES = ("BD_", "BYTEDIGGER_")
+
+
+def _aliased_env_get(name: str, environ: Mapping[str, str] = os.environ) -> str | None:
+    """HAL_<X> lookup honoring BD_<X>/BYTEDIGGER_<X> aliases. A set HAL_<X> always
+    wins (byte-compat); aliases are consulted only when HAL_<X> is unset and the
+    name starts with 'HAL_'. Non-HAL_ names: plain lookup."""
+    if name in environ:
+        return environ[name]
+    if name.startswith("HAL_"):
+        suffix = name[4:]
+        for prefix in _ENV_ALIAS_PREFIXES:
+            val = environ.get(prefix + suffix)
+            if val is not None:
+                return val
+    return None
 
 @runtime_checkable
 class ConfigProvider(Protocol):
@@ -33,26 +51,29 @@ class _DefaultConfigProvider:
 
     def gate_enabled(self, env_var: str) -> bool:
         # Canonical predicate: enabled unless explicitly "0". Unset ⇒ enabled.
-        return os.environ.get(env_var) != "0"
+        return _aliased_env_get(env_var) != "0"
 
     def flag(self, env_var: str) -> bool:
         # Default-OFF feature flag: True iff env var is exactly "1".
-        return os.environ.get(env_var) == "1"
+        return _aliased_env_get(env_var) == "1"
 
     def timeout_ms(self, env_var: str, default: int) -> int:
         # ValueError on non-int env MUST propagate (no try/except).
-        return int(os.environ.get(env_var, str(default)))
+        v = _aliased_env_get(env_var)
+        return int(v) if v is not None else int(default)
 
     def binary(self, env_var: str, default: str) -> str:
-        return os.environ.get(env_var, default)
+        v = _aliased_env_get(env_var)
+        return v if v is not None else default
 
     def int_value(self, env_var: str, default: int) -> int:
         # ValueError on non-int env MUST propagate (same contract as timeout_ms).
-        return int(os.environ.get(env_var, str(default)))
+        v = _aliased_env_get(env_var)
+        return int(v) if v is not None else int(default)
 
     def path(self, env_var: str, default: Path) -> Path:
         # env-overridable path: Path(env) if set+non-empty, else default. No expanduser (matches _rework_log_path).
-        val = os.environ.get(env_var, "")
+        val = _aliased_env_get(env_var) or ""
         return Path(val) if val else default
 
     def hal_root(self) -> Path:
@@ -75,9 +96,13 @@ class _DefaultConfigProvider:
         """Neutral default: single cwd-relative SpecKit root, no host literals."""
         return ("./specs",)
 
+    def foreign_state_dirname(self) -> str:
+        """Directory name (under cwd / a foreign project root) for engine artifacts."""
+        return ".bytedigger"
+
     def memory_db_path(self) -> str:
-        """Neutral default: cwd-anchored, mirrors the .hal-build/ convention."""
-        return str(Path.cwd() / ".hal-build" / "memory.db")
+        """Neutral default: cwd-anchored, mirrors the foreign_state_dirname() convention."""
+        return str(Path.cwd() / self.foreign_state_dirname() / "memory.db")
 
     def home_root(self) -> Path:
         """Neutral default: the user-level workspace anchor. Resolved at call time."""
@@ -85,19 +110,19 @@ class _DefaultConfigProvider:
 
     def event_log_relpath(self) -> str:
         """Neutral event log relpath — relative to cwd hal_root."""
-        return ".hal-build/events.jsonl"
+        return f"{self.foreign_state_dirname()}/events.jsonl"
 
     def reject_log_relpath(self) -> str:
         """Neutral reject-log relpath — relative to cwd hal_root."""
-        return ".hal-build/reject-reasons.jsonl"
+        return f"{self.foreign_state_dirname()}/reject-reasons.jsonl"
 
     def rework_log_relpath(self) -> str:
         """Neutral rework-log relpath — relative to cwd hal_root."""
-        return ".hal-build/build-rework-log.jsonl"
+        return f"{self.foreign_state_dirname()}/build-rework-log.jsonl"
 
     def build_runs_relpath(self) -> str:
         """Neutral build-runs relpath — relative to cwd hal_root."""
-        return ".hal-build/build-runs"
+        return f"{self.foreign_state_dirname()}/build-runs"
 
     def models_config_relpath(self) -> str:
         """Neutral models config relpath — relative to hal_root."""
@@ -109,7 +134,7 @@ class _DefaultConfigProvider:
 
     def dbos_db_relpath(self) -> str:
         """Neutral DBOS sqlite relpath — relative to cwd hal_root."""
-        return ".hal-build/dbos.sqlite"
+        return f"{self.foreign_state_dirname()}/dbos.sqlite"
 
     def resolve_event_log_root(self, fallback: Callable[[], Path]) -> Path:
         """Neutral: no HAL_DIR env read; delegates entirely to fallback()."""
@@ -117,7 +142,7 @@ class _DefaultConfigProvider:
 
     def state_dir_prefix(self) -> str:
         """Neutral build-scope state-dir prefix — relative to cwd hal_root."""
-        return ".hal-build/"
+        return f"{self.foreign_state_dirname()}/"
 
     def repo_top_level_dirs(self) -> tuple[str, ...]:
         """Neutral repo top-level directory names — used in prompt guidance."""
@@ -174,6 +199,11 @@ def reset_default_config_provider_factory() -> None:        # §1i test teardown
     global _DEFAULT_FACTORY
     _DEFAULT_FACTORY = _ORIGINAL_FACTORY
 
+def foreign_state_dirname() -> str:
+    """Foreign-project artifact dirname (single source, §1g). Tolerates minimal-Protocol providers (neutral fallback)."""
+    fn = getattr(get_config(), "foreign_state_dirname", None)
+    return fn() if fn is not None else ".bytedigger"
+
 def hal_root() -> Path:
     """Free function: HAL install-root path (§1g single-source). Delegates to get_config().hal_root()."""
     return get_config().hal_root()
@@ -226,7 +256,51 @@ def timeout_policy_path() -> Path:
 
 def env_opt(env_var: str) -> str | None:
     """Free function: optional env-var read; returns value if set, None if unset."""
-    return os.environ.get(env_var)
+    return _aliased_env_get(env_var)
+
+
+class _AliasEnviron(Mapping[str, str]):
+    """Read-only view of os.environ where HAL_<X> falls back to BD_<X>/BYTEDIGGER_<X>.
+    Iteration yields os.environ's keys plus a synthesized HAL_<X> for every
+    BD_<X>/BYTEDIGGER_<X> key whose HAL_<X> is absent — so dict(env_mapping())
+    materializes aliases for subprocess overlays."""
+
+    def _synthesized_keys(self) -> dict[str, str]:
+        synthesized: dict[str, str] = {}
+        for prefix in reversed(_ENV_ALIAS_PREFIXES):  # BD_ overwrites BYTEDIGGER_ last (wins)
+            for key, val in os.environ.items():
+                if not key.startswith(prefix):
+                    continue
+                hal_key = "HAL_" + key[len(prefix):]
+                if hal_key not in os.environ:
+                    synthesized[hal_key] = val
+        return synthesized
+
+    def __getitem__(self, key: str) -> str:
+        val = _aliased_env_get(key)
+        if val is None:
+            raise KeyError(key)
+        return val
+
+    def __iter__(self) -> Iterator[str]:
+        seen = set(os.environ.keys())
+        yield from os.environ.keys()
+        for key in self._synthesized_keys():
+            if key not in seen:
+                seen.add(key)
+                yield key
+
+    def __len__(self) -> int:
+        return len(os.environ) + len(self._synthesized_keys())
+
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, str):
+            return False
+        return _aliased_env_get(key) is not None
+
+
+def env_mapping() -> Mapping[str, str]:
+    return _AliasEnviron()
 
 def flag(env_var: str) -> bool:
     """Free function: default-OFF feature flag; True iff env var is exactly '1'. Delegates to get_config().flag()."""

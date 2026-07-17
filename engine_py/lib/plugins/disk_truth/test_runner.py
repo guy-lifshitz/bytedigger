@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Union, runtime_checkable
 
+import config_provider
+
 
 @dataclass
 class TestRunResult:
@@ -109,7 +111,7 @@ def test_subprocess_env(cwd: Union[str, Path]) -> dict[str, str]:
     """os.environ overlaid with HAL_DIR=<cwd> so bash tests sourcing
     ${HAL_DIR:-$HOME/.claude}/... resolve to the checkout under test (the worktree),
     not the main checkout. Closes V3-052 / 04DDFA12 RCA-2 recurrence."""
-    env = dict(os.environ)
+    env = dict(config_provider.env_mapping())
     env["HAL_DIR"] = str(cwd)
     return env
 

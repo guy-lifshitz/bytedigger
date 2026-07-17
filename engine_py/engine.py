@@ -35,7 +35,7 @@ from contracts import (
 )
 import telemetry_ctx
 import llm_subprocess
-from config_provider import hal_root as _hal_root_fn, path as _path_fn, rework_log_relpath as _rework_log_relpath, get_config
+from config_provider import hal_root as _hal_root_fn, path as _path_fn, rework_log_relpath as _rework_log_relpath, foreign_state_dirname as _foreign_state_dirname_fn, get_config
 from lib.git_port import git_read
 from execution_provenance import (
     SHADOW_EVENT_TYPE,
@@ -105,8 +105,8 @@ def default_rework_log_path() -> Path:
 
     Mirrors reject_log.default_reject_log_path() / event_log.default_log_path():
     HAL dogfood (cwd inside HAL install root) → canonical central HAL rework log;
-    foreign project → cwd-relative .hal-build/build-rework-log.jsonl (no HAL-state
-    pollution). HOME/cwd unresolvable → treat cwd as foreign (safe default).
+    foreign project → cwd-relative foreign_state_dirname()/build-rework-log.jsonl
+    (no HAL-state pollution). HOME/cwd unresolvable → treat cwd as foreign (safe default).
     """
     try:
         hal_dir = _hal_root_fn()
@@ -115,7 +115,7 @@ def default_rework_log_path() -> Path:
             return hal_dir / _rework_log_relpath()
     except (OSError, ValueError, RuntimeError):
         pass
-    return Path.cwd() / ".hal-build/build-rework-log.jsonl"
+    return Path.cwd() / _foreign_state_dirname_fn() / "build-rework-log.jsonl"
 
 
 def _rework_log_path() -> Path:
@@ -123,7 +123,7 @@ def _rework_log_path() -> Path:
 
     Returns Path(HAL_REWORK_LOG) if the env var is set and non-empty,
     else default_rework_log_path() (cwd-graceful: HAL install root →
-    canonical rework log; foreign cwd → .hal-build/build-rework-log.jsonl).
+    canonical rework log; foreign cwd → foreign_state_dirname()/build-rework-log.jsonl).
     """
     return _path_fn("HAL_REWORK_LOG", default_rework_log_path())
 

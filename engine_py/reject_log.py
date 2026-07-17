@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config_provider import hal_root as _hal_root_fn, path as _path_fn, reject_log_relpath  # noqa: E402
+from config_provider import hal_root as _hal_root_fn, path as _path_fn, reject_log_relpath, foreign_state_dirname as _foreign_state_dirname_fn  # noqa: E402
 
 
 def default_reject_log_path() -> Path:
@@ -34,8 +34,8 @@ def default_reject_log_path() -> Path:
 
     Mirrors event_log.default_log_path(): HAL dogfood (cwd inside HAL install
     root) → canonical central HAL reject log; foreign project → cwd-relative
-    .hal-build/reject-reasons.jsonl (no HAL-state pollution). HOME/cwd
-    unresolvable → treat cwd as foreign (safe default).
+    foreign_state_dirname()/reject-reasons.jsonl (no HAL-state pollution).
+    HOME/cwd unresolvable → treat cwd as foreign (safe default).
     """
     try:
         hal_dir = _hal_root_fn()
@@ -44,7 +44,7 @@ def default_reject_log_path() -> Path:
             return hal_dir / reject_log_relpath()
     except (OSError, ValueError, RuntimeError):
         pass
-    return Path.cwd() / ".hal-build/reject-reasons.jsonl"
+    return Path.cwd() / _foreign_state_dirname_fn() / "reject-reasons.jsonl"
 
 
 REJECT_LOG_PATH = default_reject_log_path()

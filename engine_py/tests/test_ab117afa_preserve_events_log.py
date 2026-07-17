@@ -61,10 +61,10 @@ def test_preserve_events_log_is_first_step():
 
 
 def test_preserve_events_log_happy_path(tmp_path):
-    """AC1: When source .hal-build/events.jsonl exists, it is copied to
+    """AC1: When source .bytedigger/events.jsonl exists, it is copied to
     <scratchpad>/post-deploy/events.jsonl with identical content."""
     working_dir = tmp_path / "repo"
-    hal_build = working_dir / ".hal-build"
+    hal_build = working_dir / ".bytedigger"
     hal_build.mkdir(parents=True)
     known_content = '{"event":"start"}\n{"event":"end"}\n'
     (hal_build / "events.jsonl").write_text(known_content)
@@ -92,7 +92,7 @@ def test_preserve_events_log_source_missing_graceful_skip(tmp_path):
     """
     working_dir = tmp_path / "repo"
     working_dir.mkdir()
-    # Deliberately no .hal-build/events.jsonl at the default path
+    # Deliberately no .bytedigger/events.jsonl at the default path
 
     scratchpad = tmp_path / "scratch"
     eng = WorkflowEngine()
@@ -120,7 +120,7 @@ def test_preserve_events_log_copy_failure_graceful(tmp_path):
     data["error"] is populated. cleanup-report.md is still written (remaining steps ran).
     """
     working_dir = tmp_path / "repo"
-    hal_build = working_dir / ".hal-build"
+    hal_build = working_dir / ".bytedigger"
     hal_build.mkdir(parents=True)
     (hal_build / "events.jsonl").write_text('{"event":"start"}\n')
 
@@ -144,7 +144,7 @@ def test_preserve_events_log_copy_failure_graceful(tmp_path):
 
 def test_preserve_events_log_org_config_override(tmp_path):
     """AC5: When org_config['events_log_path'] is set, Step 0 reads from that path
-    instead of the default <working_dir>/.hal-build/events.jsonl."""
+    instead of the default <working_dir>/.bytedigger/events.jsonl."""
     custom_src = tmp_path / "override" / "my-events.jsonl"
     custom_src.parent.mkdir(parents=True)
     custom_content = '{"event":"override"}\n'
@@ -152,7 +152,7 @@ def test_preserve_events_log_org_config_override(tmp_path):
 
     working_dir = tmp_path / "repo"
     working_dir.mkdir()
-    # No .hal-build/events.jsonl at the default location
+    # No .bytedigger/events.jsonl at the default location
 
     scratchpad = tmp_path / "scratch"
     eng = WorkflowEngine()

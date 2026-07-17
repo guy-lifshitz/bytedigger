@@ -48,7 +48,7 @@ Inputs (via ``ctx.org_config``):
     eval_keep_count        — Optional. Default 10.
 
 Steps (9):
-    0. preserve_events_log         — copy <working_dir>/.hal-build/events.jsonl → post-deploy/ (best-effort)
+    0. preserve_events_log         — copy <working_dir>/<foreign_state_dirname()>/events.jsonl → post-deploy/ (best-effort)
     1. persist_run_artifacts       — copy 6 known artifacts to the state dir's build-runs/<run_id>/ (best-effort)
     2. persist_learnings_to_db    — invoke bun persist-learnings.ts to upsert LEARNINGS block → memory.db (best-effort, optional via cfg["persist_learnings_disabled"])
     3. cleanup_worktrees           — git worktree list → remove merged, skip current
@@ -80,7 +80,7 @@ from lib.git_port import git_read  # noqa: E402
 from lib.git_write_port import git_op_capture  # noqa: E402
 from lib.run_allowlist import remove_run_allowlist, resolve_zones_config_path  # noqa: E402  1DA29C33
 from contracts import StepContract, StepResult, WorkflowDefinition
-from config_provider import get_config, build_runs_relpath  # noqa: E402
+from config_provider import get_config, build_runs_relpath, foreign_state_dirname  # noqa: E402
 from lib.plugins.disk_truth.test_runner import run_test_command
 from lib.plugins.disk_truth.suite_boyscout import (
     parse_failing_nodeids,
@@ -129,7 +129,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 PERSIST_ARTIFACTS: tuple[tuple[str, str], ...] = (
-    ("working_dir", ".hal-build/events.jsonl"),
+    ("working_dir", "events.jsonl"),
     ("scratchpad",  "specs/build-spec.md"),
     ("scratchpad",  "reviews/build-opus-validation.md"),
     ("scratchpad",  "reviews/build-integrity-review.md"),
@@ -519,7 +519,7 @@ def _preserve_events_log(ctx, prev) -> StepResult:
                 step_name="preserve_events_log",
             )
     else:
-        src = _resolve_working_dir(ctx) / ".hal-build" / "events.jsonl"
+        src = _resolve_working_dir(ctx) / foreign_state_dirname() / "events.jsonl"
 
     dst = _resolve_scratchpad(ctx) / "post-deploy" / "events.jsonl"
 
@@ -595,7 +595,11 @@ def _persist_run_artifacts(ctx, prev) -> StepResult:
 
     for kind, relpath in PERSIST_ARTIFACTS:
         base = Path(relpath).name
-        src = (working_dir if kind == "working_dir" else scratchpad) / relpath
+        src = (
+            (working_dir / foreign_state_dirname() / relpath)
+            if kind == "working_dir"
+            else (scratchpad / relpath)
+        )
         if not src.exists():
             skipped_missing.append(base)
             continue

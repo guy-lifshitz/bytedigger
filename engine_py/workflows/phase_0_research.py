@@ -9,8 +9,8 @@ the orchestrator passes them through `WorkflowContext` (`question` = task,
 `org_config["scratchpad_dir"]` = absolute scratchpad path).
 
 Two steps, both deterministic:
-    1. init_scratchpad   — mkdir -p .hal-build/{research,architecture,specs,tests,reviews}
-    2. seed_research_doc — write .hal-build/research/phase-0-init.md
+    1. init_scratchpad   — mkdir -p <foreign_state_dirname()>/{research,architecture,specs,tests,reviews}
+    2. seed_research_doc — write <foreign_state_dirname()>/research/phase-0-init.md
 """
 from __future__ import annotations
 
@@ -18,18 +18,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from contracts import StepContract, StepResult, WorkflowDefinition
+from config_provider import foreign_state_dirname
 
 SUBDIRS = ("research", "architecture", "specs", "tests", "reviews")
 RESEARCH_STUB_FILENAME = "phase-0-init.md"
 
 
 def _resolve_scratchpad(ctx) -> Path:
-    """org_config.scratchpad_dir wins; else <cwd>/.hal-build."""
+    """org_config.scratchpad_dir wins; else <cwd>/foreign_state_dirname()."""
     cfg = ctx.org_config or {}
     raw = cfg.get("scratchpad_dir")
     if raw:
         return Path(raw).expanduser().resolve()
-    return (Path.cwd() / ".hal-build").resolve()
+    return (Path.cwd() / foreign_state_dirname()).resolve()
 
 
 def _init_scratchpad(ctx, _prev) -> StepResult:

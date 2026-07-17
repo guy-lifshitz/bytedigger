@@ -17,6 +17,7 @@ import re
 import stat
 from dataclasses import dataclass, field
 
+import config_provider
 from lib.git_port import git_read
 from tier_gate import is_engine_py_prod
 
@@ -69,7 +70,7 @@ def scan_audit_violation(
     commit_message: str,
     *,
     modified_paths: list[str] | None = None,
-    env=os.environ,
+    env=None,
     exists=os.path.exists,
     read_text=lambda p: open(p, encoding="utf-8").read(),
 ) -> AuditDecision:
@@ -87,6 +88,8 @@ def scan_audit_violation(
     4. Co-staged *_build_tests.md with APPROVAL_TOKEN → ALLOW (escape=approved_doc).
     5. else → BLOCK.
     """
+    env = config_provider.env_mapping() if env is None else env
+
     # Step 1 — collect changed engine_py prod paths that exist.
     # Use modified_paths if provided (CLI passes MR-only list); else fall back to
     # staged_paths so existing unit tests (modified_paths=None) remain green.

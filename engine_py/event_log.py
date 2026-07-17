@@ -28,6 +28,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 from config_provider import hal_root as _hal_root_fn  # noqa: E402
 from config_provider import event_log_relpath, resolve_event_log_hal_dir  # noqa: E402
+from config_provider import foreign_state_dirname as _foreign_state_dirname_fn  # noqa: E402
 
 # structural: engine_py → build → cli → SYSTEM → host install root
 def _resolve_hal_dir(file_path: Path) -> Path:
@@ -43,8 +44,8 @@ def default_log_path() -> Path:
 
     HAL dogfood (cwd inside the HAL install root): canonical central state log
     so HAL's own builds keep using the central log. Foreign projects: writes to
-    cwd-relative .hal-build/events.jsonl so HAL state is not polluted and the
-    canary contract (build-compact.md: .hal-build/events.jsonl) is honoured.
+    cwd-relative foreign_state_dirname()/events.jsonl so HAL state is not
+    polluted and the canary contract is honoured.
 
     HOME unresolvable: treat cwd as foreign (safe default — same logic as
     phase_05_inject._cwd_inside_hal_dir, agreement 349FE371).
@@ -56,7 +57,7 @@ def default_log_path() -> Path:
             return hal_dir / event_log_relpath()
     except (OSError, ValueError, RuntimeError):
         pass
-    return Path.cwd() / ".hal-build/events.jsonl"
+    return Path.cwd() / _foreign_state_dirname_fn() / "events.jsonl"
 
 
 def __getattr__(name: str) -> Any:

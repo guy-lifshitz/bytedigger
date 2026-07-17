@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 import subprocess
 import threading
 import time
@@ -582,7 +583,7 @@ class _StragglerWatchdog:
 
 def _resolve_backend(
     kwarg: str | None,
-    env: "dict | os._Environ",
+    env: "Mapping[str, str]",
 ) -> "tuple[str, str]":
     """Resolve the runner backend from kwarg > env > default precedence.
 
@@ -607,7 +608,7 @@ def _resolve_backend(
 
 # 4C03CCED Ship 1B: G3 file-protocol helpers for claude-in-session backend.
 
-def _resolve_request_dir(env: "dict | os._Environ") -> "tuple[str, str]":
+def _resolve_request_dir(env: "Mapping[str, str]") -> "tuple[str, str]":
     """Resolve runner-request artifact directory (§1g single-source).
 
     Returns ``(resolved_dir, source)`` where source is ``"env"`` or ``"default"``.
@@ -706,7 +707,7 @@ def _invoke_in_session(
             recoverable=False,
         )
 
-    request_dir, dir_source = _resolve_request_dir(os.environ)
+    request_dir, dir_source = _resolve_request_dir(config_provider.env_mapping())
     emit_resolver_resolved(
         "runner_request_dir",
         dir_source,
@@ -1047,7 +1048,7 @@ def invoke_llm_subprocess(
     run_ctx = telemetry_ctx.get_current_run()
     # 4C03CCED Ship 1A: backend selector gate — runs before hard_gate check so
     # unknown backends fail-closed immediately and resolver telemetry always fires.
-    resolved_backend, resolved_source = _resolve_backend(backend, os.environ)
+    resolved_backend, resolved_source = _resolve_backend(backend, config_provider.env_mapping())
     emit_resolver_resolved(
         "invoke_llm_subprocess_backend",
         resolved_source,
@@ -1068,7 +1069,7 @@ def invoke_llm_subprocess(
             data=None,
             duration_ms=0,
             step_name=(run_ctx.step_name if run_ctx is not None else None) or step_name,
-            error=f"unknown runner backend: {resolved_backend!r}",
+            error=_unknown_backend_error_message(resolved_backend),
             error_code="E_LLM_BACKEND_UNKNOWN",
             recoverable=False,
         )
@@ -1776,6 +1777,36 @@ _BACKENDS: dict[str, LLMBackend] = {
 # in invoke_llm_subprocess automatically include it.
 _KNOWN_BACKENDS = tuple(_BACKENDS)
 
+# GH898: static install-hints for reference backends whose guarded
+# registration (run.py try/except) silently skipped register() because the
+# backend's deps are not importable. Static by design — the hint must be
+# available exactly when the module itself cannot be imported. Keep names in
+# sync with lib/reference_backends/* register() calls.
+# Contract: resolved_backend is resolved/stripped upstream; register() names
+# are lowercase; this dict's keys must match those lowercase names exactly.
+_REFERENCE_BACKEND_INSTALL_HINTS: dict[str, str] = {
+    "agent-sdk": "pip install claude-agent-sdk",
+    "anthropic-api": "install a package build that bundles lib.reference_backends (stdlib-only backend; its module was not importable)",
+    "pydantic-openai": 'pip install "bytedigger-engine[agentic-pydantic]"',
+    "pydantic-anthropic": 'pip install "bytedigger-engine[agentic-pydantic]" anthropic',
+}
+
+
+def _unknown_backend_error_message(resolved_backend: str) -> str:
+    """GH898: E_LLM_BACKEND_UNKNOWN message; appends an install-hint when the
+    name matches a known reference backend whose registration was skipped."""
+    msg = f"unknown runner backend: {resolved_backend!r}"
+    hint = _REFERENCE_BACKEND_INSTALL_HINTS.get(resolved_backend)
+    if hint is not None:
+        msg += (
+            f" — {resolved_backend!r} is a known reference backend whose deps are "
+            f"not importable, so its guarded registration was skipped. Fix: {hint} "
+            "— installed into the venv HAL_BUILD_PYTHON points at (the engine "
+            "subprocess interpreter), not necessarily your shell's active venv."
+        )
+    return msg
+
+
 # --- OSS backend-injection seam (#302 / A60F1FE3) ------------------------
 # Snapshot the built-in backends + their capability maps so reset_backends()
 # can restore exactly the shipped defaults after runtime registrations.
@@ -2185,8 +2216,8 @@ def _communicate_legacy(
         or config_provider.flag("HAL_ALLOW_LEGACY_COMMUNICATE")
     ), (
         "_communicate_legacy invoked outside test context — this is the "
-        "documented 15-min-hang path. Route through stream-json (omit "
-        "--output-format) or set HAL_ALLOW_LEGACY_COMMUNICATE=1."
+        "documented 15-min-hang path. "
+        "Route through stream-json (omit --output-format) or set BD_ALLOW_LEGACY_COMMUNICATE=1 (alias: HAL_ALLOW_LEGACY_COMMUNICATE=1)."
     )
     timed_out = False
     stdout = ""
@@ -2477,7 +2508,7 @@ def _emit_safe(event_log, event_type: str, payload: dict, run_id: str) -> None:
 from lib.llm_provider import _is_fable_model, _is_opus_model  # noqa: E402
 
 
-def _resolve_gate_floor(env: "dict | os._Environ | None" = None) -> str:
+def _resolve_gate_floor(env: "Mapping[str, str] | None" = None) -> str:
     """Resolve the hard-gate model floor. Precedence: env _GATE_FLOOR_ENV_VAR
     (HAL_GATE_MODEL_FLOOR) > models.json claude.gate_floor > provider default_gate_floor.
 
@@ -2487,7 +2518,7 @@ def _resolve_gate_floor(env: "dict | os._Environ | None" = None) -> str:
     emit errors are swallowed (observability must not break execution, mirrors
     llm_subprocess.py:683/:1019).
     """
-    env = os.environ if env is None else env
+    env = config_provider.env_mapping() if env is None else env
     provider = get_provider()
     rank = provider.model_rank
 

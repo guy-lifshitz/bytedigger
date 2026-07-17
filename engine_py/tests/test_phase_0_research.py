@@ -66,7 +66,7 @@ def test_seed_research_doc_writes_file_with_task_and_session(tmp_path):
 
 
 def test_default_scratchpad_when_org_config_omitted(tmp_path, monkeypatch):
-    """If no scratchpad_dir in org_config, default to <cwd>/.hal-build."""
+    """If no scratchpad_dir in org_config, default to <cwd>/.bytedigger."""
     monkeypatch.chdir(tmp_path)
     ctx = WorkflowContext(
         tenant_id="hal",
@@ -82,7 +82,7 @@ def test_default_scratchpad_when_org_config_omitted(tmp_path, monkeypatch):
     eng = WorkflowEngine()
     eng.register("p0", phase_0_research_workflow())
     eng.execute("p0", ctx)
-    assert (tmp_path / ".hal-build" / "research" / RESEARCH_STUB_FILENAME).is_file()
+    assert (tmp_path / ".bytedigger" / "research" / RESEARCH_STUB_FILENAME).is_file()
 
 
 def test_idempotent_when_scratchpad_already_exists(tmp_path):
