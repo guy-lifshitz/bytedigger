@@ -42,7 +42,7 @@ from event_sink import get_event_sink  # noqa: E402
 from lib.dbos_setup import init_dbos, execute_durable_workflow, teardown_dbos, hard_exit  # noqa: E402
 from lib.dbos_list_runs import list_runs  # noqa: E402
 from lib.dbos_status_run import status_run  # noqa: E402
-from lib.restart_governor import governor_gate, governor_record_result, governor_record_pause, governor_reset  # noqa: E402
+from lib.restart_governor import governor_gate, governor_record_result, governor_record_pause, governor_reset, governor_reset_full, scratchpad_dir_from_config  # noqa: E402
 from lib.env_limit import is_paused_result  # noqa: E402
 from config_provider import get_config  # noqa: E402
 import telemetry_ctx  # noqa: E402
@@ -171,12 +171,13 @@ def main() -> int:
         telemetry_ctx.set_invocation_run_id(_resolved_run_id)  # GH497 D3
         if args.restart_reason:
             if args.event_log:
-                governor_reset(
+                governor_reset_full(
                     Path(args.event_log).parent,
                     _resolved_run_id,
                     args.workflow,
                     args.restart_reason,
                     args.event_log,
+                    scratchpad_dir=scratchpad_dir_from_config(ctx.org_config),
                 )
             else:
                 sys.stderr.write(

@@ -3978,6 +3978,63 @@ def _autocommit_fix_tail(
     return {"tail_committed": True, "commit_sha": tail_sha}
 
 
+# GH947: fix-worker surface guard helpers
+def _partition_fix_surface(
+    prod_paths: list[str], pre_fix_sha: str, review_text: str, git_cwd: str
+) -> tuple[list[str], list[str]]:
+    """Split prod_paths into (allowed, violations).
+
+    A path is a violation iff it did NOT exist at the pre-fix boundary
+    (`git cat-file -e {pre_fix_sha}:{p}` rc != 0) AND its literal string does
+    not occur in review_text. Repo-level driver failure (e.g. git_cwd is not
+    a git repository) fails open: remaining paths are treated as allowed.
+    """
+    allowed: list[str] = []
+    violations: list[str] = []
+    for idx, p in enumerate(prod_paths):
+        try:
+            res = git_port.git_read(
+                ["cat-file", "-e", f"{pre_fix_sha}:{p}"], cwd=git_cwd, timeout=30
+            )
+        except OSError:
+            allowed.extend(prod_paths[idx:])
+            return allowed, violations
+        stderr = (res.stderr or "")
+        if res.returncode == 0:
+            allowed.append(p)
+            continue
+        if "not a git repository" in stderr.lower():
+            allowed.extend(prod_paths[idx:])
+            return allowed, violations
+        if p in review_text:
+            allowed.append(p)
+        else:
+            violations.append(p)
+    return allowed, violations
+
+
+def _drop_add_ignored_paths(
+    stderr: str, prod_paths: list[str]
+) -> tuple[list[str], list[str]]:
+    """Split prod_paths into (retained, dropped) per a git-add ignored-paths
+    stderr listing. A path is dropped iff some stripped non-empty, non-prose
+    (no space) stderr line L matches it exactly or as a directory prefix
+    (`p.startswith(L.rstrip("/") + "/")`)."""
+    ignore_lines = [
+        line.strip() for line in (stderr or "").splitlines()
+        if line.strip() and " " not in line.strip()
+    ]
+    retained: list[str] = []
+    dropped: list[str] = []
+    for p in prod_paths:
+        hit = any(
+            p == line or p.startswith(line.rstrip("/") + "/")
+            for line in ignore_lines
+        )
+        (dropped if hit else retained).append(p)
+    return retained, dropped
+
+
 def _commit_fix_code(ctx, prev) -> StepResult:
     """Step 6+: engine-authoritative FIX commit (7547E02F).
 
@@ -4141,6 +4198,54 @@ def _commit_fix_code(ctx, prev) -> StepResult:
                 step_name="commit_fix_code",
             )
 
+    # ── GH947: fix-worker surface guard ─────────────────────────────────────
+    # A stray write outside the findings surface (not cited in the review doc,
+    # not pre-existing at the pre-fix boundary) must be dropped/reverted rather
+    # than silently committed. Fail-open when there is no review doc to check.
+    _review_doc_path = (prev.data or {}).get("review_doc_path")
+    _review_text = ""
+    if _review_doc_path:
+        try:
+            _review_text = Path(_review_doc_path).read_text(encoding="utf-8")
+        except OSError:
+            _review_text = ""
+    if not _review_text:
+        _emit_safe(
+            "fix_surface_guard_skipped",
+            {"reason": "no_review_doc", "step": "commit_fix_code", "phase": 6},
+        )
+    else:
+        assert isinstance(pre_fix_sha, str)  # GH947: narrowed by _is_valid_sha gate above
+        _allowed, _violations = _partition_fix_surface(
+            prod_paths, pre_fix_sha, _review_text, git_cwd
+        )
+        for _v in _violations:
+            _deleted = False
+            try:
+                _v_path = Path(_v)
+                if not _v_path.is_absolute() and ".." not in _v_path.parts:
+                    _ls = git_port.git_read(["ls-files", "--", _v], cwd=git_cwd, timeout=30)
+                    _tracked = bool((_ls.stdout or "").strip())
+                    _full_path = Path(git_cwd) / _v_path
+                    if not _tracked and _full_path.exists():
+                        _full_path.unlink()
+                        _deleted = True
+            except OSError:
+                _deleted = False
+            _emit_safe(
+                "fix_surface_violation",
+                {"path": _v, "deleted": _deleted, "step": "commit_fix_code", "phase": 6},
+            )
+        prod_paths = _allowed
+        if not prod_paths:
+            _emit_safe("fix_commit_skipped", {"reason": "all_paths_off_surface", "phase": 6})
+            return StepResult(
+                status="ok",
+                data={**(prev.data or {}), "fix_commit_sha": None},
+                duration_ms=0,
+                step_name="commit_fix_code",
+            )
+
     # ── GH373 Part A: authored-diff boundary scan (before git add) ──────────
     if get_config().gate_enabled("HAL_AUTHORED_BOUNDARY_GATE"):
         assert pre_fix_sha is not None
@@ -4191,11 +4296,56 @@ def _commit_fix_code(ctx, prev) -> StepResult:
             error_code="E_GIT_LOCKED",
         )
     if add_outcome == "non_lock_error":
-        return StepResult(
-            status="error", data=None, duration_ms=0, step_name="commit_fix_code",
-            error=f"git add: {add.stderr[:500]}",
-            error_code="E_FIX_COMMIT_FAILED",
-        )
+        # GH947: an ignored-path git-add failure is recoverable — drop the
+        # ignored paths and retry ONCE rather than hard-failing the whole step.
+        if "ignored by one of your .gitignore files" in (add.stderr or ""):
+            _retained, _dropped = _drop_add_ignored_paths(add.stderr, prod_paths)
+            _emit_safe(
+                "commit_gitignored_paths_skipped",
+                {"paths": sorted(_dropped), "step": "commit_fix_code", "phase": 6},
+            )
+            if not _retained:
+                _emit_safe("fix_commit_skipped", {"reason": "all_paths_gitignored", "phase": 6})
+                return StepResult(
+                    status="ok",
+                    data={**(prev.data or {}), "fix_commit_sha": None},
+                    duration_ms=0,
+                    step_name="commit_fix_code",
+                )
+            prod_paths = _retained
+            add, add_outcome = _git_op_with_lock_retry(
+                ["git", "add", "--"] + prod_paths, cwd=git_cwd, timeout=30
+            )
+            if add_outcome == "lock_persisted":
+                return StepResult(
+                    status="error", data=None, duration_ms=0, step_name="commit_fix_code",
+                    error=f"git add: index.lock contention persisted after 3 attempts: {add.stderr[:500]}",
+                    error_code="E_GIT_LOCKED",
+                )
+            if add_outcome == "non_lock_error":
+                return StepResult(
+                    status="error", data=None, duration_ms=0, step_name="commit_fix_code",
+                    error=f"git add: {add.stderr[:500]}",
+                    error_code="E_FIX_COMMIT_FAILED",
+                )
+            if add_outcome == "timeout":
+                return StepResult(
+                    status="error", data=None, duration_ms=0, step_name="commit_fix_code",
+                    error="git add: timeout after 30s",
+                    error_code="E_GIT_TIMEOUT",
+                )
+            if add_outcome == "os_error":
+                return StepResult(
+                    status="error", data=None, duration_ms=0, step_name="commit_fix_code",
+                    error="git add: OS error invoking subprocess",
+                    error_code="E_GIT_OS_ERROR",
+                )
+        else:
+            return StepResult(
+                status="error", data=None, duration_ms=0, step_name="commit_fix_code",
+                error=f"git add: {add.stderr[:500]}",
+                error_code="E_FIX_COMMIT_FAILED",
+            )
     if add_outcome == "timeout":
         return StepResult(
             status="error", data=None, duration_ms=0, step_name="commit_fix_code",

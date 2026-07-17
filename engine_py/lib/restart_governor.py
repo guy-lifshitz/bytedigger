@@ -231,6 +231,62 @@ def governor_reset(
     return {"prior_starts": prior_starts, "prior_error_codes": prior_error_codes}
 
 
+def governor_reset_full(
+    state_dir: Path,
+    run_id: str,
+    workflow: str,
+    reason: str,
+    event_log_path: "str | None" = None,
+    scratchpad_dir: "str | None" = None,
+) -> "dict[str, object]":
+    """GH963 §2.6: governor_reset PLUS validation-sentinel invalidation.
+
+    Calls `governor_reset(...)` unchanged, then — only when `scratchpad_dir`
+    is truthy — invalidates validation-cycle sentinels for `run_id` so an
+    operator reset can never replay a poisoned validator response (§1ac).
+    Sentinel-invalidation failure must never mask the reset (try/except,
+    same pattern as the existing event emit above).
+    """
+    result = governor_reset(state_dir, run_id, workflow, reason, event_log_path=event_log_path)
+    sentinels_removed: "list[str]" = []
+    if scratchpad_dir:
+        try:
+            from step_sentinel import invalidate_validation_sentinels_for_run
+
+            sentinels_removed = invalidate_validation_sentinels_for_run(Path(scratchpad_dir), run_id)
+        except Exception:
+            logger.warning("restart_governor: failed to invalidate validation sentinels", exc_info=True)
+            sentinels_removed = []
+
+        if event_log_path and sentinels_removed:
+            try:
+                from event_sink import get_event_sink
+
+                get_event_sink(event_log_path).append(
+                    "governor_reset_sentinels_invalidated",
+                    {"run_id": run_id, "workflow": workflow, "removed": len(sentinels_removed), "files": sentinels_removed},
+                    run_id,
+                )
+            except Exception:
+                logger.warning("restart_governor: failed to emit sentinels_invalidated event", exc_info=True)
+
+    return {**result, "sentinels_removed": sentinels_removed}
+
+
+def scratchpad_dir_from_config(org_config: "dict[str, object] | None") -> "str | None":
+    """None-safe extraction of the scratchpad_dir path from an org_config dict.
+
+    Behaviour-preserving boy-scout helper (GH963): hoists the
+    ``(org_config or {}).get("scratchpad_dir")`` short-circuit out of
+    run.py:main so main's cyclomatic complexity stays at rank D (toolscan
+    Group K). scratchpad_dir is always a filesystem path string or absent —
+    governor_reset_full itself does ``Path(scratchpad_dir)`` — so narrowing a
+    non-str value to None is a no-op in practice.
+    """
+    value = (org_config or {}).get("scratchpad_dir")
+    return value if isinstance(value, str) else None
+
+
 def governor_gate(
     event_log_path: "str | None",
     run_id: str,

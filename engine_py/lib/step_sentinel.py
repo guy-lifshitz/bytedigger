@@ -209,6 +209,44 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
     return removed
 
 
+def invalidate_validation_sentinels_for_run(
+    scratchpad: "Path", run_id: str,
+    workflow_name: str = "phase_5_validation_cycle",
+    step_names: "tuple[str, ...]" = ("invoke_validation_llm",),
+) -> list:
+    """GH963 §2.6: unlink every validation-cycle sentinel for ``run_id``,
+    scoped to ``step_names`` only (RED/review sentinels are never touched —
+    over-deletion re-pays LLM calls, §1ac scope rule). Two anchored glob
+    variants per step (legacy + input-hashed), anchored immediately after
+    the run_id segment (GH897 r2 MINOR-2) so a prefix collision ("R1" vs
+    "R12") cannot over-match. UNLINK, not read-suppression — must not
+    survive a crash-restart (§1ac). Degrades silently on OSError / missing
+    dir. Returns the list of removed filenames; idempotent (second call on
+    an already-invalidated run returns []).
+    """
+    removed: list = []
+    sentinel_dir = Path(scratchpad) / "resume"
+    if not sentinel_dir.exists():
+        return removed
+    for step_name in step_names:
+        patterns = (
+            f"{workflow_name}__{step_name}_done_c*_r{run_id}.json",
+            f"{workflow_name}__{step_name}_done_c*_r{run_id}_h*.json",
+        )
+        for pattern in patterns:
+            try:
+                matches = list(sentinel_dir.glob(pattern))
+            except OSError:
+                continue
+            for match in matches:
+                try:
+                    match.unlink()
+                except (FileNotFoundError, OSError):
+                    continue
+                removed.append(match.name)
+    return removed
+
+
 def maybe_write_sentinel(context, step, cycle: int, run_id: str, result, workflow_name: "str | None" = None, prev=None) -> None:
     """Write ``result.data`` to the sentinel — only for a flagged step's ok result."""
     if not getattr(step, "resume_sentinel", False):

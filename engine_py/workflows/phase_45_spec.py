@@ -3089,9 +3089,14 @@ _CITATION_RE = re.compile(r"([A-Za-z0-9_./-]+\.(?:ts|py|md|sh|tsx|js|yml)):(\d+)
 def _render_citation_findings(findings: list[dict[str, Any]], cycle: int) -> tuple[str, bool]:
     lines = [f"SPEC CITATION LINT FINDINGS (cycle {cycle}):"]
     for f in findings:
-        lines.append(
-            f"  {f['severity']}: {f['path']}:{f['line']} — {f['reason']}"
-        )
+        line = f"  {f['severity']}: {f['path']}:{f['line']} — {f['reason']}"
+        # GH954 (agreement A633F67D): surface fuzzy-suggest candidates to the
+        # retry writer so a still-fabricated citation gets a concrete fix
+        # hint instead of just "file does not exist".
+        candidates = f.get("candidates")
+        if candidates:
+            line += f" (did you mean: {', '.join(candidates)}?)"
+        lines.append(line)
     # A11A5779: append a remediation hint so the retry writer knows HOW to
     # fix bare-filename citations. The lint resolves paths relative to the
     # repo root (git_cwd), so any citation that does not start at a top-level
@@ -3171,6 +3176,158 @@ def _resolve_citation_target(
     return (None, "missing") if contained else (None, "escape")
 
 
+def _neighbor_dir_resolve(
+    path_str: str,
+    resolved_dirs: set[str],
+    git_cwd: Path,
+    git_cwd_resolved: Path,
+) -> tuple[Path | None, list[str]]:
+    """GH954 pass-2 retry (agreement A633F67D): try `path_str` under each dir
+    that already yielded a git_cwd/suffix_map hit this call (a sibling-cite's
+    dir is a plausible home for a bare-basename miss — the #954 repro). Same
+    escape guard as `_resolve_citation_target`: a candidate that climbs out
+    of git_cwd is skipped, not an error. Distinctness is by resolved absolute
+    path (two neighbor dirs may collapse to the same dir).
+
+    Returns (the_path, [rel_str]) on exactly ONE distinct hit. Returns
+    (None, sorted_rel_strs) on zero or ambiguous (>=2) hits — the candidates
+    are surfaced for the ERROR finding's `candidates` key either way.
+    """
+    hits: dict[str, Path] = {}
+    for d in sorted(resolved_dirs):
+        try:
+            candidate = (git_cwd / d / path_str).resolve()
+            candidate.relative_to(git_cwd_resolved)
+        except (ValueError, OSError):
+            continue
+        if not candidate.is_file():
+            continue
+        hits[str(candidate)] = candidate
+
+    if len(hits) == 1:
+        (only,) = hits.values()
+        return only, [str(only.relative_to(git_cwd_resolved))]
+    return None, sorted(str(p.relative_to(git_cwd_resolved)) for p in hits.values())
+
+
+def _citation_suggestions(
+    path_str: str,
+    git_cwd: Path,
+    _tracked_box: list[list[str]] | None = None,
+) -> list[str]:
+    """GH954 fuzzy basename-suggest fallback (agreement A633F67D), called
+    only for still-unresolved misses. Same `git_read` guard pattern as
+    `_build_suffix_map` — every except-arm returns [] (§1n OWN, never
+    raises). `_tracked_box` is an optional one-slot cache (implementation
+    detail — local, not module-level) a caller can pass to reuse one
+    `git ls-files` result across multiple misses in the same
+    `_verify_spec_citations` call: empty on entry means "not fetched yet"
+    (this call fetches and fills it); non-empty means "reuse `[0]`".
+    """
+    if _tracked_box is not None and _tracked_box:
+        tracked = _tracked_box[0]
+    else:
+        try:
+            result = git_read(
+                ["-c", "core.quotepath=false", "ls-files", "-z"],
+                cwd=str(git_cwd),
+                timeout=5,
+            )
+        except FileNotFoundError:
+            logger.debug("citation_suggestions git_ls_files failed (reason=%s)", "git_not_found")
+            tracked = []
+        except OSError as e:
+            logger.debug(
+                "citation_suggestions git_ls_files failed (reason=%s, errno=%s)",
+                "os_error",
+                getattr(e, "errno", None),
+            )
+            tracked = []
+        else:
+            if result.returncode != 0:
+                logger.debug(
+                    "citation_suggestions git_ls_files failed (reason=%s, rc=%s)",
+                    "nonzero_rc",
+                    result.returncode,
+                )
+                tracked = []
+            else:
+                tracked = [line.strip() for line in result.stdout.split("\0") if line.strip()]
+        if _tracked_box is not None:
+            _tracked_box.append(tracked)
+
+    target_name = Path(path_str).name
+    matches = sorted(p for p in tracked if Path(p).name == target_name)
+    return matches[:5]
+
+
+def _retry_pending_misses(
+    pending_misses: list[tuple[str, int]],
+    resolved_dirs: set[str],
+    git_cwd: Path,
+    git_cwd_resolved: Path,
+) -> list[dict[str, Any]]:
+    """GH954 pass 2: retry each pass-1 miss against dirs that resolved a
+    sibling citation this call. A unique neighbor hit gets the SAME
+    line-range check as the main loop; a still-unresolved miss gets the
+    ERROR finding (unchanged reason literal) plus an OPTIONAL `candidates`
+    key — neighbor-ambiguous rels first, else a fuzzy basename suggest.
+    `tracked_box` is a call-local one-slot cache so `_citation_suggestions`
+    only spawns `git ls-files` once even across several unresolved misses.
+    """
+    retry_findings: list[dict[str, Any]] = []
+    tracked_box: list[list[str]] = []
+    for path_str, line_num in pending_misses:
+        neighbor_path, neighbor_candidates = _neighbor_dir_resolve(
+            path_str, resolved_dirs, git_cwd, git_cwd_resolved,
+        )
+        if neighbor_path is not None:
+            try:
+                total_lines = len(
+                    neighbor_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                )
+            except OSError as e:
+                retry_findings.append({
+                    "path": path_str,
+                    "line": line_num,
+                    "severity": "ERROR",
+                    "reason": f"unreadable: {e}",
+                })
+                continue
+
+            if line_num > total_lines or line_num < 1:
+                retry_findings.append({
+                    "path": path_str,
+                    "line": line_num,
+                    "severity": "ERROR",
+                    "reason": f"line {line_num} > total {total_lines}",
+                })
+            else:
+                retry_findings.append({
+                    "path": path_str,
+                    "line": line_num,
+                    "severity": "WARNING",
+                    "reason": "exists; symbol-proximity not checked (A813CA08)",
+                    "resolved_via": "neighbor_dir",
+                })
+            continue
+
+        finding: dict[str, Any] = {
+            "path": path_str,
+            "line": line_num,
+            "severity": "ERROR",
+            "reason": "file does not exist",
+        }
+        candidates = neighbor_candidates
+        if not candidates:
+            candidates = _citation_suggestions(path_str, git_cwd, tracked_box)
+        if candidates:
+            finding["candidates"] = candidates
+        retry_findings.append(finding)
+
+    return retry_findings
+
+
 def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
     """Pre-Opus regex scan of the just-written spec for fabricated `<path>:<line>`
     citations. ERROR (missing file or out-of-range line) short-circuits to a
@@ -3237,6 +3394,12 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
     # module-level/global) so the direct-call `_build_suffix_map` spy suites'
     # isolation stays intact (3F5599A6 §3.2 sibling audit).
     suffix_map: dict[str, str] | None = None
+    # GH954 (agreement A633F67D): pass-1 accumulates resolved_dirs from
+    # git_cwd/suffix_map hits ONLY (not scratchpad, not pass-2 results — no
+    # chaining) and stashes misses for the pass-2 neighbor-dir retry instead
+    # of erroring immediately.
+    resolved_dirs: set[str] = set()
+    pending_misses: list[tuple[str, int]] = []
     for m in _CITATION_RE.finditer(content):
         path_str = m.group(1)
         line_num = int(m.group(2))
@@ -3265,13 +3428,11 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
             continue
 
         if resolved is None:
-            findings.append({
-                "path": path_str,
-                "line": line_num,
-                "severity": "ERROR",
-                "reason": "file does not exist",
-            })
+            pending_misses.append((path_str, line_num))
             continue
+
+        if resolved_via in ("git_cwd", "suffix_map"):
+            resolved_dirs.add(str(resolved.parent.relative_to(git_cwd_resolved)))
 
         try:
             total_lines = len(resolved.read_text(encoding="utf-8", errors="replace").splitlines())
@@ -3299,6 +3460,13 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
                 "reason": "exists; symbol-proximity not checked (A813CA08)",
                 "resolved_via": resolved_via,
             })
+
+    # GH954 pass 2: retry each pass-1 miss via neighbor-dir + fuzzy-suggest
+    # before declaring it fabricated (extracted per §1aa — see
+    # _retry_pending_misses docstring for the exact retry semantics).
+    findings.extend(
+        _retry_pending_misses(pending_misses, resolved_dirs, git_cwd, git_cwd_resolved)
+    )
 
     errors = [f for f in findings if f["severity"] == "ERROR"]
     warnings = [f for f in findings if f["severity"] == "WARNING"]

@@ -23,6 +23,7 @@ Gate = Literal[
     "red_runtime",
     "spec_retry",
     "red_lint_preflight",
+    "validation_execution",
 ]
 
 
@@ -74,6 +75,13 @@ _POLICY_MATRIX: dict[tuple[BuildClass, Gate], RecoverablePolicy] = {
     ("SIMPLE",   "red_lint_preflight"):   RecoverablePolicy("recoverable_twice", 2),
     ("FEATURE",  "red_lint_preflight"):   RecoverablePolicy("recoverable_twice", 2),
     ("COMPLEX",  "red_lint_preflight"):   RecoverablePolicy("recoverable_twice", 2),
+    # validation_execution: GH963 — validator self-reported non-execution
+    # (zero tool calls / inputs not read). One bounded auto-retry on a fresh
+    # subprocess for all build classes (issue's explicit "auto-retry once"
+    # ask); a second execution failure is infra, not a test gap -> terminal.
+    ("SIMPLE",   "validation_execution"): RecoverablePolicy("recoverable_once",  1),
+    ("FEATURE",  "validation_execution"): RecoverablePolicy("recoverable_once",  1),
+    ("COMPLEX",  "validation_execution"): RecoverablePolicy("recoverable_once",  1),
 }
 
 _DEFAULT_POLICY = RecoverablePolicy("recoverable_once", 1)

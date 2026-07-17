@@ -222,6 +222,8 @@ ERROR_CODES: dict[str, str] = {
     "E_SYNTHESIZER_NEEDS_CONTEXT": "phase_7_synthesize: synthesizer subagent requested more context",
     "E_SYNTHESIZER_NO_MARKER": "phase_7_synthesize: synthesizer output missing required completion marker",
     "E_TEST_RUNNER_MISSING": "phase_5_implement: configured test runner binary was not found",
+    "E_VALIDATION_EXEC_RETRY": "phase pipeline: validator self-reported non-execution — bounded fresh-subprocess retry",
+    "E_VALIDATION_EXECUTION_FAILURE": "phase pipeline: validator failed to execute (zero tool calls / inputs not read) after retry budget — infra failure, NOT a test gap",
     "E_VALIDATION_FAILED": "phase pipeline: structured verdict validation failed for this step's output",
     "E_VALIDATION_RETRY": "phase pipeline/dbos_setup: structured verdict validation triggered a retry",
     "E_VERIFY_READ_FAILED": "anti_hallucination helper: reading the artifact to verify failed",

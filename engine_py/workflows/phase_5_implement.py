@@ -381,6 +381,12 @@ VERDICT_CATEGORY_NONE = "NONE"
 VERDICT_CATEGORY_TEST_GAP = "TEST_GAP"
 VERDICT_CATEGORY_SPEC_DEFECT = "SPEC_DEFECT"
 
+# GH963 §2.5: validator self-reported non-execution (zero tool calls /
+# inputs not read) — distinct category so TEST_GAP stats stay clean; used
+# only in the §2.2 event payload and terminal diagnostics, upstream of
+# _resolve_verdict_category (which stays unchanged).
+VERDICT_CATEGORY_VALIDATION_EXECUTION_FAILURE = "VALIDATION_EXECUTION_FAILURE"
+
 # GH767 §2.2c: reroute budget — class/module constant, not a config flag
 # (keeps the rollout-completion-check flag surface untouched, GH750 §2.3
 # precedent).
@@ -400,6 +406,30 @@ def _parse_verdict(raw: str) -> str:
         [("VERDICT: PASS", VERDICT_PASS), ("VERDICT: FAIL", VERDICT_FAIL)],
         VERDICT_UNKNOWN,
     )
+
+
+# GH963 §2.1: deterministic non-execution detector. Conservative marker list —
+# a false positive costs one bounded retry, never a verdict (Principle A: no
+# size/duration heuristics, marker-only).
+_NON_EXECUTION_MARKERS = (
+    "validation was not performed",
+    "validation not performed",
+    "no tool call",
+    "inputs not read",
+    "tooling did not deliver",
+    "re-run the validation gate",
+)
+
+
+def _detect_validation_non_execution(raw: str) -> "str | None":
+    """Return the first matched marker (lowercase) or None. Case-insensitive
+    substring scan — deterministic, Principle A. Conservative list: a false
+    positive costs one bounded retry, never a verdict."""
+    lowered = (raw or "").lower()
+    for marker in _NON_EXECUTION_MARKERS:
+        if marker in lowered:
+            return marker
+    return None
 
 
 def _canonical_gate_verdict(passed: bool, markdown_verdict: str) -> str:
@@ -4799,7 +4829,7 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
         )
     cfg = ctx.org_config or {}
     model = _resolve_model(cfg, "validation_model", _default_validation_model())
-    return invoke_llm_subprocess(
+    result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=model,
         timeout_sec=_resolve_validation_timeout_sec(cfg),
@@ -4818,6 +4848,42 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
         allowed_tools=["Read", "Grep", "Glob", "Bash(graphify-shim.sh:*)"],
         stable_prefix=prev.data.get("stable_prefix", ""),
     )
+
+    # GH963 §2.2: bounded retry on validator self-reported non-execution.
+    # ORDER matters (Opus gate note F2) — status must be "ok" AND data a
+    # dict BEFORE any raw_response scan, else non-ok/malformed results
+    # (E_LLM_TIMEOUT, E_BAD_RESPONSE, E_MISSING_PREV_DATA) get scanned too,
+    # violating the §1n DEFER passthrough (AC7).
+    if result.status == "ok" and isinstance(result.data, dict):
+        raw = result.data.get("raw_response", "")
+        marker = _detect_validation_non_execution(raw)
+        if marker:
+            _emit_safe(
+                "validation_execution_failure_detected",
+                {
+                    "marker": marker,
+                    "cycle": prev.data.get("cycle", 1),
+                    "response_bytes": len(raw.encode("utf-8")),
+                    "verdict_category": VERDICT_CATEGORY_VALIDATION_EXECUTION_FAILURE,
+                    "phase": 5,
+                },
+                severity="error",
+            )
+            build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
+            gated: StepResult = RecoverableGateMixin.gated_step_result(
+                build_class=build_class,
+                gate="validation_execution",
+                cycle=int(prev.data.get("cycle", 1)),
+                retry_from_step_idx=0,
+                error_code="E_VALIDATION_EXEC_RETRY",
+                error_msg=f"validator self-reported non-execution: {marker}",
+                step_name="invoke_validation_llm",
+                forwarded_data=prev.data,
+                terminal_error_code="E_VALIDATION_EXECUTION_FAILURE",
+            )
+            return gated
+
+    return result
 
 
 # ─── Step 6: write validation doc ────────────────────────────────────────────
