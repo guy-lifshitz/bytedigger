@@ -58,6 +58,7 @@ py-modules = [
     "event_sink",
     "execution_provenance",
     "forbidden_import",
+    "generate_receipts",
     "helper_extraction",
     "io_utils",
     "llm_subprocess",
