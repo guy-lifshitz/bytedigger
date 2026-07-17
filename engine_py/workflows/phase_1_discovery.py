@@ -11,9 +11,9 @@ Token-spend optimizations baked in:
       so the LLM opens them on demand (matches phase-05-inject.md §8).
     - No CLAUDE.md / project-context injection — orchestrator wires
       `omitProjectContext` flags through `llm_command`.
-    - Optional `role_template_path` — orchestrator can prepend
-      `templates/role-reviewer.md` (~3KB) for read-only safety rules
-      without paying ~10KB CLAUDE.md tax.
+    - Optional `role_template_path` — orchestrator can prepend a ~3KB
+      role-reviewer template for read-only safety rules without paying
+      ~10KB CLAUDE.md tax.
 
 Inputs (via `ctx.org_config`):
     scratchpad_dir       — REQUIRED. Absolute path to scratchpad root.
