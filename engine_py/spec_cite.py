@@ -11,6 +11,7 @@ Part of 52151A8F — spec-cite-lint.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from collections.abc import Set as AbstractSet
@@ -229,6 +230,12 @@ _DECLARED_DEF_RE = re.compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(")
 _DECLARED_ASSIGN_RE = re.compile(r"^\s*(?:self\.)?([A-Za-z_]\w*)\s*(?::[^=\n]+)?=(?!=)")
 _DECLARED_HEADING_RE = re.compile(r"^#{1,6}\s+")
 
+# GH906: quoted-signature extractors — a def/class signature cited inline
+# inside quotes/backticks (e.g. path.py:"def load_retired_tech(...) -> ...")
+# is a declaration of a spec-planned symbol, same as a line-anchored one.
+_DECLARED_QUOTED_DEF_RE = re.compile(r"[\"'`]\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(")
+_DECLARED_QUOTED_CLASS_RE = re.compile(r"[\"'`]\s*class\s+([A-Za-z_]\w*)")
+
 
 def declared_symbols(spec_text: str) -> set[str]:
     """Extract names in declaration position from spec_text (GH699 §2.2):
@@ -237,6 +244,10 @@ def declared_symbols(spec_text: str) -> set[str]:
     Prose mentions (non-declaration position) are never extracted."""
     declared: set[str] = set()
     for line in spec_text.splitlines():
+        for qm in _DECLARED_QUOTED_DEF_RE.finditer(line):
+            declared.add(qm.group(1))
+        for qm in _DECLARED_QUOTED_CLASS_RE.finditer(line):
+            declared.add(qm.group(1))
         m = _DECLARED_CLASS_RE.match(line)
         if m:
             declared.add(m.group(1))
@@ -290,32 +301,77 @@ _IDENT_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 _REPO_INDEX_CACHE: dict[str, frozenset[str]] = {}  # per-run, keyed by resolved repo_root
 
 
+def _in_nested_checkout(path: Path, repo_root: Path, _cache: dict[Path, bool]) -> bool:
+    """Return True if any strict ancestor of path (up to, excluding,
+    repo_root) contains a `.git` entry (GH895 §2.2): a nested worktree/repo
+    checkout under repo_root leaks its own tree into the index otherwise.
+    A `.git` entry may be a file (worktree) or a directory (full repo).
+    Memoized per-ancestor in ``_cache`` (per _iter_code_files call). Never
+    raises on an unreadable ancestor."""
+    ancestor = path.parent
+    while ancestor != repo_root and repo_root in ancestor.parents:
+        cached = _cache.get(ancestor)
+        if cached is not None:
+            if cached:
+                return True
+            ancestor = ancestor.parent
+            continue
+        try:
+            is_nested = ancestor.joinpath(".git").exists()
+        except OSError:
+            is_nested = False
+        _cache[ancestor] = is_nested
+        if is_nested:
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 def _iter_code_files(repo_root: Path) -> list[Path]:
     """Return indexable code files under repo_root (GH796 §2.2): suffix in
     _INDEX_EXTS, no path component in _INDEX_SKIP_DIRS, size <=
-    _MAX_INDEX_FILE_BYTES, at most _MAX_INDEX_FILES entries. Sorted for
-    determinism. Never raises on an unreadable entry."""
+    _MAX_INDEX_FILE_BYTES, at most _MAX_INDEX_FILES entries. Excludes files
+    under a nested worktree/repo checkout (GH895 §2.2). Sorted for
+    determinism. Never raises on an unreadable entry. GH912: topdown-prune
+    os.walk (skip-dirs + nested checkouts pruned before descent) instead of
+    a full rglob materialization."""
     files: list[Path] = []
-    try:
-        candidates = sorted(repo_root.rglob("*"))
-    except OSError:
-        return files
-    for path in candidates:
-        if len(files) >= _MAX_INDEX_FILES:
+    hit_cap = False
+    for dirpath, dirnames, filenames in os.walk(
+        str(repo_root), topdown=True, onerror=None, followlinks=False
+    ):
+        pruned: list[str] = []
+        for d in dirnames:
+            if d in _INDEX_SKIP_DIRS:
+                continue
+            try:
+                is_nested = Path(dirpath, d, ".git").exists()
+            except OSError:
+                is_nested = False
+            if is_nested:
+                continue
+            pruned.append(d)
+        pruned.sort()
+        dirnames[:] = pruned
+        for f in sorted(filenames):
+            if hit_cap:
+                break
+            path = Path(dirpath, f)
+            if path.suffix not in _INDEX_EXTS:
+                continue
+            try:
+                if not path.is_file():
+                    continue
+                if path.stat().st_size > _MAX_INDEX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            files.append(path)
+            if len(files) >= _MAX_INDEX_FILES:
+                hit_cap = True
+        if hit_cap:
             break
-        if any(part in _INDEX_SKIP_DIRS for part in path.parts):
-            continue
-        if path.suffix not in _INDEX_EXTS:
-            continue
-        try:
-            if not path.is_file():
-                continue
-            if path.stat().st_size > _MAX_INDEX_FILE_BYTES:
-                continue
-        except OSError:
-            continue
-        files.append(path)
-    return files
+    return sorted(files)
 
 
 def _repo_symbol_index(repo_root: Path) -> frozenset[str]:
