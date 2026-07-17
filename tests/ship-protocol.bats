@@ -98,7 +98,7 @@ _mock_gh() {
 #!/usr/bin/env bash
 echo "gh \$*" >> "$CALL_LOG"
 if [ "\$1" = "pr" ] && [ "\$2" = "create" ]; then
-  echo "https://github.com/shtofadhor/bytedigger/pull/1"
+  echo "https://github.com/owner/repo/pull/1"
 fi
 exit 0
 EOF

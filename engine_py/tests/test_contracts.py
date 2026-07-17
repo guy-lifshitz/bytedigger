@@ -1,5 +1,5 @@
 """
-Tests for engine_py.contracts (ported from BARK bark.agent.workflow_contracts, 2026-04-25).
+Tests for engine_py.contracts.
 
 Pure dataclass contracts for orchestrator workflows.
 """

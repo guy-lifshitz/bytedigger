@@ -1,8 +1,7 @@
 """Workflow engine — sequential step executor with frozen-context threading.
 
-Ported from BARK bark/agent/orchestrator.py (Mac Studio) on 2026-04-25.
-BARK-specific intent routing (classify_with_llm, IntentRoute, agent_explore) stripped;
-HAL workflows are registered explicitly by name and executed directly.
+Workflows are registered explicitly by name and executed directly — no
+implicit intent routing.
 
 Stage 1c (2026-04-25): optional `event_log` parameter wires append-only event
 emission into each execute() call — workflow_started, step_started, step_finished,

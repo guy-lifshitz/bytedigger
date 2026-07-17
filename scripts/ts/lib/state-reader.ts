@@ -1,9 +1,7 @@
 /**
  * state-reader.ts — bash-parity YAML field extractor.
  *
- * Originally ported from HAL (SYSTEM/cli/build/lib/state-reader.ts) — no
- * longer tracked upstream; this file is the canonical ByteDigger copy.
- * Replicates the grep + sed pipeline used by scripts/build-gate.sh
+ * This file is the canonical ByteDigger copy. Replicates the grep + sed pipeline used by scripts/build-gate.sh
  * (anchored line-regex extract, strip key prefix, strip surrounding quotes
  * and whitespace).
  *

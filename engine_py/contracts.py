@@ -4,8 +4,6 @@ Pure dataclass contracts for HAL workflow engine.
 Frozen WorkflowContext + StepResult/StepContract/WorkflowDefinition data
 containers for multi-step workflow execution. No orchestration logic here —
 see engine.py for the executor.
-
-Ported from BARK bark/agent/workflow_contracts.py on 2026-04-25.
 """
 
 from __future__ import annotations

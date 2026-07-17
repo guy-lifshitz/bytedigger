@@ -1,5 +1,5 @@
-# OSS packaging (manifest-driven). Package name is provisional pending the
-# publish decision; py-modules is generated 1:1 from core_manifest.json
+# OSS packaging (manifest-driven). Published on PyPI as bytedigger-engine;
+# py-modules is generated 1:1 from core_manifest.json
 # core_modules (root entries) — host modules are deliberately NOT packaged.
 [build-system]
 requires = ["setuptools>=68"]
