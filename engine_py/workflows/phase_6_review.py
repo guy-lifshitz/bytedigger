@@ -161,6 +161,9 @@ from plugins.review_schema import (  # noqa: E402  812D2503 Ship B: canonical sc
     STRUCTURED_FINDINGS_DIRECTIVE_SHORT,
     ROLE_FINDINGS_COUNT_MARKER_RE,
     PARALLEL_DISPATCH_FRAMING_TEMPLATE,
+    SEVERITY_HDR_LINE_RE,  # GH970: tolerant SEVERITY-header parse
+    SEVERITY_HDR_MULTILINE_RE,  # GH970
+    lint_role_report,  # GH970 D2: malformed-header lint
 )
 from io_utils import atomic_write  # noqa: E402  DD34EEBF: scratchpad ref persistence
 from reject_log import record_satisfaction_reject  # noqa: E402  EECA708D
@@ -1028,10 +1031,9 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
 # resolution path.
 
 # Header pattern: "### SEVERITY: <LEVEL> — <title>" (em-dash) or "- <title>" (hyphen).
-_AGG_SEVERITY_HDR_RE = re.compile(
-    r"^###\s+SEVERITY:\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*[—-]\s*(.+?)\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
+# GH970: tolerant of a 2-4 hash prefix (## / ### / ####); source of truth moved
+# to plugins.review_schema.canonical.SEVERITY_HDR_MULTILINE_RE (§1g).
+_AGG_SEVERITY_HDR_RE = SEVERITY_HDR_MULTILINE_RE
 # 906E37DC: per-role self-count anchor — sub-reviewers write `<!-- role-findings-count: N -->`
 # as the last line of their role file. Last match wins per file; absent => 0 contribution.
 # 812D2503 Ship B: regex source-of-truth moved to plugins.review_schema.canonical;
@@ -1450,6 +1452,9 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     _total_parsed_blocks: int = 0
     _self_reported_total: int = 0
     _any_selfcount: bool = False
+    # GH970 D2: deterministic malformed-SEVERITY-header lint accumulators.
+    _malformed_total: int = 0
+    _malformed_roles: set[str] = set()
     for rf in role_files:
         slug = _slug_from_role_filename(rf)
         try:
@@ -1467,6 +1472,17 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         if _selfcount_this_role is not None:
             _self_reported_total += _selfcount_this_role
             _any_selfcount = True
+        # GH970 D2: lines that look like a SEVERITY header but don't parse.
+        _malformed = lint_role_report(content)
+        if _malformed:
+            _emit_safe("role_report_malformed", {
+                "phase": "phase_6_review",
+                "role": slug,
+                "count": len(_malformed),
+                "lines": _malformed[:5],
+            })
+            _malformed_total += len(_malformed)
+            _malformed_roles.add(slug)
 
     # 1F39FB1A: Soft-tag pivot — annotate ALL findings with verify_status + verify_reason.
     # No findings are dropped. verified_findings = status starts with "verified";
@@ -1625,7 +1641,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             # Inject [verify: <status>] tag into the ### SEVERITY: header line.
             # Only the first line of the block (the header) is modified.
             block_lines = f["block"].splitlines(keepends=True)
-            if block_lines and block_lines[0].startswith("### SEVERITY:"):
+            if block_lines and SEVERITY_HDR_LINE_RE.match(block_lines[0].rstrip("\n\r")):
                 block_lines[0] = block_lines[0].rstrip("\n\r") + f" [verify: {vs}]\n"
             tagged_block = "".join(block_lines)
             out.append(tagged_block)
@@ -1665,6 +1681,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             (filtered_count / (findings_count + filtered_count)) > 0.5
             if (findings_count + filtered_count) > 0 else False
         ),
+        "malformed_headers": _malformed_total,  # GH970 D2
     }
     out.append("## Findings Audit")
     out.append(
@@ -1679,6 +1696,12 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             f"⚠ AUDIT WARNING: {_lost_to_prose} finding(s) self-reported "
             "but not emitted as ### SEVERITY: blocks — likely written in prose. "
             "Reviewer prompt requires all findings inline. Audit trail incomplete for this build."
+        )
+    if _malformed_total > 0:
+        out.append(
+            f"⚠ AUDIT WARNING: {_malformed_total} malformed SEVERITY header line(s) "
+            "not parseable by the aggregator — findings may be invisible. "
+            f"Roles: {', '.join(sorted(_malformed_roles))}"
         )
     out.append("")
     _emit_safe("review_findings_audit", findings_audit)

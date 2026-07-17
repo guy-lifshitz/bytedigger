@@ -35,8 +35,10 @@ import re
 import tempfile
 from pathlib import Path
 
+from review_schema.canonical import SEVERITY_HDR_LINE_RE  # GH970: tolerant SEVERITY-header parse
+
 # Regexes for citation parsing.
-_SEVERITY_HDR_RE = re.compile(r"^### SEVERITY:\s+(CRITICAL|HIGH|MEDIUM|LOW)\s+—")
+_SEVERITY_HDR_RE = SEVERITY_HDR_LINE_RE
 _EVIDENCE_QUOTE_RE = re.compile(r"^>\s+(\S+):(\d+):\s+(.+)$")
 
 _PLUGIN_DIR = Path(__file__).parent

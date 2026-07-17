@@ -87,3 +87,35 @@ STRUCTURED_FINDINGS_DIRECTIVE_SHORT: str = (
 ROLE_FINDINGS_COUNT_MARKER_RE: re.Pattern[str] = re.compile(
     r"<!--\s*role-findings-count:\s*(\d+)\s*-->"
 )
+
+# ── SEVERITY_HDR_* — GH970 tolerant SEVERITY-header parse ───────────────────
+# Single source of truth for the "### SEVERITY: <LEVEL> — <title>" header
+# pattern, tolerant of a 2-4 hash prefix (the prescribed form stays ### per
+# PER_ROLE_SCHEMA_TEMPLATE above; ## and #### are also accepted so a
+# well-formed-but-off-prescription header is not structurally invisible to
+# the aggregator). Group contract: group(1)=severity, group(2)=title.
+SEVERITY_HDR_CORE: str = r"#{2,4}\s+SEVERITY:\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*[—-]\s*(.+?)\s*$"
+SEVERITY_HDR_LINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE, re.IGNORECASE)
+SEVERITY_HDR_MULTILINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE, re.IGNORECASE | re.MULTILINE)
+
+# ── SEVERITY_MALFORMED_LINE_RE / lint_role_report — GH970 D2 ────────────────
+# Deterministic lint (Principle A) for role reports: catches lines that LOOK
+# like a severity header (SEVERITY: <LEVEL> — ..., with an optional #/*
+# prefix outside the SEVERITY_HDR_LINE_RE-accepted 2-4 hash range) but do NOT
+# parse under SEVERITY_HDR_LINE_RE — these findings are structurally invisible
+# to the aggregator.
+SEVERITY_MALFORMED_LINE_RE: re.Pattern[str] = re.compile(
+    r"^\s*(?:#{1,6}\s*|\*{1,2}\s*)?SEVERITY\s*:?\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*[—-]",
+    re.IGNORECASE,
+)
+
+
+def lint_role_report(content: str) -> list[str]:
+    """Return lines that LOOK like severity headers but do NOT parse under
+    SEVERITY_HDR_LINE_RE (rstrip each line before both matches)."""
+    flagged: list[str] = []
+    for line in content.splitlines():
+        stripped = line.rstrip("\n\r")
+        if SEVERITY_MALFORMED_LINE_RE.match(stripped) and not SEVERITY_HDR_LINE_RE.match(stripped):
+            flagged.append(stripped)
+    return flagged
