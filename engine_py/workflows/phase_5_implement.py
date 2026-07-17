@@ -118,6 +118,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib" / "plugins"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from bounded_spawn import bounded_run  # noqa: E402
 from lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
+from lib import dirty_tree_guard  # noqa: E402  GH961 §2.2 — pre-RED-gate dirty-prod-tree guard
 from lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
@@ -2021,6 +2022,39 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
         )
     cfg = ctx.org_config or {}
     git_cwd = _resolve_git_cwd(ctx, prev)
+    if get_config().gate_enabled("HAL_DIRTY_TREE_GUARD"):    # kill-switch, default ON
+        guard_allowlist = _parse_spec_files_allowlist(prev.data.get("spec_path"))
+        if not guard_allowlist:
+            _emit_safe(
+                "red_dirty_tree_guard_error",
+                {"phase": 5, "step": "verify_red_fails_mechanically", "error": "spec_allowlist_unavailable"},
+            )
+        else:
+            violations, dirty_err = dirty_tree_guard.dirty_prod_paths(
+                git_cwd, list(red_test_paths), guard_allowlist,
+            )
+            if dirty_err is not None:
+                _emit_safe(
+                    "red_dirty_tree_guard_error",
+                    {"phase": 5, "step": "verify_red_fails_mechanically", "error": dirty_err},
+                )
+            elif violations:
+                _emit_safe(
+                    "red_dirty_tree_blocked",
+                    {"phase": 5, "step": "verify_red_fails_mechanically", "paths": violations, "n": len(violations)},
+                )
+                return StepResult(
+                    status="error", data=None, duration_ms=0,
+                    step_name="verify_red_fails_mechanically",
+                    error=(
+                        f"uncommitted production changes present at verify_red_fails_mechanically: "
+                        f"{violations} — the tree must be clean before RED can be certified "
+                        "(operator restart likely left GREEN uncommitted). Commit or revert these "
+                        "files, then resume. Escape: HAL_DIRTY_TREE_GUARD=0."
+                    ),
+                    error_code="E_RED_WORKTREE_DIRTY",
+                    recoverable=False,
+                )
     plan = _infer_test_command_for_paths(list(red_test_paths), git_cwd=git_cwd)
     if plan.get("skipped"):
         return StepResult(
@@ -4520,6 +4554,44 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
             error="prev step did not produce red_log_path",
             error_code="E_MISSING_PREV_DATA",
         )
+    if get_config().gate_enabled("HAL_DIRTY_TREE_GUARD"):    # kill-switch, default ON
+        guard_allowlist = _parse_spec_files_allowlist(prev.data.get("spec_path"))
+        if not guard_allowlist:
+            _emit_safe(
+                "red_dirty_tree_guard_error",
+                {"phase": 5, "step": "build_validation_prompt", "error": "spec_allowlist_unavailable"},
+            )
+        else:
+            git_cwd = _resolve_git_cwd(ctx, prev)
+            guard_red_paths: list[str] = list(prev.data.get("red_test_paths") or [])
+            if not guard_red_paths:
+                try:
+                    guard_red_paths = list(_read_red_test_paths(_resolve_scratchpad(ctx)))
+                except Exception:
+                    guard_red_paths = []
+            violations, dirty_err = dirty_tree_guard.dirty_prod_paths(git_cwd, guard_red_paths, guard_allowlist)
+            if dirty_err is not None:
+                _emit_safe(
+                    "red_dirty_tree_guard_error",
+                    {"phase": 5, "step": "build_validation_prompt", "error": dirty_err},
+                )
+            elif violations:
+                _emit_safe(
+                    "red_dirty_tree_blocked",
+                    {"phase": 5, "step": "build_validation_prompt", "paths": violations, "n": len(violations)},
+                )
+                return StepResult(
+                    status="error", data=None, duration_ms=0,
+                    step_name="build_validation_prompt",
+                    error=(
+                        f"uncommitted production changes present at build_validation_prompt: "
+                        f"{violations} — the tree must be clean before RED can be certified "
+                        "(operator restart likely left GREEN uncommitted). Commit or revert these "
+                        "files, then resume. Escape: HAL_DIRTY_TREE_GUARD=0."
+                    ),
+                    error_code="E_RED_WORKTREE_DIRTY",
+                    recoverable=False,
+                )
     scratchpad = _resolve_scratchpad(ctx)
     red_log = Path(prev.data["red_log_path"])
     spec_path = Path(prev.data["spec_path"])
@@ -5928,6 +6000,9 @@ def _commit_green_code(ctx, prev) -> StepResult:
             if isinstance(_spec_path, str) and _spec_path
             else []
         )
+        # GH960 §2.2: hoisted before scan_boundary so the pre-existing-file
+        # tamper downgrade leg can use the frozen manifest as red_freeze_paths.
+        _frozen = _read_red_test_hashes(scratchpad_dir)
         try:
             scan_result = authored_boundary.scan_boundary(
                 "green_commit",
@@ -5936,6 +6011,7 @@ def _commit_green_code(ctx, prev) -> StepResult:
                 git_cwd=git_cwd,
                 is_test_path=_is_test_path,
                 authorized_test_edits=authorized_test_edits,
+                red_freeze_paths=list(_frozen.keys()) if _frozen else None,
             )
         except RuntimeError as exc:
             return StepResult(
@@ -5960,7 +6036,6 @@ def _commit_green_code(ctx, prev) -> StepResult:
             )
         # ── GH639 (7C0FDE44): frozen-hash manifest leg, git-diff-blind residual
         # coverage. No-op when nothing was ever frozen (backward-compat).
-        _frozen = _read_red_test_hashes(scratchpad_dir)
         if _frozen:
             _hash_tampered = authored_boundary.verify_red_test_hashes(_frozen, git_cwd, authorized_test_edits)
             if _hash_tampered:

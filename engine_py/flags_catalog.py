@@ -331,6 +331,12 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_5_implement.py",
         "description": "Env seam: HAL_SIBLING_AUDIT_BIN overrides the sibling-test-audit.sh script path (GH535).",
     },
+    "HAL_DIRTY_TREE_GUARD": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Default-ON gate: pre-RED-gate and pre-validation dirty-tree guard; uncommitted production changes → E_RED_WORKTREE_DIRTY hard-stop. =0 disables (legacy behavior).",
+    },
     "HAL_RED_MASS_DELETION_GATE": {
         "kind": "gate",
         "default": "1",

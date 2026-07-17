@@ -146,6 +146,7 @@ ERROR_CODES: dict[str, str] = {
     "E_RED_LINT_TIMEOUT": "phase_5_implement: RED lint subprocess timed out",
     "E_RED_MASS_DELETION": "phase_5_implement: RED diff mass-deleted a pre-existing file beyond threshold (GH282 guard)",
     "E_RED_NOT_EXECUTABLE": "phase_5_implement: RED test file could not be executed at all",
+    "E_RED_WORKTREE_DIRTY": "phase_5_implement: uncommitted production changes at RED-gate/validation entry — tree must be clean before RED certification",
     "E_RED_NOT_FAILING": "phase_5_implement: RED tests unexpectedly passed instead of failing",
     "E_RED_NO_MARKER": "phase_5_implement: RED subagent output missing required completion marker",
     "E_RED_NO_PATHS": "phase_5_implement: no RED test file paths were supplied to verify",

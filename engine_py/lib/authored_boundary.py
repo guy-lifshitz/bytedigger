@@ -8,6 +8,7 @@ a registry entry here, not a new bespoke guard scattered across workflows.
 """
 from __future__ import annotations
 
+import contextlib
 import difflib
 import hashlib
 import re
@@ -95,6 +96,7 @@ def scan_boundary(
     list_changed_since: Callable[[], list[str]] | None = None,
     forbidden_new_tokens: list[str] | None = None,
     authorized_test_edits: list[str] | None = None,
+    red_freeze_paths: list[str] | None = None,
 ) -> BoundaryScanResult:
     """Scan a model-authored diff against a registered boundary policy.
 
@@ -174,16 +176,48 @@ def scan_boundary(
             [p for p in changed if is_test_path(p) and p in allowed]
         )
 
-    telemetry_ctx.emit_safe(
-        "authored_boundary_scan",
-        {
-            "boundary": boundary,
-            "n_paths": len(paths),
-            "n_suppression_hits": len(suppression_hits),
-            "n_tampered_tests": len(tampered_tests),
-            "n_authorized_test_edits": n_authorized_test_edits,
-        },
-    )
+        n_preexisting_downgraded = 0
+        if red_freeze_paths is not None:
+            still_tampered: list[str] = []
+            freeze_set = set(red_freeze_paths)
+            for path in tampered_tests:
+                if path in freeze_set:
+                    still_tampered.append(path)
+                    continue
+                try:
+                    show = subprocess.run(
+                        ["git", "show", f"{base_sha}:{path}"],
+                        cwd=git_cwd, capture_output=True, text=True, timeout=30,
+                    )
+                    preexisting = show.returncode == 0
+                except (subprocess.TimeoutExpired, OSError):
+                    preexisting = False
+                if not preexisting:
+                    still_tampered.append(path)
+                    continue
+                cls = "deleted" if not (Path(git_cwd) / path).exists() else "edited"
+                n_preexisting_downgraded += 1
+                with contextlib.suppress(Exception):
+                    telemetry_ctx.emit_safe(
+                        "red_tamper_preexisting_downgraded",
+                        {"path": path, "cls": cls, "boundary": boundary},
+                    )
+            tampered_tests = still_tampered
+    else:
+        n_preexisting_downgraded = 0
+
+    with contextlib.suppress(Exception):
+        telemetry_ctx.emit_safe(
+            "authored_boundary_scan",
+            {
+                "boundary": boundary,
+                "n_paths": len(paths),
+                "n_suppression_hits": len(suppression_hits),
+                "n_tampered_tests": len(tampered_tests),
+                "n_authorized_test_edits": n_authorized_test_edits,
+                "n_preexisting_downgraded": n_preexisting_downgraded,
+            },
+        )
 
     return BoundaryScanResult(suppression_hits=suppression_hits, tampered_tests=tampered_tests)
 
