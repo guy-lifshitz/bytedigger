@@ -8,9 +8,6 @@
     "COMPLEX": 90
   },
   "reviewers": {
-    "SIMPLE": 3,
-    "FEATURE": 6,
-    "COMPLEX": 6,
     "mode": "auto"
   },
   "simple_reviewers": 3,

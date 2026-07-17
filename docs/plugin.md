@@ -75,9 +75,15 @@ claude plugin install bytedigger@bytedigger
   "gates_enabled": true,
   "gate_backend": "bash",
   "tdd_mandatory": true,
+  "worktree_auto": true,
+  "constitution_path": "./constitution.md",
   "omitProjectContext": false,
   "activeWorkInjection": false,
+  "logging": false,
   "reviewers": { "mode": "auto" },
+  "simple_reviewers": 3,
+  "feature_reviewers": 6,
+  "complex_reviewers": 6,
   "learning": { "backend": "file", "storage_path": ".bytedigger/learnings" }
 }
 ```
@@ -90,6 +96,12 @@ claude plugin install bytedigger@bytedigger
   - `"ts"` — the TypeScript port at `scripts/ts/build-phase-gate.ts`, executed via `bun`. Requires `bun` on PATH; fails closed if missing.
   - `"shadow"` — A/B mode: runs both backends, returns the bash verdict (source of truth), and logs mismatches to `.bytedigger/gate-shadow/` for parity validation. Use this for the bake period before flipping to `"ts"`.
 
+**Constitution:**
+- `constitution_path` (default: `./constitution.md`) — Path to the project constitution injected into build context by Phase 0.5. If unset, the engine falls back to `./constitution.md` when present; if the file doesn't exist, the build proceeds without a constitution. Create one with `/build --init`.
+
+**Worktree:**
+- `worktree_auto` (default: `true`) — Reserved. Worktree isolation is currently driven by the `--worktree` flag and the FEATURE+-on-main rule (see Usage), not by this key; no script reads it yet. Kept in the config schema for the planned auto-worktree switch.
+
 **Agent context:**
 - `omitProjectContext` (default: `false`) — If true, Explorer and Architect agents skip CLAUDE.md injection, reducing token usage by 10-45K per build. Backward compatible; off by default.
 
@@ -99,8 +111,12 @@ claude plugin install bytedigger@bytedigger
 **Post-review enforcement:**
 - Semantic-skip phrases are defined in `semantic-skip-phrases.json` (18 forbidden phrases). Phase 6 enforces Boy Scout Rule: if a PR description matches any phrase, gate fails closed regardless of satisfaction score.
 
+**Logging:**
+- `logging` (default: `false`) — Reserved. No script reads it yet; event emission is controlled by `observability.enabled` instead. Kept in the config schema for a future verbose-logging switch.
+
 **Reviewers:**
 - `reviewers.mode` (values: `"toolkit"`, `"generic"`, `"auto"`, default: `"auto"`) — Controls reviewer agent selection. `"toolkit"` uses pr-review-toolkit if available, `"generic"` uses basic review agents, `"auto"` selects based on available dependencies.
+- `simple_reviewers` / `feature_reviewers` / `complex_reviewers` (defaults: `3` / `6` / `6`) — Reviewer counts per complexity tier. Parsed by both gate backends (`scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`); today the Phase 6 roster is fixed per tier (3 for SIMPLE, 6 for FEATURE/COMPLEX, +1 DevOps reviewer when infrastructure files are detected), so these act as declared expectations rather than live knobs. These flat keys are the canonical form — an earlier nested `reviewers.{SIMPLE,FEATURE,COMPLEX}` block was never read by any backend and has been removed from the sample config; only `reviewers.mode` is meaningful inside the `reviewers` object.
 
 **Per-run overrides:**
 
