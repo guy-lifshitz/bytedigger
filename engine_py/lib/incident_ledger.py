@@ -1,4 +1,4 @@
-"""Incident ledger — one structured record per step FAIL/escalate (GH923 lot 1, ported).
+"""Incident ledger — one structured record per step FAIL/escalate (GH923 lot 1).
 
 Pattern-clone of reject_log.py (fail-safe JSONL append, call-time env seam,
 hal-root/foreign split).

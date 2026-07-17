@@ -1,4 +1,4 @@
-"""Dispatcher report auto-generation on terminal workflow_finished (GH923 lot 3, ported).
+"""Dispatcher report auto-generation on terminal workflow_finished (GH923 lot 3).
 
 Pattern-clone of lib/incident_ledger.py (fail-safe JSONL append, call-time env
 seam, hal-root/foreign split; same import style).

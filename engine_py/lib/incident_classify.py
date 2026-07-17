@@ -1,5 +1,5 @@
 """Incident classification CLI — mutates classification/workaround of an
-existing incident-ledger record in place (GH923 lot 2, ported).
+existing incident-ledger record in place (GH923 lot 2).
 
 Fail-closed (unlike lib/incident_ledger.py's fail-safe emit_incident):
 errors surface as a nonzero exit code + stderr message.
