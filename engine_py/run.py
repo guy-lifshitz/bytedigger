@@ -103,6 +103,10 @@ def parse_ctx(args) -> WorkflowContext:
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["doctor"]:
+        from doctor import doctor_main
+        return doctor_main(sys.argv[2:])
+
     p = argparse.ArgumentParser()
     p.add_argument("--workflow")
     p.add_argument("--ctx", help="path to JSON file with WorkflowContext fields")
