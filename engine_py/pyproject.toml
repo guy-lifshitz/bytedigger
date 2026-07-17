@@ -47,6 +47,7 @@ bytedigger-engine = "run:main"
 # deliberately NOT packaged.
 py-modules = [
     "audit_gate",
+    "classify_incident",
     "config_provider",
     "contracts",
     "corpus_extract",

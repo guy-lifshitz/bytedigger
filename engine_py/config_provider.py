@@ -123,6 +123,18 @@ class _DefaultConfigProvider:
         """Neutral repo top-level directory names — used in prompt guidance."""
         return ("src/", "tests/")
 
+    def foreign_state_dirname(self) -> str:
+        """Neutral foreign-project state-dir name (bd convention, no leading path)."""
+        return ".hal-build"
+
+    def incident_log_relpath(self) -> str:
+        """Neutral incident-ledger relpath — relative to cwd hal_root."""
+        return f"{self.foreign_state_dirname()}/incidents.jsonl"
+
+    def dispatcher_reports_relpath(self) -> str:
+        """Neutral dispatcher-reports index relpath — relative to cwd hal_root."""
+        return f"{self.foreign_state_dirname()}/dispatcher-reports.jsonl"
+
 def default_security_asset(name: str, legacy_default: Path) -> Path:
     """Resolve a security asset shipped with the engine.
 
@@ -223,3 +235,15 @@ def flag(env_var: str) -> bool:
 def int_value(env_var: str, default: int) -> int:
     """Free function: int-typed env-var read with default. Delegates to get_config().int_value()."""
     return get_config().int_value(env_var, default)  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol
+
+def foreign_state_dirname() -> str:
+    """Host-relative foreign-project state-dir name (single source, §1g)."""
+    return get_config().foreign_state_dirname()  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol
+
+def incident_log_relpath() -> str:
+    """Host-relative path of the incident ledger (single source, §1g)."""
+    return get_config().incident_log_relpath()  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol
+
+def dispatcher_reports_relpath() -> str:
+    """Host-relative path of the dispatcher-reports index (single source, §1g)."""
+    return get_config().dispatcher_reports_relpath()  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol

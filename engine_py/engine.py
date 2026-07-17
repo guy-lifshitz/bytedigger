@@ -51,6 +51,8 @@ from lib.step_sentinel import (
 from lib.cost_rollup import compute_cost_rollup, annotate_invocation
 from lib.env_limit import is_paused_result
 from lib.spec_defect_ledger import mark_reroute_consumed, reroute_already_consumed
+from lib.incident_ledger import emit_incident
+from lib.dispatcher_report import emit_dispatcher_report
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +298,12 @@ class WorkflowEngine:
                 rid, workflow_name, final_result.status,
                 self._rework_cycle_high, self._rework_last_step or "none", wall_ms,
             ), rid))
+        if _emit_status in ("error", "escalate") and is_authoritative_execution():
+            emit_dispatcher_report(
+                run_id=rid, phase=workflow_name, status=_emit_status,
+                error_code=final_result.error_code, error=final_result.error,
+                wall_ms=wall_ms, events_path=getattr(self._event_log, "path", None),
+            )
         return final_result, context
 
     # Design A pipeline recovery (decree 2026-04-26): max workflow-level
@@ -451,6 +459,14 @@ class WorkflowEngine:
                 },
                 run_id,
             )
+
+            if result.status in ("error", "escalate"):
+                emit_incident(
+                    run_id=run_id, phase=workflow.name, step_name=step.name, cycle=cycle,
+                    status=result.status, error_code=result.error_code, error=result.error,
+                    wall_ms=result.duration_ms,
+                    events_path=getattr(self._event_log, "path", None),
+                )
 
             last_result = result
 
