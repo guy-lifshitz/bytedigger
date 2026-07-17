@@ -241,6 +241,18 @@ FLAGS: dict[str, dict] = {
         "module": "llm_subprocess.py",
         "description": "Feature flag: allow legacy subprocess.communicate() path when set to '1'.",
     },
+    "HAL_AGENT_SDK_STDERR_TAIL_LINES": {
+        "kind": "int",
+        "default": "50",
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "Ring-buffer line cap for child CLI stderr tail captured by the agent-sdk backend.",
+    },
+    "HAL_OUTAGE_PROBE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "Kill-switch: HAL_OUTAGE_PROBE=0 disables the status-page external-outage probe on agent-sdk error paths.",
+    },
     "HAL_STUB_PASSABILITY_GATE": {
         "kind": "gate",
         "default": "1",

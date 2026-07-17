@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import os
 import sys
 import time
+import urllib.request
+from collections import deque
 
 from contracts import StepResult
 from llm_subprocess import register_backend
@@ -87,6 +90,48 @@ def _extract_tokens_from_usage(usage: object) -> tuple[int | None, int | None]:
 
 
 # ---------------------------------------------------------------------------
+# GH933: stderr-tail capture + external-outage classification (fail-open)
+# ---------------------------------------------------------------------------
+
+_STDERR_TAIL_BYTES = 4096
+
+
+def _stderr_tail_lines() -> int:
+    return int(os.environ.get("HAL_AGENT_SDK_STDERR_TAIL_LINES", "50"))
+
+
+def _stderr_tail(buf: "deque[str]", exc: BaseException | None = None) -> str:
+    """Duck-typed stderr tail: prefer a non-empty `exc.stderr` str, else join
+    the buffered callback lines. Cap to the last `_STDERR_TAIL_BYTES` bytes,
+    utf-8-safe.
+    """
+    exc_stderr = getattr(exc, "stderr", None) if exc is not None else None
+    if isinstance(exc_stderr, str) and exc_stderr:
+        text = exc_stderr
+    else:
+        text = "\n".join(buf)
+    return text.encode("utf-8")[-_STDERR_TAIL_BYTES:].decode("utf-8", errors="replace")
+
+
+def _external_outage_indicator() -> str | None:
+    """Fail-open probe against the public status page. Never raises."""
+    if os.environ.get("HAL_OUTAGE_PROBE", "1") == "0":
+        return None
+    url = os.environ.get(
+        "HAL_STATUS_PROBE_URL", "https://status.claude.com/api/v2/status.json"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=3) as resp:  # noqa: S310
+            payload = json.loads(resp.read())
+        indicator = payload.get("status", {}).get("indicator")
+    except Exception:  # noqa: BLE001
+        return None
+    if isinstance(indicator, str) and indicator != "none":
+        return indicator
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Backend handler
 # ---------------------------------------------------------------------------
 
@@ -140,14 +185,31 @@ def agent_sdk_backend(
     pre = _snapshot_pre_state(root)
     t0 = time.monotonic()
 
+    stderr_buf: "deque[str]" = deque(maxlen=_stderr_tail_lines())
+
+    def _on_stderr(line: str) -> None:
+        stderr_buf.append(line)
+
     async def _run() -> object:
-        options = claude_agent_sdk.ClaudeAgentOptions(
-            model=model,
-            resume=resume_sid,
-            allowed_tools=allowed_tools or [],
-            permission_mode="bypassPermissions",
-            cwd=root,
-        )
+        # GH933: try with stderr callback (new SDK); fall back if the
+        # options constructor rejects the kwarg (old SDK, duck-typed).
+        try:
+            options = claude_agent_sdk.ClaudeAgentOptions(
+                model=model,
+                resume=resume_sid,
+                allowed_tools=allowed_tools or [],
+                permission_mode="bypassPermissions",
+                cwd=root,
+                stderr=_on_stderr,
+            )
+        except TypeError:
+            options = claude_agent_sdk.ClaudeAgentOptions(
+                model=model,
+                resume=resume_sid,
+                allowed_tools=allowed_tools or [],
+                permission_mode="bypassPermissions",
+                cwd=root,
+            )
         result_cls = getattr(claude_agent_sdk, "ResultMessage", None)
         result_msg: object = None
         async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
@@ -175,16 +237,24 @@ def agent_sdk_backend(
                 error_code="E_MANIFEST_NO_GIT",
                 recoverable=False,
             )
+        timeout_data: dict[str, object] = {
+            "worker_written_paths": manifest,
+            "manifest_source": "git_diff",
+            "timed_out": True,
+            "stderr_tail": _stderr_tail(stderr_buf),
+        }
+        timeout_error = f"agent-sdk run exceeded timeout of {timeout_sec}s"
+        ind = _external_outage_indicator()
+        if ind is not None:
+            timeout_data["external_outage"] = True
+            timeout_data["outage_indicator"] = ind
+            timeout_error += f" [external_outage: {ind}]"
         return StepResult(
             status="error",
-            data={
-                "worker_written_paths": manifest,
-                "manifest_source": "git_diff",
-                "timed_out": True,
-            },
+            data=timeout_data,
             duration_ms=duration_ms,
             step_name=step_name,
-            error=f"agent-sdk run exceeded timeout of {timeout_sec}s",
+            error=timeout_error,
             error_code="E_LLM_API_TIMEOUT",
             recoverable=True,
         )
@@ -192,12 +262,22 @@ def agent_sdk_backend(
         duration_ms = int((time.monotonic() - t0) * 1000)
         if key is not None:
             _invalidate(key)
+        tail = _stderr_tail(stderr_buf, e)
+        error = f"agent-sdk run failed: {e}"
+        if tail:
+            error += f"; stderr tail: {tail}"
+        exc_data: dict[str, object] = {"stderr_tail": tail}
+        ind = _external_outage_indicator()
+        if ind is not None:
+            exc_data["external_outage"] = True
+            exc_data["outage_indicator"] = ind
+            error += f" [external_outage: {ind}]"
         return StepResult(
             status="error",
-            data=None,
+            data=exc_data,
             duration_ms=duration_ms,
             step_name=step_name,
-            error=f"agent-sdk run failed: {e}",
+            error=error,
             error_code="E_LLM_API_BAD_RESPONSE",
             recoverable=True,
         )
