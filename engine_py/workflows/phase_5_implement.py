@@ -164,9 +164,9 @@ from lib.step_sentinel import invalidate_cycle_sentinels  # noqa: E402  GH767 §
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # noqa: E402,F401  #261 Stage 0  3F5599A6
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6
+    from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 def _default_red_model() -> str:
     return get_claude_primary()
@@ -1455,17 +1455,16 @@ def _commit_red_tests(ctx, prev) -> StepResult:
     # skip git operations entirely and return a no-op ok result.  This handles
     # builds whose intent is a test-only patch (fix lives in tests, not in prod).
     _spec_path_raw = prev.data.get("spec_path")
-    if isinstance(_spec_path_raw, str) and _spec_path_raw:
-        if _read_engine_mode(_spec_path_raw) == "test_only":
-            _emit_safe(
-                "commit_red_tests_skipped",
-                {"phase": 5, "step": "commit_red_tests", "reason": "test_only_mode"},
-            )
-            return StepResult(
-                status="ok", duration_ms=0, step_name="commit_red_tests",
-                data={**prev.data, "red_test_paths": [], "red_commit_sha": None,
-                      "commit_red_tests_skipped": "test_only_mode"},
-            )
+    if resolve_engine_mode(_spec_path_raw if isinstance(_spec_path_raw, str) else None, ctx) == "test_only":
+        _emit_safe(
+            "commit_red_tests_skipped",
+            {"phase": 5, "step": "commit_red_tests", "reason": "test_only_mode"},
+        )
+        return StepResult(
+            status="ok", duration_ms=0, step_name="commit_red_tests",
+            data={**prev.data, "red_test_paths": [], "red_commit_sha": None,
+                  "commit_red_tests_skipped": "test_only_mode"},
+        )
     # ── end test_only block ───────────────────────────────────────────────────
 
     # ── disk_truth: git-first path enumeration (γ cleanup 8.5 / A4461B8F) ───────

@@ -30,12 +30,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib" / "plugins"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 
-from contracts import StepResult  # noqa: E402
+from contracts import StepResult, WorkflowContext  # noqa: E402
 import telemetry_ctx  # noqa: E402
 from bounded_spawn import bounded_run  # noqa: E402
 from lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
 from lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from verdict_parse import last_line_anchored_marker  # noqa: E402
+try:
+    from ._task_description import normalize_task_description  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from _task_description import normalize_task_description  # type: ignore[no-redef]  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -412,6 +416,56 @@ def _read_engine_mode(spec_path: str) -> str | None:
         m = _ENGINE_MODE_RE.match(line)
         if m:
             return m.group(1)
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GH268 — test-only intent auto-detect (shared resolver, §1g)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# GH268: conservative test-only intent detection over the task text.
+_TEST_ONLY_INTENT_RE = re.compile(
+    r"(?i)(?:\btests?[- ]only\b"
+    r"|\bno production code\b"
+    r"|\bdo(?:es)?\s+not\s+(?:touch|modify|change)\s+(?:the\s+)?production\b"
+    r"|\bdon'?t\s+(?:touch|modify|change)\s+(?:the\s+)?production\b"
+    r"|\bonly\s+(?:fix|update|change|modify|patch)\s+(?:the\s+|a\s+)?tests?\b"
+    r"|\bfix\s+(?:the\s+|a\s+)?tests?\s+(?:only|themselves)\b)"
+)
+
+
+def detect_test_only_intent(text: str | None) -> bool:
+    """True iff text explicitly declares test-only intent. Conservative:
+    only fires on the enumerated phrases. Non-str/empty -> False. Pure."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    return bool(_TEST_ONLY_INTENT_RE.search(text))
+
+
+def _engine_mode_task_text(ctx: WorkflowContext) -> str | None:
+    """Task text used for intent detection: org_config task_description
+    (via normalize_task_description) with ctx.question fallback."""
+    td = normalize_task_description(getattr(ctx, "org_config", None))
+    if td:
+        return td
+    q = getattr(ctx, "question", None)
+    return q if isinstance(q, str) and q.strip() else None
+
+
+def resolve_engine_mode(spec_path: str | None, ctx: WorkflowContext) -> str | None:
+    """Single source of truth for the effective engine mode (GH268, §1g).
+    Precedence: explicit spec marker (any mode, incl. non-test_only ==
+    manual override) > task-intent autodetect > None."""
+    if isinstance(spec_path, str) and spec_path:
+        mode = _read_engine_mode(spec_path)
+        if mode is not None:
+            return mode
+    if detect_test_only_intent(_engine_mode_task_text(ctx)):
+        _emit_safe(
+            "engine_mode_autodetected",
+            {"mode": "test_only", "source": "task_intent", "step": "", "phase": 0},
+        )
+        return "test_only"
     return None
 
 

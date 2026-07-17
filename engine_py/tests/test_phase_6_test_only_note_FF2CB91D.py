@@ -44,7 +44,7 @@ _TEST_ONLY_MARKER = "<!-- engine-mode: test_only -->"
 _OTHER_MODE_MARKER = "<!-- engine-mode: some_other_mode -->"
 
 
-def _make_ctx(scratchpad: Path, *, question: str = "Add test-only feature") -> WorkflowContext:
+def _make_ctx(scratchpad: Path, *, question: str = "Add widget feature") -> WorkflowContext:
     """Build a minimal WorkflowContext pointing at the given scratchpad dir."""
     return WorkflowContext(
         tenant_id="hal",
