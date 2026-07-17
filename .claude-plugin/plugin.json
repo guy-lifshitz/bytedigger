@@ -1,6 +1,6 @@
 {
   "name": "bytedigger",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Phased, gate-enforced build pipeline for AI code generation. TDD mandatory, reviews scored, skipping blocked.",
   "author": {
     "name": "Guy Lifshitz"

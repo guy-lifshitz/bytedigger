@@ -5,106 +5,79 @@ All notable changes to ByteDigger are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Versioning: the plugin (`.claude-plugin/plugin.json`), the npm pointer package
+(`npm/`), and the Python engine (`engine_py/pyproject.toml`) all version together
+as `0.1.x` until the engine API stabilizes. The historical `v1.0.0` tag predates
+the Python engine and refers to the original bash plugin (see Pre-history).
+
 ## [Unreleased]
-
-### Phase 2 — F7 (2026-04-16)
-
-#### Added
-
-- **F7: Observability emit wiring** — 12 wire points across `dispatchPhase`, `mainCLI`, and `checkPhase6` calling 5 `emit.ts` wrapper functions. Resolves dead-code gap from Sprint B where `emit.ts` existed but had zero call sites. Wire points: F7-WP-1..10 (core observability workflow), F7-WP-2b (checkPhase6 post-review), F7-WP-11 (mainCLI pre-dispatch), F7-WP-12 (mainCLI post-dispatch).
-
-#### Fixed
-
-- **Dead import removal** — Removed 9 unused imports introduced in Sprint A (`readStateFieldOrThrow`, `StateReadError`) from locations that switched to new observability API. Code tidying per Boy Scout Rule.
-- **Switch-arm optimization** — Collapsed switch statement arms in `checkPhase6` (0/1/2/3/8/default cases merged to reduce duplication per Boy Scout Rule).
-
-#### Tests
-
-- 13 new tests (WIRE-1..10, WIRE-2b, WIRE-11, WIRE-12) validating emit.ts integration. 109/109 passing.
-- Test file: ~580 lines added.
-- build-phase-gate.ts: ~55 lines added, ~12 lines modified.
-
-#### Review
-
-- 6 reviewers, 20 findings fixed. 3 deferred to Sprint C per agreement 94AF6D1F.
-- Satisfaction: 97%.
-
-#### Reference
-
-- Agreement: 44BE98DD
-
----
-
-### Phase 2 — Sprint B (2026-04-16)
-
-#### Added
-
-- **F3: Post-review gate** — Semantic-skip enforcement in `checkPhase6` with Boy Scout Rule. New modules: `loadSemanticSkipPhrases`, `normalizeForMatch`, `writeStateField`, `scanSemanticSkipPhrases`. Semantic skip phrases defined in `semantic-skip-phrases.json` (18 forbidden phrases that trigger auto-reject).
-- **F7: Observability events** — New `emit.ts` module with event streaming to stderr (JSONL format). Functions: `emitEvent`, `emitPhaseStart/End/Skip`, `emitGateResult`, `emitBuildComplete`. Integrates with HAL forwarding when `HAL_DIR` environment variable is set.
-- **F9: Active Work injection** — Memory reader module (`memory-reader.ts`) extracts `## Active Work` section from project MEMORY.md. Caps: 10 items max, 500 chars total. Config flag: `activeWorkInjection` (boolean) in `bytedigger.json`.
-- **F10: Reviewers config** — New `ReviewersConfig` interface with `ReviewerMode` type (toolkit/generic/auto). Functions: `parseReviewerMode`. Config: `reviewers.mode` in `bytedigger.json`.
-
-#### Tests
-
-- 96 tests total (53 new + 43 baseline). Satisfaction: 87%.
-
----
-
-### Phase 2 — Sprint A (2026-04-16)
-
-#### Added
-
-- **`omitProjectContext` config flag** — Explorer and Architect agents can skip CLAUDE.md injection to save 10-45K tokens per build. Default: `false` (backward compatible). Controlled via `bytedigger.json`.
-- **TRIVIAL tier skip path** — `checkPhase7` gate now bypasses `review_complete` check for TRIVIAL complexity builds, enabling direct Phase 0 → edit → Phase 7/8 flow for trivial fixes.
-- **State-reader hardening** (F4) — New `StateReadError` class with `Error.cause` chain distinguishes file-not-found (returns `null`) from file-unreadable (throws). TOCTOU race protection via ENOENT check. Integrated into `dispatchPhase` for primary state read.
-- **Config parsing helpers** — `parseBool` for boolean fields, `parseReviewerCount` with NaN guard for numeric config values.
-- **`ByteDiggerConfig` interface export** — Now exported from main build-phase-gate module for type safety in consuming code.
-
-#### Fixed
-
-- **Cross-platform file freshness** — Changed `birthtimeMs` → `mtimeMs` for consistent file age detection across macOS and Linux.
-- **Hard-coded test paths** — Worktree path resolution now uses `import.meta.url` instead of hard-coded paths (fixes Phase 1 regression).
-- **10 Phase 6 review findings** — Standardized error logging, added numeric guards, resolved all medium-priority quality improvements.
-
-#### Tests
-
-- 43 tests passing (0 failures). State-reader: 9 new unit tests + 2 integration scenarios.
-- TRIVIAL skip path: 3 test cases confirming bypass behavior.
-
----
-
-### Phase 1 (2026-04-15)
-
-#### Added
-
-- **TypeScript phase gate backend** (Phase 1 of ByteDigger-HALForge unification): ported HAL's TS gate engine into `scripts/ts/build-phase-gate.ts` (~824 lines) with supporting libs (`config-reader.ts`, `state-reader.ts`) and 30 TS unit tests. Bash-parity contract enforced by 26 dispatcher parity tests.
-- **`gate_backend` config flag** in `bytedigger.json` — selects gate engine (`"bash"` default, `"ts"` opt-in, `"shadow"` for A/B parity validation). Fail-closed on unknown values.
-- **Shadow mode** (`gate_backend: shadow`) — runs bash + ts in parallel, returns bash verdict as source of truth, logs mismatches to `.bytedigger/gate-shadow/`. Preserves HAL-side reliability fixes: mismatch-only JSONL, SQLite counters, fail-closed on missing `bun`, EAGAIN single retry.
-- **`GATE_BACKEND` environment override** — per-run override of the config flag (env wins over JSON). Useful for CI experiments and shadow comparisons.
-- **`scripts/gate-dispatcher.sh`** — fail-closed dispatcher wired into `hooks/hooks.json`; preserves exact backend exit codes, WARNs to stderr on config parse failure (never silently defaults), and fails closed on missing `bun` or unknown backend.
-- 10 BATS dispatcher tests + 26 ts-via-dispatcher parity tests (92/92 total in this sprint).
-
-### Security
-
-- Removed HAL credential leak from phase artifacts
-- Hardened ship.sh command injection attack surface via argument sanitization
-
-### Fixed
-
-- **P1 Gates (Phase 6 checks)**: Repaired dead control flow in post-review validation; findings_skipped and post_review_gate now hard-block non-compliant states; scratchpad stale detection enforced at Phase 4 gate
-- **P2 Enforcement (Worktree)**: Added mandatory worktree enforcement on main/master branches; loop bypass closure prevents re-entry during active build
-- **P3 Robustness**: Simplified drain_stdin anti-pattern; removed bc dependency (replaced with bash arithmetic); post-deploy stub tests now pass
-- **P4 Polish**: Resolved eight medium audit findings; unified authorship attribution across all phases and scripts
-- **Regression**: Ported AUTONOMOUS pause regression fix — explicit flow-mode checks at pause points (Phases 3, 4, 4.5, 7) prevent silent pauses during autonomous mode
-
-### Changed
-
-- Phase 0.5 field name consistency across build-state.yaml serialization
-- Phase 6 hard-block validation raises errors instead of warnings for findings_skipped and post_review_gate states
-- Pre-build gate now enforces worktree policy before phase execution begins
 
 ### Added
 
-- 7 new BATS tests for gate validation and enforcement
-- Test suite now 116/116 green across all phases
+- **Spec-writer rule 9** — NEW-symbol citation-form ban in the spec-writer prompt: a symbol that does not exist yet may not be cited in path:line form (ported from HAL GH934). (#44)
+- **Agent-SDK stderr-tail capture** — LLM subprocess failures now carry a stderr tail and are classified as external-outage vs build-fault (ported from HAL GH933). (#45)
+- **Starter `constitution.md`** — shipped in the repo root so the `constitution_path` config default resolves out of the box. (#43)
+- Digger-1983-style promo card in docs. (#37)
 
+### Changed
+
+- README rewritten around the software-factory thesis: value-first hero, 6-axis comparison table, shift-left security, deterministic-first economics. (#28, #33, #34, #36, #41, #42)
+- `docs/article.md` rewritten for the engine era — verified specs, killed review loop, economics. (#27, #35)
+- Dependencies bumped across the board (TypeScript 7.0.2, bun-types 1.3.14, DBOS 2.27.0). (#40)
+
+## [0.1.0] — 2026-07-16
+
+First release built around the **Python engine** (`engine_py/`) — a deterministic
+state machine that drives the whole pipeline (research → spec → failing tests →
+implementation → review) with TDD at the core and LLM agents as replaceable
+workers. Matches the `0.1.0` version of `bytedigger-engine` (PyPI /
+`engine_py/pyproject.toml`) and the `bytedigger` npm pointer package.
+
+### Added
+
+- **Engine core** — strict manifest-driven extraction of the engine from its upstream host: state machine, event log, verdict gates, deterministic lints (stub-passability, cite-verify, scope allowlist), crash-resume from success sentinels. (#15)
+- **Test suite** — 321 hermetic pytest tests imported with the engine (no DBOS dependency in the test lane). (#21)
+- **Product wrapper** — engine README, keyless verified-TDD demo (`examples/verified-tdd-run/`), custom-backend example (`examples/library/custom_backend.py`), backend docs. (#22, #23)
+- **Security extraction** — OWASP ASVS-derived secure-codegen defaults, semgrep + gitleaks gate assets shipped in the package, security policy docs, path-closure test. (#24)
+- **CONTRIBUTING.md** and the npm pointer package. (#25)
+- Python 3.9 test-collection compatibility; quickstart pip note. (#32)
+
+### Changed
+
+- The Claude Code plugin (`/build`) now fronts the Python engine; the TS/bash gate scripts remain as the plugin's phase-gate layer (see Pre-history).
+- Plugin and marketplace manifests aligned to `0.1.0` (previously `1.0.0`, a leftover from the pre-engine plugin).
+
+---
+
+## Pre-history (before the Python engine)
+
+The project began as a Claude Code plugin with a bash phase-gate pipeline
+(tagged `v1.0.0`, 2026-04-10), then grew a TypeScript gate backend. That work
+now lives on as the plugin's gate layer under `scripts/`. Condensed timeline:
+
+### Phase 2 — F7 (2026-04-16)
+
+- Observability emit wiring: 12 wire points across `dispatchPhase`, `mainCLI`, and `checkPhase6` calling the `emit.ts` wrappers; 13 new tests (109/109 passing); dead-import and switch-arm cleanups.
+
+### Phase 2 — Sprint B (2026-04-16)
+
+- Post-review gate (F3): semantic-skip enforcement in `checkPhase6`; 18 forbidden phrases in `semantic-skip-phrases.json`.
+- Observability events (F7): `emit.ts` JSONL event streaming to stderr.
+- Active Work injection (F9): `memory-reader.ts` extracts `## Active Work` from project MEMORY.md (caps: 10 items / 500 chars; flag `activeWorkInjection`).
+- Reviewers config (F10): `reviewers.mode` (toolkit/generic/auto).
+- 96 tests total, satisfaction 87%.
+
+### Phase 2 — Sprint A (2026-04-16)
+
+- `omitProjectContext` flag (skip CLAUDE.md injection, saves 10–45K tokens/build); TRIVIAL-tier skip path; state-reader hardening (`StateReadError`, TOCTOU guard); config parsing helpers; cross-platform file-freshness fix (`mtimeMs`); 43 tests passing.
+
+### Phase 1 (2026-04-15)
+
+- TypeScript phase-gate backend: `scripts/ts/build-phase-gate.ts` (~824 lines) with `config-reader.ts` / `state-reader.ts`, 30 TS unit tests, 26 bash-parity tests.
+- `gate_backend` config flag (`"bash"` default / `"ts"` / `"shadow"` A/B mode with mismatch logging to `.bytedigger/gate-shadow/`), `GATE_BACKEND` env override, fail-closed `scripts/gate-dispatcher.sh`.
+- Security: removed a credential leak from phase artifacts; hardened `ship.sh` against command injection.
+- Gate repairs: `findings_skipped` / `post_review_gate` hard-block; mandatory worktree enforcement on main/master; AUTONOMOUS pause-regression fix; 116/116 BATS tests green.
+
+### v1.0.0 (2026-04-10)
+
+- Initial release: phased build pipeline for AI code generation as a Claude Code plugin — bash gate enforcement hook, phase transition validation with TDD.
