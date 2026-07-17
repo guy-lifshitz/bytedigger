@@ -126,7 +126,7 @@ def maybe_read_sentinel(context, step, cycle: int, run_id: str, emit, workflow_n
     return StepResult(status="ok", data=cached, duration_ms=0, step_name=step.name)
 
 
-def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=None, workflow_name: "str | None" = None) -> list:
+def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=None, workflow_name: "str | None" = None, reason: str = "same_cycle_retry") -> list:
     """Unlink both key variants of the resume sentinel for every flagged
     step in ``steps`` at ``(cycle, run_id)``. Returns the list of removed
     filenames. Degrades silently on missing files / OS errors / disabled
@@ -158,7 +158,7 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
                 try:
                     emit(
                         "step_sentinel_invalidated",
-                        {"step_name": step.name, "cycle": cycle, "reason": "same_cycle_retry"},
+                        {"step_name": step.name, "cycle": cycle, "reason": reason},
                         run_id,
                     )
                 except Exception:

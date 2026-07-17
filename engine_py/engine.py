@@ -596,6 +596,22 @@ class WorkflowEngine:
                             run_id,
                         )
                         return retry_result
+                # GH925: terminal (non-retried) error exit — if the failing step
+                # declared "invalidate_cycle_sentinels_on_fail", the cycle's
+                # cycle-keyed sentinels are stale (re-entry over the same
+                # run_id must not replay them). Unlink before returning.
+                if isinstance(result.data, dict) and result.data.get("invalidate_cycle_sentinels_on_fail"):
+                    _removed = invalidate_cycle_sentinels(
+                        context, workflow.steps, cycle, run_id, self._emit,
+                        workflow_name=workflow.name, reason="terminal_fail_state_invalidation",
+                    )
+                    self._emit(
+                        "terminal_fail_sentinels_invalidated",
+                        {"phase": workflow.name, "step_name": result.step_name,
+                         "error_code": result.error_code, "cycle": cycle,
+                         "sentinels_invalidated": len(_removed)},
+                        run_id,
+                    )
                 return result
 
             prev = result

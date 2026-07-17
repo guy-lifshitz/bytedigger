@@ -3157,7 +3157,7 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
             error_msg = f"satisfaction score {score} < threshold {threshold}"
         record_satisfaction_reject(reason_code, error_msg, score, threshold, axes_text=body)
         return StepResult(
-            status="error", data=common_data, duration_ms=0,
+            status="error", data={**common_data, "invalidate_cycle_sentinels_on_fail": True}, duration_ms=0,
             step_name="write_satisfaction_doc",
             error=error_msg,
             error_code=("E_SATISFACTION_AC_CHECKLIST" if reason_code == "ac_checklist_fail"
@@ -3494,7 +3494,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             record_satisfaction_reject("ac_checklist_fail", error_msg, score_out, threshold, axes_text=composite_text)
             return StepResult(
                 status="error",
-                data=common_data,
+                data={**common_data, "invalidate_cycle_sentinels_on_fail": True},
                 duration_ms=0,
                 step_name="write_satisfaction_doc",
                 error=error_msg,
@@ -3533,7 +3533,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             )
         return StepResult(
             status="error",
-            data=common_data,
+            data={**common_data, "invalidate_cycle_sentinels_on_fail": True},
             duration_ms=0,
             step_name="write_satisfaction_doc",
             error=error_msg,
