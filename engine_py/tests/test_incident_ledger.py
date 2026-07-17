@@ -11,7 +11,7 @@ emit_incident IS the UUT and is never mocked/patched here.
 
 Seam adaptations from the hal source (PORT_SPEC.md):
   - HAL_INCIDENT_LOG -> BD_INCIDENT_LOG (new-in-bd JSONL path seam)
-  - foreign state dirname ".bytedigger" -> ".hal-build" (bd convention)
+  - foreign state dirname ".bytedigger" (bd convention, GH878 seam)
   - hal_config_provider-specific override test dropped (no hal-host
     provider in bd)
 """
@@ -417,7 +417,7 @@ def test_ac11_sentinel_replay_of_prior_ok_step_emits_zero_records(tmp_path, monk
     )
 
 
-# ─── AC12: config_provider accessor default (neutral, .hal-build seam) ──────
+# ─── AC12: config_provider accessor default (neutral, .bytedigger seam) ──────
 
 def test_ac12_config_provider_default_incident_log_relpath():
     import config_provider  # noqa: PLC0415
@@ -437,9 +437,9 @@ def test_ac12_config_provider_default_incident_log_relpath():
     finally:
         config_provider.reset_default_config_provider_factory()
 
-    assert result == ".hal-build/incidents.jsonl", (
+    assert result == ".bytedigger/incidents.jsonl", (
         f"AC12 FAIL: config_provider.incident_log_relpath() neutral default "
-        f"expected '.hal-build/incidents.jsonl', got {result!r}"
+        f"expected '.bytedigger/incidents.jsonl', got {result!r}"
     )
 
 

@@ -148,10 +148,6 @@ class _DefaultConfigProvider:
         """Neutral repo top-level directory names — used in prompt guidance."""
         return ("src/", "tests/")
 
-    def foreign_state_dirname(self) -> str:
-        """Neutral foreign-project state-dir name (bd convention, no leading path)."""
-        return ".hal-build"
-
     def incident_log_relpath(self) -> str:
         """Neutral incident-ledger relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/incidents.jsonl"
