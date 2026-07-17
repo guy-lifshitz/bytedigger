@@ -302,7 +302,8 @@ class WorkflowEngine:
             emit_dispatcher_report(
                 run_id=rid, phase=workflow_name, status=_emit_status,
                 error_code=final_result.error_code, error=final_result.error,
-                wall_ms=wall_ms, events_path=getattr(self._event_log, "path", None),
+                wall_ms=wall_ms,
+                events_path=getattr(self._event_log, "path", None),
             )
         return final_result, context
 
