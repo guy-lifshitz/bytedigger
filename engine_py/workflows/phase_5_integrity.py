@@ -86,6 +86,7 @@ Verdict markers (last-marker-wins via rfind):
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 import subprocess
 import sys
@@ -95,7 +96,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from lib import git_port  # noqa: E402
 from lib.git_cwd import resolve_git_cwd  # noqa: E402  GH381
-from contracts import StepContract, StepResult, WorkflowDefinition
+from lib.schema_smoke import run_schema_smoke  # noqa: E402  GH892
+from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
 from llm_subprocess import invoke_llm_subprocess
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib" / "plugins"))
@@ -106,7 +108,7 @@ from anti_hallucination.helper import (  # noqa: E402
 )
 from model_config import get_claude_critical  # noqa: E402
 from verdict_parse import last_standalone_line_verdict  # noqa: E402
-from config_provider import int_value, timeout_policy_path  # noqa: E402  GH285 C2
+from config_provider import get_config, int_value, timeout_policy_path  # noqa: E402  GH285 C2  GH892
 from lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
 
 
@@ -158,6 +160,9 @@ def _resolve_integrity_verdict_retries(cfg: dict[str, Any] | None) -> int:
     return max(0, int_value("HAL_INTEGRITY_VERDICT_RETRY_MAX", default))
 DEFAULT_PRE_RED_REF = "HEAD~1"
 DEFAULT_DIFF_PATTERNS = ("*test*", "*spec*", "*.test.*")
+
+SCHEMA_SMOKE_REPORT_RELPATH = "integrity/schema-smoke.json"
+DEFAULT_SCHEMA_SMOKE_TIMEOUT_SEC = 60
 
 DIFF_PATCH_RELPATH = "integrity/test-diff.patch"
 PRE_RED_REF_RELPATH = "integrity/pre-red-ref.txt"
@@ -568,6 +573,110 @@ def _classify_diff_verdict(_ctx, prev) -> StepResult:
     )
 
 
+# ─── Step 4: schema smoke (deterministic, no LLM) ────────────────────────────
+
+
+_SCHEMA_SMOKE_OVERALL_ERROR_CODE = {
+    "mismatch": "E_SCHEMA_SMOKE_MISMATCH",
+    "unavailable": "E_SCHEMA_SMOKE_UNAVAILABLE",
+    "dryrun_error": "E_SCHEMA_SMOKE_DRYRUN_ERROR",
+}
+
+_INTEGRITY_PASSTHROUGH_KEYS = ("verdict", "review_path", "diff_path")
+
+
+def _integrity_passthrough(prev: object) -> dict[str, Any]:
+    """Carry classify_diff_verdict's verdict payload through to the final
+    (now schema_smoke) StepResult — schema_smoke is the workflow's last step,
+    and existing consumers read `result.data["verdict"]` off the final
+    result. Copied verbatim; caller's own keys are applied AFTER this and
+    win on any clash (e.g. schema_smoke's own "skipped" semantics)."""
+    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
+        return {}
+    return {k: prev.data[k] for k in _INTEGRITY_PASSTHROUGH_KEYS if k in prev.data}
+
+
+def _resolve_schema_smoke_timeout_sec(cfg: dict[str, Any] | None) -> int:
+    """GH892: schema-smoke per-target subprocess timeout, resolved from
+    org_config (mirrors the `_resolve_integrity_timeout_sec` shape used
+    elsewhere in this file — no inline `int(cfg.get("...timeout_sec"))`
+    callsite)."""
+    cfg = cfg or {}
+    raw = cfg.get("schema_smoke_timeout_sec")
+    if raw is None:
+        return DEFAULT_SCHEMA_SMOKE_TIMEOUT_SEC
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_SCHEMA_SMOKE_TIMEOUT_SEC
+
+
+def _schema_smoke(ctx: WorkflowContext, prev: object) -> StepResult:
+    """GH892: dry-run configured artifacts against real schema snapshots.
+
+    Deterministic 4th step — no LLM call. Kill-switch and not-configured
+    both produce explicit `data={"skipped": True, "reason": ...}` (never a
+    silent pass, per GH882/#814). See spec §2.1/§2.3 for the full contract.
+
+    schema_smoke is the workflow's LAST step, so its StepResult.data also
+    passes through classify_diff_verdict's verdict payload (verdict/
+    review_path/diff_path/skipped) for existing consumers.
+    """
+    step = "schema_smoke"
+    scratchpad = _resolve_scratchpad(ctx)
+    cfg = ctx.org_config or {}
+    passthrough = _integrity_passthrough(prev)
+
+    if not get_config().gate_enabled("HAL_SCHEMA_SMOKE_GATE"):
+        return StepResult(
+            status="ok",
+            data={**passthrough, "skipped": True, "reason": "gate_disabled"},
+            duration_ms=0,
+            step_name=step,
+        )
+
+    targets = cfg.get("schema_smoke_targets")
+    if not targets:
+        return StepResult(
+            status="ok",
+            data={**passthrough, "skipped": True, "reason": "not_configured"},
+            duration_ms=0,
+            step_name=step,
+        )
+
+    timeout_sec = _resolve_schema_smoke_timeout_sec(cfg)
+    git_cwd = resolve_git_cwd(cfg)
+
+    report = run_schema_smoke(targets, cwd=Path(git_cwd), timeout_sec=timeout_sec)
+
+    report_path = scratchpad / SCHEMA_SMOKE_REPORT_RELPATH
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    overall = str(report["overall"])
+    if overall == "pass":
+        return StepResult(
+            status="ok",
+            data={**passthrough, "report_path": str(report_path), "overall": overall},
+            duration_ms=0,
+            step_name=step,
+        )
+
+    error_code = _SCHEMA_SMOKE_OVERALL_ERROR_CODE[overall]
+    data: dict[str, Any] = {**passthrough, "report_path": str(report_path), "overall": overall}
+    if overall == "mismatch":
+        data["category"] = "FIXTURE_SCHEMA_MISMATCH"
+    return StepResult(
+        status="error",
+        data=data,
+        duration_ms=0,
+        step_name=step,
+        error=f"schema smoke: overall={overall}",
+        error_code=error_code,
+        recoverable=False,
+    )
+
+
 def phase_5_integrity_workflow() -> WorkflowDefinition:
     return WorkflowDefinition(
         name="phase_5_integrity",
@@ -575,5 +684,6 @@ def phase_5_integrity_workflow() -> WorkflowDefinition:
             StepContract(name="build_integrity_prompt", execute=_build_integrity_prompt),
             StepContract(name="invoke_integrity_llm", execute=_invoke_integrity_llm),
             StepContract(name="classify_diff_verdict", execute=_classify_diff_verdict),
+            StepContract(name="schema_smoke", execute=_schema_smoke),
         ],
     )

@@ -98,6 +98,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ from config_provider import get_config, int_value, timeout_policy_path, default_
 import flags_catalog  # noqa: E402  GH529
 from suite_safety import scan_suite_safety
 from stub_passability import scan_stub_passability
+from fixture_schema import parse_reference_ddl, scan_fixture_schema
 from reproducibility import verify_count_reproducible, _pin_pytest_collection, _REPRODUCIBILITY_RUNS
 from engine import LoopRunner
 from llm_subprocess import invoke_llm_subprocess, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason
@@ -620,6 +622,75 @@ def _read_red_test_hashes(scratchpad) -> "dict | None":
     return obj if isinstance(obj, dict) else None
 
 
+def _refreeze_red_test_hashes(scratchpad: Path, manifest: dict[str, Any]) -> str:
+    """GH921 §2.3: re-entry-aware companion to ``_persist_red_test_hashes``.
+
+    - manifest file absent -> writes it fresh (mirrors ``_persist_red_test_hashes``);
+      caller emits ``red_test_hashes_frozen`` in this case (unchanged behavior).
+    - exists AND differs from ``manifest`` for these paths -> a just-committed
+      RED cycle changed content since the freeze; overwrite (merge new digests
+      over the existing dict) — this IS the new baseline.
+    - exists AND equal -> no write (idempotent re-entry, §1ab-c/d).
+
+    Returns ``"frozen"`` | ``"refrozen"`` | ``"noop"`` | ``"failed"``.
+    Never raises: OSError -> ``"failed"``."""
+    ref_path = Path(scratchpad) / RED_TEST_HASHES_RELPATH
+    try:
+        if not ref_path.exists():
+            ref_path.parent.mkdir(parents=True, exist_ok=True)
+            ref_path.write_text(json.dumps(manifest, sort_keys=True))
+            return "frozen"
+        existing = json.loads(ref_path.read_text())
+        if not isinstance(existing, dict):
+            existing = {}
+        if all(existing.get(path) == digest for path, digest in manifest.items()):
+            return "noop"
+        merged = {**existing, **manifest}
+        ref_path.write_text(json.dumps(merged, sort_keys=True))
+        return "refrozen"
+    except (OSError, ValueError):
+        return "failed"
+
+
+def _red_baseline_precheck(scratchpad: Path, git_cwd: str, spec_path: str | None) -> "StepResult | None":
+    """GH921 §2.2: front-loaded RED-baseline check, runs BEFORE invoke_green_llm
+    (inside ``_build_green_prompt``). Distinguishes a legitimate operator-committed
+    RED strengthening (worktree == HEAD, "head_moved") from real tamper
+    ("worktree_dirty" / "missing" / fail-closed "head_unreadable"). Returns None
+    to let the caller proceed with prompt construction; returns a StepResult to
+    short-circuit (either the sanctioned refresh's pass-through None, or an
+    E_RED_TESTS_TAMPERED error)."""
+    frozen = _read_red_test_hashes(scratchpad)
+    if not frozen:
+        return None
+    authorized = _parse_authorized_test_edits(spec_path) if spec_path else []
+    tampered = authored_boundary.verify_red_test_hashes(frozen, git_cwd, authorized)
+    if not tampered:
+        return None
+    allowed = set(authorized)
+    classes = {
+        path: cls
+        for path, cls in authored_boundary.classify_red_hash_mismatches(frozen, git_cwd).items()
+        if path in tampered and path not in allowed
+    }
+    all_head_moved = bool(classes) and all(c == "head_moved" for c in classes.values())
+    if all_head_moved and get_config().flag("HAL_RED_BASELINE_REFRESH"):
+        current = authored_boundary.compute_red_test_hashes(list(classes.keys()), git_cwd)
+        merged = {**frozen, **current}
+        ref_path = Path(scratchpad) / RED_TEST_HASHES_RELPATH
+        ref_path.parent.mkdir(parents=True, exist_ok=True)
+        ref_path.write_text(json.dumps(merged, sort_keys=True))
+        _emit_safe("red_baseline_refreshed", {"paths": sorted(classes), "n": len(classes)})
+        return None
+    msg = f"frozen-hash baseline check found tampered RED test paths: {str(dict(sorted(classes.items())))} — {_TAMPER_REMEDIATION_HINT}"
+    if all_head_moved:
+        msg += " (set HAL_RED_BASELINE_REFRESH=1 and resume to re-freeze the baseline from the committed HEAD content)"
+    return StepResult(
+        status="error", data=None, duration_ms=0, step_name="build_green_prompt",
+        error=msg, error_code="E_RED_TESTS_TAMPERED", recoverable=False,
+    )
+
+
 def _persist_red_test_paths(scratchpad, paths: list[str]) -> bool:
     """Persist discovered RED test paths to scratchpad/RED_TEST_PATHS_RELPATH.
 
@@ -750,8 +821,7 @@ def _get_security_fragment(cfg: dict) -> str:
     """SECBUILD Child 1c (gh-340): static secure-codegen fragment for RED/GREEN
     prompts. Path overridable via org_config['security_fragment_path'] (B2 OSS
     seam). Raises FileNotFoundError — callers fail CLOSED (E_SEC_FRAGMENT_MISSING)."""
-    path = Path(cfg.get("security_fragment_path") or default_security_asset(
-        "secure-codegen-fragment.md", Path(__file__).parents[2] / "security" / "secure-codegen-fragment.md"))
+    path = Path(cfg.get("security_fragment_path") or default_security_asset("secure-codegen-fragment.md", Path(__file__).parents[2] / "security" / "secure-codegen-fragment.md"))
     return path.read_text(encoding="utf-8")
 
 
@@ -1775,8 +1845,13 @@ def _commit_red_tests(ctx, prev) -> StepResult:
     # over trackable_paths would yield an empty manifest in exactly the
     # git-diff-blind mode this ship exists to cover).
     _rth_manifest = authored_boundary.compute_red_test_hashes(red_test_paths, git_cwd)
-    _rth_persisted = _persist_red_test_hashes(scratchpad, _rth_manifest)
-    _emit_safe("red_test_hashes_frozen", {"n": len(_rth_manifest), "persisted": _rth_persisted, "cycle": cycle})
+    _rth_outcome = _refreeze_red_test_hashes(scratchpad, _rth_manifest)
+    if _rth_outcome == "frozen":
+        _emit_safe("red_test_hashes_frozen", {"n": len(_rth_manifest), "persisted": True, "cycle": cycle})
+    elif _rth_outcome == "refrozen":
+        _emit_safe("red_test_hashes_refrozen", {"n": len(_rth_manifest), "cycle": cycle})
+    elif _rth_outcome == "failed":
+        _emit_safe("red_test_hashes_frozen", {"n": len(_rth_manifest), "persisted": False, "cycle": cycle})
     return StepResult(status="ok", data={**prev.data, "red_commit_sha": red_commit_sha,
                                          "red_test_paths": red_test_paths}, duration_ms=0,
                       step_name="commit_red_tests")
@@ -2192,8 +2267,58 @@ def _preflight_retry_eligible(batch: list[dict]) -> bool:
     return all(f.get("error_code") in _PREFLIGHT_RETRY_ELIGIBLE_CODES for f in batch)
 
 
+def _fixture_schema_lint(
+    resolved_paths: list[str], spec_path: str | None, step: str,
+) -> list[dict[str, object]]:
+    """GH891 block-5 helper: fixture-DDL <= reference-DDL RED-lint, extracted
+    from _collect_red_lint_findings (radon complexity, canary Group K)."""
+    entries: list[dict[str, object]] = []
+    if get_config().gate_enabled("HAL_FIXTURE_SCHEMA_GATE"):
+        if not spec_path or not Path(spec_path).is_file():
+            _emit_safe("fixture_schema_lint_skipped", {
+                "phase": 5, "step": step, "reason": "no_spec_path",
+            })
+        else:
+            try:
+                spec_text = Path(spec_path).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                _emit_safe("fixture_schema_lint_skipped", {
+                    "phase": 5, "step": step, "reason": "no_spec_path",
+                })
+                spec_text = None
+            if spec_text is not None:
+                reference = parse_reference_ddl(spec_text)
+                if not reference:
+                    _emit_safe("fixture_schema_lint_skipped", {
+                        "phase": 5, "step": step, "reason": "no_ground_truth_block",
+                    })
+                else:
+                    fs_hits: list[str] = []
+                    for rp in resolved_paths:
+                        try:
+                            src = Path(rp).read_text(encoding="utf-8", errors="replace")
+                        except OSError:
+                            continue
+                        for fs_f in scan_fixture_schema(src, reference):
+                            fs_hits.append(f"{rp}:{fs_f.line} {fs_f.table}")
+                            entries.append({
+                                "path": rp, "line": fs_f.line, "rule": "fixture-schema",
+                                "evidence": f"{fs_f.table} kind={fs_f.kind} extra={','.join(fs_f.extra_columns)}",
+                                "error_code": "E_RED_FIXTURE_SCHEMA_DRIFT", "recoverable": False,
+                            })
+                    if fs_hits:
+                        _emit_safe("red_fixture_schema_violation",
+                                   {"phase": 5, "hits": fs_hits}, severity="error")
+    else:
+        _emit_safe("gate_disabled", {
+            "gate": "HAL_FIXTURE_SCHEMA_GATE", "step": step, "reason": "env_kill_switch",
+        })
+    return entries
+
+
 def _collect_red_lint_findings(
     resolved_paths: list[str], git_cwd: str, ctx, cfg,
+    spec_path: str | None = None,
 ) -> list[dict]:
     """GH595 §2.1 (§1aa named helper): run the deterministic content-lints
     (suite-safety -> stub-passability -> 1q-exec-import ->
@@ -2295,6 +2420,9 @@ def _collect_red_lint_findings(
         _emit_safe("gate_disabled", {
             "gate": "HAL_RED_COLLECT_PROBE_GATE", "step": step, "reason": "env_kill_switch",
         })
+
+    # ── 5. fixture-schema (GH891) ──
+    batch.extend(_fixture_schema_lint(resolved_paths, spec_path, step))
 
     return batch
 
@@ -2651,7 +2779,9 @@ def _verify_red_lint_rules(ctx, prev) -> StepResult:
             "reason": "env_kill_switch",
         })
 
-    batch = _collect_red_lint_findings(resolved_paths, git_cwd, ctx, cfg)
+    batch = _collect_red_lint_findings(
+        resolved_paths, git_cwd, ctx, cfg, spec_path=prev.data.get("spec_path"),
+    )
 
     # ── GH595 §2.1 item 5 / BFEC3E71 §1a: semgrep F1, inlined literally in
     # this function's body so bounded_run(/except FileNotFoundError are
@@ -4014,8 +4144,7 @@ def _verify_security_lint(ctx, prev) -> StepResult:
             duration_ms=0, step_name=step,
         )
 
-    script = Path(cfg.get("security_lint_script") or default_security_asset(
-        "security_lint.py", Path(__file__).parents[2] / "security-lint.py"))
+    script = Path(cfg.get("security_lint_script") or default_security_asset("security_lint.py", Path(__file__).parents[2] / "security-lint.py"))
     if not script.is_file():
         return StepResult(
             status="error", data=None, duration_ms=0, step_name=step,
@@ -4886,7 +5015,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
         )
     # GH517 (34E0B77B) — deterministic verdict-gate lint at the phase_5
     # acceptance seam, fires only on the passed=True (APPROVED) path.
-    # Kill-switch HAL_VERDICT_GATE_LINT=0. 34E0B77B flip-by:2026-07-17
+    # Kill-switch HAL_VERDICT_GATE_LINT=0. 34E0B77B flip-by:2026-08-01
     if get_config().gate_enabled("HAL_VERDICT_GATE_LINT"):
         try:
             gate_rc, gate_report = _run_verdict_gate(
@@ -5097,6 +5226,13 @@ def _build_green_prompt(ctx, prev) -> StepResult:
             error_code="E_MISSING_PREV_DATA",
         )
     scratchpad = _resolve_scratchpad(ctx)
+    _pre = _red_baseline_precheck(
+        scratchpad,
+        _resolve_git_cwd(ctx, prev if isinstance(prev, StepResult) else None),
+        prev_data_facade.get("spec_path"),
+    )
+    if _pre is not None:
+        return _pre
     spec_path = Path(prev_data_facade["spec_path"])
     red_log = Path(prev_data_facade["red_log_path"])
     validation_doc = Path(prev_data_facade["validation_doc_path"])
@@ -5828,9 +5964,13 @@ def _commit_green_code(ctx, prev) -> StepResult:
         if _frozen:
             _hash_tampered = authored_boundary.verify_red_test_hashes(_frozen, git_cwd, authorized_test_edits)
             if _hash_tampered:
+                _hash_classes = authored_boundary.classify_red_hash_mismatches(_frozen, git_cwd)
                 return StepResult(
                     status="error", data=None, duration_ms=0, step_name="commit_green_code",
-                    error=f"frozen-hash integrity check found tampered RED test paths: {_hash_tampered!r} — {_TAMPER_REMEDIATION_HINT}",
+                    error=(
+                        f"frozen-hash integrity check found tampered RED test paths: {_hash_tampered!r} — "
+                        f"{_TAMPER_REMEDIATION_HINT} — {str(dict(sorted(_hash_classes.items())))}"
+                    ),
                     error_code="E_RED_TESTS_TAMPERED",
                     recoverable=False,
                 )

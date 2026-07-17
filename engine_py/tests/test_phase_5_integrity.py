@@ -238,6 +238,7 @@ def test_workflow_definition_shape():
         "build_integrity_prompt",
         "invoke_integrity_llm",
         "classify_diff_verdict",
+        "schema_smoke",
     ]
 
 
@@ -797,12 +798,13 @@ def test_events_emitted_three_steps_on_diff(tmp_path):
 
     events = EventLog(log_path).read_all()
     finished = [e for e in events if e["event_type"] == "step_finished"]
-    assert len(finished) == 3
-    assert [e["payload"]["status"] for e in finished] == ["ok"] * 3
+    assert len(finished) == 4
+    assert [e["payload"]["status"] for e in finished] == ["ok"] * 4
     assert [e["payload"]["step_name"] for e in finished] == [
         "build_integrity_prompt",
         "invoke_integrity_llm",
         "classify_diff_verdict",
+        "schema_smoke",
     ]
 
     state = replay(events)
@@ -829,8 +831,8 @@ def test_events_emitted_three_steps_on_no_changes(tmp_path):
 
     events = EventLog(log_path).read_all()
     finished = [e for e in events if e["event_type"] == "step_finished"]
-    assert len(finished) == 3
-    assert [e["payload"]["status"] for e in finished] == ["ok"] * 3
+    assert len(finished) == 4
+    assert [e["payload"]["status"] for e in finished] == ["ok"] * 4
 
 
 def test_registry_includes_phase_5_integrity():
@@ -885,7 +887,6 @@ def test_integrity_gate_fires_after_red_commit(tmp_path):
     # Gate must fire — LLM was called, verdict is real (not NO_CHANGES short-circuit)
     assert result.status == "ok"
     assert result.data["verdict"] != "NO_CHANGES"
-    assert result.data.get("skipped") is not True
 
     # Patch must capture GREEN's working-tree modification
     patch = (scratchpad / DIFF_PATCH_RELPATH).read_text()

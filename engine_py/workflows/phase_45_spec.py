@@ -838,6 +838,9 @@ _SPEC_STABLE_PREFIX = (
     "  - §1v FILES-NOT-IN-SCOPE: the spec's §5 MUST include a \"Files NOT in scope\" allowlist-inverse.\n"
     "  - §1w OP↔AC CROSS-LINK: every enumerated operation has ≥1 covering AC AND a handler-cite;\n"
     "    every AC maps back to an enumerated op.\n"
+    "  - DATA-MODEL GROUND TRUTH (§1ae): a UUT touching an EXISTING prod DB table REQUIRES a\n"
+    "    'Data-Model Ground Truth' section: verbatim reference DDL per table (```sql fence,\n"
+    "    committed schema / .schema snapshot) + linkage columns; fixtures CREATE TABLE only from it.\n"
 )
 
 
@@ -855,6 +858,7 @@ SPEC_HIGH_BINDING_AXES: tuple[str, ...] = (
     "§1v FILES-NOT-IN-SCOPE",
     "§1w OP↔AC CROSS-LINK",
     "§2-vs-§3 finalize coverage",
+    "DATA-MODEL GROUND TRUTH (§1ae)",
 )
 
 
