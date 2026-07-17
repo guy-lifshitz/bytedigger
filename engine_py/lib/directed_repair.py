@@ -244,9 +244,34 @@ def _render_findings(findings: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# GH962/GH952: gate-specific resolution guidance for directed repair, keyed
+# by finding `rule` id. Rules absent from this dict get no extra block --
+# the prompt stays byte-identical to today (§1b prompt-byte-cap surface).
+_RULE_GUIDANCE: dict[str, str] = {
+    "missing-ground-truth-ddl": (
+        "Add a `## Data-Model Ground Truth` section with a ```sql fenced "
+        "CREATE TABLE DDL block; or opt out with `ground-truth: n/a — <reason>` "
+        "inside that section; or, if the path is never actually opened/created, "
+        "add the per-token pragma `ground-truth: never-opened <token>` or "
+        "rephrase/elide the token."
+    ),
+    "empty-ground-truth-ddl": (
+        "Add a ```sql fenced CREATE TABLE DDL block inside the existing "
+        "`## Data-Model Ground Truth` section, or opt out with "
+        "`ground-truth: n/a — <reason>`; the per-token pragma "
+        "`ground-truth: never-opened <token>` also applies if the path is "
+        "never actually opened/created."
+    ),
+}
+
+
 def _build_prompt(gate: str, artifact_path: str, artifact_text: str, findings: list[dict]) -> str:
     rules = sorted({str(f.get("rule", "")) for f in findings if isinstance(f, dict) and f.get("rule")})
     rule_str = ", ".join(rules) if rules else gate
+    guidance_rules = [r for r in rules if r in _RULE_GUIDANCE]
+    guidance_block = "".join(
+        f"\nGate-specific guidance: {_RULE_GUIDANCE[r]}\n" for r in guidance_rules
+    )
     return (
         f"You are performing a locus-bounded directed repair for the deterministic gate `{gate}`.\n"
         f"Artifact path: {artifact_path}\n\n"
@@ -254,7 +279,8 @@ def _build_prompt(gate: str, artifact_path: str, artifact_text: str, findings: l
         f"{_render_findings(findings)}\n\n"
         f"--- BEGIN ARTIFACT ---\n{artifact_text}\n--- END ARTIFACT ---\n\n"
         f"Patch STRICTLY at these loci to satisfy `{rule_str}`; do not restructure "
-        f"or reformat anything else.\n\n"
+        f"or reformat anything else.\n"
+        f"{guidance_block}\n"
         f"Return ONLY one or more SEARCH/REPLACE blocks bounded to the cited "
         f"loci -- no prose, no other commentary. Each block must use exactly "
         f"this format:\n"
