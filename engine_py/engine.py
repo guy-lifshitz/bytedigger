@@ -727,12 +727,12 @@ class LoopRunner:
                     cached = maybe_read_sentinel(
                         ctx, body_step, iteration, run_ctx.run_id,
                         lambda et, payload, rid: telemetry_ctx.emit_safe(et, payload),
-                        workflow_name=c.name,
+                        workflow_name=c.name, prev=cur_prev,
                     )
                     result = cached if cached is not None else body_step.execute(ctx, cur_prev)
                     maybe_write_sentinel(
                         ctx, body_step, iteration, run_ctx.run_id, result,
-                        workflow_name=c.name,
+                        workflow_name=c.name, prev=cur_prev,
                     )
                 else:
                     result = body_step.execute(ctx, cur_prev)
@@ -881,12 +881,12 @@ class LoopRunner:
                     cached = maybe_read_sentinel(
                         ctx, body_step, sentinel_iteration, run_ctx.run_id,
                         lambda et, payload, rid: telemetry_ctx.emit_safe(et, payload),
-                        workflow_name=c.name,
+                        workflow_name=c.name, prev=cur_prev,
                     )
                     result = cached if cached is not None else body_step.execute(ctx, cur_prev)
                     maybe_write_sentinel(
                         ctx, body_step, sentinel_iteration, run_ctx.run_id, result,
-                        workflow_name=c.name,
+                        workflow_name=c.name, prev=cur_prev,
                     )
                 else:
                     result = body_step.execute(ctx, cur_prev)

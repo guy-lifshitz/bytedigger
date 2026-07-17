@@ -350,7 +350,14 @@ def test_8fe3d757_ac4_noop_when_no_test_paths(tmp_path, monkeypatch) -> None:
 def test_8fe3d757_ac5_happy_path_test_committed_prod_not(tmp_path, monkeypatch) -> None:
     """AC5: manifest has test file + prod file → only test file staged + committed
     → fix_test_commit_sha populated → telemetry emitted with n_files==1, correct paths.
-    4961254A: manifest drives selection (not git_diff_files)."""
+    4961254A: manifest drives selection (not git_diff_files).
+
+    GH886 tail-autocommit contract: after _commit_fix_tests makes the fix-test
+    commit, the remaining dirty tail (src/demo.py here) is auto-committed as a
+    SECOND commit so the integrity gate never sees a dirty tree. So HEAD ends up
+    ONE commit ahead of fix_test_commit_sha: fix_test_commit_sha == HEAD~1 (the
+    fix-test commit); HEAD == the tail commit containing src/demo.py.
+    """
     emitted = _captured_emits(monkeypatch)
 
     repo = tmp_path / "repo"
@@ -401,23 +408,38 @@ def test_8fe3d757_ac5_happy_path_test_committed_prod_not(tmp_path, monkeypatch) 
     assert result.status == "ok", f"expected ok; got {result.status!r} ({result.error!r})"
     new_sha = result.data.get("fix_test_commit_sha")
     assert new_sha is not None, "fix_test_commit_sha should be populated after successful commit"
-    assert new_sha == head_after, (
-        f"fix_test_commit_sha {new_sha!r} != HEAD {head_after!r}"
-    )
     assert head_before != head_after, "HEAD should have advanced after test-file commit"
 
-    # Test file must be in the new commit's tree
+    # GH886: fix_test_commit_sha is the fix-test commit, HEAD~1 relative to the
+    # auto-committed tail commit.
+    head_parent = subprocess.run(
+        ["git", "rev-parse", "HEAD~1"], cwd=repo, capture_output=True, text=True,
+    ).stdout.strip()
+    assert new_sha == head_parent, (
+        f"fix_test_commit_sha {new_sha!r} != HEAD~1 {head_parent!r} (GH886 tail-autocommit contract)"
+    )
+
+    # Test file must be in the fix-test commit's tree
     tree_files = subprocess.run(
-        ["git", "diff-tree", "--no-commit-id", "-r", "--name-only", head_after],
+        ["git", "diff-tree", "--no-commit-id", "-r", "--name-only", new_sha],
         cwd=repo, capture_output=True, text=True,
     ).stdout.strip().splitlines()
     assert any("test_demo.py" in f for f in tree_files), (
         f"test_demo.py not found in commit tree; tree: {tree_files!r}"
     )
 
-    # Prod file must NOT be in the commit
+    # Prod file must NOT be in the fix-test commit
     assert not any("demo.py" in f and "test" not in f for f in tree_files), (
         f"prod file should NOT be in test commit; tree: {tree_files!r}"
+    )
+
+    # GH886: the tail commit (HEAD) must contain the auto-committed prod file.
+    tail_files = subprocess.run(
+        ["git", "diff-tree", "--no-commit-id", "-r", "--name-only", head_after],
+        cwd=repo, capture_output=True, text=True,
+    ).stdout.strip().splitlines()
+    assert any("src/demo.py" in f for f in tail_files), (
+        f"src/demo.py not found in tail commit tree; tree: {tail_files!r}"
     )
 
     # Telemetry

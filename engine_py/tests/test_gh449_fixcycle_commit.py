@@ -256,6 +256,13 @@ class TestFixIntegrityEqualShasDirtyTree:
         _write_file(repo, "src/dirty.py", "# uncommitted fix edit\n")
         scratchpad = tmp_path / "scratch"
 
+        # GH886: pre-stage the self-heal sentinel so the bounded self-heal budget
+        # is already exhausted — this test still exercises the original terminal
+        # E_FIX_UNCOMMITTED_CHANGES contract (dirty never yields silent NO_CHANGES).
+        sentinel = scratchpad / "integrity" / "tail-autocommit-attempted.txt"
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("attempted\n")
+
         ctx = _make_fi_ctx(str(repo), sha, sha, scratchpad)
 
         result = _build_fix_integrity_prompt(ctx, None)
@@ -292,6 +299,14 @@ class TestFixIntegrityEmptyCommittedDiffDirtyTree:
         _write_file(repo, "app.py", "def app(): return 2\n")
 
         scratchpad = tmp_path / "scratch"
+
+        # GH886: pre-stage the self-heal sentinel so the bounded self-heal budget
+        # is already exhausted — this test still exercises the original terminal
+        # E_FIX_UNCOMMITTED_CHANGES contract (dirty never yields silent NO_CHANGES).
+        sentinel = scratchpad / "integrity" / "tail-autocommit-attempted.txt"
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("attempted\n")
+
         ctx = _make_fi_ctx(str(repo), pre_sha, fix_sha, scratchpad)
 
         result = _build_fix_integrity_prompt(ctx, None)

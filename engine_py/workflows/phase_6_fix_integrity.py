@@ -58,12 +58,13 @@ import sys
 from pathlib import Path
 
 from contracts import StepContract, StepResult, WorkflowDefinition
+from typing import Any
 from llm_subprocess import invoke_llm_subprocess
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib" / "plugins"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from lib import git_port  # noqa: E402
-from lib.git_cwd import resolve_git_cwd  # noqa: E402  GH381
+from lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source  # noqa: E402  GH381
 from anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
     get_out_of_role_block as _get_out_of_role_block,
@@ -72,6 +73,15 @@ from model_config import get_claude_critical  # noqa: E402
 from verdict_parse import last_standalone_line_verdict  # noqa: E402
 from config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
+from io_utils import atomic_write  # noqa: E402  GH886 Change 2 sentinel
+try:
+    from .phase_workflows_common import _emit_safe  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_workflows_common import _emit_safe  # type: ignore[no-redef]  # noqa: E402
+try:
+    from .phase_6_review import _autocommit_fix_tail  # noqa: E402  GH886 Change 1
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_6_review import _autocommit_fix_tail  # type: ignore[no-redef]  # noqa: E402
 
 
 def _timeout_policy() -> dict:
@@ -292,7 +302,13 @@ def _parse_verdict(raw: str) -> str:
     )
 
 
-def _dirty_worktree_guard(git_cwd: Path) -> StepResult | None:
+def _dirty_worktree_guard(
+    git_cwd: Path,
+    cfg: "dict[str, Any] | None" = None,
+    scratchpad: Path | None = None,
+    pre_fix_sha: str | None = None,
+    git_cwd_source: str = "cwd",
+) -> StepResult | None:
     """GH449 Change 2: dirty worktree must never yield verdict_override=NO_CHANGES.
 
     Checks `git status --porcelain` in git_cwd. Non-empty output (any
@@ -301,10 +317,16 @@ def _dirty_worktree_guard(git_cwd: Path) -> StepResult | None:
     naming up to 10 dirty paths, instructing the caller to commit the fix
     edits then resume. A git-status failure (nonzero rc / timeout /
     FileNotFoundError) is treated as dirty-unknown (cautious default —
-    never silently NO_CHANGES when tree state is unverifiable).
+    never silently NO_CHANGES when tree state is unverifiable) and NEVER
+    attempts self-heal (GH886 AC9).
+
+    GH886 Change 2: when the tree is genuinely dirty (not dirty-unknown), a
+    single bounded self-heal attempt is made via `_autocommit_fix_tail`
+    before returning the terminal error — gated by a one-shot sentinel file
+    under scratchpad/integrity/tail-autocommit-attempted.txt (§1ab/§1ac).
 
     Returns None when the tree is verified clean (safe to proceed with the
-    existing NO_CHANGES override).
+    existing NO_CHANGES override), or when self-heal succeeded.
     """
     dirty_lines: list[str] | None = None
     try:
@@ -318,6 +340,38 @@ def _dirty_worktree_guard(git_cwd: Path) -> StepResult | None:
 
     if dirty_lines is None or dirty_lines:
         if dirty_lines:
+            sentinel = (
+                scratchpad / "integrity" / "tail-autocommit-attempted.txt"
+                if scratchpad is not None else None
+            )
+            if sentinel is not None and not sentinel.is_file():
+                cycle = int((cfg or {}).get("cycle", 1))
+                heal_result = _autocommit_fix_tail(
+                    cfg or {}, str(git_cwd), git_cwd_source, cycle, pre_fix_sha,
+                    "build_fix_integrity_prompt",
+                )
+                sentinel.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write(sentinel, "attempted")
+                if not isinstance(heal_result, StepResult):
+                    try:
+                        res2 = git_port.git_read(
+                            ["status", "--porcelain"], cwd=str(git_cwd), timeout=10
+                        )
+                        still_dirty = (
+                            res2.timed_out or res2.returncode != 0
+                            or any(line.strip() for line in res2.stdout.splitlines())
+                        )
+                    except FileNotFoundError:
+                        still_dirty = True
+                    if not still_dirty:
+                        _emit_safe(
+                            "fix_integrity_tail_selfheal",
+                            {
+                                "n_files": (heal_result or {}).get("n_files"),
+                                "commit_sha": (heal_result or {}).get("commit_sha"),
+                            },
+                        )
+                        return None
             named = ", ".join(line.strip() for line in dirty_lines[:10])
             detail = f"dirty paths (first 10): {named}"
         else:
@@ -342,7 +396,8 @@ def _dirty_worktree_guard(git_cwd: Path) -> StepResult | None:
 def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
     scratchpad = _resolve_scratchpad(ctx)
     cfg = ctx.org_config or {}
-    git_cwd = Path(resolve_git_cwd(cfg))
+    _git_cwd_str, _git_cwd_source = resolve_git_cwd_with_source(cfg)
+    git_cwd = Path(_git_cwd_str)
 
     # 1. Resolve fix_commit_sha (post ref).
     fix_commit_sha = _resolve_fix_commit_sha(cfg, scratchpad, git_cwd)
@@ -371,7 +426,10 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
 
     # 3. Equal SHAs → short-circuit BEFORE git diff (AC5).
     if pre_fix_sha == fix_commit_sha:
-        dirty_guard = _dirty_worktree_guard(git_cwd)
+        dirty_guard = _dirty_worktree_guard(
+            git_cwd, cfg=cfg, scratchpad=scratchpad, pre_fix_sha=pre_fix_sha,
+            git_cwd_source=_git_cwd_source,
+        )
         if dirty_guard is not None:
             return dirty_guard
         return StepResult(
@@ -442,7 +500,10 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
 
     # 6. Empty diff → NO_CHANGES override (AC4).
     if not diff_text.strip():
-        dirty_guard = _dirty_worktree_guard(git_cwd)
+        dirty_guard = _dirty_worktree_guard(
+            git_cwd, cfg=cfg, scratchpad=scratchpad, pre_fix_sha=pre_fix_sha,
+            git_cwd_source=_git_cwd_source,
+        )
         if dirty_guard is not None:
             return dirty_guard
         return StepResult(

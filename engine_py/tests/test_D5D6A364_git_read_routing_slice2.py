@@ -335,11 +335,15 @@ def test_ac3_commit_fix_tests_rev_parse_routes_through_git_read(
     finally:
         reset_default_git_read_factory()
 
-    assert len(spy.calls) == 1, (
-        f"Expected spy called once (git_read routes rev-parse); "
-        f"got {len(spy.calls)} calls — pre-GREEN: bounded_run used instead"
+    # GH886: tail-autocommit helper legitimately adds extra git_read calls
+    # (porcelain probe etc.) — routing intent is "rev-parse present", not "exactly one".
+    rev_parse_calls = [c for c in spy.calls if c[0] == ["rev-parse", "HEAD"]]
+    assert rev_parse_calls, (
+        f"Expected at least one spy call with args ['rev-parse','HEAD'] "
+        f"(git_read routes rev-parse); got calls={spy.calls!r} — "
+        f"pre-GREEN: bounded_run used instead"
     )
-    recorded_args, recorded_cwd, _ = spy.calls[0]
+    recorded_args, recorded_cwd, _ = rev_parse_calls[0]
     assert recorded_args == ["rev-parse", "HEAD"], (
         f"Expected args ['rev-parse','HEAD'], got {recorded_args!r}"
     )

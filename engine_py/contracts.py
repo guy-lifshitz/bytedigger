@@ -297,6 +297,7 @@ class StepContract:
     skip_on_error: bool = False
     required_ctx_fields: list[str] = field(default_factory=list)
     resume_sentinel: bool = False
+    sentinel_input_field: "str | None" = None
 
 
 @dataclass

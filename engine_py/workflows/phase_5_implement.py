@@ -88,6 +88,7 @@ Outputs:
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import logging
 import os
@@ -943,6 +944,24 @@ def _red_lint_prompt_digest(spec_text: str, rules_path: Path | None = None) -> s
     return "".join(out)
 
 
+def _verdict_content_digest(paths: list[str]) -> str:
+    """sha256 over the byte-content of ``paths`` (GH897 r2 §2, §1aa helper).
+
+    Paths are sorted first so digest is permutation-invariant. A missing/
+    unreadable file degrades to empty bytes (no exception) — content-based,
+    not path-based, so this changes across an in-place red-fix even though
+    the path list stays identical.
+    """
+    h = hashlib.sha256()
+    for path in sorted(paths):
+        try:
+            data = Path(path).read_bytes()
+        except OSError:
+            data = b""
+        h.update(path.encode("utf-8") + b"\0" + data)
+    return h.hexdigest()
+
+
 def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     """Build the RED-worker prompt.
 
@@ -987,6 +1006,9 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
             + _worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad))
             + "\n\n" + _get_out_of_role_block()
         )
+        _content_digest = _verdict_content_digest(
+            [str(spec_path), str(scratchpad / VALIDATION_DOC_RELPATH)]
+        )
         return StepResult(
             status="ok",
             data={
@@ -998,6 +1020,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
                 "prompt_bytes": len(prompt.encode("utf-8")),
                 "cycle": cycle,
                 "delta_retry": True,
+                "sentinel_input": prompt + "\0" + _content_digest,
             },
             duration_ms=0,
             step_name="build_red_prompt",
@@ -1114,6 +1137,9 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     _standards_block = get_standards_context(ctx)
     if _standards_block:
         prompt = _standards_block + prompt
+    _content_digest = _verdict_content_digest(
+        [str(spec_path), str(scratchpad / VALIDATION_DOC_RELPATH)]
+    )
     return StepResult(
         status="ok",
         data={
@@ -1125,6 +1151,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
             "prompt_bytes": len(prompt.encode("utf-8")),
             "cycle": cycle,
             "stable_prefix": _RED_STABLE_PREFIX,
+            "sentinel_input": prompt + "\0" + _content_digest,
         },
         duration_ms=0,
         step_name="build_red_prompt",
@@ -4456,6 +4483,7 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
     parts.append(_VALIDATION_STABLE_PREFIX)
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
+    _content_digest = _verdict_content_digest([*red_test_paths, str(spec_path)])
     return StepResult(
         status="ok",
         data={
@@ -4470,6 +4498,7 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
             # so commit_green_code receives it as the diff boundary.
             "red_commit_sha": prev.data.get("red_commit_sha"),
             "stable_prefix": _VALIDATION_STABLE_PREFIX,
+            "sentinel_input": prompt + "\0" + _content_digest,
         },
         duration_ms=0,
         step_name="build_validation_prompt",
@@ -5573,14 +5602,14 @@ def build_validation_loop_contract(max_cycles: int = MAX_VALIDATION_CYCLES) -> L
         name="phase_5_validation_cycle",
         body=[
             StepContract(name="build_red_prompt", execute=_build_red_prompt),
-            StepContract(name="invoke_red_llm", execute=_invoke_red_llm, resume_sentinel=True),
+            StepContract(name="invoke_red_llm", execute=_invoke_red_llm, resume_sentinel=True, sentinel_input_field="sentinel_input"),
             StepContract(name="write_red_artifact", execute=_write_red_artifact),
             StepContract(name="commit_red_tests", execute=_commit_red_tests),
             StepContract(name="verify_red_fails_mechanically", execute=_verify_red_fails_mechanically),
             StepContract(name="verify_red_lint_rules", execute=_verify_red_lint_rules),
             StepContract(name="build_validation_prompt", execute=_build_validation_prompt),
             StepContract(name="check_red_executable", execute=_check_red_executable),
-            StepContract(name="invoke_validation_llm", execute=_invoke_validation_llm, resume_sentinel=True),
+            StepContract(name="invoke_validation_llm", execute=_invoke_validation_llm, resume_sentinel=True, sentinel_input_field="sentinel_input"),
             StepContract(name="write_validation_doc", execute=_write_validation_doc),
             StepContract(name="verify_validation_citations", execute=_verify_validation_citations),
             StepContract(name="gate_on_validation", execute=_gate_on_validation),

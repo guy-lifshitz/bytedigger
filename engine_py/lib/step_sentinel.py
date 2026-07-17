@@ -92,6 +92,25 @@ def compute_ctx_hash(context) -> "str | None":
     return hashlib.sha256(question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes).hexdigest()[:12]
 
 
+def effective_ctx_hash(ctx_hash: "str | None", step, prev) -> "str | None":
+    """Fold a step-declared input field into ``ctx_hash`` (GH897 §2.2).
+
+    ``step.sentinel_input_field`` names a key in ``prev.data`` whose value
+    (when a non-empty str) is mixed into the sentinel-key hash, so a changed
+    LLM-step input (e.g. an on-disk red-fix) cannot serve a stale cached
+    result. Legacy degrade to plain ``ctx_hash`` when: no field declared,
+    ``prev`` is None/has no ``.data``, the field is missing/non-str/empty.
+    """
+    field = getattr(step, "sentinel_input_field", None)
+    if not field:
+        return ctx_hash
+    data = getattr(prev, "data", None)
+    val = data.get(field) if isinstance(data, dict) else None
+    if not isinstance(val, str) or not val:
+        return ctx_hash
+    return hashlib.sha256(((ctx_hash or "") + "\0" + val).encode()).hexdigest()[:12]
+
+
 def _resolve_scratchpad(context) -> "Path | None":
     cfg = getattr(context, "org_config", None) or {}
     raw = cfg.get("scratchpad_dir")
@@ -100,7 +119,7 @@ def _resolve_scratchpad(context) -> "Path | None":
     return Path(raw)
 
 
-def maybe_read_sentinel(context, step, cycle: int, run_id: str, emit, workflow_name: "str | None" = None) -> "StepResult | None":
+def maybe_read_sentinel(context, step, cycle: int, run_id: str, emit, workflow_name: "str | None" = None, prev=None) -> "StepResult | None":
     """Return a synthesized ok StepResult from a cached sentinel, or None.
 
     None when: ``step.resume_sentinel`` is False, scratchpad unresolvable,
@@ -116,6 +135,7 @@ def maybe_read_sentinel(context, step, cycle: int, run_id: str, emit, workflow_n
     if scratchpad is None:
         return None
     ctx_hash = None if (cfg.get("step_sentinel") or {}).get("ctx_hash_disable") else compute_ctx_hash(context)
+    ctx_hash = effective_ctx_hash(ctx_hash, step, prev)
     cached = read_step_sentinel(scratchpad, step.name, cycle, run_id, ctx_hash, workflow_name)
     if cached is None:
         return None
@@ -131,6 +151,17 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
     step in ``steps`` at ``(cycle, run_id)``. Returns the list of removed
     filenames. Degrades silently on missing files / OS errors / disabled
     config / unresolvable scratchpad.
+
+    A step with ``sentinel_input_field`` set has an input-hashed sentinel
+    key whose hash value is not reconstructible here (the input is only
+    known at read/write time) — for those steps, invalidation instead
+    globs ``{workflow}__{step}_done_c{cycle}_r{run_id}_h*.json`` (GH897
+    §2/r2 MINOR-2) anchored with a literal ``_h`` immediately after the
+    run_id segment so a run_id prefix collision (e.g. invalidating "R1"
+    while "R12" sentinels exist) cannot over-match, plus the exact legacy
+    (non-hashed) names. Assumes production run_id values are uuid4 hex
+    (no glob metacharacters); an operator-supplied ``--run-id`` containing
+    glob metacharacters is out of contract (r2 MINOR-3).
     """
     cfg = getattr(context, "org_config", None) or {}
     if (cfg.get("step_sentinel") or {}).get("disable"):
@@ -144,9 +175,21 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
     for step in steps:
         if not getattr(step, "resume_sentinel", False):
             continue
-        names = {resume_sentinel_name(step.name, cycle, run_id, None, workflow_name)}
-        if ctx_hash:
-            names.add(resume_sentinel_name(step.name, cycle, run_id, ctx_hash, workflow_name))
+        names: set = set()
+        input_field = getattr(step, "sentinel_input_field", None)
+        if input_field:
+            names.add(resume_sentinel_name(step.name, cycle, run_id, None, workflow_name))
+            prefix = f"{workflow_name}__" if workflow_name else ""
+            pattern = f"{prefix}{step.name}_done_c{cycle}_r{run_id}_h*.json"
+            try:
+                for match in sentinel_dir.glob(pattern):
+                    names.add(match.name)
+            except OSError:
+                logger.warning("step_sentinel: glob failed for pattern %s", pattern, exc_info=True)
+        else:
+            names.add(resume_sentinel_name(step.name, cycle, run_id, None, workflow_name))
+            if ctx_hash:
+                names.add(resume_sentinel_name(step.name, cycle, run_id, ctx_hash, workflow_name))
         for name in names:
             sentinel_file = sentinel_dir / name
             try:
@@ -166,7 +209,7 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
     return removed
 
 
-def maybe_write_sentinel(context, step, cycle: int, run_id: str, result, workflow_name: "str | None" = None) -> None:
+def maybe_write_sentinel(context, step, cycle: int, run_id: str, result, workflow_name: "str | None" = None, prev=None) -> None:
     """Write ``result.data`` to the sentinel — only for a flagged step's ok result."""
     if not getattr(step, "resume_sentinel", False):
         return
@@ -179,4 +222,5 @@ def maybe_write_sentinel(context, step, cycle: int, run_id: str, result, workflo
     if scratchpad is None:
         return
     ctx_hash = None if (cfg.get("step_sentinel") or {}).get("ctx_hash_disable") else compute_ctx_hash(context)
+    ctx_hash = effective_ctx_hash(ctx_hash, step, prev)
     write_step_sentinel(scratchpad, step.name, cycle, result.data or {}, run_id, ctx_hash, workflow_name)

@@ -3801,6 +3801,160 @@ def _build_fix_commit_message(cycle: int, paths: list) -> str:
     return f"build: fix cycle {cycle}\n\n{body_files}\n"
 
 
+def _autocommit_fix_tail(
+    cfg: dict, git_cwd: str, git_cwd_source: str, cycle: int, pre_fix_sha: "str | None", step_name: str
+) -> "StepResult | dict":
+    """GH886 Change 1: auto-commit any dirty tail left after a fix-phase
+    manifest commit, so the worktree never reaches the integrity gate dirty.
+
+    Returns {"tail_committed": bool, ...} on no-op/success, or a
+    StepResult(status="error", ...) when the tail cannot be safely committed
+    (boundary violation / git-lock persisted / git failure).
+    """
+    try:
+        st = git_port.git_read(["status", "--porcelain"], cwd=git_cwd, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("_autocommit_fix_tail: git status failed for step %s: %s", step_name, exc)
+        return {"tail_committed": False}
+    if st.returncode != 0:
+        logger.warning(
+            "_autocommit_fix_tail: git status rc=%d for step %s: %s",
+            st.returncode, step_name, st.stderr[:200],
+        )
+        return {"tail_committed": False}
+    porcelain_lines = [ln for ln in st.stdout.splitlines() if ln]
+    if not porcelain_lines:
+        return {"tail_committed": False}
+
+    if git_cwd_source == "cwd":
+        _emit_safe("fix_tail_skipped", {"reason": "cwd_default", "phase": 6, "step": step_name})
+        return {"tail_committed": False}
+
+    tail_paths = [ln[3:].strip() for ln in porcelain_lines]
+    tail_paths = _filter_gitignored_paths(tail_paths, git_cwd)
+    if not tail_paths:
+        return {"tail_committed": False}
+
+    if get_config().gate_enabled("HAL_AUTHORED_BOUNDARY_GATE"):
+        assert pre_fix_sha is not None
+        try:
+            scan_result = authored_boundary.scan_boundary(
+                "fix_commit",
+                base_sha=pre_fix_sha,
+                paths=tail_paths,
+                git_cwd=git_cwd,
+                is_test_path=_is_test_path,
+            )
+        except RuntimeError as exc:
+            return StepResult(
+                status="error", data=None, duration_ms=0, step_name=step_name,
+                error=f"authored-diff boundary scan failed on tail: {exc}",
+                error_code="E_BOUNDARY_SCAN_FAILED",
+                recoverable=False,
+            )
+        if scan_result.suppression_hits:
+            return StepResult(
+                status="error", data=None, duration_ms=0, step_name=step_name,
+                error=f"authored-diff boundary scan found new suppression tokens in tail: {scan_result.suppression_hits!r}",
+                error_code="E_BOUNDARY_SUPPRESSION",
+                recoverable=False,
+            )
+        if scan_result.tampered_tests:
+            return StepResult(
+                status="error", data=None, duration_ms=0, step_name=step_name,
+                error=f"authored-diff boundary scan found tampered RED test paths in tail: {scan_result.tampered_tests!r}",
+                error_code="E_RED_TESTS_TAMPERED",
+                recoverable=False,
+            )
+
+    add, add_outcome = _git_op_with_lock_retry(
+        ["git", "add", "--"] + tail_paths, cwd=git_cwd, timeout=30
+    )
+    if add_outcome == "lock_persisted":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error=f"git add (tail): index.lock contention persisted after 3 attempts: {add.stderr[:500]}",
+            error_code="E_GIT_LOCKED",
+        )
+    if add_outcome == "non_lock_error":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error=f"git add (tail): {add.stderr[:500]}",
+            error_code="E_FIX_COMMIT_FAILED",
+        )
+    if add_outcome == "timeout":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error="git add (tail): timeout after 30s",
+            error_code="E_GIT_TIMEOUT",
+        )
+    if add_outcome == "os_error":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error="git add (tail): OS error invoking subprocess",
+            error_code="E_GIT_OS_ERROR",
+        )
+
+    subject = f"build: fix cycle {cycle} (auto-commit tail)"
+    basenames = [Path(p).name for p in tail_paths]
+    body_files = "Files: " + ", ".join(basenames)
+    commit_message = f"{subject}\n\n{body_files}\n"
+    cm, cm_outcome = _git_op_with_lock_retry(
+        ["git", "commit", "-m", commit_message], cwd=git_cwd, timeout=30
+    )
+    if cm_outcome == "lock_persisted":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error=f"git commit (tail): index.lock contention persisted after 3 attempts: {cm.stderr[:500]}",
+            error_code="E_GIT_LOCKED",
+        )
+    if cm_outcome == "non_lock_error":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error=f"git commit (tail): {cm.stderr[:500]}",
+            error_code="E_FIX_COMMIT_FAILED",
+        )
+    if cm_outcome == "timeout":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error="git commit (tail): timeout after 30s",
+            error_code="E_GIT_TIMEOUT",
+        )
+    if cm_outcome == "os_error":
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error="git commit (tail): OS error invoking subprocess",
+            error_code="E_GIT_OS_ERROR",
+        )
+
+    post_rev = git_port.git_read(["rev-parse", "HEAD"], cwd=git_cwd, timeout=30)
+    if post_rev.returncode != 0:
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step_name,
+            error=f"git rev-parse HEAD after tail commit: {post_rev.stderr[:500]}",
+            error_code="E_FIX_COMMIT_FAILED",
+        )
+    tail_sha = post_rev.stdout.strip()
+
+    cfg = cfg or {}
+    scratchpad_dir = cfg.get("scratchpad_dir")
+    if scratchpad_dir:
+        _sidecar = Path(scratchpad_dir) / "integrity" / "fix-commit-sha.txt"
+        _sidecar.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(_sidecar, tail_sha)
+
+    _emit_safe(
+        "fix_tail_autocommit",
+        {
+            "cycle": cycle,
+            "n_files": len(tail_paths),
+            "commit_sha": tail_sha,
+            "phase": 6,
+        },
+    )
+    return {"tail_committed": True, "commit_sha": tail_sha}
+
+
 def _commit_fix_code(ctx, prev) -> StepResult:
     """Step 6+: engine-authoritative FIX commit (7547E02F).
 
@@ -4132,7 +4286,8 @@ def _commit_fix_tests(ctx, prev) -> StepResult:
             error_code="E_LLM_MANIFEST_MISSING_AT_CONSUMER", recoverable=False)
 
     cfg = ctx.org_config or {}
-    git_cwd = str(resolve_git_cwd(cfg))
+    git_cwd, _git_cwd_source = resolve_git_cwd_with_source(cfg)
+    git_cwd = str(git_cwd)
     scratchpad_dir = cfg.get("scratchpad_dir")
 
     # Test-env guard: skip commit when there is genuinely no git repo to act on.
@@ -4335,6 +4490,14 @@ def _commit_fix_tests(ctx, prev) -> StepResult:
             "phase": 6,
         },
     )
+
+    # GH886 Change 1: auto-commit any dirty tail left behind by the fix
+    # worker after its own manifest commit (before returning ok).
+    tail_result = _autocommit_fix_tail(
+        cfg, git_cwd, _git_cwd_source, cycle, pre_fix_sha, "commit_fix_tests"
+    )
+    if isinstance(tail_result, StepResult):
+        return tail_result
 
     # ── return ok with **prev.data spread + fix_test_commit_sha ──────────────
     return StepResult(
