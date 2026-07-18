@@ -859,6 +859,10 @@ def _get_security_fragment(cfg: dict) -> str:
 _RE_1P_WANTS = re.compile(r"\.sh\b")
 _RE_1I_WANTS = re.compile(r"singleton|time\.time|sleep\(|timestamp|mtime|TTL\b|clock|date \+%", re.IGNORECASE)
 
+# GH1017 §2.2/§1g: single source of truth for the §1q exec-import lint pattern,
+# shared by the preflight batch collector and the per-file verify step.
+_RE_1Q_EXEC_IMPORT = re.compile(r"spec_from_file_location|exec_module|runpy\.run_path")
+
 # GH513/§2.5: remediation hint interpolated into the E_RED_TESTS_TAMPERED error string.
 _TAMPER_REMEDIATION_HINT = (
     "if this edit is a spec-required contract migration, add the path under the "
@@ -883,6 +887,27 @@ _RE_PY_UUT_WANTS = re.compile(r"\.py\b")
 def _spec_wants_py_gates(spec_text: str) -> bool:
     """GH596: True if spec references a python UUT/test surface (`.py`)."""
     return bool(_RE_PY_UUT_WANTS.search(spec_text))
+
+
+_RE_SCRIPT_UUT_WANTS = re.compile(r"\b[\w./]*\w-[\w-]*\.py\b")
+
+
+def _spec_wants_script_uut(spec_text: str) -> bool:
+    """GH1017: True if spec references a hyphenated (non-importable) .py UUT script."""
+    return bool(_RE_SCRIPT_UUT_WANTS.search(spec_text))
+
+
+# GH1017 §2.1: script-UUT loader rule, sibling of RED_COLLECTABILITY_RULE.
+RED_SCRIPT_LOADER_RULE = (
+    "RULES script-UUT loader (GH1017, §1q sibling):\n"
+    "  - The UUT is a SCRIPT (hyphenated / non-importable filename). Load it EXACTLY like this:\n"
+    "      mod = types.ModuleType(\"<name>\"); exec(compile(src, str(path), \"exec\"), mod.__dict__); sys.modules[\"<name>\"] = mod\n"
+    "    then patch/monkeypatch attributes ON `mod` (the module object) — NEVER on a separate dict.\n"
+    "  - NEVER use runpy.run_path, and NEVER exec into a plain dict namespace: functions keep\n"
+    "    __globals__ bound to the ORIGINAL exec dict, so patches on any copy are silent no-ops and\n"
+    "    your tests drive the real binaries.\n"
+    "  - Prefer a conftest-level import-time singleton (load once, swap-pin) per §1q.\n"
+)
 
 
 # ─── Step 1: build RED prompt ────────────────────────────────────────────────
@@ -1195,6 +1220,9 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
                     "  - SUITE-SAFETY (585E30E3, terminal): no sys.path.insert / os.chdir / global-state mutation\n"
                     "    at module top level in test files — suite-unsafe patterns block the build.\n"
                 )
+                parts.append("")
+            if _spec_wants_script_uut(spec_text):
+                parts.append(RED_SCRIPT_LOADER_RULE)
                 parts.append("")
             digest = _red_lint_prompt_digest(spec_text)
             if digest:
@@ -2440,7 +2468,6 @@ def _collect_red_lint_findings(
         })
 
     # ── 3. §1q exec-import ──
-    _re_1q = re.compile(r"spec_from_file_location|exec_module")
     if get_config().gate_enabled("HAL_RED_1Q_GATE"):
         q1_hits: list[str] = []
         for rp in resolved_paths:
@@ -2449,7 +2476,7 @@ def _collect_red_lint_findings(
             except OSError:
                 continue
             for q1_lineno, q1_line in enumerate(src.splitlines(), start=1):
-                if _re_1q.search(q1_line) and "# 1q: allow" not in q1_line:
+                if _RE_1Q_EXEC_IMPORT.search(q1_line) and "# 1q: allow" not in q1_line:
                     q1_hits.append(f"{rp}:{q1_lineno}")
                     batch.append({
                         "path": rp, "line": q1_lineno, "rule": "1q-exec-import",
@@ -2575,7 +2602,6 @@ def _verify_red_lint_rules_legacy(ctx, prev, step, cfg, git_cwd, resolved_paths)
         })
 
     # ── GH501/§1q (D1CF5FDF/FBCF22FA): reject spec_from_file_location/exec_module in RED ──
-    _re_1q = re.compile(r"spec_from_file_location|exec_module")
     if get_config().gate_enabled("HAL_RED_1Q_GATE"):     # kill switch, default ON
         q1_hits: list[str] = []
         for rp in resolved_paths:
@@ -2584,14 +2610,14 @@ def _verify_red_lint_rules_legacy(ctx, prev, step, cfg, git_cwd, resolved_paths)
             except OSError:
                 continue
             for q1_lineno, q1_line in enumerate(src.splitlines(), start=1):
-                if _re_1q.search(q1_line) and "# 1q: allow" not in q1_line:
+                if _RE_1Q_EXEC_IMPORT.search(q1_line) and "# 1q: allow" not in q1_line:
                     q1_hits.append(f"{rp}:{q1_lineno}")
         if q1_hits:
             _emit_safe("red_1q_exec_import_violation",
                        {"phase": 5, "hits": q1_hits}, severity="error")
             return StepResult(
                 status="error", data={**prev.data}, duration_ms=0, step_name=step,
-                error="RED uses spec_from_file_location/exec_module (§1q, non-collectable-hang risk): " + ", ".join(q1_hits),
+                error="RED uses spec_from_file_location/exec_module/runpy.run_path (§1q, non-collectable-hang risk): " + ", ".join(q1_hits),
                 error_code="E_RED_1Q_EXEC_IMPORT", recoverable=False,
             )
     else:

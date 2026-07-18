@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from collections.abc import Set as AbstractSet
+from collections.abc import Iterator, Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -136,18 +136,11 @@ def _is_valid_symbol(token: str) -> bool:
     return True
 
 
-def scan_citations(spec_text: str) -> list[Citation]:
-    """Scan spec_text and return one Citation per (file, symbol) pair per line.
-
-    Citations on a line matching _NEW_CONTEXT_RE (whole-line match, GH366) are
-    marked is_new=True.
-
-    GH689 §2.2: lines inside a non-python fenced code block (```sql, ```json,
-    etc.) are skipped entirely — those blocks quote data/schema/example
-    literals, not real code citations. Untagged/python-tagged fences are
-    scanned normally.
-    """
-    citations: list[Citation] = []
+def _iter_scannable_lines(spec_text: str) -> Iterator[tuple[int, str]]:
+    """Yield (line_no, line) for scannable lines (GH1005 §2.1): the same
+    fence-skip semantics scan_citations previously inlined — lines inside a
+    non-python fenced code block are excluded; fence delimiter lines
+    themselves are excluded."""
     in_fence = False
     fence_is_python = True
     for line_no, line in enumerate(spec_text.splitlines(), start=1):
@@ -162,6 +155,22 @@ def scan_citations(spec_text: str) -> list[Citation]:
             continue
         if in_fence and not fence_is_python:
             continue
+        yield line_no, line
+
+
+def scan_citations(spec_text: str) -> list[Citation]:
+    """Scan spec_text and return one Citation per (file, symbol) pair per line.
+
+    Citations on a line matching _NEW_CONTEXT_RE (whole-line match, GH366) are
+    marked is_new=True.
+
+    GH689 §2.2: lines inside a non-python fenced code block (```sql, ```json,
+    etc.) are skipped entirely — those blocks quote data/schema/example
+    literals, not real code citations. Untagged/python-tagged fences are
+    scanned normally.
+    """
+    citations: list[Citation] = []
+    for line_no, line in _iter_scannable_lines(spec_text):
         files = _CODE_FILE_RE.findall(line)
         raw_tokens = _BACKTICK_RE.findall(line)
         symbols = [t for t in raw_tokens if _is_valid_symbol(t)]
@@ -172,6 +181,32 @@ def scan_citations(spec_text: str) -> list[Citation]:
             for s in symbols:
                 citations.append(Citation(file=f, symbol=s, line_no=line_no, is_new=is_new))
     return citations
+
+
+# GH1005 §2.2: signature-prefix extractor — a backtick token like
+# `myGuardHelper(cfg)` on a "new" line names a planned symbol even with no
+# code-file token on the same line.
+_SIG_PREFIX_RE = re.compile(r"^([A-Za-z_][\w.-]*)\s*\(")
+
+
+def new_marked_symbols(spec_text: str) -> set[str]:
+    """Return symbols marked as new/planned by _NEW_CONTEXT_RE (GH1005 §2.2),
+    independent of any code-file token on the same line. For each scannable
+    line matching _NEW_CONTEXT_RE, each backtick token that is a valid symbol
+    (normalized via removesuffix("()")) or matches _SIG_PREFIX_RE (its
+    leading identifier group) is added."""
+    marked: set[str] = set()
+    for _line_no, line in _iter_scannable_lines(spec_text):
+        if not _NEW_CONTEXT_RE.search(line):
+            continue
+        for t in _BACKTICK_RE.findall(line):
+            if _is_valid_symbol(t):
+                marked.add(t.removesuffix("()"))
+                continue
+            sm = _SIG_PREFIX_RE.match(t)
+            if sm:
+                marked.add(sm.group(1))
+    return marked
 
 
 # GH689 §2.3: stdlib module allowlist — a citation like `json.loads` is a
@@ -505,9 +540,12 @@ def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
     ]
     planned = planned_symbols(citations, findings)
     declared_syms = declared_symbols(spec_text)
+    new_marked = new_marked_symbols(spec_text)  # GH1005 §2.3
     for f in findings:
         if f.status in ("unresolved_symbol", "wrong_file") and (  # GH796: + "wrong_file"
-            f.symbol in planned or _symbol_declared(f.symbol, declared_syms)
+            f.symbol in planned
+            or _symbol_declared(f.symbol, declared_syms)
+            or f.symbol.removesuffix("()") in new_marked  # GH1005 §2.3
         ):
             f.status = "new_symbol"
     has_unresolved = any(f.status == "unresolved_symbol" for f in findings)
