@@ -17,6 +17,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+CheckResult = dict[str, str]
+
 HERE = Path(__file__).parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
@@ -38,25 +40,25 @@ def _run_cmd(argv: list[str], timeout: int = 10) -> tuple[int, str]:
         return 1, f"{type(e).__name__}: {e}"
 
 
-def _ok(name: str, detail: str = "") -> dict:
+def _ok(name: str, detail: str = "") -> CheckResult:
     return {"name": name, "status": "ok", "detail": detail}
 
 
-def _warn(name: str, detail: str = "") -> dict:
+def _warn(name: str, detail: str = "") -> CheckResult:
     return {"name": name, "status": "warn", "detail": detail}
 
 
-def _fail(name: str, detail: str = "") -> dict:
+def _fail(name: str, detail: str = "") -> CheckResult:
     return {"name": name, "status": "fail", "detail": detail}
 
 
-def check_python_version() -> dict:
+def check_python_version() -> CheckResult:
     if sys.version_info >= (3, 9):
         return _ok("python-version", f"{sys.version_info.major}.{sys.version_info.minor}")
     return _fail("python-version", f"requires >=3.9, got {sys.version_info.major}.{sys.version_info.minor}")
 
 
-def check_engine_imports() -> dict:
+def check_engine_imports() -> CheckResult:
     try:
         import contracts  # noqa: F401
         import engine
@@ -75,7 +77,7 @@ def check_engine_imports() -> dict:
     return _ok("engine-imports", f"registered: {', '.join(eng.registered())}")
 
 
-def check_gates_importable() -> dict:
+def check_gates_importable() -> CheckResult:
     modules = ["stub_passability", "red_lint_checks", "verdict_gate", "spec_cite", "tier_gate"]
     for mod_name in modules:
         try:
@@ -85,7 +87,7 @@ def check_gates_importable() -> dict:
     return _ok("gates-importable", f"importable: {', '.join(modules)}")
 
 
-def check_optional_deps() -> dict:
+def check_optional_deps() -> CheckResult:
     probes = [
         ("yaml", "test"),
         ("dbos", "dbos"),
@@ -104,11 +106,11 @@ def check_optional_deps() -> dict:
     return _warn("optional-deps", "missing: " + "; ".join(missing))
 
 
-def check_config_resolve() -> dict:
+def check_config_resolve() -> CheckResult:
     try:
         import config_provider
         provider = config_provider.get_config()
-        paths = provider.constitution_search_paths()
+        paths = provider.constitution_search_paths()  # type: ignore[attr-defined]
         for candidate in paths:
             if Path(candidate).expanduser().exists():
                 return _ok("config-resolve", candidate)
@@ -117,7 +119,7 @@ def check_config_resolve() -> dict:
         return _fail("config-resolve", f"{type(e).__name__}: {e}")
 
 
-def check_event_log(dir_path: str) -> dict:
+def check_event_log(dir_path: str) -> CheckResult:
     try:
         import event_log as event_log_mod
         log_path = Path(dir_path) / "doctor-events.jsonl"
@@ -131,12 +133,12 @@ def check_event_log(dir_path: str) -> dict:
         return _fail("event-log-writable", f"{type(e).__name__}: {e}")
 
 
-def check_event_log_writable() -> dict:
+def check_event_log_writable() -> CheckResult:
     tmp = _mkdtemp()
     return check_event_log(tmp)
 
 
-def check_backend_registry() -> dict:
+def check_backend_registry() -> CheckResult:
     try:
         from lib import llm_provider
         spec = llm_provider.get_provider()
@@ -145,7 +147,7 @@ def check_backend_registry() -> dict:
         return _fail("backend-registry", f"{type(e).__name__}: {e}")
 
 
-def check_engine_smoke() -> dict:
+def check_engine_smoke() -> CheckResult:
     try:
         from contracts import WorkflowContext
         from engine import WorkflowEngine
@@ -179,7 +181,7 @@ def check_engine_smoke() -> dict:
         return _fail("engine-smoke", f"{type(e).__name__}: {e}")
 
 
-def check_claude_cli() -> dict:
+def check_claude_cli() -> CheckResult:
     path = _which("claude")
     if path is None:
         return _warn(
@@ -193,7 +195,7 @@ def check_claude_cli() -> dict:
     return _warn("claude-cli", f"found at {path} but --version failed: {out}")
 
 
-def check_agent_sdk_import() -> dict:
+def check_agent_sdk_import() -> CheckResult:
     if _find_spec("claude_agent_sdk") is not None:
         return _ok("agent-sdk-import", "claude_agent_sdk importable")
     from llm_subprocess import _REFERENCE_BACKEND_INSTALL_HINTS
@@ -202,7 +204,7 @@ def check_agent_sdk_import() -> dict:
     return _warn("agent-sdk-import", f"claude_agent_sdk not importable — {hint}")
 
 
-def check_git_runtime() -> dict:
+def check_git_runtime() -> CheckResult:
     if _which("git") is None:
         return _fail("git-runtime", "git not found on PATH")
     rc, out = _run_cmd(["git", "rev-parse", "--is-inside-work-tree"])
@@ -214,7 +216,7 @@ def check_git_runtime() -> dict:
     return _warn("git-runtime", f"git worktree unsupported: {out}")
 
 
-def check_config_json() -> dict:
+def check_config_json() -> CheckResult:
     path = Path.cwd() / "bytedigger.json"
     if not path.exists():
         return _ok("config-json", "absent — engine defaults")
@@ -226,7 +228,7 @@ def check_config_json() -> dict:
         return _fail("config-json", f"{type(e).__name__}: {e}")
 
 
-def check_env_alias() -> dict:
+def check_env_alias() -> CheckResult:
     try:
         import config_provider
         config_provider.get_config()
@@ -253,7 +255,7 @@ _CHECKS = [
 ]
 
 
-def run_doctor(argv: list[str]) -> tuple[list[dict], int]:
+def run_doctor(argv: list[str]) -> tuple[list[CheckResult], int]:
     """Run all checks in contract order. Returns (checks, exit_code).
 
     exit_code: 1 if any check status == "fail", else 0.
@@ -263,7 +265,7 @@ def run_doctor(argv: list[str]) -> tuple[list[dict], int]:
     return checks, exit_code
 
 
-def _print_human(checks: list[dict]) -> None:
+def _print_human(checks: list[CheckResult]) -> None:
     n_ok = sum(1 for c in checks if c["status"] == "ok")
     n_warn = sum(1 for c in checks if c["status"] == "warn")
     n_fail = sum(1 for c in checks if c["status"] == "fail")
