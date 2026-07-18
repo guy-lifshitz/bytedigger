@@ -9,8 +9,10 @@ doctor_main(argv), check_event_log(dir_path).
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -21,6 +23,19 @@ if str(HERE) not in sys.path:
 
 # Monkeypatchable seam (AC5): checks 6+8 create their scratch dirs through this.
 _mkdtemp = tempfile.mkdtemp
+
+# Monkeypatchable seams (bd#77 v2): backend/runtime checks.
+_which = shutil.which
+_find_spec = importlib.util.find_spec
+
+
+def _run_cmd(argv: list[str], timeout: int = 10) -> tuple[int, str]:
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        out = proc.stdout.strip() or proc.stderr.strip()
+        return proc.returncode, out
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return 1, f"{type(e).__name__}: {e}"
 
 
 def _ok(name: str, detail: str = "") -> dict:
@@ -164,6 +179,63 @@ def check_engine_smoke() -> dict:
         return _fail("engine-smoke", f"{type(e).__name__}: {e}")
 
 
+def check_claude_cli() -> dict:
+    path = _which("claude")
+    if path is None:
+        return _warn(
+            "claude-cli",
+            "claude CLI not found on PATH — optional, only needed by the "
+            "agent-sdk and subprocess backends",
+        )
+    rc, out = _run_cmd(["claude", "--version"])
+    if rc == 0:
+        return _ok("claude-cli", out)
+    return _warn("claude-cli", f"found at {path} but --version failed: {out}")
+
+
+def check_agent_sdk_import() -> dict:
+    if _find_spec("claude_agent_sdk") is not None:
+        return _ok("agent-sdk-import", "claude_agent_sdk importable")
+    from llm_subprocess import _REFERENCE_BACKEND_INSTALL_HINTS
+
+    hint = _REFERENCE_BACKEND_INSTALL_HINTS.get("agent-sdk", "")
+    return _warn("agent-sdk-import", f"claude_agent_sdk not importable — {hint}")
+
+
+def check_git_runtime() -> dict:
+    if _which("git") is None:
+        return _fail("git-runtime", "git not found on PATH")
+    rc, out = _run_cmd(["git", "rev-parse", "--is-inside-work-tree"])
+    if rc != 0:
+        return _warn("git-runtime", f"not inside a git repo — worktree isolation unavailable: {out}")
+    rc, out = _run_cmd(["git", "worktree", "list"])
+    if rc == 0:
+        return _ok("git-runtime", "git available, worktree supported")
+    return _warn("git-runtime", f"git worktree unsupported: {out}")
+
+
+def check_config_json() -> dict:
+    path = Path.cwd() / "bytedigger.json"
+    if not path.exists():
+        return _ok("config-json", "absent — engine defaults")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        n_keys = len(data) if isinstance(data, dict) else 0
+        return _ok("config-json", f"parsed ok, {n_keys} top-level key(s)")
+    except (json.JSONDecodeError, OSError) as e:
+        return _fail("config-json", f"{type(e).__name__}: {e}")
+
+
+def check_env_alias() -> dict:
+    try:
+        import config_provider
+        config_provider.get_config()
+        mapping = config_provider.env_mapping()
+        return _ok("env-alias", f"{len(mapping)} BD_/BYTEDIGGER_ alias entries materialized")
+    except Exception as e:
+        return _fail("env-alias", f"{type(e).__name__}: {e}")
+
+
 _CHECKS = [
     check_python_version,
     check_engine_imports,
@@ -173,6 +245,11 @@ _CHECKS = [
     check_event_log_writable,
     check_backend_registry,
     check_engine_smoke,
+    check_claude_cli,
+    check_agent_sdk_import,
+    check_git_runtime,
+    check_config_json,
+    check_env_alias,
 ]
 
 

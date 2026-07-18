@@ -93,8 +93,8 @@ def test_ac3_human_mode_exits_0_with_summary_and_per_check_lines():
         line for line in r.stdout.splitlines()
         if line.startswith("[OK]") or line.startswith("[WARN]")
     ]
-    assert len(ok_or_warn_lines) >= 8, (
-        f"expected >=8 per-check [OK]/[WARN] lines, got {len(ok_or_warn_lines)}: "
+    assert len(ok_or_warn_lines) >= 13, (
+        f"expected >=13 per-check [OK]/[WARN] lines, got {len(ok_or_warn_lines)}: "
         f"{r.stdout!r}"
     )
 

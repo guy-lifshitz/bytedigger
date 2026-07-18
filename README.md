@@ -101,6 +101,8 @@ bytedigger-engine --derive-state /tmp/events.jsonl
 python3 ../examples/verified-tdd-run/run_demo.py
 ```
 
+If something fails, run `bytedigger doctor` for an offline self-check of your environment.
+
 The [verified-tdd-run example](examples/verified-tdd-run/) walks a frozen spec with an AC table through the loop against a toy repository and shows a gate rejection along the way. From there:
 
 ```bash
