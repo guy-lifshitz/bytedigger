@@ -112,6 +112,21 @@ pip install -e ".[agentic-pydantic]"                   # real API backends
 
 Backend setup (env vars, model aliases, selection) is in [docs/backends.md](docs/backends.md).
 
+## Configuration
+
+Two surfaces, documented in [docs/configuration.md](docs/configuration.md):
+
+- `bytedigger.json` (repo root) configures the **plugin layer** — model
+  allocation per role, reviewer counts, satisfaction thresholds, gate backend,
+  learning store.
+- The **Python engine** reads environment variables and the `org_config` run
+  context, not `bytedigger.json`. Every `HAL_*` engine variable also accepts
+  `BD_*` / `BYTEDIGGER_*` aliases (e.g. `BD_RUNNER_BACKEND`). Per-step model
+  pinning (`validation_model`, `red_model`, `green_model`, ...) lives in
+  `org_config`; artifacts land under `.bytedigger/` in the project cwd.
+
+If something misbehaves, `bytedigger doctor` runs 13 offline environment checks.
+
 ## Use with Claude Code
 
 The same discipline is available as a Claude Code plugin -- `/build "add email verification"` classifies the task, routes it through the phase pipeline, and enforces the TDD loop with hooks between phases:

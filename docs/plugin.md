@@ -64,6 +64,10 @@ claude plugin install bytedigger@bytedigger
 
 ## Configuration
 
+This section covers the plugin-layer flags only. For the full configuration
+reference — including the Python engine's env vars, `BD_*` aliases, and
+per-step model pinning — see [configuration.md](configuration.md).
+
 `bytedigger.json` in project root:
 
 ```json
@@ -78,7 +82,7 @@ claude plugin install bytedigger@bytedigger
   "worktree_auto": true,
   "constitution_path": "./constitution.md",
   "omitProjectContext": false,
-  "activeWorkInjection": false,
+  "activeWorkInjection": true,
   "logging": false,
   "reviewers": { "mode": "auto" },
   "simple_reviewers": 3,
@@ -106,7 +110,7 @@ claude plugin install bytedigger@bytedigger
 - `omitProjectContext` (default: `false`) — If true, Explorer and Architect agents skip CLAUDE.md injection, reducing token usage by 10-45K per build. Backward compatible; off by default.
 
 **Memory injection:**
-- `activeWorkInjection` (default: `false`) — If true, Phase 0.5 reads `## Active Work` from project MEMORY.md and injects it into build context. Caps: 10 items, 500 chars total. Useful for tracking in-flight work across builds.
+- `activeWorkInjection` (default: `true`) — If true, Phase 0.5 reads `## Active Work` from project MEMORY.md and injects it into build context. Caps: 10 items, 500 chars total. Useful for tracking in-flight work across builds.
 
 **Post-review enforcement:**
 - Semantic-skip phrases are defined in `semantic-skip-phrases.json` (18 forbidden phrases). Phase 6 enforces Boy Scout Rule: if a PR description matches any phrase, gate fails closed regardless of satisfaction score.
