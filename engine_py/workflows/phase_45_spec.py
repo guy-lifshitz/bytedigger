@@ -718,8 +718,10 @@ def _review_output_schema() -> str:
         "  deactivates W1 cycle-2 restricted review and forces REVISE-cap on the\n"
         "  next iteration. If verdict is SHIP and no issues, emit `[]`.\n"
         "  Each finding REQUIRES a `root` field: \"spec\" (fixable by rewriting\n"
-        "  the spec) or \"upstream\" (defect lives in the architecture doc /\n"
-        "  discovery / task inputs — no spec rewrite can fix it).\n"
+        "  the spec), \"upstream\" (defect lives in the architecture doc /\n"
+        "  discovery / task inputs — no spec rewrite can fix it), or\n"
+        "  \"already-done\" (the cited defect is verified already fixed at HEAD —\n"
+        "  no spec change or code change is needed).\n"
         "  ```json\n"
         "  [\n"
         '    {"id": "1", "type": "fabrication",\n'
@@ -4085,6 +4087,33 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
     )
 
     _spec_gate_structured = _extract_structured_findings_raw(raw_review) or []
+
+    # GH1006 §2.1: ALREADY_DONE verdict — every structured finding is
+    # root=="already-done" (the cited defects are verified already fixed at
+    # HEAD). Predicate is all(), not any(): a mixed list still needs the
+    # existing upstream/spec branches below. Stateless w.r.t. durable state —
+    # never bumps the GH443 REVISE counter (early return skips that block).
+    _spec_gate_already_done = [
+        f for f in _spec_gate_structured
+        if isinstance(f, dict) and f.get("root") == "already-done"
+    ]
+    if _spec_gate_structured and len(_spec_gate_already_done) == len(_spec_gate_structured):
+        _emit_safe(
+            "phase_45_spec_already_done",
+            {"phase": "phase_45_spec", "cycle": cycle, "n_findings": len(_spec_gate_already_done)},
+        )
+        return StepResult(
+            status="ok",
+            data={
+                "verdict": "ALREADY_DONE",
+                "review_path": prev.data["review_path"],
+                "cycle": cycle,
+                "already_done_findings": _spec_gate_already_done,
+            },
+            duration_ms=0,
+            step_name="gate_on_review",
+        )
+
     _spec_gate_upstream = [
         f for f in _spec_gate_structured
         if isinstance(f, dict) and f.get("root") == "upstream"
