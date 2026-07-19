@@ -65,7 +65,7 @@ _TAIL_BYTES = 2048
 # 4C03CCED Ship 1A: runner backend selector constants.
 # 68E964FB: _KNOWN_BACKENDS now derives from _BACKENDS registry (§1g single source).
 # _BACKENDS and _KNOWN_BACKENDS are defined below, after the handler defs.
-_DEFAULT_BACKEND = "claude-subprocess"
+_DEFAULT_BACKEND = "agent-sdk"
 _BACKEND_ENV_VAR = "HAL_RUNNER_BACKEND"
 _GATE_FLOOR_ENV_VAR = "HAL_GATE_MODEL_FLOOR"
 
@@ -1055,6 +1055,13 @@ def invoke_llm_subprocess(
         resolved_backend,
         {"known_backends": list(_KNOWN_BACKENDS)},
     )
+    # GH1001/C0B6D653: default backend flipped to agent-sdk. If the resolved
+    # default is not (yet) a known backend, gracefully rebind to
+    # claude-subprocess rather than fail-closed — explicit kwarg/env selection
+    # stays fail-loud (unaffected, resolved_source != "default").
+    if resolved_source == "default" and resolved_backend not in _KNOWN_BACKENDS:
+        resolved_backend = "claude-subprocess"
+        resolved_source = "default-fallback"
     # CF2EE8ED §3.3: emit runner_backend_resolved per invocation for adoption-%
     # tracking + weekly-tripwire on unexpected selection. Ratified 2026-05-24.
     if run_ctx is not None and run_ctx.event_log is not None:

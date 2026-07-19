@@ -215,11 +215,11 @@ def test_ac4_resolve_backend_env_wins_over_default(monkeypatch):
 
 
 def test_ac4_resolve_backend_default(monkeypatch):
-    """AC4c: default == 'claude-subprocess' when kwarg=None, env unset."""
+    """AC4c: default == 'agent-sdk' when kwarg=None, env unset (GH1001 C0B6D653 flip, 2026-07-19)."""
     monkeypatch.delenv("HAL_RUNNER_BACKEND", raising=False)
     result, source = llm_subprocess._resolve_backend(None, os.environ)
-    assert result == "claude-subprocess", (
-        f"default should be 'claude-subprocess', got {result!r}"
+    assert result == "agent-sdk", (
+        f"default should be 'agent-sdk', got {result!r}"
     )
     assert source == "default", f"source should be 'default', got {source!r}"
 
@@ -233,8 +233,8 @@ def test_ac4_backend_env_var_name():
 
 
 def test_ac4_default_backend_constant():
-    """AC4e: _DEFAULT_BACKEND == 'claude-subprocess'."""
-    assert llm_subprocess._DEFAULT_BACKEND == "claude-subprocess", (
+    """AC4e: _DEFAULT_BACKEND == 'agent-sdk' (GH1001 C0B6D653 flip, 2026-07-19)."""
+    assert llm_subprocess._DEFAULT_BACKEND == "agent-sdk", (
         f"_DEFAULT_BACKEND is {llm_subprocess._DEFAULT_BACKEND!r}"
     )
 

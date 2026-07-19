@@ -151,8 +151,11 @@ def test_ac1_default_backend_no_kwarg_no_env(monkeypatch):
         f"AC1: resolver source must be 'default' when no kwarg/env; "
         f"got {resolver_payload.get('source')!r}"
     )
-    assert resolver_payload.get("value") == "claude-subprocess", (
-        f"AC1: resolver value must be 'claude-subprocess'; "
+    # GH1001 C0B6D653 (2026-07-19): default-resolver value flipped
+    # claude-subprocess -> agent-sdk; this is the pre-fallback resolver
+    # event, so it reports the raw resolved value before any GH1001 rebind.
+    assert resolver_payload.get("value") == "agent-sdk", (
+        f"AC1: resolver value must be 'agent-sdk'; "
         f"got {resolver_payload.get('value')!r}"
     )
 
