@@ -29,6 +29,7 @@ import logging
 from pathlib import Path
 
 from io_utils import atomic_write
+from lib.stuck_report import build_stuck_report, clear_stuck_report, emit_stuck_report
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,11 @@ def governor_record_result(
             path.unlink()
         except FileNotFoundError:
             pass
+        # GH1041 §2.4 D1: success also clears any stuck-report.json sidecar.
+        # This seam has only state_dir in scope (== report_dir); NO
+        # stuck_report_cleared event on the success path (declared, mirrors
+        # the governor state file's own silent success-unlink).
+        clear_stuck_report(state_dir, run_id)
         return
 
     state = _load_state(state_dir, run_id, workflow)
@@ -248,6 +254,9 @@ def governor_reset_full(
     same pattern as the existing event emit above).
     """
     result = governor_reset(state_dir, run_id, workflow, reason, event_log_path=event_log_path)
+    # GH1041 §2.4: operator reset retracts the stuck verdict too — the
+    # dispatcher/next tick must see a clean slate.
+    clear_stuck_report(state_dir, run_id, event_log_path=event_log_path)
     sentinels_removed: "list[str]" = []
     if scratchpad_dir:
         try:
@@ -353,6 +362,26 @@ def governor_gate(
             except Exception:
                 logger.warning("restart_governor: failed to emit deny event", exc_info=True)
 
+            # GH1041 §2.2: breaker chokepoint — governor deny is the single
+            # most "stuck" outcome; write the machine-readable report here.
+            # D4: safe access, NEVER bare state["error_codes"][-1] — a
+            # crash-cap deny can carry an empty/absent error_codes list, and
+            # a raise while building emit args would be swallowed by this
+            # function's outer except and convert the deny into an allow.
+            breaker = "short_circuit" if deny_class == "short_circuit" else "restart_cap"
+            last_error = (state.get("error_codes") or [None])[-1]
+            report = build_stuck_report(
+                run_id=run_id,
+                workflow=workflow,
+                step_name=None,
+                breaker=breaker,
+                error_code=deny_code,
+                retry_count=legacy_starts,
+                counters={"crash_starts": crash_starts, "gate_starts": gate_starts, "pending": pending},
+                last_error=last_error,
+            )
+            emit_stuck_report(state_dir, report, run_id, event_log_path=event_log_path)
+
             return {
                 "status": "error",
                 "data": None,
@@ -364,6 +393,9 @@ def governor_gate(
             }
 
         governor_record_start(state_dir, run_id, workflow)
+        # GH1041 §2.4: an allowed start must never leave a prior stuck
+        # verdict for the dispatcher to misread.
+        clear_stuck_report(state_dir, run_id)
         return None
     except Exception:
         logger.warning("restart_governor: internal error, failing open", exc_info=True)

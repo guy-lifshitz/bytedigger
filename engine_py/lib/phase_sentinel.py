@@ -85,6 +85,11 @@ def _ctx_cfg_sha8(context_dict: dict[str, Any]) -> str:
     return hashlib.sha256(blob).hexdigest()[:_CTX_HASH_LEN]
 
 
+# GH1050: public alias so lib/step_sentinel.py can reuse the single-source
+# config-hash producer (§1g) without duplicating the formula.
+ctx_cfg_sha8 = _ctx_cfg_sha8
+
+
 def phase_key(run_id: str, workflow_name: str, context_dict: dict[str, Any]) -> str:
     """§1g single-source phase-key producer.
 

@@ -95,20 +95,21 @@ def test_ac1_no_bare_git_commit_m_without_double_dash_separator():
 
 
 # ---------------------------------------------------------------------------
-# AC2 — Exactly 2 occurrences of `"-o", "-m"` consecutive pair (one per call-site).
+# AC2 — Exactly 3 occurrences of `"-o", "-m"` consecutive pair (one per call-site).
+# GH1034 restore-guard added a third -o-flagged `git commit` call-site.
 # ---------------------------------------------------------------------------
 
-def test_ac2_two_commit_call_sites_use_dash_o_dash_m():
-    """AC2 — exactly 2 matches of the `"-o", "-m"` consecutive pair.
+def test_ac2_three_commit_call_sites_use_dash_o_dash_m():
+    """AC2 — exactly 3 matches of the `"-o", "-m"` consecutive pair.
 
-    Current production code has 0 matches (no `-o` at either call-site),
-    so this test FAILs today.
+    Inventory updated 2->3 per GH1034 restore-guard, which legitimately
+    added a third -o-flagged `git commit` call-site to phase_5_implement.py.
     """
     src = _source()
     pattern = re.compile(r'"-o",\s*"-m"')
     matches = list(pattern.finditer(src))
-    assert len(matches) == 2, (
-        f"Expected exactly 2 occurrences of '\"-o\", \"-m\"' in phase_5_implement.py, "
+    assert len(matches) == 3, (
+        f"Expected exactly 3 occurrences of '\"-o\", \"-m\"' in phase_5_implement.py, "
         f"found {len(matches)}"
     )
 

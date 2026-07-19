@@ -24,6 +24,7 @@ if _LIB_DIR not in sys.path:
 
 from resume_keying import resume_sentinel_name  # noqa: E402
 from io_utils import atomic_write  # noqa: E402
+from phase_sentinel import ctx_cfg_sha8  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def read_step_sentinel(
 
 
 def compute_ctx_hash(context) -> "str | None":
-    """Hash question + task_description + decision_doc bytes (GH443 part 3 §2.1).
+    """Hash question + task_description + decision_doc (+ org_config) bytes (GH443 part 3 §2.1, GH1050 v2).
 
     Missing/unreadable decision_doc degrades silently to empty bytes.
 
@@ -73,7 +74,20 @@ def compute_ctx_hash(context) -> "str | None":
     ``org_config["decision_doc"]`` is set — i.e. there is nothing meaningful
     to distinguish this context from any other, so the legacy (non-hashed)
     sentinel filename is preserved (GH374 engine-level tests never set
-    either field; part-3 scenarios always set at least one).
+    either field; part-3 scenarios always set at least one). This gate is
+    unchanged by GH1050.
+
+    GH1050: after the gate, folds in ``ctx_cfg_sha8({"org_config": cfg,
+    "task_description": task})`` — the SAME §1g single-source config-hash
+    producer used by ``phase_sentinel.phase_key``/DBOS workflow_uuid keying —
+    so operator edits to org_config (e.g. a retry nonce, a timeout bump) that
+    re-key the durable workflow also invalidate the resume sentinel instead of
+    replaying a stale recorded result. If org_config contains a non-JSON-
+    serializable value, ``ctx_cfg_sha8`` raises ``TypeError``; this degrades
+    to the exact pre-GH1050 legacy formula (no cfg segment, no crash).
+
+    Deploy note: every hashed sentinel filename changes once at deploy time —
+    in-flight crash-resumes re-execute the affected step once (safe direction).
     """
     cfg = getattr(context, "org_config", None) or {}
     task = str(cfg.get("task_description") or "")
@@ -89,7 +103,13 @@ def compute_ctx_hash(context) -> "str | None":
                 doc_bytes = p.read_bytes()
         except OSError:
             doc_bytes = b""
-    return hashlib.sha256(question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes).hexdigest()[:12]
+    try:
+        cfg_sha = ctx_cfg_sha8({"org_config": cfg, "task_description": task})
+    except TypeError:
+        return hashlib.sha256(question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes).hexdigest()[:12]
+    return hashlib.sha256(
+        question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes + b"\0" + cfg_sha.encode()
+    ).hexdigest()[:12]
 
 
 def effective_ctx_hash(ctx_hash: "str | None", step, prev) -> "str | None":

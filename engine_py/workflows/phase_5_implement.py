@@ -319,6 +319,9 @@ RED_TEST_PATHS_RELPATH = "integrity/red-test-paths.txt"
 # GH483: GREEN-complete resume seam marker (crash-resume after GREEN already
 # written to the working tree, RED now passes → skip re-invoking GREEN LLM).
 GREEN_COMPLETE_RESUME_RELPATH = "resume/green-complete-resume.json"
+# GH1034: per-cycle RED commit sha sidecar (restore cycle-1 tests when a
+# later RED cycle degenerately rewrites the suite into an all-passing one).
+RED_CYCLE_SHAS_RELPATH = "red-cycle-shas.json"
 
 # Design A pipeline recovery (decree 2026-04-26): cap retries at 2 cycles.
 # v1: hardcoded; v2: configurable post-telemetry.
@@ -919,6 +922,13 @@ RED_COLLECTABILITY_RULE = (
     "  - COLLECTABILITY (D1CF5FDF): the GREEN production code does not exist yet at RED time. If a test imports a not-yet-existing module or symbol, DEFER that import to INSIDE the test function body — never at module top level. A module-top import of a missing target fails at pytest COLLECTION (ImportError), which the engine treats as a terminal E_RED_COLLECT_FAILED, not a clean assert-time failure. The RED must COLLECT and FAIL at assert time. Use a function-body import, or pytest.importorskip, or getattr(module, \"name\", None) probed inside the test.\n"
 )
 
+RED_SIBLING_MOCK_RULE = (
+    "  - SIBLING-MOCK FIRST: before inventing any new mock/stub/env fixture, search the target\n"
+    "    tests/ directory's sibling tests for existing sibling-test mock/env infrastructure covering\n"
+    "    the same dependency (grep the dependency name) and REUSE that canonical pattern. Only\n"
+    "    invent a new mock when no sibling covers the dependency — and note that in a test comment.\n"
+)
+
 RED_OUTPUT_MARKER_BLOCK = (
     "OUTPUT: end your response with EXACTLY this line:\n"
     "  RED COMPLETE — [N] tests written, all failing. Files: [path1, path2, ...]\n"
@@ -1236,6 +1246,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         "  - For threshold-based assertions, compute the actual value on real data first.\n"
         "  - You MAY use Edit/Write to create test files. Do NOT modify the spec.\n"
         "  - RED_DISALLOW_SUBAGENTS: do not spawn nested Agent subagents (no Task tool calls). Use Read/Write/Edit/Bash/Grep directly. Nested subagents cause harness-latency stalls and Phase 5 timeouts.\n"
+        f"{RED_SIBLING_MOCK_RULE}"
         f"{RED_COLLECTABILITY_RULE}"
     )
     parts.append(_get_producer_anti_fab_prompt())
@@ -1527,6 +1538,40 @@ def _read_green_complete_resume(scratchpad, red_commit_sha):
     if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
         return None
     return paths
+
+
+def _persist_red_cycle_sha(scratchpad: "str | Path", cycle: int, sha: str) -> None:
+    """GH1034 §2.1: merge-on-write the just-committed RED commit sha for
+    ``cycle`` into the per-cycle sidecar. Re-entry-safe (§1ab): re-persisting
+    the same cycle overwrites idempotently. OSError propagates to the caller
+    (mirrors ``_persist_green_complete_resume``)."""
+    ref_path = Path(scratchpad) / RED_CYCLE_SHAS_RELPATH
+    ref_path.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict[str, Any] = {}
+    try:
+        obj = json.loads(ref_path.read_text())
+        if isinstance(obj, dict):
+            existing = obj
+    except (OSError, ValueError):
+        existing = {}
+    existing[str(cycle)] = sha
+    ref_path.write_text(json.dumps(existing, sort_keys=True))
+
+
+def _read_red_cycle_sha(scratchpad: "str | Path", cycle: int) -> "str | None":
+    """GH1034 §2.1 / ADV-4: fail-safe read of the RED commit sha persisted
+    for ``cycle``. Returns None on missing sidecar, corrupt/non-dict JSON,
+    absent key, or non-str value. Never raises (mirrors
+    ``_read_green_complete_resume``)."""
+    ref_path = Path(scratchpad) / RED_CYCLE_SHAS_RELPATH
+    try:
+        obj = json.loads(ref_path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    sha = obj.get(str(cycle))
+    return sha if isinstance(sha, str) else None
 
 
 def _resolve_git_cwd(ctx, prev=None) -> str:
@@ -1898,6 +1943,14 @@ def _commit_red_tests(ctx, prev) -> StepResult:
                 return StepResult(status="error", data=None, duration_ms=0, step_name="commit_red_tests",
                                   error=f"git rev-parse: {post_rev.stderr[:500]}", error_code="E_GIT_COMMIT_FAILED")
             red_commit_sha = post_rev.stdout.strip()
+    # GH1034: persist the per-cycle RED commit sha so a later degenerate
+    # rewrite (cycle N all-passing) can be restored from cycle N-1's content.
+    # Degrades gracefully — a persist failure never blocks the RED commit.
+    try:
+        _persist_red_cycle_sha(scratchpad, cycle, red_commit_sha)
+    except OSError:
+        # emit-consumer: deferred C56CDE4F flip-by:2026-08-16 (tripwire consumer, agreement C56CDE4F-41F1-4FAF-BC8C-07DF1AC83AE8)
+        _emit_safe("red_cycle_sha_persist_failed", {"phase": 5, "cycle": cycle})
     # GH639 (7C0FDE44): freeze a content-hash manifest over red_test_paths
     # (NEVER trackable_paths — degraded/gitignored mode leaves trackable_paths
     # empty but red_test_paths still holds the gitignored test path; freezing
@@ -2054,6 +2107,103 @@ def _infer_test_command_for_paths(paths: list[str], git_cwd: str | None = None) 
     return {"groups": plan}
 
 
+def _attempt_red_cycle_restore(
+    ctx: Any, prev: Any, git_cwd: str, red_test_paths: "list[str]", plan: "dict[str, Any]",
+) -> "StepResult | None":
+    """GH1034 §2.2: cycle-2+ degeneracy guard, extracted from
+    ``_verify_red_fails_mechanically`` (radon complexity split, zero behavior
+    change). A later RED cycle sometimes rewrites the suite into an
+    all-passing version; restore the cycle-1 content from the sidecar sha
+    and re-check before the caller falls through to the legacy fake-RED
+    error. Exactly one restore attempt per invocation (no loop, §1ac).
+
+    Returns a ``StepResult`` (status "ok", restore succeeded and the
+    restored content now fails mechanically) for the caller to return
+    directly, or ``None`` when the caller must fall through to its legacy
+    ``E_RED_NOT_FAILING`` return (cycle==1, no sidecar, restore-unavailable,
+    or restored content still all-passing)."""
+    cycle = int(prev.data.get("cycle", 1) or 1)
+    if cycle < 2:
+        return None
+    scratchpad = _resolve_scratchpad(ctx)
+    c1_sha = _read_red_cycle_sha(scratchpad, cycle - 1)
+    if not c1_sha:
+        _emit_safe("red_cycle_restore_unavailable", {
+            "phase": 5, "cycle": cycle, "reason": "no_c1_sha",
+        })
+        return None
+    try:
+        checkout = git_port.git_read(
+            ["checkout", c1_sha, "--", *red_test_paths],
+            cwd=git_cwd, timeout=30,
+        )
+        checkout_ok = checkout.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        checkout_ok = False
+    if not checkout_ok:
+        _emit_safe("red_cycle_restore_unavailable", {
+            "phase": 5, "cycle": cycle, "reason": "checkout_failed",
+        })
+        return None
+    if not _paths_have_staged_changes(git_cwd, red_test_paths):
+        _emit_safe("red_cycle_restore_unavailable", {
+            "phase": 5, "cycle": cycle, "reason": "no_diff",
+        })
+        return None
+    restore_message = (
+        f"build: red cycle-{cycle} degenerate rewrite rejected — "
+        f"restored cycle {cycle - 1} tests (GH1034)"
+    )
+    cm, cm_outcome = _git_op_with_lock_retry(
+        ["git", "commit", "-o", "-m", restore_message, "--", *red_test_paths],
+        cwd=git_cwd, timeout=30,
+    )
+    if cm_outcome != "ok":
+        # emit-consumer: deferred C56CDE4F flip-by:2026-08-16 (tripwire consumer, agreement C56CDE4F-41F1-4FAF-BC8C-07DF1AC83AE8)
+        _emit_safe("red_cycle_restore_unavailable", {
+            "phase": 5, "cycle": cycle, "reason": "commit_failed",
+        })
+        return None
+    try:
+        new_head = git_port.git_read(["rev-parse", "HEAD"], cwd=git_cwd, timeout=30)
+        restore_commit_sha = new_head.stdout.strip() if new_head.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        restore_commit_sha = None
+    if not restore_commit_sha:
+        # emit-consumer: deferred C56CDE4F flip-by:2026-08-16 (tripwire consumer, agreement C56CDE4F-41F1-4FAF-BC8C-07DF1AC83AE8)
+        _emit_safe("red_cycle_restore_unavailable", {
+            "phase": 5, "cycle": cycle, "reason": "rev_parse_failed",
+        })
+        return None
+    # emit-consumer: deferred C56CDE4F flip-by:2026-08-16 (tripwire consumer, agreement C56CDE4F-41F1-4FAF-BC8C-07DF1AC83AE8)
+    _emit_safe("red_cycle_rewrite_rejected", {
+        "phase": 5, "cycle": cycle, "c1_sha": c1_sha,
+        "restored_paths": red_test_paths,
+    })
+    _rc_manifest = authored_boundary.compute_red_test_hashes(red_test_paths, git_cwd)
+    _refreeze_red_test_hashes(scratchpad, _rc_manifest)
+    _recheck_passing: "list[str]" = []
+    for group in plan["groups"]:
+        try:
+            _rc_proc = bounded_run(
+                group["argv"], capture_output=True, text=True,
+                cwd=git_cwd, timeout=120,
+                env=test_subprocess_env(git_cwd),
+            )
+        except FileNotFoundError:
+            _rc_proc = None
+        if _rc_proc is not None and _rc_proc.returncode == 0:
+            _recheck_passing.append(group["kind"])
+    if _recheck_passing:
+        return None
+    return StepResult(
+        status="ok",
+        data={**prev.data, "red_commit_sha": restore_commit_sha, "red_rewrite_rejected": True},
+        duration_ms=0,
+        step_name="verify_red_fails_mechanically",
+    )
+
+
 def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -2208,6 +2358,14 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
                     duration_ms=0,
                     step_name="verify_red_fails_mechanically",
                 )
+        # GH1034: cycle-2+ degeneracy guard — a later RED cycle sometimes
+        # rewrites the suite into an all-passing version. Restore the
+        # cycle-1 content from the sidecar sha and re-check before falling
+        # through to the legacy fake-RED error. Exactly one restore attempt
+        # per invocation (no loop, §1ac).
+        _restore_result = _attempt_red_cycle_restore(ctx, prev, git_cwd, list(red_test_paths), plan)
+        if _restore_result is not None:
+            return _restore_result
         kinds = ",".join(passing_groups)
         return StepResult(
             status="error",

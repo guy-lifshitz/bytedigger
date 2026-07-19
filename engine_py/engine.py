@@ -53,6 +53,7 @@ from lib.env_limit import is_paused_result
 from lib.spec_defect_ledger import mark_reroute_consumed, reroute_already_consumed
 from lib.incident_ledger import emit_incident
 from lib.dispatcher_report import emit_dispatcher_report
+from lib.stuck_report import build_stuck_report, emit_stuck_report
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +306,23 @@ class WorkflowEngine:
                 wall_ms=wall_ms,
                 events_path=getattr(self._event_log, "path", None),
             )
+            # GH1041 §2.3.2: terminal non-recoverable finish -> stuck-report.
+            # Recoverable terminal errors are owned by the governor breaker
+            # (§2.2) once its budget exhausts; do NOT emit here for those.
+            if final_result.recoverable is False:
+                _ev_path = getattr(self._event_log, "path", None)
+                if _ev_path:
+                    _report = build_stuck_report(
+                        run_id=rid,
+                        workflow=workflow_name,
+                        step_name=final_result.step_name,
+                        breaker="terminal_failure",
+                        error_code=final_result.error_code,
+                        retry_count=0,
+                        counters=None,
+                        last_error=final_result.error,
+                    )
+                    emit_stuck_report(Path(_ev_path).parent, _report, rid, event_log_path=_ev_path)
         return final_result, context
 
     # Design A pipeline recovery (decree 2026-04-26): max workflow-level
@@ -530,6 +548,29 @@ class WorkflowEngine:
                                     },
                                     run_id,
                                 )
+                                # GH1041 §2.3.1 / D2: guarded by
+                                # is_authoritative_execution() — unlike the
+                                # engine.py terminal site, this branch has no
+                                # zombie guard by default; an unguarded emit
+                                # would let a non-authoritative DBOS replay
+                                # write a phantom stuck verdict for a run
+                                # still live in the foreground.
+                                if is_authoritative_execution():
+                                    _ev_path = getattr(self._event_log, "path", None)
+                                    if _ev_path:
+                                        _report = build_stuck_report(
+                                            run_id=run_id,
+                                            workflow=workflow.name,
+                                            step_name=result.step_name,
+                                            breaker="same_cycle_retry_cap",
+                                            error_code=result.error_code,
+                                            retry_count=attempts - 1,
+                                            counters=None,
+                                            last_error=result.error,
+                                        )
+                                        emit_stuck_report(
+                                            Path(_ev_path).parent, _report, run_id, event_log_path=_ev_path,
+                                        )
                                 return result
                             self._same_cycle_retries[(result.step_name, next_cycle)] = attempts
                             invalidate_cycle_sentinels(
