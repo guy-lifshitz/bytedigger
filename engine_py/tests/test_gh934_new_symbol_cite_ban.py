@@ -10,7 +10,7 @@ closes that gap.
 
 These tests are mechanical string/index asserts against
 `_build_spec_prompt`'s returned prompt string — no LLM, no network, no
-engine execution. Pattern mirrors test_phase_45_spec_D02C615D.py.
+engine execution. Pattern mirrors test_phase_45_spec_A813CA08.py.
 """
 from __future__ import annotations
 
@@ -126,6 +126,11 @@ def test_new_symbol_ban_persists_on_cycle2_revision(tmp_path):
     prev = {"cycle": 2, "findings": "## Findings\n- some prior issue\n"}
     prompt = get_spec_prompt(scratchpad, _prev=prev)
 
+    # Sanity: revision path activated.
+    assert "## REVISION (CYCLE 2".lower() in prompt.lower() or "cycle 2" in prompt.lower(), (
+        "test setup: cycle=2 should activate the REVISION block"
+    )
+
     assert "must NEVER appear in citation form" in prompt, (
         "rule-9 citation-form ban must persist on cycle-2 revision prompt"
     )
@@ -162,8 +167,8 @@ def test_spec_stable_prefix_untouched_by_new_symbol_ban():
     assert _SPEC_STABLE_PREFIX.startswith("VALIDATION-LINE GUARD:"), (
         "_SPEC_STABLE_PREFIX must still start with its known VALIDATION-LINE GUARD anchor"
     )
-    assert "SPEC-LINT PARITY RULES" in _SPEC_STABLE_PREFIX, (
-        "_SPEC_STABLE_PREFIX must still contain its known SPEC-LINT PARITY RULES anchor"
+    assert "DATA-MODEL GROUND TRUTH (§1ae)" in _SPEC_STABLE_PREFIX, (
+        "_SPEC_STABLE_PREFIX must still contain its known DATA-MODEL GROUND TRUTH (§1ae) anchor"
     )
 
 

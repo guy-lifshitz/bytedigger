@@ -1,17 +1,22 @@
-"""Tests for GH898 — install-hint for known-but-unregistered reference backend.
+"""RED tests for GH898 — install-hint for known-but-unregistered reference backend.
+
+Spec: GH898 backend pip-hint spec (host repo Decisions memory).
 
 7 tests, one per AC1-AC7. `_REFERENCE_BACKEND_INSTALL_HINTS` and
-`_unknown_backend_error_message` live in llm_subprocess.py; both are imported
-INSIDE each test body (never at module level) so collection succeeds even if a
-symbol is absent.
+`_unknown_backend_error_message` do not exist yet in llm_subprocess.py, so
+those two symbols are imported INSIDE each test body (never at module level)
+per §1q-extension D1CF5FDF — collection must succeed even though the symbols
+are absent pre-GREEN.
 
-No mocking/patching of the UUT or of invoke_llm_subprocess. AC5/AC6 call the
-real invoke_llm_subprocess — the unknown-backend branch returns before any
-subprocess spawn, so no burn-guard risk. reset_backends() is called in a finally
-block around AC5/AC6 (singleton _BACKENDS registry pre-staged deterministically).
+No mocking/patching of the UUT or of invoke_llm_subprocess (§1l/7AD3D393).
+AC5/AC6 call the real invoke_llm_subprocess — the unknown-backend branch
+returns before any subprocess spawn, so no burn-guard risk. reset_backends()
+is called in a finally block around AC5/AC6 (§1i: singleton _BACKENDS
+registry pre-staged deterministically, never raced).
 
 conftest.py (this dir) already puts engine_py root + lib/ on sys.path at
-import time — no module-level sys.path manipulation needed here.
+import time (conftest-import-time singleton, §1q) — no module-level
+sys.path manipulation needed here.
 """
 from __future__ import annotations
 

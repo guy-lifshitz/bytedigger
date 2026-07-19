@@ -20,7 +20,8 @@ import urllib.request
 from collections import deque
 
 from contracts import StepResult
-from llm_subprocess import register_backend
+from llm_subprocess import register_backend, _emit_safe
+from telemetry_ctx import _RunCtx
 
 from .pydantic_openai import _extract_usage_tokens
 from .pydantic_openai import _is_git_repo, _manifest_since, _snapshot_pre_state
@@ -36,7 +37,7 @@ _PIP_EXTRA_HINT = (
 _SESSION_CACHE: dict[str, tuple[str, int]] = {}
 
 
-def _session_key(run_ctx: object, step_name: str) -> str | None:
+def _session_key(run_ctx: _RunCtx | None, step_name: str) -> str | None:
     run_id = getattr(run_ctx, "run_id", None) if run_ctx is not None else None
     if not run_id:
         return None
@@ -60,6 +61,24 @@ def _should_resume(key: str) -> str | None:
 
 def _invalidate(key: str) -> None:
     _SESSION_CACHE.pop(key, None)
+
+
+# ---------------------------------------------------------------------------
+# GH956: salvage a success ResultMessage received before a trailing stream
+# error (CLI exits non-zero AFTER emitting its result envelope; the SDK's
+# message-reader then raises out of the async-for loop).
+# ---------------------------------------------------------------------------
+
+def _salvage_success_result(holder: dict[str, object]) -> object | None:
+    """Return the already-received success ResultMessage, else None.
+
+    Salvageable iff a ResultMessage arrived AND its `is_error` is falsy
+    (missing attr == falsy). is_error=True or no message → None.
+    """
+    msg = holder.get("msg")
+    if msg is None or getattr(msg, "is_error", False):
+        return None
+    return msg
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +106,37 @@ def _extract_tokens_from_usage(usage: object) -> tuple[int | None, int | None]:
         tokens_out = tokens_out if isinstance(tokens_out, int) else None
         return tokens_in, tokens_out
     return _extract_usage_tokens(type("_Wrap", (), {"usage": usage})())
+
+
+def _ledger_usage_fields(usage: object) -> dict[str, int | None]:
+    """Tolerant extraction of ledger-relevant usage fields (§1aa).
+
+    Supports dict usage (real SDK) and attrs-style objects (fakes / other
+    SDK versions). Missing/non-int values become None. `usage is None`
+    yields all-None. Never raises.
+    """
+    keys = (
+        "tokens_in",
+        "tokens_out",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    )
+    source_keys = (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    )
+    if usage is None:
+        return {k: None for k in keys}
+    if isinstance(usage, dict):
+        values = [usage.get(sk) for sk in source_keys]
+    else:
+        values = [getattr(usage, sk, None) for sk in source_keys]
+    return {
+        k: (v if isinstance(v, int) else None)
+        for k, v in zip(keys, values)
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +193,7 @@ def agent_sdk_backend(
     step_name: str,
     extra_data: dict[str, object] | None = None,
     allowed_tools: object = None,
-    run_ctx: object = None,
+    run_ctx: _RunCtx | None = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
     straggler_cfg: object = None,
@@ -186,6 +236,7 @@ def agent_sdk_backend(
     t0 = time.monotonic()
 
     stderr_buf: "deque[str]" = deque(maxlen=_stderr_tail_lines())
+    result_holder: dict[str, object] = {"msg": None}
 
     def _on_stderr(line: str) -> None:
         stderr_buf.append(line)
@@ -215,10 +266,13 @@ def agent_sdk_backend(
         async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
             if result_cls is not None and isinstance(msg, result_cls):
                 result_msg = msg
+                result_holder["msg"] = msg
             elif result_cls is None:
                 result_msg = msg
+                result_holder["msg"] = msg
         return result_msg
 
+    salvage_error: str | None = None
     try:
         result = asyncio.run(asyncio.wait_for(_run(), timeout_sec))
     except asyncio.TimeoutError:
@@ -259,28 +313,37 @@ def agent_sdk_backend(
             recoverable=True,
         )
     except Exception as e:  # noqa: BLE001
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        if key is not None:
-            _invalidate(key)
-        tail = _stderr_tail(stderr_buf, e)
-        error = f"agent-sdk run failed: {e}"
-        if tail:
-            error += f"; stderr tail: {tail}"
-        exc_data: dict[str, object] = {"stderr_tail": tail}
-        ind = _external_outage_indicator()
-        if ind is not None:
-            exc_data["external_outage"] = True
-            exc_data["outage_indicator"] = ind
-            error += f" [external_outage: {ind}]"
-        return StepResult(
-            status="error",
-            data=exc_data,
-            duration_ms=duration_ms,
-            step_name=step_name,
-            error=error,
-            error_code="E_LLM_API_BAD_RESPONSE",
-            recoverable=True,
-        )
+        # GH956: a successful ResultMessage may have already arrived before
+        # the CLI's trailing stream error; try to salvage it first.
+        salvaged = _salvage_success_result(result_holder)
+        if salvaged is not None:
+            result = salvaged
+            salvage_error = f"{e}"
+            # Do NOT invalidate the session cache on the salvage path — fall
+            # through to the normal success tail below.
+        else:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            if key is not None:
+                _invalidate(key)
+            tail = _stderr_tail(stderr_buf, e)
+            error = f"agent-sdk run failed: {e}"
+            if tail:
+                error += f"; stderr tail: {tail}"
+            exc_data: dict[str, object] = {"stderr_tail": tail}
+            ind = _external_outage_indicator()
+            if ind is not None:
+                exc_data["external_outage"] = True
+                exc_data["outage_indicator"] = ind
+                error += f" [external_outage: {ind}]"
+            return StepResult(
+                status="error",
+                data=exc_data,
+                duration_ms=duration_ms,
+                step_name=step_name,
+                error=error,
+                error_code="E_LLM_API_BAD_RESPONSE",
+                recoverable=True,
+            )
 
     duration_ms = int((time.monotonic() - t0) * 1000)
 
@@ -311,7 +374,13 @@ def agent_sdk_backend(
         )
 
     session_id = getattr(result, "session_id", None)
-    tokens_in, tokens_out = _extract_tokens_from_usage(getattr(result, "usage", None))
+    usage_obj = getattr(result, "usage", None)
+    tokens_in, tokens_out = _extract_tokens_from_usage(usage_obj)
+    ledger_usage = _ledger_usage_fields(usage_obj)
+    cache_creation_input_tokens = ledger_usage["cache_creation_input_tokens"]
+    cache_read_input_tokens = ledger_usage["cache_read_input_tokens"]
+    cost = getattr(result, "total_cost_usd", None)
+    cost_usd = float(cost) if isinstance(cost, (int, float)) else None
     warm_resumed = resume_sid is not None
 
     if key is not None and session_id:
@@ -332,12 +401,49 @@ def agent_sdk_backend(
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "warm_resumed": warm_resumed,
+        "cost_usd": cost_usd,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
     }
     if gate_label is not None:
         base_data["gate_label"] = gate_label
+    if salvage_error is not None:
+        base_data["salvaged_stream_error"] = salvage_error
 
     caller_extra = {k: v for k, v in extra_data.items() if k != "workspace_root"}
     merged = {**base_data, **caller_extra}
+
+    if run_ctx is not None and getattr(run_ctx, "event_log", None) is not None:
+        payload: dict[str, object] = {
+            "backend": "agent-sdk",
+            "outcome": "success",
+            "duration_ms": duration_ms,
+            "response_size_bytes": (
+                len(raw_response.encode("utf-8"))
+                if isinstance(raw_response, str)
+                else 0
+            ),
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "cache_creation_input_tokens": cache_creation_input_tokens,
+            "cache_read_input_tokens": cache_read_input_tokens,
+            "cost_usd": cost_usd,
+            "model": model,
+            "session_id": session_id,
+            "warm_resumed": warm_resumed,
+            "phase": getattr(run_ctx, "phase", None),
+            "step_name": getattr(run_ctx, "step_name", None) or step_name,
+        }
+        if getattr(run_ctx, "cycle", None) is not None:
+            payload["cycle"] = run_ctx.cycle
+        if salvage_error is not None:
+            payload["salvaged"] = True
+        _emit_safe(
+            run_ctx.event_log,
+            "runner_result_consumed",
+            payload,
+            getattr(run_ctx, "run_id", ""),
+        )
 
     return StepResult(
         status="ok",
