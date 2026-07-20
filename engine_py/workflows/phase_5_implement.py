@@ -97,6 +97,7 @@ import shutil
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 from typing import Any
 
@@ -621,6 +622,46 @@ def _persist_pre_red_ref(scratchpad, sha: str) -> bool:
         return False
     ref_path.write_text(sha)
     return True
+
+
+def _detect_head_drift(
+    git_cwd: str, frozen_sha: str, git_port_mod: types.ModuleType
+) -> dict[str, object]:
+    """GH1086 M1 (agreement 6604CC4B): detect external HEAD-moved drift.
+
+    drift is True iff `rev-parse HEAD` succeeds AND HEAD != frozen_sha AND
+    either the frozen sha object is missing (`cat-file -e <frozen>^{commit}`
+    fails) or it is not an ancestor of HEAD
+    (`merge-base --is-ancestor <frozen> HEAD` fails).
+
+    Fail-safe to drift=False on: empty/whitespace frozen_sha, or any git_read
+    timeout/failure (rc 124 or otherwise unreadable HEAD).
+    """
+    frozen_sha = (frozen_sha or "").strip()
+    if not frozen_sha:
+        return {"drift": False, "head": "", "frozen": frozen_sha, "reason": ""}
+
+    head_result = git_port_mod.git_read(["rev-parse", "HEAD"], cwd=git_cwd, timeout=30)
+    if head_result.returncode != 0:
+        return {"drift": False, "head": "", "frozen": frozen_sha, "reason": ""}
+    head = head_result.stdout.strip()
+
+    if head == frozen_sha:
+        return {"drift": False, "head": head, "frozen": frozen_sha, "reason": ""}
+
+    exists_result = git_port_mod.git_read(
+        ["cat-file", "-e", f"{frozen_sha}^{{commit}}"], cwd=git_cwd, timeout=30
+    )
+    if exists_result.returncode != 0:
+        return {"drift": True, "head": head, "frozen": frozen_sha, "reason": "missing"}
+
+    ancestor_result = git_port_mod.git_read(
+        ["merge-base", "--is-ancestor", frozen_sha, "HEAD"], cwd=git_cwd, timeout=30
+    )
+    if ancestor_result.returncode != 0:
+        return {"drift": True, "head": head, "frozen": frozen_sha, "reason": "not_ancestor"}
+
+    return {"drift": False, "head": head, "frozen": frozen_sha, "reason": ""}
 
 
 def _persist_red_test_hashes(scratchpad, manifest: dict) -> bool:
@@ -1714,6 +1755,26 @@ def _commit_red_tests(ctx, prev) -> StepResult:
                 )
                 red_test_paths = present
             else:
+                # GH1086 M1 (agreement 6604CC4B): before surfacing the generic
+                # E_RED_NO_MARKER, check for external HEAD-moved drift so the
+                # error message doesn't mislead when a parallel merge/reset
+                # moved the worktree HEAD out from under this run.
+                _drift_result = _detect_head_drift(
+                    _git_cwd_early,
+                    _resolve_frozen_pre_red_sha(scratchpad, _git_cwd_early),
+                    git_port,
+                )
+                if _drift_result["drift"]:
+                    return StepResult(
+                        status="error", data=None, duration_ms=0, step_name="commit_red_tests",
+                        error=(
+                            f"Worktree HEAD moved during phase_5 (external merge/reset "
+                            f"suspected): frozen pre-red SHA={_drift_result['frozen']} "
+                            f"current HEAD={_drift_result['head']} "
+                            f"reason={_drift_result['reason']}."
+                        ),
+                        error_code="E_WORKTREE_HEAD_MOVED",
+                    )
                 return StepResult(
                     status="error", data=None, duration_ms=0, step_name="commit_red_tests",
                     error=(

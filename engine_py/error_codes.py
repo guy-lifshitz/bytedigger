@@ -152,6 +152,7 @@ ERROR_CODES: dict[str, str] = {
     "E_RED_WORKTREE_DIRTY": "phase_5_implement: uncommitted production changes at RED-gate/validation entry — tree must be clean before RED certification",
     "E_RED_NOT_FAILING": "phase_5_implement: RED tests unexpectedly passed instead of failing",
     "E_RED_NO_MARKER": "phase_5_implement: RED subagent output missing required completion marker",
+    "E_WORKTREE_HEAD_MOVED": "phase_5_implement: worktree HEAD moved during phase_5 (external merge/reset) — frozen pre-red SHA no longer reachable or not an ancestor of HEAD (agreement 6604CC4B)",
     "E_RED_NO_PATHS": "phase_5_implement: no RED test file paths were supplied to verify",
     "E_RED_PYTEST_TIMEOUT": "phase_5_implement: RED pytest subprocess timed out",
     "E_RED_SCOPE_VIOLATION": "phase_5_implement: RED diff touched files outside declared scope",

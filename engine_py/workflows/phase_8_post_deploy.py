@@ -940,6 +940,35 @@ def _cleanup_scratchpad_subdirs(ctx, prev) -> StepResult:
     it would lose the audit trail.
     """
     scratchpad = _resolve_scratchpad(ctx)
+
+    # GH1086 M2 (agreement 6604CC4B): guard against a foreign session's
+    # scratchpad being cleaned up (parallel-lane cleanup race). If ctx has a
+    # session_id and it doesn't match the scratchpad dir name, skip entirely.
+    sid = getattr(ctx, "session_id", None)
+    if sid and scratchpad.name != sid:
+        _emit_safe(
+            "scratchpad_ownership_mismatch",
+            {
+                "severity": "warning",
+                "phase": 8,
+                "step": "cleanup_scratchpad_subdirs",
+                "scratchpad": str(scratchpad),
+                "session_id": sid,
+            },
+        )
+        return StepResult(
+            status="ok",
+            data=_accumulate_summary(prev, "cleanup_scratchpad_subdirs", {
+                "skipped_foreign": True,
+                "scratchpad": str(scratchpad),
+                "session_id": sid,
+                "removed": [],
+                "errors": [],
+            }),
+            duration_ms=0,
+            step_name="cleanup_scratchpad_subdirs",
+        )
+
     removed: list[str] = []
     errors: list[dict[str, str]] = []
 
