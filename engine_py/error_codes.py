@@ -12,6 +12,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.scan_roots import git_ignored_dirs, is_pruned_dir  # noqa: E402
+
 HARVEST_EXCLUDE_DIRS: frozenset[str] = frozenset({
     "tests", "__tests__", "__pycache__", "scripts", "_w6_tmp_p45", "_w6_tmp_p5i",
     ".venv", "venv", "SHARED", ".hal-build",
@@ -235,9 +238,13 @@ ERROR_CODES: dict[str, str] = {
 def harvest_codes(root: Path) -> set[str]:
     """Walk root, prune excluded dirs, return quote-stripped E_* code matches."""
     root = Path(root)
+    ignored = git_ignored_dirs(root)
     found: set[str] = set()
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in HARVEST_EXCLUDE_DIRS]
+        dirnames[:] = [
+            d for d in dirnames
+            if not is_pruned_dir(d, ignored) and d not in HARVEST_EXCLUDE_DIRS
+        ]
         for fname in filenames:
             if not fname.endswith(".py"):
                 continue
