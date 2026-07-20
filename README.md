@@ -167,6 +167,10 @@ The engine runs LLM-generated code -- that's the GREEN phase doing its job. Run 
 
 Multi-agent orchestration frameworks are well covered elsewhere. This project stays narrow on purpose: one sequential engine, one event log, and a growing set of deterministic gates that keep generated code honest.
 
+## See also
+
+[BytePress](https://github.com/guy-lifshitz/bytepress) -- reversible deterministic compression for oversized tool output in Claude Code hooks. Same philosophy on one narrow problem: the cheapest layer that can do the job is code, not a model.
+
 ## License
 
 MIT -- see [LICENSE](LICENSE).
