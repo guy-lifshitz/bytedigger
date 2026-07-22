@@ -361,7 +361,8 @@ def test_ac10_byte_cap_and_bounded_growth_vs_kill_switch_off(tmp_path, monkeypat
         pytest.fail("phase_45_spec._spec_high_binding_block does not exist yet")
 
     # GH724 item-5 finalize-coverage grew the block to 2280B; headroom per GH729 bounded-growth intent
-    assert len(_spec_high_binding_block().encode("utf-8")) <= 2560
+    # GH1101 appended preflight item 6 (§1a sibling-shape-audit) → block 2552→3191B; cap raised 2560→3400 (authorized-test-edit §1s)
+    assert len(_spec_high_binding_block().encode("utf-8")) <= 3400
 
     scratchpad_on = tmp_path / "scratch_on"
     _write_prev_spec(scratchpad_on)
@@ -377,7 +378,8 @@ def test_ac10_byte_cap_and_bounded_growth_vs_kill_switch_off(tmp_path, monkeypat
     )
 
     # GH724 item-5 finalize-coverage grew the block to 2280B; headroom per GH729 bounded-growth intent
-    assert len(p_on) - len(p_off) <= 2560
+    # GH1101 item 6 grew the injected block in lockstep with the byte-cap above; delta cap raised 2560→3400 (authorized-test-edit §1s)
+    assert len(p_on) - len(p_off) <= 3400
 
 
 # ─── AC-11 ──────────────────────────────────────────────────────────────────

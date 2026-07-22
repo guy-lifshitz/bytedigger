@@ -794,6 +794,16 @@ def _spec_preflight_block() -> str:
         "   finalize, on-failure, on-terminal, on-exit, rollback, or merged-only\n"
         "   MUST have a covering AC in §3, and inversely every such AC needs the\n"
         "   §2 branch (DG-45 finalize xcheck rejects the mismatch).\n"
+        "\n"
+        "6. §1a sibling-shape-audit — for any changed/renamed/removed PUBLIC\n"
+        "   symbol (function, constant, event name, StepResult data key, numbered\n"
+        "   prompt-block axis) enumerate sibling-test coverage BY ARTIFACT/SHAPE,\n"
+        "   not by identifier-grep alone: name every consumer that couples on the\n"
+        "   symbol's SHAPE (dict keys, tuple/list cardinality, ordering/sequence,\n"
+        "   numeric byte/growth caps, enum membership) EVEN WHEN it never spells the\n"
+        "   symbol. An empty symbol grep means the audit is INAPPLICABLE (wrong\n"
+        "   query) — NOT that the change is sibling-clean. Each such consumer gets a\n"
+        "   covering AC or an authorized-test-edits entry.\n"
     )
 
 
@@ -861,6 +871,7 @@ SPEC_HIGH_BINDING_AXES: tuple[str, ...] = (
     "§1w OP↔AC CROSS-LINK",
     "§2-vs-§3 finalize coverage",
     "DATA-MODEL GROUND TRUTH (§1ae)",
+    "§1a sibling-shape-audit",
 )
 
 
