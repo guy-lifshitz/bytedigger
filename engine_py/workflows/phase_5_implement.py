@@ -2168,6 +2168,60 @@ def _infer_test_command_for_paths(paths: list[str], git_cwd: str | None = None) 
     return {"groups": plan}
 
 
+# A11B364A / GH1097 §2.1 — bash `.test.sh` output parsing.
+# Summary forms are deliberately partial (gate MINOR-1): `Results:` / `RESULTS:` /
+# `TOTAL:` / bare `N passed, M failed` intentionally fall through to the per-test
+# fallback, which is the more precise counter for those suites. Do not widen here.
+_SH_SUMMARY_RESULT_RE = re.compile(r"^RESULT:\s*(\d+)\s+passed,\s*(\d+)\s+failed\b")
+_SH_SUMMARY_KV_RE = re.compile(r"^PASS\s*[:=]\s*(\d+)\s+FAIL\s*[:=]\s*(\d+)\b")
+_SH_PER_TEST_FAIL_RE = re.compile(r"^FAIL\b")
+_SH_PER_TEST_PASS_RE = re.compile(r"^PASS\b")
+
+
+def _parse_sh_test_counts(output: str) -> tuple[int, int]:
+    """Return (n_passed, n_failed) parsed from bash .test.sh output (spec §2.1).
+
+    Each stripped line is classified SUMMARY-first, then per-test FAIL, then
+    per-test PASS — a SUMMARY line is never also counted as a per-test line
+    (this is the `PASS:12 FAIL:3` miscount trap). If at least one SUMMARY line
+    matched, the counts of the LAST summary line are authoritative and returned
+    as-is. Otherwise fall back to (per-test PASS lines, DISTINCT per-test FAIL
+    lines) — distinctness on the full stripped text kills FAIL_DETAILS replay
+    double-counting; an undercount is decision-safe because only `>0` is
+    load-bearing.
+    """
+    summary: tuple[int, int] | None = None
+    n_pass_lines = 0
+    fail_lines: set[str] = set()
+    for raw_line in (output or "").splitlines():
+        line = raw_line.strip()
+        m = _SH_SUMMARY_RESULT_RE.match(line) or _SH_SUMMARY_KV_RE.match(line)
+        if m is not None:
+            summary = (int(m.group(1)), int(m.group(2)))
+            continue
+        if _SH_PER_TEST_FAIL_RE.match(line):
+            fail_lines.add(line)
+            continue
+        if _SH_PER_TEST_PASS_RE.match(line):
+            n_pass_lines += 1
+    if summary is not None:
+        return summary
+    return (n_pass_lines, len(fail_lines))
+
+
+def red_group_reports_failures(output: str, kind: str) -> bool:
+    """Does an exit-0 RED runner group nonetheless report test failures? (spec §2.2)
+
+    Frozen signature: exactly two required positional params (output, kind).
+    Non-`sh` kinds keep exit-code-only semantics and always return False
+    (py/ts/swift/rust crash semantics are deliberately out of scope). `sh`
+    routes through the single canonical parser (§1g).
+    """
+    if kind != "sh":
+        return False
+    return _parse_sh_test_counts(output)[1] > 0
+
+
 def _attempt_red_cycle_restore(
     ctx: Any, prev: Any, git_cwd: str, red_test_paths: "list[str]", plan: "dict[str, Any]",
 ) -> "StepResult | None":
@@ -2263,6 +2317,107 @@ def _attempt_red_cycle_restore(
         duration_ms=0,
         step_name="verify_red_fails_mechanically",
     )
+
+
+# ─── GH1095 §2.1: RED run-shape classification (E_RED_CRASHED) ────────────
+# A run that never executed an assertion (signal death, zero tests executed,
+# test-binary error) is not a valid RED. Detection is deterministic (Principle
+# A) and independent of run_test_command's `nonzero exit => tests failed`
+# fallback, which is blind to exactly this class.
+
+_RED_EXEC_ERROR_MARKERS = (
+    "error:", "fatal error", "Fatal error", "Abort trap", "Segmentation fault",
+    "Bus error", "Illegal instruction", "core dumped", "signal code",
+    "** TEST FAILED **", "INTERNALERROR",
+)
+
+_RED_ZERO_EXECUTED_MARKERS = (
+    "no tests ran", "Executed 0 tests", "collected 0 items",
+)
+
+_RED_SIGNAL_CODE_RE = re.compile(r"signal code \d+")
+_RED_PYTEST_PASSED_RE = re.compile(r"(\d+)\s+passed")
+_RED_PYTEST_FAILED_RE = re.compile(r"(\d+)\s+failed")
+_RED_PYTEST_ERRORS_RE = re.compile(r"(\d+)\s+error[s]?")
+# The trailing \b is load-bearing: it keeps `10 failures` (xctest) out of the
+# bun parser so the xctest branch can own that shape.
+_RED_BUN_PASS_RE = re.compile(r"(\d+)\s+pass(?:ed)?\b")
+_RED_BUN_FAIL_RE = re.compile(r"(\d+)\s+fail(?:ed)?\b")
+_RED_XCTEST_RE = re.compile(
+    r"Executed\s+(\d+)\s+tests?,\s+with\s+"
+    r"(?:\d+\s+tests?\s+skipped\s+and\s+)?(\d+)\s+failures?"
+)
+
+
+def _red_shape_last_int(rx: "re.Pattern[str]", output: str) -> int | None:
+    """Last match of `rx` in `output` as int (final summary wins), else None."""
+    found = rx.findall(output)
+    return int(found[-1]) if found else None
+
+
+def parse_red_shape(output: str) -> tuple[int, int] | None:
+    """Return (executed, failures) parsed from a test-run output, else None.
+
+    Parsers are tried in order pytest -> bun -> xctest; the first parser with
+    ANY regex match wins (mirroring `_parse_pytest` in disk_truth/test_runner),
+    so a partial match yields (0, 0). Zero match across all three returns None
+    (NOT (0, 0)) — otherwise rule C4 would be dead code and C2 would fire on
+    every silent non-zero exit.
+    """
+    text = output or ""
+    # 1. pytest
+    n_passed = _red_shape_last_int(_RED_PYTEST_PASSED_RE, text)
+    n_failed = _red_shape_last_int(_RED_PYTEST_FAILED_RE, text)
+    n_errors = _red_shape_last_int(_RED_PYTEST_ERRORS_RE, text)
+    if n_passed is not None or n_failed is not None or n_errors is not None:
+        passed, failed, errors = n_passed or 0, n_failed or 0, n_errors or 0
+        return (passed + failed + errors, failed + errors)
+    # 2. bun
+    b_pass = _red_shape_last_int(_RED_BUN_PASS_RE, text)
+    b_fail = _red_shape_last_int(_RED_BUN_FAIL_RE, text)
+    if b_pass is not None or b_fail is not None:
+        passed, failed = b_pass or 0, b_fail or 0
+        return (passed + failed, failed)
+    # 3. xctest
+    x_matches = _RED_XCTEST_RE.findall(text)
+    if x_matches:
+        executed, failures = x_matches[-1]
+        return (int(executed), int(failures))
+    return None
+
+
+def classify_red_run_shape(returncode: int, output: str) -> str | None:
+    """Return a crash slug for a RED run, or None when the shape is legitimate.
+
+    Slugs: "signal" | "zero_executed" | "exec_error_no_failures".
+    Rules C1..C5 per spec §2.1 — FIRST matching rule wins; the C1-before-all
+    ordering is load-bearing (rc=139 with a valid failing summary is a crash,
+    not signal-free evidence).
+    """
+    text = output or ""
+    # C1 — killed by a signal.
+    if returncode < 0 or returncode > 128 or _RED_SIGNAL_CODE_RE.search(text):
+        return "signal"
+    shape = parse_red_shape(text)
+    # C2 — a parsed summary reporting zero executed tests on a non-zero exit.
+    if shape is not None and shape[0] == 0 and returncode != 0:
+        return "zero_executed"
+    # C2b — marker-driven, returncode-INDEPENDENT (canonical pytest rc=5
+    # `no tests ran`, and rc==0 `Executed 0 tests`).
+    if (shape is None or shape[0] == 0) and any(
+        m in text for m in _RED_ZERO_EXECUTED_MARKERS
+    ):
+        return "zero_executed"
+    # C3 — tests ran but nothing failed, yet the runner exited non-zero.
+    if shape is not None and shape[0] > 0 and shape[1] == 0 and returncode != 0:
+        return "exec_error_no_failures"
+    # C4 — no parseable summary at all, non-zero exit, test-binary error marker.
+    if shape is None and returncode != 0 and any(
+        m in text for m in _RED_EXEC_ERROR_MARKERS
+    ):
+        return "exec_error_no_failures"
+    # C5 — legitimate shape; pre-existing paths keep owning it.
+    return None
 
 
 def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
@@ -2390,8 +2545,68 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
         except Exception as e:  # noqa: BLE001
             logger.warning("red_test_outcome telemetry failed for group %s: %s", kind, e)
         last_stdout = proc.stdout
+        # GH1095 §2.2: crash-shape gate. Placed strictly AFTER the rc==124
+        # early returns (AC7 — timeouts keep their own codes) and strictly
+        # BEFORE the passing_groups check (AC10 — a zero-executed rc==0 run is
+        # a crash, not a fake RED). GATE-AMEND-2: the accessor is
+        # attribute-safe — sibling stubs supply SimpleNamespace objects with no
+        # `.stderr`, and a bare `proc.stderr` would raise before any assertion.
+        _crash_out = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
+        crash = classify_red_run_shape(proc.returncode, _crash_out)
+        if crash is not None:
+            _emit_safe("red_crashed", {
+                "phase": 5,
+                "step": "verify_red_fails_mechanically",
+                "group": kind,
+                "reason": crash,
+                "exit_code": proc.returncode,
+            }, severity="warning")
+            _crash_tail = _crash_out[-2000:]
+            # GH911 boy-scout: gated_step_result resolves to Any under
+            # --follow-imports=silent (as at every other call site in this
+            # module), so bind through an annotated local to keep mypy's
+            # no-any-return count flat instead of adding an 8th violation.
+            _crash_result: StepResult = RecoverableGateMixin.gated_step_result(
+                build_class=(ctx.org_config or {}).get("complexity", "SIMPLE").upper(),
+                gate="red_crashed",
+                cycle=int(prev.data.get("cycle", 1)),
+                retry_from_step_idx=0,           # build_red_prompt — regenerate RED
+                error_code="E_RED_CRASHED",
+                error_msg=(
+                    f"RED group [{kind}] crashed without executing assertions "
+                    f"(reason={crash}, exit={proc.returncode}). "
+                    f"Output tail:\n{_crash_tail}"
+                ),
+                step_name="verify_red_fails_mechanically",
+                forwarded_data={
+                    **prev.data,
+                    "red_crash_reason": crash,
+                    "red_crash_exit_code": proc.returncode,
+                    "stdout_tail": _crash_tail,
+                },
+                terminal_error_code="E_RED_CRASHED",
+                terminal_error_msg=(
+                    f"RED crash cap exhausted: group [{kind}] crashed without "
+                    f"executing assertions (reason={crash})"
+                ),
+            )
+            return _crash_result
         if proc.returncode == 0:
-            passing_groups.append(kind)
+            # A11B364A / GH1097 §2.3: an `sh` suite with an absent/miswired exit guard
+            # exits 0 while reporting FAIL lines — that is a genuine RED, not a fake one.
+            # §1g: ONE canonical derive of the input surface, consumed by both the
+            # decision call and the emit re-derive. A single expression cannot drift
+            # from itself — this structurally kills the two-spelling defect class.
+            _sh_output = (proc.stdout or "") + (getattr(proc, "stderr", "") or "")
+            _sh_reports_fail = red_group_reports_failures(_sh_output, kind)
+            if _sh_reports_fail:
+                _n_pass, _n_fail = _parse_sh_test_counts(_sh_output)
+                _emit_safe("red_sh_failure_evidence_override", {
+                    "phase": 5, "step": "verify_red_fails_mechanically", "group": kind,
+                    "exit_code": proc.returncode, "n_passed": _n_pass, "n_failed": _n_fail,
+                }, severity="warning")
+            else:
+                passing_groups.append(kind)
     if passing_groups:
         # GH483: crash-resume seam — a prior GREEN may have already written the
         # implementation to the working tree, so RED now passes for a

@@ -2463,6 +2463,18 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
     cfg = getattr(ctx, "org_config", None) or {}
     is_complex = (cfg.get("complexity") == "COMPLEX")
 
+    # GH1065 (BE7C9CA0): tell the model the EXACT AC ids the deterministic
+    # cross-check will demand. House idiom (mirrors :3102-3106): degrade to ""
+    # on an unreadable spec, never raise. Zero ids -> "" -> the AC_CHECKLIST
+    # block stays byte-identical to the pre-GH1065 text.
+    _spec_text = ""
+    try:
+        _spec_text = spec_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, KeyError, TypeError):
+        pass
+    _ac_ids_directive = _ac_checklist_ids_directive(_spec_text)
+    _ac_ids_directive_block = f"  {_ac_ids_directive}\n" if _ac_ids_directive else ""
+
     if is_complex:
         parts.append(
             "ROLE: You are the Opus satisfaction evaluator. Your response IS the "
@@ -2536,6 +2548,7 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
             "   spec/impl drift is OK when the behavior satisfies the AC's intent). Any\n"
             "   FAIL must also appear under Concerns. If the spec has no ## Acceptance\n"
             "   Criteria section, write `- none`.>\n"
+            f"{_ac_ids_directive_block}"
             "\n"
             "  ## Concerns\n"
             "  <bullets — what would prevent shipping; `none` only if you have\n"
@@ -2575,6 +2588,7 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
             "   spec/impl drift is OK when the behavior satisfies the AC's intent). Any\n"
             "   FAIL must also appear under Concerns. If the spec has no ## Acceptance\n"
             "   Criteria section, write `- none`.>\n"
+            f"{_ac_ids_directive_block}"
             "\n"
             "  ## Concerns\n"
             "  <bullets — what would prevent shipping; `none` only if you have\n"
@@ -2959,6 +2973,27 @@ def _parse_spec_ac_ids(spec_text: str) -> list:
                 seen.add(ac_id)
                 ids.append(ac_id)
     return ids
+
+
+def _ac_checklist_ids_directive(spec_text: str) -> str:
+    """GH1065 (BE7C9CA0): enumerate the EXACT AC ids the checklist must use.
+
+    §1g — ONE canonical source: the ids come from `_parse_spec_ac_ids` and are
+    emitted VERBATIM (no stripping, case-folding, padding or re-parsing) in
+    parse order. NO TRUNCATION: every parsed id is named, at any n — capping or
+    eliding the list would silently reinstate `parsed-ids != checklist-ids`.
+    Returns "" when no ids parse, so the prompt stays byte-identical to today's.
+    """
+    ids = _parse_spec_ac_ids(spec_text or "")
+    if not ids:
+        return ""
+    enumerated = ", ".join(f"AC{ac_id}" for ac_id in ids)
+    return (
+        "AC ID MANDATE (GH1065): the engine cross-checks your bullet ids against the "
+        "ids parsed from the spec. Use EXACTLY these ids, in this order, one bullet "
+        f"each: {enumerated}. Ignore any other AC labels embedded in the AC prose, "
+        "headings or bold text; they are not ids."
+    )
 
 
 def _parse_ac_checklist(doc_text: str):

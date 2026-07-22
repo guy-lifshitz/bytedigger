@@ -24,6 +24,7 @@ Gate = Literal[
     "spec_retry",
     "red_lint_preflight",
     "validation_execution",
+    "red_crashed",
 ]
 
 
@@ -82,6 +83,14 @@ _POLICY_MATRIX: dict[tuple[BuildClass, Gate], RecoverablePolicy] = {
     ("SIMPLE",   "validation_execution"): RecoverablePolicy("recoverable_once",  1),
     ("FEATURE",  "validation_execution"): RecoverablePolicy("recoverable_once",  1),
     ("COMPLEX",  "validation_execution"): RecoverablePolicy("recoverable_once",  1),
+    # red_crashed: GH1095 — the RED run never executed an assertion (signal /
+    # zero tests executed / test-binary error). Deterministic test defect: one
+    # RED-LLM regeneration with the crash cause relayed is enough; beyond that
+    # the cycle would burn blind. Rows are explicit for all three build classes
+    # so a future _DEFAULT_POLICY change cannot silently mask a missing entry.
+    ("SIMPLE",   "red_crashed"):          RecoverablePolicy("recoverable_once",  1),
+    ("FEATURE",  "red_crashed"):          RecoverablePolicy("recoverable_once",  1),
+    ("COMPLEX",  "red_crashed"):          RecoverablePolicy("recoverable_once",  1),
 }
 
 _DEFAULT_POLICY = RecoverablePolicy("recoverable_once", 1)

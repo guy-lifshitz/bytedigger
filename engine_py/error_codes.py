@@ -139,6 +139,7 @@ ERROR_CODES: dict[str, str] = {
     "E_PYTEST_MISSING": "phase_5_implement: pytest binary not available on this host",
     "E_RED_COLLECT_FAILED": "phase_5_implement: RED test file failed pytest collection",
     "E_RED_COLLECT_PROBE": "phase_5_implement: RED test file(s) failed the §1q pytest --co collect-probe (non-collectable RED, D1CF5FDF hang class)",
+    "E_RED_CRASHED": "phase_5_implement: RED test run crashed (signal / zero tests executed / test-executable error) without reporting any assertion failure",
     "E_RED_EMPTY_FILES": "phase_5_implement: RED test files were empty/contained no tests",
     "E_RED_FIXTURE_SCHEMA_DRIFT": "phase_5_implement: RED fixture CREATE TABLE columns are not a subset of the spec's Data-Model Ground Truth reference DDL (GH891 fixture-fiction class)",
     "E_RED_LINT_BAD_JSON": "phase_5_implement: RED lint tool emitted malformed JSON output",
