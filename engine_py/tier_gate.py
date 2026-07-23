@@ -18,8 +18,22 @@ from pathlib import Path
 ENGINE_PY_MARKER = "/SYSTEM/cli/build/engine_py/"
 MICRO_TIER = "MICRO"
 
-# tier_gate.py lives at <repo>/SYSTEM/cli/build/engine_py/tier_gate.py
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+# tier_gate.py lives inside an engine_py/ tree. Resolve the repo root
+# layout-agnostically (walk up to the enclosing .git) so a shallow or
+# non-HAL checkout (e.g. C:\dev\bytedigger\engine_py, only 3 dirs deep)
+# does not IndexError on a fixed parents[] depth. Falls back to the
+# historical HAL depth (clamped to the topmost parent) when no .git is
+# present, e.g. an installed wheel — where _REPO_ROOT is only a relative
+# path fallback base and any value is harmless.
+def _resolve_repo_root(start: Path) -> Path:
+    for candidate in (start, *start.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    parents = start.parents
+    return parents[4] if len(parents) > 4 else parents[-1]
+
+
+_REPO_ROOT = _resolve_repo_root(Path(__file__).resolve())
 
 
 @dataclass
