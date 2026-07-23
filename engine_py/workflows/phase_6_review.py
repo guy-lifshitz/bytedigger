@@ -143,9 +143,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from _baseline_delta import run_baseline_delta_gate  # type: ignore[no-redef]  # noqa: E402  GH561 §1r lane-2
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 # Step 7 (95D3E5F6) — W1 + disk-truth wiring. Phase 6 reviews CODE
 # (schema {id, severity, path, description}), not specs
@@ -4716,24 +4716,9 @@ def _commit_fix_tests(ctx, prev) -> StepResult:
     )
 
 
-# ─── GH316: injectable git-write seam (mirrors phase_8._git_write) ─────────
-
-
-def _git_write(args: list[str], cwd: Path | str, *, timeout: int = 30) -> tuple[int, str, str]:
-    """WRITE git via the injectable git_op_capture seam; returns (rc, stdout, stderr).
-
-    FileNotFoundError → 127; bounded_run timeout → 124.
-    Routes through git_write_port.git_op_capture so the OSS host can swap the
-    git backend.  RED tests patch phase_6_review._git_write (raising=False).
-    """
-    from lib import git_write_port as _gwp  # local import avoids circular at module level
-    try:
-        res = _gwp.git_op_capture(["git", *args], cwd=str(cwd), timeout=timeout)
-    except FileNotFoundError:
-        return 127, "", "git: command not found"
-    if res.timed_out:
-        return 124, "", f"git {' '.join(args)}: timeout after {timeout}s"
-    return res.returncode, res.stdout, res.stderr
+# ─── GH316: injectable git-write seam — hoisted to phase_workflows_common
+# (D52228C3 §2.9); re-exported at module scope above so the bare-name call
+# sites below and the RED monkeypatches keep resolving the module attribute.
 
 
 # ─── GH316: post-fix mypy typecheck delta gate ───────────────────────────────

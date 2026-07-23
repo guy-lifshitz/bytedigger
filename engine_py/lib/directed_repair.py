@@ -255,6 +255,17 @@ _RULE_GUIDANCE: dict[str, str] = {
         "add the per-token pragma `ground-truth: never-opened <token>` or "
         "rephrase/elide the token."
     ),
+    # 4197B484 (GH1120) §1.5: the marker vocabulary the retrying agent needs.
+    # Every member is a verbatim copy of
+    # sibling_test_verifier.AUDIT_MARKER_VOCABULARY (drift pinned by AC10).
+    "sibling-audit-missing": (
+        "Add a `## §3.2 Sibling-test audit` section that NAMES the cited symbol "
+        "explicitly. Audit scoping is PER SYMBOL: a section that does not name "
+        "this symbol -- including one whose body is `sibling-test audit: n/a` -- "
+        "does not silence it. Accepted section markers (case-insensitive): "
+        "§3.2 | sibling-test audit | sibling-test-audit | sibling test audit | "
+        "sibling-audit:"
+    ),
     "empty-ground-truth-ddl": (
         "Add a ```sql fenced CREATE TABLE DDL block inside the existing "
         "`## Data-Model Ground Truth` section, or opt out with "

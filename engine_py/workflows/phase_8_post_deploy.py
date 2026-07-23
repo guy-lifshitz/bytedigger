@@ -76,9 +76,11 @@ from pathlib import Path
 import telemetry_ctx
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from bounded_spawn import bounded_run  # noqa: E402
-from lib.git_port import git_read  # noqa: E402
-from lib.git_write_port import git_op_capture  # noqa: E402
 from lib.run_allowlist import remove_run_allowlist, resolve_zones_config_path  # noqa: E402  1DA29C33
+try:
+    from .phase_workflows_common import _git_read, _git_write  # noqa: E402,F401  D52228C3 §2.9 re-export
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from phase_workflows_common import _git_read, _git_write  # type: ignore[no-redef]  # noqa: E402,F401  D52228C3 §2.9 re-export
 from contracts import StepContract, StepResult, WorkflowDefinition
 from config_provider import get_config, build_runs_relpath, foreign_state_dirname  # noqa: E402
 from lib.plugins.disk_truth.test_runner import run_test_command
@@ -202,38 +204,6 @@ def _accumulate_summary(prev, my_step_name: str, my_data: dict) -> dict:
     return my_data
 
 
-def _git_read(args: list[str], cwd: Path, *, timeout: int = 30) -> tuple[int, str, str]:
-    """READ-only git via the injectable git_read seam; returns a `(rc, stdout, stderr)` tuple.
-
-    Behavior-preserving: same (rc, stdout, stderr) contract and the
-    FileNotFoundError->127 / timeout->124 edge semantics. Reads route
-    through git_port.git_read so an OSS host can swap the git backend.
-    """
-    try:
-        res = git_read(args, cwd=str(cwd), timeout=timeout)
-    except FileNotFoundError:
-        return 127, "", "git: command not found"
-    if res.timed_out:
-        return 124, "", f"git {' '.join(args)}: timeout after {timeout}s"
-    return res.returncode, res.stdout, res.stderr
-
-
-def _git_write(args: list[str], cwd: Path, *, timeout: int = 30) -> tuple[int, str, str]:
-    """WRITE git via the injectable git_op_capture seam; returns a `(rc, stdout, stderr)` tuple.
-
-    Returns the same (rc, stdout, stderr) contract and the same
-    FileNotFoundError->127 / timeout->124 edge semantics. Writes route through
-    git_write_port.git_op_capture so an OSS host can swap the git backend.
-    """
-    try:
-        res = git_op_capture(["git", *args], cwd=str(cwd), timeout=timeout)
-    except FileNotFoundError:
-        return 127, "", "git: command not found"
-    if res.timed_out:
-        return 124, "", f"git {' '.join(args)}: timeout after {timeout}s"
-    return res.returncode, res.stdout, res.stderr
-
-
 def _gh(args: list[str], cwd: Path, *, timeout: int = 30) -> tuple[int, str, str]:
     """Run a gh command, capture stdout/stderr. Never raises.
 
@@ -314,6 +284,132 @@ def _parse_worktree_list(porcelain: str) -> list[dict[str, str]]:
     if current.get("path"):
         entries.append(current)
     return entries
+
+
+def _rebase_onto_origin_main(cwd: Path, main: str) -> tuple[str, str, str]:
+    """Rebase the current branch onto `origin/<main>` before ship (GH1119).
+
+    Returns ``(outcome, detail, head_after)`` where outcome is one of
+    ``"rebased"`` / ``"noop"`` / ``"skipped"`` / ``"conflict"``.
+
+    A conflict deliberately leaves the worktree mid-rebase (no ``--abort``, no
+    ``-X``/``--strategy``) so a human can finish the resolution by hand.
+    """
+    rc_head, head_out, _ = _git_read(["rev-parse", "--verify", "HEAD"], cwd)
+    if rc_head != 0:
+        return "skipped", "no HEAD", ""
+    head_before = head_out.strip()
+
+    rc_remote, _, _ = _git_read(["remote", "get-url", "origin"], cwd)
+    if rc_remote != 0:
+        return "skipped", "no origin remote", head_before
+
+    # Explicit refspec: `git rebase origin/<main>` reads the remote-tracking ref,
+    # so the fetch must really move refs/remotes/origin/<main>.
+    refspec = f"+refs/heads/{main}:refs/remotes/origin/{main}"
+    rc_fetch, _, fetch_err = _git_write(["fetch", "origin", refspec], cwd, timeout=120)
+    if rc_fetch != 0:
+        return "skipped", f"fetch failed: {fetch_err.strip()}", head_before
+
+    rc_verify, _, _ = _git_read(["rev-parse", "--verify", f"origin/{main}"], cwd)
+    if rc_verify != 0:
+        return "skipped", f"no origin/{main} ref", head_before
+
+    rc_rb, rb_out, rb_err = _git_write(["rebase", f"origin/{main}"], cwd, timeout=300)
+    if rc_rb != 0:
+        detail = rb_err.strip() or rb_out.strip() or f"git rebase rc={rc_rb}"
+        return "conflict", detail, head_before
+
+    rc_after, after_out, _ = _git_read(["rev-parse", "--verify", "HEAD"], cwd)
+    head_after = after_out.strip() if rc_after == 0 else head_before
+    outcome = "rebased" if head_after != head_before else "noop"
+    return outcome, "", head_after
+
+
+def _detect_phantom_deletions(cwd: Path, main: str) -> list[str]:
+    """Files the PR diff would report as deleted that the branch never deleted (GH1119).
+
+    Second belt behind the rebase: two-dot ``<base>..HEAD`` compares against the
+    *current* tip of `origin/<main>`, which is exactly where a file merged
+    mid-build lives. Files the branch's own commits genuinely deleted are
+    subtracted, so a legitimate deletion is not a false positive.
+    """
+    base = ""
+    for candidate in (f"origin/{main}", main):
+        if _git_read(["rev-parse", "--verify", candidate], cwd)[0] == 0:
+            base = candidate
+            break
+    if not base:
+        return []
+
+    rng = f"{base}..HEAD"
+    _, tip_out, _ = _git_read(["diff", "--diff-filter=D", "--name-only", rng], cwd)
+    _, own_out, _ = _git_read(
+        ["log", "--diff-filter=D", "--name-only", "--pretty=format:", rng], cwd
+    )
+    # `git log --pretty=format:` prints blank separator lines — drop them.
+    tip_deletions = {ln.strip() for ln in tip_out.splitlines() if ln.strip()}
+    own_deletions = {ln.strip() for ln in own_out.splitlines() if ln.strip()}
+    return sorted(tip_deletions - own_deletions)
+
+
+def _ship_error(
+    prev: StepResult | None, branch: str, outcome: str, error: str, code: str
+) -> StepResult:
+    """Build the shared non-recoverable ship-error StepResult (GH1119)."""
+    return StepResult(
+        status="error",
+        data=_accumulate_summary(prev, "ship_to_pr", {
+            "shipped": False,
+            "skipped": None,
+            "pr_url": None,
+            "idempotent_hit": False,
+            "branch": branch,
+            "rebase": outcome,
+        }),
+        duration_ms=0,
+        step_name="ship_to_pr",
+        error=error,
+        error_code=code,
+        recoverable=False,
+    )
+
+
+def _ship_rebase_preflight(
+    prev: StepResult | None, cwd: Path, main: str, branch: str
+) -> tuple[StepResult | None, str]:
+    """Rebase onto origin/<main>, then run the phantom-deletion belt (GH1119).
+
+    Returns ``(None, outcome)`` when the ship may proceed, or
+    ``(StepResult, outcome)`` for either terminal outcome.
+    """
+    outcome, detail, _head_after = _rebase_onto_origin_main(cwd, main)
+    if outcome == "conflict":
+        return _ship_error(
+            prev, branch, outcome,
+            f"rebase onto origin/{main} conflicted — worktree left mid-rebase for "
+            f"manual resolution: {detail}",
+            "E_SHIP_REBASE_CONFLICT",
+        ), outcome
+
+    # Second belt: refuse to open a PR whose diff deletes files the branch never touched.
+    phantom = _detect_phantom_deletions(cwd, main)
+    if phantom:
+        return _ship_error(
+            prev, branch, outcome,
+            f"branch is stale w.r.t. origin/{main} — the PR diff would phantom-delete: "
+            f"{', '.join(phantom)}",
+            "E_SHIP_PHANTOM_DELETION",
+        ), outcome
+
+    return None, outcome
+
+
+def _push_needs_lease(cwd: Path, branch: str, rebase_outcome: str) -> bool:
+    """True when the rebase rewrote a branch that already exists on origin."""
+    if rebase_outcome != "rebased":
+        return False
+    return _git_read(["rev-parse", "--verify", f"origin/{branch}"], cwd)[0] == 0
 
 
 # ─── Step 1 (new): ship to PR ───────────────────────────────────────────────
@@ -404,8 +500,20 @@ def _ship_to_pr(ctx, prev) -> StepResult:
             recoverable=False,
         )
 
-    # Push branch (AC6/AC8)
-    rc_push, _, push_err = _git_write(["push", "-u", "origin", branch], cwd)
+    # Rebase onto origin/<main> before pushing (GH1119) — a branch that was cut
+    # at launch time silently "deletes" whatever landed on main during the run.
+    preflight, rebase_outcome = _ship_rebase_preflight(prev, cwd, main, branch)
+    if preflight is not None:
+        return preflight
+
+    # Push branch (AC6/AC8). A rebased branch that already exists on origin is no
+    # longer fast-forward — use --force-with-lease (never bare --force).
+    if _push_needs_lease(cwd, branch, rebase_outcome):
+        rc_push, _, push_err = _git_write(
+            ["push", "--force-with-lease", "-u", "origin", branch], cwd
+        )
+    else:
+        rc_push, _, push_err = _git_write(["push", "-u", "origin", branch], cwd)
     if rc_push != 0:
         return StepResult(
             status="error",

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from config_provider import foreign_state_dirname
 from lib.git_port import git_read
 from lib.observability.emit_resolver import emit_resolver_resolved
 
@@ -23,12 +24,15 @@ from lib.observability.emit_resolver import emit_resolver_resolved
 def _scratchpad_repo_root(scratchpad_dir: str) -> Path | None:
     """Derive the build's target-repo root from a scratchpad path.
 
-    scratchpad_dir lives at <repo>/.hal-build/scratchpad/<run>; strip to <repo>.
+    scratchpad_dir lives at <repo>/<foreign_state_dirname()>/scratchpad/<run>;
+    strip to <repo>. The dirname is read from the config_provider seam at call
+    time (§1g single source) so foreign hosts resolve too.
     Returns the repo root only if it is a git checkout (.git exists), else None.
     """
-    if "/.hal-build/" not in scratchpad_dir:
+    segment = f"/{foreign_state_dirname()}/"
+    if segment not in scratchpad_dir:
         return None
-    candidate = Path(scratchpad_dir.split("/.hal-build/")[0]).expanduser().resolve()
+    candidate = Path(scratchpad_dir.split(segment)[0]).expanduser().resolve()
     if (candidate / ".git").exists():
         return candidate
     return None

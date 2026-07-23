@@ -43,6 +43,7 @@ import uuid  # 4C03CCED Ship 1B: request_nonce generation for in-session file-pr
 from pathlib import Path
 
 from contracts import StepResult
+from package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
 import telemetry_ctx
 from telemetry_ctx import _RunCtx
 import config_provider
@@ -1794,8 +1795,10 @@ _KNOWN_BACKENDS = tuple(_BACKENDS)
 _REFERENCE_BACKEND_INSTALL_HINTS: dict[str, str] = {
     "agent-sdk": "pip install claude-agent-sdk",
     "anthropic-api": "install a package build that bundles lib.reference_backends (stdlib-only backend; its module was not importable)",
-    "pydantic-openai": 'pip install "bytedigger-engine[agentic-pydantic]"',
-    "pydantic-anthropic": 'pip install "bytedigger-engine[agentic-pydantic]" anthropic',
+    # pydantic-ai covers both providers, so both hints resolve to one extra
+    # (GH1112: the `agentic-pydantic-anthropic` ghost extra never existed).
+    "pydantic-openai": install_hint(EXTRA_AGENTIC_PYDANTIC),
+    "pydantic-anthropic": install_hint(EXTRA_AGENTIC_PYDANTIC),
 }
 
 

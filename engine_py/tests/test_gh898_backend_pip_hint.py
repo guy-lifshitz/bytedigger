@@ -42,10 +42,13 @@ class TestReferenceBackendHintContents:
 
     def test_hint_contents_carry_expected_install_commands(self):
         from llm_subprocess import _REFERENCE_BACKEND_INSTALL_HINTS
+        from package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
 
         assert "pip install claude-agent-sdk" in _REFERENCE_BACKEND_INSTALL_HINTS["agent-sdk"]
-        assert "bytedigger-engine[agentic-pydantic]" in _REFERENCE_BACKEND_INSTALL_HINTS["pydantic-openai"]
-        assert "bytedigger-engine[agentic-pydantic]" in _REFERENCE_BACKEND_INSTALL_HINTS["pydantic-anthropic"]
+        # D52228C3 / GH1112: dist name single-sourced via package_meta.install_hint()
+        assert _REFERENCE_BACKEND_INSTALL_HINTS["pydantic-openai"] == install_hint(EXTRA_AGENTIC_PYDANTIC)
+        # D52228C3 / GH1112: the `agentic-pydantic-anthropic` extra never existed
+        assert _REFERENCE_BACKEND_INSTALL_HINTS["pydantic-anthropic"] == install_hint(EXTRA_AGENTIC_PYDANTIC)
 
 
 class TestUnknownBackendErrorMessageHelper:

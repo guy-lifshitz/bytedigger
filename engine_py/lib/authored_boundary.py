@@ -19,6 +19,8 @@ from typing import Callable
 
 import telemetry_ctx
 
+from lib import git_port  # D52228C3 §2.10 — reads route through the injectable git seam
+
 # Gate-suppression blocklist (moved verbatim from lib/directed_repair.py:53-58,
 # GH371 §2.6). A model-authored diff can "pass" a downstream gate by inserting
 # a token the gate itself honors — silently exempting a real finding.
@@ -32,10 +34,34 @@ SUPPRESSION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 # Registry: boundary name -> policy. Unknown boundary name => ValueError
 # (fail-closed) in scan_boundary.
 BOUNDARIES: dict[str, dict] = {
-    "green_commit": {"scan_suppression": True, "assert_tests_untouched": True},
-    "fix_commit": {"scan_suppression": True, "assert_tests_untouched": False},
-    "repair_patch": {"scan_suppression": True, "assert_tests_untouched": False},
+    "green_commit": {"scan_suppression": True, "assert_tests_untouched": True, "extra_forbidden_tokens": []},
+    "fix_commit": {"scan_suppression": True, "assert_tests_untouched": False, "extra_forbidden_tokens": []},
+    "repair_patch": {"scan_suppression": True, "assert_tests_untouched": False, "extra_forbidden_tokens": []},
 }
+
+
+def forbidden_tokens_for(boundary: str) -> list[str]:
+    """Return the registry-declared ``extra_forbidden_tokens`` for ``boundary``.
+
+    Fail-closed: raises ``ValueError`` (not ``KeyError``/custom) both for an
+    unregistered boundary name AND for a registered entry missing the
+    ``extra_forbidden_tokens`` key — the registry is the single forcing
+    function for the suppression grammar (§1.1b), so an incomplete entry must
+    not silently degrade to an empty blocklist."""
+    policy = BOUNDARIES.get(boundary)
+    if policy is None:
+        raise ValueError(f"Unknown authored-diff boundary: {boundary!r}")
+    if "extra_forbidden_tokens" not in policy:
+        raise ValueError(
+            f"Boundary {boundary!r} is missing 'extra_forbidden_tokens' in its registry entry"
+        )
+    val = policy["extra_forbidden_tokens"]
+    if not isinstance(val, list):
+        raise ValueError(
+            f"Boundary {boundary!r} has non-list 'extra_forbidden_tokens': {val!r}"
+        )
+    tokens: list[str] = list(val)
+    return tokens
 
 
 def _added_content(pre_text: str, post_text: str) -> str:
@@ -76,6 +102,38 @@ def scan_added_content(
     return matched
 
 
+def scan_suppression_paths(
+    base_sha: str,
+    paths: list[str],
+    git_cwd: str,
+    forbidden_new_tokens: list[str] | None = None,
+) -> list[dict[str, object]]:
+    """Suppression-only scan over ``paths``: for each, diff its pre (``git show
+    base_sha:path``) against its current working-tree content and surface any
+    ADDED gate-suppression token. Returns the list of ``{"path", "tokens"}``
+    hits (empty => clean). NO tamper logic — this is the single-source (§1g)
+    suppression leg, callable independently of ``scan_boundary``.
+
+    ``forbidden_new_tokens`` is layered on top of the built-in patterns exactly
+    as ``scan_added_content`` layers them (caller may pass an already-resolved
+    registry+caller union)."""
+    hits: list[dict[str, object]] = []
+    for path in paths:
+        show = git_port.git_read(
+            ["show", f"{base_sha}:{path}"],
+            cwd=git_cwd, timeout=30,
+        )
+        pre = show.stdout if show.returncode == 0 else ""
+        try:
+            post = (Path(git_cwd) / path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        tokens = scan_added_content(pre, post, forbidden_new_tokens)
+        if tokens:
+            hits.append({"path": path, "tokens": tokens})
+    return hits
+
+
 @dataclass
 class BoundaryScanResult:
     suppression_hits: list[dict] = field(default_factory=list)
@@ -109,14 +167,22 @@ def scan_boundary(
     if policy is None:
         raise ValueError(f"Unknown authored-diff boundary: {boundary!r}")
 
+    # §1.1a — union the registry-resolved blocklist with the caller's tokens
+    # so a future suppression grammar added in ONE registry place is inherited
+    # by every wired gate. forbidden_tokens_for re-checks the boundary (raises
+    # ValueError, preserving the unknown-boundary contract) and enforces
+    # registry completeness (fail-closed on a missing key).
+    registry_tokens = forbidden_tokens_for(boundary)
+    effective_forbidden_tokens: list[str] = list(registry_tokens) + list(forbidden_new_tokens or [])
+
     # Non-git-repo probe (§2 step 0): git_cwd may be a bare tmp dir with no
     # .git (e.g. gitignore-filter fixtures) — that is not a scan-infrastructure
     # FAILURE, it is simply nothing to scan. Skip both legs cleanly rather than
     # raising RuntimeError.
     try:
-        probe = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
-            cwd=git_cwd, capture_output=True, text=True, timeout=30,
+        probe = git_port.git_read(
+            ["rev-parse", "--is-inside-work-tree"],
+            cwd=git_cwd, timeout=30,
         )
         is_git_repo = probe.returncode == 0
     except OSError:
@@ -140,27 +206,17 @@ def scan_boundary(
     n_authorized_test_edits = 0
 
     if policy.get("scan_suppression"):
-        for path in paths:
-            show = subprocess.run(
-                ["git", "show", f"{base_sha}:{path}"],
-                cwd=git_cwd, capture_output=True, text=True, timeout=30,
-            )
-            pre = show.stdout if show.returncode == 0 else ""
-            try:
-                post = (Path(git_cwd) / path).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            tokens = scan_added_content(pre, post, forbidden_new_tokens)
-            if tokens:
-                suppression_hits.append({"path": path, "tokens": tokens})
+        suppression_hits = scan_suppression_paths(
+            base_sha, paths, git_cwd, effective_forbidden_tokens
+        )
 
     if policy.get("assert_tests_untouched"):
         if list_changed_since is not None:
             changed = list_changed_since()
         else:
-            diff = subprocess.run(
-                ["git", "diff", "--name-only", base_sha],
-                cwd=git_cwd, capture_output=True, text=True, timeout=30,
+            diff = git_port.git_read(
+                ["diff", "--name-only", base_sha],
+                cwd=git_cwd, timeout=30,
             )
             if diff.returncode != 0:
                 raise RuntimeError(
@@ -185,9 +241,9 @@ def scan_boundary(
                     still_tampered.append(path)
                     continue
                 try:
-                    show = subprocess.run(
-                        ["git", "show", f"{base_sha}:{path}"],
-                        cwd=git_cwd, capture_output=True, text=True, timeout=30,
+                    show = git_port.git_read(
+                        ["show", f"{base_sha}:{path}"],
+                        cwd=git_cwd, timeout=30,
                     )
                     preexisting = show.returncode == 0
                 except (subprocess.TimeoutExpired, OSError):
@@ -286,16 +342,18 @@ def classify_red_hash_mismatches(frozen: "dict[str, str]", git_cwd: str) -> "dic
             result[path] = "missing"
             continue
         try:
-            show = subprocess.run(
-                ["git", "show", f"HEAD:{path}"],
-                cwd=git_cwd, capture_output=True, timeout=30,
+            show = git_port.git_read(
+                ["show", f"HEAD:{path}"],
+                cwd=git_cwd, timeout=30,
             )
-        except (subprocess.TimeoutExpired, OSError):
+        except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
+            # UnicodeDecodeError: the port decodes stdout as text; a binary
+            # blob is unreadable-as-text -> same fail-CLOSED verdict.
             result[path] = "head_unreadable"
             continue
         if show.returncode != 0:
             result[path] = "head_unreadable"
             continue
-        head_digest = hashlib.sha256(show.stdout).hexdigest()
+        head_digest = hashlib.sha256(show.stdout.encode("utf-8")).hexdigest()
         result[path] = "head_moved" if head_digest == current_digest else "worktree_dirty"
     return result

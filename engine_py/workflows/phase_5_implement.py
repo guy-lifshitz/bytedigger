@@ -4535,9 +4535,9 @@ def _classify_pragma_origin(rel_path: str, abs_path: str, red_sha: str | None, g
     if not red_sha:
         return "indeterminate"
     try:
-        proc = bounded_run(
-            ["git", "show", f"{red_sha}:{rel_path}"],
-            capture_output=True, text=True, cwd=git_cwd, timeout=30,
+        proc = git_port.git_read(
+            ["show", f"{red_sha}:{rel_path}"],
+            cwd=git_cwd, timeout=30,
         )
         pre_text = proc.stdout if proc.returncode == 0 else ""
     except OSError:
@@ -4639,7 +4639,17 @@ def _verify_security_lint(ctx, prev) -> StepResult:
             if origin == "baseline":
                 _emit_safe("security_lint_pragma_authorized", {"phase": 5, "path": rel, "reason": "baseline"})
             elif origin == "indeterminate":
+                # f9001011: an indeterminate origin (falsy red_sha, etc.) must
+                # fail CLOSED — treated exactly like added_in_diff. Spec-authorized
+                # paths still pass; everything else is rejected. The bare
+                # telemetry event is still emitted (back-compat), but it is no
+                # longer the sole outcome.
                 _emit_safe("security_lint_pragma_origin_indeterminate", {"phase": 5, "path": rel})
+                if rel in authorized:
+                    _emit_safe("security_lint_pragma_authorized", {"phase": 5, "path": rel, "reason": "spec_authorized"})
+                else:
+                    self_exempt.append({"path": rel, "reason": hit.get("reason", ""), "token": "security-lint: allow", "origin": "indeterminate"})
+                    _emit_safe("security_lint_pragma_origin_indeterminate_rejected", {"phase": 5, "path": rel})
             else:  # added_in_diff
                 if rel in authorized:
                     _emit_safe("security_lint_pragma_authorized", {"phase": 5, "path": rel, "reason": "spec_authorized"})
@@ -6484,6 +6494,21 @@ def _commit_green_code(ctx, prev) -> StepResult:
         git_cwd,
     )
 
+    # f624e3fb (P6): the boundary scan set is derived from git, INDEPENDENT of
+    # the manifest/prod_paths — the set of files changed since red_commit_sha
+    # with test paths RETAINED (same gitignore/phantom filtering as prod_paths).
+    # git diff sees the actual changed files on every entry path (fresh,
+    # same-cycle retry, green_complete_resume), so a suppression token in a test
+    # file or in any manifest-absent file is still scanned. git add/commit keep
+    # using prod_paths (below) — the committed set is unchanged.
+    boundary_scan_paths = _filter_phantom_deleted_paths(
+        _filter_gitignored_paths(
+            git_diff_files(red_commit_sha, git_cwd, untracked=True, segment_filter=None),
+            git_cwd,
+        ),
+        git_cwd,
+    )
+
     # AC13 (R-MEDIUM-1): telemeter manifest resolution BEFORE git add so an
     # under-commit (transcript dropped a tool call → manifest smaller than
     # reality) is observable in the event log.
@@ -6496,6 +6521,24 @@ def _commit_green_code(ctx, prev) -> StepResult:
             "phase": 5,
         },
     )
+
+    # f624e3fb (P6): suppression-ONLY wide pass over the git-diff-derived scan
+    # set (boundary_scan_paths — test paths RETAINED, manifest-independent), so a
+    # suppression token in a test file or any manifest-absent file is caught on
+    # EVERY entry path (fresh / same-cycle retry / green_complete_resume), even
+    # when prod_paths is empty. This is suppression-only: the tamper leg and the
+    # empty-manifest early-return below behave exactly as base.
+    if get_config().gate_enabled("HAL_AUTHORED_BOUNDARY_GATE"):
+        wide_hits = authored_boundary.scan_suppression_paths(
+            red_commit_sha, boundary_scan_paths, git_cwd,
+            authored_boundary.forbidden_tokens_for("green_commit"),
+        )
+        if wide_hits:
+            return StepResult(
+                status="error", data=None, duration_ms=0, step_name="commit_green_code",
+                error=f"authored-diff boundary scan found new suppression tokens: {wide_hits!r}",
+                error_code="E_BOUNDARY_SUPPRESSION", recoverable=False,
+            )
 
     if not prod_paths:
         _emit_safe(

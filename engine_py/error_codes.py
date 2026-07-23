@@ -15,9 +15,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.scan_roots import git_ignored_dirs, is_pruned_dir  # noqa: E402
 
+# Both host state-dirname conventions are listed statically on purpose: this module is
+# imported by the harvest tooling before any config provider registers, so reading
+# config_provider.foreign_state_dirname() here would create an import-order dependency.
 HARVEST_EXCLUDE_DIRS: frozenset[str] = frozenset({
     "tests", "__tests__", "__pycache__", "scripts", "_w6_tmp_p45", "_w6_tmp_p5i",
-    ".venv", "venv", "SHARED", ".hal-build",
+    ".venv", "venv", "SHARED", ".hal-build", ".bytedigger",
 })
 
 CODE_RE = re.compile(r"[\"']E_[A-Z0-9_]+[\"']")
@@ -186,8 +189,10 @@ ERROR_CODES: dict[str, str] = {
     "E_SEMANTIC_VERIFY_WRITE_FAILED": "semantic_verifier: writing the semantic verification result failed",
     "E_SHIP_DIRTY_TREE": "phase_8_post_deploy: working tree was dirty at ship time",
     "E_SHIP_FULL_SUITE_REGRESSION": "phase_8_post_deploy: full-suite verify showed a regression vs baseline",
+    "E_SHIP_PHANTOM_DELETION": "phase_8_post_deploy: PR diff would delete files the branch never touched",
     "E_SHIP_PR_FAILED": "phase_8_post_deploy: creating the ship pull request failed",
     "E_SHIP_PUSH_FAILED": "phase_8_post_deploy: git push at ship time failed",
+    "E_SHIP_REBASE_CONFLICT": "phase_8_post_deploy: rebase onto origin/main conflicted at ship time",
     "E_SHIP_UNALLOWLISTED_RED": "phase_8_post_deploy: ship-time suite showed a red not covered by the allowlist",
     "E_SMOKE_FAILED": "phase_6_smoke: smoke test run reported a failure",
     "E_SMOKE_TIMEOUT": "phase_6_smoke: smoke test subprocess timed out",

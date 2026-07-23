@@ -362,7 +362,8 @@ def test_ac10_byte_cap_and_bounded_growth_vs_kill_switch_off(tmp_path, monkeypat
 
     # GH724 item-5 finalize-coverage grew the block to 2280B; headroom per GH729 bounded-growth intent
     # GH1101 appended preflight item 6 (§1a sibling-shape-audit) → block 2552→3191B; cap raised 2560→3400 (authorized-test-edit §1s)
-    assert len(_spec_high_binding_block().encode("utf-8")) <= 3400
+    # 4197B484 (GH1120/GH1121) appends _spec_named_sections_block() (budgeted ≤600B) to the preflight block; measured 3191B on base 402ccc01b → ≤3791B after ship; cap raised 3400→4000, preserving the same ≥209B headroom GH1101 left (authorized-test-edit §1s)
+    assert len(_spec_high_binding_block().encode("utf-8")) <= 4000
 
     scratchpad_on = tmp_path / "scratch_on"
     _write_prev_spec(scratchpad_on)
@@ -379,7 +380,8 @@ def test_ac10_byte_cap_and_bounded_growth_vs_kill_switch_off(tmp_path, monkeypat
 
     # GH724 item-5 finalize-coverage grew the block to 2280B; headroom per GH729 bounded-growth intent
     # GH1101 item 6 grew the injected block in lockstep with the byte-cap above; delta cap raised 2560→3400 (authorized-test-edit §1s)
-    assert len(p_on) - len(p_off) <= 3400
+    # 4197B484 (GH1120/GH1121) grows the injected block by _spec_named_sections_block() (budgeted ≤600B; block 3191B on base 402ccc01b); delta cap raised 3400→4000 in lockstep with the byte-cap above (authorized-test-edit §1s)
+    assert len(p_on) - len(p_off) <= 4000
 
 
 # ─── AC-11 ──────────────────────────────────────────────────────────────────

@@ -59,7 +59,8 @@ def _module_default_db_path() -> Path:
     """§1g canonical resolver fallback when HAL_DBOS_DB_PATH unset.
 
     Routes through the config_provider seam: HAL provider → the state dir's dbos.sqlite;
-    neutral provider → cwd/.hal-build/dbos.sqlite (standalone resumable, zero infra).
+    neutral provider → cwd/<foreign_state_dirname()>/dbos.sqlite (standalone resumable,
+    zero infra).
     """
     from config_provider import get_config, dbos_db_relpath
     return get_config().hal_root() / dbos_db_relpath()

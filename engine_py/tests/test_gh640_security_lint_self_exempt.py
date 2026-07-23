@@ -221,7 +221,7 @@ def test_a5_parse_authorized_pragma_paths_exact_match_no_glob():
     )
 
 
-# ─── A6: red_sha falsy → indeterminate, gate defers (no reject) ─────────────
+# ─── A6: red_sha falsy → indeterminate, gate REJECTS (GH1108 f9001011) ──────
 
 
 def test_a6_classify_pragma_origin_falsy_red_sha_returns_indeterminate():
@@ -232,7 +232,10 @@ def test_a6_classify_pragma_origin_falsy_red_sha_returns_indeterminate():
     assert origin == "indeterminate", f"expected indeterminate, got {origin!r}"
 
 
-def test_a6_gate_defers_when_red_sha_falsy(tmp_path, monkeypatch):
+def test_a6_gate_rejects_when_red_sha_falsy(tmp_path, monkeypatch):
+    # GH1108 f9001011 (spec CC6D477B §1.2): a falsy red_sha yields an
+    # `indeterminate` origin, which is now treated exactly like `added_in_diff`
+    # — an unauthorized pragma REJECTS (fail-closed), no longer defers.
     repo = tmp_path / "repo"
     repo.mkdir()
     _git_init(repo)
@@ -245,9 +248,16 @@ def test_a6_gate_defers_when_red_sha_falsy(tmp_path, monkeypatch):
     prev = _make_prev(red_commit_sha=None)
     result = phase_5_implement._verify_security_lint(ctx, prev)
 
-    assert result.error_code != "E_SEC_LINT_SELF_EXEMPT", (
-        f"expected DEFER (no reject) when red_sha falsy, got error_code={result.error_code!r}"
+    assert result.status == "error", f"expected error, got {result.status}"
+    assert result.error_code == "E_SEC_LINT_SELF_EXEMPT", (
+        f"expected REJECT when red_sha falsy + unauthorized pragma, got error_code={result.error_code!r}"
     )
+    self_exempt = (result.data or {}).get("security_lint_self_exempt") or []
+    assert any(h.get("origin") == "indeterminate" for h in self_exempt), (
+        f"rejected hit must carry origin=='indeterminate', got {self_exempt!r}"
+    )
+    # The bare telemetry-only event may still be emitted alongside (§1.2
+    # backward-compat), but must no longer be the sole outcome.
     indeterminate = [p for (et, p) in events if et == "security_lint_pragma_origin_indeterminate"]
     assert any(p.get("path") == "a.py" for p in indeterminate), (
         f"expected security_lint_pragma_origin_indeterminate for a.py, got {events}"

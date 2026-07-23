@@ -124,16 +124,32 @@ def _hal_directed_repair_default_off(monkeypatch):
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
 
 
+_STATE_LOG_ENV_SEAMS = {
+    "HAL_REJECT_LOG": "reject-reasons.jsonl",
+    "HAL_REWORK_LOG": "build-rework-log.jsonl",
+    "HAL_VERDICT_VERIFY_LOG": "verdict-verify-gate.jsonl",
+    "HAL_INCIDENT_LOG": "incidents.jsonl",
+    "HAL_DISPATCHER_REPORTS_LOG": "dispatcher-reports.jsonl",
+}
+
+
 @pytest.fixture(autouse=True)
 def _telemetry_log_isolation(monkeypatch, tmp_path):
-    """GH497 D1: isolate HAL_REJECT_LOG / HAL_REWORK_LOG under pytest tmp for
-    every engine test — prevents build_id=null fixture-pollution rows landing
-    in the real prod logs. Per-test override semantics: a test that calls
-    monkeypatch.setenv(...) itself wins (function-scoped, latest-call-wins);
-    autouse runs first.
+    """GH497 D1 + GH1113: isolate every durable HAL_*_LOG state seam listed in
+    `_STATE_LOG_ENV_SEAMS` under pytest tmp for every engine test — prevents
+    build_id=null fixture-pollution rows landing in the real prod logs.
+
+    These seams MUST be set through os.environ (monkeypatch.setenv, which mutates
+    the real environment) rather than passed as fixture arguments: the writers are
+    reached through subprocess CLI and git-hook invocations, and a child process
+    only inherits the environment — an in-process fixture-arg seam would not
+    reach it, and the child would fall back to its cwd-relative default.
+
+    Per-test override semantics: a test that calls monkeypatch.setenv(...) itself
+    wins (function-scoped, latest-call-wins); autouse runs first.
     """
-    monkeypatch.setenv("HAL_REJECT_LOG", str(tmp_path / "reject-reasons.jsonl"))
-    monkeypatch.setenv("HAL_REWORK_LOG", str(tmp_path / "build-rework-log.jsonl"))
+    for var, filename in _STATE_LOG_ENV_SEAMS.items():
+        monkeypatch.setenv(var, str(tmp_path / filename))
 
 
 @pytest.fixture(autouse=True)

@@ -804,6 +804,25 @@ def _spec_preflight_block() -> str:
         "   symbol. An empty symbol grep means the audit is INAPPLICABLE (wrong\n"
         "   query) — NOT that the change is sibling-clean. Each such consumer gets a\n"
         "   covering AC or an authorized-test-edits entry.\n"
+    ) + _spec_named_sections_block()
+
+
+def _spec_named_sections_block() -> str:
+    """4197B484 (GH1120-C) §1.5 — named-section mandate (§1aa named helper).
+
+    Budgeted at <= 600 UTF-8 bytes; appended VERBATIM to _spec_preflight_block(),
+    which covers both the cycle-1 and the cycle>=2 high-binding prompt paths.
+    """
+    return (
+        "\n"
+        "7. MANDATORY NAMED SECTIONS — the spec ALWAYS emits both, even when\n"
+        "   inapplicable:\n"
+        "   - `## §3.2 Sibling-test audit` — if inapplicable the body is exactly\n"
+        "     `sibling-test audit: n/a — <reason>`.\n"
+        "   - `## Data-Model Ground Truth` — if inapplicable the body is exactly\n"
+        "     `ground-truth: n/a — <reason>`, written INSIDE that section.\n"
+        "   An audit section lists the audited symbols by name; naming a symbol\n"
+        "   there is what silences its sibling-audit finding.\n"
     )
 
 
@@ -872,6 +891,7 @@ SPEC_HIGH_BINDING_AXES: tuple[str, ...] = (
     "§2-vs-§3 finalize coverage",
     "DATA-MODEL GROUND TRUTH (§1ae)",
     "§1a sibling-shape-audit",
+    "MANDATORY NAMED SECTIONS",
 )
 
 
@@ -1772,6 +1792,35 @@ def _normalize_spec_lint_findings(findings: list[str], spec_path: str) -> list[d
     return out
 
 
+def _sibling_vocab_hint(findings: list[str]) -> str:
+    """4197B484 (GH1120-C) §1.5 — marker-vocabulary hint for the retrying agent.
+
+    Returns "" unless at least one finding's rule id is `sibling-audit-missing`.
+    Every marker below is a verbatim copy of
+    sibling_test_verifier.AUDIT_MARKER_VOCABULARY (drift pinned by AC10).
+    """
+    if not any(":sibling-audit-missing:" in f for f in findings):
+        return ""
+    return (
+        " To resolve a sibling-audit finding, add a `## §3.2 Sibling-test audit` "
+        "section that NAMES the cited symbol; scoping is per symbol, so a section "
+        "not naming it (including an `n/a` body) does not silence it. Accepted "
+        "section markers (case-insensitive): §3.2 | sibling-test audit | "
+        "sibling-test-audit | sibling test audit | sibling-audit:"
+    )
+
+
+def _spec_lint_fail_message(findings: list[str], spec_path: str) -> str:
+    """4197B484 §1.5/§1aa — named sourceable composer for the E_SPEC_LINT_FAIL
+    terminal message. Preserves today's exact text verbatim and appends the
+    sibling marker-vocabulary hint when it applies."""
+    first = findings[0] if findings else "(no findings text)"
+    return (
+        f"spec_lint detected {len(findings)} unverified citation(s) in "
+        f"{spec_path}; first: {first}"
+    ) + _sibling_vocab_hint(findings)
+
+
 def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
     """D04A3BA8 Step 5B.2: invoke scripts/spec_lint/lint_spec.py against the
     just-written spec.  Hard-gates on any findings (E_SPEC_LINT_FAIL,
@@ -1895,7 +1944,6 @@ def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
             recoverable=False,
         )
     if rc == 1:
-        first = findings[0] if findings else "(no findings text)"
         # 457DC7DC GH371 §2.2: cheap directed-repair pre-stage IN FRONT OF the
         # unchanged terminal return. Non-convergence falls through to today's
         # exact E_SPEC_LINT_FAIL terminal (recoverable=False).
@@ -1917,10 +1965,7 @@ def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
             status="error",
             data={**prev.data, "spec_lint_findings": findings},
             duration_ms=0, step_name=step,
-            error=(
-                f"spec_lint detected {len(findings)} unverified citation(s) in "
-                f"{spec_path}; first: {first}"
-            ),
+            error=_spec_lint_fail_message(findings, str(spec_path)),
             error_code="E_SPEC_LINT_FAIL",
             recoverable=False,
         )

@@ -329,10 +329,18 @@ def is_grandfathered(doc_path, *, env=os.environ) -> bool:
 def anchor_gate_decision(
     result: str, doc_path, *, enforce: bool, env=os.environ
 ) -> tuple[bool, str]:
-    """Single source of truth for anchor-mode reject decisions (CLI + wrapper)."""
+    """Single source of truth for anchor-mode reject decisions (CLI + wrapper).
+
+    GH1109 (6B2E7B74) D2: DRIFT is an integrity violation — the verdict provably
+    does not cover the files on disk — so it blocks unconditionally, regardless
+    of `enforce` and regardless of grandfathering. `enforce` still decides the
+    UNANCHORED rows (the remaining ramp); it can never un-block DRIFT.
+    """
+    if result == "DRIFT":
+        return (True, "DRIFT")
     if result == "UNANCHORED" and is_grandfathered(doc_path, env=env):
         return (False, "UNANCHORED_GRANDFATHERED")
-    if result in ("DRIFT", "UNANCHORED") and enforce:
+    if result == "UNANCHORED" and enforce:
         return (True, result)
     return (False, result)
 
@@ -450,6 +458,12 @@ def run(argv=None, *, env=os.environ) -> int:
             log_path=log_path,
             now_iso=now_iso,
         )
+        if blocking:
+            # GH1109 D3 — frozen operator line: name the diverging file.
+            print(
+                f"VERDICT-VERIFY {logged_result}: {args.doc} {result.reason}",
+                file=sys.stderr,
+            )
         return 1 if blocking else 0
 
     append_log(
@@ -468,3 +482,7 @@ def run(argv=None, *, env=os.environ) -> int:
     if reject_candidate and enforce:
         return 1
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())

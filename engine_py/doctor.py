@@ -1,4 +1,4 @@
-"""`bytedigger-engine doctor` — offline neutral self-check command (bd#16).
+"""The engine's `doctor` — offline neutral self-check command (bd#16).
 
 Runs a fixed sequence of checks (see spec §2), each producing a CheckResult
 dict `{"name": str, "status": "ok"|"warn"|"fail", "detail": str}`. No LLM
@@ -22,6 +22,15 @@ CheckResult = dict[str, str]
 HERE = Path(__file__).parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
+
+# Single source for the dist name + extras (GH1112). Stdlib-only leaf, so it is
+# importable in exactly the degraded environments doctor exists to diagnose.
+from package_meta import (  # noqa: E402  (needs the sys.path insert above)
+    EXTRA_AGENTIC_PYDANTIC,
+    EXTRA_SECURITY,
+    EXTRA_TEST,
+    install_hint,
+)
 
 # Monkeypatchable seam (AC5): checks 6+8 create their scratch dirs through this.
 _mkdtemp = tempfile.mkdtemp
@@ -88,19 +97,21 @@ def check_gates_importable() -> CheckResult:
 
 
 def check_optional_deps() -> CheckResult:
-    probes = [
-        ("yaml", "test"),
-        ("dbos", "dbos"),
-        ("pydantic_ai", "agentic-pydantic"),
+    # dbos is a hard dependency, not an extra — its hint carries no extra name
+    # (GH1112: a `[dbos]` hint would name something pip cannot resolve).
+    probes: list[tuple[str, str | None]] = [
+        ("yaml", EXTRA_TEST),
+        ("dbos", None),
+        ("pydantic_ai", EXTRA_AGENTIC_PYDANTIC),
     ]
     missing = []
     for mod_name, extra in probes:
         try:
             __import__(mod_name)
         except ImportError:
-            missing.append(f"{mod_name} (pip install 'bytedigger-engine[{extra}]')")
+            missing.append(f"{mod_name} ({install_hint(extra)})")
     if shutil.which("semgrep") is None:
-        missing.append("semgrep (pip install 'bytedigger-engine[security]')")
+        missing.append(f"semgrep ({install_hint(EXTRA_SECURITY)})")
     if not missing:
         return _ok("optional-deps", "all optional deps present")
     return _warn("optional-deps", "missing: " + "; ".join(missing))
@@ -207,10 +218,21 @@ def check_agent_sdk_import() -> CheckResult:
 def check_git_runtime() -> CheckResult:
     if _which("git") is None:
         return _fail("git-runtime", "git not found on PATH")
-    rc, out = _run_cmd(["git", "rev-parse", "--is-inside-work-tree"])
+    # Function-local import (§2.13, AC36b): doctor stays importable standalone,
+    # with nothing but lib/ present, while the probes still route through the port.
+    from lib.git_port import git_read
+
+    def _probe(args: list[str]) -> tuple[int, str]:
+        try:
+            result = git_read(args, timeout=10)
+        except (subprocess.SubprocessError, OSError) as e:
+            return 1, f"{type(e).__name__}: {e}"
+        return result.returncode, (result.stdout.strip() or result.stderr.strip())
+
+    rc, out = _probe(["rev-parse", "--is-inside-work-tree"])
     if rc != 0:
         return _warn("git-runtime", f"not inside a git repo — worktree isolation unavailable: {out}")
-    rc, out = _run_cmd(["git", "worktree", "list"])
+    rc, out = _probe(["worktree", "list"])
     if rc == 0:
         return _ok("git-runtime", "git available, worktree supported")
     return _warn("git-runtime", f"git worktree unsupported: {out}")

@@ -54,6 +54,49 @@ def _git_op_with_lock_retry(cmd: list, *, cwd: str, timeout: int = 30):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 1b. _git_read / _git_write  (D52228C3 §2.9 — hoisted from phase_8/phase_6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _git_read(args: list[str], cwd: Path | str, *, timeout: int = 30) -> tuple[int, str, str]:
+    """READ-only git via the injectable git_read seam; returns a `(rc, stdout, stderr)` tuple.
+
+    Behavior-preserving: same (rc, stdout, stderr) contract and the
+    FileNotFoundError->127 / timeout->124 edge semantics. Reads route
+    through git_port.git_read so an OSS host can swap the git backend.
+
+    Single source (§1g) — phase_8_post_deploy re-exports this name as a
+    settable module attribute; its call sites keep dispatching through that
+    attribute so the pre-existing teardown monkeypatches stay hooked.
+    """
+    try:
+        res = git_port.git_read(args, cwd=str(cwd), timeout=timeout)
+    except FileNotFoundError:
+        return 127, "", "git: command not found"
+    if res.timed_out:
+        return 124, "", f"git {' '.join(args)}: timeout after {timeout}s"
+    return res.returncode, res.stdout, res.stderr
+
+
+def _git_write(args: list[str], cwd: Path | str, *, timeout: int = 30) -> tuple[int, str, str]:
+    """WRITE git via the injectable git_op_capture seam; returns a `(rc, stdout, stderr)` tuple.
+
+    Returns the same (rc, stdout, stderr) contract and the same
+    FileNotFoundError->127 / timeout->124 edge semantics. Writes route through
+    git_write_port.git_op_capture so an OSS host can swap the git backend.
+
+    Single source (§1g) — phase_8_post_deploy and phase_6_review both re-export
+    this name as a settable module attribute (RED tests patch it).
+    """
+    try:
+        res = git_write_port.git_op_capture(["git", *args], cwd=str(cwd), timeout=timeout)
+    except FileNotFoundError:
+        return 127, "", "git: command not found"
+    if res.timed_out:
+        return 124, "", f"git {' '.join(args)}: timeout after {timeout}s"
+    return res.returncode, res.stdout, res.stderr
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 2. _emit_safe  (phase_5 SUPERSET — adds severity kwarg, 1E8EF652)
 # ─────────────────────────────────────────────────────────────────────────────
 

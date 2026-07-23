@@ -108,9 +108,10 @@ def _parse_output(stdout: str, exit_code: int) -> tuple[int, int]:
 
 
 def test_subprocess_env(cwd: Union[str, Path]) -> dict[str, str]:
-    """os.environ overlaid with HAL_DIR=<cwd> so bash tests sourcing
-    ${HAL_DIR:-$HOME/.claude}/... resolve to the checkout under test (the worktree),
-    not the main checkout. Closes V3-052 / 04DDFA12 RCA-2 recurrence."""
+    """os.environ overlaid with HAL_DIR=<cwd> so bash tests sourcing paths under
+    HAL_DIR (which otherwise falls back to the install root) resolve to the
+    checkout under test (the worktree), not the main checkout.
+    Closes V3-052 / 04DDFA12 RCA-2 recurrence."""
     env = dict(config_provider.env_mapping())
     env["HAL_DIR"] = str(cwd)
     return env
