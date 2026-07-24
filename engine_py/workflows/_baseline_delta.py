@@ -33,6 +33,8 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
         emit("baseline_delta_gate_skipped", {"reason": "script_missing", "script": str(script)})
         return {"skipped": "script_missing"}
 
+    enforced = bool(cfg.flag("HAL_BASELINE_DELTA_ENFORCE"))
+
     try:
         proc = subprocess.run(
             [sys.executable, str(script), "--results", stdout_path, "--suite", suite],
@@ -40,11 +42,11 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
         )
     except (subprocess.TimeoutExpired, OSError):
         emit("baseline_delta_gate_skipped", {"reason": "exec_error"})
-        return {"skipped": "exec_error"}
+        return {"skipped": "exec_error", "would_block": enforced}
 
     if proc.returncode == 2:
         emit("baseline_delta_gate_skipped", {"reason": "driver_error"})
-        return {"skipped": "driver_error", "would_block": False}
+        return {"skipped": "driver_error", "would_block": enforced}
 
     lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
     verdict_json = None
@@ -55,13 +57,12 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
             verdict_json = None
 
     if verdict_json is None:
-        return {"skipped": "parse_error"}
+        return {"skipped": "parse_error", "would_block": enforced}
 
     verdict = verdict_json.get("verdict")
     new_fails = verdict_json.get("new_fails", [])
     ledgered = verdict_json.get("ledgered", [])
     baseline_source = verdict_json.get("baseline_source")
-    enforced = bool(cfg.flag("HAL_BASELINE_DELTA_ENFORCE"))
     would_block = enforced and verdict == "FAIL"
 
     emit("baseline_delta_gate_verdict", {

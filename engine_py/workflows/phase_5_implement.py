@@ -104,7 +104,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from dataclasses import replace as _replace
-from contracts import LoopStepContract, RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
+from contracts import LoopStepContract, RetryPolicy, StepContract, StepResult, WorkflowContext, WorkflowDefinition, step
 from config_provider import get_config, int_value, timeout_policy_path, default_security_asset  # noqa: E402  GH285 C2
 import flags_catalog  # noqa: E402  GH529
 from suite_safety import scan_suite_safety
@@ -2420,13 +2420,15 @@ def classify_red_run_shape(returncode: int, output: str) -> str | None:
     return None
 
 
-def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
+def _verify_red_guard_prev_and_paths(prev: StepResult) -> "tuple[StepResult | None, list[str]]":
+    """Block 1: prev-shape (E_MISSING_PREV_DATA), test_only_mode short-circuit,
+    empty-paths (E_RED_NO_PATHS). Returns (early_result_or_None, red_test_paths)."""
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
             status="error", data=None, duration_ms=0,
             step_name="verify_red_fails_mechanically",
             error="prev step did not produce data", error_code="E_MISSING_PREV_DATA",
-        )
+        ), []
     if prev.data.get("commit_red_tests_skipped") == "test_only_mode":
         _emit_safe(
             "red_verify_skipped_test_only",
@@ -2435,7 +2437,7 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
         return StepResult(
             status="ok", data={**prev.data}, duration_ms=0,
             step_name="verify_red_fails_mechanically",
-        )
+        ), []
     red_test_paths = prev.data.get("red_test_paths") or []
     if not red_test_paths:
         return StepResult(
@@ -2443,11 +2445,15 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
             step_name="verify_red_fails_mechanically",
             error="no red_test_paths to verify",
             error_code="E_RED_NO_PATHS",
-        )
-    cfg = ctx.org_config or {}
-    git_cwd = _resolve_git_cwd(ctx, prev)
+        ), []
+    return None, red_test_paths
+
+
+def _verify_red_dirty_tree_guard(git_cwd: str, red_test_paths: list[str], spec_path: str | None) -> "StepResult | None":
+    """GH961 dirty-tree guard (block 2). Returns E_RED_WORKTREE_DIRTY early result
+    when uncommitted production paths are present, else None."""
     if get_config().gate_enabled("HAL_DIRTY_TREE_GUARD"):    # kill-switch, default ON
-        guard_allowlist = _parse_spec_files_allowlist(prev.data.get("spec_path"))
+        guard_allowlist = _parse_spec_files_allowlist(spec_path)
         if not guard_allowlist:
             _emit_safe(
                 "red_dirty_tree_guard_error",
@@ -2479,134 +2485,141 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
                     error_code="E_RED_WORKTREE_DIRTY",
                     recoverable=False,
                 )
-    plan = _infer_test_command_for_paths(list(red_test_paths), git_cwd=git_cwd)
-    if plan.get("skipped"):
-        return StepResult(
-            status="ok",
-            data={**prev.data, "skipped": plan["reason"], "skip_reason": plan["reason"]},
-            duration_ms=0,
-            step_name="verify_red_fails_mechanically",
+    return None
+
+
+def _emit_red_outcome_telemetry(kind: str, argv: list[str], git_cwd: str) -> None:
+    """Emit red_test_outcome once per group using disk_truth for parsed counts.
+    Note: this re-runs the test command; future optimization could reuse proc.stdout.
+    The `except Exception` swallow is load-bearing (telemetry must never block the
+    decision) — preserve it verbatim."""
+    try:
+        dt_result = run_test_command(argv, git_cwd, timeout=120)
+        _emit_safe("red_test_outcome", {
+            "group": kind,
+            "exit_code": dt_result.exit_code,
+            "n_passed": dt_result.n_passed,
+            "n_failed": dt_result.n_failed,
+            "phase": 5,
+        }, severity="warning")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("red_test_outcome telemetry failed for group %s: %s", kind, e)
+
+
+def _run_red_group(group: dict[str, Any], ctx: WorkflowContext, prev: StepResult, git_cwd: str) -> "tuple[StepResult | None, str | None, str | None]":
+    """Per-group loop body (block 4). Returns
+    (early_result_or_None, passing_kind_or_None, group_stdout_or_None).
+    An early_result must be propagated unchanged by the caller; passing_kind is
+    appended to passing_groups; group_stdout updates last_stdout when not None."""
+    argv = group["argv"]
+    kind = group["kind"]
+    try:
+        proc = bounded_run(
+            argv, capture_output=True, text=True, cwd=git_cwd, timeout=120,
+            env=test_subprocess_env(git_cwd),
         )
-    # Pillar 3 contract: ALL groups must individually fail. Any all-passing
-    # group = fake RED for that language → error. Track per-group results.
-    passing_groups: list[str] = []
-    last_stdout = ""
-    for group in plan["groups"]:
-        argv = group["argv"]
-        kind = group["kind"]
-        try:
-            proc = bounded_run(
-                argv, capture_output=True, text=True, cwd=git_cwd, timeout=120,
-                env=test_subprocess_env(git_cwd),
-            )
-        except FileNotFoundError as e:
-            # Pytest path keeps its historical error code; other runners share E_TEST_RUNNER_MISSING.
-            if kind == "py":
-                return StepResult(
-                    status="error", data=None, duration_ms=0,
-                    step_name="verify_red_fails_mechanically",
-                    error=f"pytest binary missing: {e}",
-                    error_code="E_PYTEST_MISSING",
-                    recoverable=False,
-                )
+    except FileNotFoundError as e:
+        # Pytest path keeps its historical error code; other runners share E_TEST_RUNNER_MISSING.
+        if kind == "py":
             return StepResult(
                 status="error", data=None, duration_ms=0,
                 step_name="verify_red_fails_mechanically",
-                error=f"{argv[0]} binary missing: {e}",
-                error_code="E_TEST_RUNNER_MISSING",
+                error=f"pytest binary missing: {e}",
+                error_code="E_PYTEST_MISSING",
                 recoverable=False,
-            )
-        if proc.returncode == 124:
-            # Mirror the FileNotFoundError branching: pytest keeps historical code.
-            if kind == "py":
-                return StepResult(
-                    status="error", data=None, duration_ms=0,
-                    step_name="verify_red_fails_mechanically",
-                    error=f"pytest exceeded 120s timeout running red_test_paths",
-                    error_code="E_RED_PYTEST_TIMEOUT",
-                )
+            ), None, None
+        return StepResult(
+            status="error", data=None, duration_ms=0,
+            step_name="verify_red_fails_mechanically",
+            error=f"{argv[0]} binary missing: {e}",
+            error_code="E_TEST_RUNNER_MISSING",
+            recoverable=False,
+        ), None, None
+    if proc.returncode == 124:
+        # Mirror the FileNotFoundError branching: pytest keeps historical code.
+        if kind == "py":
             return StepResult(
                 status="error", data=None, duration_ms=0,
                 step_name="verify_red_fails_mechanically",
-                error=f"{argv[0]} exceeded 120s timeout running red_test_paths",
-                error_code="E_RED_TEST_RUNNER_TIMEOUT",
-            )
-        # Telemetry: emit red_test_outcome once per group using disk_truth for parsed counts.
-        # Note: this re-runs the test command; future optimization could reuse proc.stdout.
-        try:
-            dt_result = run_test_command(argv, git_cwd, timeout=120)
-            _emit_safe("red_test_outcome", {
-                "group": kind,
-                "exit_code": dt_result.exit_code,
-                "n_passed": dt_result.n_passed,
-                "n_failed": dt_result.n_failed,
-                "phase": 5,
+                error=f"pytest exceeded 120s timeout running red_test_paths",
+                error_code="E_RED_PYTEST_TIMEOUT",
+            ), None, None
+        return StepResult(
+            status="error", data=None, duration_ms=0,
+            step_name="verify_red_fails_mechanically",
+            error=f"{argv[0]} exceeded 120s timeout running red_test_paths",
+            error_code="E_RED_TEST_RUNNER_TIMEOUT",
+        ), None, None
+    _emit_red_outcome_telemetry(kind, argv, git_cwd)
+    last_stdout = proc.stdout
+    # GH1095 §2.2: crash-shape gate. Placed strictly AFTER the rc==124
+    # early returns (AC7 — timeouts keep their own codes) and strictly
+    # BEFORE the passing_groups check (AC10 — a zero-executed rc==0 run is
+    # a crash, not a fake RED). GATE-AMEND-2: the accessor is
+    # attribute-safe — sibling stubs supply SimpleNamespace objects with no
+    # `.stderr`, and a bare `proc.stderr` would raise before any assertion.
+    _crash_out = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
+    crash = classify_red_run_shape(proc.returncode, _crash_out)
+    if crash is not None:
+        _emit_safe("red_crashed", {
+            "phase": 5,
+            "step": "verify_red_fails_mechanically",
+            "group": kind,
+            "reason": crash,
+            "exit_code": proc.returncode,
+        }, severity="warning")
+        _crash_tail = _crash_out[-2000:]
+        # GH911 boy-scout: gated_step_result resolves to Any under
+        # --follow-imports=silent (as at every other call site in this
+        # module), so bind through an annotated local to keep mypy's
+        # no-any-return count flat instead of adding an 8th violation.
+        _crash_result: StepResult = RecoverableGateMixin.gated_step_result(
+            build_class=(ctx.org_config or {}).get("complexity", "SIMPLE").upper(),
+            gate="red_crashed",
+            cycle=int(prev.data.get("cycle", 1)),
+            retry_from_step_idx=0,           # build_red_prompt — regenerate RED
+            error_code="E_RED_CRASHED",
+            error_msg=(
+                f"RED group [{kind}] crashed without executing assertions "
+                f"(reason={crash}, exit={proc.returncode}). "
+                f"Output tail:\n{_crash_tail}"
+            ),
+            step_name="verify_red_fails_mechanically",
+            forwarded_data={
+                **prev.data,
+                "red_crash_reason": crash,
+                "red_crash_exit_code": proc.returncode,
+                "stdout_tail": _crash_tail,
+            },
+            terminal_error_code="E_RED_CRASHED",
+            terminal_error_msg=(
+                f"RED crash cap exhausted: group [{kind}] crashed without "
+                f"executing assertions (reason={crash})"
+            ),
+        )
+        return _crash_result, None, last_stdout
+    if proc.returncode == 0:
+        # A11B364A / GH1097 §2.3: an `sh` suite with an absent/miswired exit guard
+        # exits 0 while reporting FAIL lines — that is a genuine RED, not a fake one.
+        # §1g: ONE canonical derive of the input surface, consumed by both the
+        # decision call and the emit re-derive. A single expression cannot drift
+        # from itself — this structurally kills the two-spelling defect class.
+        _sh_output = (proc.stdout or "") + (getattr(proc, "stderr", "") or "")
+        _sh_reports_fail = red_group_reports_failures(_sh_output, kind)
+        if _sh_reports_fail:
+            _n_pass, _n_fail = _parse_sh_test_counts(_sh_output)
+            _emit_safe("red_sh_failure_evidence_override", {
+                "phase": 5, "step": "verify_red_fails_mechanically", "group": kind,
+                "exit_code": proc.returncode, "n_passed": _n_pass, "n_failed": _n_fail,
             }, severity="warning")
-        except Exception as e:  # noqa: BLE001
-            logger.warning("red_test_outcome telemetry failed for group %s: %s", kind, e)
-        last_stdout = proc.stdout
-        # GH1095 §2.2: crash-shape gate. Placed strictly AFTER the rc==124
-        # early returns (AC7 — timeouts keep their own codes) and strictly
-        # BEFORE the passing_groups check (AC10 — a zero-executed rc==0 run is
-        # a crash, not a fake RED). GATE-AMEND-2: the accessor is
-        # attribute-safe — sibling stubs supply SimpleNamespace objects with no
-        # `.stderr`, and a bare `proc.stderr` would raise before any assertion.
-        _crash_out = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
-        crash = classify_red_run_shape(proc.returncode, _crash_out)
-        if crash is not None:
-            _emit_safe("red_crashed", {
-                "phase": 5,
-                "step": "verify_red_fails_mechanically",
-                "group": kind,
-                "reason": crash,
-                "exit_code": proc.returncode,
-            }, severity="warning")
-            _crash_tail = _crash_out[-2000:]
-            # GH911 boy-scout: gated_step_result resolves to Any under
-            # --follow-imports=silent (as at every other call site in this
-            # module), so bind through an annotated local to keep mypy's
-            # no-any-return count flat instead of adding an 8th violation.
-            _crash_result: StepResult = RecoverableGateMixin.gated_step_result(
-                build_class=(ctx.org_config or {}).get("complexity", "SIMPLE").upper(),
-                gate="red_crashed",
-                cycle=int(prev.data.get("cycle", 1)),
-                retry_from_step_idx=0,           # build_red_prompt — regenerate RED
-                error_code="E_RED_CRASHED",
-                error_msg=(
-                    f"RED group [{kind}] crashed without executing assertions "
-                    f"(reason={crash}, exit={proc.returncode}). "
-                    f"Output tail:\n{_crash_tail}"
-                ),
-                step_name="verify_red_fails_mechanically",
-                forwarded_data={
-                    **prev.data,
-                    "red_crash_reason": crash,
-                    "red_crash_exit_code": proc.returncode,
-                    "stdout_tail": _crash_tail,
-                },
-                terminal_error_code="E_RED_CRASHED",
-                terminal_error_msg=(
-                    f"RED crash cap exhausted: group [{kind}] crashed without "
-                    f"executing assertions (reason={crash})"
-                ),
-            )
-            return _crash_result
-        if proc.returncode == 0:
-            # A11B364A / GH1097 §2.3: an `sh` suite with an absent/miswired exit guard
-            # exits 0 while reporting FAIL lines — that is a genuine RED, not a fake one.
-            # §1g: ONE canonical derive of the input surface, consumed by both the
-            # decision call and the emit re-derive. A single expression cannot drift
-            # from itself — this structurally kills the two-spelling defect class.
-            _sh_output = (proc.stdout or "") + (getattr(proc, "stderr", "") or "")
-            _sh_reports_fail = red_group_reports_failures(_sh_output, kind)
-            if _sh_reports_fail:
-                _n_pass, _n_fail = _parse_sh_test_counts(_sh_output)
-                _emit_safe("red_sh_failure_evidence_override", {
-                    "phase": 5, "step": "verify_red_fails_mechanically", "group": kind,
-                    "exit_code": proc.returncode, "n_passed": _n_pass, "n_failed": _n_fail,
-                }, severity="warning")
-            else:
-                passing_groups.append(kind)
+        else:
+            return None, kind, last_stdout
+    return None, None, last_stdout
+
+
+def _decide_red_verdict(ctx: WorkflowContext, prev: StepResult, git_cwd: str, red_test_paths: list[str], plan: dict[str, Any], passing_groups: list[str], last_stdout: str) -> StepResult:
+    """Block 5: GH483 green_complete_resume, GH1034 cycle restore, legacy
+    E_RED_NOT_FAILING, and the happy-path ok result."""
     if passing_groups:
         # GH483: crash-resume seam — a prior GREEN may have already written the
         # implementation to the working tree, so RED now passes for a
@@ -2657,6 +2670,39 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
         data=dict(prev.data),
         duration_ms=0,
         step_name="verify_red_fails_mechanically",
+    )
+
+
+def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
+    early, red_test_paths = _verify_red_guard_prev_and_paths(prev)
+    if early is not None:
+        return early
+    git_cwd = _resolve_git_cwd(ctx, prev)
+    dirty = _verify_red_dirty_tree_guard(git_cwd, red_test_paths, prev.data.get("spec_path"))
+    if dirty is not None:
+        return dirty
+    plan = _infer_test_command_for_paths(list(red_test_paths), git_cwd=git_cwd)
+    if plan.get("skipped"):
+        return StepResult(
+            status="ok",
+            data={**prev.data, "skipped": plan["reason"], "skip_reason": plan["reason"]},
+            duration_ms=0,
+            step_name="verify_red_fails_mechanically",
+        )
+    # Pillar 3 contract: ALL groups must individually fail. Any all-passing
+    # group = fake RED for that language → error. Track per-group results.
+    passing_groups: list[str] = []
+    last_stdout = ""
+    for group in plan["groups"]:
+        early_group, passing_kind, group_stdout = _run_red_group(group, ctx, prev, git_cwd)
+        if early_group is not None:
+            return early_group
+        if group_stdout is not None:
+            last_stdout = group_stdout
+        if passing_kind is not None:
+            passing_groups.append(passing_kind)
+    return _decide_red_verdict(
+        ctx, prev, git_cwd, red_test_paths, plan, passing_groups, last_stdout
     )
 
 

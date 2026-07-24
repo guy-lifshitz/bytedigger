@@ -158,8 +158,13 @@ class TestSourceGrepBFEC3E71:
         assert "subprocess.run(" not in body
 
     def test_verify_red_fails_mechanically_uses_bounded_run(self):
-        """AC1/AC2 Bucket B: _verify_red_fails_mechanically body must call bounded_run."""
-        body = _fn_body(_source(), "_verify_red_fails_mechanically")
+        """AC1/AC2 Bucket B: the red-group run body must call bounded_run.
+
+        Repointed per GH1114: the run/exception body moved from
+        _verify_red_fails_mechanically to the _run_red_group helper (radon
+        decompose); coverage preserved at the new home.
+        """
+        body = _fn_body(_source(), "_run_red_group")
         assert "bounded_run(" in body
         assert "subprocess.run(" not in body
 
@@ -235,9 +240,14 @@ class TestSourceGrepBFEC3E71:
         assert "OSError" in body
 
     def test_verify_red_fails_mechanically_no_timeout_expired_except(self):
-        """AC3 Bucket B: _verify_red_fails_mechanically must not catch TimeoutExpired
-        but must still catch FileNotFoundError."""
-        body = _fn_body(_source(), "_verify_red_fails_mechanically")
+        """AC3 Bucket B: the red-group run body must not catch TimeoutExpired
+        but must still catch FileNotFoundError.
+
+        Repointed per GH1114: the run/exception body moved from
+        _verify_red_fails_mechanically to the _run_red_group helper (radon
+        decompose); coverage preserved at the new home.
+        """
+        body = _fn_body(_source(), "_run_red_group")
         assert "TimeoutExpired" not in body
         assert "FileNotFoundError" in body
 

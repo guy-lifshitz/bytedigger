@@ -2223,13 +2223,9 @@ def _verify_spec_cite_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
             "detail": (proc.stderr or "")[-200:],
         })
         return StepResult(
-            status="ok",
-            data={
-                **prev.data,
-                "spec_cite_lint_skipped": "driver_error",
-                "spec_cite_lint_driver_detail": (proc.stderr or "")[-200:],
-            },
-            duration_ms=0, step_name=step,
+            status="error", data={**prev.data}, duration_ms=0, step_name=step,
+            error=f"spec_cite_lint driver usage error (rc=2); stderr={(proc.stderr or '')[-200:]}",
+            error_code="E_SPEC_CITE_LINT_UNEXPECTED_RC", recoverable=False,
         )
     # Unexpected rc
     return StepResult(
@@ -2311,7 +2307,15 @@ def _collect_spec_gate_findings(
                 "error_code": "E_SPEC_CITE_LINT_FAIL",
                 "recoverable": False,
             })
-    # rc==2 on spec_cite_lint is graceful — no finding.
+    elif cite_proc is not None and cite_proc.returncode == 2:
+        findings.append({
+            "path": str(spec_path),
+            "line": None,
+            "rule": "spec-cite-lint",
+            "evidence": "driver_error",
+            "error_code": "E_SPEC_CITE_LINT_UNEXPECTED_RC",
+            "recoverable": False,
+        })
 
     return findings
 

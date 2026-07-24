@@ -59,10 +59,13 @@ def _reset_backends_and_telemetry(monkeypatch):
 
     Also neutralises emit_resolver_resolved to prevent disk writes into
     SHARED/state during invoke_llm_subprocess calls.
-    Ensures HAL_RUNNER_BACKEND is not set (use default "claude-subprocess").
+    Pins HAL_RUNNER_BACKEND="claude-subprocess" so backend resolution is
+    deterministic regardless of whether reference backends (e.g. agent-sdk,
+    the new default) are registered in the shared _BACKENDS registry by
+    other test modules on the CI runner (GH1129 / agreement 157E627A).
     """
     monkeypatch.setattr(_llm_mod, "emit_resolver_resolved", lambda *a, **kw: None)
-    monkeypatch.delenv("HAL_RUNNER_BACKEND", raising=False)
+    monkeypatch.setenv("HAL_RUNNER_BACKEND", "claude-subprocess")
     telemetry_ctx.clear_current_run()
     yield
     telemetry_ctx.clear_current_run()
@@ -594,6 +597,56 @@ def test_telemetry_digest_disabled_by_default(tmp_path):
 
     report = (scratchpad / REPORT_DOC_RELPATH).read_text()
     assert "TELEMETRY" not in report
+
+
+# --- agreement 157E627A / GH1129: default-backend registry pollution --------
+
+
+class _FakeAgentSdkBackend:
+    """Mirrors _FailBackend shape but with the CI-observed pollution error_code."""
+
+    def __call__(self, **kw) -> StepResult:
+        return StepResult(
+            status="error",
+            data=None,
+            duration_ms=0,
+            step_name=kw.get("step_name", "invoke_synthesizer_llm"),
+            error="agent-sdk deps missing",
+            error_code="E_LLM_API_DEPS_MISSING",
+            recoverable=False,
+        )
+
+
+def test_synthesizer_no_marker_deterministic_under_agent_sdk_pollution(tmp_path):
+    """Agreement 157E627A / GH1129: locks deterministic backend routing against
+    agent-sdk default-backend registry pollution.
+
+    CI global registry can end up with a fake/broken "agent-sdk" backend
+    registered (e.g. leaked across test order). Because _DEFAULT_BACKEND is
+    "agent-sdk" and the autouse fixture only deletes HAL_RUNNER_BACKEND (does
+    not pin it to "claude-subprocess"), invoke_llm_subprocess resolves to
+    whatever is registered under "agent-sdk" rather than the test's intended
+    claude-subprocess stub -- causing a flaky, machine-dependent error_code.
+    This test pins the expected outcome to the no-marker echo stub registered
+    under claude-subprocess, independent of what pollutes agent-sdk.
+    """
+    scratchpad = tmp_path / "scratch"
+
+    register_backend(
+        "agent-sdk",
+        _FakeAgentSdkBackend(),
+        manifest_source="harness_tool_record",
+        overwrite=True,
+    )
+    _register_echo("Some text without any STATUS marker.\n")
+
+    eng = WorkflowEngine()
+    eng.register("p7", phase_7_synthesize_workflow())
+    result, _ = eng.execute("p7", make_ctx(scratchpad))
+
+    assert result.status == "error"
+    assert result.error_code == "E_SYNTHESIZER_NO_MARKER"
+    assert result.data["synthesizer_status"] == STATUS_NO_MARKER
 
 
 def test_telemetry_digest_enabled_includes_phase_summary(tmp_path, monkeypatch):
