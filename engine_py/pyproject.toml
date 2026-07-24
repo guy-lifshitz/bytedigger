@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bytedigger-engine"
-version = "0.1.0"
+version = "0.1.1"
 description = "Verified agentic TDD engine: a frozen, event-sourced RED->validate->GREEN state machine with deterministic anti-reward-hacking gates."
 readme = "README.md"
 license = { file = "LICENSE" }
