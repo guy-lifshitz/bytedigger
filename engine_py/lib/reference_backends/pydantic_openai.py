@@ -44,6 +44,7 @@ from pathlib import Path
 
 from contracts import StepResult
 from llm_subprocess import register_backend
+from package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
 
 # Pinned at import time — git ground-truth helpers must never be fooled by
 # runtime tampering with subprocess.Popen (anti-gaming, see module docstring).
@@ -51,7 +52,7 @@ _REAL_POPEN = subprocess.Popen
 
 _PIP_EXTRA_HINT = (
     "pydantic_ai is not installed. Install it via: "
-    "pip install bytedigger-engine[agentic-pydantic]"
+    + install_hint(EXTRA_AGENTIC_PYDANTIC)
 )
 
 _MAX_TOOL_OUTPUT = 8000

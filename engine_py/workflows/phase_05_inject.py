@@ -52,6 +52,7 @@ except Exception:  # noqa: BLE001
         pass
 
 from lib.constitution_loader import load_constitution, resolve_render
+from lib import git_port  # noqa: E402  D52228C3 §2.10 — reads route through the injectable git seam
 
 logger = logging.getLogger(__name__)
 
@@ -181,9 +182,9 @@ def _cwd_inside_hal_dir(cwd: Path) -> bool:
     # --git-common-dir and test that instead. Any failure folds to False
     # (preserve current safe-default verdict).
     try:
-        out = subprocess.run(
-            ["git", "-C", str(cwd), "rev-parse", "--git-common-dir"],
-            capture_output=True, text=True, timeout=3,
+        out = git_port.git_read(
+            ["rev-parse", "--git-common-dir"],
+            dir_=str(cwd), timeout=3,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -718,9 +719,9 @@ def _resolve_constitution_project(cfg: dict) -> str | None:
         return proj.strip()
 
     try:
-        out = subprocess.run(
-            ["git", "-C", str(Path.cwd()), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=3,
+        out = git_port.git_read(
+            ["rev-parse", "--show-toplevel"],
+            dir_=str(Path.cwd()), timeout=3,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

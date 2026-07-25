@@ -12,7 +12,7 @@ Public API:
     extract_surgical_patches(raw) -> list[dict] | None
     apply_surgical_patches(spec_text, patches) -> tuple[str | None, dict]
 
-No host paths, no HAL_* env reads, no SHARED/ refs in this file
+No host paths, env reads, or host-tree string refs in this file
 (core-boundary clean, mirrors delta_retry_prompt.py's header contract).
 """
 from __future__ import annotations
@@ -21,7 +21,15 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 
+from lib import authored_boundary
+
 from .restricted_writer_prompt import _render_findings
+
+# 0b95d45a (P7): the spec is the authorization source for
+# `security-lint-pragma-allow:`; a revise that adds its own allow line
+# self-authorizes a pragma the gate would reject. Reject any newly-added
+# allow line independently of the suppression-grammar scan.
+_PRAGMA_ALLOW_RE = re.compile(r"security-lint-pragma-allow:", re.IGNORECASE)
 
 _JSON_FENCE_RE = re.compile(r"```[ \t]*[jJ][sS][oO][nN][ \t]*\r?\n?(.*?)```", re.DOTALL)
 _ANY_FENCE_RE = re.compile(r"```[ \t]*[A-Za-z0-9_+-]*[ \t]*\r?\n?(.*?)```", re.DOTALL)
@@ -153,5 +161,32 @@ def apply_surgical_patches(spec_text: str, patches: list[dict]) -> tuple[str | N
             return None, {"reason": "old_ambiguous", "finding_id": finding_id}
         text = text.replace(old, new, 1)
         n_applied += 1
+
+    # 0b95d45a (P7): scan the ASSEMBLED patched text against the pre-patch text
+    # (gate note 1: assembled, so a token reassembled across an old/new boundary
+    # is still caught — never scan each patch's `new` in isolation). Two causes:
+    # (a) any suppression-grammar token added, (b) any newly-added
+    # `security-lint-pragma-allow:` line (self-authorization loop). Fail closed
+    # exactly like the inapplicable-patch path.
+    tokens: list[str] = authored_boundary.scan_added_content(spec_text, text)
+    pre_allow = len(_PRAGMA_ALLOW_RE.findall(spec_text))
+    post_allow = len(_PRAGMA_ALLOW_RE.findall(text))
+    if post_allow > pre_allow:
+        tokens.append("security-lint-pragma-allow:")
+    if tokens:
+        offending_id = None
+        for patch in patches:
+            new = patch.get("new", "") or ""
+            lowered = new.lower()
+            if any(tok and tok.lower() in lowered for tok in tokens) or _PRAGMA_ALLOW_RE.search(new):
+                offending_id = patch.get("finding_id")
+                break
+        if offending_id is None and patches:
+            offending_id = patches[-1].get("finding_id")
+        return None, {
+            "reason": "suppression_token_added",
+            "finding_id": offending_id,
+            "tokens": tokens,
+        }
 
     return text, {"n_patches": n_applied}

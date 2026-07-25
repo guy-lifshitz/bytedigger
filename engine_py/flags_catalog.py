@@ -373,6 +373,12 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_5_implement.py",
         "description": "Absolute deleted-lines floor for the RED mass-deletion gate (ANDed with >=50% base-file ratio, GH282).",
     },
+    "HAL_RED_WRITE_BOUNDARY_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Kill-switch: HAL_RED_WRITE_BOUNDARY_GATE=0 disables the post-RED write-boundary detection+telemetry entirely (GH1179).",
+    },
     "HAL_REJECT_LOG": {
         "kind": "path",
         "default": None,

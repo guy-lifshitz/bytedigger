@@ -121,6 +121,7 @@ from bounded_spawn import bounded_run  # noqa: E402
 from lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
 from lib import dirty_tree_guard  # noqa: E402  GH961 §2.2 — pre-RED-gate dirty-prod-tree guard
 from lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
+from lib import red_write_boundary  # noqa: E402  GH1179 6B28230E — post-RED write-boundary gate
 from anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
     get_producer_prompt_fragment as _get_producer_anti_fab_prompt,
@@ -1342,6 +1343,70 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
 # ─── Step 2: invoke RED LLM ──────────────────────────────────────────────────
 
 
+def _pre_boundary_snapshot(ctx: WorkflowContext) -> dict[str, Any]:
+    """GH1179 §1.6-3: pre-RED dirty-path snapshot. Runs on EVERY invocation
+    of _invoke_red_llm, including ones whose LLM call ultimately fails, so
+    it must never raise and never emit telemetry. `_resolve_scratchpad`
+    raises ValueError when org_config lacks scratchpad_dir (AC22) — guarded
+    here explicitly rather than by a blanket except (§1.6-12)."""
+    try:
+        scratchpad = _resolve_scratchpad(ctx)
+    except ValueError:
+        return {
+            "available": False, "main_repo_root": None, "worktree_root": "",
+            "main_paths": frozenset(), "worktree_paths": frozenset(),
+        }
+    worktree_root = Path(_resolve_worktree_root(ctx, scratchpad))
+    return red_write_boundary.snapshot_boundary_state(worktree_root)
+
+
+def _enforce_red_write_boundary(
+    result: StepResult, before: dict[str, Any], after: dict[str, Any]
+) -> StepResult:
+    """GH1179 (agreement 6B28230E): deterministic post-RED write-boundary
+    gate — §1aa named helper, no inline verdict math in `_invoke_red_llm`."""
+    if result.status != "ok":
+        return result
+    if not get_config().gate_enabled("HAL_RED_WRITE_BOUNDARY_GATE"):
+        _emit_safe("red_write_boundary_skipped", {}, severity="warning")
+        return result
+    verdict_info = red_write_boundary.classify_boundary_delta(before, after)
+    verdict = verdict_info["verdict"]
+    stray_paths = verdict_info["stray_paths"]
+    worktree_new_paths = verdict_info["worktree_new_paths"]
+
+    if verdict == "ambiguous":
+        _emit_safe("red_write_boundary_ambiguous", {
+            "stray_paths": stray_paths,
+            "worktree_new_paths": worktree_new_paths,
+        })
+        return result
+
+    if verdict != "violation":
+        _emit_safe("red_write_boundary_checked", {
+            "verdict": verdict,
+            "stray_n": len(stray_paths),
+        })
+        return result
+
+    main_repo_root = verdict_info.get("main_repo_root")
+    worktree_root = after.get("worktree_root") or before.get("worktree_root")
+    _emit_safe("red_write_boundary_violation", {
+        "main_repo_root": main_repo_root,
+        "worktree_root": worktree_root,
+        "stray_paths": stray_paths,
+    }, severity="warning")
+    return StepResult(
+        status="error", data=None, duration_ms=0,
+        step_name="invoke_red_llm",
+        error=(
+            f"RED wrote outside the worktree: build root={worktree_root}, "
+            f"main repo root={main_repo_root}, stray paths={stray_paths}"
+        ),
+        error_code="E_RED_WROTE_OUTSIDE_WORKTREE",
+    )
+
+
 def _invoke_red_llm(ctx, prev) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -1355,6 +1420,9 @@ def _invoke_red_llm(ctx, prev) -> StepResult:
     # A3398552: SIMPLE tier uses Haiku for RED to save 5-7 min/build; FEATURE/COMPLEX stay Sonnet.
     red_default = _tier_haiku_model() if complexity == "SIMPLE" else _default_red_model()
     resolved_model = _resolve_model(cfg, "red_model", red_default)
+    # GH1179 (§1.6-3): pre-snapshot BEFORE the LLM call, on every RED including
+    # failing ones.
+    _boundary_before = _pre_boundary_snapshot(ctx)
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=resolved_model,
@@ -1374,10 +1442,16 @@ def _invoke_red_llm(ctx, prev) -> StepResult:
         # as the sole source of truth. Set to None so downstream telemetry
         # (phase_5_red_artifact) records that no LLM marker was parsed.
         result.data["red_test_paths"] = None
-        # F3 cross-tree edit guard (A4479061): observability only, no auto-revert.
         scratchpad = _resolve_scratchpad(ctx)
         worktree_root = _resolve_worktree_root(ctx, scratchpad)
-        result = _maybe_emit_cross_tree_warning(result, worktree_root)
+        # GH1179 (§1.6-11): "after" snapshot immediately after the LLM call
+        # returns and BEFORE _maybe_emit_cross_tree_warning's best-effort
+        # auto-revert, so that revert can never perturb the delta.
+        _boundary_after = red_write_boundary.snapshot_boundary_state(Path(worktree_root))
+        result = _enforce_red_write_boundary(result, _boundary_before, _boundary_after)
+        if result.status == "ok":
+            # F3 cross-tree edit guard (A4479061): observability only, no auto-revert.
+            result = _maybe_emit_cross_tree_warning(result, worktree_root)
     else:
         _data = result.data if isinstance(result.data, dict) else {}
         _emit_safe("invoke_red_llm_failed", {

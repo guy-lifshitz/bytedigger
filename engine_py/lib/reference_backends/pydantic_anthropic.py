@@ -18,6 +18,7 @@ import time
 
 from contracts import StepResult
 from llm_subprocess import register_backend
+from package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
 
 from . import anthropic_oauth
 from .anthropic_oauth import OAUTH_BETA_HEADER
@@ -36,7 +37,7 @@ from .pydantic_openai import (
 
 _PIP_EXTRA_HINT = (
     'pydantic_ai / anthropic is not installed. Install it via: '
-    'pip install "bytedigger-engine[agentic-pydantic]" anthropic'
+    + install_hint(EXTRA_AGENTIC_PYDANTIC)
 )
 
 
@@ -277,8 +278,8 @@ def pydantic_anthropic_backend(
 def register() -> None:
     """Register 'pydantic-anthropic' backend with llm_subprocess.
 
-    Idempotent (overwrite=True). Raises ImportError with the
-    `agentic-pydantic-anthropic` pip-extra hint if deps are not importable.
+    Idempotent (overwrite=True). Raises ImportError with the pip-extra hint
+    from `package_meta` if deps are not importable.
     """
     if not _deps_importable():
         raise ImportError(_PIP_EXTRA_HINT)
