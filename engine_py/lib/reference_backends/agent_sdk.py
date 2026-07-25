@@ -7,6 +7,26 @@ than copy-pasting it (§1aa/§1f).
 Stdlib-only at module top level; `claude_agent_sdk` import is lazy, inside
 the handler / guarded probes (§1q — no heavy/absent module imported at
 module scope).
+
+GH1169 — per-attempt IDLE-GAP watchdog (opt-in, disabled by default):
+    ``HAL_AGENT_SDK_IDLE_TIMEOUT_SEC`` bounds the GAP BETWEEN yielded
+    messages from ``claude_agent_sdk.query(...)`` — never the total attempt
+    duration. A stream that keeps yielding never trips it, regardless of how
+    long it runs; only silence (the SDK accepting a request and never
+    yielding again) trips it. Default is ``"0"`` -> ``0.0`` -> DISABLED: the
+    knob is opt-in, and an empty/whitespace value is treated identically to
+    unset (never a crash). The watchdog only arms while the remaining outer
+    budget can still hold a full idle gap plus a small epsilon
+    (``remaining_outer >= idle + _OUTER_TIE_EPSILON_SEC``); a value at or
+    above the step's ``timeout_sec`` budget never arms at all. On a fire, the
+    in-flight attempt is retried (same attempt/backoff budget as other
+    retryable failures) unless the remaining outer budget is at/below
+    ``_HANG_RETRY_FLOOR_SEC``, in which case the existing outer-timeout path
+    takes over. Recommended first armed lane: ``implement.red`` at ``900``
+    (see the spec's §2.4 arming arithmetic for the reasoning). No default
+    value is shipped ON until a live-replay baseline of healthy inter-message
+    gaps exists — an unmeasured default risks cancelling legitimate long
+    turns (lost work, doubled step budget via the one-shot fallback below).
 """
 from __future__ import annotations
 
@@ -14,6 +34,8 @@ import asyncio
 import importlib.util
 import json
 import os
+import random
+import re
 import sys
 import time
 import urllib.request
@@ -182,6 +204,89 @@ def _external_outage_indicator() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# GH1157 Fix#1: retry classification + bounded jittered exponential backoff
+# ---------------------------------------------------------------------------
+
+_RETRYABLE_STATUS_CODES = frozenset({429, 503, 529})
+_RETRYABLE_TEXT_RE = re.compile(
+    r"(\b429\b|\b503\b|\b529\b|rate.?limit|too many requests|overloaded"
+    r"|ECONNRESET|EPIPE|ETIMEDOUT|connection reset|socket hang up"
+    r"|connection closed|server disconnected)",
+    re.IGNORECASE,
+)
+
+
+def _is_retryable_agent_sdk_failure(exc: BaseException | None, stderr_text: str) -> bool:
+    """Retryable iff a duck-typed 429/503/529 status_code, or the exception
+    text / stderr tail matches a known transient-failure signature. Never
+    called with asyncio.TimeoutError/CancelledError — timeout is handled
+    upstream and is never retried."""
+    if exc is not None and getattr(exc, "status_code", None) in _RETRYABLE_STATUS_CODES:
+        return True
+    haystack = f"{exc if exc is not None else ''}\n{stderr_text}"
+    return bool(_RETRYABLE_TEXT_RE.search(haystack))
+
+
+def _max_sdk_attempts() -> int:
+    val = int(os.environ.get("HAL_AGENT_SDK_MAX_ATTEMPTS", "3"))
+    return max(1, val)
+
+
+def _backoff_base_sec() -> float:
+    return float(os.environ.get("HAL_AGENT_SDK_BACKOFF_BASE_SEC", "1.0"))
+
+
+def _backoff_cap_sec() -> float:
+    return float(os.environ.get("HAL_AGENT_SDK_BACKOFF_CAP_SEC", "8.0"))
+
+
+def _backoff_delay_sec(attempt: int) -> float:
+    """attempt = 0-based count of completed failures."""
+    base = _backoff_base_sec()
+    cap = _backoff_cap_sec()
+    raw: float = min(cap, base * (2 ** attempt))
+    return float(raw * (0.5 + random.random() * 0.5))
+
+
+# ---------------------------------------------------------------------------
+# GH1169: per-attempt IDLE-GAP watchdog — opt-in, disabled by default.
+# ---------------------------------------------------------------------------
+
+_OUTER_TIE_EPSILON_SEC = 0.25
+_HANG_RETRY_FLOOR_SEC = 5.0
+
+
+def _sdk_idle_timeout_sec() -> float:
+    """Max seconds of SILENCE between messages; ``0`` (default) = disabled.
+
+    An empty or all-whitespace value is treated identically to unset (0.0,
+    never a crash) — the `.strip() or "0"` pair is normative, not cosmetic
+    (§2.1.1): a bare `os.environ.get(..., "0")` returns `""` for an empty
+    export, and `float("")` raises inside the attempt loop, misclassifying
+    the whole invoke as non-retryable. Genuinely non-numeric garbage still
+    raises deliberately (idiom parity with `_max_sdk_attempts`).
+    """
+    return float((os.environ.get("HAL_AGENT_SDK_IDLE_TIMEOUT_SEC") or "0").strip() or "0")
+
+
+def _remaining_outer_budget(t0: float, outer_timeout_sec: float) -> float:
+    """Seconds left of the outer ``timeout_sec`` budget, run-anchored at ``t0``."""
+    return outer_timeout_sec - (time.monotonic() - t0)
+
+
+def _effective_idle_gap(idle_timeout: float, t0: float, outer_timeout_sec: float) -> float:
+    """Idle gap clamped to what the remaining outer budget can still hold.
+
+    Returns ``min(idle_timeout, _remaining_outer_budget(t0, outer_timeout_sec)
+    - _OUTER_TIE_EPSILON_SEC)`` — the epsilon guarantees the inner timer can
+    never expire at the same monotonic instant as the outer one. Whether a
+    timer is armed at all is decided separately (§2.1.3's three-way
+    conjunction); a clamped return value here means the caller must NOT arm.
+    """
+    return min(idle_timeout, _remaining_outer_budget(t0, outer_timeout_sec) - _OUTER_TIE_EPSILON_SEC)
+
+
+# ---------------------------------------------------------------------------
 # Backend handler
 # ---------------------------------------------------------------------------
 
@@ -241,38 +346,146 @@ def agent_sdk_backend(
     def _on_stderr(line: str) -> None:
         stderr_buf.append(line)
 
-    async def _run() -> object:
-        # GH933: try with stderr callback (new SDK); fall back if the
-        # options constructor rejects the kwarg (old SDK, duck-typed).
-        try:
-            options = claude_agent_sdk.ClaudeAgentOptions(
-                model=model,
-                resume=resume_sid,
-                allowed_tools=allowed_tools or [],
-                permission_mode="bypassPermissions",
-                cwd=root,
-                stderr=_on_stderr,
-            )
-        except TypeError:
-            options = claude_agent_sdk.ClaudeAgentOptions(
-                model=model,
-                resume=resume_sid,
-                allowed_tools=allowed_tools or [],
-                permission_mode="bypassPermissions",
-                cwd=root,
-            )
-        result_cls = getattr(claude_agent_sdk, "ResultMessage", None)
-        result_msg: object = None
-        async for msg in claude_agent_sdk.query(prompt=prompt, options=options):
-            if result_cls is not None and isinstance(msg, result_cls):
-                result_msg = msg
-                result_holder["msg"] = msg
-            elif result_cls is None:
-                result_msg = msg
-                result_holder["msg"] = msg
-        return result_msg
-
+    attempt_state: dict[str, object] = {"attempts": 0, "hang_attempts": 0}
+    resume_used: dict[str, object] = {"value": None}
     salvage_error: str | None = None
+    hang_attempts: int = 0  # typed counter (GH1169) — attempt_state["hang_attempts"] mirrors it
+
+    def _emit_retry(attempt: int, reason: str, delay: float) -> None:
+        if run_ctx is not None and getattr(run_ctx, "event_log", None) is not None:
+            _emit_safe(
+                run_ctx.event_log,
+                "agent_sdk_retry",
+                {
+                    "backend": "agent-sdk",
+                    "attempt": attempt,
+                    "max_attempts": _max_sdk_attempts(),
+                    "delay_sec": delay,
+                    "reason": reason,
+                    "classified_retryable": True,
+                    "model": model,
+                    "step_name": getattr(run_ctx, "step_name", None) or step_name,
+                },
+                getattr(run_ctx, "run_id", ""),
+            )
+
+    async def _run() -> object:
+        nonlocal salvage_error, hang_attempts
+        attempt = 0
+        while True:
+            attempt += 1
+            attempt_state["attempts"] = attempt
+            result_holder["msg"] = None
+            resume_this = resume_sid if attempt == 1 else None
+            resume_used["value"] = resume_this
+            if attempt > 1 and key is not None:
+                _invalidate(key)
+
+            # GH933: try with stderr callback (new SDK); fall back if the
+            # options constructor rejects the kwarg (old SDK, duck-typed).
+            try:
+                options = claude_agent_sdk.ClaudeAgentOptions(
+                    model=model,
+                    resume=resume_this,
+                    allowed_tools=allowed_tools or [],
+                    permission_mode="bypassPermissions",
+                    cwd=root,
+                    stderr=_on_stderr,
+                )
+            except TypeError:
+                options = claude_agent_sdk.ClaudeAgentOptions(
+                    model=model,
+                    resume=resume_this,
+                    allowed_tools=allowed_tools or [],
+                    permission_mode="bypassPermissions",
+                    cwd=root,
+                )
+            result_cls = getattr(claude_agent_sdk, "ResultMessage", None)
+            result_msg: object = None
+            agen = claude_agent_sdk.query(prompt=prompt, options=options)
+            it = agen.__aiter__()
+            try:
+                while True:
+                    # GH1169: idle-gap watchdog — evaluate the clamped gap
+                    # UNCONDITIONALLY, every message, before testing whether
+                    # to arm (disabled case short-circuits the DECISION only,
+                    # never the helper call — §2.1.3/D14).
+                    idle = _sdk_idle_timeout_sec()
+                    effective = _effective_idle_gap(idle, t0, timeout_sec)
+                    try:
+                        if idle > 0 and effective > 0 and effective >= idle:
+                            msg = await asyncio.wait_for(it.__anext__(), effective)
+                        else:
+                            msg = await it.__anext__()
+                    except StopAsyncIteration:
+                        # Normal stream end — loop control, not an error.
+                        break
+                    if result_cls is not None and isinstance(msg, result_cls):
+                        result_msg = msg
+                        result_holder["msg"] = msg
+                    elif result_cls is None:
+                        result_msg = msg
+                        result_holder["msg"] = msg
+            except asyncio.TimeoutError:
+                # GH1169: the per-message idle-gap timer fired (silence
+                # between messages) — distinct from the outer wait_for's
+                # total-budget expiry. Salvage precedence first (GH956 rule,
+                # §2.1.4b): a success already received wins over retry, and
+                # does NOT count as a hang.
+                try:
+                    await agen.aclose()
+                except Exception as close_err:  # noqa: BLE001
+                    # Best-effort cleanup only — never let it change control
+                    # flow. Recorded (not swallowed) via the same stderr-tail
+                    # buffer `_stderr_tail` already surfaces in the result.
+                    stderr_buf.append(
+                        f"[GH1169] agen.aclose() after idle-gap fire failed: {close_err}"
+                    )
+                salvaged = _salvage_success_result(result_holder)
+                if salvaged is not None:
+                    return salvaged
+                hang_attempts += 1
+                attempt_state["hang_attempts"] = hang_attempts
+                max_attempts = _max_sdk_attempts()
+                if (
+                    attempt < max_attempts
+                    and _remaining_outer_budget(t0, timeout_sec) > _HANG_RETRY_FLOOR_SEC
+                ):
+                    delay = _backoff_delay_sec(attempt - 1)
+                    _emit_retry(attempt, "idle_gap_timeout", delay)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+            except Exception as e:  # noqa: BLE001
+                # GH956: a successful ResultMessage may have already arrived
+                # before the CLI's trailing stream error; salvage wins over
+                # retry — a success is a success, do not retry after it.
+                salvaged = _salvage_success_result(result_holder)
+                if salvaged is not None:
+                    salvage_error = f"{e}"
+                    return salvaged
+                stderr_text = "\n".join(stderr_buf)
+                max_attempts = _max_sdk_attempts()
+                if _is_retryable_agent_sdk_failure(e, stderr_text) and attempt < max_attempts:
+                    delay = _backoff_delay_sec(attempt - 1)
+                    _emit_retry(attempt, "exception", delay)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+
+            if result_msg is not None:
+                return result_msg
+
+            # Clean exit, no ResultMessage (silent death) — classify for retry.
+            stderr_text = "\n".join(stderr_buf)
+            max_attempts = _max_sdk_attempts()
+            if _is_retryable_agent_sdk_failure(None, stderr_text) and attempt < max_attempts:
+                delay = _backoff_delay_sec(attempt - 1)
+                _emit_retry(attempt, "silent_no_result", delay)
+                await asyncio.sleep(delay)
+                continue
+            return None
+
     try:
         result = asyncio.run(asyncio.wait_for(_run(), timeout_sec))
     except asyncio.TimeoutError:
@@ -296,6 +509,8 @@ def agent_sdk_backend(
             "manifest_source": "git_diff",
             "timed_out": True,
             "stderr_tail": _stderr_tail(stderr_buf),
+            "retry_attempts": attempt_state["attempts"],
+            "hang_attempts": attempt_state["hang_attempts"],
         }
         timeout_error = f"agent-sdk run exceeded timeout of {timeout_sec}s"
         ind = _external_outage_indicator()
@@ -313,49 +528,58 @@ def agent_sdk_backend(
             recoverable=True,
         )
     except Exception as e:  # noqa: BLE001
-        # GH956: a successful ResultMessage may have already arrived before
-        # the CLI's trailing stream error; try to salvage it first.
-        salvaged = _salvage_success_result(result_holder)
-        if salvaged is not None:
-            result = salvaged
-            salvage_error = f"{e}"
-            # Do NOT invalidate the session cache on the salvage path — fall
-            # through to the normal success tail below.
-        else:
-            duration_ms = int((time.monotonic() - t0) * 1000)
-            if key is not None:
-                _invalidate(key)
-            tail = _stderr_tail(stderr_buf, e)
-            error = f"agent-sdk run failed: {e}"
-            if tail:
-                error += f"; stderr tail: {tail}"
-            exc_data: dict[str, object] = {"stderr_tail": tail}
-            ind = _external_outage_indicator()
-            if ind is not None:
-                exc_data["external_outage"] = True
-                exc_data["outage_indicator"] = ind
-                error += f" [external_outage: {ind}]"
-            return StepResult(
-                status="error",
-                data=exc_data,
-                duration_ms=duration_ms,
-                step_name=step_name,
-                error=error,
-                error_code="E_LLM_API_BAD_RESPONSE",
-                recoverable=True,
-            )
+        # Salvage (if any) is already handled inside _run(); an exception
+        # escaping here means non-retryable or retry-budget exhausted.
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        if key is not None:
+            _invalidate(key)
+        tail = _stderr_tail(stderr_buf, e)
+        error = f"agent-sdk run failed: {e}"
+        if tail:
+            error += f"; stderr tail: {tail}"
+        exc_data: dict[str, object] = {
+            "stderr_tail": tail,
+            "exit_code": getattr(e, "exit_code", None),
+            "retry_attempts": attempt_state["attempts"],
+        }
+        ind = _external_outage_indicator()
+        if ind is not None:
+            exc_data["external_outage"] = True
+            exc_data["outage_indicator"] = ind
+            error += f" [external_outage: {ind}]"
+        return StepResult(
+            status="error",
+            data=exc_data,
+            duration_ms=duration_ms,
+            step_name=step_name,
+            error=error,
+            error_code="E_LLM_API_BAD_RESPONSE",
+            recoverable=True,
+        )
 
     duration_ms = int((time.monotonic() - t0) * 1000)
 
     if result is None:
         if key is not None:
             _invalidate(key)
+        no_result_data: dict[str, object] = {
+            "stderr_tail": _stderr_tail(stderr_buf),
+            "exit_code": 0,
+            "retry_attempts": attempt_state["attempts"],
+            "silent_no_result": True,
+        }
+        no_result_error = "agent-sdk run produced no ResultMessage"
+        ind = _external_outage_indicator()
+        if ind is not None:
+            no_result_data["external_outage"] = True
+            no_result_data["outage_indicator"] = ind
+            no_result_error += f" [external_outage: {ind}]"
         return StepResult(
             status="error",
-            data=None,
+            data=no_result_data,
             duration_ms=duration_ms,
             step_name=step_name,
-            error="agent-sdk run produced no ResultMessage",
+            error=no_result_error,
             error_code="E_LLM_API_BAD_RESPONSE",
             recoverable=True,
         )
@@ -381,7 +605,7 @@ def agent_sdk_backend(
     cache_read_input_tokens = ledger_usage["cache_read_input_tokens"]
     cost = getattr(result, "total_cost_usd", None)
     cost_usd = float(cost) if isinstance(cost, (int, float)) else None
-    warm_resumed = resume_sid is not None
+    warm_resumed = resume_used["value"] is not None
 
     if key is not None and session_id:
         if warm_resumed:
@@ -404,6 +628,7 @@ def agent_sdk_backend(
         "cost_usd": cost_usd,
         "cache_creation_input_tokens": cache_creation_input_tokens,
         "cache_read_input_tokens": cache_read_input_tokens,
+        "retry_attempts": attempt_state["attempts"],
     }
     if gate_label is not None:
         base_data["gate_label"] = gate_label

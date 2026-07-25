@@ -253,6 +253,24 @@ FLAGS: dict[str, dict] = {
         "module": "lib/reference_backends/agent_sdk.py",
         "description": "Ring-buffer line cap for child CLI stderr tail captured by the agent-sdk backend.",
     },
+    "HAL_AGENT_SDK_MAX_ATTEMPTS": {
+        "kind": "int",
+        "default": "3",
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "Retry attempt cap for the agent-sdk backend on classified-retryable (429/transient) failures.",
+    },
+    "HAL_AGENT_SDK_BACKOFF_BASE_SEC": {
+        "kind": "str",
+        "default": None,
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "Base seconds for jittered exponential backoff between agent-sdk retries (float-valued env read).",
+    },
+    "HAL_AGENT_SDK_BACKOFF_CAP_SEC": {
+        "kind": "str",
+        "default": None,
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "Max seconds cap for the jittered backoff delay between agent-sdk retries (float-valued env read).",
+    },
     "HAL_OUTAGE_PROBE": {
         "kind": "gate",
         "default": "1",
@@ -590,5 +608,17 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "workflows/phase_5_implement.py",
         "description": "Operator opt-in (=1): on resume, re-freeze the RED frozen-hash baseline when every mismatch is head_moved (worktree==HEAD, committed operator RED change). Never blesses worktree_dirty.",
+    },
+    "HAL_AGENT_SDK_IDLE_TIMEOUT_SEC": {
+        "kind": "str",
+        "default": "0",
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "GH1169: agent-sdk lane per-attempt idle-gap watchdog — seconds of SILENCE allowed between yielded messages from claude_agent_sdk.query() (never total attempt duration). Frozen default '0' = DISABLED (opt-in); empty/whitespace behaves as unset. Recommended first armed lane: implement.red at 900 (see GH1169 spec §2.4).",
+    },
+    "HAL_AGENT_SDK_HANG_FALLBACK": {
+        "kind": "gate",
+        "default": "1",
+        "module": "llm_subprocess.py",
+        "description": "GH1169: kill-switch for the one-shot agent-sdk→claude-subprocess fallback triggered when an agent-sdk step times out via its own idle-gap watchdog (hang_attempts>=1). '0' disables the fallback; default enabled.",
     },
 }

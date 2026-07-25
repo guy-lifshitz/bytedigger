@@ -1378,6 +1378,16 @@ def _invoke_red_llm(ctx, prev) -> StepResult:
         scratchpad = _resolve_scratchpad(ctx)
         worktree_root = _resolve_worktree_root(ctx, scratchpad)
         result = _maybe_emit_cross_tree_warning(result, worktree_root)
+    else:
+        _data = result.data if isinstance(result.data, dict) else {}
+        _emit_safe("invoke_red_llm_failed", {
+            "error_code": result.error_code,
+            "exit_code": _data.get("exit_code"),
+            "stderr_tail": _data.get("stderr_tail"),
+            "duration_ms": result.duration_ms,
+            "model": resolved_model,
+            "cycle": prev.data.get("cycle", 1),
+        })
     return result
 
 

@@ -152,6 +152,25 @@ def _telemetry_log_isolation(monkeypatch, tmp_path):
         monkeypatch.setenv(var, str(tmp_path / filename))
 
 
+# GH1118: coord-claim file seam. Kept SEPARATE from _STATE_LOG_ENV_SEAMS so the
+# GH1113 exact-5 invariant (test_gh1113 AC1) stays intact.
+_CLAIM_ENV_SEAM = "HAL_AGREEMENT_LOCKS_FILE"
+
+
+@pytest.fixture(autouse=True)
+def _claim_locks_isolation(monkeypatch, tmp_path):
+    """GH1118: isolate the coord-claim file seam so a live cross-lot claim in
+    the real global agreement-locks.jsonl cannot pre-empt the run-phase.ts
+    re-entrancy guard (E_PARALLEL_CLAIM_CONFLICT exit 2 instead of
+    RE_ENTRANT_BLOCKED exit 7). Points HAL_AGREEMENT_LOCKS_FILE at a per-test
+    tmp path (absent → fold-locks.sh returns empty locks → no conflict). Set
+    through os.environ (monkeypatch.setenv) because coord/list is reached via
+    subprocess + Bun.spawnSync, which only inherit the environment. Per-test
+    override: a test that setenv's it itself wins (function-scoped, latest-call).
+    """
+    monkeypatch.setenv(_CLAIM_ENV_SEAM, str(tmp_path / "agreement-locks.jsonl"))
+
+
 @pytest.fixture(autouse=True)
 def _hal_config_provider_default():
     """Ensure every test runs with the HAL config provider registered (4F86153A).

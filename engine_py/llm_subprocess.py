@@ -945,6 +945,122 @@ def _invoke_in_session(
     return StepResult(status="ok", data=data, duration_ms=duration_ms, step_name=step_name)
 
 
+def _dispatch_backend(
+    resolved_backend: str,
+    *,
+    prompt: str,
+    model: str,
+    timeout_sec: int,
+    step_name: str,
+    extra_data: "dict[str, object] | None",
+    allowed_tools: list[str] | None,
+    run_ctx: "_RunCtx | None",
+    hard_gate: bool,
+    gate_label: str | None,
+    straggler_cfg: "dict[str, object] | None",
+    idle_timeout_sec: int | float | None,
+    stable_prefix: str = "",
+) -> StepResult:
+    """GH1169 §2.2.1 extraction of the GH334 §2.2 two-branch dispatch tail.
+
+    Reads `_BACKENDS` as a module global at CALL time (never captured at
+    import) so runtime `register_backend`/`reset_backends` mutations and
+    test `monkeypatch.setitem`/`delitem` seams stay visible.
+
+    GH334 §2.2: CONDITIONAL threading — only pass `stable_prefix` when
+    non-empty, so strict-signature backends/test-doubles lacking the param
+    stay call-compatible (back-compat byte-identity). Explicit two-branch
+    dispatch (not a dict-splat) so mypy sees typed kwargs against the
+    LLMBackend protocol.
+    """
+    if stable_prefix:
+        return _BACKENDS[resolved_backend](
+            prompt=prompt,
+            model=model,
+            timeout_sec=timeout_sec,
+            step_name=step_name,
+            extra_data=extra_data,
+            allowed_tools=allowed_tools,
+            run_ctx=run_ctx,
+            hard_gate=hard_gate,
+            gate_label=gate_label,
+            straggler_cfg=straggler_cfg,
+            idle_timeout_sec=idle_timeout_sec,
+            stable_prefix=stable_prefix,
+        )
+    return _BACKENDS[resolved_backend](
+        prompt=prompt,
+        model=model,
+        timeout_sec=timeout_sec,
+        step_name=step_name,
+        extra_data=extra_data,
+        allowed_tools=allowed_tools,
+        run_ctx=run_ctx,
+        hard_gate=hard_gate,
+        gate_label=gate_label,
+        straggler_cfg=straggler_cfg,
+        idle_timeout_sec=idle_timeout_sec,
+    )
+
+
+def _fallback_hang_attempts(
+    resolved_backend: str,
+    result: StepResult,
+    *,
+    idle_enabled: bool,
+    straggler_enabled: bool,
+) -> int | None:
+    """GH1169 §2.2.2: ALL conjuncts must hold for the one-shot agent-sdk ->
+    claude-subprocess fallback. Extracted so `invoke_llm_subprocess` stays
+    under the radon complexity threshold (§1aa) — conjuncts, their order, and
+    the fail-safe skips are unchanged from the inline form.
+
+    Returns the `hang_attempts` payload value (the isinstance/dict narrowing
+    happens here, once) when every conjunct holds, else None — callers use
+    `is not None` as the fallback decision and read the value directly for
+    the `runner_backend_fallback` event, with no production `assert` needed.
+    """
+    if resolved_backend != "agent-sdk":
+        return None
+    if result.error_code != "E_LLM_API_TIMEOUT":
+        return None
+    if not isinstance(result.data, dict):
+        return None
+    hang_attempts = result.data.get("hang_attempts", 0)
+    if not isinstance(hang_attempts, int) or hang_attempts < 1:
+        return None
+    if config_provider.env_opt("HAL_AGENT_SDK_HANG_FALLBACK") == "0":
+        return None
+    if "claude-subprocess" not in _BACKENDS:
+        return None
+    if _assert_backend_supports_manifest("claude-subprocess") is not None:
+        return None
+    if _assert_backend_supports_watchdog(
+        "claude-subprocess", idle_enabled=idle_enabled, straggler_enabled=straggler_enabled,
+    ) is not None:
+        return None
+    return hang_attempts
+
+
+def _emit_fallback_event(
+    run_ctx: "_RunCtx | None",
+    *,
+    hang_attempts: int,
+    step_name: str,
+    model: str,
+) -> None:
+    """GH1169 §2.2.3 payload, byte-identical to the pre-extraction inline form."""
+    if run_ctx is not None and run_ctx.event_log is not None:
+        _emit_safe(run_ctx.event_log, "runner_backend_fallback", {
+            "from": "agent-sdk",
+            "to": "claude-subprocess",
+            "reason": "hang_timeout",
+            "hang_attempts": hang_attempts,
+            "step_name": step_name,
+            "model": model,
+        }, run_ctx.run_id)
+
+
 def invoke_llm_subprocess(
     *,
     prompt: str,
@@ -1134,14 +1250,38 @@ def invoke_llm_subprocess(
                 model = _tier_model
     # 68E964FB: registry dispatch — replaces the hardcoded if/else tail.
     # _BACKENDS keys == _KNOWN_BACKENDS (single source); unknown backend already
-    # returned above so this lookup is always key-safe.
-    # GH334 §2.2: CONDITIONAL threading — only pass stable_prefix when
-    # non-empty, so strict-signature backends/test-doubles lacking the param
-    # stay call-compatible (back-compat byte-identity, §2.0/§2.3). Explicit
-    # two-branch dispatch (not a dict-splat) so mypy sees typed kwargs against
-    # the LLMBackend protocol.
-    if stable_prefix:
-        return _BACKENDS[resolved_backend](
+    # returned above so this lookup is always key-safe. GH1169 §2.2.1: the
+    # two-branch stable_prefix threading is now the extracted _dispatch_backend
+    # helper (GH334 §2.2 back-compat preserved verbatim).
+    result = _dispatch_backend(
+        resolved_backend,
+        prompt=prompt,
+        model=model,
+        timeout_sec=timeout_sec,
+        step_name=step_name,
+        extra_data=extra_data,
+        allowed_tools=allowed_tools,
+        run_ctx=run_ctx,
+        hard_gate=hard_gate,
+        gate_label=gate_label,
+        straggler_cfg=straggler_cfg,
+        idle_timeout_sec=idle_timeout_sec,
+        stable_prefix=stable_prefix,
+    )
+
+    # GH1169 §2.2 — one-shot backend fallback: an agent-sdk step that timed
+    # out via its OWN per-attempt idle-gap watchdog (hang_attempts>=1, never
+    # a slow-but-alive run under D1's arm-only-if-the-full-gap-fits rule) is
+    # re-dispatched exactly once to claude-subprocess, same kwargs.
+    hang_attempts = _fallback_hang_attempts(
+        resolved_backend, result, idle_enabled=idle_enabled, straggler_enabled=straggler_enabled,
+    )
+    if hang_attempts is not None:
+        _emit_fallback_event(
+            run_ctx, hang_attempts=hang_attempts, step_name=step_name, model=model,
+        )
+        return _dispatch_backend(
+            "claude-subprocess",
             prompt=prompt,
             model=model,
             timeout_sec=timeout_sec,
@@ -1155,19 +1295,8 @@ def invoke_llm_subprocess(
             idle_timeout_sec=idle_timeout_sec,
             stable_prefix=stable_prefix,
         )
-    return _BACKENDS[resolved_backend](
-        prompt=prompt,
-        model=model,
-        timeout_sec=timeout_sec,
-        step_name=step_name,
-        extra_data=extra_data,
-        allowed_tools=allowed_tools,
-        run_ctx=run_ctx,
-        hard_gate=hard_gate,
-        gate_label=gate_label,
-        straggler_cfg=straggler_cfg,
-        idle_timeout_sec=idle_timeout_sec,
-    )
+
+    return result
 
 
 def _invoke_subprocess(

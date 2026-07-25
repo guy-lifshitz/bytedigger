@@ -72,6 +72,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import telemetry_ctx
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
@@ -412,6 +413,94 @@ def _push_needs_lease(cwd: Path, branch: str, rebase_outcome: str) -> bool:
     return _git_read(["rev-parse", "--verify", f"origin/{branch}"], cwd)[0] == 0
 
 
+def _parse_report_summary(report_text: str) -> str:
+    """Return the value of the first ``Done: ...`` line, truncated to 100 chars."""
+    match = re.search(r"^\s*Done:\s*(.+?)\s*$", report_text, re.MULTILINE)
+    if not match:
+        return ""
+    return match.group(1)[:100]
+
+
+def _parse_issue_from_branch(branch: str) -> int | None:
+    """Extract an issue number from a branch name (e.g. batch/1378, gh1124-x)."""
+    match = re.search(r"(?:batch/|gh)(\d+)", branch, re.IGNORECASE)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _issue_type_prefix(cwd: Path, issue_n: int | None) -> str:
+    """Return conventional-commit prefix ('fix'/'feat') from the issue's labels.
+
+    Best-effort metadata lookup — must never raise or break ship.
+    """
+    if issue_n is None:
+        return "fix"
+    try:
+        rc, out, _ = _gh(
+            ["issue", "view", str(issue_n), "--json", "labels", "-q",
+             "[.labels[].name] | join(\",\")"],
+            cwd,
+        )
+        if rc != 0:
+            return "fix"
+        tokens = {t.strip() for t in out.lower().split(",")}
+        if tokens & {"bug", "defect"}:
+            return "fix"
+        if tokens & {"enhancement", "feature"}:
+            return "feat"
+        return "fix"
+    except Exception:  # noqa: BLE001 — metadata best-effort, never breaks ship
+        return "fix"
+
+
+def _compose_pr_title(summary: str, issue_n: int | None, prefix: str) -> str:
+    """Compose a conventional-commit-style PR title from summary + issue metadata."""
+    if not summary:
+        return ""
+    if issue_n is None:
+        return summary
+    return f"{prefix}(#{issue_n}): {summary}"
+
+
+def _derive_pr_metadata(ctx: Any, org_config: dict[str, Any], cwd: Path, branch: str, main: str) -> tuple[str, str]:
+    """Derive PR title/body — overrides win, else synthesizer report, else legacy fallbacks."""
+    title = org_config.get("ship_pr_title") or ""
+    if not title:
+        report = _resolve_scratchpad(ctx) / "post-deploy/post-deploy-report.md"
+        summary = ""
+        if report.exists():
+            try:
+                summary = _parse_report_summary(report.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):
+                summary = ""
+        if summary:
+            issue_n = _parse_issue_from_branch(branch)
+            prefix = _issue_type_prefix(cwd, issue_n)
+            title = _compose_pr_title(summary, issue_n, prefix)
+        if not title:
+            rc_t, t_out, _ = _git_read(["log", "-1", "--format=%s"], cwd)
+            title = t_out.strip() if rc_t == 0 else branch
+
+    body = org_config.get("ship_pr_body") or ""
+    if not body:
+        report = _resolve_scratchpad(ctx) / "post-deploy/post-deploy-report.md"
+        if report.exists():
+            try:
+                body = report.read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeDecodeError):
+                body = ""
+        if not body:
+            cleanup_report = _resolve_scratchpad(ctx) / "post-deploy" / "cleanup-report.md"
+            if cleanup_report.exists():
+                body = cleanup_report.read_text(encoding="utf-8")
+            else:
+                rc_log, log_out, _ = _git_read(["log", f"{main}..HEAD", "--format=- %s"], cwd)
+                body = log_out.strip() if rc_log == 0 else ""
+
+    return title, body
+
+
 # ─── Step 1 (new): ship to PR ───────────────────────────────────────────────
 
 
@@ -554,21 +643,8 @@ def _ship_to_pr(ctx, prev) -> StepResult:
                 step_name="ship_to_pr",
             )
 
-    # Derive PR metadata (AC10)
-    title = org_config.get("ship_pr_title") or ""
-    if not title:
-        rc_t, t_out, _ = _git_read(["log", "-1", "--format=%s"], cwd)
-        title = t_out.strip() if rc_t == 0 else branch
-
-    body = org_config.get("ship_pr_body") or ""
-    if not body:
-        scratchpad = _resolve_scratchpad(ctx)
-        cleanup_report = scratchpad / "post-deploy" / "cleanup-report.md"
-        if cleanup_report.exists():
-            body = cleanup_report.read_text(encoding="utf-8")
-        else:
-            rc_log, log_out, _ = _git_read(["log", f"{main}..HEAD", "--format=- %s"], cwd)
-            body = log_out.strip() if rc_log == 0 else ""
+    # Derive PR metadata (AC10) — prefer synthesizer report over commit subject/trail
+    title, body = _derive_pr_metadata(ctx, org_config, cwd, branch, main)
 
     # Create PR (AC6/AC9)
     rc_pc, pc_out, pc_err = _gh(
