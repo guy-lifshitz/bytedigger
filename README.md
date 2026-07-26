@@ -110,6 +110,12 @@ pip install -e ".[test]" && python3 -m pytest tests/   # 300+ hermetic tests
 pip install -e ".[agentic-pydantic]"                   # real API backends
 ```
 
+Running the suite needs more than Python: `git` (with a configured identity),
+`zsh`, [`bun`](https://bun.sh), and `semgrep` (the `[security]` extra) must be
+on your PATH, or several hundred tests fail. Tracked as
+[#102](https://github.com/guy-lifshitz/bytedigger/issues/102); until it is
+fixed, [`docs/clean-room.md`](docs/clean-room.md) has the exact set CI installs.
+
 Backend setup (env vars, model aliases, selection) is in [docs/backends.md](docs/backends.md).
 
 ## Configuration
