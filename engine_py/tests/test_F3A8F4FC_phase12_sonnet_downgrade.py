@@ -40,8 +40,14 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE.parent / "lib"))
 
 import model_config  # noqa: E402
+from tree_root import resolve_tree_root  # noqa: E402
 
-REAL_CONFIG_PATH = Path(__file__).resolve().parents[5] / "SHARED" / "config" / "models.json"
+# bd#97: resolved from tree content, not an ancestor count. A fixed parents[5]
+# is correct only in the upstream HAL layout and IndexErrors at import time on a
+# shallower checkout, which took the whole suite down at collection.
+REAL_CONFIG_PATH = (
+    resolve_tree_root(Path(__file__).resolve()) / "SHARED" / "config" / "models.json"
+)
 WORKFLOWS_DIR = HERE.parent / "workflows"
 
 

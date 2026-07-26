@@ -1,6 +1,6 @@
 """Path/import closure staleness gate (hal-v2#828, flip blocker).
 
-Two drift classes bit us during extraction:
+Three drift classes bit us during extraction:
 
 1. Engine code referencing files OUTSIDE the package via
    Path(__file__).parents[N] (N >= 2) -- the upstream build-tree nesting does
@@ -13,7 +13,18 @@ Two drift classes bit us during extraction:
    (the reference-backends class: run.py try-imported a package that was
    missing from the extraction for a while).
 
-Both checks extract their facts from the sources at test time -- no
+3. Fixed-depth ancestor indexing -- Path(__file__).resolve().parents[N] with
+   an N tuned to one tree's nesting. bd#97: phase_6_smoke.py bound
+   parents[5] at import time, which IndexErrors on any checkout shallower
+   than the upstream build tree and took 16 of 16 test modules with it.
+   AC1 above could not see it: its regex requires quoted literal path
+   segments after the index (bd#97 kept the tail in a variable), its
+   \\bhal_dir\\b alternative is case-sensitive so it never matched HAL_DIR,
+   and -- decisively -- AC1/AC4 skip everything under tests/. AC1 audits
+   where an escape LANDS; AC5a/AC5b below audit the depth arithmetic that
+   gets there.
+
+All checks extract their facts from the sources at test time -- no
 hardcoded inventory to go stale.
 """
 from __future__ import annotations
@@ -122,6 +133,188 @@ def test_ac3_packaged_assets_are_wheel_visible():
     assert any(pat.startswith("scripts") for pat in include), include
     pkg_data = cfg["tool"]["setuptools"]["package-data"]
     assert "security" in pkg_data and "scripts.red_lint" in pkg_data, pkg_data
+
+
+# ─── AC5: fixed-depth ancestor indexing (bd#97) ──────────────────────────────
+
+# parents[0]/[1] stay inside engine_py/<subdir>/ under every layout. An index
+# of 3 or more is the first that can walk out of the package root, so it is
+# the first that can IndexError -- or silently resolve into an unrelated tree.
+_UNSAFE_ANCESTOR_INDEX = 3
+
+# Known evasion surface, documented rather than claimed away: list(p.parents)[N],
+# a name/expression index, and getattr/eval forms are not matched. No
+# module-level occurrence of any exists today (event_log.py's
+# list(resolved.parents) is in-function).
+
+
+class _ParentsIndexes(ast.NodeVisitor):
+    """Collect `<expr>.parents[<int>]`, tagged import-time or deferred.
+
+    Function and lambda bodies are deferred. Class bodies and `try:` bodies
+    execute at import, so they get no special case -- that is what stops a
+    `try/except IndexError` wrap from passing as a fix.
+    """
+
+    def __init__(self):
+        self.deferred = 0
+        self.hits = []
+
+    def _visit_deferred(self, node):
+        self.deferred += 1
+        self.generic_visit(node)
+        self.deferred -= 1
+
+    visit_FunctionDef = _visit_deferred
+    visit_AsyncFunctionDef = _visit_deferred
+    visit_Lambda = _visit_deferred
+
+    def visit_Subscript(self, node):
+        value = node.value
+        if (
+            isinstance(value, ast.Attribute)
+            and value.attr == "parents"
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, int)
+        ):
+            self.hits.append((node.lineno, node.slice.value, self.deferred == 0))
+        self.generic_visit(node)
+
+
+def _parents_indexes(path):
+    visitor = _ParentsIndexes()
+    visitor.visit(ast.parse(path.read_text(encoding="utf-8")))
+    return visitor.hits
+
+
+def _all_sources():
+    """Every shipped source PLUS tests/ -- unlike _shipped_sources()."""
+    yield from _shipped_sources()
+    yield from (ENGINE_PY_ROOT / "tests").rglob("*.py")
+
+
+def test_ac5a_no_import_time_fixed_depth_ancestor_index():
+    """No module-level parents[N>=3] anywhere in the tree, tests included.
+
+    Import-time depth arithmetic is unconditional: it fires on `import`, so a
+    tree one directory shallower than the author's turns every consumer into a
+    collection error.
+    """
+    offenders = []
+    for src in _all_sources():
+        for lineno, idx, import_time in _parents_indexes(src):
+            if import_time and idx >= _UNSAFE_ANCESTOR_INDEX:
+                offenders.append(
+                    f"{src.relative_to(ENGINE_PY_ROOT)}:{lineno}: parents[{idx}]"
+                )
+    assert not offenders, (
+        "import-time fixed-depth ancestor index (bd#97 class) -- IndexErrors, "
+        "or silently resolves into an unrelated tree, depending on how deep the "
+        "checkout happens to sit. Anchor on tree content via "
+        "lib/tree_root.resolve_tree_root (marker / .git / clamped package "
+        "root), or defer the computation into a function:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_ac5b_no_fixed_depth_ancestor_index_in_tests():
+    """No parents[N>=3] at all under tests/, deferred or not.
+
+    Stricter than AC5a on purpose. A portability guard like
+
+        p = Path(__file__).resolve().parents[5] / "SHARED" / "config.json"
+        if not p.is_file():
+            pytest.skip(...)
+
+    evaluates the index BEFORE the skip it is meant to trigger, so on a shallow
+    clone the test errors instead of skipping and the guard is worthless
+    (bd#97 site 3, test_GH375_tier_model_dispatch.py:663).
+    """
+    offenders = []
+    for src in (ENGINE_PY_ROOT / "tests").rglob("*.py"):
+        for lineno, idx, _ in _parents_indexes(src):
+            if idx >= _UNSAFE_ANCESTOR_INDEX:
+                offenders.append(
+                    f"{src.relative_to(ENGINE_PY_ROOT)}:{lineno}: parents[{idx}]"
+                )
+    assert not offenders, (
+        "fixed-depth ancestor index under tests/ -- raises before the test's "
+        "own pytest.skip portability guard can fire on a shallow clone. Use "
+        "lib/tree_root.resolve_tree_root instead:\n  " + "\n  ".join(offenders)
+    )
+
+
+# ─── AC5c: PEP-604 unions need the future import on the declared minimum ─────
+
+
+def _has_future_annotations(tree):
+    return any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "__future__"
+        and any(alias.name == "annotations" for alias in node.names)
+        for node in tree.body
+    )
+
+
+def _annotations(tree):
+    """Every annotation expression in the module."""
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            for arg in (
+                list(args.args)
+                + list(args.posonlyargs)
+                + list(args.kwonlyargs)
+                + [a for a in (args.vararg, args.kwarg) if a is not None]
+            ):
+                if arg.annotation is not None:
+                    yield arg.annotation
+            if node.returns is not None:
+                yield node.returns
+        elif isinstance(node, ast.AnnAssign) and node.annotation is not None:
+            yield node.annotation
+
+
+def _pep604_lines(tree):
+    """Lines where an annotation uses `X | Y`, which 3.9 evaluates eagerly."""
+    lines = set()
+    for annotation in _annotations(tree):
+        for node in ast.walk(annotation):
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+                lines.add(node.lineno)
+    return sorted(lines)
+
+
+def test_ac5c_pep604_annotations_carry_the_future_import():
+    """A PEP-604 union in a signature is EVALUATED at def time, so on the
+    declared minimum interpreter (pyproject requires-python >= 3.9) it raises
+    `TypeError: unsupported operand type(s) for |` unless the module carries
+    `from __future__ import annotations`.
+
+    For a module inside workflows/__init__.py's import closure that is bd#97's
+    blast radius exactly: the whole suite returns to collection errors, on an
+    interpreter the author never ran. compileall does not catch it (annotations
+    are not evaluated when byte-compiling) and neither does an import smoke test
+    on a newer runner.
+
+    Scoped to shipped sources: the wheel's import closure is what breaks
+    `import workflows`. PEP-585 (`list[str]`) is valid on 3.9 and is not flagged.
+    """
+    offenders = []
+    for src in _shipped_sources():
+        if "tests" in src.parts:
+            continue
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        if _has_future_annotations(tree):
+            continue
+        for lineno in _pep604_lines(tree):
+            offenders.append(f"{src.relative_to(ENGINE_PY_ROOT)}:{lineno}")
+    assert not offenders, (
+        "PEP-604 union annotation without `from __future__ import annotations` "
+        "-- TypeError at import on Python 3.9, which pyproject.toml still "
+        "declares as supported. Add the future import (58 lib modules already "
+        "do) or use typing.Optional/Union:\n  " + "\n  ".join(offenders)
+    )
 
 
 def _declared_deps():

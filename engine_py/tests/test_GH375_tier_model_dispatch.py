@@ -56,6 +56,7 @@ import llm_subprocess
 import telemetry_ctx
 from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
 from engine import WorkflowEngine
+from tree_root import resolve_tree_root
 
 
 # ─── shared helpers ─────────────────────────────────────────────────────────
@@ -660,7 +661,10 @@ def test_ac12_hal_models_json_has_model_by_tier_simple_sonnet():
     pytest.skip if the file is absent (OSS/neutral checkout — orchestrator-
     staged HAL config edit, not GREEN's responsibility per spec §5).
     """
-    repo_root = Path(__file__).resolve().parents[5]
+    # bd#97: resolved from tree content. A fixed parents[5] raised IndexError on
+    # a shallow clone BEFORE the skip below could fire, so this test errored
+    # instead of skipping — the guard was worthless where it mattered most.
+    repo_root = resolve_tree_root(Path(__file__).resolve())
     models_json = repo_root / "SHARED" / "config" / "models.json"
     if not models_json.is_file():
         pytest.skip(f"{models_json} not present — neutral/OSS checkout")

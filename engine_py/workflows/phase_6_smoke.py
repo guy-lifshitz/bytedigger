@@ -17,13 +17,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from worktree_root import resolve_worktree_root  # noqa: E402
+from tree_root import resolve_tree_root  # noqa: E402
 from bounded_spawn import bounded_run  # noqa: E402
 
 from contracts import StepContract, StepResult, WorkflowDefinition
 
-# engine_py/workflows → engine_py → build → cli → SYSTEM → .claude
-HAL_DIR = Path(__file__).resolve().parents[5]
 _SMOKE_REL = "USER/skills/HALForge/tests/phase-6-signal-smoke.sh"
+
+
+def _resolve_hal_dir(start: Path) -> Path:
+    """Install root that carries the smoke script, at whatever depth it sits.
+
+    Anchored on _SMOKE_REL, so this returns ~/.claude in the upstream HAL tree
+    exactly as the old parents[5] did, and degrades to the checkout or package
+    root elsewhere instead of raising IndexError at import time (bd#97). The
+    same module text ships in trees 4 and 9 ancestors deep, so no ancestor
+    count can be correct in both.
+    """
+    return resolve_tree_root(start, marker=_SMOKE_REL)
+
+
+HAL_DIR = _resolve_hal_dir(Path(__file__).resolve())
 SMOKE_SCRIPT = HAL_DIR / _SMOKE_REL
 
 _PASS_RE = re.compile(r"^PASS:", re.MULTILINE)
