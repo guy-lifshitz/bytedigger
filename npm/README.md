@@ -6,7 +6,7 @@ This is a pointer package. ByteDigger itself is a Python project -- a verified a
 
 ## Install
 
-The engine is a Python package (3.9+, no runtime dependencies):
+The engine is a Python package (3.9+, no runtime dependencies; the editable install below needs pip 21.3+):
 
 ```bash
 pip install git+https://github.com/guy-lifshitz/bytedigger.git#subdirectory=engine_py

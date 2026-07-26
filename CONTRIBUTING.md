@@ -2,6 +2,8 @@
 
 Thanks for taking an interest. The project is small enough that there's no process bureaucracy -- open an issue or a PR and we'll figure it out.
 
+Editable installs (`pip install -e`) of this pyproject-only package need Python 3.9+ and pip 21.3+ (PEP 660) -- older pip fails with "Directory cannot be installed in editable mode".
+
 ## Running the tests
 
 The engine lives in `engine_py/` and is plain Python (3.9+), no runtime dependencies. Tests use pytest:

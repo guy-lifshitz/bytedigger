@@ -30,7 +30,7 @@ ByteDigger verifies the acceptance signal itself, with checks that run as code, 
 | learning | every build starts amnesiac | learnings extracted, stored, injected into the next build |
 | reviewer findings | prose, unverified | every path:line:quote citation checked against disk |
 
-`pip install -e engine_py`, run the [keyless demo](examples/verified-tdd-run/), point it at your own LLM in [20 lines](examples/library/custom_backend.py). Also ships as a Claude Code plugin (`/build`).
+`pip install -e engine_py` (Python 3.9+, pip 21.3+ -- older pip cannot install in editable mode), run the [keyless demo](examples/verified-tdd-run/), point it at your own LLM in [20 lines](examples/library/custom_backend.py). Also ships as a Claude Code plugin (`/build`).
 
 ## The two pillars
 
@@ -90,7 +90,7 @@ git clone https://github.com/guy-lifshitz/bytedigger
 cd bytedigger/engine_py
 
 python3 -m venv .venv && source .venv/bin/activate
-pip install -U pip   # stock macOS 3.9 ships a pre-PEP660 pip that cannot editable-install
+pip install -U pip   # editable install needs pip >= 21.3 (PEP 660); stock macOS ships 21.2.4
 pip install -e .
 
 # smoke: run a workflow, replay its event log

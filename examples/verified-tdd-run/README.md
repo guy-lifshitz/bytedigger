@@ -7,6 +7,7 @@ loop where a dishonest test gets caught by a deterministic gate before any
 implementation is written.
 
 Runs keyless. No API key, no network, no pytest -- stdlib plus the engine.
+The editable install below needs Python 3.9+ and pip 21.3+ (PEP 660).
 
 ```bash
 cd engine_py && pip install -e . && cd ..

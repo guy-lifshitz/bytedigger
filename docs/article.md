@@ -104,7 +104,7 @@ Backends are pluggable. Anthropic, Azure OpenAI, and Claude Code backends ship a
 
 ## Try it
 
-ByteDigger is open source, MIT. The engine installs as a plain Python package:
+ByteDigger is open source, MIT. The engine installs as a plain Python package (Python 3.9+, and pip 21.3+ for the editable install):
 
 ```bash
 git clone https://github.com/guy-lifshitz/bytedigger

@@ -2,6 +2,8 @@
 
 Drive the ByteDigger engine from plain Python -- no Claude Code, no plugin.
 
+Editable installs below need Python 3.9+ and pip 21.3+ (PEP 660).
+
 ## Setup
 
 ```bash

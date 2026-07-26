@@ -21,7 +21,7 @@ See [claude-code-skill/](claude-code-skill/) for the manual-install layout and w
 ## Library (no Claude Code)
 
 ```bash
-cd engine_py && pip install -e .
+cd engine_py && pip install -e .   # editable install needs pip >= 21.3 (PEP 660)
 
 # Zero-config smoke: run a workflow, inspect the event log
 python3 ../examples/library/minimal_run.py
