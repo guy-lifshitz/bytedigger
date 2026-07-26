@@ -166,6 +166,16 @@ clean-room script are updated with it.
 
 ## Operational notes
 
+- **One-time setup — the `docker` runner label.** These jobs need a docker
+  daemon, and the `bytedigger` label spans two machines of which only
+  `bytedigger-mac-studio` has one; `bytedigger-macbook` has the CLI but no
+  reachable daemon. Without a distinguishing label the jobs pass or fail by
+  scheduling luck, so `runs-on` requires `docker` and that label must be added
+  to every host that has a daemon (Settings → Actions → Runners → the runner →
+  Labels, or re-run `config.sh --labels docker`). Until it is added the jobs sit
+  **queued** rather than red — the requirement is stated and unmet, which is the
+  honest signal. The alternative is to run a daemon on the second machine and
+  keep both hosts interchangeable.
 - **Runner.** `[self-hosted, bytedigger]`, used only as a docker host — the repo
   is private, so GitHub-hosted minutes are billed and every existing job is
   self-hosted. The host coupling this workflow exists to catch is removed by the
