@@ -41,12 +41,6 @@ jobs:
         # On pull_request this is the merge commit, which is the right tree to
         # ship into the clean room: the state as it would land on main.
 
-      - name: docker preflight
-        run: |
-          command -v docker >/dev/null || { echo "::error::docker not on the runner PATH"; exit 1; }
-          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable on the runner"; exit 1; }
-          docker --version
-
       - name: README quickstart, keyless demo, doctor, suite collection
         run: bash scripts/clean-room/run.sh quickstart 3.11
 
@@ -56,11 +50,6 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-
-      - name: docker preflight
-        run: |
-          command -v docker >/dev/null || { echo "::error::docker not on the runner PATH"; exit 1; }
-          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable on the runner"; exit 1; }
 
       - name: full test suite with bd#102's closure set declared
         run: bash scripts/clean-room/run.sh suite 3.11
@@ -75,11 +64,6 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-
-      - name: docker preflight
-        run: |
-          command -v docker >/dev/null || { echo "::error::docker not on the runner PATH"; exit 1; }
-          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable on the runner"; exit 1; }
 
       - name: bd#102 still open — suite must fail on a bare image
         run: bash scripts/clean-room/run.sh expect-fail:bd102 3.11

@@ -26,8 +26,31 @@ esac
 
 command -v docker >/dev/null || {
   echo "FAIL: docker is not on PATH. The clean-room job needs a docker daemon." >&2; exit 1; }
+
+# Resolve the daemon explicitly rather than trusting `docker context`. A CI
+# runner started as a launchd/systemd service does not inherit the interactive
+# shell's HOME or docker context, so the CLI silently falls back to the
+# `default` context (/var/run/docker.sock) and reports the daemon as down even
+# though it is running. Try the ambient config first, then known socket paths.
+if ! docker info >/dev/null 2>&1; then
+  HOME_DIR="${HOME:-$(eval echo "~$(whoami)")}"
+  for sock in \
+      "$HOME_DIR/.colima/default/docker.sock" \
+      "$HOME_DIR/.docker/run/docker.sock" \
+      /var/run/docker.sock; do
+    [ -S "$sock" ] || continue
+    if DOCKER_HOST="unix://$sock" docker info >/dev/null 2>&1; then
+      export DOCKER_HOST="unix://$sock"
+      echo "clean-room: resolved docker daemon at $DOCKER_HOST"
+      break
+    fi
+  done
+fi
 docker info >/dev/null 2>&1 || {
-  echo "FAIL: docker is on PATH but the daemon is not reachable (is Docker running?)." >&2; exit 1; }
+  echo "FAIL: docker is on PATH but no reachable daemon was found." >&2
+  echo "      Tried the ambient docker context and the known socket paths." >&2
+  echo "      Start the daemon, or set DOCKER_HOST explicitly." >&2
+  exit 1; }
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"

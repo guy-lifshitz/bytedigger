@@ -175,8 +175,15 @@ clean-room script are updated with it.
 - **Fork pull requests.** This workflow gives PR-authored code access to the
   runner's docker daemon. Keep GitHub's approval requirement for outside
   collaborators enabled; do not add `pull_request_target`.
-- **Requirements on the runner:** `docker` on PATH and a reachable daemon. Every
-  job preflights both and fails with a clear message otherwise.
+- **Requirements on the runner:** `docker` on PATH and a reachable daemon.
+  `run.sh` preflights both and fails with a clear message otherwise. It also
+  **resolves the daemon socket itself**: a runner started as a launchd/systemd
+  service does not inherit the interactive shell's `HOME` or `docker context`,
+  so the CLI falls back to the `default` context (`/var/run/docker.sock`) and
+  declares the daemon down while it is in fact running under colima or Docker
+  Desktop. The driver tries the ambient config first, then the known socket
+  paths, and exports `DOCKER_HOST` for the run. Set `DOCKER_HOST` yourself to
+  override. This bit the first CI run of this very workflow.
 - **Network.** The container reaches Docker Hub (image pull), PyPI (all jobs) and
   `bun.sh` (`suite` only). Unauthenticated Docker Hub pulls are rate-limited per
   IP; a busy day can 429. These are accepted flake sources — a clean room that
