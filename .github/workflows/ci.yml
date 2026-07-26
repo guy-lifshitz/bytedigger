@@ -96,3 +96,23 @@ jobs:
 
       - name: pytest — engine test suite (hermetic, no dbos, no network)
         run: python -m pytest tests/ -q -p no:cacheprovider --timeout=120
+
+  manifests:
+    runs-on: [self-hosted, bytedigger]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "python venv (self-hosted, system python3 - no setup-python)"
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mf-venv"
+          echo "$RUNNER_TEMP/mf-venv/bin" >> "$GITHUB_PATH"
+
+      - name: pip install test deps
+        run: pip install --quiet pytest pyyaml
+
+      - name: version parity — all five declarations match the canonical source
+        run: python3 scripts/version_parity.py --check
+
+      - name: version parity unit tests
+        run: python -m pytest tests/test_version_parity.py -q
