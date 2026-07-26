@@ -20,6 +20,17 @@ from pathlib import Path
 
 import pytest
 
+from helpers import host_tools as _host_tools
+
+# bd#102: re-export the real hookwrapper object (not a reimplementation) so
+# pytest registers the same function this module owns and tests. The body,
+# HOST_TOOLS, and _HOST_TOOL_AVAILABLE all live in helpers.host_tools; this
+# module only imports it (module scope — pytester's SysModulesSnapshot would
+# otherwise evict a module first imported inside a test body) and calls
+# freeze_host_tool_availability() from inside the existing pytest_configure
+# below.
+pytest_runtest_makereport = _host_tools.pytest_runtest_makereport
+
 # Conftest-import-time singleton: expose engine_py root + workflows dir so test
 # files don't need module-level sys.path manipulation (§1q / 81F97F3D gate).
 _ENGINE_ROOT = Path(__file__).parent.parent
@@ -88,6 +99,11 @@ def pytest_configure(config: pytest.Config) -> None:
 
     os.environ["PATH"] = guard_dir + os.pathsep + _ORIG_PATH
     os.environ["HAL_LLM_BURN_GUARD"] = guard_dir
+
+    # bd#102 M1: freeze host-tool availability once, from inside this SAME
+    # pytest_configure — never a second one (that would shadow this hook and
+    # reopen the burn-guard billing seam).
+    _host_tools.freeze_host_tool_availability()
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:

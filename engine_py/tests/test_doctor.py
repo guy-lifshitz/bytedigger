@@ -40,6 +40,8 @@ def _run_doctor(*extra_args: str, timeout: int = 120) -> subprocess.CompletedPro
 # ---------------------------------------------------------------------------
 
 def test_ac1_doctor_json_exits_0_and_parses_with_status_and_checks():
+    from helpers.host_tools import skip_without
+    skip_without("git")
     r = _run_doctor("--json")
     assert r.returncode == 0, (
         f"expected exit 0 on healthy checkout, got {r.returncode}; "
@@ -56,6 +58,8 @@ def test_ac1_doctor_json_exits_0_and_parses_with_status_and_checks():
 # ---------------------------------------------------------------------------
 
 def test_ac2_json_checks_cover_contract_names_and_statuses_ok_or_warn():
+    from helpers.host_tools import skip_without
+    skip_without("git")
     r = _run_doctor("--json")
     payload = json.loads(r.stdout)
     checks = payload["checks"]
@@ -84,6 +88,8 @@ def test_ac2_json_checks_cover_contract_names_and_statuses_ok_or_warn():
 # ---------------------------------------------------------------------------
 
 def test_ac3_human_mode_exits_0_with_summary_and_per_check_lines():
+    from helpers.host_tools import skip_without
+    skip_without("git")
     r = _run_doctor()
     assert r.returncode == 0, (
         f"expected exit 0, got {r.returncode}; stdout={r.stdout!r} stderr={r.stderr!r}"

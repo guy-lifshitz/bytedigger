@@ -263,6 +263,8 @@ class TestRedTestOutcomeTelemetry:
         """red_test_paths with .py AND .test.ts → 2 red_test_outcome events, one per group.
         Each event's `group` field matches the inferred kind ('py' and 'bun'/'ts').
         """
+        from helpers.host_tools import skip_without
+        skip_without("bun")
         repo = _make_repo(tmp_path)
         _write_failing_test(repo, "tests/py_test.py")
         # Write a minimal bun/ts test file that will cause bun to fail (file exists but bun may not)

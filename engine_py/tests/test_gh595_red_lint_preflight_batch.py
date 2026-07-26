@@ -202,6 +202,8 @@ def test_ac2_directed_repair_invoked_exactly_once_with_combined_findings(
 def test_ac3_clean_fixture_happy_path_preserves_prev_data(tmp_path, monkeypatch) -> None:
     """AC3: clean fixture (no violations) -> status=='ok', prev.data keys
     passed through in the returned StepResult.data."""
+    from helpers.host_tools import skip_without
+    skip_without("semgrep")
     from phase_5_implement import _verify_red_lint_rules
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")

@@ -159,6 +159,8 @@ class TestVerifyGreenPassingFunction:
 
     def test_emits_green_test_outcome_event_per_group(self, tmp_path: Path, monkeypatch) -> None:
         """red_test_paths=['tests/py_test.py', 'tests/js_test.test.ts'] → 2 events, one per group."""
+        from helpers.host_tools import skip_without
+        skip_without("bun")
         repo = _make_repo(tmp_path)
         _write_passing_test(repo, "tests/py_test.py")
         ts_test = repo / "tests" / "js_test.test.ts"

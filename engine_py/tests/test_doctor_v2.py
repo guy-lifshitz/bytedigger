@@ -140,6 +140,8 @@ def test_ac6_config_json_ok_for_absent_and_valid_with_differing_details(tmp_path
 # ---------------------------------------------------------------------------
 
 def test_ac7_json_mode_reports_13_checks_including_all_new_v2_names():
+    from helpers.host_tools import skip_without
+    skip_without("git")
     r = _run_doctor("--json")
     assert r.returncode == 0, (
         f"expected exit 0 on healthy checkout, got {r.returncode}; "
@@ -164,6 +166,8 @@ def test_ac7_json_mode_reports_13_checks_including_all_new_v2_names():
 # ---------------------------------------------------------------------------
 
 def test_ac8_human_mode_reports_at_least_13_status_lines_and_summary():
+    from helpers.host_tools import skip_without
+    skip_without("git")
     r = _run_doctor()
     assert r.returncode == 0, (
         f"expected exit 0, got {r.returncode}; stdout={r.stdout!r} stderr={r.stderr!r}"

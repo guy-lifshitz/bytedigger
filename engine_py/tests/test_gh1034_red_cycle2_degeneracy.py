@@ -38,6 +38,7 @@ sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 from contracts import StepResult, WorkflowContext  # noqa: E402
 import phase_5_implement as _p5  # noqa: E402
+from helpers.git_repo import init_repo  # noqa: E402
 
 
 # ─── generic helpers ───────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ def _git(cwd: str, *args: str) -> str:
 
 
 def _init_repo(cwd: str) -> None:
-    _git(cwd, "init", "-q")
+    init_repo(cwd)
     (Path(cwd) / "README.md").write_text("gh1034 fixture repo\n", encoding="utf-8")
     _git(cwd, "add", "--", "README.md")
     _git(cwd, "commit", "-q", "-m", "initial")
