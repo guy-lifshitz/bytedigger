@@ -34,7 +34,11 @@ command -v docker >/dev/null || {
 # though it is running. Try the ambient config first, then known socket paths.
 if ! docker info >/dev/null 2>&1; then
   HOME_DIR="${HOME:-$(eval echo "~$(whoami)")}"
+  # Endpoints the CLI itself knows about (covers non-default colima profiles and
+  # Docker Desktop variants), then the well-known socket paths.
+  ctx_endpoints="$(docker context ls --format '{{.DockerEndpoint}}' 2>/dev/null | sed 's|^unix://||' || true)"
   for sock in \
+      $ctx_endpoints \
       "$HOME_DIR/.colima/default/docker.sock" \
       "$HOME_DIR/.docker/run/docker.sock" \
       /var/run/docker.sock; do
