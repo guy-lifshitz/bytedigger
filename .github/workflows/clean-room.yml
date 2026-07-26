@@ -1,0 +1,59 @@
+name: clean-room
+
+# bd#100 — run the project the way an outsider would.
+#
+# `ci.yml` checks out the repo and runs it IN PLACE on a preconfigured runner.
+# That is how bd#97 survived: the suite could not be collected from a clean
+# clone while every check we ran stayed green. This workflow removes both
+# assumptions — the tree comes from `git archive` (committed files only, no
+# untracked local state) and it runs inside a stock image, not on the runner.
+#
+# Two jobs, both blocking, neither allowed to fail. See docs/clean-room.md
+# §Decision for why the split exists and what closes it.
+#
+# The runner is used only as a docker host: it needs `docker` on PATH and a
+# reachable daemon, nothing else. Everything under test happens in the container.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: clean-room-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # An outsider's real path: bare stock image, zero host tools, README verbatim.
+  quickstart:
+    runs-on: [self-hosted, bytedigger]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        # On pull_request this is the merge commit, which is the right thing to
+        # ship into the clean room: the tree as it would land on main.
+
+      - name: docker preflight
+        run: |
+          command -v docker >/dev/null || { echo "::error::docker not on the runner PATH"; exit 1; }
+          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable on the runner"; exit 1; }
+          docker --version
+
+      - name: clean room — README quickstart, keyless demo, suite collection
+        run: bash scripts/clean-room/run.sh quickstart 3.11
+
+  # The suite itself, plus the exact host dependencies it silently requires.
+  suite:
+    runs-on: [self-hosted, bytedigger, heavy]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker preflight
+        run: |
+          command -v docker >/dev/null || { echo "::error::docker not on the runner PATH"; exit 1; }
+          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable on the runner"; exit 1; }
+
+      - name: clean room — full test suite with bd#102's dependencies declared
+        run: bash scripts/clean-room/run.sh suite 3.11

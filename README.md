@@ -101,7 +101,7 @@ bytedigger-engine --derive-state /tmp/events.jsonl
 python3 ../examples/verified-tdd-run/run_demo.py
 ```
 
-If something fails, run `bytedigger doctor` for an offline self-check of your environment.
+If something fails, run `bytedigger-engine doctor` for an offline self-check of your environment.
 
 The [verified-tdd-run example](examples/verified-tdd-run/) walks a frozen spec with an AC table through the loop against a toy repository and shows a gate rejection along the way. From there:
 
@@ -125,7 +125,7 @@ Two surfaces, documented in [docs/configuration.md](docs/configuration.md):
   pinning (`validation_model`, `red_model`, `green_model`, ...) lives in
   `org_config`; artifacts land under `.bytedigger/` in the project cwd.
 
-If something misbehaves, `bytedigger doctor` runs 13 offline environment checks.
+If something misbehaves, `bytedigger-engine doctor` runs 13 offline environment checks (`bytedigger doctor` is the same thing via the npm wrapper).
 
 ## Use with Claude Code
 
