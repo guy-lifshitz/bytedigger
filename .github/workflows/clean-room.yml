@@ -11,12 +11,14 @@ name: clean-room
 # Three jobs, all blocking, none allowed to fail. See docs/clean-room.md
 # §Decision for why the split exists and what closes each part of it.
 #
-# ONE-TIME SETUP: these jobs require the `docker` runner label. The `bytedigger`
-# label spans two machines and only one of them has a docker daemon, so without
-# the extra label the jobs pass or fail by scheduling luck. Add it to the hosts
-# that have a daemon (Settings -> Actions -> Runners -> the runner -> Labels,
-# or re-run config.sh with --labels docker). Until then these jobs sit QUEUED,
-# which is the honest signal: the requirement is stated and unmet, not green.
+# ONE-TIME SETUP: these jobs require the `docker` runner label, carried only by
+# hosts with a live docker daemon (today: bytedigger-mac-studio). The
+# `bytedigger` label alone spans two machines and only one of them has a daemon,
+# so without the extra label the jobs pass or fail by scheduling luck. Add it in
+# Settings -> Actions -> Runners -> the runner -> Labels. Until then these jobs
+# sit QUEUED, which is the honest signal: the requirement is stated and unmet,
+# not green. Deliberately a capability label, not a machine name — a name breaks
+# the moment another runner is added; `docker` keeps describing the requirement.
 #
 # Runner: [self-hosted, bytedigger], used ONLY as a docker host. The repo is
 # private, so GitHub-hosted minutes are billed and every existing job is
@@ -53,7 +55,7 @@ jobs:
 
   # The suite itself, plus the exact host dependencies it silently requires.
   suite:
-    runs-on: [self-hosted, bytedigger, heavy, docker]
+    runs-on: [self-hosted, bytedigger, docker]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +69,7 @@ jobs:
   # "delete the block when bd#102 lands" an enforced exit criterion instead of
   # a comment.
   debt-watch:
-    runs-on: [self-hosted, bytedigger, heavy, docker]
+    runs-on: [self-hosted, bytedigger, docker]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
