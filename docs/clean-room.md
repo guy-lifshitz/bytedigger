@@ -30,7 +30,7 @@ contributor's first contact. It is a job for a *class* of defect, not a bug.
 |---|---|---|---|
 | `quickstart` | `python:3.11-slim` | **none** | README Quickstart verbatim, `bytedigger-engine doctor`, the keyless demo, and that the suite **collects** with zero errors |
 | `suite` | `python:3.11-slim` | git, zsh, bun, semgrep | the **full suite** passes; the closure set is on PATH and documented |
-| `debt-watch` | `python:3.11-slim`, `python:3.9-slim` | none | two known defects are **still** present — red the day either is fixed |
+| `debt-watch` | `python:3.9-slim` | none | a known defect is **still** present — red the day it is fixed |
 
 All three are blocking. None sets `continue-on-error`.
 
@@ -56,10 +56,16 @@ carries the tools, sourced from one machine-readable manifest, and requires the
 suite green. Nothing is hidden, because the split is what states the gap.
 
 That much still leaves a comment saying "delete this when bd#102 lands", which
-nothing enforces. So `debt-watch` runs the bare-image suite and **requires it to
-fail**. The moment it passes, the job goes red and says that the closure set is
-now dead weight and names the files to delete. The exit criterion is a check,
-not a reminder — and there is no date to miss.
+nothing enforces. So `debt-watch` ran the bare-image suite and **required it to
+fail**, so that the moment it passed the job would go red and say the closure set
+had become dead weight. The exit criterion was a check, not a reminder — and
+there was no date to miss.
+
+**It fired.** On the first real CI run of this workflow the bare-image suite
+passed (3497 passed, 633 skipped) instead of failing, `debt-watch` went red on
+exactly that step, and the step was deleted with the debt. bd#102 is closed. The
+paragraph is kept in the past tense rather than removed, because the mechanism is
+the reusable part and the 3.9 leg below still runs on it.
 
 The same mechanism carries the Python matrix (below).
 
@@ -134,13 +140,21 @@ job makes sure the discrepancy stays visible.
 ```bash
 bash scripts/clean-room/run.sh                        # quickstart, python 3.11
 bash scripts/clean-room/run.sh suite                  # full suite
-bash scripts/clean-room/run.sh expect-fail:bd102      # debt watch
+bash scripts/clean-room/run.sh expect-fail:bd102      # retired, see below
 bash scripts/clean-room/run.sh expect-fail:py39 3.9   # debt watch, oldest Python
 bash scripts/clean-room/run.sh quickstart 3.12        # any interpreter
 CLEAN_ROOM_REF=origin/main bash scripts/clean-room/run.sh
 ```
 
-Identical to what CI runs; CI adds only a docker preflight.
+Identical to what CI runs, with one exception: `expect-fail:bd102` is **retired**
+and no longer wired into `debt-watch`. It asserted the suite must still fail on a
+bare image; on the first real CI run of this workflow it passed instead (3497
+passed, 633 skipped) — the honest-skip layer working. That red was the exit
+criterion firing exactly as designed, so the step retired with the debt. The mode
+stays callable by hand: it is how you re-check the claim, and it is the one place
+the old behaviour is still reproducible. bd#102 is closed.
+
+Otherwise CI adds only a docker preflight.
 
 **It tests your last commit, never your working copy.** `git archive` is the
 mechanism, so uncommitted changes are invisible to it. The driver warns when the

@@ -69,8 +69,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: bd#102 still open — suite must fail on a bare image
-        run: bash scripts/clean-room/run.sh expect-fail:bd102 3.11
+      # The bd#102 step lived here and is deliberately GONE, not disabled: it
+      # asserted the suite must still FAIL on a bare image, and on this run it
+      # passed instead — 3497 passed, 633 skipped, the honest-skip layer doing
+      # its job. That red WAS the exit criterion firing, so the step retires
+      # with the debt. bd#102 is closed.
 
       - name: oldest declared Python (3.9) still broken — must fail to collect
         run: bash scripts/clean-room/run.sh expect-fail:py39 3.9
