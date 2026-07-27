@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import json
+import ast
 import os
 import re
 import subprocess
@@ -40,13 +41,78 @@ SCRIPT = REPO_ROOT / "scripts" / "version_parity.py"
 # path-equality assertions elsewhere never mismatch on it.
 NEUTRAL_CWD = Path(os.path.realpath(tempfile.mkdtemp(prefix="version_parity_neutral_")))
 
-DECL_RELPATHS = [
-    "engine_py/pyproject.toml",
-    "package.json",
-    "npm/package.json",
-    ".claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-]
+def _source_registry() -> list:
+    """(path, kind) pairs read out of the UUT's own `DECLARATIONS` literal.
+
+    Derived, never transcribed. A hand-copied list of declaration relpaths is
+    what bd#13 was: the repo grew a sixth declaration
+    (`packaging/pypi-pointer/pyproject.toml`, added when the PyPI pointer
+    package was tracked in-repo and 0.1.1 was cut) and every fixture repo in
+    this suite silently stopped covering the full set, so seven tests failed
+    with `packaging/pypi-pointer/pyproject.toml: missing` while the tool itself
+    was correct on the real tree. Reading the registry from the source removes
+    the transcription entirely rather than re-transcribing it one longer.
+
+    Parsed with `ast`, not imported: this suite's standing rule is that the UUT
+    is never imported or mocked, only invoked as a subprocess. `ast.parse`
+    executes nothing. It is also deliberately NOT read via
+    `--list-declarations` -- AC16 asserts that the shipped
+    `--list-declarations` output agrees with this independently-parsed source
+    registry, and deriving both sides from the same subprocess would make that
+    comparison circular.
+    """
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    kind_consts: dict = {}
+    decls_node = None
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        if target.id.startswith("KIND_") and isinstance(node.value, ast.Constant):
+            kind_consts[target.id] = node.value.value
+        elif target.id == "DECLARATIONS":
+            decls_node = node.value
+
+    assert decls_node is not None, (
+        f"{SCRIPT} declares no module-level DECLARATIONS list -- this suite "
+        f"derives every fixture from it"
+    )
+    assert isinstance(decls_node, (ast.List, ast.Tuple)), (
+        f"DECLARATIONS in {SCRIPT} is not a list/tuple literal: "
+        f"{type(decls_node).__name__}"
+    )
+
+    pairs = []
+    for element in decls_node.elts:
+        assert isinstance(element, (ast.Tuple, ast.List)) and len(element.elts) == 2, (
+            f"DECLARATIONS entry is not a 2-element (path, kind) literal: "
+            f"{ast.dump(element)}"
+        )
+        path_node, kind_node = element.elts
+        assert isinstance(path_node, ast.Constant) and isinstance(path_node.value, str), (
+            f"DECLARATIONS path is not a string literal: {ast.dump(path_node)}"
+        )
+        if isinstance(kind_node, ast.Name):
+            assert kind_node.id in kind_consts, (
+                f"DECLARATIONS references unknown kind constant {kind_node.id!r}"
+            )
+            kind = kind_consts[kind_node.id]
+        else:
+            assert isinstance(kind_node, ast.Constant) and isinstance(
+                kind_node.value, str
+            ), f"DECLARATIONS kind is neither a KIND_* name nor a string: {ast.dump(kind_node)}"
+            kind = kind_node.value
+        pairs.append((path_node.value, kind))
+
+    assert pairs, f"DECLARATIONS in {SCRIPT} is empty"
+    return pairs
+
+
+SOURCE_REGISTRY = _source_registry()
+DECL_RELPATHS = [path for path, _kind in SOURCE_REGISTRY]
+DECL_KINDS = {path: kind for path, kind in SOURCE_REGISTRY}
 
 ALL_AGREE_VERSIONS = {p: "0.1.1" for p in DECL_RELPATHS}
 
@@ -92,6 +158,37 @@ def _parse_project_version(text: str) -> str | None:
             if m:
                 return m.group(1)
     return None
+
+
+KIND_TOML_PROJECT_VERSION = "toml-project-version"
+KIND_JSON_FLAT = "json-flat"
+KIND_JSON_NESTED = "json-nested"
+
+#: The closed `kind` vocabulary of spec §2.4. A registry entry whose kind is
+#: absent here is a shape this suite does not know how to build or read, and
+#: every helper below fails loudly rather than skipping it.
+KNOWN_KINDS = frozenset(
+    {KIND_TOML_PROJECT_VERSION, KIND_JSON_FLAT, KIND_JSON_NESTED}
+)
+
+
+def _read_declared_version(path: Path, kind: str) -> str | None:
+    """Read the version out of `path` the way its registered `kind` stores it.
+
+    Independent of the UUT: this is the suite's own reader, so a test asserting
+    that `--write` landed is not asking the writer to confirm its own work.
+    """
+    assert kind in KNOWN_KINDS, (
+        f"unknown declaration kind {kind!r} for {path} -- teach "
+        f"_read_declared_version and _write_declaration the new shape "
+        f"(KNOWN_KINDS is the closed vocabulary of spec §2.4)"
+    )
+    if kind == KIND_TOML_PROJECT_VERSION:
+        return _parse_project_version(path.read_text())
+    data = json.loads(path.read_text())
+    if kind == KIND_JSON_FLAT:
+        return data.get("version")
+    return data["plugins"][0].get("version")
 
 
 def _canonical_version(repo_root: Path) -> str:
@@ -1101,3 +1198,85 @@ class TestVersionParity:
         assert marketplace_after == marketplace_expected, (
             f"marketplace.json nested write must be byte-surgical: got={marketplace_after!r}"
         )
+
+    # -- bd#13: the fixture builder and the registry may never drift apart ----
+
+    def test_ac27_fixture_builder_covers_every_registered_declaration(self, tmp_path):
+        """AC27 (bd#13, the durable guard): `_make_tmp_repo` must materialise a
+        file for EVERY declaration the UUT registers, and for no other path.
+
+        This is the invariant bd#13 violated. The builder hand-wrote five files
+        while the registry grew to six, so every fixture repo was missing one
+        declaration and the tool -- correctly -- refused it with
+        `packaging/pypi-pointer/pyproject.toml: missing`. Seven tests went red
+        for a reason that had nothing to do with what any of them asserted.
+
+        Asserted as set equality against the registry rather than as a count,
+        so a seventh declaration cannot reproduce the same wedge: the builder
+        either covers it or this test names exactly what it missed.
+        """
+        repo = _make_tmp_repo(tmp_path, dict(ALL_AGREE_VERSIONS))
+
+        registered = set(DECL_RELPATHS)
+        materialised = {
+            rel for rel in registered if (repo / rel).is_file()
+        }
+        assert materialised == registered, (
+            f"_make_tmp_repo must create every registered declaration; "
+            f"missing={sorted(registered - materialised)}"
+        )
+
+        # And the fixture is a faithful subject: the tool accepts it.
+        result = _run(repo, "--check")
+        assert result.returncode == 0, (
+            f"a fixture covering every declaration must pass --check, got "
+            f"{result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}"
+        )
+
+    def test_ac28_registry_is_closed_and_every_entry_is_actually_written(
+        self, tmp_path
+    ):
+        """AC28 (bd#13): the declaration registry is CLOSED over what --write
+        touches -- asserted as a property, with no count anywhere.
+
+        Replaces the count half of the old AC16 ("exactly five entries"), which
+        pinned a STATE: it had to be re-tuned by hand every time the repo
+        legitimately gained a declaration, and re-tuning it was the only thing
+        it ever measured. The property that actually matters is that the
+        registry and the set of files the writer rewrites are the same set --
+        no entry declared and then ignored by --write, and no file rewritten
+        without being declared.
+        """
+        repo = _make_tmp_repo(tmp_path, dict(ALL_AGREE_VERSIONS))
+
+        before = {
+            rel: (repo / rel).read_bytes()
+            for rel in DECL_RELPATHS
+            if (repo / rel).is_file()
+        }
+        assert set(before) == set(DECL_RELPATHS), (
+            f"fixture is missing declarations, cannot measure the write set: "
+            f"missing={sorted(set(DECL_RELPATHS) - set(before))}"
+        )
+
+        result = _run(repo, "--write", "9.9.9")
+        assert result.returncode == 0, (
+            f"--write over a complete fixture must exit 0, got "
+            f"{result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}"
+        )
+
+        changed = {
+            rel for rel, was in before.items() if (repo / rel).read_bytes() != was
+        }
+        assert changed == set(DECL_RELPATHS), (
+            f"--write must rewrite exactly the registered declarations; "
+            f"declared-but-untouched={sorted(set(DECL_RELPATHS) - changed)}"
+        )
+
+        # Every rewritten file now reads back the requested version, by its
+        # registered `kind` -- so `kind` is load-bearing, not decorative.
+        for rel in DECL_RELPATHS:
+            assert _read_declared_version(repo / rel, DECL_KINDS[rel]) == "9.9.9", (
+                f"{rel} (kind={DECL_KINDS[rel]}) does not read back the written "
+                f"version"
+            )
