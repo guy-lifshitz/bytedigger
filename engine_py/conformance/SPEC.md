@@ -48,6 +48,12 @@ same class they were meant to close:
 FROZEN for this lot. Source of truth: `2026-07-26_bytedigger_conformance_levels.md` (FROZEN v1,
 HAL commit `fd35e1304`). §1–§6, §9 normative. §7 out of scope.
 
+**Base rebased** `[G5:base]`: `origin/main` @ **`073ce12`** (was `606ab58`), picking up bd#13
+(`f53c5d1`, manifest/version-parity declaration registry) and bd#12 (`073ce12`, ci unwedged +
+`ci-heartbeat`). Neither touches `engine_py` — verified with `git diff --stat 606ab58..origin/main --
+engine_py/` (empty) — so the engine-suite baseline is unaffected. The lot touches no workflow files,
+so there is no overlap with `ci-heartbeat`. bd#13 does bear on R0.3: see **AC-L0-2c**.
+
 ## 0. Measurement that drives the design (answered before designing)
 
 Against `origin/main` @ `606ab58`:
@@ -343,6 +349,27 @@ it is the same class of defect as defaulting to passed.
   (`engine.py:250-268` emits `phase_reroute_entry` first whenever `phase_reroute` is set, so
   `kinds[0]` is a fixture property, not an engine invariant). Payload: `engine_version` and
   `adapter_identity`. Closes R0.3 for runs that make no LLM call — the gap §0 found.
+- **AC-L0-2c** `[G5:base]` **`engine_version` provenance survives packaging, and has no placeholder.**
+  The canonical version lives in `engine_py/pyproject.toml [project].version` (confirmed against
+  `scripts/version_parity.py --list-declarations` on `origin/main` @ `073ce12`: six declarations, all
+  **files**, canonical is that one — there is no runtime accessor in `engine_py`, so this lot is the
+  first thing that needs one). But `pyproject.toml` is **build** metadata: `packages.find` ships only
+  `lib*`/`workflows*`/`security*`/`scripts*`(`+conformance*`), so the file **is not present in the
+  installed wheel** and a runtime read of it works in a source checkout and fails in the shipped
+  package — precisely where an attestation matters most.
+  Therefore, resolution order: `importlib.metadata.version("bytedigger-engine")` first (the installed
+  distribution's own metadata, derived from the canonical declaration at build time, so it introduces
+  **no seventh declaration** — `version_parity` keeps its registry unchanged), then the
+  `pyproject.toml` read for a source checkout.
+  **And it MUST fail closed: when neither source resolves, `run_identity.engine_version` MUST be
+  absent/empty and `check_bd_l0` MUST report R0.3 `"not-checked"` — never a placeholder**
+  (`"unknown"`, `"0.0.0"`, `"0+unknown"`). A fallback string here is the exact defect AC-L0-2b names
+  for `adapter_identity`, on the requirement §0 found missing entirely, and it would be *invisible*:
+  an attested report carrying `engine_version: "unknown"` looks measured. Asserted three ways: the
+  source-checkout path resolves to the real canonical value (read from `pyproject.toml` in the test,
+  not hardcoded, so a version bump cannot rot it); the installed-metadata path resolves when
+  `importlib.metadata` provides it; and with **both** seams forced to fail, R0.3 is `"not-checked"`
+  and `passed is False`, with no placeholder anywhere in the payload.
 - **AC-L0-2b** `[G:MAJOR-6]` **`adapter_identity` provenance is defined, not a placeholder.**
   It MUST be `{"backend": <b>, "source": <s>}` obtained from the engine's own resolver
   `llm_subprocess._resolve_backend(kwarg, env)` (`llm_subprocess.py:608`), which resolves without
