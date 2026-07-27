@@ -10,8 +10,13 @@ on:
     branches: [main]
   pull_request:
 
+# main is isolated per commit rather than serialised (bd#12): with
+# cancel-in-progress false on main, one permanently unschedulable run holding
+# a per-ref group head-of-line blocks every later commit, forever and
+# silently. Keyed by sha, a wedged run can block only its own commit.
+# PR/branch behaviour is unchanged.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -116,3 +121,6 @@ jobs:
 
       - name: version parity unit tests
         run: python -m pytest tests/test_version_parity.py -q
+
+      - name: ci main-heartbeat unit tests (bd#12 re-wedge fence)
+        run: python -m pytest tests/test_ci_main_heartbeat.py -q

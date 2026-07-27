@@ -1,0 +1,39 @@
+name: ci-heartbeat
+
+# bd#12 watchdog: main must show at least one EXECUTED run of ci.yml in the
+# last 7 days. Runs LIVE against the GitHub API — never against a committed
+# fixture, which would only ever re-check a frozen snapshot — and never
+# swallows its exit code, so silence on main surfaces as a red X on the repo.
+
+on:
+  schedule:
+    # Daily. A weekly or annual cron makes a 7-day window structurally
+    # undetectable.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+# A schedule-triggered workflow has a constant github.ref, so a group keyed on
+# the ref alone with cancel-in-progress false is byte-for-byte the bd#12
+# mechanism installed inside the only detector of bd#12: one stuck heartbeat
+# and the watchdog goes permanently silent. Keyed per run AND cancelling, and
+# distinct from ci.yml's group so the watchdog never serialises against the
+# workflow it watches.
+concurrency:
+  group: ci-heartbeat-${{ github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: main liveness — >=1 executed ci.yml run on main in the last 7 days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci_main_heartbeat.py --days 7
