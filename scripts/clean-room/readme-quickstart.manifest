@@ -1,0 +1,22 @@
+# Frozen record of what README's `## Quickstart` currently promises, and which
+# clean-room mode executes each command. Checked by scripts/clean-room/readme_parity.py.
+#
+# Editing the README Quickstart fences WILL fail the clean-room job until this
+# file is updated — that is deliberate. Update it together with in-container.sh,
+# never alone: every line tagged quickstart/suite must appear in that script.
+#
+# Format:  <coverage>\t<command>
+#   quickstart     — run by in-container.sh quickstart mode (bare stock image)
+#   suite          — run by in-container.sh suite mode
+#   skip:<reason>  — deliberately not run; reason is mandatory
+#
+skip:the clean room ships a git-archive tree; there is no clone step and no git in the image	git clone https://github.com/guy-lifshitz/bytedigger
+skip:working-directory change, performed by the script rather than executed verbatim	cd bytedigger/engine_py
+quickstart	python3 -m venv .venv && source .venv/bin/activate
+quickstart	pip install -U pip
+quickstart	pip install -e .
+quickstart	bytedigger-engine --workflow echo --ctx-json '{"question":"hello"}' --event-log /tmp/events.jsonl
+quickstart	bytedigger-engine --derive-state /tmp/events.jsonl
+quickstart	python3 ../examples/verified-tdd-run/run_demo.py
+suite	pip install -e ".[test]" && python3 -m pytest tests/
+skip:optional extra, pulls pydantic-ai from the network and exercises no README promise the job can assert offline	pip install -e ".[agentic-pydantic]"
