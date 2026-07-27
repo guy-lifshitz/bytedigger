@@ -112,6 +112,27 @@ class _DefaultConfigProvider:
         """Neutral event log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/events.jsonl"
 
+    def worktree_inuse_window_s(self) -> float:
+        """Seconds within which a worktree's event log counts as actively written.
+
+        GH1309 — the freshness half of the in-use veto that keeps a sibling's
+        phase-8 cleanup from removing a live worktree. Host-overridable; the
+        env read belongs to the host provider, not to the workflow module
+        (core-boundary lint).
+        """
+        return 900.0
+
+    def event_log_path_override(self) -> str:
+        """Absolute event-log path forced by the host, or "" for none (GH1309).
+
+        Neutral hosts force nothing. The HAL provider reads HAL_EVENT_LOG_PATH so
+        a batch worker can keep its log outside its own worktree — a sibling's
+        phase-8 cleanup destroyed both on 2026-07-27.  It lives here, not in
+        event_log.py, because the core log module must stay env-free (core
+        boundary lint, EAC7D305).
+        """
+        return ""
+
     def reject_log_relpath(self) -> str:
         """Neutral reject-log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/reject-reasons.jsonl"
@@ -211,6 +232,14 @@ def path(env_var: str, default: Path) -> Path:
 def event_log_relpath() -> str:
     """Host-relative path of the canonical build-events log (single source, §1g)."""
     return get_config().event_log_relpath()  # type: ignore[attr-defined]  # relpath/resolve methods are provider-concrete, intentionally off the minimal ConfigProvider Protocol
+
+def worktree_inuse_window_s() -> float:
+    """Freshness window (s) for the GH1309 worktree in-use veto."""
+    return float(get_config().worktree_inuse_window_s())  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol
+
+def event_log_path_override() -> str:
+    """Absolute event-log path forced by the host, or "" (GH1309)."""
+    return str(get_config().event_log_path_override())  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol
 
 def reject_log_relpath() -> str:
     """Host-relative path of the reject-reasons log (single source, §1g)."""

@@ -28,6 +28,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 from config_provider import hal_root as _hal_root_fn  # noqa: E402
 from config_provider import event_log_relpath, resolve_event_log_hal_dir  # noqa: E402
+from config_provider import event_log_path_override as _event_log_path_override_fn  # noqa: E402
 from config_provider import foreign_state_dirname as _foreign_state_dirname_fn  # noqa: E402
 
 # structural: engine_py → build → cli → SYSTEM → host install root
@@ -49,7 +50,22 @@ def default_log_path() -> Path:
 
     HOME unresolvable: treat cwd as foreign (safe default — same logic as
     phase_05_inject._cwd_inside_hal_dir, agreement 349FE371).
+
+    GH1309: an explicit HAL_EVENT_LOG_PATH wins over both. Batch workers point
+    it outside their own worktree (`<log_dir>/events-<issue>.jsonl`) so a
+    `worktree remove --force` — which on 2026-07-27 destroyed two live ppba
+    worktrees — can no longer take the diagnostics with the directory.
+
+    Scope of the override, stated exactly: every reader that resolves through
+    THIS function follows it. Two writers/readers do not, by construction —
+    drive-engine.ts pins `integration_canary_events_path` to a literal relative
+    path, and subagent-start-track.ts resolves HAL_EVENTS_LOG_PATH against the
+    HAL dir. The canary keeps working because of that explicit pin, not because
+    this override reaches it.
     """
+    override = _event_log_path_override_fn()
+    if override:
+        return Path(override).expanduser()
     try:
         hal_dir = _hal_root_fn()
         cwd = Path.cwd().resolve()
