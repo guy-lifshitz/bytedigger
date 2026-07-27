@@ -1,13 +1,44 @@
 """RED tests for bd#7 — conformance harness + oracle interface + attestation
 writer + BD-L0.
 
-Spec v7 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
+Spec v9 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
 REJECTED v2 on 4 blocking defects [G2:1]/[G2:2]/[G2:3]/[G2:4], REJECTED v3
 on 4 more blocking defects [G3:MAJOR-1..4], REJECTED v4 on 5 more blocking
 defects [G4:1]/[G4:2]/[G4:3]/[G4:4]/[G4:5], REJECTED v5 on ONE more blocking
-defect [G5:accum], then REJECTED v6 on ONE more blocking defect [G6:1]):
+defect [G5:accum], REJECTED v6 on ONE more blocking defect [G6:1], then
+REJECTED v8 on THREE more blocking defects [G7:1]/[G7:1b]/[G7:2]):
 engine_py/conformance/SPEC.md (frozen), source of truth
 `2026-07-26_bytedigger_conformance_levels.md` §1-6, 9.
+
+v9 [G7:1]/[G7:1b]/[G7:2] closes the three round-7 blocking defects, all
+found in v7/v8's own round-7 RED additions:
+  AC-E10      [G7:1] clause 1 no longer requires a NEWLY CREATED thread
+      (which a daemonising pool reuses from an idle worker rather than
+      creating) — the oracle now records its own threading.current_thread()
+      into a caller-visible list, and the assertion checks THAT thread's
+      is_alive()/daemon, admitting both per-call and pooled designs
+  AC-L0-3d3   [G7:1b] the unshadowed joint-satisfiability control no
+      longer reuses a boundary path count computed under DIFFERENT (shorter)
+      identifiers — it now recomputes its own boundary from the exact
+      identifiers it uses at runtime, closing a false-RED that was
+      unsatisfiable by any implementation (18 B over the limit either way)
+  AC-L0-6e / AC-L0-3b5   [G7:2a]/[G7:2b] both rewritten to assert on a
+      NON-UNIFORM two-phase fixture (phase_b's step events dropped /
+      phase_b's artifact record malformed) plus the well-formed two-phase
+      positive control — v7 asserted both only over single-phase logs,
+      admitting a GREEN that checked the precondition once per RUN
+      instead of once per PHASE
+plus six MINOR pins ([G7:MINOR-1..6]) and five new ACs promoted from
+adversarial edges: AC-L0-15 (empty scope must not vacuously pass — the
+cheapest false-green left, one scope out from the phase/run ladder),
+AC-L0-3d4 (a single pathological ~4200-char path: the TRUNCATED payload
+must itself fit under 4096, injected via the git_port seam to avoid a
+real PATH_MAX collision), AC-L0-3d5 (exactly 4096 bytes is LEGAL, not
+truncated — event_log.py rejects only strictly-greater), AC-L0-6g (a
+writer whose append raises must not propagate AND must render R0.1
+"not-checked", never "passed"), AC-L0-3b7 (a phase_artifacts preceding
+its own workflow_started is valid — order within a scope carries no
+normative meaning beyond AC-L0-2's positional rule).
 
 v7 [G6:1] closes the ONE round-6 blocking defect — the LAST rung of
 [G6:quant] (phase -> run; no collection sits above "the phases of one
@@ -872,20 +903,39 @@ def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accu
         grown by N. This clause is design-agnostic: it holds for BOTH a
         per-call-thread design (each worker exits on its own once its
         sleep elapses) and a pooled design with a BOUNDED pool size (not N
-        permanent threads) — only a genuine per-call leak fails it."""
+        permanent threads) — only a genuine per-call leak fails it.
+
+    [G7:1] BLOCKING FIX: clause 1's ORIGINAL check required a NEWLY
+    CREATED thread (an enumerate()-before/after diff), which a daemonising
+    POOL design — declared admissible by [G7:self-1] right above — does
+    NOT produce, since it reuses an already-alive idle worker. Worse than
+    order-dependent: AC-E3/AC-E8/AC-E9 (and this test's own clause 2, if
+    order-dependent at all) call evaluate_guarded with a timeout earlier in
+    file order, so a pool's worker would already exist and the diff would
+    be empty even under `-p no:randomly` — a false-fail against the very
+    design the spec blesses. FIXED: the oracle now records its OWN
+    `threading.current_thread()` into a caller-visible list, and the
+    assertion checks THAT thread's `.is_alive()`/`.daemon` — provably alive
+    (the sleep outlasts the grace) regardless of whether the thread was
+    newly created for this call or reused from a pool."""
     import threading  # noqa: PLC0415
     import time  # noqa: PLC0415
 
     from conformance.oracle import OracleOutcome, evaluate_guarded  # noqa: PLC0415
 
     class _LongSleepOracle:
-        def __init__(self, sleep_s):
+        def __init__(self, sleep_s, thread_recorder=None):
             self._sleep_s = sleep_s
+            self._thread_recorder = thread_recorder
 
         def freeze(self, paths, *, root):
             return "sha256:" + "0" * 64
 
         def evaluate(self, state):
+            if self._thread_recorder is not None:
+                # [G7:1]: record the ACTUAL thread running this oracle body,
+                # whether newly spawned per-call or reused from a pool.
+                self._thread_recorder.append(threading.current_thread())
             time.sleep(self._sleep_s)
             return None  # would never reach here under a real timeout
 
@@ -893,26 +943,30 @@ def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accu
     grace_period_s = 0.5
     sleep_longer_than_grace_s = 5.0
 
-    before_daemon_check = set(threading.enumerate())
+    recorded_threads: list[threading.Thread] = []
     outcome, _reason = evaluate_guarded(
-        _LongSleepOracle(sleep_longer_than_grace_s), {}, timeout_s=0.1
+        _LongSleepOracle(sleep_longer_than_grace_s, thread_recorder=recorded_threads),
+        {}, timeout_s=0.1,
     )
     assert outcome is OracleOutcome.INDETERMINATE, "sanity: the timeout must actually fire"
+    assert recorded_threads, (
+        "sanity: the oracle body must actually have run (and recorded its "
+        "own thread) for this check to mean anything"
+    )
+    worker_thread = recorded_threads[-1]
 
     time.sleep(grace_period_s)
-    after_daemon_check = set(threading.enumerate())
-    new_threads = [t for t in (after_daemon_check - before_daemon_check) if t.is_alive()]
-    assert new_threads, (
+    assert worker_thread.is_alive(), (
         "sanity: the oracle sleeps 5.0s and only 0.5s elapsed since the "
-        "timeout fired, so the abandoned worker MUST still be observably "
-        "alive for this check to mean anything"
+        "timeout fired, so the thread running evaluate() MUST still be "
+        "observably alive for this check to mean anything"
     )
-    for t in new_threads:
-        assert t.daemon is True, (
-            f"worker thread {t.name!r} is still alive after the grace "
-            f"period and is NOT a daemon thread — it can hang interpreter "
-            f"shutdown"
-        )
+    assert worker_thread.daemon is True, (
+        f"the thread running the abandoned oracle ({worker_thread.name!r}) "
+        f"is still alive after the grace period and is NOT a daemon "
+        f"thread — it can hang interpreter shutdown, whether it was "
+        f"spawned fresh for this call or reused from a pool"
+    )
 
     # --- (2) workers must not accumulate over N repeated timed-out calls.
     n_calls = 5
@@ -1848,6 +1902,70 @@ def test_ac_l0_2d_run_identity_once_per_run_checked_per_run(tmp_path):
     )
 
 
+def test_ac_l0_2_minor1_multiple_run_identities_in_one_scoped_run_all_must_satisfy_r03():
+    """AC-L0-2 [G7:MINOR-1]: "once per run" is defined as once per
+    `execute()` call — one `run_id` legitimately spans MANY `execute()`
+    calls (the flagship consumer shape, AC-L0-3a5), so a scoped run will
+    contain as many `run_identity` events as it had phases. The checker
+    MUST accept `n >= 1` `run_identity` events in one scope and MUST
+    require EVERY one to satisfy R0.3 — a per-`execute()` collection,
+    asserted per `[G6:quant]` on a NON-UNIFORM two-phase run where
+    phase_b's identity is malformed: R0.3 MUST NOT be "passed", with the
+    uniform two-identity run as the positive control. One valid identity
+    MUST NOT excuse a malformed sibling — `[G6:1]`'s mechanism on the
+    identity channel, one level over from AC-L0-3a5's write-tracking
+    version. (AC-L0-2d, by contrast, is a uniform fixture across DIFFERENT
+    run_ids and does not discharge this — see SPEC.md §4.3's
+    cross-reference.)"""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    def _two_phase_two_identities(*, phase_b_engine_version: str) -> list[dict]:
+        return [
+            _ev("workflow_started", {"workflow_name": "phase_a"}),
+            _ev("run_identity", {
+                "engine_version": "1.0.0",
+                "adapter_identity": {"backend": "claude-subprocess", "source": "default"},
+            }),
+            _ev("step_started", {"step_name": "s1", "phase": "phase_a"}),
+            _ev("step_finished", {"step_name": "s1", "status": "ok", "duration_ms": 1, "error": None, "phase": "phase_a"}),
+            _ev("phase_artifacts", {
+                "phase": "phase_a", "written": [], "read": [],
+                "write_tracking": "git-delta", "read_tracking": "declared-only",
+            }),
+            _ev("workflow_finished", {"workflow_name": "phase_a", "status": "ok", "wall_ms": 1}),
+            _ev("workflow_started", {"workflow_name": "phase_b"}),
+            _ev("run_identity", {
+                "engine_version": phase_b_engine_version,
+                "adapter_identity": {"backend": "claude-subprocess", "source": "default"},
+            }),
+            _ev("step_started", {"step_name": "s1", "phase": "phase_b"}),
+            _ev("step_finished", {"step_name": "s1", "status": "ok", "duration_ms": 1, "error": None, "phase": "phase_b"}),
+            _ev("phase_artifacts", {
+                "phase": "phase_b", "written": [], "read": [],
+                "write_tracking": "git-delta", "read_tracking": "declared-only",
+            }),
+            _ev("workflow_finished", {"workflow_name": "phase_b", "status": "ok", "wall_ms": 1}),
+        ]
+
+    non_uniform = _two_phase_two_identities(phase_b_engine_version="")
+    report = check_bd_l0(non_uniform, run_id="run-l0", writer=EventLog)
+    assert report.requirements["R0.3"] != "passed", (
+        f"phase_a's run_identity is well-formed but phase_b's carries an "
+        f"empty engine_version — one valid identity MUST NOT excuse a "
+        f"malformed sibling in the SAME scoped run, got "
+        f"{report.requirements!r}"
+    )
+    assert report.passed is False
+
+    uniform_positive_control = _two_phase_two_identities(phase_b_engine_version="1.0.0")
+    report_uniform = check_bd_l0(uniform_positive_control, run_id="run-l0", writer=EventLog)
+    assert report_uniform.requirements["R0.3"] == "passed", (
+        f"positive control: BOTH phases' run_identity well-formed must "
+        f"still pass — the checker must accept n >= 1 run_identity events "
+        f"per scope, not exactly one, got {report_uniform.requirements!r}"
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # AC-L0-2c [G5:base] — engine_version provenance survives packaging, no
 # placeholder. Resolution order per §4.1: importlib.metadata.version(
@@ -1920,20 +2038,31 @@ def test_ac_l0_2c_source_checkout_path_resolves_to_real_pyproject_version(tmp_pa
 
 def test_ac_l0_2c_installed_metadata_path_resolves_and_wins_over_pyproject(tmp_path, monkeypatch):
     """AC-L0-2c [G5:base] (2/3): the INSTALLED-METADATA path.
-    importlib.metadata.version("bytedigger-engine") is consulted FIRST per
-    §4.1's resolution order. Monkeypatch it to return a distinctive
-    sentinel ("7.7.7-from-metadata") and assert the emitted engine_version
-    is exactly that sentinel — proving metadata is actually consulted and
+    importlib.metadata.version(<dist name>) is consulted FIRST per §4.1's
+    resolution order. Monkeypatch it to return a distinctive sentinel
+    ("7.7.7-from-metadata") and assert the emitted engine_version is
+    exactly that sentinel — proving metadata is actually consulted and
     WINS, not silently ignored in favour of the pyproject.toml file (whose
     real version, "0.1.1" at time of writing, is deliberately different
-    from the sentinel so the two cannot be confused)."""
+    from the sentinel so the two cannot be confused).
+
+    [G7:MINOR-3]: the distribution name is asserted against the imported
+    `package_meta.PACKAGE_DIST_NAME` constant, NOT the bare literal
+    "bytedigger-engine" — since the constant currently EQUALS that literal,
+    asserting the literal cannot discriminate a rename that updates one and
+    not the other, leaving [G5:MINOR-7]'s anti-drift MUST with zero
+    coverage."""
     import importlib.metadata as importlib_metadata  # noqa: PLC0415
+
+    import package_meta  # noqa: PLC0415
 
     sentinel_version = "7.7.7-from-metadata"
 
     def _fake_version(name):
-        assert name == "bytedigger-engine", (
-            f"expected the distribution name 'bytedigger-engine', got {name!r}"
+        assert name == package_meta.PACKAGE_DIST_NAME, (
+            f"expected the distribution name package_meta.PACKAGE_DIST_NAME "
+            f"({package_meta.PACKAGE_DIST_NAME!r}), got {name!r} — a rename "
+            f"that updates one spelling and not the other must fail here"
         )
         return sentinel_version
 
@@ -2031,12 +2160,16 @@ def test_ac_a28_version_resolution_not_memoised_across_two_calls_in_one_process(
     cached and replayed for the second."""
     import importlib.metadata as importlib_metadata  # noqa: PLC0415
 
+    import package_meta  # noqa: PLC0415
+
     first_sentinel = "1.1.1-a28-first"
     second_sentinel = "2.2.2-a28-second"
     current = {"value": first_sentinel}
 
     def _fake_version(name):
-        assert name == "bytedigger-engine", name
+        # [G7:MINOR-3]: assert against package_meta.PACKAGE_DIST_NAME, not
+        # the bare literal — see the AC-L0-2c installed-metadata test.
+        assert name == package_meta.PACKAGE_DIST_NAME, name
         return current["value"]
 
     monkeypatch.setattr(importlib_metadata, "version", _fake_version)
@@ -2958,6 +3091,48 @@ def test_ac_l0_6f_r0_1_probe_removes_its_own_temp_dir(monkeypatch):
         )
 
 
+class _RaisingWriter:
+    """AC-L0-6g negative control: a writer whose append RAISES
+    unconditionally — check_bd_l0's R0.1 probe must not let this
+    exception propagate, and must not default R0.1 to "passed" via a bare
+    `except Exception: pass` reflex fix either."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def append(self, event_type, payload, run_id=None):
+        raise RuntimeError("simulated: this writer always raises on append")
+
+
+def test_ac_l0_6g_writer_that_raises_is_not_checked_not_passed_and_does_not_propagate():
+    """AC-L0-6g [G7:EDGE-6]: a writer whose append RAISES MUST NOT be
+    rendered as R0.1 "passed". AC-L0-6c supplies writers with wrong
+    os.open flags; none that raises. check_bd_l0 is documented as a
+    read-only check that runs ~20x per suite, so an unhandled exception
+    from a caller-supplied writer makes the checker a crash surface — and
+    the reflex fix, a bare `except Exception: pass` around the probe,
+    leaves R0.1 at its default and publishes "passed" for a probe that
+    never ran. Both failure modes are unacceptable and this AC pins BOTH
+    directions: check_bd_l0 MUST NOT propagate the exception, AND MUST
+    render R0.1 "not-checked" (with a violation naming R0.1) — never
+    "passed"."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    # (1) MUST NOT propagate — this call itself must not raise.
+    report = check_bd_l0(_valid_l0_events(), run_id="run-l0", writer=_RaisingWriter)
+
+    # (2) MUST render R0.1 "not-checked", never "passed" (the bare
+    # except-and-default-True reflex fix).
+    assert report.requirements["R0.1"] == "not-checked", (
+        f"a writer whose append raises unconditionally must render R0.1 "
+        f"'not-checked' — NEVER 'passed' (a bare except-and-ignore reflex "
+        f"fix would leave R0.1 at whatever default the GREEN chose), got "
+        f"{report.requirements!r}"
+    )
+    assert any(v.startswith("R0.1") for v in report.violations), report.violations
+    assert report.passed is False
+
+
 def test_ac_l0_7_r0_2_phase_outcome_artifacts_pass_on_valid_log():
     """AC-L0-7: R0.2 — every workflow_started has a matching workflow_finished
     with a status; every step_started/step_finished carries phase; every
@@ -3172,15 +3347,26 @@ def test_ac_l0_9_eight_negative_controls_and_no_vacuous_pass():
 
 
 def test_ac_l0_6e_checker_does_not_grant_r02_over_zero_step_events():
-    """AC-L0-6e [G5:EDGE-2]: the checker MUST NOT grant R0.2 over a phase
-    with ZERO step events. "Every step_started/step_finished carries
+    """AC-L0-6e [G5:EDGE-2] [G7:2a]: the checker MUST NOT grant R0.2 over a
+    phase with ZERO step events. "Every step_started/step_finished carries
     phase" is vacuously true over an empty step set, so a forged or
     future-engine log of workflow_started + phase_artifacts{write_tracking:
     "git-delta"} + workflow_finished{status} — no step events at all — MUST
     NOT yield R0.2 "passed". AC-L0-3a4 closes this for what OUR engine
     emits; this closes it INSIDE THE CHECKER, whose declared threat model
     (AC-L0-3a3) is explicitly "an arbitrary event list… a future engine's
-    or a forged one". This is [G4:4]'s vacuous all() one level up."""
+    or a forged one". This is [G4:4]'s vacuous all() one level up.
+
+    [G7:2a] BLOCKING FIX: this clause is quantified PER PHASE and MUST be
+    asserted non-uniformly, per [G6:quant]. The single-phase fixture below
+    left `any(len(steps_of(p)) > 0 for p in phases)` indistinguishable from
+    the per-phase reduction, so a GREEN checking the zero-step precondition
+    once against the WHOLE scoped run (instead of once per phase) passed.
+    Fixed: the primary assertion now uses a NON-UNIFORM two-phase fixture
+    (phase_a has its step events, phase_b's are DROPPED entirely) which
+    that wrong GREEN would grant R0.2 "passed" — verbatim [G6:1] one
+    sub-clause over. The single-phase fixture is kept as an additional
+    (weaker) check; the uniform two-phase log is the positive control."""
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
     events_zero_steps = [
@@ -3208,6 +3394,31 @@ def test_ac_l0_6e_checker_does_not_grant_r02_over_zero_step_events():
         f"{report.requirements!r}"
     )
     assert report.passed is False
+
+    # [G7:2a]: the DISCRIMINATING, non-uniform two-phase fixture. phase_a
+    # keeps its step events; phase_b's are dropped entirely. A GREEN
+    # checking the zero-step precondition once per RUN (not per phase)
+    # would see phase_a's step events and vacuously pass.
+    events_two_phase_phase_b_zero_steps = [
+        e for e in _valid_l0_events_two_phases()
+        if not (
+            e["event_type"] in ("step_started", "step_finished")
+            and e["payload"].get("phase") == "phase_b"
+        )
+    ]
+    report_non_uniform = check_bd_l0(events_two_phase_phase_b_zero_steps, run_id="run-l0", writer=EventLog)
+    assert report_non_uniform.requirements["R0.2"] == "not-checked", (
+        f"phase_a has step events and phase_b does not — a per-RUN (rather "
+        f"than per-PHASE) zero-step precondition would see phase_a's steps "
+        f"and vacuously grant R0.2, got {report_non_uniform.requirements!r}"
+    )
+    assert report_non_uniform.passed is False
+
+    # Positive control: the uniform two-phase log (both phases have step
+    # events) must still pass, proving the checker discriminates rather
+    # than always failing two-phase logs.
+    report_uniform = check_bd_l0(_valid_l0_events_two_phases(), run_id="run-l0", writer=EventLog)
+    assert report_uniform.requirements["R0.2"] == "passed", report_uniform.requirements
 
 
 def test_ac_l0_10_end_to_end_real_engine_run_passes_check_bd_l0(tmp_path):
@@ -3390,7 +3601,11 @@ def test_ac_l0_6b2_not_checked_fail_closes_for_r02_and_r03_not_just_r01():
         "R0.2 not-checked must fail-close L0Report.passed, not only R0.1"
     )
 
-    # R0.3 not-checked (run_identity removed entirely), R0.1/R0.2 otherwise passed.
+    # [G7:MINOR-5]: R0.3 NOT "passed" (run_identity removed entirely is a
+    # STRUCTURAL breach per AC-L0-9 clause 6 -> "failed", not "not-checked" —
+    # this comment previously mislabeled the fixture; the assertion below
+    # (!= "passed") was always correct and is unchanged), R0.1/R0.2 otherwise
+    # passed.
     events_r03_not_checked = [e for e in _valid_l0_events() if e["event_type"] != "run_identity"]
     report_r03 = check_bd_l0(events_r03_not_checked, run_id="run-l0", writer=EventLog)
     assert report_r03.requirements["R0.3"] != "passed", report_r03.requirements
@@ -3687,7 +3902,15 @@ def test_ac_l0_3a5_4_other_r02_clauses_asserted_by_mutating_phase_b_only():
     phase_b ONLY on the same two-phase fixture: phase stripped from
     phase_b's step events; phase_b's workflow_finished removed; phase_b's
     status stripped — each MUST fail. v6 asserted all three only on
-    single-phase logs, so any() survived in each."""
+    single-phase logs, so any() survived in each.
+
+    [G7:MINOR-6]: the phase-stripped case also pins
+    `requirements["R0.2"] == "failed"` — AC-L0-9 clause 1 pins that EXACT
+    token for the identical mutation on a single-phase log, but the
+    quantifier here was previously asserted only via `passed`/`violations`,
+    not the token, so a GREEN rendering the phase-level breach as
+    "not-checked" passed here and failed clause 1 only by luck of which
+    fixture it met."""
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
     # phase stripped from phase_b's step events only (phase_a untouched).
@@ -3705,6 +3928,13 @@ def test_ac_l0_3a5_4_other_r02_clauses_asserted_by_mutating_phase_b_only():
         "phase_a's soundness pass the whole run"
     )
     assert any("R0.2" in v for v in report.violations), report.violations
+    assert report.requirements["R0.2"] == "failed", (
+        f"[G7:MINOR-6]: a phase-level structural breach (phase_b's step "
+        f"events missing 'phase') MUST render requirements['R0.2'] == "
+        f"'failed' — the SAME token AC-L0-9 clause 1 pins for the "
+        f"identical mutation on a single-phase log — got "
+        f"{report.requirements!r}"
+    )
 
     # phase_b's workflow_finished removed only (phase_a's untouched).
     events_phase_b_no_finished = [
@@ -3868,6 +4098,63 @@ def test_ac_l0_14_checker_enforces_adapter_identity_shape():
     assert any("R0.3" in v for v in report_empty_backend.violations), report_empty_backend.violations
 
 
+def test_ac_l0_15_empty_scope_must_not_vacuously_pass():
+    """AC-L0-15 [G7:EDGE-1]: an EMPTY SCOPE MUST NOT vacuously pass. This is
+    the cheapest false-green left in the checker — the one `all([])` shape
+    this lot had not yet closed one scope out. AC-L0-9's vacuity guard is
+    `check_bd_l0([], ...)` — the EMPTY LOG. Nothing exercised a POPULATED
+    log scoped to a `run_id` matching NOTHING. The natural implementation,
+    `scoped = [e for e in events if e["run_id"] == run_id]` guarded only by
+    `if not events: fail`, then evaluates every universal R0.2/R0.3 clause
+    over an empty `scoped` set — vacuously true — and reports all three
+    requirements "passed", `level_achieved: "BD-L0"`, `conformant: true`
+    for a run that produced NO EVIDENCE WHATSOEVER. Rounds 4-7 chased
+    `all([])` down the collection ladder; this is the same defect one
+    scope out, over the event set itself.
+
+    Normative: a scope containing no events for the requested run_id MUST
+    yield `passed is False` with all three requirements "not-checked"
+    (nothing was observed, so nothing was measured — this is NOT a
+    structural breach), and MUST NOT grant a level. Asserted with a log
+    holding a complete, PASSING run under a DIFFERENT run_id, so the
+    fixture also proves the checker is not merely reading the whole log
+    (i.e. it genuinely scopes by run_id, not "the log is non-empty
+    somewhere")."""
+    from conformance.attestation import build_attestation_report  # noqa: PLC0415
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    # A complete, PASSING run under a DIFFERENT run_id — proves the
+    # checker is genuinely scoping, not just checking "events is non-empty".
+    events_other_run_passing = _valid_l0_events()  # run_id="run-l0" by default
+    assert all(e["run_id"] == "run-l0" for e in events_other_run_passing)
+
+    scoped_run_id = "run-l0-15-empty-scope-matches-nothing"
+    report = check_bd_l0(events_other_run_passing, run_id=scoped_run_id, writer=EventLog)
+
+    assert report.passed is False, (
+        "a scope matching NO events must not pass, even though the log "
+        "itself holds a complete passing run under a different run_id"
+    )
+    assert report.requirements == {"R0.1": "not-checked", "R0.2": "not-checked", "R0.3": "not-checked"}, (
+        f"an empty scope observed NOTHING, so nothing was measured — all "
+        f"three requirements must be 'not-checked' (not a structural "
+        f"breach), got {report.requirements!r}"
+    )
+
+    report_attest = build_attestation_report(
+        level_claimed="BD-L0", results={}, l0=report,
+        engine_version="0.0.0-test",
+        adapter_identity={"backend": "agent-sdk", "source": "default"},
+        host_identity={"host": "hal-test-host"},
+        repo="hal/bytedigger", commit="c" * 40, run_id=scoped_run_id,
+    )
+    assert report_attest["level_achieved"] is None, (
+        f"an empty scope MUST NOT grant any level, got "
+        f"{report_attest['level_achieved']!r}"
+    )
+    assert report_attest["conformant"] is False
+
+
 def test_ac_l0_3a_write_tracking_differential_git_cwd_vs_none(tmp_path):
     """AC-L0-3a [G2:4]: written: [] MUST NOT be able to mean two different
     things. write_tracking MUST be "git-delta" when a scan tree was resolved
@@ -4027,14 +4314,24 @@ def test_ac_l0_3a3_unrecognised_write_tracking_tokens_fail_closed():
 
 
 def test_ac_l0_3b5_artifact_record_must_carry_artifact_fields_present_and_list_typed():
-    """AC-L0-3b5 [G6:EDGE-3]: an artifact record MUST actually carry its
-    artifact fields. AC-L0-3a3 fail-closes only on the write_tracking
-    key/token, so a scoped phase_artifacts of {"phase": "wf",
-    "write_tracking": "git-delta"} — no written, no read, no read_tracking
-    — currently is not required to fail. Given the checker's declared
-    threat model (an arbitrary, possibly forged event list), the fields
-    carrying the actual artifact references MUST be required present and
-    LIST-typed (written/read), or R0.2 is "not-checked"."""
+    """AC-L0-3b5 [G6:EDGE-3] [G7:2b]: an artifact record MUST actually
+    carry its artifact fields. AC-L0-3a3 fail-closes only on the
+    write_tracking key/token, so a scoped phase_artifacts of {"phase":
+    "wf", "write_tracking": "git-delta"} — no written, no read, no
+    read_tracking — currently is not required to fail. Given the checker's
+    declared threat model (an arbitrary, possibly forged event list), the
+    fields carrying the actual artifact references MUST be required
+    present and LIST-typed (written/read), or R0.2 is "not-checked".
+
+    [G7:2b] BLOCKING FIX: validation is PER RECORD and MUST be asserted
+    non-uniformly, per [G6:quant]. v7 mutated the SINGLE phase_artifacts
+    of a single-phase log for both halves, so validating the shape once
+    against `records[0]` / `next(...)` — the first-phase-only reduction
+    [G6:1] named — passed both. Fixed: the malformed record now sits on
+    phase_b of a TWO-phase fixture (phase_a's record left well-formed),
+    for both the missing-fields half and the wrong-type half, with the
+    well-formed two-phase log as the positive control. The single-phase
+    mutations are kept as an additional (weaker) check."""
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
     baseline = check_bd_l0(_valid_l0_events(), run_id="run-l0", writer=EventLog)
@@ -4070,6 +4367,49 @@ def test_ac_l0_3b5_artifact_record_must_carry_artifact_fields_present_and_list_t
         f"'not-checked', got {report_wrong_types.requirements!r}"
     )
 
+    # [G7:2b] DISCRIMINATING two-phase fixtures: phase_a's record is
+    # well-formed throughout; only phase_b's is malformed. A GREEN
+    # validating shape once against the first record it finds (or any
+    # single record) would let phase_a's well-formed record pass the
+    # whole run.
+    events_two_phase_phase_b_bare = []
+    for e in _valid_l0_events_two_phases():
+        if e["event_type"] == "phase_artifacts" and e["payload"]["phase"] == "phase_b":
+            e = {**e, "payload": {"phase": "phase_b", "write_tracking": "git-delta"}}
+        events_two_phase_phase_b_bare.append(e)
+    report_two_phase_bare = check_bd_l0(events_two_phase_phase_b_bare, run_id="run-l0", writer=EventLog)
+    assert report_two_phase_bare.requirements["R0.2"] == "not-checked", (
+        f"phase_a's phase_artifacts is well-formed; only phase_b's is bare "
+        f"(no written/read/read_tracking) — a first-record-only validation "
+        f"would let phase_a's soundness pass the whole run, got "
+        f"{report_two_phase_bare.requirements!r}"
+    )
+
+    events_two_phase_phase_b_wrong_types = []
+    for e in _valid_l0_events_two_phases():
+        if e["event_type"] == "phase_artifacts" and e["payload"]["phase"] == "phase_b":
+            payload = dict(e["payload"])
+            payload["written"] = "not-a-list"
+            payload["read"] = "not-a-list"
+            e = {**e, "payload": payload}
+        events_two_phase_phase_b_wrong_types.append(e)
+    report_two_phase_wrong_types = check_bd_l0(
+        events_two_phase_phase_b_wrong_types, run_id="run-l0", writer=EventLog
+    )
+    assert report_two_phase_wrong_types.requirements["R0.2"] == "not-checked", (
+        f"phase_a's record is well-formed; only phase_b's written/read are "
+        f"NOT list-typed — must still fail-close R0.2, got "
+        f"{report_two_phase_wrong_types.requirements!r}"
+    )
+
+    # Positive control: the well-formed two-phase log must still pass.
+    report_two_phase_positive_control = check_bd_l0(
+        _valid_l0_events_two_phases(), run_id="run-l0", writer=EventLog
+    )
+    assert report_two_phase_positive_control.requirements["R0.2"] == "passed", (
+        report_two_phase_positive_control.requirements
+    )
+
 
 def test_ac_l0_3b6_orphan_phase_artifacts_with_no_workflow_started_fails():
     """AC-L0-3b6 [G6:EDGE-5]: an orphan phase_artifacts MUST NOT lift the
@@ -4100,6 +4440,58 @@ def test_ac_l0_3b6_orphan_phase_artifacts_with_no_workflow_started_fails():
         f"unmeasured channel — MUST render 'failed', not 'not-checked', "
         f"got {report.requirements!r}"
     )
+
+
+def test_ac_l0_3b7_phase_artifacts_preceding_its_own_workflow_started_is_valid():
+    """AC-L0-3b7 [G7:EDGE-7]: a phase_artifacts PRECEDING its own
+    workflow_started is DEFINED, not left to GREEN. AC-L0-3b6 defines the
+    ABSENT workflow_started case as "failed"; a record appearing BEFORE
+    the workflow_started for the SAME phase in the scoped run was
+    undefined, so a streaming implementation could call it an orphan
+    ("failed") while a pre-indexing one calls it valid — neither is a
+    false-green, which is exactly why the spec decides it now rather than
+    leaving it for a future round to find as a defect.
+
+    Normative: the checker indexes the whole scoped run before reducing —
+    event order within a scope carries no meaning beyond AC-L0-2's
+    "immediately follows workflow_started" positional rule — so a
+    phase_artifacts whose phase HAS a workflow_started anywhere in the
+    scope is valid regardless of relative order. Asserted with the record
+    moved AHEAD of its own workflow_started: R0.2 MUST still be
+    "passed"."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    baseline_events = _valid_l0_events()
+    workflow_started_index = next(
+        i for i, e in enumerate(baseline_events) if e["event_type"] == "workflow_started"
+    )
+    phase_artifacts_index = next(
+        i for i, e in enumerate(baseline_events) if e["event_type"] == "phase_artifacts"
+    )
+    assert phase_artifacts_index > workflow_started_index, (
+        "sanity: the baseline fixture's phase_artifacts must normally come "
+        "AFTER workflow_started, so moving it ahead is a genuine reorder"
+    )
+
+    reordered_events = list(baseline_events)
+    phase_artifacts_event = reordered_events.pop(phase_artifacts_index)
+    reordered_events.insert(workflow_started_index, phase_artifacts_event)
+
+    kinds = [e["event_type"] for e in reordered_events]
+    assert kinds.index("phase_artifacts") < kinds.index("workflow_started"), (
+        "sanity: phase_artifacts must genuinely precede workflow_started "
+        "in this reordered fixture"
+    )
+
+    report = check_bd_l0(reordered_events, run_id="run-l0", writer=EventLog)
+    assert report.requirements["R0.2"] == "passed", (
+        f"a phase_artifacts preceding its own workflow_started (for a "
+        f"phase that DOES have a workflow_started somewhere in the scoped "
+        f"run) is valid — event order within a scope carries no meaning "
+        f"beyond AC-L0-2's positional rule for run_identity — got "
+        f"{report.requirements!r}"
+    )
+    assert report.passed is True, getattr(report, "violations", report)
 
 
 def test_ac_l0_3e_phase_artifacts_emitted_on_error_exit(tmp_path):
@@ -4205,8 +4597,17 @@ def test_ac_l0_3f_written_reset_between_sequential_runs_on_one_engine(tmp_path):
 
 def test_ac_l0_3g_small_artifact_list_does_not_set_written_truncated(tmp_path):
     """AC-L0-3g [G2:11]: inverse control for truncation — a small artifact
-    list MUST NOT set written_truncated, and the payload assertion is
-    whole-dict-shape so an always-truncating GREEN cannot pass."""
+    list MUST NOT set written_truncated.
+
+    [G7:MINOR-4]: the key set of a SUCCESSFUL UNTRUNCATED git-delta payload
+    is now pinned by EXACT key-set equality — AC-L0-3's whole-dict equality
+    covers only the "not-observed" 5-key case and AC-L0-3d's exact-key-set
+    assertion covers only the truncated 8-key case, so nothing previously
+    pinned the untruncated SUCCESS case, and a GREEN that ALWAYS emits
+    written_count/written_digest (even when untruncated) passed everything.
+    This docstring previously claimed to be the whole-dict-shape control
+    while asserting only two keys — that claim is now backed by the
+    assertion below, not just stated."""
     repo_dir = tmp_path / "repo"
     _init_git_repo(repo_dir)
 
@@ -4234,6 +4635,16 @@ def test_ac_l0_3g_small_artifact_list_does_not_set_written_truncated(tmp_path):
     assert payload["written"] == ["one_small_file.txt"], (
         "whole-dict-shape assertion: the untruncated case must carry the "
         "real path list, not a bounded sample"
+    )
+    # [G7:MINOR-4]: exact key-set equality for the UNTRUNCATED success case —
+    # exactly the five AC-L0-3 keys; truncation keys (written_truncated,
+    # written_count, written_digest) MUST be absent, not merely unset/False.
+    assert set(payload.keys()) == {
+        "phase", "written", "read", "write_tracking", "read_tracking",
+    }, (
+        f"an untruncated git-delta payload must carry EXACTLY the five "
+        f"AC-L0-3 keys — truncation keys must be ABSENT (not just falsy) "
+        f"when truncation did not occur, got {sorted(payload.keys())!r}"
     )
 
 
@@ -4325,6 +4736,200 @@ def test_ac_l0_3d2_truncation_boundary_just_under_and_just_over_4096_bytes(tmp_p
     )
 
 
+def test_ac_l0_3d4_truncated_payload_must_itself_fit_under_the_limit(tmp_path):
+    """AC-L0-3d4 [G7:EDGE-3]: the TRUNCATED payload MUST itself fit under
+    the limit. AC-L0-3d bounds the sample by COUNT, not by BYTES: every
+    fixture uses many short paths, so sample + digest always fit. A phase
+    reporting one pathological path (a synthetic ~4200-character relpath)
+    produces a *truncated* payload that STILL exceeds 4096, so append
+    raises EventLogLineTooLarge, _emit swallows it at engine.py:710, and
+    the record vanishes entirely — the inverted control AC-L0-3d exists to
+    prevent, reopened through AC-L0-3d's OWN escape hatch. Normative: the
+    truncation predicate MUST bound the SERIALISED payload, dropping or
+    eliding sample entries until it fits (the digest, being fixed-width,
+    is what survives); an emitted phase_artifacts MUST NEVER exceed the
+    limit.
+
+    Injected through the lib.git_port get_git_read() seam (the suite's
+    established pattern, matching AC-L0-3a4) rather than a real filesystem
+    write — a 4200-character path component would exceed real filesystem/
+    PATH_MAX limits on this host, and the checker's own declared threat
+    model is exactly "an arbitrary, possibly forged event list", so a
+    synthetic git-reported path is not a weaker test, it is the actual
+    threat model. Asserted with a single oversized path and by requiring
+    exactly one phase_artifacts with written_truncated: true to be
+    present in the log, and the RAW SERIALISED LINE (as EventLog.append
+    actually wrote it) to fit within 4096 bytes."""
+    from lib.git_port import GitResult, reset_default_git_read_factory, set_default_git_read_factory  # noqa: PLC0415
+
+    huge_path = "x" * 4200
+
+    call_count = {"n": 0}
+
+    def _spy(args, *, cwd=None, timeout=None, dir_=None):
+        call_count["n"] += 1
+        if call_count["n"] <= 2:
+            # git_pre: nothing yet.
+            return GitResult(returncode=0, stdout="", stderr="", timed_out=False)
+        # git_post: the pathological path appears as untracked ('A').
+        if args[:1] == ["ls-files"]:
+            return GitResult(returncode=0, stdout=huge_path + "\n", stderr="", timed_out=False)
+        return GitResult(returncode=0, stdout="", stderr="", timed_out=False)
+
+    log_path = tmp_path / "events.jsonl"
+    log = EventLog(log_path)
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_l0_3d4", WorkflowDefinition(name="wf_l0_3d4", steps=[_ok_step("noop")]))
+    try:
+        set_default_git_read_factory(lambda: _spy)
+        result, _ctx = eng.execute(
+            "wf_l0_3d4", _make_ctx(git_cwd=str(tmp_path / "fake_repo")), run_id="run-l0-3d4"
+        )
+    finally:
+        reset_default_git_read_factory()
+
+    assert result.status == "ok"
+    assert call_count["n"] >= 4, (
+        "sanity: both git_pre and git_post must actually have been queried "
+        "for this test to force the pathological-path branch"
+    )
+
+    events = log.read_all()
+    phase_artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
+    assert len(phase_artifacts) == 1, (
+        f"a single pathological (huge) path must not silently vanish the "
+        f"phase_artifacts record — the truncation predicate must bound "
+        f"the SERIALISED payload, not just the sample COUNT, got "
+        f"{len(phase_artifacts)}"
+    )
+    payload = phase_artifacts[0]["payload"]
+    assert payload.get("written_truncated") is True, (
+        f"a single ~4200-character path already exceeds 4096 bytes on its "
+        f"own, so the truncated form MUST still be reported as "
+        f"written_truncated, got {payload!r}"
+    )
+    assert payload.get("written_count") == 1, payload
+
+    phase_artifacts_index = next(
+        i for i, e in enumerate(events) if e["event_type"] == "phase_artifacts"
+    )
+    raw_line = log_path.read_bytes().splitlines(keepends=True)[phase_artifacts_index]
+    assert len(raw_line) <= 4096, (
+        f"the TRUNCATED payload's ACTUAL serialised line (as "
+        f"EventLog.append wrote it, including the envelope and trailing "
+        f"newline) must itself fit under the 4096-byte limit — got "
+        f"{len(raw_line)} bytes. The sample must be dropped/elided (not "
+        f"just capped by count) until the serialised form fits; the "
+        f"digest, being fixed-width, is what survives"
+    )
+
+
+def test_ac_l0_3d5_exactly_4096_bytes_is_legal_not_truncated(tmp_path):
+    """AC-L0-3d5 [G7:EDGE-4]: the limit is `> 4096`, not `>= 4096`.
+    event_log.py:116 rejects only strictly-greater, so a 4096-byte line is
+    LEGAL. AC-L0-3d2's search finds the largest count whose predicted size
+    is `<= 4096` and generally lands short of the exact boundary for its
+    identifiers, so a GREEN using `>= 4096` would still pass AC-L0-3d2 by
+    truncating a payload that would have fit exactly. Normative: a payload
+    serialising to EXACTLY 4096 bytes MUST NOT be truncated.
+
+    The exact size is constructed PROGRAMMATICALLY (not hand-computed): a
+    base single-path payload's serialised length is measured first, then
+    a single filler path name is padded by EXACTLY the byte difference
+    needed to land on 4096 — since every added filler character is one
+    plain ASCII byte with no JSON escaping, this hits the boundary
+    precisely rather than approaching it, and is immune to the
+    hand-arithmetic error class [G7:1b] found (a boundary computed for one
+    identifier pair silently reused under different ones)."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    placeholder_ts = "2000-01-01T00:00:00.000Z"
+    run_id = "run-l0-3d5-exact"
+    phase = "wf-l0-3d5-exact"
+
+    def _event_bytes_for_path_len(path_len: int) -> int:
+        path_name = "p" * path_len
+        payload = {
+            "phase": phase, "written": [path_name], "read": [],
+            "write_tracking": "git-delta", "read_tracking": "declared-only",
+        }
+        event = {
+            "ts": placeholder_ts, "run_id": run_id,
+            "event_type": "phase_artifacts", "payload": payload,
+        }
+        return len((json.dumps(event, separators=(",", ":")) + "\n").encode("utf-8"))
+
+    # Every additional filler character adds exactly one byte (plain ASCII,
+    # no JSON-escaping needed), so the exact byte diff at path_len=1 gives
+    # the precise padding needed to land on exactly 4096 — computed, not
+    # guessed.
+    base_len_at_1 = _event_bytes_for_path_len(1)
+    exact_path_len = 1 + (4096 - base_len_at_1)
+    assert exact_path_len >= 1, "sanity: the envelope alone must not already reach 4096 bytes"
+    predicted_exact = _event_bytes_for_path_len(exact_path_len)
+    assert predicted_exact == 4096, (
+        f"sanity: the constructed path length must serialise to EXACTLY "
+        f"4096 bytes, got {predicted_exact}"
+    )
+
+    from lib.git_port import GitResult, reset_default_git_read_factory, set_default_git_read_factory  # noqa: PLC0415
+
+    exact_path = "p" * exact_path_len
+    call_count = {"n": 0}
+
+    def _spy(args, *, cwd=None, timeout=None, dir_=None):
+        call_count["n"] += 1
+        if call_count["n"] <= 2:
+            return GitResult(returncode=0, stdout="", stderr="", timed_out=False)
+        if args[:1] == ["ls-files"]:
+            return GitResult(returncode=0, stdout=exact_path + "\n", stderr="", timed_out=False)
+        return GitResult(returncode=0, stdout="", stderr="", timed_out=False)
+
+    log_path = tmp_path / "events.jsonl"
+    log = EventLog(log_path)
+    eng = WorkflowEngine(event_log=log)
+    eng.register(phase, WorkflowDefinition(name=phase, steps=[_ok_step("noop")]))
+    try:
+        set_default_git_read_factory(lambda: _spy)
+        result, _ctx = eng.execute(
+            phase, _make_ctx(git_cwd=str(tmp_path / "fake_repo")), run_id=run_id
+        )
+    finally:
+        reset_default_git_read_factory()
+
+    assert result.status == "ok"
+    assert call_count["n"] >= 4, "sanity: both git_pre and git_post must actually have been queried"
+
+    events = log.read_all()
+    phase_artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
+    assert len(phase_artifacts) == 1
+    payload = phase_artifacts[0]["payload"]
+
+    phase_artifacts_index = next(
+        i for i, e in enumerate(events) if e["event_type"] == "phase_artifacts"
+    )
+    raw_line = log_path.read_bytes().splitlines(keepends=True)[phase_artifacts_index]
+    assert len(raw_line) == predicted_exact, (
+        f"sanity: the ACTUAL serialised line must match the predicted "
+        f"exact-4096 size (run_id/phase/event_type must line up with the "
+        f"prediction), got {len(raw_line)}, predicted {predicted_exact}"
+    )
+    assert len(raw_line) <= 4096
+
+    assert payload.get("written_truncated") is not True, (
+        f"a payload serialising to EXACTLY 4096 bytes is LEGAL "
+        f"(event_log.py rejects only strictly > 4096) and MUST NOT be "
+        f"truncated — a GREEN using >= 4096 as its threshold would wrongly "
+        f"truncate here, got {payload!r}"
+    )
+    assert payload.get("written") == [exact_path], (
+        "the exact-boundary path must be listed in full, not sampled/elided"
+    )
+
+    report = check_bd_l0(events, run_id=run_id, writer=EventLog)
+    assert report.passed is True, getattr(report, "violations", report)
+
+
 def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_path, monkeypatch):
     """AC-L0-3d3 [G5:EDGE-3] [G6:MINOR-3]: the truncation predicate MUST
     leave headroom for the shadow envelope — IFF the shadow branch
@@ -4356,7 +4961,22 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
     `is_authoritative_execution` monkeypatch seam (matching
     test_ac_l0_12's pattern) while genuinely running on the main thread),
     not guessed as a constant. A shadowed run is then driven at exactly
-    the boundary that measurement identifies."""
+    the boundary that measurement identifies.
+
+    [G7:1b] BLOCKING FIX: the boundary path count is a function of the
+    IDENTIFIERS used (`run_id`/`phase` are part of the serialised event),
+    so the unshadowed joint-satisfiability control below now RECOMPUTES
+    its own boundary from the identifiers it actually uses
+    (`f"{run_id}-unshadowed"` / `f"{phase}-unshadowed"`), rather than
+    reusing `n_boundary` (computed for the shorter shadowed-run
+    identifiers). Reusing it was unsatisfiable by ANY implementation: at
+    114 paths the shadowed-run identifiers measured 4092 B unshadowed (4 B
+    of slack), and the `-unshadowed` suffix on both identifiers added 22 B
+    — 4114 B, 18 B over the limit — so a GREEN that truncates fails
+    `written_truncated is not True` and a GREEN that does not truncate
+    raises `EventLogLineTooLarge` (swallowed at `engine.py:710`, so the
+    `exactly one` assertion fails instead). No third branch existed.
+    Recomputing per run is robust to any future identifier rename."""
     import engine as engine_module  # noqa: PLC0415
     from execution_provenance import SHADOW_EVENT_TYPE  # noqa: PLC0415
 
@@ -4445,30 +5065,55 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
         f"the shadow envelope, got {payload!r}"
     )
 
-    # [G6:MINOR-3] joint-satisfiability check: the IDENTICAL borderline path
-    # count, driven WITHOUT the shadow branch (is_authoritative_execution
-    # left at its real, un-monkeypatched value), MUST NOT truncate. An
-    # UNCONDITIONAL headroom reserve (rather than "iff the shadow branch
-    # applies") would truncate this too, and would then fail AC-L0-3d2's own
-    # just-under-4096 unshadowed control — the two ACs are jointly
-    # satisfiable only by a predicate that measures the actual serialised
-    # form per emit, not by a predicate that always reserves the overhead.
+    # [G6:MINOR-3] joint-satisfiability check, [G7:1b] arithmetic FIXED: a
+    # run driven WITHOUT the shadow branch (is_authoritative_execution left
+    # at its real, un-monkeypatched value) MUST NOT truncate at ITS OWN
+    # just-under-4096 boundary. An UNCONDITIONAL headroom reserve (rather
+    # than "iff the shadow branch applies") would truncate this too, and
+    # would then fail AC-L0-3d2's own just-under-4096 unshadowed control —
+    # the two ACs are jointly satisfiable only by a predicate that measures
+    # the actual serialised form per emit, not by a predicate that always
+    # reserves the overhead.
+    #
+    # [G7:1b]: the boundary is a function of the IDENTIFIERS, so it is
+    # RECOMPUTED here from the identifiers this sub-check actually uses
+    # (run_id_unshadowed / phase_unshadowed), rather than reusing
+    # n_boundary (computed for the shorter shadowed-run identifiers above,
+    # which left only 4 B of slack — an 11-character-longer identifier
+    # pair would have overshot the limit by 18 B, unsatisfiable by any
+    # implementation).
+    run_id_unshadowed = f"{run_id}-unshadowed"
+    phase_unshadowed = f"{phase}-unshadowed"
+
+    n_u = 0
+    while _predicted_bytes(run_id_unshadowed, "phase_artifacts", phase_unshadowed, _paths_for(n_u), shadowed=False) <= 4096:
+        n_u += 1
+    n_boundary_unshadowed = n_u - 1
+    assert n_boundary_unshadowed >= 1, "sanity: envelope overhead alone must not already exceed 4096 bytes"
+    predicted_unshadowed_bytes = _predicted_bytes(
+        run_id_unshadowed, "phase_artifacts", phase_unshadowed, _paths_for(n_boundary_unshadowed), shadowed=False
+    )
+    assert predicted_unshadowed_bytes <= 4096, (
+        f"sanity: the RECOMPUTED boundary for these identifiers must itself "
+        f"fit under 4096, got {predicted_unshadowed_bytes}"
+    )
+
     repo_dir_unshadowed = tmp_path / "repo_unshadowed"
     _init_git_repo(repo_dir_unshadowed)
 
     def _write_paths_unshadowed(_ctx, _prev):
-        for name in _paths_for(n_boundary):
+        for name in _paths_for(n_boundary_unshadowed):
             (repo_dir_unshadowed / name).write_text("x")
         return StepResult(status="ok", data=None, duration_ms=0, step_name="write_probe")
 
     log_unshadowed = EventLog(tmp_path / "events_unshadowed.jsonl")
     eng_unshadowed = WorkflowEngine(event_log=log_unshadowed)  # real engine module, shadow branch NOT forced
     eng_unshadowed.register(
-        f"{phase}-unshadowed",
-        WorkflowDefinition(name=f"{phase}-unshadowed", steps=[StepContract(name="write_probe", execute=_write_paths_unshadowed)]),
+        phase_unshadowed,
+        WorkflowDefinition(name=phase_unshadowed, steps=[StepContract(name="write_probe", execute=_write_paths_unshadowed)]),
     )
     eng_unshadowed.execute(
-        f"{phase}-unshadowed", _make_ctx(git_cwd=str(repo_dir_unshadowed)), run_id=f"{run_id}-unshadowed"
+        phase_unshadowed, _make_ctx(git_cwd=str(repo_dir_unshadowed)), run_id=run_id_unshadowed
     )
 
     events_unshadowed = log_unshadowed.read_all()
@@ -4476,10 +5121,11 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
     assert len(unshadowed_artifacts) == 1
     unshadowed_payload = unshadowed_artifacts[0]["payload"]
     assert unshadowed_payload.get("written_truncated") is not True, (
-        f"the IDENTICAL borderline path count, driven WITHOUT the shadow "
-        f"branch, MUST NOT truncate — an unconditional headroom reserve "
-        f"(rather than 'iff the shadow branch applies') would wrongly "
-        f"truncate here too, got {unshadowed_payload!r}"
+        f"a run driven WITHOUT the shadow branch, at ITS OWN recomputed "
+        f"just-under-4096 boundary ({predicted_unshadowed_bytes} B), MUST "
+        f"NOT truncate — an unconditional headroom reserve (rather than "
+        f"'iff the shadow branch applies') would wrongly truncate here "
+        f"too, got {unshadowed_payload!r}"
     )
 
 
