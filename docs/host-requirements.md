@@ -13,6 +13,26 @@ If the two ever disagree, `HOST_TOOLS` wins.
 | `bun` | **test-only requirement** | 2 tests (`test_phase_5_step2_verify_red.py`, `test_phase_5_step3_verify_green.py`) assert that a `ts`/bun test group actually runs. |
 | `semgrep` | **test-only requirement** | the red-lint preflight refuses to run without it (fail-closed, "build-critical" — see `pyproject.toml`); 1 test exercises that path. `semgrep` ships only in the optional `[security]` extra, which is the mismatch this doc records. |
 
+## Tree shape (bd#2)
+
+Host tools are one axis of what the suite needs. The other is the **shape of
+the tree it runs in**, and it has its own canonical source:
+**`engine_py/tests/helpers/live_repo.py`**.
+
+| requirement | verdict | why |
+|---|---|---|
+| a **git checkout** of this repository | **test-only requirement** | three tests resolve the project by climbing from the test file up to an entry named `.git`, then compare a cheap file-based read against a real `git rev-parse` / `git rev-list` on that repository. `git archive`, an installed wheel and a downloaded release tarball all ship tracked files and no `.git`, so the subject simply is not there. The tests are `test_gh1220_ambient_cwd_commit_refusal.py::test_ac16_…`, `::test_ac17_…` and `::test_ac31_…`; without a checkout they report `skipped`, not `failed`. |
+
+The property those three pin — that the sentinel's cheap HEAD read agrees with
+git — is genuinely unobservable without a repository, which is what makes a
+skip honest here. It is not a general licence: a check that *could* be shipped
+and run should be shipped and run, not skipped.
+
+This is deliberately **not** modelled as a `HOST_TOOLS` entry named `.git`.
+`host_tool_skip_reason` renders "requires host tool '<name>'", and reporting a
+missing binary for a missing checkout would be exactly the misleading message
+the declaration exists to remove.
+
 ## Mechanism
 
 Availability is probed once via `shutil.which`, at `pytest_configure` time,
@@ -21,6 +41,13 @@ hookwrapper converts a test's `FileNotFoundError` for a declared, genuinely
 absent tool into an honest `skip` (rather than a `FAIL`), and
 `helpers.host_tools.skip_without(tool)` is called explicitly by the handful
 of tests that fail by assertion instead of by spawn error.
+
+The checkout requirement is frozen the same way and in the same place —
+`helpers.live_repo.freeze_git_checkout_availability()`, called from that same
+`pytest_configure` — and read by `helpers.live_repo.skip_without_git_checkout()`,
+which the three tests above call as their first statement. There is no
+automatic conversion for this axis: absence of a checkout surfaces as a plain
+`assert`, not as an exception a report hook could recognise.
 
 ## Canonical source (§1g)
 

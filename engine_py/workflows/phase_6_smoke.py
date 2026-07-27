@@ -62,16 +62,28 @@ def _run_smoke(_ctx, _prev) -> StepResult:
     root = resolve_worktree_root(_ctx, Path(__file__))
     smoke_script = root / _SMOKE_REL
     if not smoke_script.exists():
+        # bd#1: "skip", not "ok". The script ships in the upstream HALForge
+        # tree, not this one, so this branch is taken by every outside user on
+        # every run — `ok` would report a pass for a check that never ran.
+        # `skip` is already a legal StepResult status (contracts.py) and is
+        # already a success everywhere downstream: run.py exits 0 on it, the
+        # governor records no error, phase_sentinel caches it, and the engine
+        # does not interrupt the chain. The run still passes; it just no longer
+        # claims the phase did.
         return StepResult(
-            status="ok",
+            status="skip",
             data={"skipped": "smoke_script_absent", "smoke_script": str(smoke_script)},
             duration_ms=0,
             step_name="phase_6_smoke",
         )
 
     if shutil.which("zsh") is None:
+        # bd#1: same argument verbatim — the smoke did not run, so it did not
+        # pass. docs/host-requirements.md keeps `zsh` deliberately out of
+        # HOST_TOOLS so this degradation path stays visible; reporting it as
+        # `ok` defeated that from the other side.
         return StepResult(
-            status="ok",
+            status="skip",
             data={"skipped": "zsh_unavailable", "smoke_script": str(smoke_script)},
             duration_ms=0,
             step_name="phase_6_smoke",

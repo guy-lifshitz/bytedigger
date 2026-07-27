@@ -113,13 +113,47 @@ def resolver_source_labels() -> "set[str]":
 
 # ── AST plumbing ──────────────────────────────────────────────────────────────
 
+# Directory names that never hold this project's production code (bd#3).
+# `tests`/`__tests__` are the original spec exclusions; the rest are vendored
+# or installed third-party trees.
+_PRUNED_DIR_NAMES = frozenset({
+    "tests", "__tests__", "__pycache__",
+    "site-packages", "dist-packages", "node_modules",
+})
+
+# Canonical virtualenv marker. Name-matching alone is not enough: `.venv` is a
+# convention, and `python -m venv env311` is just as valid.
+_VENV_MARKER = "pyvenv.cfg"
+
+
 def _iter_prod_py_files(root: "str | Path") -> "Iterator[Path]":
+    """Every production `.py` under `root`, excluding tests and dependencies.
+
+    bd#3: the walk used to prune three directory names and nothing else, so a
+    virtualenv inside the tree — which is what the README's install flow
+    produces — put every installed package under the lint. The clean room hit
+    `semgrep/git.py::_remove_worktree_with_check`: a correct match for the
+    pattern, and one no edit could ever make pass, since third-party functions
+    cannot be registered in `GUARDED_WRITE_SITES`. `run_lint` is fail-closed,
+    so that made the anti-rot layer unusable for anyone who installed the
+    package.
+
+    Walks with `os.walk` rather than `rglob` so a pruned directory is not
+    descended into at all — on a real install, skipping the recursion into
+    `site-packages` is also most of the walk.
+    """
     root = Path(root)
-    for path in sorted(root.rglob("*.py")):
-        parts = set(path.relative_to(root).parts)
-        if "tests" in parts or "__tests__" in parts or "__pycache__" in parts:
-            continue
-        yield path
+    for dirpath, dirnames, filenames in os.walk(root):
+        here = Path(dirpath)
+        # Sorted in place so traversal order is deterministic — os.walk yields
+        # directory entries in filesystem order, `sorted(rglob(...))` did not.
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d not in _PRUNED_DIR_NAMES and not (here / d / _VENV_MARKER).is_file()
+        )
+        for name in sorted(filenames):
+            if name.endswith(".py"):
+                yield here / name
 
 
 def _callee_name(call: ast.Call) -> "str | None":
