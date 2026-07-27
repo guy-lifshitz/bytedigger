@@ -1,9 +1,39 @@
 # Lot spec — bd#7: conformance harness + oracle interface + attestation writer + BD-L0
 
-**v8** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (1). Gate round 7 **not yet run** against
-this text. v8 is not a gate response: it carries **two defects found in v7 by the lot owner's own
-verification of the round-7 RED**, both in v7's own additions, both measured on the executing host before
-being written down:
+**v9** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (1), v8 (**3**). Round-7 findings tagged
+`[G7:n]`. Every one of the three blocking findings was re-verified against the code by the lot owner before
+being accepted — one of them arithmetically, to the byte — and the gate's refutation of one of the owner's
+own claims was checked and conceded (`engine.py:710` **is** the `except` clause; the citation was correct).
+
+- `[G7:1]` BLOCKING, **false-fail**: AC-E10 clause 1's sanity check required a **newly created** thread,
+  which the daemonising-pool design that `[G7:self-1]` had just declared admissible does not produce. Worse
+  than order-dependent — AC-E3/E8/E9 all call `evaluate_guarded` with a timeout earlier in file order, so it
+  false-fails a correct pooled GREEN even under `-p no:randomly`. Third instance of `[G7:self-1]`'s shape
+  inside one AC: the prose contradiction was fixed and the assertion still rejected the blessed design.
+- `[G7:1b]` BLOCKING, **false-RED unsatisfiable by every implementation**: AC-L0-3d3's new joint-satisfiability
+  control derived its boundary path count from one pair of identifiers (114 paths → 4092 B, **4 B** of slack)
+  and then re-ran that count under identifiers 11 characters longer → **4114 B, 18 B over the limit**. Truncate
+  and the `written_truncated is not True` assertion fails; don't and `append` raises, `_emit` swallows, and the
+  exactly-one assertion fails. Introduced by the round-7 rewrite whose purpose was to remove exactly this shape
+  from this AC.
+- `[G7:2]` BLOCKING, **admits a wrong GREEN**: §4.3's completeness sentence was false. The table omitted three
+  quantifiers, two asserted only over uniform single-phase logs — AC-L0-6e `[G7:2a]` and AC-L0-3b5 `[G7:2b]` —
+  each admitting a GREEN that publishes `level_achieved: "BD-L0"`, `conformant: true` over a phase the checker
+  never verified. `[G6:1]` again, one sub-clause over, **in the very table written to prevent that**.
+- `[G7:3]` The "phase→run is the last rung" claim was false: **runs of a log** sits above it. Harmless only
+  because AC-L0-12d already discharges it non-uniformly; AC-L0-2d, which appears to, is uniform. Withdrawn,
+  documented, and the ladder's actual top is now stated with a falsification criterion instead of an assurance.
+
+Also in v9: six minor pins (`[G7:MINOR-1..6]`, including defining "once per run" as once per `execute()` —
+the literal was false, since one `run_id` spans many phases) and seven adversarial edges promoted to
+normative ACs or explicitly declared out of scope with a re-open criterion. **AC-L0-15 is the notable one**:
+a populated log scoped to a `run_id` matching **nothing** made every universal clause vacuously true, so the
+checker reported all three requirements `"passed"` and `conformant: true` for a run with no evidence at all —
+`all([])` one scope out from the ladder rounds 4-7 chased, and the cheapest false-green left.
+
+**v8** — gate round 7 rejected this text (3 blocking, above). v8 was not a gate response: it carried
+**two defects found in v7 by the lot owner's own verification of the round-7 RED**, both in v7's own
+additions, both measured on the executing host before being written down:
 - `[G7:self-1]` **AC-E10 contradicted itself** — clause 1 requires every surviving worker to be
   `daemon is True`, while the same AC's prose called a stdlib `ThreadPoolExecutor` (whose workers are
   `daemon=False`) "defensible". Clause 1 stands, the aside is withdrawn, and the pooled design is admissible
@@ -34,8 +64,19 @@ MUST be asserted with a **non-uniform** collection of **≥2** members — at le
 and at least one violating — **plus** the positive control where all members satisfy. An AC asserted
 only over a uniform collection is to be treated as unasserted, whatever its prose says.
 
-Phase→run is the **last rung**: there is no collection above "the phases of one scoped run" in this
-design. §7 (the audit of every quantifier in this spec against the rule) records the sweep.
+`[G7:3]` **v7's "phase→run is the last rung" claim was false, and is withdrawn.** One collection sits
+above the phases of one scoped run: **the runs of one log**. `EventLog` is explicitly safe for multiple
+appending processes (`event_log.py:82-88`), so a log holds many runs, and the *scoping isolation* property
+— run A's R0.3 MUST NOT be satisfied by run B's `run_identity`; run B's `phase_artifacts` MUST NOT trip
+run A's exactly-one-per-phase check — is quantified over that collection. It is discharged, but by
+**AC-L0-12d** (a genuinely non-uniform two-run fixture, both directions asserted), *not* by AC-L0-2d,
+whose own fixture is uniform (both runs must report `"passed"`) and which is therefore unasserted on its
+own by the letter of this rule. §4.3 now carries the row and the cross-reference.
+
+Above the runs of a log there is nothing: no requirement here quantifies over multiple log files, multiple
+hosts, or multiple `L0Report`s (`build_attestation_report` takes exactly one). **That** is the last rung —
+one above where v7 stopped looking, which is the point: the rule is a rule about looking, and declaring a
+ladder finished is how rounds 4, 5 and 6 each missed the next rung. §4.3 records the sweep.
 
 **v6** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (**1**). Round-5 findings tagged `[G5:n]`.
 
@@ -265,6 +306,19 @@ reproducibility of a published freeze. Out of scope for this lot.
   1. Any worker still alive after the grace period MUST have `daemon is True`, so it cannot hang
      interpreter shutdown. Asserted with an oracle whose sleep is **longer** than the grace period, so the
      worker is guaranteed still alive when checked.
+     `[G7:1]` **The assertion MUST identify the worker by the thread the oracle itself reports, NOT by
+     diffing `threading.enumerate()` for a NEWLY created thread.** A new-thread diff false-fails the
+     daemonising-pool design this AC's own `[G7:self-1]` note declares admissible: the pool reuses an
+     idle-alive worker, so the diff is empty and a "sanity: a worker must have been created" assertion
+     fails for a correct GREEN. This is not hypothetical or order-dependent-only — `evaluate_guarded` is
+     called with a timeout by AC-E3, AC-E8, AC-E9 and by this AC's own clause 2, all of which precede this
+     check in file order, so a pooled worker already exists even under `-p no:randomly`. Normative form:
+     the oracle records its own `threading.current_thread()` into a caller-visible object, and the
+     assertion requires **that** thread to be alive (which it provably is: the sleep outlasts the grace)
+     and `daemon is True`. Equivalently admissible: assert `daemon is True` over every alive non-main
+     thread. Both admit the pool and the per-call thread, and both still fail a non-daemon worker.
+     `[G7:1]` is the third instance of `[G7:self-1]`'s shape inside this one AC: v7 fixed the prose
+     contradiction and left an assertion that still rejected the design the corrected prose admits.
   2. Workers MUST NOT accumulate: over N repeated timed-out calls the live-thread count MUST NOT grow by N.
      This holds for both the per-call-thread and the pooled designs, and fails the leak.
 
@@ -464,6 +518,20 @@ it is the same class of defect as defaulting to passed.
   (`engine.py:250-268` emits `phase_reroute_entry` first whenever `phase_reroute` is set, so
   `kinds[0]` is a fixture property, not an engine invariant). Payload: `engine_version` and
   `adapter_identity`. Closes R0.3 for runs that make no LLM call — the gap §0 found.
+  `[G7:MINOR-1]` **"Once per run" is imprecise and is hereby defined: once per `execute()` call.** AC-L0-3a5
+  establishes that one `run_id` legitimately spans **many** `execute()` calls (that is the flagship consumer
+  shape, and why AC-L0-13 exists), so a scoped run will contain **as many `run_identity` events as it had
+  phases** — AC-L0-3a5(3) drives exactly that, two `execute()` calls under one `run_id`. AC-L0-2d and AC-A28
+  both presuppose the per-`execute()` reading. The literal "once per run" was therefore false, and no test
+  trapped either reading, so nothing shipped wrong — but a checker author had no rule for `n > 1`.
+  Normative, filling the gap rather than leaving it to GREEN's discretion:
+  - The emit is once per `execute()`, immediately after that call's `workflow_started`.
+  - The checker MUST accept `n >= 1` `run_identity` events in one scoped run, and MUST require **every**
+    one of them to satisfy R0.3 (a per-`execute()` collection — so, per `[G6:quant]`, asserted on a
+    non-uniform two-phase run where phase_b's identity is malformed: R0.3 MUST NOT be `"passed"`, with the
+    uniform two-identity run as the positive control). One valid identity MUST NOT excuse a malformed
+    sibling; that is `[G6:1]`'s mechanism on the identity channel.
+  - Zero `run_identity` events in a non-empty scope remains R0.3 `"failed"` (AC-L0-9 clause 6).
 - **AC-L0-2c** `[G5:base]` **`engine_version` provenance survives packaging, and has no placeholder.**
   The canonical version lives in `engine_py/pyproject.toml [project].version` (confirmed against
   `scripts/version_parity.py --list-declarations` on `origin/main` @ `073ce12`: six declarations, all
@@ -644,6 +712,14 @@ it is the same class of defect as defaulting to passed.
   R0.2 `"passed"`. Given the checker's declared threat model (an arbitrary, possibly forged event list),
   the fields carrying the actual artifact references MUST be required present and list-typed, or R0.2 is
   `"not-checked"`.
+  `[G7:2b]` **Validation is PER RECORD and MUST be asserted non-uniformly, per `[G6:quant]`.** v7 asserted
+  both halves by mutating the **single** `phase_artifacts` of a single-phase log, so validating the shape
+  once against `records[0]` / `next(...)` — the first-phase-only reduction `[G6:1]` named — passed both.
+  A forged two-phase log whose phase_a record is well-formed and whose phase_b record is
+  `{"phase": "phase_b", "write_tracking": "git-delta"}` is then granted R0.2 `"passed"`, which is precisely
+  the input this AC's own threat model ("an arbitrary, possibly forged event list") exists to reject.
+  Required: the malformed record on **phase_b of the two-phase fixture**, both for the missing-fields half
+  and the wrong-type half, with the well-formed two-phase log as the positive control.
 - **AC-L0-3b6** `[G6:EDGE-5]` **An orphan `phase_artifacts` MUST NOT lift the write half.** An artifact
   record for a phase with no `workflow_started` in the scoped run is currently undefined, so a forged log
   can add a `git-delta` record for a phase that never ran. Normative: a `phase_artifacts` whose `phase` has
@@ -808,6 +884,16 @@ conformance defect. The checker scopes to one run.
   explicitly "an arbitrary event list… a future engine's or a forged one." This is `[G4:4]`'s vacuous-
   `all()` one level up. Normative: a scoped run with a `phase_artifacts` but no step events for that
   phase MUST yield R0.2 `"not-checked"`, not `"passed"`.
+  `[G7:2a]` **This clause is quantified PER PHASE and MUST be asserted non-uniformly, per `[G6:quant]`.**
+  v7 asserted it over a **single-phase** log only, where `any(len(steps_of(p)) > 0 for p in phases)` is
+  indistinguishable from the per-phase reduction — so the cheapest wrong GREEN, checking the step-event
+  precondition once against the whole scoped run instead of once per phase, passed. On the flagship
+  non-uniform fixture (phase_a `git-delta` with its step events, phase_b `git-delta` with its step events
+  **removed**) that GREEN yields R0.2 `"passed"` → `labels["R0.2"] == "writes-observed; reads-declared-only"`
+  → all-passed `l0` → `level_achieved: "BD-L0"` → `conformant: true`, for a run one of whose phases the
+  checker never verified emitted a single step. Verbatim `[G6:1]`, one sub-clause over. Required: the
+  two-phase fixture with **phase_b's step events dropped** MUST yield `"not-checked"`, with the uniform
+  two-phase log as the all-satisfy positive control.
 - **AC-L0-6f** `[G5:EDGE-7]` The probe's own scratch directory MUST be **removed**, not merely located
   outside the caller's cwd. AC-L0-6d asserts only the first half of §4.2's "creates and removes", and the
   probe runs ~20× per suite run. Asserted by capturing the probe's temp root and requiring it absent
@@ -916,6 +1002,20 @@ conformance defect. The checker scopes to one run.
   AC-L0-3d2's just-under (~4079-byte) unshadowed payload and false-fails a conservative, otherwise-correct
   GREEN. This AC and AC-L0-3d2's just-under control are to be read together; they are jointly satisfiable
   only by measuring the actual serialised form per emit. Asserted with a shadowed run at the boundary.
+  `[G7:1b]` **The boundary path count is a function of the identifiers, so the unshadowed control MUST be
+  driven under identifiers the boundary was computed FROM.** v7's RED derived `n_boundary` from
+  `run_id="run-l0-3d3-shadow"` / `phase="wf-l0-3d3-shadow"` (measured: `n_boundary == 114`, unshadowed
+  serialised size **4092 B**, only **4 B** of slack under the limit) and then re-ran that same path count
+  under `f"{run_id}-unshadowed"` / `f"{phase}-unshadowed"` — `+22 B` — so the event the control actually
+  appends is **4114 B, 18 B OVER the 4096 limit**. That made the control **unsatisfiable for every
+  implementation**: a GREEN that truncates fails the `written_truncated is not True` assertion, and a GREEN
+  that does not truncate raises `EventLogLineTooLarge`, which `_emit` swallows at `engine.py:710`, so no
+  event is written and the `exactly one phase_artifacts` assertion fails instead. No third branch exists —
+  a false-RED that survives a fully correct GREEN, introduced by the round-7 rewrite whose whole purpose
+  was to remove this shape from this AC. Normative: either give the unshadowed control identifiers of
+  **identical length**, or **recompute the boundary per run from the identifiers actually used** — the
+  latter is preferred, being robust to any future rename. The 4-byte slack is the lesson: with this AC's
+  envelope, an 11-character identifier change is three times the entire margin.
 - **AC-L0-12** `[G:edge-3]` A shadowed run (`HAL_ENGINE_SHADOW_EMITS` on, non-authoritative
   execution, every event mangled to `SHADOW_EVENT_TYPE` at `engine.py:699-708`) MUST be reported
   as a distinct `E_SHADOWED_RUN` violation, not as a generic pile of R0.2/R0.3 failures. A
@@ -950,11 +1050,127 @@ conformance defect. The checker scopes to one run.
 - **AC-L0-14** `[G2:8]` The checker MUST enforce the AC-L0-2b **shape** of `adapter_identity` — a
   mapping with non-empty `backend` and `source` — not merely non-emptiness. The v2 fixture used a
   bare string, which pinned the checker to a weaker contract than the engine emits.
+- **AC-L0-15** `[G7:EDGE-1]` **An EMPTY SCOPE MUST NOT vacuously pass.** This is the cheapest false-green
+  left in the checker, and the one `all([])` shape this lot had not yet closed. AC-L0-9's vacuity guard is
+  `check_bd_l0([], ...)` — the *empty log*. Nothing exercised a **populated** log scoped to a `run_id`
+  matching **nothing**. The natural implementation, `scoped = [e for e in events if e["run_id"] == run_id]`
+  guarded by `if not events: fail`, then evaluates every universal R0.2/R0.3 clause over an empty `scoped`
+  set — vacuously true — and reports all three requirements `"passed"`, `level_achieved: "BD-L0"`,
+  `conformant: true` for a run that produced **no evidence whatsoever**. Rounds 4-7 chased `all([])` down
+  the collection ladder; this is the same defect one scope out, over the event set itself. Normative: a
+  scope containing no events for the requested `run_id` MUST yield `passed is False` with all three
+  requirements `"not-checked"` (nothing was observed, so nothing was measured — this is not a structural
+  breach), and MUST NOT grant a level. Asserted with a log holding a complete, *passing* run under a
+  different `run_id`, so the fixture also proves the checker is not merely reading the whole log.
+- **AC-L0-3d4** `[G7:EDGE-3]` **The TRUNCATED payload MUST itself fit under the limit.** AC-L0-3d bounds the
+  sample by count, not by bytes: every fixture uses many short paths, so sample + digest always fit. A phase
+  writing one pathological path (a single ~4200-character filename, legal on most filesystems in aggregate
+  path terms and trivially forgeable in a supplied log) produces a *truncated* payload that **still**
+  exceeds 4096, so `append` raises `EventLogLineTooLarge`, `_emit` swallows it at `engine.py:710`, and the
+  record vanishes entirely — the inverted control AC-L0-3d exists to prevent, reopened through AC-L0-3d's
+  own escape hatch. Normative: the truncation predicate MUST bound the **serialised** payload, dropping or
+  eliding sample entries until it fits (the digest, being fixed-width, is what survives); an emitted
+  `phase_artifacts` MUST NEVER exceed the limit. Asserted with a single oversized path and by requiring
+  exactly one `phase_artifacts` with `written_truncated: true` to be present in the log.
+- **AC-L0-3d5** `[G7:EDGE-4]` **The limit is `> 4096`, not `>= 4096`.** `event_log.py:116` rejects only
+  strictly-greater, so a 4096-byte line is **legal**. AC-L0-3d2's search finds the largest count whose
+  predicted size is `<= 4096` and lands at 4078 bytes for its identifiers — 18 short — so a GREEN using
+  `>= 4096` truncates a payload that would have fit exactly and still passes AC-L0-3d2. Normative: a payload
+  serialising to **exactly** 4096 bytes MUST NOT be truncated. Asserted by constructing that exact size
+  (pad a path name to hit it precisely) and requiring `written_truncated is not True` plus a successfully
+  appended event. The boundary must be hit exactly, not approached.
+- **AC-L0-6g** `[G7:EDGE-6]` **A `writer` whose `append` RAISES MUST NOT be rendered as R0.1 `"passed"`.**
+  AC-L0-6c supplies writers with wrong `os.open` flags; none that raises. `check_bd_l0` is documented as a
+  read-only check that runs ~20× per suite, so an unhandled exception from a caller-supplied `writer` makes
+  the checker a crash surface — and the reflex fix, a bare `except Exception: pass` around the probe, leaves
+  R0.1 at its default and publishes `"passed"` for a probe that never ran. Both failure modes are
+  unacceptable and the AC pins both directions: `check_bd_l0` MUST NOT propagate the exception, **and** MUST
+  render R0.1 `"not-checked"` (with a violation naming R0.1) — never `"passed"`. Asserted with a writer
+  whose `append` raises unconditionally.
+- **AC-L0-3b7** `[G7:EDGE-7]` **A `phase_artifacts` preceding its own `workflow_started` is defined, not
+  left to GREEN.** AC-L0-3b6 defines the *absent* `workflow_started` case as `"failed"`; a record appearing
+  **before** the `workflow_started` for the same phase in the scoped run is undefined, so a streaming
+  implementation calls it an orphan (`"failed"`) and a pre-indexing one calls it valid. Neither is a
+  false-green, which is exactly why it must be decided now rather than becoming a round-8 finding.
+  Normative: the checker indexes the whole scoped run before reducing — **event order within a scope carries
+  no meaning beyond AC-L0-2's "immediately follows `workflow_started`" positional rule** — so a
+  `phase_artifacts` whose phase HAS a `workflow_started` anywhere in the scope is valid regardless of
+  relative order. Asserted with the record moved ahead of its `workflow_started`: R0.2 MUST still be
+  `"passed"`.
+
+`[G7:EDGE-5]` **Single-threaded `execute()` is now declared, not assumed.** AC-L0-3b3 forces the write
+accumulator onto the engine **instance** (a per-frame accumulator loses the pre-retry write), and AC-L0-3f
+asserts reset only across **sequential** `execute()` calls. Two threads calling `execute()` on one engine
+instance would interleave into one accumulator, so run B's `phase_artifacts.written` could carry run A's
+paths — AC-L0-3f's defect through the door AC-L0-3b3 was required to open. `EventLog` supports concurrent
+*appenders* (`event_log.py:82-88`), which is what invites the reading. Normative for this lot: **one
+`WorkflowEngine` instance is single-threaded with respect to `execute()`**; concurrent `execute()` on one
+instance is unsupported and out of scope. Declared rather than asserted because the fix (thread-local or
+per-run accumulator keyed by `run_id`) is a design change this lot does not otherwise need, and an undeclared
+assumption is what this lot keeps getting rejected for. **Re-open criterion:** the first consumer that calls
+`execute()` concurrently on a shared instance.
+
+`[G7:EDGE-2]` **Recorded, deliberately not fixed: git's `core.quotePath` defeats the `written` spelling for
+non-ASCII names.** With the default `core.quotePath=true`, `git ls-files --others --exclude-standard`
+(`engine.py:1079`) emits a non-ASCII or control-character filename as a C-quoted, backslash-escaped token
+(`"sub/\303\251.txt"`). AC-L0-3b4 pins POSIX-relpath spelling over ASCII names only, so `written` would carry
+the escaped spelling and `written_digest` would not be reproducible from the real path set — AC-L0-3d's "the
+digest is the sole evidence the elided list was real" defeated by a filename. Not fixed here because the
+correct fix (pass `-z`, or set `core.quotePath=false`, and decide whether the digest is over bytes or
+`str`) changes the delta-reading seam that AC-L0-3a4 pins, and this lot's write channel is measured against
+ASCII fixtures throughout. **Re-open criterion:** the first non-ASCII path in a measured repo, or any use of
+`written_digest` as a cross-host comparison key. One fixture with a non-ASCII name settles whether the
+engine unquotes or the spec narrows.
+
+### 4.2b Round-7 minor pins
+
+Each closes a MUST that no test currently discriminates, or a token left unpinned at one level while pinned
+at another. None admits a wrong GREEN on its own; all four are cheap, and unasserted normative text is what
+this lot has been rejected for six times.
+
+- **`[G7:MINOR-3]` The distribution name MUST be asserted against `package_meta.PACKAGE_DIST_NAME`, not the
+  bare literal.** `[G5:MINOR-7]` makes it normative that the name come from that constant "**not** the bare
+  literal `"bytedigger-engine"`", yet both tests touching it assert the literal — and since
+  `PACKAGE_DIST_NAME == "bytedigger-engine"` (`package_meta.py:16`) the assertion **cannot discriminate**,
+  so the anti-drift MUST has zero coverage. Assert equality against the imported constant, so a rename that
+  updates one and not the other fails.
+- **`[G7:MINOR-4]` The key set of a SUCCESSFUL UNTRUNCATED `git-delta` payload MUST be pinned.** AC-L0-3's
+  whole-dict equality covers only the `not-observed` 5-key case; AC-L0-3d's exact-key-set assertion covers
+  only the truncated 8-key case. Nothing pins the untruncated success case, so a GREEN that **always** emits
+  `written_count`/`written_digest` passes everything — while AC-L0-3g's docstring claims to be the
+  whole-dict-shape control and asserts two keys. Normative: the untruncated `git-delta` payload's key set is
+  exactly the five of AC-L0-3 (`phase`, `written`, `read`, `write_tracking`, `read_tracking`); the
+  truncation keys appear **iff** truncation occurred. Asserted by exact key-set equality.
+- **`[G7:MINOR-6]` The phase-level R0.2 token MUST be pinned, not just the quantifier.** AC-L0-3a5(4)
+  asserts `passed is False` plus an R0.2 violation when phase_b's `phase` key is stripped, but not
+  `requirements["R0.2"] == "failed"` — which AC-L0-9 clause 1 pins for the **identical** mutation on a
+  single-phase log. The quantifier is asserted, the token is not, so a GREEN rendering the phase-level
+  breach as `"not-checked"` passes here and fails clause 1 only by luck of which fixture it meets.
+  Normative: the clause-1 token rule applies per phase, and `[G6:MINOR-2]`'s precedence (`"failed"`
+  dominates `"not-checked"`) resolves it.
+- **`[G7:MINOR-2]` Recorded policy, deliberately kept:** a present-but-forged `phase_artifacts` (missing
+  fields, wrong types, unrecognised token — AC-L0-3a3, AC-L0-3b5) renders R0.2 `"not-checked"`, while
+  `[G5:MINOR-4]` renders a *structural* breach `"failed"` and AC-L0-3b6 renders the orphan record
+  `"failed"`. The scoping sentence limits `[G5:MINOR-4]` to AC-L0-9 clauses 1-6/8, so there is **no trap** —
+  but the consequence is real and is accepted knowingly: because §3.1's schema carries `l0` and **not**
+  `violations`, the reviewer-facing artifact will read "we did not measure the write channel" for a log that
+  was demonstrably forged. That is AC-A24's defect with the polarity reversed. It is kept because
+  fail-closed-to-unmeasured is the safe direction for a *level grant* (it can never grant BD-L0), and
+  because the alternative — calling a forged record a measured failure — asserts we measured something we
+  did not. **Re-open criterion:** the first version of §3.1's schema that carries `violations`, at which
+  point the distinction becomes visible to the reviewer and should be made.
 
 ## 4.3 Quantifier sweep `[G6:quant]`
 
-Every quantified requirement in this spec, audited against the `[G6:quant]` rule. This exists so round 7
-does not find rung N+1 somewhere I did not look.
+Every quantified requirement in this spec, audited against the `[G6:quant]` rule.
+
+`[G7:2]` **v7's version of this table was itself an instance of the defect it audits.** It carried 13 rows
+and the sentence "No quantifier in this spec is now asserted only over a uniform collection" — and it
+**omitted three quantifiers**, two of which were in fact asserted only uniformly and admitted a wrong GREEN
+(AC-L0-6e, AC-L0-3b5), the third being the rung above phase→run (scoping over the runs of a log). A
+completeness claim over a hand-built list is only as good as the enumeration, and round 8 would have
+trusted this sentence. The three missing rows are added below and marked `[G7]`. The audit's *claims about
+the tests it cites* were accurate in all 13 original rows — the defect was omission, not misstatement.
 
 | Quantifier | Collection | Non-uniform ≥2 fixture | Positive control |
 |---|---|---|---|
@@ -971,9 +1187,28 @@ does not find rung N+1 somewhere I did not look.
 | `l0.passed` / `.violations` | the two signals | AC-A18: each independently | both cleared |
 | file membership | files of a freeze | AC-F1/F2/F3/F6 | AC-F5 reorder |
 | `labels["R0.2"]` | phases of a run | AC-L0-3a5(2) via `requirements` | AC-A7 |
+| `[G7]` **zero-step precondition per phase** | **phases of a run** | **AC-L0-6e `[G7:2a]`: phase_b's step events dropped** | **uniform two-phase** |
+| `[G7]` **artifact-field validity per record** | **phases of a run** | **AC-L0-3b5 `[G7:2b]`: phase_b's record malformed** | **well-formed two-phase** |
+| `[G7]` **scoping isolation per run** | **runs of a log** | **AC-L0-12d: run A lacks identity, run B complete** | **AC-L0-12d's `report_b`** |
 
-Rows in **bold** are new in v7 and are what `[G6:1]` required. No quantifier in this spec is now asserted
-only over a uniform collection.
+Rows in **bold** are new in v7 (rows 5-7) or v9 (the three `[G7]` rows). Rows 5-7 are what `[G6:1]`
+required; the `[G7]` rows are what `[G7:2]` required.
+
+Two standing cross-references, so the next round does not mistake either for a gap:
+- **AC-L0-2d is uniform by design and that is acceptable only because AC-L0-12d exists.** AC-L0-2d asserts
+  both runs report R0.3 `"passed"`, which kills the wrong GREEN it targets (an instance-level
+  "already emitted" flag never reset per run leaves run 2 without identity). It does **not** kill an
+  unscoped checker that credits run A's `run_identity` to run B — AC-L0-12d does, on the non-uniform
+  fixture. Neither AC is redundant; removing 12d would silently un-assert the collection.
+- **Row 4 (zero-step vacuity) has no non-uniform member by construction** — the collection is empty. Its
+  discrimination comes entirely from the positive control plus AC-L0-6e's per-phase row above.
+
+The completeness claim, stated so it can be falsified rather than trusted: the collections quantified over
+in this design are steps of a phase, frames of a phase, phases of a run, runs of a log, the required
+adversary set, the three requirements, the two `l0` signals, and the files of a freeze. Every one has a row.
+Nothing quantifies over multiple log files, multiple hosts, or multiple `L0Report`s. **If a reviewer finds a
+collection not in that list, this table is wrong and the rule was not applied** — which is exactly how
+`[G7:2]` was found.
 
 ## 5. Out of scope
 
