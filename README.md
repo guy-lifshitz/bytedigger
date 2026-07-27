@@ -83,6 +83,8 @@ The engine even gates changes to itself: a commit-msg hook blocks any commit tou
 
 ## Quickstart
 
+**Platforms: macOS and Linux.** Windows is not supported directly — run it under WSL. The engine shells out to `bash` and `zsh` throughout; the phase-6 smoke step looks for `zsh` and skips itself when it is absent.
+
 Five minutes, no API key needed:
 
 ```bash
