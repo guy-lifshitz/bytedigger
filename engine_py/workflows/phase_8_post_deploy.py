@@ -68,10 +68,13 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import telemetry_ctx
@@ -83,7 +86,8 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from phase_workflows_common import _git_read, _git_write  # type: ignore[no-redef]  # noqa: E402,F401  D52228C3 §2.9 re-export
 from contracts import StepContract, StepResult, WorkflowDefinition
-from config_provider import get_config, build_runs_relpath, foreign_state_dirname  # noqa: E402
+from config_provider import get_config, build_runs_relpath, foreign_state_dirname, hal_root  # noqa: E402
+from config_provider import event_log_path_override, worktree_inuse_window_s  # noqa: E402  GH1309
 from lib.plugins.disk_truth.test_runner import run_test_command
 from lib.plugins.disk_truth.suite_boyscout import (
     parse_failing_nodeids,
@@ -704,6 +708,21 @@ def _preserve_events_log(ctx, prev) -> StepResult:
             )
     else:
         src = _resolve_working_dir(ctx) / foreign_state_dirname() / "events.jsonl"
+        # GH1309: batch workers now write the event log outside their worktree
+        # (HAL_EVENT_LOG_PATH) so a collected directory cannot erase it. Follow
+        # the override when the in-worktree copy is absent, otherwise this step
+        # silently preserves nothing for exactly the runs that need it most.
+        if not src.exists():
+            # Only an EXPLICIT host override is followed. Falling back to the
+            # generic default would resolve to the central dogfood log and
+            # preserve an unrelated file whenever the worktree copy is simply
+            # absent (test_ab117afa: missing source must stay a no-op).
+            try:
+                override = event_log_path_override()
+            except Exception:  # noqa: BLE001 — preservation is best-effort
+                override = ""
+            if override:
+                src = Path(override).expanduser()
 
     dst = _resolve_scratchpad(ctx) / "post-deploy" / "events.jsonl"
 
@@ -960,6 +979,227 @@ def _persist_learnings_to_db(ctx, prev) -> StepResult:
 
 # ─── Step 3: cleanup worktrees ───────────────────────────────────────────────
 
+# GH1309 — in-use veto.
+#
+# `git branch --merged <main>` answers "is this branch's tip an ancestor of
+# main", which is TRUE for a branch that has never committed anything.  A worker
+# that has not yet landed RED is therefore maximally eligible for collection:
+# the less it has accomplished, the more certainly a sibling's phase 8 deletes
+# it.  On 2026-07-27 that destroyed two live ppba worktrees mid `phase_5_implement`
+# (batch/1445, batch/1437), sparing only the caller's own.
+#
+# Merged-ness stays as the ELIGIBILITY filter; liveness is a separate veto.
+# The primary signal is a live driver pid (deterministic — no timing window);
+# the mtime window and the dirty-tree check are defence in depth.
+_INUSE_WINDOW_DEFAULT_S = 900.0
+
+
+def _inuse_window_s() -> float:
+    """Freshness window for writes anywhere under the worktree's state dir, seconds.
+
+    Host-provided (config_provider seam) so this module stays env-free per the
+    core-boundary lint; the HAL provider honours HAL_WORKTREE_INUSE_WINDOW_S.
+    """
+    try:
+        return float(worktree_inuse_window_s())
+    except Exception:  # noqa: BLE001 — a broken provider must not license deletions
+        return _INUSE_WINDOW_DEFAULT_S
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if the pid exists. EPERM counts as alive (someone else owns it).
+
+    pid <= 0 is rejected outright: os.kill(0, 0) targets the caller's own
+    process group and os.kill(-N, 0) a named group, so neither can ever raise
+    ProcessLookupError. A record carrying `pid: 0` — which
+    migrate-sessions-to-jsonl.ts emits for legacy rows lacking one — would
+    otherwise read as a live driver for every worktree it matched.
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True     # unknown errno — do not license a deletion on it
+    return True
+
+
+def _short_host() -> str:
+    """Short hostname, matching what the session writer stores.
+
+    pre-build-gate.ts records `hostname -s`; a bare socket.gethostname() can
+    carry a `.local`/domain suffix, so comparing the two raw made every
+    registration look foreign — the pid check below then became unreachable and
+    an abandoned worktree would be pinned forever. Same normalisation the rest
+    of the tree uses (migrate-sessions-to-jsonl.ts, profile-settings-drift-lint).
+    """
+    try:
+        return socket.gethostname().split(".")[0]
+    except OSError:
+        return ""
+
+
+def _session_files(wt: Path) -> list[Path]:
+    """Every active-sessions log that can describe `wt`.
+
+    A worktree inside the HAL install registers CENTRALLY
+    (<hal_root>/SHARED/state/active-sessions.json, lib/sessions-path.ts), not
+    under its own directory. Reading only the local file left HAL's own batch
+    worktrees with no liveness evidence at all — the deterministic veto silently
+    absent for exactly the dogfood configuration.
+    """
+    paths = [wt / foreign_state_dirname() / "active-sessions.json"]
+    try:
+        root: Path | None = hal_root()
+    except Exception:  # noqa: BLE001 — an unresolvable host root is not a licence to delete
+        logger.warning("GH1309: hal_root() unresolvable; central session log not consulted for %s", wt)
+        root = None
+    if root is not None:
+        paths.append(root / "SHARED" / "state" / "active-sessions.json")
+    return paths
+
+
+def _parse_session_records(wt: Path) -> tuple[list[tuple[dict[str, Any], bool]], set[str]]:
+    """Read both session logs. Returns ([(record, from_shared_log)], deregistered_sids).
+
+    No ordering is applied. Any ts-based rule needs every writer to emit one
+    comparable format, and migrate-sessions-to-jsonl.ts passes legacy
+    `started_at` through unparsed: a ts-less record then sorts first (a
+    deregister cancels nothing — worktree pinned forever) and an offset-bearing
+    one can sort a chronologically earlier deregister AFTER its register, which
+    is the one direction that yields a wrongful removal. Session ids are unique
+    and never re-register after deregistering, so "a deregister cancels its
+    session_id" is order-free and cannot cancel another worktree's session.
+    """
+    records: list[tuple[dict[str, Any], bool]] = []
+    deregistered: set[str] = set()
+    for idx, path in enumerate(_session_files(wt)):
+        shared_log = idx > 0
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        for raw in text.splitlines():
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            try:
+                rec = json.loads(stripped)
+            except ValueError:
+                continue        # partial tail line — same policy as the readers
+            if not isinstance(rec, dict):
+                continue
+            if rec.get("op") == "deregister":
+                # A deregister with no session_id names no session. Admitting ""
+                # as a key would cancel EVERY sid-less register at once, and
+                # migrate-sessions-to-jsonl.ts can emit sid-less registers.
+                dsid = str(rec.get("session_id") or "")
+                if dsid:
+                    deregistered.add(dsid)
+                continue
+            records.append((rec, shared_log))
+    return records, deregistered
+
+
+def _record_owns_worktree(rec: dict[str, Any], wt: Path, shared: bool) -> bool:
+    """True if this registration describes `wt`."""
+    rec_cwd = str(rec.get("cwd") or "")
+    if not rec_cwd:
+        # A shared-log record with no cwd names no worktree; admitting it
+        # globally would veto every candidate forever. A local one is
+        # self-describing by virtue of where it lives.
+        return not shared
+    if shared:
+        try:
+            Path(rec_cwd).resolve(strict=False)
+        except (OSError, ValueError):
+            return False        # unresolvable shared cwd names no worktree
+    # Containment, not equality: a worker that started /build from a
+    # subdirectory records cwd=<wt>/sub, and exact matching dropped its
+    # registration — losing the deterministic veto for exactly the live case.
+    return _path_contains(wt, Path(rec_cwd))
+
+
+def _live_session_reason(wt: Path) -> str | None:
+    """Report a live owner of `wt` from the session logs, or None."""
+    records, deregistered = _parse_session_records(wt)
+    if not records:
+        return None
+
+    this_host = _short_host()
+    for anon, (rec, shared) in enumerate(records):
+        sid = str(rec.get("session_id") or "")
+        if sid and sid in deregistered:
+            continue
+        if rec.get("op") != "register":
+            continue
+        if not _record_owns_worktree(rec, wt, shared):
+            continue
+        sid = sid or f"__anonymous_{anon}"
+        host = str(rec.get("host") or "")
+        if host and this_host and host != this_host:
+            return f"registered to another host {host!r} (session {sid}) — liveness unverifiable here"
+        try:
+            pid = int(str(rec.get("pid")))
+        except (TypeError, ValueError):
+            return f"session {sid} registered without a usable pid"
+        if _pid_alive(pid):
+            return f"live driver pid {pid} (session {sid})"
+    return None
+
+
+def _worktree_in_use(
+    wt: Path, *, git_read: Callable[..., tuple[int, str, str]] | None = None
+) -> str | None:
+    """Return a human reason why `wt` must not be removed, or None if collectable.
+
+    Checks, in order of decisiveness:
+      (a) a live/unverifiable registered driver — deterministic
+      (b) anything under the worktree's state dir modified inside the window
+      (c) uncommitted or untracked content in the worktree
+    (c) is skipped when no reader is supplied (the helper stays usable stand-alone).
+    """
+    reason = _live_session_reason(wt)
+    if reason:
+        return reason
+
+    # Freshness spans everything the run writes under its state dir, not
+    # events.jsonl alone: batch workers now keep that log OUTSIDE the worktree,
+    # so anchoring on it would have amputated this belt for exactly the
+    # population the veto exists to protect. Sentinels, session log and
+    # scratchpad all still beat inside the directory.
+    state_dir = wt / foreign_state_dirname()
+    if state_dir.is_dir():
+        window = _inuse_window_s()
+        now = time.time()
+        for entry in (state_dir, *state_dir.rglob("*")):
+            try:
+                age = now - entry.stat().st_mtime
+            except OSError:
+                continue
+            if age < window:
+                # First hit wins — this is a veto, not a survey, and the step
+                # was measured at 429 ms with scratchpad/ and build-runs/ under
+                # this tree.
+                return f"{entry.name!r} written {int(age)}s ago (< {int(window)}s window)"
+
+    if git_read is not None:
+        try:
+            rc_st, st_out, _ = git_read(["status", "--porcelain"], cwd=wt)
+        except Exception:       # noqa: BLE001 — an unreadable status is not a licence to delete
+            return "git status unavailable — cannot prove the tree is clean"
+        if rc_st != 0:
+            return f"git status rc={rc_st} — cannot prove the tree is clean"
+        if st_out.strip():
+            n = len([ln for ln in st_out.splitlines() if ln.strip()])
+            return f"{n} uncommitted/untracked path(s) present"
+
+    return None
+
 
 def _cleanup_worktrees(ctx, _prev) -> StepResult:
     cfg = ctx.org_config or {}
@@ -984,6 +1224,7 @@ def _cleanup_worktrees(ctx, _prev) -> StepResult:
                 "removed": [],
                 "skipped": [],
                 "kept_unmerged": [],
+                "kept_in_use": [],
                 "errors": [{"action": "list", "reason": stderr.strip() or f"rc={rc}"}],
             }),
             duration_ms=0,
@@ -1007,6 +1248,7 @@ def _cleanup_worktrees(ctx, _prev) -> StepResult:
     removed: list[str] = []
     skipped: list[str] = []
     kept_unmerged: list[str] = []
+    kept_in_use: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
 
     # Skip any worktree whose path equals or contains the live cwd or the
@@ -1033,6 +1275,17 @@ def _cleanup_worktrees(ctx, _prev) -> StepResult:
             kept_unmerged.append(path)
             continue
 
+        # GH1309: merged-ness made it eligible; liveness decides. A worker that
+        # owns this directory right now outranks any tidiness win.
+        in_use = _worktree_in_use(candidate, git_read=_git_read)
+        if in_use:
+            kept_in_use.append({"path": path, "reason": in_use})
+            logger.warning(
+                "GH1309: cleanup_worktrees keeping %s despite branch %r being merged — %s",
+                path, branch, in_use,
+            )
+            continue
+
         rc_rm, _, rm_err = _git_write(["worktree", "remove", "--force", path], cwd=cwd)
         if rc_rm == 0:
             removed.append(path)
@@ -1045,6 +1298,7 @@ def _cleanup_worktrees(ctx, _prev) -> StepResult:
             "removed": removed,
             "skipped": skipped,
             "kept_unmerged": kept_unmerged,
+            "kept_in_use": kept_in_use,
             "errors": errors,
             "main_branch": main_branch,
         }),

@@ -245,3 +245,49 @@ def owner_enforced() -> bool:
     rollout: C4B6B16C-0E22-4286-8064-EEAFF9ECEE9A flip-by:2026-08-08
     """
     return os.environ.get("HAL_KNOWN_REDS_OWNER_ENFORCE") == "1"
+
+
+# ─── GH1231: canonical Red-cell token extractor + shape lint ────────────────
+
+RED_OK = "RED_OK"
+RED_MULTI_TOKEN = "RED_MULTI_TOKEN"
+RED_MALFORMED = "RED_MALFORMED"
+RED_INDEX = 1
+
+_RED_TOKEN_RE = re.compile(r"[A-Za-z0-9_.:-]+")
+
+
+def red_match_tokens(cells: list[str]) -> list[str]:
+    """The ONE canonical Red-cell token extractor (GH1231). Verbatim port of
+    the former ci-known-reds-filter.py:tokens_for_row(42-51)."""
+    if len(cells) < 2:
+        return []
+    red_cell = cells[1]
+    toks = _RED_TOKEN_RE.findall(red_cell)
+    filtered = [t for t in toks if len(t) >= 5 and ("_" in t or "::" in t or "." in t)]
+    if not filtered and len(red_cell.strip()) >= 12:
+        # fallback (issue #904/#656): empty token list falls back to exact-full-cell substring candidate
+        return [red_cell.strip()]
+    return filtered
+
+
+def classify_red_shape(cells: list[str]) -> tuple[str, str]:
+    """GH1231 Red-cell shape lint. Branch order:
+    1. len(cells) < LEDGER_COLUMNS -> (RED_MALFORMED, "?")
+    2. exactly one anchor token -> (RED_OK, token)
+    3. otherwise (0 or >=2 tokens) -> (RED_MULTI_TOKEN, detail)
+    """
+    if len(cells) < LEDGER_COLUMNS:
+        return RED_MALFORMED, "?"
+    tokens = red_match_tokens(cells)
+    if len(tokens) == 1:
+        return RED_OK, tokens[0]
+    return RED_MULTI_TOKEN, ",".join(tokens)
+
+
+def red_shape_enforced() -> bool:
+    """The ONE read site of HAL_KNOWN_REDS_RED_SHAPE_ENFORCE.
+
+    rollout: CB74189B-6A03-49DF-A65D-7520D528C45D flip-by:2026-08-08
+    """
+    return os.environ.get("HAL_KNOWN_REDS_RED_SHAPE_ENFORCE") == "1"

@@ -662,6 +662,12 @@ FLAGS: dict[str, dict] = {
         "module": "known_reds_ledger.py",
         "description": "Falsy-default rollout flag for GH1230 owner-liveness enforcement in known-reds.md (dead owner = CLOSED issue blocks the canary ship gate until the row is rehung), agreement C4B6B16C-0E22-4286-8064-EEAFF9ECEE9A, flip-by:2026-08-08.",
     },
+    "HAL_KNOWN_REDS_RED_SHAPE_ENFORCE": {
+        "kind": "gate",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "Falsy-default rollout flag for GH1231 Red-cell shape enforcement in known-reds.md (a Red cell that does not yield exactly one anchor token blocks known-reds-owner-audit.py --check red-shape with exit 4), agreement CB74189B-6A03-49DF-A65D-7520D528C45D, flip-by:2026-08-08.",
+    },
     "HAL_KNOWN_REDS_REPO": {
         "kind": "str",
         "default": "<host-repo-slug: upstream-private, set by the host repo>",
