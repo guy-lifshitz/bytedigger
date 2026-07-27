@@ -12,6 +12,16 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-07-27
+
+### Added
+
+- **PyPI pointer package built from the repo** (`packaging/pypi-pointer/`). The `bytedigger`
+  name was previously published from an untracked working copy, and its pin drifted: `bytedigger
+  0.1.0` required `bytedigger-engine==0.1.0` while the engine had moved to `0.1.1`, so
+  `pip install bytedigger` handed out a stale engine. The source now lives in the repo and its
+  version is a sixth declaration checked by `scripts/version_parity.py`.
+
 ### Added
 
 - **Spec-writer rule 9** — NEW-symbol citation-form ban in the spec-writer prompt: a symbol that does not exist yet may not be cited in path:line form (ported from HAL GH934). (#44)

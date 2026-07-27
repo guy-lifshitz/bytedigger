@@ -41,6 +41,7 @@ DECLARATIONS = [
     ("npm/package.json", KIND_JSON_FLAT),
     (".claude-plugin/plugin.json", KIND_JSON_FLAT),
     (".claude-plugin/marketplace.json", KIND_JSON_NESTED),
+    ("packaging/pypi-pointer/pyproject.toml", KIND_TOML_PROJECT_VERSION),
 ]
 
 CANONICAL_RELPATH = "engine_py/pyproject.toml"

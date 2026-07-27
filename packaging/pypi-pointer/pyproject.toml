@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bytedigger"
+version = "0.1.1"
+description = "Verified agentic TDD engine. Pointer package: installs bytedigger-engine."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Guy Lifshitz" }]
+keywords = ["tdd", "agents", "llm", "sdlc", "state-machine"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Testing",
+]
+
+# The pin is exact and must equal this package's own version. `scripts/version_parity.py`
+# enforces that; without it the friendly name silently installs a stale engine, which is
+# exactly what happened between 0.1.0 and 0.1.1 (pointer pinned ==0.1.0 while the engine
+# shipped 0.1.1, so `pip install bytedigger` handed out the old engine).
+dependencies = ["bytedigger-engine==0.1.1"]
+
+[project.urls]
+Homepage = "https://github.com/guy-lifshitz/bytedigger"
+Source = "https://github.com/guy-lifshitz/bytedigger"
+
+[tool.setuptools]
+# Metadata-only distribution: the package ships no modules of its own, it only
+# declares the dependency that does the work.
+packages = []
