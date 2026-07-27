@@ -1,5 +1,19 @@
 # Lot spec — bd#7: conformance harness + oracle interface + attestation writer + BD-L0
 
+**v8** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (1). Gate round 7 **not yet run** against
+this text. v8 is not a gate response: it carries **two defects found in v7 by the lot owner's own
+verification of the round-7 RED**, both in v7's own additions, both measured on the executing host before
+being written down:
+- `[G7:self-1]` **AC-E10 contradicted itself** — clause 1 requires every surviving worker to be
+  `daemon is True`, while the same AC's prose called a stdlib `ThreadPoolExecutor` (whose workers are
+  `daemon=False`) "defensible". Clause 1 stands, the aside is withdrawn, and the pooled design is admissible
+  only with daemon workers. `[G6:MINOR-2]`'s shape one AC over: two of my own additions demanding
+  incompatible things for one design.
+- `[G7:self-2]` **AC-L0-9 clause 7 was asserted on half its stated input and its precedence rule not at
+  all** — v7 says "empty **or absent** `engine_version`" and makes "`failed` dominates `not-checked`"
+  normative; the round-7 RED mutated only the empty case and asserted no coexistence fixture. Spec text
+  unchanged (it was already right); the RED is corrected, which is where the gap was.
+
 **v7** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (**1**). Round-6 findings tagged `[G6:n]`.
 
 ## THE RULE THIS LOT KEPT RELEARNING `[G6:quant]`
@@ -245,14 +259,30 @@ reproducibility of a published freeze. Out of scope for this lot.
   be reaped, and it can hang interpreter shutdown or leak one worker per call.
   v6's formulation was **unmeasurable and partly false-failing**, and is replaced: it used a 2.5 s grace
   against a 2.0 s `_SlowOracle` sleep, so a GREEN with **no reaping logic at all** passed because the
-  worker died on its own inside the window; and a module-level `ThreadPoolExecutor` — a defensible design —
-  leaves an idle worker forever and would false-fail a snapshot diff. Normative instead, asserting what is
+  worker died on its own inside the window; and a module-level `ThreadPoolExecutor` leaves an idle worker
+  forever and would false-fail a snapshot diff. Normative instead, asserting what is
   actually achievable:
   1. Any worker still alive after the grace period MUST have `daemon is True`, so it cannot hang
      interpreter shutdown. Asserted with an oracle whose sleep is **longer** than the grace period, so the
      worker is guaranteed still alive when checked.
   2. Workers MUST NOT accumulate: over N repeated timed-out calls the live-thread count MUST NOT grow by N.
      This holds for both the per-call-thread and the pooled designs, and fails the leak.
+
+  `[G7:self-1]` **Correction to my own v7 text, which was internally contradictory.** v7 called a
+  module-level `ThreadPoolExecutor` "a defensible design" in the same AC whose clause 1 requires every
+  surviving worker to be `daemon is True` — and a stdlib `ThreadPoolExecutor` worker is `daemon=False`
+  (measured on the executing host: `ThreadPoolExecutor-0_0`, `daemon=False`; py3.14). So clause 1 rejects
+  the design clause 2's prose blessed: exactly `[G6:MINOR-2]`'s shape (two of my own additions demanding
+  incompatible things for one input), one AC over, and it would have trapped a GREEN that took the prose
+  at its word. **Clause 1 is the correct half and stands**; the "defensible" aside is withdrawn. The
+  reason is measurable, not stylistic: `concurrent.futures.thread._python_exit` **joins** pool workers at
+  interpreter exit, so an abandoned unbounded oracle on a non-daemon pool hangs shutdown for its full
+  duration — measured on this host at **6.77 s wall for a 6 s abandoned worker** in a script whose main
+  body exits immediately, i.e. precisely the hang clause 1 exists to forbid, and unbounded for an oracle
+  that never returns. Normative consequence: a pooled design is admissible **only** with daemon workers
+  (a pool constructed with a daemonising `initializer`/subclass, or a per-call daemon thread); the default
+  `ThreadPoolExecutor` is **not** admissible for guarded evaluation. Clause 2 remains design-agnostic —
+  it is about accumulation, and both admissible designs satisfy it.
 
 Passing AC-E1..E9 does **not** mark any adversary as executed. ADV-4 and ADV-5 have the same shape
 as the `_ImportErrorOracle`/`_RaisingOracle` doubles here, but these are unit tests of a helper,

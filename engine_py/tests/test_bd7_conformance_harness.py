@@ -1,13 +1,56 @@
 """RED tests for bd#7 — conformance harness + oracle interface + attestation
 writer + BD-L0.
 
-Spec v6 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
+Spec v7 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
 REJECTED v2 on 4 blocking defects [G2:1]/[G2:2]/[G2:3]/[G2:4], REJECTED v3
 on 4 more blocking defects [G3:MAJOR-1..4], REJECTED v4 on 5 more blocking
-defects [G4:1]/[G4:2]/[G4:3]/[G4:4]/[G4:5], then REJECTED v5 on ONE more
-blocking defect [G5:accum]):
+defects [G4:1]/[G4:2]/[G4:3]/[G4:4]/[G4:5], REJECTED v5 on ONE more blocking
+defect [G5:accum], then REJECTED v6 on ONE more blocking defect [G6:1]):
 engine_py/conformance/SPEC.md (frozen), source of truth
 `2026-07-26_bytedigger_conformance_levels.md` §1-6, 9.
+
+v7 [G6:1] closes the ONE round-6 blocking defect — the LAST rung of
+[G6:quant] (phase -> run; no collection sits above "the phases of one
+scoped run" in this design):
+  AC-L0-3a5   R0.2 is UNIVERSALLY quantified over the phases of the scoped
+      run, asserted on a NON-UNIFORM two-phase fixture (phase_a git-delta,
+      phase_b not-observed) across all four numbered sub-clauses: checker
+      "not-checked" + positive control (uniform two-phase); the same
+      L0Report through the WRITTEN attestation file; end-to-end on this
+      host (two execute() calls, one run_id, one phase with git_cwd, one
+      without); and the other three R0.2 clauses each asserted by
+      mutating phase_b ONLY (phase-key strip / workflow_finished removal /
+      status strip)
+plus six new ACs and six rewrites the [G6:quant] sweep (SPEC.md §4.3)
+required alongside it:
+  AC-L0-3b4   written relpath spelling asserted for a NESTED path
+      (sub/dir/nested.txt), exact string equality + digest recomputed
+      over that spelling
+  AC-L0-3b5   an artifact record must actually carry written/read/
+      read_tracking, present and list-typed, or R0.2 is not-checked
+  AC-L0-3b6   an orphan phase_artifacts (phase with no workflow_started in
+      the scoped run) is an R0.2 violation ("failed")
+  AC-L0-2d    run_identity is once per RUN, asserted per run (two
+      execute() calls, DIFFERENT run_ids, both must report R0.3 passed)
+  AC-A28      version resolution must not be memoised — two resolutions in
+      one process with the seam changed between them must differ
+  AC-E10      REPLACED (v6's grace-vs-sleep formulation was unmeasurable
+      and partly false-failing): daemon-thread-after-grace + no
+      accumulation over N repeated timed-out calls
+  AC-A27      the UTC-host blind spot is now CLOSED (TZ=Etc/GMT-14 +
+      time.tzset()), not merely declared
+  AC-F14      the symlink half of the dedupe-on-normalised-relpath rule is
+      now asserted (not just the "./" half)
+  AC-L0-9     clause 7 (engine_version present but empty) is EXCLUDED from
+      the "structural breach -> failed" rule and asserted "not-checked"
+      instead — it is AC-L0-2c's unresolved-version case, an unmeasured
+      channel, not a malformed log
+  AC-L0-3d3   reworded so the shadow-envelope headroom reserve is asserted
+      as conditional on the shadow branch applying, not unconditional —
+      a direct joint-satisfiability check against AC-L0-3d2's just-under
+      unshadowed control is now inside this test
+AC-L0-6f already pinned tempfile.mkdtemp as the spied mechanism as of v6;
+no change required for v7.
 
 v6 [G5:accum] closes the ONE round-5 blocking defect:
   AC-L0-3b2   written is the UNION of every step's delta for the phase,
@@ -510,15 +553,27 @@ def test_ac_f13_freeze_reads_bytes_crlf_and_lf_digest_differently(tmp_path):
 
 
 def test_ac_f14_dedupe_on_normalised_relpath_not_object_identity(tmp_path):
-    """AC-F14 [G5:EDGE-5]: duplicate detection is on the NORMALISED
-    RELPATH, not object identity. AC-F8 passes the SAME Path object twice.
-    root/"a.txt" and root/"."/"a.txt" are two DIFFERENT Path objects
+    """AC-F14 [G5:EDGE-5] [G6:MINOR-9]: duplicate detection is on the
+    NORMALISED RELPATH, not object identity — and the SYMLINK half is
+    asserted, not just the "./" half. AC-F8 passes the SAME Path object
+    twice. root/"a.txt" and root/"."/"a.txt" are two DIFFERENT Path objects
     (different identity) that normalise to the identical relpath "a.txt".
     Depending on whether GREEN dedupes before or after normalisation
     (e.g. an identity-based check like `id(p) in seen_ids` rather than a
     normalised-relpath set) it either raises OracleFreezeError or silently
     double-counts — and R1.4 makes set membership load-bearing. Normative:
-    MUST raise, asserted with this distinct-object/same-relpath pair."""
+    MUST raise, asserted with this distinct-object/same-relpath pair.
+
+    [G6:MINOR-9]: a GREEN deduping on `Path.resolve()` and one deduping on
+    `relative_to(root).as_posix()` AGREE on the "./" case above (both
+    resolve/normalise "a.txt" and "./a.txt" to the same thing) but DIFFER
+    exactly on a symlink beside its target — `Path.resolve()` follows the
+    symlink to the same real path as its target, so a resolve()-based
+    dedupe raises here too, while a normalised-relpath-only dedupe (which
+    never resolves symlinks) sees two DISTINCT relpaths ("a.txt" and
+    "a_link.txt") and would silently pass both through unchanged. Testing
+    only the "./" case above leaves this discriminating clause unasserted.
+    Both pairs MUST raise."""
     from conformance.oracle import freeze, OracleFreezeError  # noqa: PLC0415
 
     root = tmp_path / "root"
@@ -533,6 +588,22 @@ def test_ac_f14_dedupe_on_normalised_relpath_not_object_identity(tmp_path):
 
     with pytest.raises(OracleFreezeError):
         freeze(distinct_objects_same_relpath, root=root)
+
+    # [G6:MINOR-9]: the SYMLINK half — a symlink beside its target. This is
+    # the pair that DISCRIMINATES Path.resolve() (follows the symlink to the
+    # target's real path, colliding) from relative_to(root).as_posix() (sees
+    # two distinct relpath spellings, "a.txt" and "a_link.txt", and would
+    # NOT collide under a normalised-relpath-only dedupe with no symlink
+    # awareness at all).
+    root_symlink = tmp_path / "root_symlink"
+    root_symlink.mkdir()
+    target = root_symlink / "a.txt"
+    target.write_text("hi")
+    link = root_symlink / "a_link.txt"
+    link.symlink_to(target)
+
+    with pytest.raises(OracleFreezeError):
+        freeze([target, link], root=root_symlink)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -764,40 +835,96 @@ def test_ac_e9_timeout_mechanism_not_signal_based_works_off_main_thread():
     assert results.get("fast_reason") is None
 
 
-def test_ac_e10_timed_out_oracle_worker_is_reaped():
-    """AC-E10 [G5:EDGE-6]: the abandoned oracle MUST be reaped. AC-E3/AC-E9
-    assert only the VERDICT; nothing requires the timed-out worker to be
-    joined or cancelled. A non-daemon thread (or unreaped subprocess) per
-    call accumulates across the suite and can hang interpreter shutdown.
-    Snapshot threading.enumerate() before a timed-out call; poll for a
-    BOUNDED grace period (2.5s — longer than _SlowOracle's own 2.0s sleep,
-    so a correctly-reaped worker has time to actually finish) requiring no
-    NEW thread (relative to the pre-call baseline) survives."""
+def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accumulate():
+    """AC-E10 [G5:EDGE-6] [G6:MINOR-5]: the abandoned oracle MUST NOT be
+    able to hang shutdown, and MUST NOT accumulate. AC-E3/AC-E9 assert only
+    the VERDICT; nothing requires the timed-out worker to be reaped.
+
+    v6's formulation is REPLACED here — it was unmeasurable and partly
+    false-failing: it used a 2.5s grace against a 2.0s _SlowOracle sleep, so
+    a GREEN with NO reaping logic at all passed because the worker died on
+    its own inside the window; and a module-level ThreadPoolExecutor (a
+    defensible design) leaves an idle worker forever and would false-fail a
+    snapshot diff. Normative instead, asserting what is actually achievable:
+
+    (1) Any worker still alive after a grace period MUST have daemon is
+        True, so it cannot hang interpreter shutdown. Asserted with an
+        oracle whose sleep (5.0s) is deliberately LONGER than the grace
+        period this test waits (0.5s), so the worker is GUARANTEED still
+        alive when checked — a positive-existence assertion, not a
+        best-effort poll for absence.
+    (2) Workers MUST NOT ACCUMULATE: over N=5 repeated timed-out calls
+        (each against an oracle that outlives its own timeout), waited past
+        every oracle's own completion, the live-thread count MUST NOT have
+        grown by N. This holds for BOTH a per-call-thread design (each
+        worker exits on its own once its sleep elapses) and a pooled
+        ThreadPoolExecutor design (bounded pool size, not N permanent
+        threads) — only a genuine per-call leak fails it."""
     import threading  # noqa: PLC0415
     import time  # noqa: PLC0415
 
     from conformance.oracle import OracleOutcome, evaluate_guarded  # noqa: PLC0415
 
-    before = set(threading.enumerate())
+    class _LongSleepOracle:
+        def __init__(self, sleep_s):
+            self._sleep_s = sleep_s
 
-    outcome, _reason = evaluate_guarded(_SlowOracle(), {}, timeout_s=0.1)
+        def freeze(self, paths, *, root):
+            return "sha256:" + "0" * 64
+
+        def evaluate(self, state):
+            time.sleep(self._sleep_s)
+            return None  # would never reach here under a real timeout
+
+    # --- (1) daemon is True, checked while the worker is GUARANTEED alive.
+    grace_period_s = 0.5
+    sleep_longer_than_grace_s = 5.0
+
+    before_daemon_check = set(threading.enumerate())
+    outcome, _reason = evaluate_guarded(
+        _LongSleepOracle(sleep_longer_than_grace_s), {}, timeout_s=0.1
+    )
     assert outcome is OracleOutcome.INDETERMINATE, "sanity: the timeout must actually fire"
 
-    deadline = time.monotonic() + 2.5
-    surviving_new_threads: list[threading.Thread] = []
-    while time.monotonic() < deadline:
-        after = set(threading.enumerate())
-        surviving_new_threads = [t for t in (after - before) if t.is_alive()]
-        if not surviving_new_threads:
-            break
-        time.sleep(0.05)
+    time.sleep(grace_period_s)
+    after_daemon_check = set(threading.enumerate())
+    new_threads = [t for t in (after_daemon_check - before_daemon_check) if t.is_alive()]
+    assert new_threads, (
+        "sanity: the oracle sleeps 5.0s and only 0.5s elapsed since the "
+        "timeout fired, so the abandoned worker MUST still be observably "
+        "alive for this check to mean anything"
+    )
+    for t in new_threads:
+        assert t.daemon is True, (
+            f"worker thread {t.name!r} is still alive after the grace "
+            f"period and is NOT a daemon thread — it can hang interpreter "
+            f"shutdown"
+        )
 
-    assert not surviving_new_threads, (
-        f"a timed-out oracle worker must be reaped within a bounded grace "
-        f"period — found surviving thread(s) not present before the call: "
-        f"{[t.name for t in surviving_new_threads]!r}. An unreaped worker "
-        f"per timed-out call accumulates across the suite and can hang "
-        f"interpreter shutdown."
+    # --- (2) workers must not accumulate over N repeated timed-out calls.
+    n_calls = 5
+    short_sleep_s = 0.3  # each call's oracle outlives its own timeout briefly
+
+    before_accum = set(threading.enumerate())
+    for _ in range(n_calls):
+        outcome, _reason = evaluate_guarded(
+            _LongSleepOracle(short_sleep_s), {}, timeout_s=0.05
+        )
+        assert outcome is OracleOutcome.INDETERMINATE
+
+    # Wait well past every call's own oracle completion so a correctly
+    # behaving worker (per-call-thread OR pooled) has had time to actually
+    # finish; only a genuine per-call LEAK survives this long.
+    time.sleep(short_sleep_s + 1.0)
+    after_accum = {t for t in threading.enumerate() if t.is_alive()}
+    surviving_new = after_accum - before_accum
+
+    assert len(surviving_new) < n_calls, (
+        f"over {n_calls} repeated timed-out calls, the live-thread count "
+        f"grew by {len(surviving_new)} and none have exited even after "
+        f"waiting well past every oracle's own sleep — workers are "
+        f"ACCUMULATING rather than being reaped or bounded by a pool: "
+        f"{[t.name for t in surviving_new]!r}"
     )
 
 
@@ -1048,33 +1175,39 @@ def test_ac_a8_missing_producer_identity_raises():
     assert report_l0["level_claimed"] != report_l2["level_claimed"]
 
 
-def test_ac_a27_timestamp_utc_ness_confirmed_against_independent_clock_reading():
-    """AC-A27 [G5:EDGE-8]: timestamp UTC-ness MUST be host-independent.
-    AC-A8 parses `ts[:-1] + "+00:00"` against a freshness window using
-    ONLY `datetime.now(timezone.utc)`; `datetime.now().isoformat() + "Z"`
-    (naive LOCAL time mislabelled as UTC) numerically coincides with that
-    check on a UTC-zone host and diverges elsewhere by the local offset,
-    making the suite's verdict depend on the runner's zone. This test adds
-    an INDEPENDENT UTC reading via `time.time()` (the OS's epoch clock,
-    not derived through `datetime.now(timezone.utc)`) and requires the
-    timestamp to be fresh against BOTH readings, so the verdict does not
-    rest on a single library call for "current UTC".
+def test_ac_a27_timestamp_utc_ness_confirmed_against_independent_clock_reading(monkeypatch):
+    """AC-A27 [G5:EDGE-8] [G6:MINOR-6]: timestamp UTC-ness MUST be
+    host-independent, and the UTC-host blind spot is CLOSED here, not
+    declared. AC-A8 parses `ts[:-1] + "+00:00"` against a freshness window
+    using ONLY `datetime.now(timezone.utc)`; `datetime.now().isoformat() +
+    "Z"` (naive LOCAL time mislabelled as UTC) resolves through
+    `time.localtime`, so it numerically coincides with that check on a
+    UTC-zone host and diverges elsewhere by the local offset.
 
-    LIMITATION (recorded, not solved by this test, and named by the spec
-    text itself for AC-A8): on a host whose local timezone happens to be
-    UTC, a naive-local implementation is numerically indistinguishable
-    from a correct one — comparing against a second UTC-anchored clock
-    does not change that, since both clocks agree with local time in that
-    specific case. A test that provably discriminates on every host would
-    need to control the process's effective timezone, which requires
-    assuming a time-source seam GREEN does not yet have; this test
-    intentionally does not invent one."""
+    [G6:MINOR-6]: v6 merely DECLARED this as an unsolved limitation, but it
+    is closable without any new seam: `monkeypatch.setenv("TZ",
+    "Etc/GMT-14")` + `time.tzset()` (restored in the finally block) makes a
+    naive-local implementation diverge by 14 HOURS on ANY POSIX host,
+    INCLUDING a UTC-zone runner — a declared-but-avoidable blind spot is
+    still an unmeasured claim, and three lines close it. This test also
+    keeps the independent `time.time()` / `datetime.now(timezone.utc)`
+    comparison from the base test."""
     import time  # noqa: PLC0415
     from datetime import datetime, timezone  # noqa: PLC0415
 
-    report = _build(level_claimed="BD-L0")
-    epoch_after = time.time()
-    now_after = datetime.now(timezone.utc)
+    real_tz = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", "Etc/GMT-14")  # UTC+14: a 14h offset from any real host's zone
+    time.tzset()
+    try:
+        report = _build(level_claimed="BD-L0")
+        epoch_after = time.time()
+        now_after = datetime.now(timezone.utc)
+    finally:
+        if real_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", real_tz)
+        time.tzset()
 
     ts_raw = report["timestamp"]
     assert isinstance(ts_raw, str) and ts_raw.endswith("Z"), ts_raw
@@ -1083,8 +1216,11 @@ def test_ac_a27_timestamp_utc_ness_confirmed_against_independent_clock_reading()
 
     epoch_from_time_module = datetime.fromtimestamp(epoch_after, tz=timezone.utc)
     assert abs((parsed - epoch_from_time_module).total_seconds()) < 120, (
-        f"timestamp {ts_raw!r} is not within a 120s freshness window of "
-        f"an INDEPENDENT UTC reading via time.time() ({epoch_from_time_module!r})"
+        f"timestamp {ts_raw!r} is not within a 120s freshness window of an "
+        f"INDEPENDENT UTC reading via time.time() ({epoch_from_time_module!r}) "
+        f"— with TZ forced 14h off UTC, a naive `datetime.now().isoformat() "
+        f"+ 'Z'` implementation would diverge by ~14h here, on ANY POSIX "
+        f"host including a UTC-zone runner"
     )
     assert abs((parsed - now_after).total_seconds()) < 120, (
         f"timestamp {ts_raw!r} is not within a 120s freshness window of "
@@ -1663,6 +1799,42 @@ def test_ac_l0_2_run_identity_emitted_once_immediately_after_workflow_started_by
     assert run_identity_payload["adapter_identity"]
 
 
+def test_ac_l0_2d_run_identity_once_per_run_checked_per_run(tmp_path):
+    """AC-L0-2d [G6:EDGE-1]: run_identity is once per RUN, asserted PER
+    RUN. execute() resets per-run state at engine.py:237-243; a GREEN
+    guarding the identity emit with an INSTANCE flag it forgets to reset
+    per-run would pass AC-L0-2 and everything else, because the only
+    two-runs-on-one-engine fixture (AC-L0-3f) never feeds its log to
+    check_bd_l0. Run 2 would then carry no identity and R0.3 would fail for
+    a genuinely conformant engine — AC-L0-3f's own defect class applied to
+    identity. Two execute() calls on ONE engine under DIFFERENT run_ids,
+    checking EACH run: BOTH MUST report R0.3 "passed"."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_l0_2d_run1", WorkflowDefinition(name="wf_l0_2d_run1", steps=[_ok_step("s1")]))
+    eng.register("wf_l0_2d_run2", WorkflowDefinition(name="wf_l0_2d_run2", steps=[_ok_step("s1")]))
+
+    eng.execute("wf_l0_2d_run1", _make_ctx(), run_id="run-l0-2d-1")
+    eng.execute("wf_l0_2d_run2", _make_ctx(), run_id="run-l0-2d-2")
+
+    events = log.read_all()
+    report_run1 = check_bd_l0(events, run_id="run-l0-2d-1", writer=EventLog)
+    report_run2 = check_bd_l0(events, run_id="run-l0-2d-2", writer=EventLog)
+
+    assert report_run1.requirements["R0.3"] == "passed", (
+        f"run 1 (first execute() call on this engine instance) must carry "
+        f"its own run_identity, got {report_run1.requirements!r}"
+    )
+    assert report_run2.requirements["R0.3"] == "passed", (
+        f"run 2 (second execute() call, SAME engine instance, a DIFFERENT "
+        f"run_id) must ALSO carry its own run_identity — an instance-level "
+        f"'already emitted' flag that is never reset per-run would leave "
+        f"run 2 without one, got {report_run2.requirements!r}"
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # AC-L0-2c [G5:base] — engine_version provenance survives packaging, no
 # placeholder. Resolution order per §4.1: importlib.metadata.version(
@@ -1833,6 +2005,52 @@ def test_ac_l0_2c_both_seams_fail_yields_not_checked_and_no_placeholder(tmp_path
         "a not-checked R0.3 must fail-close L0Report.passed"
     )
     assert any(v.startswith("R0.3") for v in report.violations), report.violations
+
+
+def test_ac_a28_version_resolution_not_memoised_across_two_calls_in_one_process(tmp_path, monkeypatch):
+    """AC-A28 [G6:MINOR-8]: version resolution MUST NOT be memoised.
+    AC-L0-2c's three tests demand three DIFFERENT resolutions from one
+    process, so an `@lru_cache` or a module-level `_ENGINE_VERSION =
+    _resolve()` would make their pass/fail depend on test ORDER (this suite
+    runs pytest-randomly, hence `-p no:randomly` in the RED measurements).
+    Resolved TWICE in one process with the metadata seam CHANGED in
+    between: two DIFFERENT resolutions MUST be observed, not the first one
+    cached and replayed for the second."""
+    import importlib.metadata as importlib_metadata  # noqa: PLC0415
+
+    first_sentinel = "1.1.1-a28-first"
+    second_sentinel = "2.2.2-a28-second"
+    current = {"value": first_sentinel}
+
+    def _fake_version(name):
+        assert name == "bytedigger-engine", name
+        return current["value"]
+
+    monkeypatch.setattr(importlib_metadata, "version", _fake_version)
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_a28_run1", WorkflowDefinition(name="wf_a28_run1", steps=[_ok_step("s1")]))
+    eng.register("wf_a28_run2", WorkflowDefinition(name="wf_a28_run2", steps=[_ok_step("s1")]))
+
+    eng.execute("wf_a28_run1", _make_ctx(), run_id="run-a28-1")
+
+    current["value"] = second_sentinel  # change the seam BETWEEN resolutions
+    eng.execute("wf_a28_run2", _make_ctx(), run_id="run-a28-2")
+
+    events = log.read_all()
+    run_identities = [e["payload"] for e in events if e["event_type"] == "run_identity"]
+    assert len(run_identities) == 2, (
+        f"expected exactly one run_identity per execute() call, got "
+        f"{len(run_identities)}"
+    )
+    assert run_identities[0]["engine_version"] == first_sentinel, run_identities[0]
+    assert run_identities[1]["engine_version"] == second_sentinel, (
+        f"the SECOND resolution must reflect the CHANGED seam, not a "
+        f"memoised/cached first value — got {run_identities[1]!r}, "
+        f"expected {second_sentinel!r}. An @lru_cache or module-level "
+        f"_ENGINE_VERSION = _resolve() would replay {first_sentinel!r} here."
+    )
 
 
 def test_ac_l0_2b_adapter_identity_provenance_tracks_configuration(tmp_path, monkeypatch):
@@ -2109,6 +2327,74 @@ def test_ac_l0_3b3_written_accumulates_across_validation_retry_recursion(tmp_pat
         f"since the outer frame returns retry_result directly at :657 "
         f"without running its own tail. Got written={payload['written']!r}"
     )
+
+
+def test_ac_l0_3b4_written_relpath_is_posix_against_scan_root_for_nested_paths(tmp_path):
+    """AC-L0-3b4 [G6:EDGE-4]: the relpath spelling is asserted for NESTED
+    paths — both halves the AC names: exact string equality AND the digest
+    recomputed over that spelling. Every existing write fixture writes to
+    the repo root, so written/written_digest are only ever exercised on
+    bare filenames — a GREEN emitting absolute paths, "./"-prefixed paths,
+    or OS-separator paths for files in subdirectories would pass every
+    other test in this file while making written_digest non-reproducible
+    for any real phase that writes into a subtree (the normal case).
+
+    Enough files under sub/dir/ are written to force truncation (as
+    AC-L0-3d does), so written_digest is present and can be checked, by
+    EQUALITY, against the real full sorted list of NESTED relpaths."""
+    import hashlib  # noqa: PLC0415
+
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    repo_dir = tmp_path / "repo"
+    _init_git_repo(repo_dir)
+    n_files = 300
+
+    def _write_nested_many(_ctx, _prev):
+        nested_dir = repo_dir / "sub" / "dir"
+        nested_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(n_files):
+            (nested_dir / f"nested_{i:05d}.txt").write_text("x")
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="write_nested_many")
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register(
+        "wf_l0_3b4",
+        WorkflowDefinition(name="wf_l0_3b4", steps=[StepContract(name="write_nested_many", execute=_write_nested_many)]),
+    )
+    result, _ctx = eng.execute("wf_l0_3b4", _make_ctx(git_cwd=str(repo_dir)), run_id="run-l0-3b4")
+    assert result.status == "ok"
+
+    events = log.read_all()
+    phase_artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
+    assert len(phase_artifacts) == 1
+    payload = phase_artifacts[0]["payload"]
+    assert payload["write_tracking"] == "git-delta", payload
+
+    expected_paths = sorted(f"sub/dir/nested_{i:05d}.txt" for i in range(n_files))
+
+    sample = payload["written"]
+    assert sample, "expected a non-empty bounded sample of written paths"
+    for p in sample:
+        assert p in expected_paths, (
+            f"written entry {p!r} is not an exact POSIX relpath against the "
+            f"scan root spelled 'sub/dir/nested_NNNNN.txt' — an absolute "
+            f"path, a './'-prefixed path, or an OS-separator ('sub\\\\dir\\\\...') "
+            f"path would all fail this"
+        )
+
+    expected_digest = "sha256:" + hashlib.sha256(
+        "\n".join(expected_paths).encode("utf-8")
+    ).hexdigest()
+    assert payload.get("written_digest") == expected_digest, (
+        f"written_digest must be recomputed over the FULL sorted NESTED "
+        f"relpath list in the SAME spelling `written` uses, got "
+        f"{payload.get('written_digest')!r}, expected {expected_digest!r}"
+    )
+
+    report = check_bd_l0(events, run_id="run-l0-3b4", writer=EventLog)
+    assert report.passed is True, getattr(report, "violations", report)
 
 
 def test_ac_l0_3c_retry_path_still_yields_exactly_one_phase_artifacts(tmp_path):
@@ -2780,6 +3066,14 @@ def test_ac_l0_9_eight_negative_controls_and_no_vacuous_pass():
     )
 
     # 7) run_identity present but engine_version empty -> R0.3
+    # [G6:MINOR-2]: clause 7 is EXCLUDED from the "structural breach ->
+    # failed" rule. This is the SAME observable input AC-L0-2c's
+    # unresolved-version case names: an empty/absent engine_version is an
+    # UNRESOLVABLE version, not a malformed log, so it MUST render
+    # "not-checked" here — NOT "failed". v6 swept clause 7 into "any of the
+    # eight is a structural breach -> failed", trapping a spec-literal
+    # GREEN between two of the spec's own rules demanding different tokens
+    # for the identical input.
     events_empty_engine_version = []
     for e in _valid_l0_events():
         if e["event_type"] == "run_identity":
@@ -2790,6 +3084,12 @@ def test_ac_l0_9_eight_negative_controls_and_no_vacuous_pass():
     report = _check(events_empty_engine_version)
     assert report.passed is False
     assert any("R0.3" in v for v in report.violations), report.violations
+    assert report.requirements["R0.3"] == "not-checked", (
+        f"[G6:MINOR-2]: clause 7 (engine_version present but empty) is "
+        f"AC-L0-2c's unresolved-version case, an UNOBSERVED channel, not a "
+        f"structural breach — MUST render 'not-checked', NOT 'failed', got "
+        f"{report.requirements!r}"
+    )
 
     # 8) run_identity present but adapter_identity empty -> R0.3
     events_empty_adapter_identity = []
@@ -3178,6 +3478,193 @@ def test_ac_l0_13_exactly_one_phase_artifacts_per_phase_with_two_phases():
     assert any("R0.2" in v for v in report.violations), report.violations
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AC-L0-3a5 [G6:1] — R0.2 is UNIVERSALLY quantified over the PHASES of the
+# scoped run: a single measured phase MUST NOT lift an unmeasured one. Every
+# "not-observed" checker fixture in v6 mutated the single phase_artifacts of
+# a SINGLE-phase log, and the only two-phase fixture (_valid_l0_events_two_
+# phases, above) gave BOTH phases git-delta — so any()/first-phase-only/
+# last-phase-only reductions were all indistinguishable from all() across
+# every one of v6's 108 tests. This is the flagship shape: EventLog is one
+# file per run and a real consumer drives ONE run_id across MANY phases,
+# most of which run with no org_config["git_cwd"].
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _two_phase_events_non_uniform(*, phase_b_write_tracking: str) -> list[dict]:
+    """Non-uniform two-phase fixture for [G6:quant]/AC-L0-3a5: phase_a is
+    always "git-delta"; phase_b's write_tracking is parameterised so callers
+    can build both the violating case (phase_b "not-observed") and the
+    uniform positive control (phase_b "git-delta") from one builder."""
+    return [
+        _ev("workflow_started", {"workflow_name": "phase_a"}),
+        _ev("run_identity", {
+            "engine_version": "1.0.0",
+            "adapter_identity": {"backend": "claude-subprocess", "source": "default"},
+        }),
+        _ev("step_started", {"step_name": "s1", "phase": "phase_a"}),
+        _ev("step_finished", {"step_name": "s1", "status": "ok", "duration_ms": 1, "error": None, "phase": "phase_a"}),
+        _ev("phase_artifacts", {
+            "phase": "phase_a", "written": [], "read": [],
+            "write_tracking": "git-delta", "read_tracking": "declared-only",
+        }),
+        _ev("workflow_finished", {"workflow_name": "phase_a", "status": "ok", "wall_ms": 1}),
+        _ev("workflow_started", {"workflow_name": "phase_b"}),
+        _ev("step_started", {"step_name": "s1", "phase": "phase_b"}),
+        _ev("step_finished", {"step_name": "s1", "status": "ok", "duration_ms": 1, "error": None, "phase": "phase_b"}),
+        _ev("phase_artifacts", {
+            "phase": "phase_b", "written": [], "read": [],
+            "write_tracking": phase_b_write_tracking, "read_tracking": "declared-only",
+        }),
+        _ev("workflow_finished", {"workflow_name": "phase_b", "status": "ok", "wall_ms": 1}),
+    ]
+
+
+def test_ac_l0_3a5_1_non_uniform_two_phase_not_checked_with_positive_control():
+    """AC-L0-3a5(1) [G6:1]: non-uniform two-phase fixture — phase_a
+    "git-delta", phase_b "not-observed", both retaining their step events.
+    requirements["R0.2"] MUST be "not-checked" and passed MUST be False.
+    Positive control: the UNIFORM all-"git-delta" two-phase fixture MUST
+    report "passed" — proving the checker discriminates rather than always
+    failing two-phase logs."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    non_uniform = _two_phase_events_non_uniform(phase_b_write_tracking="not-observed")
+    report = check_bd_l0(non_uniform, run_id="run-l0", writer=EventLog)
+    assert report.requirements["R0.2"] == "not-checked", (
+        f"phase_a measured 'git-delta' but phase_b is 'not-observed' — an "
+        f"any()-shaped (or first/last-phase-only) reduction would let "
+        f"phase_a's measurement lift the whole run to 'passed'; got "
+        f"{report.requirements!r}"
+    )
+    assert report.passed is False
+
+    uniform_positive_control = _two_phase_events_non_uniform(phase_b_write_tracking="git-delta")
+    report_uniform = check_bd_l0(uniform_positive_control, run_id="run-l0", writer=EventLog)
+    assert report_uniform.requirements["R0.2"] == "passed", (
+        f"positive control: BOTH phases 'git-delta' must still pass, "
+        f"proving the checker discriminates rather than always failing "
+        f"two-phase logs, got {report_uniform.requirements!r}"
+    )
+
+
+def test_ac_l0_3a5_2_composed_artifact_reflects_non_uniform_two_phase(tmp_path):
+    """AC-L0-3a5(2) [G6:1]: the SAME L0Report carried into the reviewer
+    artifact. Build, WRITE it, reparse it, and assert labels["R0.2"] ==
+    "writes-not-observed; reads-declared-only", l0["R0.2"] ==
+    "not-checked", level_achieved is None, conformant is False — over the
+    SAME non-uniform two-phase fixture as (1)."""
+    from conformance.attestation import build_attestation_report, write_attestation_report  # noqa: PLC0415
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    non_uniform = _two_phase_events_non_uniform(phase_b_write_tracking="not-observed")
+    l0_report = check_bd_l0(non_uniform, run_id="run-l0", writer=EventLog)
+    assert l0_report.requirements["R0.2"] == "not-checked", l0_report.requirements
+
+    report = build_attestation_report(
+        level_claimed="BD-L0", results={}, l0=l0_report,
+        engine_version="0.0.0-test",
+        adapter_identity={"backend": "agent-sdk", "source": "default"},
+        host_identity={"host": "hal-test-host"},
+        repo="hal/bytedigger", commit="c" * 40, run_id="run-l0-3a5-2",
+    )
+
+    out_path = tmp_path / "attestation.json"
+    write_attestation_report(report, out_path)
+    reparsed = json.loads(out_path.read_text(encoding="utf-8"))
+
+    assert reparsed["labels"]["R0.2"] == "writes-not-observed; reads-declared-only", (
+        reparsed["labels"]
+    )
+    assert reparsed["l0"]["R0.2"] == "not-checked", reparsed["l0"]
+    assert reparsed["level_achieved"] is None, reparsed["level_achieved"]
+    assert reparsed["conformant"] is False, reparsed["conformant"]
+
+
+def test_ac_l0_3a5_3_end_to_end_two_phase_run_one_engine_one_run_id(tmp_path):
+    """AC-L0-3a5(3) [G6:1]: end-to-end against our own host — the flagship
+    shape. TWO execute() calls on ONE engine under ONE run_id: phase A with
+    git_cwd on a real repo, phase B without. check_bd_l0(log.read_all(),
+    run_id=...) MUST report R0.2 "not-checked". EventLog is one file per
+    run and a real consumer drives one run_id across many phases, most of
+    which run with no org_config["git_cwd"]."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    repo_dir = tmp_path / "repo"
+    _init_git_repo(repo_dir)
+    run_id = "run-l0-3a5-e2e"
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_l0_3a5_a", WorkflowDefinition(name="wf_l0_3a5_a", steps=[_ok_step("noop")]))
+    eng.register("wf_l0_3a5_b", WorkflowDefinition(name="wf_l0_3a5_b", steps=[_ok_step("noop")]))
+
+    eng.execute("wf_l0_3a5_a", _make_ctx(git_cwd=str(repo_dir)), run_id=run_id)
+    eng.execute("wf_l0_3a5_b", _make_ctx(), run_id=run_id)  # no git_cwd
+
+    events = log.read_all()
+    phase_artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
+    assert len(phase_artifacts) == 2
+    write_trackings = {e["payload"]["phase"]: e["payload"].get("write_tracking") for e in phase_artifacts}
+    assert write_trackings["wf_l0_3a5_a"] == "git-delta", write_trackings
+    assert write_trackings["wf_l0_3a5_b"] == "not-observed", write_trackings
+
+    report = check_bd_l0(events, run_id=run_id, writer=EventLog)
+    assert report.requirements["R0.2"] == "not-checked", (
+        f"one measured phase (git_cwd set) MUST NOT lift the whole run "
+        f"when a second phase under the SAME run_id never observed its "
+        f"write channel, got {report.requirements!r}"
+    )
+    assert report.passed is False
+
+
+def test_ac_l0_3a5_4_other_r02_clauses_asserted_by_mutating_phase_b_only():
+    """AC-L0-3a5(4) [G6:1]: the OTHER THREE R0.2 clauses are quantified
+    identically over phases of a run and MUST be asserted by mutating
+    phase_b ONLY on the same two-phase fixture: phase stripped from
+    phase_b's step events; phase_b's workflow_finished removed; phase_b's
+    status stripped — each MUST fail. v6 asserted all three only on
+    single-phase logs, so any() survived in each."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    # phase stripped from phase_b's step events only (phase_a untouched).
+    events_phase_b_no_phase_key = []
+    for e in _two_phase_events_non_uniform(phase_b_write_tracking="git-delta"):
+        if e["event_type"] in ("step_started", "step_finished") and e["payload"].get("phase") == "phase_b":
+            payload = dict(e["payload"])
+            payload.pop("phase", None)
+            e = {**e, "payload": payload}
+        events_phase_b_no_phase_key.append(e)
+    report = check_bd_l0(events_phase_b_no_phase_key, run_id="run-l0", writer=EventLog)
+    assert report.passed is False, (
+        "phase_a is entirely well-formed; only phase_b's step events lost "
+        "their phase key — a per-phase any()-shaped reduction would let "
+        "phase_a's soundness pass the whole run"
+    )
+    assert any("R0.2" in v for v in report.violations), report.violations
+
+    # phase_b's workflow_finished removed only (phase_a's untouched).
+    events_phase_b_no_finished = [
+        e for e in _two_phase_events_non_uniform(phase_b_write_tracking="git-delta")
+        if not (e["event_type"] == "workflow_finished" and e["payload"]["workflow_name"] == "phase_b")
+    ]
+    report = check_bd_l0(events_phase_b_no_finished, run_id="run-l0", writer=EventLog)
+    assert report.passed is False
+    assert any("R0.2" in v for v in report.violations), report.violations
+
+    # phase_b's status stripped from its workflow_finished only.
+    events_phase_b_no_status = []
+    for e in _two_phase_events_non_uniform(phase_b_write_tracking="git-delta"):
+        if e["event_type"] == "workflow_finished" and e["payload"]["workflow_name"] == "phase_b":
+            payload = dict(e["payload"])
+            payload.pop("status", None)
+            e = {**e, "payload": payload}
+        events_phase_b_no_status.append(e)
+    report = check_bd_l0(events_phase_b_no_status, run_id="run-l0", writer=EventLog)
+    assert report.passed is False
+    assert any("R0.2" in v for v in report.violations), report.violations
+
+
 def test_ac_l0_12d_run_id_scoping_functionally_asserted():
     """AC-L0-12d [G3:MINOR-4]: run_id scoping is functionally asserted. v3's
     every checker test passed a run_id matching every event, so a GREEN
@@ -3476,6 +3963,82 @@ def test_ac_l0_3a3_unrecognised_write_tracking_tokens_fail_closed():
         )
 
 
+def test_ac_l0_3b5_artifact_record_must_carry_artifact_fields_present_and_list_typed():
+    """AC-L0-3b5 [G6:EDGE-3]: an artifact record MUST actually carry its
+    artifact fields. AC-L0-3a3 fail-closes only on the write_tracking
+    key/token, so a scoped phase_artifacts of {"phase": "wf",
+    "write_tracking": "git-delta"} — no written, no read, no read_tracking
+    — currently is not required to fail. Given the checker's declared
+    threat model (an arbitrary, possibly forged event list), the fields
+    carrying the actual artifact references MUST be required present and
+    LIST-typed (written/read), or R0.2 is "not-checked"."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    baseline = check_bd_l0(_valid_l0_events(), run_id="run-l0", writer=EventLog)
+    assert baseline.requirements["R0.2"] == "passed", baseline.requirements
+
+    # written/read/read_tracking entirely absent — only phase + write_tracking.
+    events_bare_artifact_record = []
+    for e in _valid_l0_events():
+        if e["event_type"] == "phase_artifacts":
+            e = {**e, "payload": {"phase": "wf", "write_tracking": "git-delta"}}
+        events_bare_artifact_record.append(e)
+
+    report = check_bd_l0(events_bare_artifact_record, run_id="run-l0", writer=EventLog)
+    assert report.requirements["R0.2"] == "not-checked", (
+        f"a phase_artifacts record carrying only phase/write_tracking (no "
+        f"written, read, or read_tracking) must NOT be granted R0.2 "
+        f"'passed' — the fields carrying the actual artifact references "
+        f"must be required present, got {report.requirements!r}"
+    )
+
+    # written/read present but NOT list-typed must also fail-close.
+    events_wrong_types = []
+    for e in _valid_l0_events():
+        if e["event_type"] == "phase_artifacts":
+            payload = dict(e["payload"])
+            payload["written"] = "not-a-list"
+            payload["read"] = "not-a-list"
+            e = {**e, "payload": payload}
+        events_wrong_types.append(e)
+    report_wrong_types = check_bd_l0(events_wrong_types, run_id="run-l0", writer=EventLog)
+    assert report_wrong_types.requirements["R0.2"] == "not-checked", (
+        f"written/read present but not LIST-typed must fail-close R0.2 to "
+        f"'not-checked', got {report_wrong_types.requirements!r}"
+    )
+
+
+def test_ac_l0_3b6_orphan_phase_artifacts_with_no_workflow_started_fails():
+    """AC-L0-3b6 [G6:EDGE-5]: an orphan phase_artifacts MUST NOT lift the
+    write half. A phase_artifacts record for a phase with NO
+    workflow_started in the scoped run is currently undefined, so a forged
+    log can add a git-delta record for a phase that never ran. Normative: a
+    phase_artifacts whose phase has no workflow_started in the scoped run
+    is an R0.2 violation ("failed" — a structural forgery, not an
+    unmeasured channel)."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    events_with_orphan = list(_valid_l0_events())
+    events_with_orphan.append(
+        _ev("phase_artifacts", {
+            "phase": "phase_never_started", "written": [], "read": [],
+            "write_tracking": "git-delta", "read_tracking": "declared-only",
+        })
+    )
+    report = check_bd_l0(events_with_orphan, run_id="run-l0", writer=EventLog)
+    assert report.passed is False, (
+        "a phase_artifacts for a phase with no workflow_started in the "
+        "scoped run must not be silently accepted — a forged log could "
+        "otherwise add a git-delta record for a phase that never ran"
+    )
+    assert any("R0.2" in v for v in report.violations), report.violations
+    assert report.requirements["R0.2"] == "failed", (
+        f"an orphan phase_artifacts is a structural forgery, not an "
+        f"unmeasured channel — MUST render 'failed', not 'not-checked', "
+        f"got {report.requirements!r}"
+    )
+
+
 def test_ac_l0_3e_phase_artifacts_emitted_on_error_exit(tmp_path):
     """AC-L0-3e [G2:edge-7]: phase_artifacts MUST also be emitted when the
     workflow ends error/escalate (engine.py:674, :682), not only on the ok
@@ -3700,14 +4263,27 @@ def test_ac_l0_3d2_truncation_boundary_just_under_and_just_over_4096_bytes(tmp_p
 
 
 def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_path, monkeypatch):
-    """AC-L0-3d3 [G5:EDGE-3]: the truncation predicate MUST leave headroom
-    for the shadow envelope. _emit's shadow branch (engine.py:701-707) adds
-    `shadowed_event` + `provenance` to the payload and swaps `event_type`
-    to `engine_shadow_emit`, so a `phase_artifacts` the predicate measured
-    as just-under 4096 UNSHADOWED exceeds the limit once shadowed and is
+    """AC-L0-3d3 [G5:EDGE-3] [G6:MINOR-3]: the truncation predicate MUST
+    leave headroom for the shadow envelope — IFF the shadow branch
+    (engine.py:699-700) applies to this emit, excluded when it does not.
+    _emit's shadow branch (engine.py:701-707) adds `shadowed_event` +
+    `provenance` to the payload and swaps `event_type` to
+    `engine_shadow_emit`, so a `phase_artifacts` the predicate measured as
+    just-under 4096 UNSHADOWED exceeds the limit once shadowed and is
     swallowed at :710 — the inverted control AC-L0-3d exists to close,
     reopened on the shadow path. Every shadow fixture in this suite uses
     tiny payloads, so nothing exercises it.
+
+    [G6:MINOR-3]: "leave headroom" MUST NOT be read as an UNCONDITIONAL
+    reserve — reserving the measured shadow overhead on EVERY emit would
+    truncate AC-L0-3d2's just-under (~4079-byte, UNSHADOWED) control and
+    false-fail an otherwise-correct GREEN. This AC and AC-L0-3d2's
+    just-under control are read TOGETHER and are jointly satisfiable only
+    by measuring the actual serialised form PER EMIT. That joint
+    requirement is asserted directly in this test's final assertion below:
+    a NON-shadowed run at the identical borderline path count MUST NOT
+    truncate — proving the predicate reserves headroom only when the
+    shadow branch genuinely applies, not unconditionally.
 
     The overhead is MEASURED here (constructed and JSON-serialised exactly
     as EventLog.append/`_emit`'s shadow branch does — `shadow_event_name`
@@ -3804,6 +4380,43 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
         f"shadow-wrapped (measured overhead={measured_overhead} bytes), "
         f"the predicate MUST truncate proactively to leave headroom for "
         f"the shadow envelope, got {payload!r}"
+    )
+
+    # [G6:MINOR-3] joint-satisfiability check: the IDENTICAL borderline path
+    # count, driven WITHOUT the shadow branch (is_authoritative_execution
+    # left at its real, un-monkeypatched value), MUST NOT truncate. An
+    # UNCONDITIONAL headroom reserve (rather than "iff the shadow branch
+    # applies") would truncate this too, and would then fail AC-L0-3d2's own
+    # just-under-4096 unshadowed control — the two ACs are jointly
+    # satisfiable only by a predicate that measures the actual serialised
+    # form per emit, not by a predicate that always reserves the overhead.
+    repo_dir_unshadowed = tmp_path / "repo_unshadowed"
+    _init_git_repo(repo_dir_unshadowed)
+
+    def _write_paths_unshadowed(_ctx, _prev):
+        for name in _paths_for(n_boundary):
+            (repo_dir_unshadowed / name).write_text("x")
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="write_probe")
+
+    log_unshadowed = EventLog(tmp_path / "events_unshadowed.jsonl")
+    eng_unshadowed = WorkflowEngine(event_log=log_unshadowed)  # real engine module, shadow branch NOT forced
+    eng_unshadowed.register(
+        f"{phase}-unshadowed",
+        WorkflowDefinition(name=f"{phase}-unshadowed", steps=[StepContract(name="write_probe", execute=_write_paths_unshadowed)]),
+    )
+    eng_unshadowed.execute(
+        f"{phase}-unshadowed", _make_ctx(git_cwd=str(repo_dir_unshadowed)), run_id=f"{run_id}-unshadowed"
+    )
+
+    events_unshadowed = log_unshadowed.read_all()
+    unshadowed_artifacts = [e for e in events_unshadowed if e["event_type"] == "phase_artifacts"]
+    assert len(unshadowed_artifacts) == 1
+    unshadowed_payload = unshadowed_artifacts[0]["payload"]
+    assert unshadowed_payload.get("written_truncated") is not True, (
+        f"the IDENTICAL borderline path count, driven WITHOUT the shadow "
+        f"branch, MUST NOT truncate — an unconditional headroom reserve "
+        f"(rather than 'iff the shadow branch applies') would wrongly "
+        f"truncate here too, got {unshadowed_payload!r}"
     )
 
 
