@@ -27,6 +27,11 @@ class ProviderSpec:
     model_rank: "dict[str, int]"
     model_family: Callable[["str | None"], "str | None"]
     default_gate_floor: str
+    # GH1193: subagent-text/thinking forwarding flags, appended after
+    # stream_flags at the single assembly site when enabled. Defaulted +
+    # appended LAST for backward compat with existing stub-provider
+    # constructions that pass keyword args without it.
+    subagent_forward_flags: "tuple[str, ...]" = ()
 
 
 def _claude_build_argv(model: str) -> "list[str]":
@@ -108,6 +113,7 @@ CLAUDE_PROVIDER = ProviderSpec(
     model_rank={"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3},
     model_family=_claude_model_family,
     default_gate_floor="opus",
+    subagent_forward_flags=("--forward-subagent-text",),
 )
 
 _PROVIDERS: "dict[str, ProviderSpec]" = {"claude": CLAUDE_PROVIDER}

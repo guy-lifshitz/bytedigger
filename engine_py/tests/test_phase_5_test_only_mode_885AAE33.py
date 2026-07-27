@@ -2,7 +2,9 @@
 
 When a spec file carries the marker `<!-- engine-mode: test_only -->` on line 1
 or 2, `_commit_red_tests` must skip git operations, emit a telemetry event, and
-return ok with empty red_test_paths / None red_commit_sha.
+return ok with empty red_test_paths / a 40-hex pre-RED red_commit_sha equal to
+`git rev-parse HEAD` (GH1245: the boundary is no longer discarded — see
+test_gh1245_test_only_red_boundary.py).
 
 All 12 tests FAIL against current phase_5_implement.py (_read_engine_mode does
 not exist; _commit_red_tests has no test-only skip branch).
@@ -12,6 +14,8 @@ Do NOT implement the contract here — RED-only file.
 """
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -95,20 +99,55 @@ def _spec_with_content(tmp_path: Path, content: str, name: str = "spec.md") -> P
     return p
 
 
+def _real(p: Path) -> Path:
+    """§1j: realpath-normalise a tmp_path before using it as a git/subprocess cwd."""
+    return Path(os.path.realpath(str(p)))
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=30,
+    )
+
+
+def _init_repo(cwd: Path) -> str:
+    """Real, isolated git repo (one commit). Returns the initial commit SHA.
+
+    Gate v1 MINOR-8: AC1/AC2 previously passed no git_cwd, so the test_only
+    boundary resolution (GH1245 §2.2) would resolve `git rev-parse HEAD`
+    against Path.cwd() — the developer's live HAL checkout — instead of an
+    isolated fixture repo.
+    """
+    _git(cwd, "init", "-q")
+    _git(cwd, "config", "user.email", "885aae33@example.com")
+    _git(cwd, "config", "user.name", "885AAE33 Test")
+    (cwd / "README.md").write_text("init\n", encoding="utf-8")
+    _git(cwd, "add", "-A")
+    _git(cwd, "commit", "-q", "-m", "init")
+    res = _git(cwd, "rev-parse", "HEAD")
+    assert res.returncode == 0, f"git rev-parse HEAD failed: {res.stderr}"
+    return res.stdout.strip()
+
+
 # ─── AC1: marker on line 1 → skip + correct data ──────────────────────────────
 
 
 def test_skip_when_marker_on_line_1(tmp_path, monkeypatch):
-    """AC1: marker on line 1 → status=ok, red_test_paths=[], red_commit_sha=None."""
+    """AC1: marker on line 1 → status=ok, red_test_paths=[], red_commit_sha=40-hex
+    pre-RED SHA (GH1245) equal to the isolated fixture repo's real HEAD."""
     spec = _spec_with_content(
         tmp_path,
         "<!-- engine-mode: test_only -->\n# My spec\n## Details\n",
     )
     _patch_emit(monkeypatch)
 
-    scratchpad = tmp_path / "scratch"
+    repo = _real(tmp_path / "repo")
+    repo.mkdir()
+    expected_sha = _init_repo(repo)
+
+    scratchpad = _real(tmp_path / "scratch")
     scratchpad.mkdir()
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, git_cwd=str(repo))
     prev = _make_prev(spec_path=str(spec))
 
     result = _commit_red_tests(ctx, prev)
@@ -121,8 +160,13 @@ def test_skip_when_marker_on_line_1(tmp_path, monkeypatch):
     assert result.data.get("red_test_paths") == [], (
         f"Expected red_test_paths=[], got {result.data.get('red_test_paths')!r}"
     )
-    assert result.data.get("red_commit_sha") is None, (
-        f"Expected red_commit_sha=None, got {result.data.get('red_commit_sha')!r}"
+    _sha = result.data.get("red_commit_sha")
+    assert isinstance(_sha, str) and len(_sha) == 40 and all(c in "0123456789abcdef" for c in _sha), (
+        f"Expected a 40-hex pre-RED red_commit_sha (GH1245), got {_sha!r}"
+    )
+    assert _sha == expected_sha, (
+        f"Expected red_commit_sha to equal the isolated fixture repo's real "
+        f"HEAD {expected_sha!r}, got {_sha!r}"
     )
     assert result.data.get("commit_red_tests_skipped") == "test_only_mode", (
         f"Expected commit_red_tests_skipped='test_only_mode', "
@@ -134,16 +178,21 @@ def test_skip_when_marker_on_line_1(tmp_path, monkeypatch):
 
 
 def test_skip_when_marker_on_line_2(tmp_path, monkeypatch):
-    """AC2: marker on line 2 (line 1 blank) → skip still fires."""
+    """AC2: marker on line 2 (line 1 blank) → skip still fires, and the
+    returned SHA equals the isolated fixture repo's real HEAD."""
     spec = _spec_with_content(
         tmp_path,
         "\n<!-- engine-mode: test_only -->\n# My spec\n",
     )
     _patch_emit(monkeypatch)
 
-    scratchpad = tmp_path / "scratch"
+    repo = _real(tmp_path / "repo")
+    repo.mkdir()
+    expected_sha = _init_repo(repo)
+
+    scratchpad = _real(tmp_path / "scratch")
     scratchpad.mkdir()
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, git_cwd=str(repo))
     prev = _make_prev(spec_path=str(spec))
 
     result = _commit_red_tests(ctx, prev)
@@ -153,7 +202,14 @@ def test_skip_when_marker_on_line_2(tmp_path, monkeypatch):
     )
     assert result.data is not None
     assert result.data.get("red_test_paths") == []
-    assert result.data.get("red_commit_sha") is None
+    _sha2 = result.data.get("red_commit_sha")
+    assert isinstance(_sha2, str) and len(_sha2) == 40 and all(c in "0123456789abcdef" for c in _sha2), (
+        f"Expected a 40-hex pre-RED red_commit_sha (GH1245), got {_sha2!r}"
+    )
+    assert _sha2 == expected_sha, (
+        f"Expected red_commit_sha to equal the isolated fixture repo's real "
+        f"HEAD {expected_sha!r}, got {_sha2!r}"
+    )
     assert result.data.get("commit_red_tests_skipped") == "test_only_mode"
 
 
@@ -196,9 +252,16 @@ def test_skip_emits_event_once(tmp_path, monkeypatch):
     )
     captured = _patch_emit(monkeypatch)
 
-    scratchpad = tmp_path / "scratch"
+    # Gate v2 MINOR-10: pin to an isolated tmp_path git repo — the test_only
+    # path resolves `git rev-parse HEAD`, so without an isolated git_cwd this
+    # would reach the developer's live HAL checkout.
+    repo = _real(tmp_path / "repo")
+    repo.mkdir()
+    _init_repo(repo)
+
+    scratchpad = _real(tmp_path / "scratch")
     scratchpad.mkdir()
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, git_cwd=str(repo))
     prev = _make_prev(spec_path=str(spec))
 
     _commit_red_tests(ctx, prev)
@@ -225,9 +288,16 @@ def test_skip_does_not_mutate_prev_data(tmp_path, monkeypatch):
     )
     _patch_emit(monkeypatch)
 
-    scratchpad = tmp_path / "scratch"
+    # Gate v2 MINOR-10: pin to an isolated tmp_path git repo — the test_only
+    # path resolves `git rev-parse HEAD`, so without an isolated git_cwd this
+    # would reach the developer's live HAL checkout.
+    repo = _real(tmp_path / "repo")
+    repo.mkdir()
+    _init_repo(repo)
+
+    scratchpad = _real(tmp_path / "scratch")
     scratchpad.mkdir()
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, git_cwd=str(repo))
     prev = _make_prev(spec_path=str(spec))
 
     # Snapshot prev.data keys before

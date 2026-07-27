@@ -3854,21 +3854,8 @@ def _parse_verdict(raw: str) -> str:
     ))
 
 
-def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
-    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
-        return StepResult(
-            status="error", data=None, duration_ms=0,
-            step_name="write_review_doc",
-            error="prev step did not produce raw_response",
-            error_code="E_MISSING_PREV_DATA",
-        )
-    raw = prev.data["raw_response"]
-    cycle = int(prev.data.get("cycle", 1))
-    review_path = Path(prev.data["doc_path"])
-    structured_verdict_for_gate: str | None = None
-    review_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write(review_path, raw)  # HIGH #4: atomic write prevents stale canonical on kill
-
+def _review_doc_emit_writer_complete(prev: Any, cycle: int, raw: str) -> None:
+    """GH1272 extraction, §3 row 3: writer-complete telemetry, no local outputs."""
     _emit_safe(
         "phase_45_spec_writer_complete",
         {
@@ -3879,138 +3866,230 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
         },
     )
 
-    if cycle >= 2:
-        # Restricted-mode: try per-finding parser first.
-        # Falls back to classic ## Verdict parser when reviewer was free-form
-        # (i.e. cycle-1 had no structured findings, so cycle-2 reviewer prompt
-        # was also free-form and won't have FINDING_ lines).
-        parsed = parse_per_finding_verdicts(raw)
-        fv = parsed["final_verdict"]
-        if fv != "UNPARSED":
-            if fv == "PASS":
-                verdict = VERDICT_SHIP
-            else:  # REVISE
-                verdict = VERDICT_REVISE
-            _spec_rc2_structured = extract_structured_findings(raw)
-            _spec_rc2_n_structured = len(_spec_rc2_structured) if _spec_rc2_structured is not None else 0
-            _spec_rc2_n_total = _count_freetext_findings(raw) + _spec_rc2_n_structured
-            _emit_safe(
-                "phase_45_spec_review_complete",
-                {
-                    "phase": "phase_45_spec",
-                    "cycle": cycle,
-                    "verdict": verdict,
-                    "n_findings_total": _spec_rc2_n_total,
-                    "n_findings_structured": _spec_rc2_n_structured,
-                    "duration_ms": prev.duration_ms or 0,
-                },
-            )
-            _prev_data_wrd = prev.data if isinstance(prev.data, dict) else {}
-            return StepResult(
-                status="ok",
-                data=_fwd_frozen(_prev_data_wrd, {
-                    "review_path": str(review_path),
-                    "spec_path": prev.data["spec_path"],
-                    "review_bytes_written": len(raw.encode("utf-8")),
-                    "verdict": verdict,
-                    "cycle": cycle,
-                    "review_raw": raw,
-                    "per_finding": parsed["per_finding"],
-                    "n_resolved": parsed["n_resolved"],
-                    "n_total": parsed["n_total"],
-                }),
-                duration_ms=0,
-                step_name="write_review_doc",
-            )
-        # UNPARSED: no per-finding lines → reviewer was free-form → fall through
-        # to classic ## Verdict parser (backward-compat).
 
-    # α₀ BA456198: findings_block_compliance telemetry (cycle-1 only).
-    if cycle <= 1:
-        structured_for_telemetry = extract_structured_findings(raw)  # may be None
-        freetext_findings_count = _count_freetext_findings(raw)
+def _write_review_doc_cycle2_result(
+    raw: str, cycle: int, review_path: Path, prev: Any,
+) -> StepResult | None:
+    """GH1272 extraction, §3 row 4: cycle >= 2 per-finding verdict parse.
+
+    Restricted-mode: try per-finding parser first. Falls back to classic
+    ## Verdict parser when reviewer was free-form (i.e. cycle-1 had no
+    structured findings, so cycle-2 reviewer prompt was also free-form and
+    won't have FINDING_ lines) — signalled by returning None so the caller
+    falls through to the rest of the cycle-1 pipeline.
+    """
+    if cycle < 2:
+        return None
+    parsed = parse_per_finding_verdicts(raw)
+    fv = parsed["final_verdict"]
+    if fv == "UNPARSED":
+        # UNPARSED: no per-finding lines → reviewer was free-form → fall
+        # through to classic ## Verdict parser (backward-compat).
+        return None
+    if fv == "PASS":
+        verdict = VERDICT_SHIP
+    else:  # REVISE
+        verdict = VERDICT_REVISE
+    _spec_rc2_structured = extract_structured_findings(raw)
+    _spec_rc2_n_structured = len(_spec_rc2_structured) if _spec_rc2_structured is not None else 0
+    _spec_rc2_n_total = _count_freetext_findings(raw) + _spec_rc2_n_structured
+    _emit_safe(
+        "phase_45_spec_review_complete",
+        {
+            "phase": "phase_45_spec",
+            "cycle": cycle,
+            "verdict": verdict,
+            "n_findings_total": _spec_rc2_n_total,
+            "n_findings_structured": _spec_rc2_n_structured,
+            "duration_ms": prev.duration_ms or 0,
+        },
+    )
+    _prev_data_wrd = prev.data if isinstance(prev.data, dict) else {}
+    return StepResult(
+        status="ok",
+        data=_fwd_frozen(_prev_data_wrd, {
+            "review_path": str(review_path),
+            "spec_path": prev.data["spec_path"],
+            "review_bytes_written": len(raw.encode("utf-8")),
+            "verdict": verdict,
+            "cycle": cycle,
+            "review_raw": raw,
+            "per_finding": parsed["per_finding"],
+            "n_resolved": parsed["n_resolved"],
+            "n_total": parsed["n_total"],
+        }),
+        duration_ms=0,
+        step_name="write_review_doc",
+    )
+
+
+def _review_doc_emit_findings_compliance(raw: str, cycle: int) -> None:
+    """GH1272 extraction, §3 row 5: α₀ BA456198 findings_block_compliance
+    telemetry (cycle-1 only), locals only."""
+    if cycle > 1:
+        return
+    structured_for_telemetry = extract_structured_findings(raw)  # may be None
+    freetext_findings_count = _count_freetext_findings(raw)
+    _emit_safe(
+        "findings_block_compliance",
+        {
+            "phase": "phase_45_spec",
+            "cycle": 1,
+            "json_block_present": structured_for_telemetry is not None,
+            "json_findings_count": (
+                len(structured_for_telemetry) if structured_for_telemetry is not None else None
+            ),
+            "freetext_findings_count": freetext_findings_count,
+        },
+    )
+
+
+def _write_review_doc_structured_gate(
+    raw: str, cycle: int,
+) -> tuple[str | None, int, int, int, str | None]:
+    """GH1272 extraction, §3 row 6: cycle-1 structured-findings gate.
+
+    Step 5 / G1 #2: structured-findings drive the gate verdict on cycle 1
+    (disk-truth). Returns (md_verdict, n, n_upstream, n_blocking,
+    structured_verdict_for_gate) — I3: all five must escape this block for
+    the reconciliation block below to read them safely.
+    """
+    n = 0
+    n_upstream = 0
+    n_blocking = 0
+    structured_verdict_for_gate: str | None = None
+    md_verdict: str | None = None
+    if cycle > 1:
+        return md_verdict, n, n_upstream, n_blocking, structured_verdict_for_gate
+
+    # GH1208: use the root-preserving *_raw extractor (the same one the
+    # gate uses at :4145-4147), NOT extract_structured_findings — that one
+    # coerces each item to the 4-key Finding TypedDict and drops `root`,
+    # which would make the `root == "upstream"` exclusion below a silent
+    # no-op. `_raw` returns None on absent/unparseable and filters
+    # non-dict entries, so the `is None` semantics below are unchanged.
+    from plugins.checklist_convergence import extract_structured_findings_raw
+
+    structured_findings = extract_structured_findings_raw(raw)
+    md_verdict = _parse_verdict(raw)  # also computed below for fallback; pure & cheap
+    if structured_findings is None:
         _emit_safe(
-            "findings_block_compliance",
+            "spec_findings_block_absent",
+            {"markdown_verdict": md_verdict, "cycle": 1, "phase": "phase_45_spec"},
+        )
+        return md_verdict, n, n_upstream, n_blocking, structured_verdict_for_gate
+
+    n = len(structured_findings)
+    # GH1208: an upstream-rooted finding can never be resolved by a spec
+    # rewrite (GH443 part 3 §2.2) — it must not itself make the structured
+    # signal REVISE. n_blocking excludes those; n_upstream counts them for
+    # the informational emit in the reconciliation block.
+    n_upstream = sum(1 for f in structured_findings if f.get("root") == "upstream")
+    n_blocking = n - n_upstream
+    structured_verdict = VERDICT_SHIP if n_blocking == 0 else VERDICT_REVISE
+    structured_verdict_for_gate = structured_verdict
+    _emit_safe(
+        "spec_structured_verdict",
+        {
+            "markdown_verdict": md_verdict,
+            "structured_verdict": structured_verdict,
+            "n_findings": n,
+            "n_blocking": n_blocking,
+            "cycle": 1,
+            "phase": "phase_45_spec",
+        },
+    )
+    # Drift only when both verdicts in {SHIP, REVISE} and they disagree.
+    if md_verdict in (VERDICT_SHIP, VERDICT_REVISE) and md_verdict != structured_verdict:
+        _emit_safe(
+            "spec_verdict_drift",
             {
-                "phase": "phase_45_spec",
+                "markdown_verdict": md_verdict,
+                "structured_verdict": structured_verdict,
+                "n_findings": n,
+                "n_blocking": n_blocking,
                 "cycle": 1,
-                "json_block_present": structured_for_telemetry is not None,
-                "json_findings_count": (
-                    len(structured_for_telemetry) if structured_for_telemetry is not None else None
-                ),
-                "freetext_findings_count": freetext_findings_count,
+                "phase": "phase_45_spec",
             },
         )
+    return md_verdict, n, n_upstream, n_blocking, structured_verdict_for_gate
 
-    # Step 5 / G1 #2: structured-findings drive the gate verdict on cycle 1 (disk-truth).
-    if cycle <= 1:
-        structured_findings = extract_structured_findings(raw)
-        md_verdict = _parse_verdict(raw)  # also computed below for fallback; pure & cheap
-        if structured_findings is None:
-            _emit_safe(
-                "spec_findings_block_absent",
-                {"markdown_verdict": md_verdict, "cycle": 1, "phase": "phase_45_spec"},
-            )
-        else:
-            n = len(structured_findings)
-            structured_verdict = VERDICT_SHIP if n == 0 else VERDICT_REVISE
-            structured_verdict_for_gate = structured_verdict
-            _emit_safe(
-                "spec_structured_verdict",
-                {
-                    "markdown_verdict": md_verdict,
-                    "structured_verdict": structured_verdict,
-                    "n_findings": n,
-                    "cycle": 1,
-                    "phase": "phase_45_spec",
-                },
-            )
-            # Drift only when both verdicts in {SHIP, REVISE} and they disagree.
-            if md_verdict in (VERDICT_SHIP, VERDICT_REVISE) and md_verdict != structured_verdict:
-                _emit_safe(
-                    "spec_verdict_drift",
-                    {
-                        "markdown_verdict": md_verdict,
-                        "structured_verdict": structured_verdict,
-                        "n_findings": n,
-                        "cycle": 1,
-                        "phase": "phase_45_spec",
-                    },
-                )
 
-    if cycle <= 1 and structured_verdict_for_gate is not None:
-        prose = md_verdict if md_verdict in (VERDICT_SHIP, VERDICT_REVISE) else None
-        verdict, _verdict_reason = resolve_gate_verdict(
-            structured=structured_verdict_for_gate,
-            prose=prose,
-            conservative=VERDICT_REVISE,
-            context="phase_45_cycle1",
+def _write_review_doc_reconcile_verdict(
+    raw: str,
+    cycle: int,
+    structured_verdict_for_gate: str | None,
+    md_verdict: str | None,
+    n: int,
+    n_blocking: int,
+    n_upstream: int,
+) -> str:
+    """GH1272 extraction, §3 row 7: cycle-1 verdict reconciliation.
+
+    I1 — the `if`/`elif` chain below is order-load-bearing: the first `if`
+    mutates `verdict` to REVISE, and because the second branch is an `elif`
+    it is then NOT evaluated. Do not turn it into two independent `if`s.
+    I2 — the upstream-informational emit happens BEFORE the fail-closed `if`
+    mutates `verdict`; that ordering is deliberate and observable and must
+    not move after the mutation.
+    """
+    if not (cycle <= 1 and structured_verdict_for_gate is not None):
+        return _parse_verdict(raw)
+
+    prose = md_verdict if md_verdict in (VERDICT_SHIP, VERDICT_REVISE) else None
+    verdict, _verdict_reason = resolve_gate_verdict(
+        structured=structured_verdict_for_gate,
+        prose=prose,
+        conservative=VERDICT_REVISE,
+        context="phase_45_cycle1",
+    )
+    # GH1208: an upstream-rooted finding rode along on an approved review —
+    # informational only, distinct from phase_45_spec_upstream_escalation
+    # (which fires when the review is actually escalating to phase_4).
+    # Gated on verdict == SHIP so a prose-REVISE input (still escalating)
+    # never pollutes this series with a non-approval.
+    if verdict == VERDICT_SHIP and n_upstream > 0:
+        _emit_safe(
+            "phase_45_spec_upstream_informational",
+            {
+                "phase": "phase_45_spec",
+                "cycle": cycle,
+                "n_upstream": n_upstream,
+            },
         )
-        # GH642: a zero-findings structured SHIP is a heuristic, not affirmative
-        # approval. When prose is unparseable (md_verdict UNKNOWN → prose None),
-        # resolve returns it as `structured_only` SHIP — a fail-OPEN pass. Flip to
-        # conservative REVISE (existing E_VALIDATION_RETRY taxonomy); never ship on
-        # emptiness alone when the reviewer verdict cannot be parsed.
-        if structured_verdict_for_gate == VERDICT_SHIP and prose is None and verdict == VERDICT_SHIP:
-            verdict = VERDICT_REVISE
-            _emit_safe("spec_zero_findings_unparseable_fail_closed", {
-                "phase": "phase_45_spec",
-                "cycle": cycle,
-                "markdown_verdict": md_verdict,
-                "n_findings": 0,
-            })
-        # GH642: explicit prose REVISE overriding a zero-findings SHIP (GH373
-        # divergent→conservative) is correct but was silent — emit an observable signal.
-        elif verdict == VERDICT_REVISE and structured_verdict_for_gate == VERDICT_SHIP:
-            _emit_safe("spec_revise_without_findings", {
-                "phase": "phase_45_spec",
-                "cycle": cycle,
-                "markdown_verdict": md_verdict,
-            })
-    else:
-        verdict = _parse_verdict(raw)
-    # 13361031: telemetry-only hook — parse the citation grounding count line
-    # (emitted by the reviewer per _citation_grounding_rubric). NO verdict change.
+    # GH642: a zero-findings structured SHIP is a heuristic, not affirmative
+    # approval. When prose is unparseable (md_verdict UNKNOWN → prose None),
+    # resolve returns it as `structured_only` SHIP — a fail-OPEN pass. Flip to
+    # conservative REVISE (existing E_VALIDATION_RETRY taxonomy); never ship on
+    # emptiness alone when the reviewer verdict cannot be parsed.
+    if structured_verdict_for_gate == VERDICT_SHIP and prose is None and verdict == VERDICT_SHIP:
+        verdict = VERDICT_REVISE
+        # GH1208: n_findings is the real TOTAL (was hardcoded 0), with
+        # unchanged meaning — test_gh642_zero_findings_failclosed.py:137
+        # asserts it stays 0 for its (empty-block) fixture. n_blocking is
+        # new and excludes root=="upstream" findings.
+        _emit_safe("spec_zero_findings_unparseable_fail_closed", {
+            "phase": "phase_45_spec",
+            "cycle": cycle,
+            "markdown_verdict": md_verdict,
+            "n_findings": n,
+            "n_blocking": n_blocking,
+        })
+    # GH642: explicit prose REVISE overriding a zero-findings SHIP (GH373
+    # divergent→conservative) is correct but was silent — emit an observable signal.
+    elif verdict == VERDICT_REVISE and structured_verdict_for_gate == VERDICT_SHIP:
+        _emit_safe("spec_revise_without_findings", {
+            "phase": "phase_45_spec",
+            "cycle": cycle,
+            "markdown_verdict": md_verdict,
+        })
+    return verdict
+
+
+def _review_doc_emit_citation_grounding(raw: str, verdict: str) -> None:
+    """GH1272 extraction, §3 row 8: 13361031 citation-grounding telemetry —
+    telemetry-only hook, parses the citation grounding count line (emitted
+    by the reviewer per _citation_grounding_rubric). NO verdict change."""
     _gm = _GROUNDING_COUNT_RE.search(raw)
     if _gm is not None:
         _emit_safe("citation_grounding_self_enforcement", {
@@ -4022,6 +4101,40 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
         })
     else:
         _emit_safe("citation_grounding_count_missing", {"verdict": verdict})
+
+
+def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
+    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
+        return StepResult(
+            status="error", data=None, duration_ms=0,
+            step_name="write_review_doc",
+            error="prev step did not produce raw_response",
+            error_code="E_MISSING_PREV_DATA",
+        )
+    raw = prev.data["raw_response"]
+    cycle = int(prev.data.get("cycle", 1))
+    review_path = Path(prev.data["doc_path"])
+    review_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(review_path, raw)  # HIGH #4: atomic write prevents stale canonical on kill
+
+    _review_doc_emit_writer_complete(prev, cycle, raw)
+
+    early_result = _write_review_doc_cycle2_result(raw, cycle, review_path, prev)
+    if early_result is not None:
+        return early_result
+
+    _review_doc_emit_findings_compliance(raw, cycle)
+
+    (md_verdict, n, n_upstream, n_blocking, structured_verdict_for_gate) = (
+        _write_review_doc_structured_gate(raw, cycle)
+    )
+
+    verdict = _write_review_doc_reconcile_verdict(
+        raw, cycle, structured_verdict_for_gate, md_verdict, n, n_blocking, n_upstream,
+    )
+
+    _review_doc_emit_citation_grounding(raw, verdict)
+
     _spec_final_structured = extract_structured_findings(raw)
     _spec_final_n_structured = len(_spec_final_structured) if _spec_final_structured is not None else 0
     _spec_final_n_total = _count_freetext_findings(raw) + _spec_final_n_structured

@@ -325,9 +325,10 @@ class _FakeEventLog:
         self.events.append((event_type, payload, run_id or "ad-hoc"))
 
 
-def make_ctx() -> WorkflowContext:
+def make_ctx(git_cwd: str | None = None) -> WorkflowContext:
     return WorkflowContext(
-        tenant_id="t", scope=None, db_path=None, org_config=None,
+        tenant_id="t", scope=None, db_path=None,
+        org_config={"git_cwd": git_cwd} if git_cwd else None,
         question="q", session_id="s", persona="p", framework=None, domain=None,
     )
 
@@ -373,7 +374,7 @@ def test_ac7_engine_filters_files_touched_to_manifest_paths(git_repo):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[make_step_with_data("manifest_step", add_both, data)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert len(touched) == 1
@@ -404,7 +405,7 @@ def test_ac8_engine_falls_back_to_scan_when_no_manifest(git_repo):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[make_step_with_data("no_manifest_step", add_both, None)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert len(touched) == 1
@@ -434,7 +435,7 @@ def test_ac9_engine_manifest_filter_can_produce_empty_paths(git_repo):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[make_step_with_data("empty_filter_step", add_both, data)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert len(touched) == 1, (
@@ -493,7 +494,7 @@ def test_ac11_malformed_manifest_defers_to_scan_without_raising(git_repo):
     ))
     # Must not raise — malformed manifest DEFERs to scan-source, never crashes
     # the step loop.
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert len(touched) == 1

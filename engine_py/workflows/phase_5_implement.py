@@ -106,6 +106,8 @@ logger = logging.getLogger(__name__)
 from dataclasses import replace as _replace
 from contracts import LoopStepContract, RetryPolicy, StepContract, StepResult, WorkflowContext, WorkflowDefinition, step
 from config_provider import get_config, int_value, timeout_policy_path, default_security_asset  # noqa: E402  GH285 C2
+from config_provider import foreign_state_dirname  # noqa: E402  GH1123 4D604942 — canonical foreign-state dirname seam (§1g)
+from io_utils import atomic_write  # noqa: E402  GH1123 4D604942 — checkpoint patch artifact
 import flags_catalog  # noqa: E402  GH529
 from suite_safety import scan_suite_safety
 from stub_passability import scan_stub_passability
@@ -145,7 +147,7 @@ from recoverable_gate import RecoverableGateMixin  # noqa: E402  E843349F
 from verdict_parse import last_line_anchored_marker  # noqa: E402
 from verdict_gate import run_gate as _run_verdict_gate  # noqa: E402  GH517 34E0B77B
 from worktree_root import resolve_worktree_root as _resolve_worktree_root  # noqa: E402
-from lib.git_cwd import resolve_git_cwd  # noqa: E402  GH381
+from lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381/GH449/GH1220
 from lib.directed_repair import (  # noqa: E402  457DC7DC GH371 §2.2
     attempt_directed_repair,
     _directed_repair_enabled,
@@ -1711,6 +1713,16 @@ def _resolve_git_cwd(ctx, prev=None) -> str:
     return resolve_git_cwd(cfg, prev_data)
 
 
+def _resolve_git_cwd_with_source(ctx: Any, prev: Any = None) -> "tuple[str, str]":
+    """Same as `_resolve_git_cwd` but also returns the resolution source
+    label (GH1220 §1g) — callers gate mutating ops on
+    `lib.git_cwd.is_ambient_git_cwd(source)`."""
+    cfg = getattr(ctx, "org_config", None) or {}
+    prev_data = getattr(prev, "data", None)
+    prev_data = prev_data if isinstance(prev_data, dict) else None
+    return resolve_git_cwd_with_source(cfg, prev_data)
+
+
 def _red_mass_deletion_violations(red_paths, base_sha, git_cwd, max_deleted_lines):
     """GH282: detect RED-agency mass deletions inside allowlisted paths.
 
@@ -1766,6 +1778,29 @@ def _has_mass_deletion_allow_pragma(abs_path: str) -> bool:
         return False
 
 
+def _test_only_red_boundary(ctx: WorkflowContext, prev: StepResult) -> "tuple[str | None, StepResult | None]":
+    """GH1245: resolve the RED/GREEN boundary SHA for a declared test_only
+    build. Returns (sha, None) on success or (None, error_StepResult).
+
+    A test_only build intentionally leaves the test edits uncommitted — they
+    are the deliverable and commit_green_code commits them — so the boundary
+    is pre-RED HEAD, exactly as in the gitignored degraded mode at :2037.
+    Idempotent across retry / auto-resume / DBOS-replay: the pre-red ref is
+    write-once, so re-entry returns the cycle-1 SHA unchanged.
+    """
+    git_cwd = _resolve_git_cwd(ctx, prev)
+    scratchpad = _resolve_scratchpad(ctx)
+    sha = _resolve_frozen_pre_red_sha(scratchpad, git_cwd)
+    if not sha or len(sha) != 40 or not all(c in "0123456789abcdef" for c in sha):
+        return None, StepResult(
+            status="error", data=None, duration_ms=0, step_name="commit_red_tests",
+            error=f"git rev-parse returned invalid SHA: {sha!r}",
+            error_code="E_GIT_COMMIT_FAILED",
+        )
+    _persist_pre_red_ref(scratchpad, sha)
+    return sha, None
+
+
 def _commit_red_tests(ctx, prev) -> StepResult:
     # Accept duck-typed prev objects (StepResult or MagicMock in tests) as long as
     # they have a .data dict.  isinstance(prev, StepResult) is checked first so
@@ -1782,13 +1817,16 @@ def _commit_red_tests(ctx, prev) -> StepResult:
     # builds whose intent is a test-only patch (fix lives in tests, not in prod).
     _spec_path_raw = prev.data.get("spec_path")
     if resolve_engine_mode(_spec_path_raw if isinstance(_spec_path_raw, str) else None, ctx) == "test_only":
+        _sha, _err = _test_only_red_boundary(ctx, prev)
+        if _err is not None:
+            return _err
         _emit_safe(
             "commit_red_tests_skipped",
             {"phase": 5, "step": "commit_red_tests", "reason": "test_only_mode"},
         )
         return StepResult(
             status="ok", duration_ms=0, step_name="commit_red_tests",
-            data={**prev.data, "red_test_paths": [], "red_commit_sha": None,
+            data={**prev.data, "red_test_paths": [], "red_commit_sha": _sha,
                   "commit_red_tests_skipped": "test_only_mode"},
         )
     # ── end test_only block ───────────────────────────────────────────────────
@@ -1976,7 +2014,7 @@ def _commit_red_tests(ctx, prev) -> StepResult:
     # ── end GH282 gate ──
     cfg = ctx.org_config or {}
     scratchpad = _resolve_scratchpad(ctx)
-    git_cwd = _resolve_git_cwd(ctx, prev)
+    git_cwd, git_cwd_source = _resolve_git_cwd_with_source(ctx, prev)
     cycle = int(prev.data.get("cycle", 1))
 
     gd = git_port.git_read(
@@ -2039,6 +2077,12 @@ def _commit_red_tests(ctx, prev) -> StepResult:
             "using pre_red_sha as red_commit_sha (degraded mode)",
         )
     elif st.stdout.strip():
+        if is_ambient_git_cwd(git_cwd_source):
+            return StepResult(
+                status="error", data=None, duration_ms=0, step_name="commit_red_tests",
+                error=f"git_cwd resolved from the ambient process CWD (source={git_cwd_source!r}) — refusing to run `git add`/`git commit`",
+                error_code="E_GIT_CWD_AMBIENT", recoverable=False,
+            )
         add, add_outcome = _git_op_with_lock_retry(
             ["git", "add", "--"] + trackable_paths, cwd=git_cwd, timeout=30
         )
@@ -2329,6 +2373,16 @@ def _attempt_red_cycle_restore(
     if not c1_sha:
         _emit_safe("red_cycle_restore_unavailable", {
             "phase": 5, "cycle": cycle, "reason": "no_c1_sha",
+        })
+        return None
+    # GH1220 B5 (A7.3): re-resolve the source from ctx/prev inline — this
+    # helper is called with `git_cwd` as a plain parameter (its sole caller
+    # already resolved it), so it cannot take a threaded source without a
+    # signature change; declared exception to A3.1.
+    _, _restore_git_cwd_source = _resolve_git_cwd_with_source(ctx, prev)
+    if is_ambient_git_cwd(_restore_git_cwd_source):
+        _emit_safe("red_restore_skipped", {
+            "phase": 5, "cycle": cycle, "reason": "ambient_cwd",
         })
         return None
     try:
@@ -3807,14 +3861,20 @@ def _run_plan_failed_total(plan: dict, git_cwd: str) -> int | None:
 # ─── 585E30E3-P2 baseline helper (colocated with workflow helpers) ────────────
 
 
-def _compute_baseline_failed(plan: dict, git_cwd: str) -> int | None:
+def _compute_baseline_failed(plan: dict, git_cwd: str, git_cwd_source: str) -> int | None:
     """Stash the working tree, re-run each test group on the pre-branch baseline,
     return the total n_failed count, then pop the stash.
 
     Returns:
         int   — total n_failed across all groups on the baseline (may be 0).
         None  — baseline unavailable: any failure of stash, rerun, or pop is
-                swallowed and returns None (shadow-safe per D3).
+                swallowed and returns None (shadow-safe per D3). Also returned,
+                with a `baseline_skipped_ambient_cwd` event, when `git_cwd_source`
+                is ambient (GH1220 B8) — `git stash push -u` must never run
+                against a repo resolved from the ambient process CWD.
+
+    `git_cwd_source` is threaded from the caller — never re-resolved inside
+    (§1g/A3.1).
 
     D4 invariant: working tree is NEVER left stashed on exit — the finally block
     always attempts git stash pop (with its own inner try/except so a raising pop
@@ -3823,6 +3883,11 @@ def _compute_baseline_failed(plan: dict, git_cwd: str) -> int | None:
     stashed = False
     baseline_failed: int = 0
     try:
+        if is_ambient_git_cwd(git_cwd_source):
+            _emit_safe("baseline_skipped_ambient_cwd", {
+                "phase": 5, "step": "compute_baseline_failed", "source": git_cwd_source,
+            })
+            return None
         r = git_write_port.git_op_capture(
             ["git", "stash", "push", "-u", "-m", "p2-baseline-585e30e3"],
             cwd=git_cwd,
@@ -3865,7 +3930,9 @@ def _compute_baseline_failed(plan: dict, git_cwd: str) -> int | None:
 # ─── 5C14EF32 baseline helper (typecheck — colocated with _compute_baseline_failed) ──
 
 
-def _compute_baseline_typecheck_count(resolved_paths: list[str], git_cwd: str) -> int | None:
+def _compute_baseline_typecheck_count(
+    resolved_paths: list[str], git_cwd: str, git_cwd_source: str,
+) -> int | None:
     """Stash the working tree, run mypy on the pre-branch baseline for the given
     resolved paths, return the total findings count, then pop the stash.
 
@@ -3873,7 +3940,12 @@ def _compute_baseline_typecheck_count(resolved_paths: list[str], git_cwd: str) -
         int   — total mypy findings on the baseline (may be 0 when all paths are
                 newly-added and vanish after stash, or when mypy reports none).
         None  — baseline unavailable: stash reported no local changes, or any
-                failure of stash/mypy/pop is swallowed and returns None.
+                failure of stash/mypy/pop is swallowed and returns None. Also
+                returned, with a `baseline_skipped_ambient_cwd` event, when
+                `git_cwd_source` is ambient (GH1220 B9).
+
+    `git_cwd_source` is threaded from the caller — never re-resolved inside
+    (§1g/A3.1).
 
     D4 invariant: working tree is NEVER left stashed on exit — the finally block
     always attempts git stash pop (with its own inner try/except so a raising pop
@@ -3881,6 +3953,11 @@ def _compute_baseline_typecheck_count(resolved_paths: list[str], git_cwd: str) -
     """
     stashed = False
     try:
+        if is_ambient_git_cwd(git_cwd_source):
+            _emit_safe("baseline_skipped_ambient_cwd", {
+                "phase": 5, "step": "compute_baseline_typecheck_count", "source": git_cwd_source,
+            })
+            return None
         r = git_write_port.git_op_capture(
             ["git", "stash", "push", "-u", "-m", "p2-typecheck-baseline-5c14ef32"],
             cwd=git_cwd,
@@ -3939,6 +4016,161 @@ def _compute_baseline_typecheck_count(resolved_paths: list[str], git_cwd: str) -
                 _emit_safe("p2_typecheck_baseline_stash_pop_failed", {"phase": 5}, severity="error")
 
 
+# ─── GH1123 / 4D604942: durable GREEN checkpoint on terminal E_GREEN_NOT_PASSING ──
+# A terminal `_verify_green_passing` abort leaves the complete GREEN implementation as
+# unstaged working-tree changes that any `git checkout -- .` / `worktree remove` destroys.
+# These three helpers preserve it: one local `--no-verify` commit + a patch artifact.
+
+GREEN_CHECKPOINT_PATCH_RELPATH_TMPL = "integrity/green-checkpoint-c{cycle}-{reason}.patch"
+
+
+def _build_green_checkpoint_message(cycle: int) -> str:
+    """GH1123 §2.3 — frozen subject line of the checkpoint commit."""
+    return f"build: green cycle {cycle} (FAILED GATE — checkpoint)"
+
+
+def _checkpoint_green_worktree(git_cwd: str, scratchpad: str | None, cycle: int, reason: str,
+                               git_cwd_source: str) -> dict[str, Any]:
+    """GH1123 §2.2 — preserve the terminal GREEN working tree; never raises.
+
+    Always returns the six-key dict {outcome, sha, patch_path, n_files, reason, detail};
+    a checkpoint failure NEVER masks or replaces the caller's E_GREEN_NOT_PASSING.
+    """
+    n_files = 0
+    swept: list[str] = []
+    swept_truncated = False
+
+    def _emit_and_return(outcome: str, *, sha: str | None = None,
+                         patch_path: str | None = None, detail: str = "") -> dict[str, Any]:
+        """§2.2 step 8 — exactly one event on every non-`disabled` return."""
+        out: dict[str, Any] = {
+            "outcome": outcome,
+            "sha": sha,
+            "patch_path": patch_path,
+            "n_files": n_files,
+            "reason": reason,
+            "detail": detail,
+        }
+        _emit_safe(
+            "green_terminal_checkpoint",
+            {**out, "swept": swept, "swept_truncated": swept_truncated,
+             "cycle": cycle, "phase": 5},
+            severity="warning",
+        )
+        return out
+
+    # ── step 0: AMBIENT-CWD GUARD (GH449, §2.2 step 0) ───────────────────────
+    # `resolve_git_cwd_with_source` labels its level-5 ambient process-cwd fallback
+    # "cwd". lib/git_cwd.py's Amendment-1 docstring: never dirty-tree-fallback-commit
+    # an ambient process cwd. A checkpoint IS that commit — refuse, stage/commit
+    # nothing. Deliberately ahead of the kill-switch (no `gate_disabled` event here).
+    # GH1220 B6: widened from the literal "cwd" to every ambient-contaminated
+    # label (relative cfg/prev_data/current_worktree_path/scratchpad_climb
+    # values are anchored to the ambient CWD too) — the four EXPLICIT
+    # derivations still proceed.
+    if is_ambient_git_cwd(git_cwd_source):
+        return _emit_and_return("ambient_cwd", detail="ambient_cwd_refused")
+
+    # ── step 1: kill-switch (canonical gate seam, §1g — alias-aware) ──────────
+    if not get_config().gate_enabled("HAL_GREEN_CHECKPOINT_GATE"):
+        _emit_safe("gate_disabled", {
+            "gate": "HAL_GREEN_CHECKPOINT_GATE",
+            "step": "verify_green_passing",
+            "reason": "env_kill_switch",
+            "phase": 5,
+        }, severity="warning")
+        return {"outcome": "disabled", "sha": None, "patch_path": None,
+                "n_files": 0, "reason": reason, "detail": "env_kill_switch"}
+
+    # ── step 2: bad-git-state guard (mirrors _commit_red_tests) ──────────────
+    gd = git_port.git_read(["rev-parse", "--git-dir"], cwd=git_cwd, timeout=30)
+    if gd.returncode != 0:
+        return _emit_and_return("error", detail="git_dir_failed")
+    gd_path = gd.stdout.strip()
+    git_dir = Path(gd_path) if Path(gd_path).is_absolute() else Path(git_cwd) / gd_path
+    bad_state_paths = [
+        git_dir / "MERGE_HEAD",
+        git_dir / "REBASE_HEAD",
+        git_dir / "rebase-merge",
+        git_dir / "rebase-apply",
+        git_dir / "CHERRY_PICK_HEAD",
+    ]
+    if any(p.exists() for p in bad_state_paths):
+        return _emit_and_return("bad_git_state", detail="bad_git_state")
+
+    # ── step 3: dirty check — the idempotency anchor (§1ab (c)/(d)) ──────────
+    st = git_port.git_read(["status", "--porcelain"], cwd=git_cwd, timeout=30)
+    if st.returncode != 0:
+        return _emit_and_return("error", detail="status_failed")
+    porcelain_lines = [ln for ln in (st.stdout or "").splitlines() if ln.strip()]
+    if not porcelain_lines:
+        return _emit_and_return("clean")
+    n_files = len(porcelain_lines)
+    swept = [ln[3:] for ln in porcelain_lines[:20]]  # SF-8: bounded observability
+    swept_truncated = n_files > 20
+
+    # ── step 4: stage, excluding the foreign-state dir (§1g seam, at call time) ──
+    excl = f":(exclude){foreign_state_dirname()}"
+    _add, add_outcome = _git_op_with_lock_retry(
+        ["git", "add", "-A", "--", ".", excl], cwd=git_cwd, timeout=30,
+    )
+    if add_outcome != "ok":
+        return _emit_and_return("error", detail=f"add_{add_outcome}")
+
+    # ── step 5: patch artifact BEFORE the commit, so it survives a commit failure ──
+    patch_path: str | None = None
+    detail = ""
+    diff = git_port.git_read(["diff", "--cached"], cwd=git_cwd, timeout=30)
+    if diff.returncode == 0 and isinstance(scratchpad, str) and scratchpad:
+        try:
+            target = Path(scratchpad) / GREEN_CHECKPOINT_PATCH_RELPATH_TMPL.format(
+                cycle=cycle, reason=reason,
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(target, diff.stdout or "")  # Path, never str (io_utils:8)
+            patch_path = str(target)
+        except Exception:
+            # Preserving the work outranks preserving the artifact — continue to commit.
+            patch_path = None
+            detail = "patch_write_failed"
+
+    # ── step 6: commit (--no-verify: no repo hook may destroy the preservation path) ──
+    _cm, cm_outcome = _git_op_with_lock_retry(
+        ["git", "commit", "--no-verify", "-m", _build_green_checkpoint_message(cycle)],
+        cwd=git_cwd, timeout=30,
+    )
+    if cm_outcome != "ok":
+        return _emit_and_return("error", patch_path=patch_path, detail=f"commit_{cm_outcome}")
+
+    # ── step 7: sha ──────────────────────────────────────────────────────────
+    rev = git_port.git_read(["rev-parse", "HEAD"], cwd=git_cwd, timeout=30)
+    if rev.returncode != 0:
+        return _emit_and_return("error", patch_path=patch_path, detail="rev_parse_failed")
+    return _emit_and_return("committed", sha=rev.stdout.strip(),
+                            patch_path=patch_path, detail=detail)
+
+
+def _terminal_green_result(step: str, data: Any, error: str, git_cwd: str,
+                           scratchpad: str | None, cycle: int, reason: str,
+                           git_cwd_source: str) -> StepResult:
+    """GH1123 §2.4 — ONE shared terminal E_GREEN_NOT_PASSING return: checkpoint the
+    worktree, then decorate the StepResult. `error` gains the ` [checkpoint <sha12>]`
+    pointer only when a commit was actually made; every other outcome leaves it
+    byte-identical to the pre-GH1123 message.
+    """
+    checkpoint = _checkpoint_green_worktree(git_cwd, scratchpad, cycle, reason, git_cwd_source)
+    sha = checkpoint.get("sha")
+    if checkpoint.get("outcome") == "committed" and isinstance(sha, str) and sha:
+        error = f"{error} [checkpoint {sha[:12]}]"
+    return StepResult(
+        status="error", data=data, duration_ms=0, step_name=step,
+        error=error,
+        error_code="E_GREEN_NOT_PASSING",
+        recoverable=False,
+        metadata={"green_checkpoint": checkpoint},
+    )
+
+
 # ─── Step 4.8: verify_green_passing — mechanical test-runner gate (95D3E5F6) ──
 
 
@@ -3955,7 +4187,21 @@ def _verify_green_passing(ctx, prev) -> StepResult:
         _emit_safe("verify_green_skipped", {"reason": "no_red_test_paths", "phase": 5}, severity="warning")
         return StepResult(status="ok", data=dict(prev.data), duration_ms=0, step_name=step)
     cfg = ctx.org_config or {}
-    git_cwd = _resolve_git_cwd(ctx, prev)
+    # GH449 §2.2 step 0: ONE resolver call yielding BOTH path and source label
+    # (calling the source-discarding wrapper too would double-emit resolver telemetry).
+    git_cwd, git_cwd_source = resolve_git_cwd_with_source(
+        cfg, prev.data if isinstance(prev.data, dict) else None,
+    )
+    # GH1123 4D604942 §2.4: checkpoint inputs for the terminal returns below.
+    # _resolve_scratchpad raises ValueError when scratchpad_dir is unset.
+    try:
+        checkpoint_scratchpad: str | None = str(_resolve_scratchpad(ctx))
+    except Exception:
+        checkpoint_scratchpad = None
+    try:
+        checkpoint_cycle = int(prev.data.get("cycle_count", 1)) if isinstance(prev.data, dict) else 1
+    except Exception:
+        checkpoint_cycle = 1
     plan = _infer_test_command_for_paths(list(red_test_paths), git_cwd=git_cwd)
     if plan.get("skipped"):
         _emit_safe("verify_green_skipped", {"reason": plan["reason"], "phase": 5}, severity="warning")
@@ -4073,7 +4319,7 @@ def _verify_green_passing(ctx, prev) -> StepResult:
             if not sib_plan.get("skipped"):
                 sib_current = _run_plan_failed_total(sib_plan, git_cwd)
                 if sib_current is not None:
-                    sib_baseline = _compute_baseline_failed(sib_plan, git_cwd)
+                    sib_baseline = _compute_baseline_failed(sib_plan, git_cwd, git_cwd_source)
                     sib_verdict = delta_verdict(sib_baseline, sib_current,
                                                 enforce=bool(cfg.get("verify_green_delta_enforce", True)))
                     _emit_safe("verify_green_sibling_delta_verdict", {
@@ -4085,11 +4331,11 @@ def _verify_green_passing(ctx, prev) -> StepResult:
                         "phase": 5,
                     }, severity="warning")
                     if sib_verdict.would_block:
-                        return StepResult(
-                            status="error", data=None, duration_ms=0, step_name=step,
-                            error=f"GREEN net-new sibling-test regressions ({sib_verdict.net_new}) outside scoped red paths",
-                            error_code="E_GREEN_NOT_PASSING",
-                            recoverable=False,
+                        return _terminal_green_result(  # GH1123: checkpoint the tree first
+                            step, None,
+                            f"GREEN net-new sibling-test regressions ({sib_verdict.net_new}) outside scoped red paths",
+                            git_cwd, checkpoint_scratchpad, checkpoint_cycle, "sibling_net_new",
+                            git_cwd_source,
                         )
     # fall through to existing `if failing_groups:` logic unchanged
     if failing_groups:
@@ -4119,15 +4365,15 @@ def _verify_green_passing(ctx, prev) -> StepResult:
                     },
                     severity="warning",
                 )
-                return StepResult(
-                    status="error", data=None, duration_ms=0, step_name=step,
-                    error=f"GREEN net-new-added RED tests failing ({len(added_test_failures)} added test file(s)) — TDD contract violation",
-                    error_code="E_GREEN_NOT_PASSING",
-                    recoverable=False,
+                return _terminal_green_result(  # GH1123: checkpoint the tree first
+                    step, None,
+                    f"GREEN net-new-added RED tests failing ({len(added_test_failures)} added test file(s)) — TDD contract violation",
+                    git_cwd, checkpoint_scratchpad, checkpoint_cycle, "net_new_added_test",
+                    git_cwd_source,
                 )
         # ── P2 585E30E3 net-new-delta SHADOW gate ────────────────────────────
         enforce_delta = bool(cfg.get("verify_green_delta_enforce", True))   # default True (C0B5C6E1 Phase 1b flip)
-        baseline_failed = _compute_baseline_failed(plan, git_cwd)  # best-effort; None on any failure
+        baseline_failed = _compute_baseline_failed(plan, git_cwd, git_cwd_source)  # best-effort; None on any failure
         verdict = delta_verdict(baseline_failed, current_failed_total, enforce=enforce_delta)
         _emit_safe(
             "verify_green_delta_verdict",
@@ -4142,11 +4388,11 @@ def _verify_green_passing(ctx, prev) -> StepResult:
             severity="warning",
         )
         if verdict.would_block:                 # enforce True AND net_new>0 (default-off this ship)
-            return StepResult(
-                status="error", data=None, duration_ms=0, step_name=step,
-                error=f"GREEN net-new test failures ({verdict.net_new}) — branch added regressions",
-                error_code="E_GREEN_NOT_PASSING",
-                recoverable=False,
+            return _terminal_green_result(  # GH1123: checkpoint the tree first
+                step, None,
+                f"GREEN net-new test failures ({verdict.net_new}) — branch added regressions",
+                git_cwd, checkpoint_scratchpad, checkpoint_cycle, "net_new_delta",
+                git_cwd_source,
             )
         # ── end P2 shadow gate — existing code continues unchanged from here ──
         kinds = ",".join(failing_groups)
@@ -4175,18 +4421,16 @@ def _verify_green_passing(ctx, prev) -> StepResult:
                 error_code="E_GREEN_NOT_PASSING",
                 recoverable=True,
             )
-        # At or beyond cap — terminal abort (AC3).
-        return StepResult(
-            status="error",
-            data={
+        # At or beyond cap — terminal abort (AC3). GH1123: checkpoint the tree first.
+        return _terminal_green_result(
+            step,
+            {
                 **(prev.data if isinstance(prev.data, dict) else {}),
                 "green_test_findings": green_test_findings,
             },
-            duration_ms=0,
-            step_name=step,
-            error=f"GREEN tests in groups [{kinds}] still failing (cycle {cycle_count}/{GREEN_TEST_CYCLE_CAP} — terminal)",
-            error_code="E_GREEN_NOT_PASSING",
-            recoverable=False,
+            f"GREEN tests in groups [{kinds}] still failing (cycle {cycle_count}/{GREEN_TEST_CYCLE_CAP} — terminal)",
+            git_cwd, checkpoint_scratchpad, cycle_count, "cycle_cap",
+            git_cwd_source,
         )
     return StepResult(status="ok", data=dict(prev.data), duration_ms=0, step_name=step)
 
@@ -4937,7 +5181,7 @@ def _verify_green_typecheck(ctx, prev) -> StepResult:
         )
 
     cfg = ctx.org_config or {}
-    git_cwd = _resolve_git_cwd(ctx, prev)
+    git_cwd, git_cwd_source = _resolve_git_cwd_with_source(ctx, prev)
 
     # Diff-scoping: identical logic to _verify_green_lint_rules (:2453-2482)
     red_sha: str | None = None
@@ -5027,7 +5271,7 @@ def _verify_green_typecheck(ctx, prev) -> StepResult:
 
     # ── 5C14EF32 net-new-vs-baseline delta gate ───────────────────────────────
     current_count = len(findings)
-    baseline_count = _compute_baseline_typecheck_count(resolved_paths, git_cwd)
+    baseline_count = _compute_baseline_typecheck_count(resolved_paths, git_cwd, git_cwd_source)
     enforce = bool(cfg.get("verify_green_typecheck_delta_enforce", True))
     verdict = delta_verdict(baseline_count, current_count, enforce=enforce)
     _emit_safe(
@@ -6589,7 +6833,7 @@ def _commit_green_code(ctx, prev) -> StepResult:
         )
 
     cfg = ctx.org_config or {}
-    git_cwd = _resolve_git_cwd(ctx, prev)
+    git_cwd, git_cwd_source = _resolve_git_cwd_with_source(ctx, prev)
     scratchpad_dir = cfg.get("scratchpad_dir")
     cycle = int(prev.data.get("cycle", 1))
 
@@ -6763,6 +7007,14 @@ def _commit_green_code(ctx, prev) -> StepResult:
             "step": "commit_green_code",
             "reason": "env_kill_switch",
         })
+
+    # ── GH1220 B2: refuse an ambient git_cwd before the first mutating op ────
+    if is_ambient_git_cwd(git_cwd_source):
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name="commit_green_code",
+            error=f"git_cwd resolved from the ambient process CWD (source={git_cwd_source!r}) — refusing to run `git add`/`git commit`",
+            error_code="E_GIT_CWD_AMBIENT", recoverable=False,
+        )
 
     # ── AC4+AC8: git add ──────────────────────────────────────────────────────
     add, add_outcome = _git_op_with_lock_retry(

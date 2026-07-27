@@ -34,7 +34,7 @@ pytest_runtest_makereport = _host_tools.pytest_runtest_makereport
 # Conftest-import-time singleton: expose engine_py root + workflows dir so test
 # files don't need module-level sys.path manipulation (§1q / 81F97F3D gate).
 _ENGINE_ROOT = Path(__file__).parent.parent
-for _p in [str(_ENGINE_ROOT), str(_ENGINE_ROOT / "workflows")]:
+for _p in [str(_ENGINE_ROOT), str(_ENGINE_ROOT / "workflows"), str(Path(__file__).parent)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -74,8 +74,18 @@ def pytest_configure(config: pytest.Config) -> None:
 
     Prepends a fake `claude` script to PATH that exits 99 and emits BURN-GUARD
     to stderr if invoked.  Any test that reaches the real LLM trips the guard.
+
+    Also wires the GH1220 Change C live-repo HEAD sentinel (guarded by
+    try/except ImportError so RED, before the module exists, collects the
+    rest of the suite unaffected).
     """
     global _ORIG_PATH, _GUARD_DIR
+
+    try:
+        import _live_repo_sentinel as _sentinel  # noqa: PLC0415
+        _sentinel.pytest_configure(config)
+    except ImportError:
+        pass
 
     guard_dir = tempfile.mkdtemp(prefix="hal-burn-guard-")
     log_path = os.path.join(guard_dir, "burn-guard.log")
@@ -111,6 +121,24 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     if _ORIG_PATH or _GUARD_DIR:
         os.environ["PATH"] = _ORIG_PATH
     os.environ.pop("HAL_LLM_BURN_GUARD", None)
+
+
+def pytest_runtest_teardown(item, nextitem) -> None:  # noqa: ARG001
+    """GH1220 Change C: cheap per-test HEAD-drift check (culprit attribution)."""
+    try:
+        import _live_repo_sentinel as _sentinel  # noqa: PLC0415
+        _sentinel.pytest_runtest_teardown(item)
+    except ImportError:
+        pass
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
+    """GH1220 Change C: post-suite live-repo HEAD drift report/exitstatus."""
+    try:
+        import _live_repo_sentinel as _sentinel  # noqa: PLC0415
+        _sentinel.pytest_sessionfinish(session)
+    except ImportError:
+        pass
 
 
 @pytest.fixture(autouse=True)
@@ -216,3 +244,12 @@ def _hal_config_provider_default():
         _hcp.register_hal_config_provider()
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _llm_backend_registry_isolation():
+    """Hermetic backend registry per test (GH1082 — #1092/#1098)."""
+    import llm_subprocess as _llm  # noqa: PLC0415
+    _llm.reset_backends()
+    yield
+    _llm.reset_backends()

@@ -163,7 +163,7 @@ def _git_staged_modified_paths() -> list[str]:
     Uses --diff-filter=MR (not ACMR) so that Added files are NOT gated —
     parity with tier_gate which intentionally allows new engine_py files under MICRO.
     """
-    result = git_read(["diff", "--cached", "--name-only", "--diff-filter=MR"])
+    result = git_read(["diff", "--cached", "--name-only", "--diff-filter=MR"])  # ambient-cwd: allow commit-msg hook reads the index of whatever repo invoked it
     stdout = result.stdout if result.stdout else ""
     return [line for line in stdout.splitlines() if line.strip()]
 
@@ -175,7 +175,7 @@ def _git_all_staged_paths() -> list[str]:
     docs are included — the CLI passes this list as staged_paths to
     scan_audit_violation so doc detection works even when the doc is brand-new.
     """
-    result = git_read(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+    result = git_read(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])  # ambient-cwd: allow commit-msg hook reads the index of whatever repo invoked it
     stdout = result.stdout if result.stdout else ""
     return [line for line in stdout.splitlines() if line.strip()]
 

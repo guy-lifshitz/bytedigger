@@ -224,7 +224,7 @@ def check_git_runtime() -> CheckResult:
 
     def _probe(args: list[str]) -> tuple[int, str]:
         try:
-            result = git_read(args, timeout=10)
+            result = git_read(args, timeout=10)  # ambient-cwd: allow CLI diagnostic reports on the repo the operator ran it in
         except (subprocess.SubprocessError, OSError) as e:
             return 1, f"{type(e).__name__}: {e}"
         return result.returncode, (result.stdout.strip() or result.stderr.strip())

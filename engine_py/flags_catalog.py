@@ -391,6 +391,12 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: HAL_GREEN_COMPLETE_RESUME_GATE=0 disables the GREEN-complete resume detection (GH483).",
     },
+    "HAL_GREEN_CHECKPOINT_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Kill-switch: HAL_GREEN_CHECKPOINT_GATE=0 disables the durable GREEN working-tree checkpoint on terminal E_GREEN_NOT_PASSING (GH1123).",
+    },
     "HAL_TIMEOUT_ACTIVE_THRESHOLD_BYTES": {
         "kind": "int",
         "default": 50000,
@@ -402,6 +408,17 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: HAL_SECURITY_LINT_GATE=0 disables the security-lint gate.",
+    },
+    "HAL_MUTATING_GIT_LINT": {
+        "kind": "gate",
+        "default": "1",
+        "module": "lib/mutating_git_lint.py",
+        "description": (
+            "Kill-switch: HAL_MUTATING_GIT_LINT=0 disables the GH1220 anti-rot "
+            "mutating-git-site lint (Change D). Ships enforcing by default with "
+            "no falsy-default rollout flag (D4) — the advisory version of this "
+            "rule already existed as a docstring and was ignored twice."
+        ),
     },
     "HAL_AUTHORED_BOUNDARY_GATE": {
         "kind": "gate",
@@ -626,5 +643,47 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "llm_subprocess.py",
         "description": "GH1169: kill-switch for the one-shot agent-sdk→claude-subprocess fallback triggered when an agent-sdk step times out via its own idle-gap watchdog (hang_attempts>=1). '0' disables the fallback; default enabled.",
+    },
+    "HAL_KNOWN_REDS_KILL_BY_ENFORCE": {
+        "kind": "gate",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "Falsy-default rollout flag for GH1199 kill-by enforcement in known-reds.md, agreement CD666B9B-D319-403D-8EF2-8B8870E0F834, flip-by:2026-08-08.",
+    },
+    "HAL_KNOWN_REDS_TODAY": {
+        "kind": "str",
+        "default": None,
+        "module": "known_reds_ledger.py",
+        "description": "Test/deterministic seam overriding date.today() for kill-by classification; malformed value fails closed.",
+    },
+    "HAL_KNOWN_REDS_OWNER_ENFORCE": {
+        "kind": "gate",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "Falsy-default rollout flag for GH1230 owner-liveness enforcement in known-reds.md (dead owner = CLOSED issue blocks the canary ship gate until the row is rehung), agreement C4B6B16C-0E22-4286-8064-EEAFF9ECEE9A, flip-by:2026-08-08.",
+    },
+    "HAL_KNOWN_REDS_REPO": {
+        "kind": "str",
+        "default": "<host-repo-slug: upstream-private, set by the host repo>",
+        "module": "canary.sh",
+        "description": "Repo slug the GH1230 owner-liveness audit resolves ledger owners against; overridable for forks/mirrors so the gate does not query the wrong repo.",
+    },
+    "HAL_FORWARD_SUBAGENT_TEXT": {
+        "kind": "gate",
+        "default": "1",
+        "module": "llm_subprocess.py",
+        "description": "GH1193: kill-switch for --forward-subagent-text auto-injection + the bounded subagent-stream sink (one switch, no split-brain). '0' disables both; default enabled.",
+    },
+    "HAL_SUBAGENT_SINK_DIR": {
+        "kind": "path",
+        "default": None,
+        "module": "llm_subprocess.py",
+        "description": "GH1193: directory for the bounded per-step subagent-stream JSONL sidecar (subagent-<step_name>.jsonl). Unset (default) = sink skipped entirely, inert.",
+    },
+    "HAL_SUBAGENT_SINK_MAX_BYTES": {
+        "kind": "int",
+        "default": 2097152,
+        "module": "llm_subprocess.py",
+        "description": "GH1193: byte budget for the subagent-stream sink per step (default 2 MiB). On exceeding, appends stop and one terminal {\"type\":\"truncated\",...} record is written.",
     },
 }

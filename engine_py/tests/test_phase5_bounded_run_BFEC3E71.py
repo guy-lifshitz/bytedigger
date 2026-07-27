@@ -686,7 +686,7 @@ class TestBehaviorBFEC3E71:
         prod.write_text("x: int = 1\n")
 
         try:
-            result = _p5._compute_baseline_typecheck_count([str(prod)], str(tmp_path))
+            result = _p5._compute_baseline_typecheck_count([str(prod)], str(tmp_path), "cfg_git_cwd")
         finally:
             _p5.git_write_port.reset_default_git_write_factory()
 

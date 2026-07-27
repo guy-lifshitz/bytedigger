@@ -363,6 +363,7 @@ class WorkflowEngine:
         prev: Any = initial_data
         last_result: StepResult | None = None
         _escalated: bool = False  # 585E30E3: set True when any step returns escalate
+        _scan_cwd = _resolve_scan_cwd(context)
 
         for step in workflow.steps[start_step:]:
             start_ms = int(time.monotonic() * 1000)
@@ -380,7 +381,7 @@ class WorkflowEngine:
             )
             # Decree 2026-04-26 cat B: snapshot git baseline before step
             # (changes-since-HEAD set so we can subtract to get per-step delta).
-            git_pre = _git_changes_vs_head()
+            git_pre = _git_changes_vs_head(_scan_cwd) if _scan_cwd else None
 
             # 04E3B874 S1: pre-execute boundary check — hard-fail when a
             # declared required ctx field is missing/None/empty/falsy.
@@ -431,7 +432,7 @@ class WorkflowEngine:
             # status differs from pre-step baseline. Suppress empty events
             # to keep ordering tests stable.
             if git_pre is not None:
-                git_post = _git_changes_vs_head()
+                git_post = _git_changes_vs_head(_scan_cwd) if _scan_cwd else None
                 if git_post is not None:
                     delta = _diff_changes(git_pre, git_post)
                     if any(delta.values()):
@@ -1058,7 +1059,13 @@ def _index_of(workflow: WorkflowDefinition, step_name: str) -> int:
     return 0
 
 
-def _git_changes_vs_head() -> dict[str, str] | None:
+def _resolve_scan_cwd(context: Any) -> str | None:
+    """The explicitly-supplied tree to scan, or None. Never falls back to ambient cwd."""
+    raw = (getattr(context, "org_config", None) or {}).get("git_cwd")
+    return str(raw) if raw else None
+
+
+def _git_changes_vs_head(cwd: str | None = None) -> dict[str, str] | None:
     """Return {path: status_letter} for all working-tree changes vs HEAD.
 
     Combines `git diff --name-status HEAD` (tracked) with
@@ -1066,10 +1073,10 @@ def _git_changes_vs_head() -> dict[str, str] | None:
     Returns None if cwd is not a git repo / git unavailable.
     """
     try:
-        diff = git_read(["diff", "--name-status", "HEAD"], timeout=5)
+        diff = git_read(["diff", "--name-status", "HEAD"], cwd=cwd, timeout=5)
         if diff.returncode != 0:
             return None
-        others = git_read(["ls-files", "--others", "--exclude-standard"], timeout=5)
+        others = git_read(["ls-files", "--others", "--exclude-standard"], cwd=cwd, timeout=5)
         if others.returncode != 0:
             return None
     except (FileNotFoundError, subprocess.TimeoutExpired):

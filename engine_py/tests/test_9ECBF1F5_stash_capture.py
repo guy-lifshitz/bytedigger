@@ -188,7 +188,7 @@ def test_9ecbf1f5_ac4_baseline_failed_records_stash_push(tmp_path):
     spy = _CaptureSpy(push_result=push_result)
     git_write_port.set_default_git_write_factory(lambda: spy)
     try:
-        p5._compute_baseline_failed({"groups": []}, str(tmp_path))
+        p5._compute_baseline_failed({"groups": []}, str(tmp_path), "cfg_git_cwd")
     finally:
         git_write_port.reset_default_git_write_factory()
 
@@ -216,7 +216,7 @@ def test_9ecbf1f5_ac5_baseline_failed_records_stash_pop(tmp_path):
     spy = _CaptureSpy(push_result=push_result)
     git_write_port.set_default_git_write_factory(lambda: spy)
     try:
-        p5._compute_baseline_failed({"groups": []}, str(tmp_path))
+        p5._compute_baseline_failed({"groups": []}, str(tmp_path), "cfg_git_cwd")
     finally:
         git_write_port.reset_default_git_write_factory()
 
@@ -247,7 +247,7 @@ def test_9ecbf1f5_ac6_baseline_typecheck_records_stash_push(tmp_path):
     spy = _CaptureSpy(push_result=push_result)
     git_write_port.set_default_git_write_factory(lambda: spy)
     try:
-        p5._compute_baseline_typecheck_count([], str(tmp_path))
+        p5._compute_baseline_typecheck_count([], str(tmp_path), "cfg_git_cwd")
     finally:
         git_write_port.reset_default_git_write_factory()
 
@@ -275,7 +275,7 @@ def test_9ecbf1f5_ac7_baseline_typecheck_records_stash_pop(tmp_path):
     spy = _CaptureSpy(push_result=push_result)
     git_write_port.set_default_git_write_factory(lambda: spy)
     try:
-        p5._compute_baseline_typecheck_count([], str(tmp_path))
+        p5._compute_baseline_typecheck_count([], str(tmp_path), "cfg_git_cwd")
     finally:
         git_write_port.reset_default_git_write_factory()
 
@@ -312,7 +312,7 @@ def test_9ecbf1f5_ac8_clean_tree_sentinel_no_pop(tmp_path):
     spy = _CaptureSpy(push_result=sentinel_result)
     git_write_port.set_default_git_write_factory(lambda: spy)
     try:
-        result = p5._compute_baseline_failed({"groups": []}, str(tmp_path))
+        result = p5._compute_baseline_failed({"groups": []}, str(tmp_path), "cfg_git_cwd")
     finally:
         git_write_port.reset_default_git_write_factory()
 

@@ -63,6 +63,12 @@ logger = logging.getLogger(__name__)
 
 _TAIL_BYTES = 2048
 
+# GH1194 (spec §2.2a): per-process de-duplication of MCP-loss warnings, keyed on
+# (name, reason).  A permanently broken ambient environment would otherwise warn
+# on every single LLM call and the signal would be trained away.  De-dup applies
+# to the LOG only — data["mcp_server_losses"] always carries the full list.
+_WARNED_MCP_LOSSES: set[tuple[str, str]] = set()
+
 # 4C03CCED Ship 1A: runner backend selector constants.
 # 68E964FB: _KNOWN_BACKENDS now derives from _BACKENDS registry (§1g single source).
 # _BACKENDS and _KNOWN_BACKENDS are defined below, after the handler defs.
@@ -230,6 +236,23 @@ def _load_effort_gate(model: "str | None" = None) -> "str | None":
         return None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _forward_subagent_enabled() -> bool:
+    """HAL_FORWARD_SUBAGENT_TEXT: default ON; only the literal "0" disables
+    (GH1193 §2.3a: the canonical config_provider.gate_enabled predicate —
+    "enabled unless explicitly '0'" — is adopted verbatim rather than a
+    second case-insensitive false/no predicate)."""
+    return config_provider.get_config().gate_enabled("HAL_FORWARD_SUBAGENT_TEXT")
+
+
+def _subagent_forward_flags() -> "tuple[str, ...]":
+    """() when disabled or the active provider declares none; the active
+    provider's tuple when the toggle is enabled (provider-scoped by
+    construction — GH1193 §2.2/AC5)."""
+    if not _forward_subagent_enabled():
+        return ()
+    return get_provider().subagent_forward_flags
 
 
 def _apply_effort(command: "list[str]", effort: "str | None") -> "list[str]":
@@ -1339,6 +1362,14 @@ def _invoke_subprocess(
     # --allowed-tools apply unconditionally.
     # 23680DDA: auto-inject stream-json (incremental) + --verbose.
     effective_command = base_argv + list(get_provider().stream_flags)
+    # GH1193 §2.2/§2.5: appended immediately after the stream flags — NOT at
+    # the end of assembly — so it stays adjacent to --output-format (AC3).
+    # cmd_tail invariance (AC16) is NOT a positional accident of this
+    # placement (a config with nothing appended afterward would still put
+    # the flag inside any n-window); it is enforced at
+    # _cmd_tail_redacted() by filtering these flags out before the last-n
+    # slice.
+    effective_command = effective_command + list(_subagent_forward_flags())
     output_format_auto_injected = True
     # 845F2C2C Layer 3: per-phase --allowed-tools profile injection.
     if allowed_tools is not None:
@@ -1434,6 +1465,38 @@ def _invoke_subprocess(
             timeout_sec=timeout_sec,
             idle_timeout_sec=idle_timeout_sec,
         )
+        # GH1194 (spec §2.2): report MCP servers lost at headless startup HERE —
+        # the single point where a stream-json run's events exist and through
+        # which EVERY downstream branch passes (timeout, non-zero exit, no-result,
+        # spend-limit, result-error, success).  A run that also failed is exactly
+        # when a missing MCP server matters most, so visibility must not be
+        # conditional on success.  At most one warning per run, naming only the
+        # not-yet-reported losses (§2.2a de-dup).
+        _mcp_losses = _mcp_losses_from_events(events or [])
+        # GH1193 §2.3 "Call site — NOT the success path": beside
+        # _mcp_losses_from_events, above every terminal branch (straggler
+        # abort, idle-abort, timeout, exit, no-result, malformed, error,
+        # success) so the sink is populated whether or not the run
+        # eventually succeeds — exactly the hang scenario this ship targets.
+        _maybe_write_subagent_sink(events, step_name)
+        _new_mcp_losses = [
+            r for r in _mcp_losses
+            if (r["name"], r["reason"]) not in _WARNED_MCP_LOSSES
+        ]
+        if _new_mcp_losses:
+            for _r in _new_mcp_losses:
+                _WARNED_MCP_LOSSES.add((_r["name"], _r["reason"]))
+            logger.warning(
+                "mcp servers lost at startup (unavailable for this run): %s",
+                "; ".join(
+                    "%s (%s)%s" % (
+                        r["name"],
+                        r["reason"],
+                        ": " + r["message"] if r["message"] else "",
+                    )
+                    for r in _new_mcp_losses
+                ),
+            )
     else:
         # 775D6752: legacy path accepts idle_timeout_sec for signature compat
         # but cannot honour it — there are no per-line stream events to monitor
@@ -1861,6 +1924,12 @@ def _invoke_subprocess(
     # shadow it via extra_data (name is reserved for this key).  Absent on all
     # error branches (self-documenting: only success has a valid manifest).
     data["worker_written_paths"] = _written_paths_from_events(events or [])
+    # GH1194 (spec §2.3): MCP servers lost at headless startup.  Set AFTER the
+    # extra_data merge so a caller cannot shadow it (name reserved, same
+    # discipline as worker_written_paths).  Carries the FULL loss list for the
+    # run, independent of the §2.2a log de-duplication — telemetry must not
+    # inherit a logging concern.  Absent on every error branch.
+    data["mcp_server_losses"] = _mcp_losses_from_events(events or [])
     # 4C03CCED Ship 1C G1: harness-tool-record manifest (stream-json transcript).
     data["manifest_source"] = "harness_tool_record"
 
@@ -2384,6 +2453,63 @@ def _find_last_result_event(events: list[dict]) -> dict | None:
     return get_provider().parse_result(events)
 
 
+def _is_root_stream_event(ev: "dict[str, typing.Any]") -> bool:
+    """GH1193 §2.6.1 (gate R3): an event is ROOT iff its parent_tool_use_id
+    is None, the key is absent, or the value is not a non-empty str. This is
+    not a detail — today's production streams carry NO parent_tool_use_id key
+    at all on any event, so absent-key MUST be treated as root, never as
+    "not root" (that reading empties the manifest on every run)."""
+    parent = ev.get("parent_tool_use_id")
+    return not (isinstance(parent, str) and parent)
+
+
+def _manifest_eligible_events(events: "list[dict[str, typing.Any]]") -> "list[dict[str, typing.Any]]":
+    """GH1193 §2.6: depth-1 ceiling for the manifest extractor — its output
+    must be byte-identical with and without --forward-subagent-text.
+
+    Keeps ROOT events (§2.6.1) plus events whose parent_tool_use_id is a
+    tool_use id spawned by a ROOT ``Agent``/``Task`` block (depth 1).
+    Everything deeper is dropped. Fail-CLOSED (§2.6.4): an event whose
+    parent id was never seen as a root-spawned Agent/Task block — e.g. its
+    spawn line was silently dropped upstream — is excluded, never included.
+    The guard may only ever narrow the manifest, since widening reaches
+    phase_6_review._partition_fix_surface's unlink().
+    """
+    root_spawned: "set[str]" = set()
+    root_events: "list[dict[str, typing.Any]]" = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if not _is_root_stream_event(ev):
+            continue
+        root_events.append(ev)
+        message = ev.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_use":
+                continue
+            if block.get("name") not in ("Agent", "Task"):
+                continue
+            block_id = block.get("id")
+            if isinstance(block_id, str) and block_id:
+                root_spawned.add(block_id)
+
+    eligible: "list[dict[str, typing.Any]]" = list(root_events)
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if _is_root_stream_event(ev):
+            continue  # already included above (or malformed)
+        parent = ev.get("parent_tool_use_id")
+        if isinstance(parent, str) and parent in root_spawned:
+            eligible.append(ev)
+    return eligible
+
+
 def _written_paths_from_events(events: list[dict]) -> list[str]:
     """Extract the set of file paths written by the worker from stream-json events.
 
@@ -2406,10 +2532,14 @@ def _written_paths_from_events(events: list[dict]) -> list[str]:
     4961254A: This is the canonical manifest source for commit-steps.  The
     stream-json transcript is the harness's own record of the subprocess's tool
     calls — NOT the worker's self-report — so it is immune to fabrication.
+
+    GH1193 §2.6: scans only ``_manifest_eligible_events(events)`` (root +
+    depth-1) — a depth-1 ceiling so a --forward-subagent-text run is
+    byte-identical to a pre-flag run for this extractor.
     """
     _WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
     paths: set[str] = set()
-    for ev in events:
+    for ev in _manifest_eligible_events(events):
         if not isinstance(ev, dict):
             continue
         if ev.get("type") != "assistant":
@@ -2439,6 +2569,209 @@ def _written_paths_from_events(events: list[dict]) -> list[str]:
                 if isinstance(nb, str) and nb:
                     paths.add(nb)
     return sorted(paths)
+
+
+# GH1193 §2.2a: 41.9 KB observed for a 2-subagent step; 2 MiB gives ~50x
+# headroom. Must be referenced as a bare module-global inside
+# _write_subagent_sink (never bound as a def-time default) — tests
+# monkeypatch this attribute directly.
+_SUBAGENT_SINK_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _sanitize_sink_step_name(step_name: str) -> str:
+    """GH1193 hardening: a step_name containing '/' or '..' must not be able
+    to write the sink file outside sink_dir. Strips any directory component
+    and keeps only filesystem-safe characters."""
+    name = os.path.basename(str(step_name or "step")).replace("..", "_")
+    safe = "".join(ch if (ch.isalnum() or ch in ("-", "_", ".")) else "_" for ch in name)
+    return safe or "step"
+
+
+def _subagent_attributed_parent(ev: "dict[str, typing.Any]") -> "str | None":
+    """GH1193 AC10 (fail-closed): returns the parent id only when it is a
+    non-empty str. Absent, None, non-str, AND empty-string all return None —
+    a bare ``is not None`` would wrongly persist an empty-string parent."""
+    parent = ev.get("parent_tool_use_id")
+    if isinstance(parent, str) and parent:
+        return parent
+    return None
+
+
+def _write_subagent_sink(events: "list[dict[str, typing.Any]]", sink_dir: str, step_name: str) -> None:
+    """GH1193 §2.3: bounded per-step JSONL sidecar of subagent-attributed
+    text/thinking content blocks, at ``<sink_dir>/subagent-<step_name>.jsonl``.
+
+    FILTER (AC9/AC10): one record per content block belonging to an event
+    whose parent_tool_use_id is subagent-attributed (non-empty str); root
+    chatter (null/absent/empty parent) is dropped. Record shape (AC9a):
+    ``{"parent_tool_use_id", "block_type", "text"}`` — block_type is the
+    block's own "type" ("text"/"thinking"); payload is read from the
+    matching "text" or "thinking" key.
+
+    THRESHOLD (AC11/AC17): ``_SUBAGENT_SINK_MAX_BYTES`` (module global, read
+    at call time; HAL_SUBAGENT_SINK_MAX_BYTES overrides) bounds the file.
+    Fail-closed at the boundary: a write that would land written bytes AT
+    the limit still proceeds (does not exceed); a write that would EXCEED
+    the limit is refused, and exactly one terminal
+    ``{"type":"truncated","dropped_events":N,"limit_bytes":L}`` record is
+    appended instead. Silent truncation is forbidden.
+
+    Explicit open mode ("w", truncate): a same-cycle retry overwrites rather
+    than silently concatenating onto a prior file while the byte budget
+    counts only the new writes.
+
+    Best-effort (AC13): any OSError (unwritable dir, full disk) is
+    swallowed — observability must never fail the step.
+    """
+    max_bytes = config_provider.int_value(
+        "HAL_SUBAGENT_SINK_MAX_BYTES", _SUBAGENT_SINK_MAX_BYTES
+    )
+
+    records: "list[dict[str, typing.Any]]" = []
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        parent = _subagent_attributed_parent(ev)
+        if parent is None:
+            continue
+        message = ev.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type not in ("text", "thinking"):
+                continue
+            payload = block.get(block_type)
+            if not isinstance(payload, str):
+                continue
+            records.append({
+                "parent_tool_use_id": parent,
+                "block_type": block_type,
+                "text": payload,
+            })
+
+    lines: "list[str]" = []
+    written_bytes = 0
+    dropped = 0
+    truncated = False
+    for idx, rec in enumerate(records):
+        line = json.dumps(rec) + "\n"
+        line_bytes = len(line.encode("utf-8"))
+        if written_bytes + line_bytes > max_bytes:
+            truncated = True
+            dropped = len(records) - idx
+            break
+        lines.append(line)
+        written_bytes += line_bytes
+
+    if truncated:
+        term = {
+            "type": "truncated",
+            "dropped_events": dropped,
+            "limit_bytes": max_bytes,
+        }
+        lines.append(json.dumps(term) + "\n")
+
+    safe_name = _sanitize_sink_step_name(step_name)
+    sink_path = os.path.join(sink_dir, f"subagent-{safe_name}.jsonl")
+    try:
+        os.makedirs(sink_dir, exist_ok=True)
+        with open(sink_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except OSError:
+        logger.warning("subagent sink write failed", exc_info=True)
+
+
+def _maybe_write_subagent_sink(events: "list[dict[str, typing.Any]] | None", step_name: str) -> None:
+    """GH1193 §2.3 call-site wrapper (§1aa — no inline predicate inside
+    control flow). Writes the sink only when the toggle is enabled AND
+    HAL_SUBAGENT_SINK_DIR is set (§2.3 LEVEL — AC12/AC12-INERT); unset
+    sink_dir is inert (no fallback to cwd/tempdir). Best-effort — never
+    raises into the caller (AC13)."""
+    if not _forward_subagent_enabled():
+        return
+    sink_dir = config_provider.env_opt("HAL_SUBAGENT_SINK_DIR")
+    if not sink_dir:
+        return
+    try:
+        _write_subagent_sink(events or [], sink_dir, step_name)
+    except Exception:  # noqa: BLE001 — observability must never break the step
+        logger.warning("subagent sink write failed", exc_info=True)
+
+
+def _mcp_losses_from_events(events: list[dict[str, typing.Any]]) -> list[dict[str, str]]:
+    """Collect MCP servers lost at headless startup (GH1194, CC 2.1.220).
+
+    Scans the ``type == "system"`` / ``subtype == "init"`` event for two disjoint
+    buckets and normalises both into one record shape
+    ``{"name": str, "reason": str, "message": str}``:
+      * ``mcp_server_errors``                 -> reason "invalid_config"
+      * ``mcp_servers[].status == "failed"``  -> reason "connect_failed"
+
+    ``reason`` is a MAPPED CONSTANT — the platform's ``type`` field is never
+    passed through.  ``message`` is ``""`` when the platform supplies none.
+
+    ``status == "pending"`` is the NORMAL state at init (servers are still
+    connecting; "connected" never appears there) and is never reported.
+
+    Order is contractual: all ``mcp_server_errors`` records first, then all
+    failed ``mcp_servers`` records, each in PLATFORM order.  Deliberately NOT
+    sorted and NOT deduplicated — the sibling ``_written_paths_from_events``
+    "sorted, deduplicated" contract does not apply here.
+
+    Returns [] when there is no init event, when both buckets are empty/None, or
+    on any malformed shape.  Defensive: tolerates every missing key, never raises
+    — mirrors the _written_paths_from_events / _find_last_result_event tolerance.
+
+    PURE: never mutates module state (the ``_WARNED_MCP_LOSSES`` de-dup set is
+    read/written only at the warning call-site).
+    """
+    losses: list[dict[str, str]] = []
+    init_ev = None
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "system" and ev.get("subtype") == "init":
+            init_ev = ev
+            break
+    if init_ev is None:
+        return losses
+
+    errors = init_ev.get("mcp_server_errors")
+    if isinstance(errors, list):
+        for entry in errors:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            message = entry.get("message")
+            losses.append({
+                "name": name,
+                "reason": "invalid_config",
+                "message": message if isinstance(message, str) else "",
+            })
+
+    servers = init_ev.get("mcp_servers")
+    if isinstance(servers, list):
+        for entry in servers:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("status") != "failed":
+                continue
+            name = entry.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            losses.append({
+                "name": name,
+                "reason": "connect_failed",
+                "message": "",
+            })
+
+    return losses
 
 
 def _tokens_and_cost_from_events(events: list[dict]) -> tuple[dict | None, float | None]:
@@ -2613,8 +2946,20 @@ def _cmd_tail_redacted(command: list[str], n: int = 3) -> list[str]:
 
     Full argv lives in StepResult.data['command']; this is for error messages
     and event payloads where a short identifier is more useful than the whole list.
+
+    GH1193 §2.5 telemetry invariance: the subagent-forwarding flags
+    (e.g. --forward-subagent-text) are filtered out of ``command`` BEFORE the
+    last-n slice is taken. Positional placement at the assembly site alone
+    cannot guarantee this — when nothing follows the flag (no
+    --allowed-tools / effort / --append-system-prompt appended afterward),
+    it would otherwise land inside any n-window regardless of where it was
+    inserted. Derived from ``_subagent_forward_flags()`` — the same source
+    the assembly site appends — so the filter set is never a second,
+    hand-duplicated literal.
     """
-    tail = list(command[-n:]) if command else []
+    _forward_flags = set(_subagent_forward_flags())
+    filtered = [a for a in command if a not in _forward_flags] if command else []
+    tail = list(filtered[-n:]) if filtered else []
     return [_redact_arg(a) for a in tail]
 
 

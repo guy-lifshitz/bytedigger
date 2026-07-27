@@ -121,7 +121,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from bounded_spawn import bounded_run  # noqa: E402
 from lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from lib import git_port  # noqa: E402
-from lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source  # noqa: E402  GH381
+from lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381/GH1220
 from anti_hallucination.helper import (  # noqa: E402
     check_citation as _check_citation_impl,
     verify_findings as _verify_findings_impl,
@@ -3884,7 +3884,10 @@ def _autocommit_fix_tail(
     if not porcelain_lines:
         return {"tail_committed": False}
 
-    if git_cwd_source == "cwd":
+    # GH1220 B7: widened to every ambient-contaminated label; reason literal
+    # "cwd_default" is pinned (AC14b, §1o) — unchanged so existing consumers
+    # dispatching on it are unaffected.
+    if is_ambient_git_cwd(git_cwd_source):
         _emit_safe("fix_tail_skipped", {"reason": "cwd_default", "phase": 6, "step": step_name})
         return {"tail_committed": False}
 
@@ -4232,6 +4235,15 @@ def _commit_fix_code(ctx, prev) -> StepResult:
                 duration_ms=0,
                 step_name="commit_fix_code",
             )
+
+    # ── GH1220 B3: refuse an ambient git_cwd before the FIRST mutating op ────
+    # (the GH947 surface guard's Path.unlink() below, not merely `git add`).
+    if is_ambient_git_cwd(_git_cwd_source):
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name="commit_fix_code",
+            error=f"git_cwd resolved from the ambient process CWD (source={_git_cwd_source!r}) — refusing to run `git add`/`git commit`",
+            error_code="E_GIT_CWD_AMBIENT", recoverable=False,
+        )
 
     # ── GH947: fix-worker surface guard ─────────────────────────────────────
     # A stray write outside the findings surface (not cited in the review doc,
@@ -4596,6 +4608,14 @@ def _commit_fix_tests(ctx, prev) -> StepResult:
             step_name="commit_fix_tests",
         )
 
+    # ── GH1220 B4: refuse an ambient git_cwd before the first mutating op ────
+    if is_ambient_git_cwd(_git_cwd_source):
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name="commit_fix_tests",
+            error=f"git_cwd resolved from the ambient process CWD (source={_git_cwd_source!r}) — refusing to run `git add`/`git commit`",
+            error_code="E_GIT_CWD_AMBIENT", recoverable=False,
+        )
+
     # ── git add ───────────────────────────────────────────────────────────────
     add, add_outcome = _git_op_with_lock_retry(
         ["git", "add", "--"] + test_paths, cwd=git_cwd, timeout=30
@@ -4734,7 +4754,8 @@ def _verify_fix_typecheck(ctx, prev) -> StepResult:  # noqa: C901
     """
     import fnmatch as _fnmatch
     cfg = ctx.org_config or {}
-    git_cwd = str(resolve_git_cwd(cfg))
+    git_cwd, git_cwd_source = resolve_git_cwd_with_source(cfg)
+    git_cwd = str(git_cwd)
     step_name = "verify_fix_typecheck"
 
     # ── 1. Synthetic-env guard ────────────────────────────────────────────────
@@ -4826,48 +4847,57 @@ def _verify_fix_typecheck(ctx, prev) -> StepResult:  # noqa: C901
     current_count = len(current_findings)
 
     # ── 6. Baseline count via detached worktree at pre_fix_sha ───────────────
+    # GH1220 B10: refuse an ambient git_cwd before `git worktree add --detach`
+    # — skip the worktree-based baseline scan entirely, falling through to
+    # step 7 with baseline_count=None (reuses the step's existing "typecheck
+    # unavailable" degrade; no new StepResult shape needed).
     baseline_count: int | None = None
-    parent = tempfile.mkdtemp(prefix="tc_baseline_")
-    wt = os.path.join(parent, "wt")
-    worktree_added = False
-    try:
-        rc_wt, _, _ = _git_write(["worktree", "add", "--detach", wt, pre_fix_sha], Path(git_cwd))
-        if rc_wt == 0:
-            worktree_added = True
-            # Map resolved paths into the worktree
-            wt_paths: list[str] = []
-            for rp in resolved_paths:
+    if is_ambient_git_cwd(git_cwd_source):
+        _emit_safe("fix_typecheck_skipped_ambient_cwd", {
+            "phase": 6, "step": step_name, "source": git_cwd_source,
+        })
+    else:
+        parent = tempfile.mkdtemp(prefix="tc_baseline_")
+        wt = os.path.join(parent, "wt")
+        worktree_added = False
+        try:
+            rc_wt, _, _ = _git_write(["worktree", "add", "--detach", wt, pre_fix_sha], Path(git_cwd))
+            if rc_wt == 0:
+                worktree_added = True
+                # Map resolved paths into the worktree
+                wt_paths: list[str] = []
+                for rp in resolved_paths:
+                    try:
+                        rel = Path(rp).relative_to(git_cwd_resolved)
+                        wt_paths.append(str(Path(wt) / rel))
+                    except ValueError:
+                        pass  # skip unmappable paths
                 try:
-                    rel = Path(rp).relative_to(git_cwd_resolved)
-                    wt_paths.append(str(Path(wt) / rel))
-                except ValueError:
-                    pass  # skip unmappable paths
-            try:
-                bl_proc = bounded_run(
-                    _mypy_base_argv_p6(wt) + wt_paths,
-                    cwd=wt,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                if bl_proc.returncode != 124:
-                    baseline_count = len(
-                        _parse_mypy_output_p6(
-                            (bl_proc.stdout or "") + "\n" + (bl_proc.stderr or "")
-                        )
+                    bl_proc = bounded_run(
+                        _mypy_base_argv_p6(wt) + wt_paths,
+                        cwd=wt,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
                     )
-            except Exception:
-                baseline_count = None
-    finally:
-        if worktree_added:
+                    if bl_proc.returncode != 124:
+                        baseline_count = len(
+                            _parse_mypy_output_p6(
+                                (bl_proc.stdout or "") + "\n" + (bl_proc.stderr or "")
+                            )
+                        )
+                except Exception:
+                    baseline_count = None
+        finally:
+            if worktree_added:
+                try:
+                    _git_write(["worktree", "remove", "--force", wt], Path(git_cwd))
+                except Exception:
+                    pass
             try:
-                _git_write(["worktree", "remove", "--force", wt], Path(git_cwd))
+                shutil.rmtree(parent, ignore_errors=True)
             except Exception:
                 pass
-        try:
-            shutil.rmtree(parent, ignore_errors=True)
-        except Exception:
-            pass
 
     # ── 7. Delta verdict and emit ─────────────────────────────────────────────
     enforce_flag = bool(cfg.get("post_fix_typecheck_delta_enforce", True))

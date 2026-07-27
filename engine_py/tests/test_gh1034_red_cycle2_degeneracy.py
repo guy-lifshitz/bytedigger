@@ -173,7 +173,7 @@ def test_ac1_restore_writes_c1_content_and_new_gh1034_commit(monkeypatch, tmp_pa
     _commit_file(git_cwd, rel, PASSING_CONTENT, "red cycle 2 rewrite")
     _patch_emit(monkeypatch)
     _install_test_mocks(monkeypatch, git_cwd, [0, 1])
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, {"git_cwd": git_cwd})
     prev = _make_prev({"red_test_paths": [rel], "cycle": 2})
 
     _p5._verify_red_fails_mechanically(ctx, prev)
@@ -200,7 +200,7 @@ def test_ac2_step_returns_ok_with_rewrite_rejected_and_new_sha(monkeypatch, tmp_
     _commit_file(git_cwd, rel, PASSING_CONTENT, "red cycle 2 rewrite")
     _patch_emit(monkeypatch)
     _install_test_mocks(monkeypatch, git_cwd, [0, 1])
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, {"git_cwd": git_cwd})
     prev = _make_prev({"red_test_paths": [rel], "cycle": 2})
 
     result = _p5._verify_red_fails_mechanically(ctx, prev)
@@ -227,7 +227,7 @@ def test_ac3_rewrite_rejected_event_emitted_with_cycle_and_sha(monkeypatch, tmp_
     _commit_file(git_cwd, rel, PASSING_CONTENT, "red cycle 2 rewrite")
     captured = _patch_emit(monkeypatch)
     _install_test_mocks(monkeypatch, git_cwd, [0, 1])
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, {"git_cwd": git_cwd})
     prev = _make_prev({"red_test_paths": [rel], "cycle": 2})
 
     _p5._verify_red_fails_mechanically(ctx, prev)
@@ -256,7 +256,7 @@ def test_ac4_both_cycles_degenerate_but_different_falls_back_to_legacy_error(mon
     pre_restore_head = _commit_file(git_cwd, rel, PASSING_CONTENT, "red cycle 2 rewrite")
     _patch_emit(monkeypatch)
     _install_test_mocks(monkeypatch, git_cwd, [0, 0])
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, {"git_cwd": git_cwd})
     prev = _make_prev({"red_test_paths": [rel], "cycle": 2})
 
     result = _p5._verify_red_fails_mechanically(ctx, prev)
@@ -292,7 +292,7 @@ def test_ac4b_identical_c1_c2_no_commit_no_diff_reason(monkeypatch, tmp_path):
     head_before = _git(git_cwd, "rev-parse", "HEAD")
     captured = _patch_emit(monkeypatch)
     _install_test_mocks(monkeypatch, git_cwd, [0])
-    ctx = _make_ctx(scratchpad)
+    ctx = _make_ctx(scratchpad, {"git_cwd": git_cwd})
     prev = _make_prev({"red_test_paths": [rel], "cycle": 2})
 
     result = _p5._verify_red_fails_mechanically(ctx, prev)

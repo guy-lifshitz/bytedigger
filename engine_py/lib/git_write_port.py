@@ -13,15 +13,34 @@ Parent SYSTEMATIC: OSS-extraction core-decoupling (plan 2026-06-18).
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Optional, Protocol, runtime_checkable
 
 from lib.bounded_spawn import bounded_run  # in-package form — canonical for lib/ modules
 from lib.git_port import GitResult
+from lib.observability.emit_git_write import emit_git_write_at_cwd
 
 
 def _is_index_lock_error(stderr: str) -> bool:
     return "Unable to create" in stderr and "index.lock" in stderr
+
+
+def _check_cwd_writable(cwd: "str | None") -> None:
+    """GH1220 Change E (A7.1): refuse a RELATIVE ``cwd`` deterministically —
+    provenance-free backstop, not a substitute for Change B. ``cwd=None``
+    means "inherit the process cwd" and is always allowed."""
+    if cwd is not None and not os.path.isabs(cwd):
+        raise ValueError(f"git_write_port: refusing a relative cwd: {cwd!r}")
+
+
+def _cmd0(cmd: "list[str]") -> str:
+    """Amendment 4.2: the git SUBCOMMAND VERB — the first element after the
+    leading literal "git" (argv[0] is always "git" and carries no
+    information)."""
+    if cmd and cmd[0] == "git":
+        return cmd[1] if len(cmd) > 1 else ""
+    return cmd[0] if cmd else ""
 
 
 @runtime_checkable
@@ -35,6 +54,8 @@ class _GitWriteSubprocess:
     """Default impl — body byte-moved verbatim from phase_5_implement._git_op_with_lock_retry."""
     def op_capture(self, cmd: list, *, cwd: str, timeout: int = 30) -> GitResult:
         """Run git command, capture stdout/stderr, return GitResult. OSError propagates."""
+        _check_cwd_writable(cwd)
+        emit_git_write_at_cwd(_cmd0(cmd), cwd)
         proc = bounded_run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
         return GitResult(
             returncode=proc.returncode,
@@ -45,6 +66,8 @@ class _GitWriteSubprocess:
 
     def op_with_lock_retry(self, cmd: list, *, cwd: str, timeout: int = 30):
         """Run git command, retry on .git/index.lock contention with backoff [1s, 2s]."""
+        _check_cwd_writable(cwd)
+        emit_git_write_at_cwd(_cmd0(cmd), cwd)
         last_result = None
         for attempt in range(3):
             if attempt > 0:

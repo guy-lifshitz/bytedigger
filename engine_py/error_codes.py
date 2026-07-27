@@ -61,6 +61,7 @@ ERROR_CODES: dict[str, str] = {
     "E_FIX_UNCOMMITTED_CHANGES": "phase_6_fix_integrity: fix cycle left dirty uncommitted changes in the tree",
     "E_FIX_WRITE_FAILED": "phase_6_review: writing the fix artifact/doc to disk failed",
     "E_GIT_BAD_STATE": "phase_5_implement: git working tree in an unexpected/bad state",
+    "E_GIT_CWD_AMBIENT": "phase_5/6: git_cwd resolved from the ambient process CWD — refusing to run a mutating git op",
     "E_GIT_COMMIT_FAILED": "phase_5_implement: git commit invocation failed",
     "E_GIT_LOCKED": "phase_5/6: git index.lock held, repository busy",
     "E_GIT_OS_ERROR": "phase_5/6: git subprocess raised an OS-level error",

@@ -19,6 +19,7 @@ Parent SYSTEMATIC: DC87240D (build-engine architecture hardening).
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -79,7 +80,16 @@ def _git_read_subprocess(
     Returns a ``GitResult`` carrying the full subprocess outcome.
     OSError / SubprocessError from bounded_run MAY propagate — callers that
     need to handle these wrap the call in a try/except as they did before.
+
+    GH1220 Change E (A7.1): a RELATIVE ``cwd`` is refused deterministically
+    (``ValueError``, naming the offending value) — provenance-free backstop,
+    not a substitute for the per-site ambient-cwd guards (Change B).
+    ``cwd=None`` means "inherit the process cwd" (a deliberate read-path
+    affordance — e.g. audit_gate.py's commit-msg hook reads) and is ALWAYS
+    allowed.
     """
+    if cwd is not None and not os.path.isabs(cwd):
+        raise ValueError(f"git_port.git_read: refusing a relative cwd: {cwd!r}")
     cmd = ["git"] + (["-C", dir_] if dir_ else []) + args
     proc = bounded_run(
         cmd,

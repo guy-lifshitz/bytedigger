@@ -173,7 +173,7 @@ class TestAC1BaselineCountReturnsN:
 
         monkeypatch.setattr(phase_5_implement.subprocess, "run", _fake_run)
 
-        result = fn([baseline_py], str(repo))
+        result = fn([baseline_py], str(repo), "cfg_git_cwd")
 
         assert result == 2, (
             f"Expected baseline count=2 from canned mypy output; got {result!r}. "
@@ -202,7 +202,7 @@ class TestAC2CleanTreeReturnsNone:
         clean_py = str((repo / "clean.py").resolve())
 
         # Do NOT modify working tree — stash should say "No local changes to save"
-        result = fn([clean_py], str(repo))
+        result = fn([clean_py], str(repo), "cfg_git_cwd")
 
         assert result is None, (
             f"Expected None for clean tree (no local changes to stash); got {result!r}. "
@@ -247,7 +247,7 @@ class TestAC3StashAlwaysPopped:
 
         # Call the helper — should NOT raise despite mypy crashing
         try:
-            result = fn([target_py], str(repo))
+            result = fn([target_py], str(repo), "cfg_git_cwd")
         except Exception as exc:
             pytest.fail(
                 f"AC3 FAIL: _compute_baseline_typecheck_count raised {exc!r}; "
@@ -321,7 +321,7 @@ class TestAC4AddedFileExcludedFromBaseline:
 
         monkeypatch.setattr(phase_5_implement.subprocess, "run", _fake_run)
 
-        result = fn([new_file_path], str(repo))
+        result = fn([new_file_path], str(repo), "cfg_git_cwd")
 
         assert result == 0, (
             f"AC4 FAIL: expected 0 (added file excluded → no baseline findings); "
@@ -357,7 +357,7 @@ class TestAC5NetNewStillBlocks:
         monkeypatch.setattr(
             phase_5_implement,
             "_compute_baseline_typecheck_count",
-            lambda paths, cwd: 14,
+            lambda paths, cwd, source: 14,
             raising=False,
         )
 
@@ -421,7 +421,7 @@ class TestAC6PreExistingOnlyNotBlocked:
         monkeypatch.setattr(
             phase_5_implement,
             "_compute_baseline_typecheck_count",
-            lambda paths, cwd: 14,
+            lambda paths, cwd, source: 14,
             raising=False,
         )
 
@@ -487,7 +487,7 @@ class TestAC7DeltaEnforceFalseNotBlocked:
         monkeypatch.setattr(
             phase_5_implement,
             "_compute_baseline_typecheck_count",
-            lambda paths, cwd: 10,
+            lambda paths, cwd, source: 10,
             raising=False,
         )
 
@@ -560,7 +560,7 @@ class TestAC8CleanMypyOk:
         monkeypatch.setattr(
             phase_5_implement,
             "_compute_baseline_typecheck_count",
-            lambda paths, cwd: baseline_called.append(1) or 0,
+            lambda paths, cwd, source: baseline_called.append(1) or 0,
             raising=False,
         )
 
@@ -616,7 +616,7 @@ class TestAC9BaselineUnavailableFailsOpen:
         monkeypatch.setattr(
             phase_5_implement,
             "_compute_baseline_typecheck_count",
-            lambda paths, cwd: None,
+            lambda paths, cwd, source: None,
             raising=False,
         )
 

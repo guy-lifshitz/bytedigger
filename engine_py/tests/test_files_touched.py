@@ -33,9 +33,12 @@ class _FakeEventLog:
         self.events.append((event_type, payload, run_id or "ad-hoc"))
 
 
-def make_ctx() -> WorkflowContext:
+def make_ctx(git_cwd: str | None = None) -> WorkflowContext:
+    """GH1082 Part B: callers now pin the tree explicitly via org_config
+    instead of depending on the ambient-cwd scan this ship removes."""
     return WorkflowContext(
-        tenant_id="t", scope=None, db_path=None, org_config=None,
+        tenant_id="t", scope=None, db_path=None,
+        org_config={"git_cwd": git_cwd} if git_cwd else None,
         question="q", session_id="s", persona="p", framework=None, domain=None,
     )
 
@@ -74,7 +77,7 @@ def test_modified_file_emits_files_touched_with_M_status(git_repo):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[make_step_that_modifies("modify_step", modify)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert len(touched) == 1
@@ -94,7 +97,7 @@ def test_added_file_bucketed_under_A(git_repo):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[make_step_that_modifies("add_step", add)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"][0]
     payload = touched[1]
@@ -115,7 +118,7 @@ def test_deleted_file_bucketed_under_D(git_repo):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[make_step_that_modifies("del_step", delete)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"][0]
     payload = touched[1]
@@ -134,7 +137,7 @@ def test_no_changes_emits_no_event(git_repo):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[make_step_that_modifies("noop_step", noop)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert touched == []  # no event when no delta
@@ -152,7 +155,7 @@ def test_non_git_cwd_no_event_emitted(tmp_path, monkeypatch):
     eng.register("wf", WorkflowDefinition(
         name="wf", steps=[StepContract(name="s", execute=_run)],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(tmp_path)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert touched == []  # no event in non-git cwd
@@ -175,7 +178,7 @@ def test_files_touched_per_step_in_multistep_workflow(git_repo):
             make_step_that_modifies("s2", step2),
         ],
     ))
-    eng.execute("wf", make_ctx(), run_id="r1")
+    eng.execute("wf", make_ctx(str(git_repo)), run_id="r1")
 
     touched = [e for e in log.events if e[0] == "files_touched"]
     assert len(touched) == 2

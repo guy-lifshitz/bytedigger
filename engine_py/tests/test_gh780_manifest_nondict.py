@@ -35,7 +35,11 @@ def make_ctx() -> WorkflowContext:
         tenant_id="t",
         scope=None,
         db_path=None,
-        org_config=None,
+        # GH1082: org_config must carry an explicit git_cwd so the engine's
+        # scan-gate (_resolve_scan_cwd) doesn't skip the scan entirely — the
+        # actual value is irrelevant here since _git_changes_vs_head is
+        # monkeypatched with a fake sequence below.
+        org_config={"git_cwd": "/anything"},
         question="q",
         session_id="s",
         persona="p",
@@ -63,7 +67,7 @@ def _fake_git_sequence():
     empty (pre-step baseline), 2nd call shows a foreign file appearing."""
     calls = {"n": 0}
 
-    def _fn():
+    def _fn(cwd=None):
         calls["n"] += 1
         if calls["n"] == 1:
             return {}
