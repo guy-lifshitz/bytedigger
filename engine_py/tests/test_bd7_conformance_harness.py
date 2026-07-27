@@ -27,6 +27,12 @@ adversary published as failed), AC-F12 (freeze golden vector), AC-P2
 AC-L0-12d (structural not prose-coupled), AC-L0-2b (delenv all 3 env
 spellings).
 
+v5 addendum [G5:base]: AC-L0-2c — engine_version provenance survives
+packaging (importlib.metadata first, pyproject.toml fallback for source
+checkouts) and has no placeholder ("unknown"/"0.0.0"/"0+unknown") when
+neither resolves. Landed in the spec after round 5's initial commit
+(047ad91); added here without touching any other round-5 test.
+
 v3 [G2:*] additions closed the four round-2 blocking defects:
   AC-L0-6c   R0.1 probe negative control (three inputs, not two)
   AC-A18     L0Report.passed/.violations are not ignorable
@@ -53,7 +59,7 @@ Covers every AC in the spec, one test function per AC:
   AC-F1..AC-F12  freeze() — hash over the artifact set including membership (§2.2)
   AC-E1..AC-E9   evaluate_guarded — the indeterminate guard (§2.3)
   AC-A1..AC-A24  attestation writer (§3)
-  AC-L0-1..AC-L0-14 (plus -3a4/-3d2/-3e2/-6d/-12e)  BD-L0 engine + checker (§4)
+  AC-L0-1..AC-L0-14 (plus -2c/-3a4/-3d2/-3e2/-6d/-12e)  BD-L0 engine + checker (§4)
   AC-P1/AC-P2    non-regression: pyproject include / core_manifest exclusion (§6)
 
 §1q-ext: `engine_py/conformance/{oracle,attestation,bd_l0}.py` do not exist
@@ -1441,6 +1447,178 @@ def test_ac_l0_2_run_identity_emitted_once_immediately_after_workflow_started_by
     run_identity_payload = events[ws_index + 1]["payload"]
     assert run_identity_payload["engine_version"]
     assert run_identity_payload["adapter_identity"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AC-L0-2c [G5:base] — engine_version provenance survives packaging, no
+# placeholder. Resolution order per §4.1: importlib.metadata.version(
+# "bytedigger-engine") FIRST (installed-wheel path), THEN a read of
+# engine_py/pyproject.toml [project].version (source-checkout path). When
+# NEITHER resolves: engine_version absent/empty, R0.3 "not-checked",
+# never a placeholder ("unknown"/"0.0.0"/"0+unknown").
+#
+# SEAM (metadata half): these three tests patch ONLY
+# importlib.metadata.version (a stdlib seam that exists today, per the
+# spec's own resolution order) for the metadata half — not a new
+# engine-internal function name.
+#
+# SEAM (pyproject-read half) [G5:seam]: the source-checkout read is
+# SPEC-PINNED, not assumed — AC-L0-2c [G5:seam] states the read MUST go
+# through `Path(<engine_py>/pyproject.toml).read_text()`. The
+# both-seams-fail test (c) therefore patches `pathlib.Path.read_text`
+# CONDITIONALLY (only when the resolved self equals the real
+# engine_py/pyproject.toml path, delegating to the real method
+# otherwise) against a stated interface requirement, not a guess. A
+# blanket read_text failure would break unrelated engine reads, so the
+# patch stays path-conditional.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_ac_l0_2c_source_checkout_path_resolves_to_real_pyproject_version(tmp_path, monkeypatch):
+    """AC-L0-2c [G5:base] (1/3): the SOURCE-CHECKOUT path. With
+    importlib.metadata.version forced to raise PackageNotFoundError
+    (simulating a dev checkout where "bytedigger-engine" is not installed
+    as a distribution), run_identity.engine_version MUST resolve to the
+    REAL canonical value in engine_py/pyproject.toml [project].version —
+    read HERE from the file (same tomllib/tomli approach as
+    test_ac_p1_pyproject_packages_find_include_gains_conformance), never
+    hardcoded, so a version bump cannot rot this test."""
+    import importlib.metadata as importlib_metadata  # noqa: PLC0415
+
+    try:
+        import tomllib  # noqa: PLC0415
+    except ImportError:  # pragma: no cover — py<3.11 fallback
+        import tomli as tomllib  # type: ignore[no-redef]  # noqa: PLC0415
+
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    expected_version = data["project"]["version"]
+    assert expected_version, "sanity: pyproject.toml must declare a non-empty [project].version"
+
+    def _raise_not_found(name):
+        raise importlib_metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib_metadata, "version", _raise_not_found)
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_l0_2c_source", WorkflowDefinition(name="wf_l0_2c_source", steps=[_ok_step("s1")]))
+    eng.execute("wf_l0_2c_source", _make_ctx(), run_id="run-l0-2c-source")
+
+    events = log.read_all()
+    run_identity_events = [e for e in events if e["event_type"] == "run_identity"]
+    assert run_identity_events, (
+        f"expected a run_identity event in the log, got event_types="
+        f"{[e['event_type'] for e in events]!r}"
+    )
+    run_identity = run_identity_events[0]["payload"]
+    assert run_identity["engine_version"] == expected_version, (
+        f"with the metadata seam forced to fail, engine_version must fall "
+        f"back to the REAL pyproject.toml [project].version "
+        f"({expected_version!r}), got {run_identity.get('engine_version')!r}"
+    )
+
+
+def test_ac_l0_2c_installed_metadata_path_resolves_and_wins_over_pyproject(tmp_path, monkeypatch):
+    """AC-L0-2c [G5:base] (2/3): the INSTALLED-METADATA path.
+    importlib.metadata.version("bytedigger-engine") is consulted FIRST per
+    §4.1's resolution order. Monkeypatch it to return a distinctive
+    sentinel ("7.7.7-from-metadata") and assert the emitted engine_version
+    is exactly that sentinel — proving metadata is actually consulted and
+    WINS, not silently ignored in favour of the pyproject.toml file (whose
+    real version, "0.1.1" at time of writing, is deliberately different
+    from the sentinel so the two cannot be confused)."""
+    import importlib.metadata as importlib_metadata  # noqa: PLC0415
+
+    sentinel_version = "7.7.7-from-metadata"
+
+    def _fake_version(name):
+        assert name == "bytedigger-engine", (
+            f"expected the distribution name 'bytedigger-engine', got {name!r}"
+        )
+        return sentinel_version
+
+    monkeypatch.setattr(importlib_metadata, "version", _fake_version)
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_l0_2c_metadata", WorkflowDefinition(name="wf_l0_2c_metadata", steps=[_ok_step("s1")]))
+    eng.execute("wf_l0_2c_metadata", _make_ctx(), run_id="run-l0-2c-metadata")
+
+    events = log.read_all()
+    run_identity_events = [e for e in events if e["event_type"] == "run_identity"]
+    assert run_identity_events, (
+        f"expected a run_identity event in the log, got event_types="
+        f"{[e['event_type'] for e in events]!r}"
+    )
+    run_identity = run_identity_events[0]["payload"]
+    assert run_identity["engine_version"] == sentinel_version, (
+        f"importlib.metadata.version must WIN over the pyproject.toml file "
+        f"when it resolves — expected sentinel {sentinel_version!r}, got "
+        f"{run_identity.get('engine_version')!r}"
+    )
+
+
+def test_ac_l0_2c_both_seams_fail_yields_not_checked_and_no_placeholder(tmp_path, monkeypatch):
+    """AC-L0-2c [G5:base]/[G5:seam] (3/3): BOTH seams forced to fail => FAIL
+    CLOSED. importlib.metadata.version raises PackageNotFoundError AND the
+    pyproject.toml read is forced to fail via the spec-pinned [G5:seam]
+    mechanism (Path.read_text on the canonical engine_py/pyproject.toml —
+    see the SEAM note above this test block). Asserted: check_bd_l0 reports
+    requirements["R0.3"] == "not-checked", passed is False, an R0.3-named
+    violation — and, critically, NO placeholder string ("unknown"/"0.0.0"/"0+unknown")
+    appears anywhere in the run_identity payload. This is the assertion
+    that kills the `except: return "unknown"` reflex fix — an attested
+    report carrying engine_version: "unknown" looks measured and is
+    exactly this lot's disqualifying defect class landing on R0.3."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+    import importlib.metadata as importlib_metadata  # noqa: PLC0415
+    from pathlib import Path as _PathClass  # noqa: PLC0415
+
+    def _raise_not_found(name):
+        raise importlib_metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib_metadata, "version", _raise_not_found)
+
+    pyproject_path = (Path(__file__).resolve().parent.parent / "pyproject.toml").resolve()
+    real_read_text = _PathClass.read_text
+
+    def _fail_only_for_pyproject(self, *a, **kw):
+        if self.resolve() == pyproject_path:
+            raise OSError(
+                "simulated: pyproject.toml is build-only metadata, absent "
+                "from an installed wheel"
+            )
+        return real_read_text(self, *a, **kw)
+
+    monkeypatch.setattr(_PathClass, "read_text", _fail_only_for_pyproject)
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_l0_2c_both_fail", WorkflowDefinition(name="wf_l0_2c_both_fail", steps=[_ok_step("s1")]))
+    eng.execute("wf_l0_2c_both_fail", _make_ctx(), run_id="run-l0-2c-both-fail")
+
+    events = log.read_all()
+    run_identity = next(e for e in events if e["event_type"] == "run_identity")["payload"]
+
+    payload_text = json.dumps(run_identity)
+    for placeholder in ("unknown", "0.0.0", "0+unknown"):
+        assert placeholder not in payload_text, (
+            f"run_identity payload must carry NO placeholder value when "
+            f"both version seams fail — found {placeholder!r} in "
+            f"{run_identity!r}. An attested report carrying "
+            f"engine_version: {placeholder!r} looks measured and is not."
+        )
+
+    report = check_bd_l0(events, run_id="run-l0-2c-both-fail", writer=EventLog)
+    assert report.requirements["R0.3"] == "not-checked", (
+        f"with neither version seam resolving, R0.3 must fail-closed to "
+        f"'not-checked', got {report.requirements!r}"
+    )
+    assert report.passed is False, (
+        "a not-checked R0.3 must fail-close L0Report.passed"
+    )
+    assert any(v.startswith("R0.3") for v in report.violations), report.violations
 
 
 def test_ac_l0_2b_adapter_identity_provenance_tracks_configuration(tmp_path, monkeypatch):

@@ -117,6 +117,12 @@ b"bdconf-freeze/v1\0" || u64(len(files))
       u64(len(relpath_utf8)) || relpath_utf8 || u64(len(content)) || content
 ```
 
+`[G5:endian]` **`u64` is big-endian** (`struct.pack("!Q", n)`). v4 left this unpinned, which the RED
+round-5 agent correctly flagged: with the byte stream normative but its integer encoding undefined,
+GREEN and the golden vector of AC-F12 could disagree while both matched the spec, and a published
+freeze would not be reproducible from the documented format — the thing R1.3/R1.4 want it for.
+Network byte order is chosen because the digest is a wire/publication format, not an in-memory one.
+
 - **AC-F1** Adding a file to the set MUST change the hash, even when the added file is empty.
   (Length-prefixed relpaths + the leading count put membership inside the digest.)
 - **AC-F2** Removing a file MUST change the hash.
@@ -370,6 +376,13 @@ it is the same class of defect as defaulting to passed.
   not hardcoded, so a version bump cannot rot it); the installed-metadata path resolves when
   `importlib.metadata` provides it; and with **both** seams forced to fail, R0.3 is `"not-checked"`
   and `passed is False`, with no placeholder anywhere in the payload.
+  `[G5:seam]` **Both seams are pinned so RED and GREEN cannot disagree while both match the spec.**
+  Metadata side: the stdlib `importlib.metadata.version("bytedigger-engine")` — a seam that exists
+  today, so no new engine-internal symbol is invented for the test to patch. Source-checkout side: the
+  read MUST go through `Path(<engine_py>/pyproject.toml).read_text()`. Without this second pin the RED
+  had to *assume* a read mechanism, and a GREEN using `tomllib.load` on an open handle would fail an
+  otherwise-correct test — a coupling that looks like a defect and isn't. Per §3.0's principle, the
+  spec carries the interface.
 - **AC-L0-2b** `[G:MAJOR-6]` **`adapter_identity` provenance is defined, not a placeholder.**
   It MUST be `{"backend": <b>, "source": <s>}` obtained from the engine's own resolver
   `llm_subprocess._resolve_backend(kwarg, env)` (`llm_subprocess.py:608`), which resolves without
