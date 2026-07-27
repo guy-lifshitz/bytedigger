@@ -1,5 +1,30 @@
 # Lot spec — bd#7: conformance harness + oracle interface + attestation writer + BD-L0
 
+**v6** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (**1**). Round-5 findings tagged `[G5:n]`.
+
+Round 5 confirmed all five round-4 findings closed *in the RED* with equality assertions rather than
+prose, confirmed the `[G2:3]`/`[G3]` propagation pattern did not recur, verified ~30 code claims
+accurate, and ruled both new pins (`[G5:seam]`, `[G5:endian]`) correct calls. One blocking finding:
+
+- `[G5:accum]` **`written` was asserted only over single-step phases.** Every `written`-content
+  assertion drives a one-step workflow; the only multi-step fixture with `git_cwd` (AC-L0-3a4) writes
+  nothing and asserts `write_tracking` alone. So a GREEN that **assigns** the last step's delta instead
+  of **accumulating** across steps passes all 97 tests — and AC-L0-3f actively rewards it, because
+  assignment satisfies "run 2 must not contain run 1's paths" with no per-run reset at all. For a real
+  multi-step phase where only an early step wrote, it publishes `written: []` **with**
+  `write_tracking: "git-delta"`, so `check_bd_l0` reports R0.2 `"passed"`, `labels["R0.2"]` reads
+  `"writes-observed"`, and the report attests `BD-L0`/`conformant: true`. That is the affirmative claim
+  "we measured the write channel and nothing was written" for a phase that wrote — AC-L0-3a's own
+  normative sentence violated, and strictly worse than the ambiguous `files_touched` absence §0
+  recorded. `[G4:4]` closed the per-step→phase quantifier for `write_tracking` and left the identical
+  quantifier on `written` open. Multi-step phases are the normal case for the flagship consumer.
+
+Also corrected this round: my own report claimed the RED had no `StopIteration` failures. It has two,
+at the `AC-L0-2b` and `AC-L0-3a` differentials — the claim was an artifact of a grep pattern that
+required a colon after the exception name, so `file:1648: StopIteration` never matched. The gate caught
+it by reading the source instead of trusting the measurement. Recorded because it is the lot's own
+defect class committed in the lot's own reporting: a property asserted without being measured.
+
 **v5** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5). Round-4 findings tagged `[G4:n]`.
 
 Round 4 confirmed all four round-3 defects closed on their own terms and found no propagation
@@ -77,7 +102,10 @@ Consequence: the lot **adds** identity + phase-scoped artifact records and does 
 Three deliverables, no adversaries (§9 step 1; ADV-1…ADV-10 belong to bd#8/#9/#10).
 
 New bd-native package `engine_py/conformance/` — NOT added to `core_manifest.json` (bd-only;
-precedent `lib/run_allowlist.py`), so HAL drift stays at the 5/0/0 baseline. Added to
+precedent `lib/run_allowlist.py`), so HAL drift stays at §6's baseline — `extra_bd == 0`, identical to
+the running host's own `main`. `[G5:MINOR-1]` v5 stated the literal `5/0/0` here while §6 retracted that
+same figure as macstudio-specific: two numbers in one frozen document, so the literal is struck at the
+source rather than restated. Added to
 `pyproject.toml [tool.setuptools.packages.find] include` so it ships.
 
 ## 2. Oracle plugin interface — `engine_py/conformance/oracle.py`
@@ -138,6 +166,17 @@ Network byte order is chosen because the digest is a wire/publication format, no
   hash that cannot detect anything.
 - **AC-F10** `[G:MINOR-3]` `freeze` MUST return `"sha256:"` followed by exactly 64 lowercase hex
   characters.
+- **AC-F13** `[G5:EDGE-4]` **`freeze` MUST read content as bytes.** A GREEN using
+  `path.read_text().encode("utf-8")` applies universal-newline translation, so CRLF and LF spellings of
+  the same file digest identically — the cross-host irreproducibility AC-F12 exists to prevent, inside
+  the digest itself. AC-F12's vector contains no newline and cannot distinguish. The golden vector MUST
+  therefore include a `\r\n` byte, and a CRLF-vs-LF pair MUST produce different digests.
+- **AC-F14** `[G5:EDGE-5]` **Duplicate detection is on the normalised relpath, not object identity.**
+  AC-F8 passes the *same* `Path` object twice. `root/"a.txt"` vs `root/"."/"a.txt"` (and a symlink
+  alongside its target) normalise to one relpath, and depending on whether GREEN dedupes before or after
+  normalisation they either raise `OracleFreezeError` or silently double-count — and R1.4 makes set
+  membership load-bearing. Normative: they MUST raise `OracleFreezeError`, asserted with the
+  distinct-object/same-relpath pair.
 - **AC-F12** `[G4:MINOR-7]` **One known-answer vector.** AC-F1..F11 are all *relational*, so any
   collision-resistant scheme satisfies them and the normative byte stream above is not actually
   pinned — a published freeze would not be reproducible against the documented format across hosts or
@@ -174,6 +213,12 @@ reproducibility of a published freeze. Out of scope for this lot.
   "a timeout MUST NOT count as rejection" would be satisfied by never reaching a verdict at all.
 - **AC-E9** `[G:edge-8]` The timeout mechanism MUST NOT be `signal`-based: `evaluate_guarded` MUST
   behave identically (AC-E3 and AC-E8 both hold) when called from a non-main thread.
+- **AC-E10** `[G5:EDGE-6]` **The abandoned oracle MUST be reaped.** AC-E3/AC-E9 assert only the
+  *verdict*; nothing requires the timed-out worker to be joined or cancelled. A non-daemon thread or
+  unreaped subprocess per call accumulates across the suite (`_SlowOracle` sleeps 2 s against a 0.1 s
+  budget in three tests, twice off the main thread) and can hang interpreter shutdown. Asserted by
+  snapshotting `threading.enumerate()` (and any spawned child) before and after a timed-out call and
+  requiring no surviving worker attributable to the oracle after a bounded grace period.
 
 Passing AC-E1..E9 does **not** mark any adversary as executed. ADV-4 and ADV-5 have the same shape
 as the `_ImportErrorOracle`/`_RaisingOracle` doubles here, but these are unit tests of a helper,
@@ -377,8 +422,18 @@ it is the same class of defect as defaulting to passed.
   `importlib.metadata` provides it; and with **both** seams forced to fail, R0.3 is `"not-checked"`
   and `passed is False`, with no placeholder anywhere in the payload.
   `[G5:seam]` **Both seams are pinned so RED and GREEN cannot disagree while both match the spec.**
-  Metadata side: the stdlib `importlib.metadata.version("bytedigger-engine")` — a seam that exists
-  today, so no new engine-internal symbol is invented for the test to patch. Source-checkout side: the
+  Metadata side: the stdlib `importlib.metadata.version(package_meta.PACKAGE_DIST_NAME)` — a seam that
+  exists today, so no new engine-internal symbol is invented for the test to patch.
+  `[G5:MINOR-7]` The distribution name MUST come from `package_meta.PACKAGE_DIST_NAME`
+  (`package_meta.py:16`, declared "single source of truth for the distribution name", stdlib-only leaf,
+  shipped via `[tool.setuptools] py-modules`), **not** the bare literal `"bytedigger-engine"` — a second
+  spelling of a name that already has a single source is exactly the drift `version_parity` exists to
+  prevent, one field over.
+  `[G5:MINOR-5]` **And the metadata half's resolution style is pinned too:** `version` MUST be resolved
+  as a **module attribute at call time** (`import importlib.metadata` … `importlib.metadata.version(…)`),
+  not bound at import (`from importlib.metadata import version`). Otherwise the RED's `monkeypatch` of
+  the module attribute does not take effect and an otherwise-correct GREEN false-fails — the asymmetry
+  `[G5:seam]` left when it pinned the source-checkout half precisely and the metadata half implicitly. Source-checkout side: the
   read MUST go through `Path(<engine_py>/pyproject.toml).read_text()`. Without this second pin the RED
   had to *assume* a read mechanism, and a GREEN using `tomllib.load` on an open handle would fail an
   otherwise-correct test — a coupling that looks like a defect and isn't. Per §3.0's principle, the
@@ -473,6 +528,26 @@ it is the same class of defect as defaulting to passed.
   payload is satisfiable by the constant `{"phase": n, "written": [], "read": [],
   "read_tracking": "declared-only"}`, which passes AC-L0-3/7/9/10 while recording nothing — and
   "nothing was written" is only information if "something was written" is distinguishable.
+- **AC-L0-3b2** `[G5:accum]` **`written` is the UNION of every step's delta for the phase, never the
+  last step's.** v5 asserted `written` content only over one-step workflows, so `self._phase_written =
+  paths` (assign) and `self._phase_written.update(paths)` (accumulate) were indistinguishable — and
+  AC-L0-3f rewards the assign form, since assignment satisfies the per-run reset requirement without any
+  reset. Asserted with a **≥2-step** phase and `git_cwd` on a real repo, both halves required:
+  1. **Union.** Step 1 writes `early.txt`, step 2 writes `late.txt` ⇒ `set(written) == {"early.txt",
+     "late.txt"}` and `write_tracking == "git-delta"`.
+  2. **The discriminating half.** Step 1 writes `early.txt`, step 2 writes **nothing** ⇒ `written` MUST
+     still contain `early.txt`. A last-step-only implementation yields `written: []` alongside
+     `write_tracking: "git-delta"` — R0.2 attested `"passed"`, `labels["R0.2"]` reading
+     `"writes-observed"`, `level_achieved: "BD-L0"`, `conformant: true` — the `[G2:4]` defect reopened at
+     the accumulation seam, and the one the flagship multi-step consumer hits on every phase.
+- **AC-L0-3b3** `[G5:EDGE-1]` **Accumulation survives the validation-retry recursion.** `_execute_steps`
+  is re-entered recursively at `engine.py:640-645` with `start_step=red_index`, and the outer frame then
+  `return retry_result` at `:657` without running its own tail. AC-L0-3c drives that path but **without**
+  `git_cwd`, so neither `written` nor `write_tracking` is asserted across the recursion. A GREEN scoping
+  the accumulator to one `_execute_steps` frame, or re-initialising it on re-entry, loses the pre-retry
+  steps' paths — and can publish `git-delta` for a re-entered window whose git read failed. Distinct
+  seam from AC-L0-3b2. Asserted with the retry fixture, `git_cwd` set, and the pre-retry step writing a
+  file that MUST appear in the final `phase_artifacts.written`.
 - **AC-L0-3c** `[G:MINOR-7]` The emit Host is `WorkflowEngine.execute`, **not** `_execute_steps`,
   which is re-entered recursively on the validation-retry path and returns early for a zero-step
   workflow. Asserted by two tests: a workflow that takes the retry path MUST still yield exactly
@@ -558,6 +633,23 @@ class L0Report:
 leave a partial file on disk when serialisation fails (a non-JSON-serialisable `adapter_identity`
 or `host_identity` must raise with no file, or an intact prior file, remaining) `[G2:edge-10]`.
 
+**AC-A25** `[G5:EDGE-9]` **A missing parent directory MUST NOT silently lose the report.** All AC-A21
+blocks write into an already-created directory, leaving it undefined whether the writer creates parents
+or raises. §4 designates the written file as what the reviewer is given, so a `FileNotFoundError` in CI
+publishes nothing. Normative: `write_attestation_report` MUST create missing parents and write, asserted
+against a nested path whose parent does not exist.
+
+**AC-A26** `[G5:EDGE-10]` **`L0Report` immutability is asserted, not only declared.** §4.2 pins
+`@dataclass(frozen=True)`, but nothing in the RED tests it, so a mutable `L0Report` — which
+`build_attestation_report` could rewrite between reading `.requirements` and publishing the `l0` block —
+passes. Asserted by requiring an attribute assignment to raise `FrozenInstanceError`.
+
+**AC-A27** `[G5:EDGE-8]` **`timestamp` UTC-ness MUST be host-independent.** AC-A8 parses
+`ts[:-1] + "+00:00"` against a freshness window, so `datetime.now().isoformat() + "Z"` — naive local time
+mislabelled as UTC — passes on a UTC host and fails elsewhere by the local offset, making the suite's
+verdict depend on the runner's zone. Asserted by comparing the report's timestamp against an independent
+UTC reading (`time.time()`) as well as `datetime.now(timezone.utc)`.
+
 `run_id` is required `[G:edge-4]`: `EventLog` is explicitly safe for multiple appending processes
 (`event_log.py:84-88`), so a flat unscoped list from two interleaved runs yields two
 `phase_artifacts` per phase name and would fail "exactly one" for reasons that are not a
@@ -582,6 +674,18 @@ conformance defect. The checker scopes to one run.
   RED satisfiable only by a GREEN that grants BD-L0 over an unmeasured write channel. AC-A17's own
   rationale — "a level cannot be granted while a third of it was never evaluated" — applies
   identically to R0.2 and R0.3.
+- **AC-L0-6e** `[G5:EDGE-2]` **The checker MUST NOT grant R0.2 over a phase with zero step events.**
+  "Every `step_started`/`step_finished` carries `phase`" is vacuously true over an empty step set, so a
+  forged or future-engine log of `workflow_started` + `phase_artifacts{write_tracking:"git-delta"}` +
+  `workflow_finished{status}` — no step events at all — yields R0.2 `"passed"`. AC-L0-3a4 closes this for
+  what *our* engine emits; this closes it inside the checker, whose declared threat model (AC-L0-3a3) is
+  explicitly "an arbitrary event list… a future engine's or a forged one." This is `[G4:4]`'s vacuous-
+  `all()` one level up. Normative: a scoped run with a `phase_artifacts` but no step events for that
+  phase MUST yield R0.2 `"not-checked"`, not `"passed"`.
+- **AC-L0-6f** `[G5:EDGE-7]` The probe's own scratch directory MUST be **removed**, not merely located
+  outside the caller's cwd. AC-L0-6d asserts only the first half of §4.2's "creates and removes", and the
+  probe runs ~20× per suite run. Asserted by capturing the probe's temp root and requiring it absent
+  after `check_bd_l0` returns.
 - **AC-L0-6d** `[G4:EDGE-3]` **The R0.1 probe MUST NOT write outside a path it owns.** Nothing in v4
   constrained *where* the probe writes, so `writer(Path("events.jsonl"))` would write into the
   caller's cwd during a read-only conformance check — and with an `O_TRUNC` writer of the AC-L0-6c
@@ -626,6 +730,16 @@ conformance defect. The checker scopes to one run.
 
   Plus: an empty log MUST fail. As written in v1, AC-L0-7 and AC-L0-8 were the same assertion over
   the same input, and a checker implementing only three clauses passed both.
+  `[G5:MINOR-4]` **A structural breach is `"failed"`, not `"not-checked"`.** Normative: when the log is
+  present but malformed (any of the eight mutations above), `requirements[r]` MUST be `"failed"`;
+  `"not-checked"` is reserved for "the channel was never observed" (AC-L0-3a, AC-L0-6b). v5 asserted only
+  `passed is False` plus a violation string on clauses 1-8, so a GREEN could render every structural
+  breach as `"not-checked"` — and since §3.1's schema carries `l0` but **not** `violations`, the
+  reviewer-facing artifact would then read "we did not measure the write channel" for a host whose log
+  was demonstrably malformed. That is AC-A24's defect class with the polarity reversed: a *measured
+  failure* published as *never measured*. It fails closed either way, which is why it is a correctness
+  requirement on the published record rather than a level-granting bug. Pinned on at least the clause-1
+  (R0.2) and clause-6 (R0.3) mutations.
 - **AC-L0-10** End-to-end: running a real `WorkflowEngine` workflow with an attached `EventLog`
   MUST produce a log that `check_bd_l0` passes — L0 measured against our own host, not a fixture.
 - **AC-L0-11** `[G:MAJOR-7b]` **Composed path.** One test MUST run a real engine workflow, feed the
@@ -648,6 +762,13 @@ conformance defect. The checker scopes to one run.
   them on the in-memory dict and never wrote it, so the lot's own flagship "not measured ≠ passed"
   pair said nothing about the artifact a reviewer actually receives — which is the only place the
   distinction has any effect.
+- **AC-L0-3d3** `[G5:EDGE-3]` **The truncation predicate MUST leave headroom for the shadow envelope.**
+  `_emit`'s shadow branch (`engine.py:701-707`) adds `shadowed_event` and `provenance` to the payload, so
+  a `phase_artifacts` the predicate measured as just-under 4096 exceeds the limit once shadowed and is
+  swallowed at `:710` — the inverted control AC-L0-3d exists to close, reopened on the shadow path. Every
+  shadow fixture uses tiny payloads, so nothing exercises it. Normative: the predicate MUST account for
+  the shadow-branch overhead (measure it, do not guess a constant), asserted with a shadowed run at the
+  AC-L0-3d2 boundary.
 - **AC-L0-12** `[G:edge-3]` A shadowed run (`HAL_ENGINE_SHADOW_EMITS` on, non-authoritative
   execution, every event mangled to `SHADOW_EVENT_TYPE` at `engine.py:699-708`) MUST be reported
   as a distinct `E_SHADOWED_RUN` violation, not as a generic pile of R0.2/R0.3 failures. A
@@ -692,7 +813,9 @@ ADV-1…ADV-10 and everything they prove. Read instrumentation. Signing. §7.
 - **AC-P1** `[G:MINOR-9]` `pyproject.toml [tool.setuptools.packages.find] include` (line 104,
   currently `["lib*","workflows*","security*","scripts*"]`) MUST gain `"conformance*"`, asserted
   by a test reading the manifest — a wheel shipped without the package would fail silently.
-- **AC-P2** `[G4:EDGE-1]` **The manifest exclusion is a test, not an ops note.** §1 makes "`conformance/`
+- **AC-P2** `[G4:EDGE-1]` (**pre-passing at RED time — an absence-shield, declared as such**
+  `[G5:MINOR-6]`; its discriminating power is post-GREEN: a GREEN that adds the entry fails it)
+  **The manifest exclusion is a test, not an ops note.** §1 makes "`conformance/`
   is NOT in `core_manifest.json`" a load-bearing design claim — it is what keeps `extra_bd` at zero —
   yet nothing stopped GREEN from adding it, and the only check was a manual `bd-drift-check.py` run.
   Assert that `engine_py/core_manifest.json` contains no `conformance` entry. AC-P1 asserts the
