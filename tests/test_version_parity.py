@@ -601,7 +601,7 @@ class TestVersionParity:
         assert marketplace["plugins"][0]["version"] == "3.4.5"
 
     def test_ac21_no_job_uses_a_self_hosted_runner(self):
-        """AC21: no job in ci.yml schedules onto a self-hosted runner.
+        """AC21: no job in ANY workflow schedules onto a self-hosted runner.
 
         This used to pin the manifests job to the literal two-label form
         `[self-hosted, bytedigger]`, to keep it off the `heavy` pool that
@@ -615,15 +615,22 @@ class TestVersionParity:
         unmetered here, so self-hosted buys nothing -- while a
         self-hosted runner on a public repo executes pull-request code
         from any contributor on a personal machine. Assert that, for
-        every job, so a new job cannot reintroduce it either. (The
-        original label-pin covered one job; three carried the labels.)
+        every job in every workflow, so neither a new job nor a new
+        workflow file can reintroduce it. (The original label-pin covered
+        one job; three in ci.yml and three more in clean-room.yml carried
+        the labels -- and clean-room's were the ones that mattered, since
+        that workflow hands the job a docker daemon.)
         """
         import yaml
-        ci_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-        jobs = yaml.safe_load(ci_path.read_text())["jobs"]
+        wf_dir = REPO_ROOT / ".github" / "workflows"
+        workflows = sorted(
+            p for p in wf_dir.iterdir() if p.suffix in (".yml", ".yaml")
+        )
+        assert workflows, f"no workflow files found under {wf_dir}"
         offenders = {
-            name: spec.get("runs-on")
-            for name, spec in jobs.items()
+            f"{p.name}:{name}": spec.get("runs-on")
+            for p in workflows
+            for name, spec in (yaml.safe_load(p.read_text())["jobs"]).items()
             if "self-hosted" in _runs_on_labels(spec.get("runs-on"))
         }
         assert not offenders, (
