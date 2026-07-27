@@ -1,11 +1,31 @@
 """RED tests for bd#7 — conformance harness + oracle interface + attestation
 writer + BD-L0.
 
-Spec v4 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
-REJECTED v2 on 4 blocking defects [G2:1]/[G2:2]/[G2:3]/[G2:4], then
-REJECTED v3 on 4 more blocking defects [G3:1]/[G3:2]/[G3:3]/[G3:4]):
-SHARED/memory/Decisions/2026-07-27_bd7_conformance_harness_spec.md (frozen),
-source of truth `2026-07-26_bytedigger_conformance_levels.md` §1-6, 9.
+Spec v5 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
+REJECTED v2 on 4 blocking defects [G2:1]/[G2:2]/[G2:3]/[G2:4], REJECTED v3
+on 4 more blocking defects [G3:MAJOR-1..4], then REJECTED v4 on 5 more
+blocking defects [G4:1]/[G4:2]/[G4:3]/[G4:4]/[G4:5]):
+engine_py/conformance/SPEC.md (frozen), source of truth
+`2026-07-26_bytedigger_conformance_levels.md` §1-6, 9.
+
+v5 [G4:*] additions close the five round-4 blocking defects:
+  AC-A8    producer identity/provenance/timestamp/level_claimed asserted by
+           VALUE against distinctive sentinels, not truthiness
+  AC-A10/AC-A21/AC-L0-11b   the WRITTEN file is pinned to the built report
+           via full dict equality (reparsed == report), not a subset spot-check
+  AC-L0-9 clause 5   the injected duplicate phase_artifacts now carries
+           write_tracking so duplication is the ONLY difference from baseline
+  AC-L0-3a4 / AC-L0-3c   zero-step and partial-delta-failure negative
+           controls close the "every step" quantifier's two false affirmatives
+  AC-L0-3d   written_digest asserted by EQUALITY against a digest computed
+           from the real path set, not startswith("sha256:")
+plus round-4 minors/edges: AC-L0-3d2 (truncation boundary), AC-L0-3e2 (crash
+path), AC-L0-6d (probe containment), AC-L0-12e (same-run_id duplicate),
+AC-A7b (label derived from requirements, not l0.passed), AC-A24 (failed
+adversary published as failed), AC-F12 (freeze golden vector), AC-P2
+(core_manifest exclusion), AC-L0-3a3 extension (unrecognised tokens),
+AC-L0-12d (structural not prose-coupled), AC-L0-2b (delenv all 3 env
+spellings).
 
 v3 [G2:*] additions closed the four round-2 blocking defects:
   AC-L0-6c   R0.1 probe negative control (three inputs, not two)
@@ -30,11 +50,11 @@ asserted), whole-dict-shape payload assertion in AC-L0-3.
 
 Covers every AC in the spec, one test function per AC:
   AC-O1..AC-O5   OracleOutcome — three unmergeable states, no mixin base (§2.1)
-  AC-F1..AC-F11  freeze() — hash over the artifact set including membership (§2.2)
+  AC-F1..AC-F12  freeze() — hash over the artifact set including membership (§2.2)
   AC-E1..AC-E9   evaluate_guarded — the indeterminate guard (§2.3)
-  AC-A1..AC-A23  attestation writer (§3)
-  AC-L0-1..AC-L0-14  BD-L0 engine additions + checker (§4)
-  AC-P1          non-regression: pyproject packages.find.include (§6)
+  AC-A1..AC-A24  attestation writer (§3)
+  AC-L0-1..AC-L0-14 (plus -3a4/-3d2/-3e2/-6d/-12e)  BD-L0 engine + checker (§4)
+  AC-P1/AC-P2    non-regression: pyproject include / core_manifest exclusion (§6)
 
 §1q-ext: `engine_py/conformance/{oracle,attestation,bd_l0}.py` do not exist
 yet. Every reference to those new symbols is deferred INSIDE the relevant
@@ -369,6 +389,58 @@ def test_ac_f11_unreadable_paths_raise_oracle_freeze_error_not_os_errors(tmp_pat
     outside_file.write_text("x")
     with pytest.raises(OracleFreezeError):
         freeze([outside_file], root=root)
+
+
+def test_ac_f12_golden_vector_over_fixed_two_file_set(tmp_path):
+    """AC-F12 [G4:MINOR-7]: one KNOWN-ANSWER vector. AC-F1..F11 are all
+    relational, so any collision-resistant scheme satisfies them and the
+    normative byte stream (§2.2) is not actually pinned — a published
+    freeze would not be reproducible against the documented format across
+    hosts or versions. Required: one golden-vector assertion over a fixed
+    two-file set, with the expected digest computed from the documented
+    stream (domain prefix, u64 count, u64-length-prefixed relpaths and
+    contents) in the test itself.
+
+    AMBIGUITY FLAGGED FOR THE SPEC AUTHOR: §2.2 does not pin u64 byte
+    order. This test assumes BIG-ENDIAN (struct format "!Q" / network byte
+    order) as the conventional choice for a length-prefixed binary hash
+    input. If GREEN legitimately chooses little-endian instead, this AC
+    should be renegotiated with the spec author (the endianness pinned),
+    not silently flipped in the RED to chase GREEN's choice."""
+    import hashlib  # noqa: PLC0415
+    import struct  # noqa: PLC0415
+
+    from conformance.oracle import freeze  # noqa: PLC0415
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "a.txt").write_text("hello")
+    (root / "sub").mkdir()
+    (root / "sub" / "b.txt").write_text("world!")
+
+    paths = [root / "a.txt", root / "sub" / "b.txt"]
+    relpaths = sorted(p.relative_to(root).as_posix() for p in paths)
+    contents = {rp: (root / rp).read_bytes() for rp in relpaths}
+
+    def u64(n: int) -> bytes:
+        return struct.pack("!Q", n)  # big-endian — see ambiguity note above
+
+    stream = b"bdconf-freeze/v1\0" + u64(len(relpaths))
+    for rp in relpaths:
+        rp_bytes = rp.encode("utf-8")
+        content = contents[rp]
+        stream += u64(len(rp_bytes)) + rp_bytes + u64(len(content)) + content
+
+    expected = "sha256:" + hashlib.sha256(stream).hexdigest()
+
+    actual = freeze(paths, root=root)
+    assert actual == expected, (
+        f"golden-vector digest mismatch — expected {expected!r}, got "
+        f"{actual!r}. This pins the CONTENT of the freeze byte stream, not "
+        f"merely its collision-resistance; any relational-only "
+        f"implementation that satisfies AC-F1..F11 without matching the "
+        f"documented format will fail here."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -742,11 +814,43 @@ def test_ac_a7_labels_equal_exactly_three_entries_by_value():
     }
 
 
+def test_ac_a7b_label_derived_from_requirements_r02_not_from_l0_passed():
+    """AC-A7b [G4:MINOR-2]: labels["R0.2"] MUST be derived from
+    requirements["R0.2"] SPECIFICALLY, NOT from l0.passed — that mislabels a
+    report where writes WERE observed but R0.1 failed. Pinned by one case
+    with requirements = {"R0.1": "failed", "R0.2": "passed", "R0.3":
+    "passed"} expecting "writes-observed; reads-declared-only" (l0.passed
+    would be False here — the label must still read the observed write
+    channel, not the aggregate pass/fail)."""
+    requirements = {"R0.1": "failed", "R0.2": "passed", "R0.3": "passed"}
+    l0 = _l0(passed=False, requirements=requirements, violations=["R0.1: something"])
+    report = _build(level_claimed="BD-L0", results={}, l0=l0)
+
+    assert report["labels"]["R0.2"] == "writes-observed; reads-declared-only", (
+        f"labels['R0.2'] must be derived from requirements['R0.2'] == "
+        f"'passed', regardless of l0.passed being False overall — got "
+        f"{report['labels']!r}"
+    )
+
+
 def test_ac_a8_missing_producer_identity_raises():
-    """AC-A8 [G:MAJOR-8]: the report MUST carry engine_version,
+    """AC-A8 [G:MAJOR-8] [G4:1]: the report MUST carry engine_version,
     adapter_identity, host_identity, repo, commit, run_id and a UTC
     timestamp with Z suffix; a missing or empty value for any of them MUST
-    raise rather than emit a report with an anonymous producer."""
+    raise rather than emit a report with an anonymous producer.
+
+    [G4:1]: these are echoes of the ARGUMENTS, asserted by VALUE, not by
+    truthiness. v4 asserted only `assert report["repo"]` etc., so a GREEN
+    hardcoding {"repo": "hal/bytedigger", "commit": "0"*40, "run_id":
+    "unknown", "engine_version": "unknown", "timestamp": "Z"} ignored all
+    six arguments and passed. Every field is asserted equal to a distinctive
+    sentinel; level_claimed is asserted for TWO distinct claims (v4 never
+    pinned the echo, and level_achieved is claim-independent per AC-A11b, so
+    a hardcoded claim round-tripped cleanly); timestamp is asserted by a real
+    parse plus a freshness window against datetime.now(timezone.utc) — the
+    single character "Z" satisfied v4's endswith("Z") check."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+
     from conformance.attestation import build_attestation_report  # noqa: PLC0415
 
     _base = dict(
@@ -770,14 +874,49 @@ def test_ac_a8_missing_producer_identity_raises():
         with pytest.raises((ValueError, TypeError)):
             build_attestation_report(**kw)
 
-    report = _build()
-    assert report["engine_version"]
-    assert report["adapter_identity"]
-    assert report["host_identity"]
-    assert report["repo"]
-    assert report["commit"]
-    assert report["run_id"]
-    assert isinstance(report["timestamp"], str) and report["timestamp"].endswith("Z")
+    sentinel_engine_version = "9.9.9-sentinel"
+    sentinel_adapter_identity = {"backend": "sentinel-backend", "source": "env"}
+    sentinel_host_identity = {"host": "sentinel-host"}
+    sentinel_repo = "sentinel/repo-A8"
+    sentinel_commit = "a1b2c3d4" + "0" * 32
+    sentinel_run_id = "run-A8-sentinel"
+
+    report = _build(
+        level_claimed="BD-L0",
+        engine_version=sentinel_engine_version,
+        adapter_identity=sentinel_adapter_identity,
+        host_identity=sentinel_host_identity,
+        repo=sentinel_repo,
+        commit=sentinel_commit,
+        run_id=sentinel_run_id,
+    )
+    after = datetime.now(timezone.utc)
+
+    assert report["engine_version"] == sentinel_engine_version, report["engine_version"]
+    assert report["adapter_identity"] == sentinel_adapter_identity, report["adapter_identity"]
+    assert report["host_identity"] == sentinel_host_identity, report["host_identity"]
+    assert report["repo"] == sentinel_repo, report["repo"]
+    assert report["commit"] == sentinel_commit, report["commit"]
+    assert report["run_id"] == sentinel_run_id, report["run_id"]
+
+    # timestamp: real parse (not "endswith('Z')") plus a freshness window —
+    # "Z" alone is not a UTC timestamp, and a constant would fail this.
+    ts_raw = report["timestamp"]
+    assert isinstance(ts_raw, str) and ts_raw.endswith("Z"), ts_raw
+    parsed = datetime.fromisoformat(ts_raw[:-1] + "+00:00")
+    assert parsed.tzinfo is not None
+    assert abs((parsed - after).total_seconds()) < 120, (
+        f"timestamp {ts_raw!r} (parsed as {parsed!r}) is not within a 120s "
+        f"freshness window of the build call (measured at {after!r}) — a "
+        f"constant value like the single character 'Z' would fail this"
+    )
+
+    # level_claimed echo, asserted by value for TWO distinct claims.
+    report_l0 = _build(level_claimed="BD-L0")
+    report_l2 = _build(level_claimed="BD-L2")
+    assert report_l0["level_claimed"] == "BD-L0", report_l0["level_claimed"]
+    assert report_l2["level_claimed"] == "BD-L2", report_l2["level_claimed"]
+    assert report_l0["level_claimed"] != report_l2["level_claimed"]
 
 
 def test_ac_a9_adv9_declarative_never_counted_never_blocking():
@@ -816,6 +955,17 @@ def test_ac_a10_round_trip_recomputes_from_reports_own_l0_block():
 
         assert reparsed["level_achieved"] == report["level_achieved"] == "BD-L1"
         assert "l0" in reparsed and reparsed["l0"], "attestation must carry its own l0 block"
+
+        # [G4:2]: the file MUST be the WHOLE report — full dict equality —
+        # not just the four keys spot-checked above. A writer serialising a
+        # subset (dropping labels/conformant/schema/unsigned/provenance)
+        # would still pass the spot-checks; this closes that gap.
+        assert reparsed == report, (
+            f"the written file must round-trip the ENTIRE report, got a "
+            f"partial serialisation. missing keys: "
+            f"{set(report) - set(reparsed)!r}, extra keys: "
+            f"{set(reparsed) - set(report)!r}"
+        )
 
         # Recompute using the report's OWN l0 block (not a re-supplied
         # l0_passed=True argument) — this is what AC-A10 forces.
@@ -864,6 +1014,14 @@ def test_ac_a10_round_trip_failing_report_through_write_reparse_recompute():
             f"{reparsed['l0']!r}"
         )
 
+        # [G4:2]: full dict equality on the FAILING round-trip too — v4
+        # asserted this only on the all-good path.
+        assert reparsed == report, (
+            f"the written failing report must round-trip in full, got "
+            f"missing keys: {set(report) - set(reparsed)!r}, extra keys: "
+            f"{set(reparsed) - set(report)!r}"
+        )
+
         recomputed = build_attestation_report(
             level_claimed=reparsed["level_claimed"],
             results={},
@@ -905,6 +1063,36 @@ def test_ac_a11_failed_adversary_must_not_count_toward_level():
     report_positive = _build(level_claimed="BD-L2", results=results_positive)
     assert report_positive["level_achieved"] == "BD-L2", (
         "positive control: the identical set with ADV-4 passed must reach BD-L2"
+    )
+
+
+def test_ac_a24_failed_adversary_published_as_failed_distinct_from_not_executed():
+    """AC-A24 [G4:MINOR-1]: a failed adversary MUST be PUBLISHED as failed.
+    AC-A11 pins that failed does not earn a level, and AC-A1 pins absent ->
+    not_executed, but nothing pinned the RENDERED status, so a GREEN
+    reporting every non-passing adversary as not_executed erased a MEASURED
+    failure from the reviewer artifact. Assert by_id["ADV-4"] == "failed" on
+    AC-A11's set, plus an explicitly-supplied not_executed case, so the two
+    are distinguishable in the report."""
+    l1_l2_only = _passed(*_L1_ADVS, *_L2_ADVS)
+    results_failed = dict(l1_l2_only)
+    results_failed["ADV-4"] = "failed"
+    report_failed = _build(level_claimed="BD-L2", results=results_failed)
+    by_id_failed = {a["id"]: a["status"] for a in report_failed["adversaries"]}
+    assert by_id_failed["ADV-4"] == "failed", (
+        f"a MEASURED failure must be published as 'failed', not erased into "
+        f"'not_executed', got {by_id_failed['ADV-4']!r}"
+    )
+
+    results_absent = dict(l1_l2_only)
+    del results_absent["ADV-4"]  # never supplied at all -> not_executed
+    report_absent = _build(level_claimed="BD-L2", results=results_absent)
+    by_id_absent = {a["id"]: a["status"] for a in report_absent["adversaries"]}
+    assert by_id_absent["ADV-4"] == "not_executed", by_id_absent
+
+    assert by_id_failed["ADV-4"] != by_id_absent["ADV-4"], (
+        "measured-failure and never-ran must be DISTINGUISHABLE in the "
+        "report, not collapsed into the same rendered status"
     )
 
 
@@ -1143,6 +1331,16 @@ def test_ac_a21_write_attestation_report_returns_path_and_leaves_no_partial_file
         assert returned == out_path
         assert isinstance(returned, Path)
         assert out_path.exists()
+        # [G4:2]: the written file must be the WHOLE report, not a subset
+        # (labels/conformant/schema/unsigned/provenance are all load-bearing
+        # per §4 — the written artifact, not the in-memory dict, is what the
+        # reviewer receives).
+        reparsed = json.loads(out_path.read_text(encoding="utf-8"))
+        assert reparsed == report, (
+            f"written file must equal the full report; missing keys: "
+            f"{set(report) - set(reparsed)!r}, extra keys: "
+            f"{set(reparsed) - set(report)!r}"
+        )
 
     class _Unserialisable:
         def __repr__(self):
@@ -1251,8 +1449,17 @@ def test_ac_l0_2b_adapter_identity_provenance_tracks_configuration(tmp_path, mon
     and the emitted value MUST TRACK CONFIGURATION — set the backend via the
     env seam (HAL_RUNNER_BACKEND) and assert both backend and source reflect
     it, then change it and assert the emitted value changes. A constant
-    "unknown" would pass a non-empty check while never tracking anything."""
+    "unknown" would pass a non-empty check while never tracking anything.
+
+    [G4:MINOR-4]: delenv ALL THREE spellings — HAL_RUNNER_BACKEND,
+    BD_RUNNER_BACKEND, BYTEDIGGER_RUNNER_BACKEND — because
+    config_provider._AliasEnviron (config_provider.py:258-288) resolves
+    HAL_<X> from the BD_/BYTEDIGGER_ aliases, so a host or CI carrying
+    BD_RUNNER_BACKEND would break the source == "default" assertion for an
+    environment reason, inside the very test that closes [G:MAJOR-6]."""
     monkeypatch.delenv("HAL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("BD_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("BYTEDIGGER_RUNNER_BACKEND", raising=False)
 
     log_default = EventLog(tmp_path / "events_default.jsonl")
     eng_default = WorkflowEngine(event_log=log_default)
@@ -1399,11 +1606,26 @@ def test_ac_l0_3c_retry_path_still_yields_exactly_one_phase_artifacts(tmp_path):
 def test_ac_l0_3c_zero_step_workflow_still_yields_exactly_one_phase_artifacts(tmp_path):
     """AC-L0-3c [G:MINOR-7] (2/2): _execute_steps returns early for a
     zero-step workflow (engine.py:355-361); a zero-step workflow MUST still
-    yield one phase_artifacts."""
+    yield one phase_artifacts.
+
+    [G4:4] AC-L0-3a4(2): driven WITH org_config["git_cwd"] set to a real
+    repo. `_scan_cwd` is resolved at engine.py:366, AFTER the zero-step early
+    return at :361 — so nothing is ever scanned. `all([])` is True, so a
+    literal reading of the "every step" quantifier would (wrongly) mandate
+    "git-delta" here. Normative: write_tracking MUST be "not-observed" and
+    check_bd_l0 MUST report R0.2 as "not-checked" for a zero-step phase, even
+    with git_cwd genuinely pointing at a real repo."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    repo_dir = tmp_path / "repo"
+    _init_git_repo(repo_dir)
+
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
     eng.register("wf_l0_3c_zero", WorkflowDefinition(name="wf_l0_3c_zero", steps=[]))
-    result, _ctx = eng.execute("wf_l0_3c_zero", _make_ctx(), run_id="run-l0-3c-zero")
+    result, _ctx = eng.execute(
+        "wf_l0_3c_zero", _make_ctx(git_cwd=str(repo_dir)), run_id="run-l0-3c-zero"
+    )
 
     assert result.status == "ok"
 
@@ -1414,6 +1636,90 @@ def test_ac_l0_3c_zero_step_workflow_still_yields_exactly_one_phase_artifacts(tm
         f"(the emit host is execute(), not _execute_steps' early return), "
         f"got {len(phase_artifacts)}"
     )
+    payload = phase_artifacts[0]["payload"]
+    assert payload.get("write_tracking") == "not-observed", (
+        f"a zero-step phase scans nothing even with git_cwd set — "
+        f"all([]) is True, so an 'every step' implementation that reduces "
+        f"vacuously would (wrongly) publish 'git-delta' here; got {payload!r}"
+    )
+
+    report = check_bd_l0(events, run_id="run-l0-3c-zero", writer=EventLog)
+    assert report.requirements["R0.2"] == "not-checked", report.requirements
+
+
+def test_ac_l0_3a4_partial_delta_failure_on_second_step_yields_not_observed(tmp_path):
+    """AC-L0-3a4(1) [G4:4]: an any()-shaped implementation ("git-delta" if
+    SOME step computed a delta) would publish "git-delta" for a phase where
+    a LATER step's git read failed (engine.py:1082, a real runtime path) —
+    a step window that was never scanned, attested as measured. A two-step
+    phase, git_cwd pointing at a real repo, with the git delta forced to
+    fail on the SECOND step only (injected through the lib.git_port
+    get_git_read() seam — the suite's established pattern, see
+    test_gh1082_engine_scan_cwd.py's set_default_git_read_factory usage)
+    MUST yield write_tracking: "not-observed" and requirements["R0.2"] ==
+    "not-checked" — not "git-delta" from step 1's successful delta alone."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+    from lib.git_port import (  # noqa: PLC0415
+        GitResult,
+        reset_default_git_read_factory,
+        set_default_git_read_factory,
+    )
+
+    repo_dir = tmp_path / "repo"
+    _init_git_repo(repo_dir)
+
+    # Real git_read for the first 4 calls (step1's git_pre + git_post, each
+    # of which issues 2 calls: `diff --name-status HEAD` and
+    # `ls-files --others --exclude-standard`, per engine.py:1076/:1079) —
+    # then FAIL every call from the 5th onward (step2's git_pre), so step2's
+    # window is genuinely never scanned.
+    from lib.git_port import default_git_read  # noqa: PLC0415
+
+    real = default_git_read()
+    call_count = {"n": 0}
+
+    class _FailAfterFourCallsSpy:
+        def __call__(self, args, *, cwd=None, timeout=None, dir_=None):
+            call_count["n"] += 1
+            if call_count["n"] <= 4:
+                return real(args, cwd=cwd, timeout=timeout, dir_=dir_)
+            return GitResult(returncode=1, stdout="", stderr="simulated git failure", timed_out=False)
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register(
+        "wf_l0_3a4_partial",
+        WorkflowDefinition(
+            name="wf_l0_3a4_partial",
+            steps=[_ok_step("step1"), _ok_step("step2")],
+        ),
+    )
+    try:
+        set_default_git_read_factory(lambda: _FailAfterFourCallsSpy())
+        result, _ctx = eng.execute(
+            "wf_l0_3a4_partial", _make_ctx(git_cwd=str(repo_dir)), run_id="run-l0-3a4-partial"
+        )
+    finally:
+        reset_default_git_read_factory()
+
+    assert result.status == "ok"
+    assert call_count["n"] > 4, (
+        "sanity: step2's git_pre must actually have been attempted (and "
+        "made to fail) for this test to force the failure branch"
+    )
+
+    events = log.read_all()
+    phase_artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
+    assert len(phase_artifacts) == 1
+    payload = phase_artifacts[0]["payload"]
+    assert payload.get("write_tracking") == "not-observed", (
+        f"step1's delta succeeded but step2's failed (returncode=1) — an "
+        f"any()-shaped 'every step' implementation would wrongly publish "
+        f"'git-delta' from step1 alone; got {payload!r}"
+    )
+
+    report = check_bd_l0(events, run_id="run-l0-3a4-partial", writer=EventLog)
+    assert report.requirements["R0.2"] == "not-checked", report.requirements
 
 
 def test_ac_l0_3d_oversized_artifact_list_does_not_vanish(tmp_path):
@@ -1422,7 +1728,19 @@ def test_ac_l0_3d_oversized_artifact_list_does_not_vanish(tmp_path):
     silently lose its record. When the payload would exceed the limit,
     phase_artifacts MUST instead carry written_truncated: true,
     written_count: <n>, written_digest: "sha256:...", and a bounded written
-    sample — asserted with a step writing enough paths to exceed 4096 bytes."""
+    sample — asserted with a step writing enough paths to exceed 4096 bytes.
+
+    [G4:5]: written_digest is a MEASURED value, not a shape — computed here
+    as sha256 over the full sorted path list joined by newline (the same
+    relpaths `written` uses: untracked new files surface via
+    `git ls-files --others --exclude-standard` bare filenames, matching
+    AC-L0-3b's "new_file.txt" spelling), asserted by EQUALITY — v4 asserted
+    only startswith("sha256:"), so a constant "sha256:"+"0"*64 passed.
+    [G4:MINOR-5]: the payload assertion is whole-dict-shape (exact key set +
+    every fixed value), not key-by-key .get() probes; the sample list is
+    handled explicitly (bounded subset of the real path set)."""
+    import hashlib  # noqa: PLC0415
+
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
     repo_dir = tmp_path / "repo"
@@ -1453,13 +1771,39 @@ def test_ac_l0_3d_oversized_artifact_list_does_not_vanish(tmp_path):
         "engine.py:710)"
     )
     payload = phase_artifacts[0]["payload"]
-    assert payload.get("written_truncated") is True
-    assert payload.get("written_count") == n_files
-    digest = payload.get("written_digest")
-    assert isinstance(digest, str) and digest.startswith("sha256:"), digest
-    sample = payload.get("written")
+
+    # [G4:MINOR-5] whole-dict-shape: the exact key set, not key-by-key probes.
+    assert set(payload.keys()) == {
+        "phase", "written", "read", "write_tracking", "read_tracking",
+        "written_truncated", "written_count", "written_digest",
+    }, payload.keys()
+    assert payload["phase"] == "wf_l0_3d"
+    assert payload["read"] == []
+    assert payload["write_tracking"] == "git-delta"
+    assert payload["read_tracking"] == "declared-only"
+    assert payload["written_truncated"] is True
+    assert payload["written_count"] == n_files
+
+    expected_paths = sorted(
+        f"generated_artifact_file_number_{i:05d}.txt" for i in range(n_files)
+    )
+    expected_digest = "sha256:" + hashlib.sha256(
+        "\n".join(expected_paths).encode("utf-8")
+    ).hexdigest()
+    assert payload["written_digest"] == expected_digest, (
+        f"[G4:5]: written_digest must EQUAL the digest computed over the "
+        f"REAL full sorted path set, got {payload['written_digest']!r}, "
+        f"expected {expected_digest!r} — a constant 'sha256:'+'0'*64 must "
+        f"fail this"
+    )
+
+    sample = payload["written"]
     assert isinstance(sample, list) and 0 < len(sample) < n_files, (
         f"expected a bounded sample smaller than the real count, got {len(sample) if sample else sample}"
+    )
+    assert set(sample).issubset(set(expected_paths)), (
+        f"the bounded sample must be drawn from the real path set, got "
+        f"unexpected entries: {set(sample) - set(expected_paths)!r}"
     )
 
     report = check_bd_l0(events, run_id="run-l0-3d", writer=EventLog)
@@ -1694,6 +2038,37 @@ def test_ac_l0_6c_r0_1_probe_negative_control_three_inputs_not_two():
     assert report_real.requirements["R0.1"] == "passed", report_real.requirements
 
 
+def test_ac_l0_6d_r0_1_probe_does_not_write_outside_a_path_it_owns(tmp_path, monkeypatch):
+    """AC-L0-6d [G4:EDGE-3]: the R0.1 probe MUST NOT write outside a path it
+    owns. Nothing in v4 constrained WHERE the probe writes, so
+    writer(Path("events.jsonl")) would write into the caller's cwd during a
+    read-only conformance check — and with an O_TRUNC writer of the
+    AC-L0-6c shape it would truncate a real file at that path. The probe
+    runs ~20x in this suite alone. check_bd_l0 is run with writer=EventLog
+    from a cwd whose contents are snapshotted before and after and MUST be
+    unchanged."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    probe_cwd = tmp_path / "caller_cwd"
+    probe_cwd.mkdir()
+    (probe_cwd / "pre_existing_file.txt").write_text("must survive untouched\n")
+    monkeypatch.chdir(probe_cwd)
+
+    before = sorted(p.name for p in probe_cwd.iterdir())
+    before_contents = (probe_cwd / "pre_existing_file.txt").read_text()
+
+    report = check_bd_l0(_valid_l0_events(), run_id="run-l0", writer=EventLog)
+    assert report.requirements["R0.1"] == "passed", report.requirements
+
+    after = sorted(p.name for p in probe_cwd.iterdir())
+    assert after == before, (
+        f"the R0.1 probe must not write into the caller's cwd: before={before}, after={after}"
+    )
+    assert (probe_cwd / "pre_existing_file.txt").read_text() == before_contents, (
+        "the probe must not truncate/overwrite a real file at a path it does not own"
+    )
+
+
 def test_ac_l0_7_r0_2_phase_outcome_artifacts_pass_on_valid_log():
     """AC-L0-7: R0.2 — every workflow_started has a matching workflow_finished
     with a status; every step_started/step_finished carries phase; every
@@ -1765,14 +2140,28 @@ def test_ac_l0_9_eight_negative_controls_and_no_vacuous_pass():
     assert any("R0.2" in v for v in report.violations), report.violations
 
     # 5) a SECOND phase_artifacts added for the same phase -> R0.2 (the
-    #    failure mode AC-L0-3c predicts on real retry runs)
+    #    failure mode AC-L0-3c predicts on real retry runs). [G4:3]: the
+    #    injected duplicate MUST differ from the baseline by duplication and
+    #    NOTHING ELSE — it carries write_tracking: "git-delta" exactly like
+    #    the fixture it duplicates. v4 omitted write_tracking here, so the
+    #    AC-L0-3a3 fail-closed branch fired first and satisfied this
+    #    assertion WITHOUT any duplicate detection existing at all.
     events_double_artifacts = list(_valid_l0_events())
     events_double_artifacts.append(
-        _ev("phase_artifacts", {"phase": "wf", "written": [], "read": [], "read_tracking": "declared-only"})
+        _ev("phase_artifacts", {
+            "phase": "wf", "written": [], "read": [],
+            "write_tracking": "git-delta", "read_tracking": "declared-only",
+        })
     )
     report = _check(events_double_artifacts)
     assert report.passed is False
-    assert any("R0.2" in v for v in report.violations), report.violations
+    assert any("R0.2" in v for v in report.violations), (
+        f"a duplicate phase_artifacts event (write_tracking identical to "
+        f"the baseline fixture, so ONLY duplication differs) must still be "
+        f"caught as an R0.2 violation — this discriminates real duplicate "
+        f"detection from the AC-L0-3a3 fail-closed branch, which the "
+        f"baseline's own write_tracking now passes: {report.violations}"
+    )
 
     # 6) run_identity removed -> R0.3
     events_no_identity = [e for e in _valid_l0_events() if e["event_type"] != "run_identity"]
@@ -1905,8 +2294,13 @@ def test_ac_l0_11b_composed_path_without_git_cwd_is_unmeasured_not_bd_l0(tmp_pat
     labels["R0.2"] == "writes-not-observed; reads-declared-only" — the pair
     that makes "not measured" observably different from "passed" in the
     reviewer-facing artifact. This is the differential partner of
-    test_ac_l0_11 (identical workflow, only git_cwd differs)."""
-    from conformance.attestation import build_attestation_report  # noqa: PLC0415
+    test_ac_l0_11 (identical workflow, only git_cwd differs).
+
+    [G4:2]: asserted from the WRITTEN file, not in memory. v4 asserted these
+    five values on the in-memory dict and never wrote it, so the lot's own
+    flagship "not measured != passed" pair said nothing about the artifact a
+    reviewer actually receives."""
+    from conformance.attestation import build_attestation_report, write_attestation_report  # noqa: PLC0415
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
     log = EventLog(tmp_path / "events.jsonl")
@@ -1935,6 +2329,7 @@ def test_ac_l0_11b_composed_path_without_git_cwd_is_unmeasured_not_bd_l0(tmp_pat
         run_id="run-l0-11b",
     )
 
+    # In-memory sanity (kept from v4).
     assert report["l0"]["R0.2"] == "not-checked", report["l0"]
     assert report["level_achieved"] is None, (
         "a level cannot be granted while the write channel was never measured"
@@ -1942,6 +2337,21 @@ def test_ac_l0_11b_composed_path_without_git_cwd_is_unmeasured_not_bd_l0(tmp_pat
     assert report["conformant"] is False
     assert report["labels"]["R0.2"] == "writes-not-observed; reads-declared-only", (
         report["labels"]
+    )
+
+    # [G4:2]: re-assert ALL FIVE values from the REPARSED written file, not
+    # the in-memory dict — this is the only place the "not measured != passed"
+    # distinction has any effect on what a reviewer actually receives.
+    out_path = tmp_path / "attestation.json"
+    write_attestation_report(report, out_path)
+    reparsed = json.loads(out_path.read_text(encoding="utf-8"))
+
+    assert l0_report.requirements["R0.2"] == "not-checked", l0_report.requirements
+    assert reparsed["l0"]["R0.2"] == "not-checked", reparsed["l0"]
+    assert reparsed["level_achieved"] is None, reparsed["level_achieved"]
+    assert reparsed["conformant"] is False, reparsed["conformant"]
+    assert reparsed["labels"]["R0.2"] == "writes-not-observed; reads-declared-only", (
+        reparsed["labels"]
     )
 
 
@@ -2179,9 +2589,11 @@ def test_ac_l0_12d_run_id_scoping_functionally_asserted():
     # GREEN ignoring run_id would see TWO phase_artifacts for
     # "shared_phase_name" (one from each run) and could wrongly fail A on
     # a duplicate-phase_artifacts violation instead of the real R0.3 gap.
-    assert not any(
-        v.startswith("R0.2") and "second" in v.lower() for v in report_a.violations
-    ), (
+    # [G4:MINOR-3]: asserted structurally — run A is R0.2-clean by
+    # construction — not by matching violation prose ("second" in
+    # v.lower()), which passes whenever a GREEN words its message
+    # differently even if the guard DID wrongly trip.
+    assert not any(v.startswith("R0.2") for v in report_a.violations), (
         f"run B's phase_artifacts for the same-named phase must not trip "
         f"run A's 'exactly one phase_artifacts per phase' check: "
         f"{report_a.violations}"
@@ -2189,6 +2601,30 @@ def test_ac_l0_12d_run_id_scoping_functionally_asserted():
 
     report_b = check_bd_l0(combined, run_id=run_id_b, writer=EventLog)
     assert report_b.passed is True, report_b.violations
+
+
+def test_ac_l0_12e_two_phase_artifacts_same_phase_same_run_id_fail_closed():
+    """AC-L0-12e [G4:EDGE-5]: two phase_artifacts for one phase under the
+    SAME run_id — the scenario run_id scoping exists for
+    (event_log.py:82-88: multiple appending processes) — yet AC-L0-12d
+    covers only DIFFERENT run_ids. Normative: the checker cannot distinguish
+    an interleaved co-writer from a real double emit, so it MUST fail-closed
+    and report it as the AC-L0-9-clause-5 R0.2 violation."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    events = list(_valid_l0_events())
+    events.append(
+        _ev("phase_artifacts", {
+            "phase": "wf", "written": [], "read": [],
+            "write_tracking": "git-delta", "read_tracking": "declared-only",
+        })
+    )
+    report = check_bd_l0(events, run_id="run-l0", writer=EventLog)
+    assert report.passed is False, (
+        "two phase_artifacts for the same phase under the SAME run_id must "
+        "fail-close, indistinguishable from an interleaved co-writer"
+    )
+    assert any(v.startswith("R0.2") for v in report.violations), report.violations
 
 
 def test_ac_l0_14_checker_enforces_adapter_identity_shape():
@@ -2352,6 +2788,32 @@ def test_ac_l0_3a3_missing_write_tracking_key_treated_as_not_observed(tmp_path):
     assert report.requirements["R0.2"] == "not-checked", report.requirements
 
 
+def test_ac_l0_3a3_unrecognised_write_tracking_tokens_fail_closed():
+    """AC-L0-3a3 extension [G4:EDGE-2]: the same fail-close MUST apply to an
+    UNRECOGNISED token — write_tracking of "observed", "git_delta" (wrong
+    separator), or "" MUST yield requirements["R0.2"] == "not-checked", not
+    "passed". `if wt != "not-observed": passed` would render any unknown
+    spelling — a future engine's or a forged one — as a measured pass. Only
+    the exact token "git-delta" counts."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    for bad_token in ("observed", "git_delta", ""):
+        events = []
+        for e in _valid_l0_events():
+            if e["event_type"] == "phase_artifacts":
+                payload = dict(e["payload"])
+                payload["write_tracking"] = bad_token
+                e = {**e, "payload": payload}
+            events.append(e)
+
+        report = check_bd_l0(events, run_id="run-l0", writer=EventLog)
+        assert report.requirements["R0.2"] == "not-checked", (
+            f"write_tracking={bad_token!r} must fail-close R0.2 to "
+            f"'not-checked', got {report.requirements['R0.2']!r} — only "
+            f"the exact token 'git-delta' may count as measured"
+        )
+
+
 def test_ac_l0_3e_phase_artifacts_emitted_on_error_exit(tmp_path):
     """AC-L0-3e [G2:edge-7]: phase_artifacts MUST also be emitted when the
     workflow ends error/escalate (engine.py:674, :682), not only on the ok
@@ -2378,6 +2840,42 @@ def test_ac_l0_3e_phase_artifacts_emitted_on_error_exit(tmp_path):
         f"still emit exactly one phase_artifacts, got {len(phase_artifacts)}"
     )
     assert phase_artifacts[0]["payload"]["phase"] == "wf_l0_3e"
+
+
+def test_ac_l0_3e2_crash_path_step_raises_still_yields_exactly_one_phase_artifacts(tmp_path):
+    """AC-L0-3e2 [G4:EDGE-4]: "unconditionally" includes the CRASH path. A
+    step RAISING (or the RuntimeError at engine.py:679) propagates out of
+    execute() with no try/finally around the emit, so AC-L0-3's
+    "unconditionally at phase exit" is unasserted on the one exit v4 never
+    drove. Normative: it holds — a step that raises, pytest.raises around
+    execute(), and exactly one phase_artifacts in the log afterwards. This
+    is not a false-green: the log also lacks workflow_finished, so R0.2
+    fails honestly — asserted here so a future GREEN cannot silently narrow
+    the claim instead of implementing it."""
+    def _crash(_ctx, _prev):
+        raise RuntimeError("step blew up before returning a StepResult")
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register(
+        "wf_l0_3e2",
+        WorkflowDefinition(name="wf_l0_3e2", steps=[StepContract(name="crash_step", execute=_crash)]),
+    )
+
+    with pytest.raises(RuntimeError):
+        eng.execute("wf_l0_3e2", _make_ctx(), run_id="run-l0-3e2")
+
+    events = log.read_all()
+    phase_artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
+    assert len(phase_artifacts) == 1, (
+        f"a step that raises must still leave exactly one phase_artifacts "
+        f"record — 'unconditionally at phase exit' must hold even on the "
+        f"crash path, got {len(phase_artifacts)}"
+    )
+    assert not any(e["event_type"] == "workflow_finished" for e in events), (
+        "sanity: this is genuinely the crash path (no workflow_finished), "
+        "not a normal error-status exit already covered by AC-L0-3e"
+    )
 
 
 def test_ac_l0_3f_written_reset_between_sequential_runs_on_one_engine(tmp_path):
@@ -2451,6 +2949,94 @@ def test_ac_l0_3g_small_artifact_list_does_not_set_written_truncated(tmp_path):
     )
 
 
+def test_ac_l0_3d2_truncation_boundary_just_under_and_just_over_4096_bytes(tmp_path):
+    """AC-L0-3d2 [G4:EDGE-6]: the truncation threshold is asserted AT ITS
+    BOUNDARY. AC-L0-3d uses ~13KB and AC-L0-3g uses one path, so nothing
+    exercises a payload just over or just under 4096 bytes. The size
+    predicate is over the SERIALISED EVENT as EventLog.append sees it —
+    envelope (ts, run_id, event_type, payload) included, ~60 bytes — not the
+    payload alone (event_log.py:74/:108-116). We compute the exact predicted
+    byte length of the untruncated 5-key phase_artifacts event (as pinned by
+    test_ac_l0_3's whole-dict-equality) for a candidate path count using a
+    fixed-length ISO timestamp placeholder (millisecond precision + "Z" is
+    always 24 chars, per event_log.py's own docstring), then search for the
+    exact path count N where the predicted size first exceeds 4096 — N-1
+    files is the just-under run, N files is the just-over run. An off-by-one
+    that measures the payload alone (missing the ~60-byte envelope) would
+    misplace this boundary by one file."""
+    def _predicted_event_bytes(run_id: str, phase: str, paths: list[str]) -> int:
+        placeholder_ts = "2000-01-01T00:00:00.000Z"
+        assert len(placeholder_ts) == 24
+        payload = {
+            "phase": phase,
+            "written": list(paths),
+            "read": [],
+            "write_tracking": "git-delta",
+            "read_tracking": "declared-only",
+        }
+        event = {
+            "ts": placeholder_ts, "run_id": run_id,
+            "event_type": "phase_artifacts", "payload": payload,
+        }
+        return len((json.dumps(event, separators=(",", ":")) + "\n").encode("utf-8"))
+
+    def _paths_for(n: int) -> list[str]:
+        return [f"boundary_probe_file_{i:05d}.txt" for i in range(n)]
+
+    run_id_under = "run-l0-3d2-a"
+    run_id_over = "run-l0-3d2-b"
+    phase_under = "wf-l0-3d2-a"
+    phase_over = "wf-l0-3d2-b"
+    assert len(run_id_under) == len(run_id_over)
+    assert len(phase_under) == len(phase_over)
+
+    n = 0
+    while _predicted_event_bytes(run_id_under, phase_under, _paths_for(n)) <= 4096:
+        n += 1
+    n_just_over = n
+    n_just_under = n - 1
+    assert n_just_under >= 1, "sanity: envelope overhead alone must not already exceed 4096 bytes"
+
+    predicted_under = _predicted_event_bytes(run_id_under, phase_under, _paths_for(n_just_under))
+    predicted_over = _predicted_event_bytes(run_id_over, phase_over, _paths_for(n_just_over))
+    assert predicted_under <= 4096 < predicted_over, (predicted_under, predicted_over)
+
+    def _run(run_id: str, phase: str, n_paths: int) -> dict:
+        repo_dir = tmp_path / f"repo_{run_id}"
+        _init_git_repo(repo_dir)
+
+        def _write_paths(_ctx, _prev):
+            for name in _paths_for(n_paths):
+                (repo_dir / name).write_text("x")
+            return StepResult(status="ok", data=None, duration_ms=0, step_name="write_probe")
+
+        log = EventLog(tmp_path / f"events_{run_id}.jsonl")
+        eng = WorkflowEngine(event_log=log)
+        eng.register(phase, WorkflowDefinition(name=phase, steps=[StepContract(name="write_probe", execute=_write_paths)]))
+        result, _ctx = eng.execute(phase, _make_ctx(git_cwd=str(repo_dir)), run_id=run_id)
+        assert result.status == "ok"
+        events = log.read_all()
+        artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
+        assert len(artifacts) == 1
+        return artifacts[0]["payload"]
+
+    payload_under = _run(run_id_under, phase_under, n_just_under)
+    assert payload_under.get("written_truncated") is not True, (
+        f"just-under-4096 run must NOT truncate, got {payload_under!r}"
+    )
+    assert sorted(payload_under["written"]) == sorted(_paths_for(n_just_under)), (
+        "just-under-4096 run must list EVERY path, not a sample"
+    )
+
+    payload_over = _run(run_id_over, phase_over, n_just_over)
+    assert payload_over.get("written_truncated") is True, (
+        f"just-over-4096 run (one more file than the just-under run) MUST "
+        f"truncate, got {payload_over!r} — an off-by-one measuring the "
+        f"payload alone (missing the ~60-byte envelope) would misplace this "
+        f"boundary"
+    )
+
+
 def test_ac_a7b_r0_2_label_tracks_write_tracking_differential_over_two_real_runs(tmp_path):
     """AC-A7b [G2:4]: labels["R0.2"] is "writes-observed; reads-declared-only"
     ONLY when every phase was "git-delta", else "writes-not-observed;
@@ -2512,3 +3098,22 @@ def test_ac_p1_pyproject_packages_find_include_gains_conformance():
     include = data["tool"]["setuptools"]["packages"]["find"]["include"]
 
     assert "conformance*" in include, f"expected 'conformance*' in include, got {include}"
+
+
+def test_ac_p2_core_manifest_excludes_conformance():
+    """AC-P2 [G4:EDGE-1]: the manifest exclusion is a TEST, not an ops note.
+    §1 makes "conformance/ is NOT in core_manifest.json" a load-bearing
+    design claim — it is what keeps extra_bd at zero — yet nothing stopped
+    a future GREEN from adding it, and the only prior check was a manual
+    bd-drift-check.py run. AC-P1 asserts the opposite direction (the
+    pyproject include) and does not cover this."""
+    manifest_path = Path(__file__).resolve().parent.parent / "core_manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    core_modules = data.get("core_modules", [])
+    conformance_entries = [m for m in core_modules if "conformance" in m]
+    assert conformance_entries == [], (
+        f"engine_py/core_manifest.json must contain no 'conformance' entry "
+        f"in core_modules — found {conformance_entries!r}. This is the "
+        f"design invariant that keeps extra_bd at zero (§1)."
+    )
