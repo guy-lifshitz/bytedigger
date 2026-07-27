@@ -671,15 +671,28 @@ def test_ac_a3_empty_results_yields_bd_l0_with_l0_passing():
 
 def test_ac_a4_failing_l0_yields_null_level_never_bd_l0():
     """AC-A4: failing L0 checks MUST yield level_achieved == null (None),
-    never "BD-L0"."""
+    never "BD-L0". AC-A22 [G3:MAJOR-2]: report["l0"] MUST equal
+    dict(l0.requirements) on this FAILING report — a negative control
+    against the literal constant {"R0.1":"passed","R0.2":"passed",
+    "R0.3":"passed"}, which would pass this assertion trivially if not
+    checked here. AC-A23 [G3:MAJOR-3]: conformant MUST be False when
+    level_achieved is None."""
+    failing_requirements = {"R0.1": "failed", "R0.2": "passed", "R0.3": "passed"}
     report = _build(
         level_claimed="BD-L3",
         results=_passed(*_ALL_EXECUTABLE_ADVS),
-        l0=_l0(passed=False, requirements={"R0.1": "failed", "R0.2": "passed", "R0.3": "passed"}),
+        l0=_l0(passed=False, requirements=failing_requirements),
     )
 
     assert report["level_achieved"] is None
     assert report["level_achieved"] != "BD-L0"
+    assert report["l0"] == failing_requirements, (
+        f"report['l0'] must equal the L0Report's own (failing) requirements "
+        f"dict, not a fabricated all-passed constant, got {report['l0']!r}"
+    )
+    assert report["conformant"] is False, (
+        "level_achieved is None must fail-close conformant to False"
+    )
 
 
 def test_ac_a5_levels_are_cumulative_l2_without_l1_does_not_achieve_l2():
@@ -773,7 +786,8 @@ def test_ac_a10_round_trip_recomputes_from_reports_own_l0_block():
     """AC-A10 [G:MAJOR-7c]: the written file MUST parse as JSON and
     re-validate against the same level computation, yielding the identical
     level_achieved — recomputed from the report's OWN l0 block, not from a
-    re-supplied argument."""
+    re-supplied argument. [G3:MAJOR-2] MUST round-trip a FAILING report
+    through write -> reparse -> recompute too, not only the all-good case."""
     from conformance.attestation import write_attestation_report  # noqa: PLC0415
 
     import tempfile
@@ -797,6 +811,57 @@ def test_ac_a10_round_trip_recomputes_from_reports_own_l0_block():
             l0=_l0(passed=True, requirements=dict(reparsed["l0"])),
         )
         assert recomputed["level_achieved"] == reparsed["level_achieved"]
+
+
+def test_ac_a10_round_trip_failing_report_through_write_reparse_recompute():
+    """AC-A10 [G3:MAJOR-2]: round-trip a FAILING L0Report through write ->
+    reparse -> recompute, not only the all-good case. v3 only exercised the
+    all-passing path, so a GREEN publishing a fabricated all-good l0 block
+    would round-trip identically regardless of the real (failing) input."""
+    from conformance.attestation import build_attestation_report, write_attestation_report  # noqa: PLC0415
+
+    import tempfile
+
+    failing_requirements = {"R0.1": "passed", "R0.2": "not-checked", "R0.3": "passed"}
+    report = build_attestation_report(
+        level_claimed="BD-L0",
+        results={},
+        l0=_l0(passed=False, requirements=failing_requirements),
+        engine_version="0.0.0-test",
+        adapter_identity={"backend": "agent-sdk", "source": "default"},
+        host_identity={"host": "hal-test-host"},
+        repo="hal/bytedigger",
+        commit="deadbeefcafebabe0000000000000000000000",
+        run_id="run-a10-failing",
+    )
+    assert report["level_achieved"] is None
+
+    with tempfile.TemporaryDirectory() as d:
+        out_path = Path(d) / "attestation.json"
+        write_attestation_report(report, out_path)
+
+        with open(out_path, "r", encoding="utf-8") as fh:
+            reparsed = json.load(fh)
+
+        assert reparsed["level_achieved"] is None
+        assert reparsed["l0"] == failing_requirements, (
+            f"the round-tripped l0 block must be the REAL failing "
+            f"requirements dict, not a fabricated all-good stand-in, got "
+            f"{reparsed['l0']!r}"
+        )
+
+        recomputed = build_attestation_report(
+            level_claimed=reparsed["level_claimed"],
+            results={},
+            l0=_l0(passed=False, requirements=dict(reparsed["l0"])),
+            engine_version="0.0.0-test",
+            adapter_identity={"backend": "agent-sdk", "source": "default"},
+            host_identity={"host": "hal-test-host"},
+            repo="hal/bytedigger",
+            commit="deadbeefcafebabe0000000000000000000000",
+            run_id="run-a10-failing-recompute",
+        )
+        assert recomputed["level_achieved"] == reparsed["level_achieved"] is None
 
 
 def test_ac_a11_failed_adversary_must_not_count_toward_level():
@@ -907,10 +972,11 @@ def test_ac_a17_level_achieved_none_when_l0_requirement_not_checked():
     "not-checked" MUST yield level_achieved is None, even when the caller's
     L0Report.passed flag says True — a level cannot be granted while a third
     of it was never evaluated."""
+    conflicting_requirements = {"R0.1": "not-checked", "R0.2": "passed", "R0.3": "passed"}
     conflicting_l0 = _l0(
         passed=True,  # deliberately conflicting with requirements, to force
         # build_attestation_report to inspect .requirements, not just .passed
-        requirements={"R0.1": "not-checked", "R0.2": "passed", "R0.3": "passed"},
+        requirements=conflicting_requirements,
     )
 
     report = _build(level_claimed="BD-L0", results={}, l0=conflicting_l0)
@@ -918,6 +984,14 @@ def test_ac_a17_level_achieved_none_when_l0_requirement_not_checked():
     assert report["level_achieved"] is None, (
         "a not-checked R0.1 must yield level_achieved is None regardless of "
         "L0Report.passed"
+    )
+    assert report["l0"] == conflicting_requirements, (
+        f"AC-A22 [G3:MAJOR-2]: report['l0'] must equal the L0Report's own "
+        f"(not-checked) requirements dict, got {report['l0']!r}"
+    )
+    assert report["conformant"] is False, (
+        "AC-A23 [G3:MAJOR-3]: level_achieved is None must fail-close "
+        "conformant to False"
     )
 
 
@@ -939,6 +1013,15 @@ def test_ac_a18_l0report_passed_and_violations_are_not_ignorable():
         "requirements all 'passed' but L0Report.passed is False must still "
         "yield level_achieved is None — .passed is not ignorable"
     )
+    assert report_passed_false["l0"] == all_passed_requirements, (
+        f"AC-A22 [G3:MAJOR-2]: report['l0'] must equal l0.requirements even "
+        f"when .passed independently fails the level, got "
+        f"{report_passed_false['l0']!r}"
+    )
+    assert report_passed_false["conformant"] is False, (
+        "AC-A23 [G3:MAJOR-3]: level_achieved is None must fail-close "
+        "conformant to False"
+    )
 
     # Positive control 1: same report with .passed cleared to True reaches BD-L0.
     l0_passed_true = _l0(passed=True, requirements=dict(all_passed_requirements), violations=[])
@@ -957,6 +1040,15 @@ def test_ac_a18_l0report_passed_and_violations_are_not_ignorable():
         "a non-empty .violations list must yield level_achieved is None even "
         "when .passed is True and requirements all read 'passed' — "
         ".violations is not ignorable"
+    )
+    assert report_with_violations["l0"] == all_passed_requirements, (
+        f"AC-A22 [G3:MAJOR-2]: report['l0'] must equal l0.requirements even "
+        f"when .violations independently fails the level, got "
+        f"{report_with_violations['l0']!r}"
+    )
+    assert report_with_violations["conformant"] is False, (
+        "AC-A23 [G3:MAJOR-3]: level_achieved is None must fail-close "
+        "conformant to False"
     )
 
     # Positive control 2: same report with .violations cleared reaches BD-L0.
@@ -996,6 +1088,27 @@ def test_ac_a20_input_status_hygiene_fabricated_id_case_variant_and_adv9_out_of_
 
     with pytest.raises(ValueError):
         _build(level_claimed="BD-L0", results={"ADV-9": "definitely-not-a-real-status"})
+
+
+def test_ac_a23_conformant_false_for_all_four_level_claimed_values_on_null_achieved_report():
+    """AC-A23 [G3:MAJOR-3]: level_achieved is None => conformant is False,
+    for EVERY level_claimed value. The AC-A19 rank rewrite made
+    `_RANK.get(achieved, 0)` yield conformant: true on a report with
+    level_achieved: null and level_claimed: "BD-L0" — the "rank at zero"
+    defect AC-A16 names for the claimed side, unguarded here on the achieved
+    side. This is the single headline boolean a reviewer reads first."""
+    failing_l0 = _l0(passed=False, requirements={"R0.1": "failed", "R0.2": "passed", "R0.3": "passed"})
+
+    for claim in ("BD-L0", "BD-L1", "BD-L2", "BD-L3"):
+        report = _build(level_claimed=claim, results={}, l0=failing_l0)
+        assert report["level_achieved"] is None, (
+            f"sanity: level_achieved must be None for level_claimed={claim!r}"
+        )
+        assert report["conformant"] is False, (
+            f"level_achieved is None must yield conformant is False "
+            f"regardless of level_claimed={claim!r}, got "
+            f"{report['conformant']!r}"
+        )
 
 
 def test_ac_a21_write_attestation_report_returns_path_and_leaves_no_partial_file():
@@ -1175,10 +1288,15 @@ def test_ac_l0_3_phase_artifacts_emitted_unconditionally_at_phase_exit(tmp_path)
 
     assert len(phase_artifacts) == 1, f"expected exactly one phase_artifacts event, got {len(phase_artifacts)}"
     payload = phase_artifacts[0]["payload"]
-    assert payload["phase"] == "wf_l0_3"
-    assert payload["written"] == []
-    assert payload["read"] == []
-    assert payload["read_tracking"] == "declared-only"
+    # [G3:MINOR-3] whole-dict-shape assertion (not key-by-key): a GREEN that
+    # always truncates or silently drops write_tracking cannot pass this.
+    assert payload == {
+        "phase": "wf_l0_3",
+        "written": [],
+        "read": [],
+        "write_tracking": "not-observed",
+        "read_tracking": "declared-only",
+    }, payload
 
 
 def test_ac_l0_3b_written_nonempty_when_something_was_written(tmp_path):
@@ -1987,6 +2105,78 @@ def test_ac_l0_13_exactly_one_phase_artifacts_per_phase_with_two_phases():
     assert any("R0.2" in v for v in report.violations), report.violations
 
 
+def test_ac_l0_12d_run_id_scoping_functionally_asserted():
+    """AC-L0-12d [G3:MINOR-4]: run_id scoping is functionally asserted. v3's
+    every checker test passed a run_id matching every event, so a GREEN
+    ignoring run_id entirely would pass all of them while the [G:edge-4]
+    scenario it exists for produces a false PASS. A log holds run A (MISSING
+    run_identity) and run B (complete) under DIFFERENT run_ids: checking run
+    A MUST fail R0.3 (B's identity must not satisfy A), and B's
+    phase_artifacts for a same-named phase must not trip A's "exactly one
+    per phase" for A."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    run_id_a = "run-l0-12d-a"
+    run_id_b = "run-l0-12d-b"
+
+    # Run A: same phase name as B, but NO run_identity at all.
+    events_a = [
+        _ev("workflow_started", {"workflow_name": "shared_phase_name"}, run_id=run_id_a),
+        _ev("step_started", {"step_name": "s1", "phase": "shared_phase_name"}, run_id=run_id_a),
+        _ev("step_finished", {
+            "step_name": "s1", "status": "ok", "duration_ms": 1, "error": None,
+            "phase": "shared_phase_name",
+        }, run_id=run_id_a),
+        _ev("phase_artifacts", {
+            "phase": "shared_phase_name", "written": [], "read": [],
+            "write_tracking": "git-delta", "read_tracking": "declared-only",
+        }, run_id=run_id_a),
+        _ev("workflow_finished", {"workflow_name": "shared_phase_name", "status": "ok", "wall_ms": 1}, run_id=run_id_a),
+    ]
+
+    # Run B: same phase name, complete run_identity, DIFFERENT run_id.
+    events_b = [
+        _ev("workflow_started", {"workflow_name": "shared_phase_name"}, run_id=run_id_b),
+        _ev("run_identity", {
+            "engine_version": "1.0.0",
+            "adapter_identity": {"backend": "claude-subprocess", "source": "default"},
+        }, run_id=run_id_b),
+        _ev("step_started", {"step_name": "s1", "phase": "shared_phase_name"}, run_id=run_id_b),
+        _ev("step_finished", {
+            "step_name": "s1", "status": "ok", "duration_ms": 1, "error": None,
+            "phase": "shared_phase_name",
+        }, run_id=run_id_b),
+        _ev("phase_artifacts", {
+            "phase": "shared_phase_name", "written": [], "read": [],
+            "write_tracking": "git-delta", "read_tracking": "declared-only",
+        }, run_id=run_id_b),
+        _ev("workflow_finished", {"workflow_name": "shared_phase_name", "status": "ok", "wall_ms": 1}, run_id=run_id_b),
+    ]
+
+    combined = events_a + events_b
+
+    report_a = check_bd_l0(combined, run_id=run_id_a, writer=EventLog)
+    assert report_a.passed is False, (
+        "run A has no run_identity of its own; a GREEN ignoring run_id "
+        "would let run B's run_identity satisfy run A and pass it"
+    )
+    assert any("R0.3" in v for v in report_a.violations), report_a.violations
+    # Run A's own phase_artifacts is present exactly once for run A — a
+    # GREEN ignoring run_id would see TWO phase_artifacts for
+    # "shared_phase_name" (one from each run) and could wrongly fail A on
+    # a duplicate-phase_artifacts violation instead of the real R0.3 gap.
+    assert not any(
+        v.startswith("R0.2") and "second" in v.lower() for v in report_a.violations
+    ), (
+        f"run B's phase_artifacts for the same-named phase must not trip "
+        f"run A's 'exactly one phase_artifacts per phase' check: "
+        f"{report_a.violations}"
+    )
+
+    report_b = check_bd_l0(combined, run_id=run_id_b, writer=EventLog)
+    assert report_b.passed is True, report_b.violations
+
+
 def test_ac_l0_14_checker_enforces_adapter_identity_shape():
     """AC-L0-14 [G2:8]: the checker MUST enforce the AC-L0-2b SHAPE of
     adapter_identity — a mapping with non-empty backend and source — not
@@ -2089,6 +2279,61 @@ def test_ac_l0_3a_check_bd_l0_reports_not_checked_when_write_tracking_not_observ
         "a phase carrying write_tracking: 'not-observed' must NEVER let "
         "R0.2 read 'passed' — that would attest an unmeasured write channel "
         "as observed"
+    )
+    assert report.requirements["R0.2"] == "not-checked", report.requirements
+
+
+def test_ac_l0_3a2_negative_control_git_cwd_points_at_non_git_dir(tmp_path):
+    """AC-L0-3a2 [G3:MAJOR-4]: negative control for the failure branch.
+    _resolve_scan_cwd returning a path does NOT mean anything was measured:
+    _git_changes_vs_head returns None for a non-git directory
+    (returncode != 0), and engine.py:434/:436 then skip the delta entirely.
+    A run with git_cwd pointing at a NON-REPO MUST therefore yield
+    write_tracking: "not-observed" and requirements["R0.2"] == "not-checked"
+    — NOT "git-delta" with written: [], which is the affirmative claim
+    "nothing was written" over a channel that never ran."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    non_repo_dir = tmp_path / "plain_dir_not_a_git_repo"
+    non_repo_dir.mkdir()
+    (non_repo_dir / "some_file.txt").write_text("not tracked by any vcs\n")
+
+    log = EventLog(tmp_path / "events.jsonl")
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf_l0_3a2", WorkflowDefinition(name="wf_l0_3a2", steps=[_ok_step("noop")]))
+    eng.execute("wf_l0_3a2", _make_ctx(git_cwd=str(non_repo_dir)), run_id="run-l0-3a2")
+
+    events = log.read_all()
+    payload = next(e for e in events if e["event_type"] == "phase_artifacts")["payload"]
+    assert payload["write_tracking"] == "not-observed", (
+        f"git_cwd resolved to a non-git directory: _git_changes_vs_head "
+        f"returns None (returncode != 0), so no delta was ever computed — "
+        f"write_tracking must be 'not-observed', NOT 'git-delta' with "
+        f"written: [], got {payload!r}"
+    )
+
+    report = check_bd_l0(events, run_id="run-l0-3a2", writer=EventLog)
+    assert report.requirements["R0.2"] == "not-checked", report.requirements
+
+
+def test_ac_l0_3a3_missing_write_tracking_key_treated_as_not_observed(tmp_path):
+    """AC-L0-3a3 [G3:MINOR-5]: a phase_artifacts event with NO write_tracking
+    key at all MUST be treated as "not-observed" (fail-closed), not silently
+    accepted as passing."""
+    from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
+
+    events_no_write_tracking_key = []
+    for e in _valid_l0_events():
+        if e["event_type"] == "phase_artifacts":
+            payload = dict(e["payload"])
+            del payload["write_tracking"]
+            e = {**e, "payload": payload}
+        events_no_write_tracking_key.append(e)
+
+    report = check_bd_l0(events_no_write_tracking_key, run_id="run-l0", writer=EventLog)
+    assert report.requirements["R0.2"] != "passed", (
+        "a phase_artifacts event with no write_tracking key at all must "
+        "fail-close, not silently pass R0.2"
     )
     assert report.requirements["R0.2"] == "not-checked", report.requirements
 
