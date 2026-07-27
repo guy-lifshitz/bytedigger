@@ -2,8 +2,15 @@
 
 Spec: SHARED/memory/Decisions/2026-06-24_360F99CE_phase6_smoke_graceful_spec.md
 
-AC1: script absent → status==ok, data["skipped"]=="smoke_script_absent"
-AC2: script present but zsh absent → status==ok, data["skipped"]=="zsh_unavailable", bounded_run never called
+AC1: script absent → status=="skip", data["skipped"]=="smoke_script_absent"
+AC2: script present but zsh absent → status=="skip", data["skipped"]=="zsh_unavailable", bounded_run never called
+
+bd#1 amended AC1/AC2 from "ok" to "skip". The original pair encoded the
+false green rather than missing it: in the upstream tree an absent script
+means a stray checkout and "graceful degradation" is the right reading, but
+after extraction the branch is unconditional for every outside user, and a
+phase that structurally did not run must not report a pass. "skip" is a
+legal status and a success exit, so the pipeline outcome is unchanged.
 AC3: script + zsh present, rc0, PASS output → status==ok, parsed counts, no skipped key
 AC4: script + zsh present, rc1, FAIL output → status==error, E_SMOKE_FAILED
 AC5: source of phase_6_smoke.py contains "import shutil" and does NOT contain "E_SCRIPT_MISSING"
@@ -55,8 +62,9 @@ def test_ac1_script_absent_returns_graceful_skip(tmp_path):
     eng = _engine()
     result, _ = eng.execute("phase_6_smoke", _make_ctx(tmp_path))
 
-    assert result.status == "ok", (
-        f"Expected status='ok' for graceful skip, got {result.status!r} "
+    assert result.status == "skip", (
+        f"Expected status='skip' for graceful skip (bd#1 — 'ok' reported a "
+        f"pass for a check that never ran), got {result.status!r} "
         f"(error_code={getattr(result, 'error_code', None)!r})"
     )
     assert result.data.get("skipped") == "smoke_script_absent", (
@@ -94,8 +102,9 @@ def test_ac2_zsh_absent_returns_graceful_skip_no_bounded_run(tmp_path, monkeypat
     eng = _engine()
     result, _ = eng.execute("phase_6_smoke", _make_ctx(tmp_path))
 
-    assert result.status == "ok", (
-        f"Expected status='ok' for zsh-absent graceful skip, got {result.status!r}"
+    assert result.status == "skip", (
+        f"Expected status='skip' for zsh-absent graceful skip (bd#1), got "
+        f"{result.status!r}"
     )
     assert result.data.get("skipped") == "zsh_unavailable", (
         f"Expected data['skipped']=='zsh_unavailable', got data={result.data!r}"
