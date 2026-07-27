@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """version_parity.py — single canonical version + parity check (bd#99).
 
-The repo carries five version declarations. `engine_py/pyproject.toml`
-`[project].version` is canonical; the other four must always agree with it.
+The repo carries several version declarations, registered in `DECLARATIONS`
+below -- that list is the single source of truth for the set, and no count is
+restated in prose. `engine_py/pyproject.toml` `[project].version` is canonical;
+every other declaration must always agree with it.
 
 Usage:
     version_parity.py [--root PATH] [--check]
@@ -10,9 +12,9 @@ Usage:
     version_parity.py [--root PATH] --list-declarations
 
 `--root` defaults to the process working directory. `--check` (the default
-when no mode flag is given) compares all five declarations against the
-canonical value and lists every divergence. `--write X.Y.Z` sets all five
-declarations to X.Y.Z, all-or-nothing. `--list-declarations` prints the
+when no mode flag is given) compares every registered declaration against the
+canonical value and lists every divergence. `--write X.Y.Z` sets all of them
+to X.Y.Z, all-or-nothing. `--list-declarations` prints the
 declaration registry as JSON.
 
 Exit codes:
@@ -279,7 +281,7 @@ def cmd_list_declarations() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Check or bump the version across all five declaration sites, "
+            "Check or bump the version across every registered declaration site, "
             "canonical = engine_py/pyproject.toml [project].version. "
             "Argparse usage errors (unknown flag, --check+--write together) "
             "exit 2 -- argparse's own behaviour."
@@ -292,8 +294,8 @@ def main() -> int:
         help="Repo root to resolve declarations against (default: cwd).",
     )
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--check", action="store_true", help="Check all five declarations (default).")
-    mode.add_argument("--write", metavar="X.Y.Z", help="Set all five declarations to X.Y.Z.")
+    mode.add_argument("--check", action="store_true", help="Check every registered declaration (default).")
+    mode.add_argument("--write", metavar="X.Y.Z", help="Set every registered declaration to X.Y.Z.")
     mode.add_argument(
         "--list-declarations",
         action="store_true",

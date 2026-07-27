@@ -31,22 +31,110 @@ SCRIPT = REPO_ROOT / "scripts" / "version_parity.py"
 # No test needs the ambient cwd to be the repo root; tests that legitimately
 # target the real tree pass --root REPO_ROOT explicitly. This prevents a
 # GREEN that honours --root on the check path but drops it on the write
-# path from silently rewriting the real five declarations via inherited cwd.
+# path from silently rewriting the real declarations via inherited cwd.
 # Created ONCE at module scope (not from the per-test tmp_path fixture),
-# genuinely empty (contains none of the five declaration relpaths, so a
+# genuinely empty (contains none of the declaration relpaths, so a
 # CWD-resolving script fails loudly instead of partially resolving), and
 # NOT nested inside any fixture root built by _make_tmp_repo. realpath()
 # strips the /var/folders symlink macOS puts under mkdtemp() output, so
 # path-equality assertions elsewhere never mismatch on it.
 NEUTRAL_CWD = Path(os.path.realpath(tempfile.mkdtemp(prefix="version_parity_neutral_")))
 
-DECL_RELPATHS = [
-    "engine_py/pyproject.toml",
-    "package.json",
-    "npm/package.json",
-    ".claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-]
+
+def _source_registry() -> list:
+    """(path, kind) pairs read out of the UUT's own `DECLARATIONS` literal.
+
+    Derived, never transcribed. A hand-copied list of declaration relpaths is
+    what bd#13 was: the repo grew a sixth declaration
+    (`packaging/pypi-pointer/pyproject.toml`, added when the PyPI pointer
+    package was tracked in-repo and 0.1.1 was cut) and every fixture repo in
+    this suite silently stopped covering the full set, so seven tests failed
+    with `packaging/pypi-pointer/pyproject.toml: missing` while the tool itself
+    was correct on the real tree. Reading the registry from the source removes
+    the transcription entirely rather than re-transcribing it one longer.
+
+    Parsed with `ast`, not imported: this suite's standing rule is that the UUT
+    is never imported or mocked, only invoked as a subprocess. `ast.parse`
+    executes nothing. It is also deliberately NOT read via
+    `--list-declarations` -- AC16 asserts that the shipped
+    `--list-declarations` output agrees with this independently-parsed source
+    registry, and deriving both sides from the same subprocess would make that
+    comparison circular.
+    """
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    kind_consts: dict = {}
+    decls_node = None
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        if target.id.startswith("KIND_") and isinstance(node.value, ast.Constant):
+            kind_consts[target.id] = node.value.value
+        elif target.id == "DECLARATIONS":
+            decls_node = node.value
+
+    assert decls_node is not None, (
+        f"{SCRIPT} declares no module-level DECLARATIONS list -- this suite "
+        f"derives every fixture from it"
+    )
+    assert isinstance(decls_node, (ast.List, ast.Tuple)), (
+        f"DECLARATIONS in {SCRIPT} is not a list/tuple literal: "
+        f"{type(decls_node).__name__}"
+    )
+
+    pairs = []
+    for element in decls_node.elts:
+        assert isinstance(element, (ast.Tuple, ast.List)) and len(element.elts) == 2, (
+            f"DECLARATIONS entry is not a 2-element (path, kind) literal: "
+            f"{ast.dump(element)}"
+        )
+        path_node, kind_node = element.elts
+        assert isinstance(path_node, ast.Constant) and isinstance(path_node.value, str), (
+            f"DECLARATIONS path is not a string literal: {ast.dump(path_node)}"
+        )
+        if isinstance(kind_node, ast.Name):
+            assert kind_node.id in kind_consts, (
+                f"DECLARATIONS references unknown kind constant {kind_node.id!r}"
+            )
+            kind = kind_consts[kind_node.id]
+        else:
+            assert isinstance(kind_node, ast.Constant) and isinstance(
+                kind_node.value, str
+            ), f"DECLARATIONS kind is neither a KIND_* name nor a string: {ast.dump(kind_node)}"
+            kind = kind_node.value
+        pairs.append((path_node.value, kind))
+
+    assert pairs, f"DECLARATIONS in {SCRIPT} is empty"
+    return pairs
+
+
+def _source_str_constant(name: str) -> str:
+    """A module-level string constant of the UUT, read from source via `ast`."""
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    raise AssertionError(f"{SCRIPT} declares no module-level str constant {name!r}")
+
+
+SOURCE_REGISTRY = _source_registry()
+DECL_RELPATHS = [path for path, _kind in SOURCE_REGISTRY]
+DECL_KINDS = {path: kind for path, kind in SOURCE_REGISTRY}
+
+CANONICAL_RELPATH = _source_str_constant("CANONICAL_RELPATH")
+assert CANONICAL_RELPATH in DECL_KINDS, (
+    f"CANONICAL_RELPATH {CANONICAL_RELPATH!r} is not itself a registered "
+    f"declaration"
+)
 
 ALL_AGREE_VERSIONS = {p: "0.1.1" for p in DECL_RELPATHS}
 
@@ -94,6 +182,82 @@ def _parse_project_version(text: str) -> str | None:
     return None
 
 
+KIND_TOML_PROJECT_VERSION = "toml-project-version"
+KIND_JSON_FLAT = "json-flat"
+KIND_JSON_NESTED = "json-nested"
+
+#: The closed `kind` vocabulary of spec §2.4. A registry entry whose kind is
+#: absent here is a shape this suite does not know how to build or read, and
+#: every helper below fails loudly rather than skipping it.
+KNOWN_KINDS = frozenset(
+    {KIND_TOML_PROJECT_VERSION, KIND_JSON_FLAT, KIND_JSON_NESTED}
+)
+
+
+def _read_declared_version(path: Path, kind: str) -> str | None:
+    """Read the version out of `path` the way its registered `kind` stores it.
+
+    Independent of the UUT: this is the suite's own reader, so a test asserting
+    that `--write` landed is not asking the writer to confirm its own work.
+    """
+    assert kind in KNOWN_KINDS, (
+        f"unknown declaration kind {kind!r} for {path} -- teach "
+        f"_read_declared_version and _write_declaration the new shape "
+        f"(KNOWN_KINDS is the closed vocabulary of spec §2.4)"
+    )
+    if kind == KIND_TOML_PROJECT_VERSION:
+        return _parse_project_version(path.read_text())
+    data = json.loads(path.read_text())
+    if kind == KIND_JSON_FLAT:
+        return data.get("version")
+    return data["plugins"][0].get("version")
+
+
+def _write_declaration(path: Path, kind: str, version: str) -> None:
+    """Materialise one declaration file of the given `kind` carrying `version`.
+
+    The shapes mirror the real manifests closely enough that the UUT's parsers
+    are exercised the way they are in production: the toml form carries a
+    `[build-system]` table BEFORE `[project]`, so the §2.2 project-anchored
+    parse has a preceding table to skip, and the nested form carries a real
+    `plugins` array.
+
+    Tests that need a hand-crafted variant (AC12's 4-space indent and inline
+    arrays, AC24's decoy version above `[project]`, AC26's comment header)
+    overwrite the file after the fixture is built; this is only the baseline.
+    """
+    assert kind in KNOWN_KINDS, (
+        f"unknown declaration kind {kind!r} for {path} -- teach "
+        f"_write_declaration and _read_declared_version the new shape "
+        f"(KNOWN_KINDS is the closed vocabulary of spec §2.4)"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if kind == KIND_TOML_PROJECT_VERSION:
+        path.write_text(
+            '[build-system]\nrequires = ["setuptools>=68"]\n'
+            'build-backend = "setuptools.build_meta"\n\n'
+            "[project]\n"
+            'name = "bytedigger-engine"\n'
+            f'version = "{version}"\n'
+            'description = "x"\n'
+        )
+    elif kind == KIND_JSON_FLAT:
+        path.write_text(
+            json.dumps({"name": "bytedigger", "version": version}, indent=2) + "\n"
+        )
+    else:
+        path.write_text(
+            json.dumps(
+                {
+                    "name": "bytedigger",
+                    "plugins": [{"name": "bytedigger", "version": version}],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
+
 def _canonical_version(repo_root: Path) -> str:
     """Read the real canonical declaration directly (not via the script)."""
     text = (repo_root / "engine_py" / "pyproject.toml").read_text()
@@ -103,56 +267,27 @@ def _canonical_version(repo_root: Path) -> str:
 
 
 def _make_tmp_repo(tmp_path: Path, versions: dict) -> Path:
-    """Build a minimal copy of the five declaration files under tmp_path,
-    with caller-supplied versions, so --write tests never touch the real tree."""
-    root = tmp_path / "repo"
-    (root / "engine_py").mkdir(parents=True)
-    (root / "npm").mkdir(parents=True)
-    (root / ".claude-plugin").mkdir(parents=True)
+    """Build a minimal repo carrying EVERY registered declaration under
+    tmp_path, with caller-supplied versions, so --write tests never touch the
+    real tree.
 
-    (root / "engine_py" / "pyproject.toml").write_text(
-        '[build-system]\nrequires = ["setuptools>=68"]\n'
-        'build-backend = "setuptools.build_meta"\n\n'
-        "[project]\n"
-        'name = "bytedigger-engine"\n'
-        f'version = "{versions["engine_py/pyproject.toml"]}"\n'
-        'description = "x"\n'
-    )
-    (root / "package.json").write_text(
-        json.dumps(
-            {"name": "bytedigger", "version": versions["package.json"], "private": True},
-            indent=2,
+    Driven by the UUT's own registry (`SOURCE_REGISTRY`), not by a transcribed
+    file list: bd#13 was exactly that transcription going stale when the repo
+    gained a sixth declaration. Adding a seventh of a known `kind` needs no
+    change here; adding one of an UNKNOWN kind fails loudly in
+    `_write_declaration` rather than producing a fixture that quietly omits it.
+
+    AC27 asserts the set equality this docstring claims.
+    """
+    root = tmp_path / "repo"
+    root.mkdir(parents=True, exist_ok=True)
+    for relpath, kind in SOURCE_REGISTRY:
+        assert relpath in versions, (
+            f"no version supplied for registered declaration {relpath!r}; "
+            f"callers should build from ALL_AGREE_VERSIONS, which is derived "
+            f"from the registry"
         )
-        + "\n"
-    )
-    (root / "npm" / "package.json").write_text(
-        json.dumps(
-            {"name": "bytedigger", "version": versions["npm/package.json"]}, indent=2
-        )
-        + "\n"
-    )
-    (root / ".claude-plugin" / "plugin.json").write_text(
-        json.dumps(
-            {"name": "bytedigger", "version": versions[".claude-plugin/plugin.json"]},
-            indent=2,
-        )
-        + "\n"
-    )
-    (root / ".claude-plugin" / "marketplace.json").write_text(
-        json.dumps(
-            {
-                "name": "bytedigger",
-                "plugins": [
-                    {
-                        "name": "bytedigger",
-                        "version": versions[".claude-plugin/marketplace.json"],
-                    }
-                ],
-            },
-            indent=2,
-        )
-        + "\n"
-    )
+        _write_declaration(root / relpath, kind, versions[relpath])
     return root
 
 
@@ -238,16 +373,30 @@ def _runs_on_labels(runs_on) -> set:
 
 
 class TestVersionParity:
-    def test_ac1_check_passes_when_all_five_agree_names_count(self, tmp_path):
-        """AC1: --check exits 0 when all five agree, success line names count 5."""
+    def test_ac1_check_passes_when_all_agree_and_names_the_registry_count(
+        self, tmp_path
+    ):
+        """AC1: --check exits 0 when every declaration agrees, and the success
+        line names HOW MANY it checked.
+
+        The count is derived from the registry, not written as `5`: the literal
+        was half of bd#13. What AC1 is really about is that the success line
+        cannot claim a pass without saying how much it covered -- a run that
+        silently checked fewer files would still print `OK`.
+        """
         repo = _make_tmp_repo(tmp_path, ALL_AGREE_VERSIONS)
         result = _run(repo, "--check")
         assert result.returncode == 0, (
             f"expected exit 0 on agreeing declarations, got {result.returncode}, "
             f"stderr={result.stderr!r}"
         )
-        assert re.search(r"\b5\b", result.stdout) and "declaration" in result.stdout.lower(), (
-            f"success line must name the count 5: stdout={result.stdout!r}"
+        expected_count = len(DECL_RELPATHS)
+        assert (
+            re.search(rf"\b{expected_count}\b", result.stdout)
+            and "declaration" in result.stdout.lower()
+        ), (
+            f"success line must name the number of declarations checked "
+            f"({expected_count}): stdout={result.stdout!r}"
         )
 
     def test_ac2_check_fails_when_any_declaration_diverges(self, tmp_path):
@@ -297,8 +446,9 @@ class TestVersionParity:
             f"{m.group(0)!r}"
         )
 
-    def test_ac4_write_sets_all_five_individually_then_check_passes(self, tmp_path):
-        """AC4: --write X.Y.Z sets ALL FIVE files (asserted individually);
+    def test_ac4_write_sets_every_declaration_individually_then_check_passes(self, tmp_path):
+        """AC4: --write X.Y.Z sets EVERY registered declaration (asserted
+        individually, over the registry);
         a following --check then exits 0."""
         versions = dict(ALL_AGREE_VERSIONS)
         versions[".claude-plugin/plugin.json"] = "0.1.0"
@@ -383,7 +533,7 @@ class TestVersionParity:
         # line, so that would over-constrain GREEN.
 
         # Post-instance-fix property: --check against the REAL repo exits 0
-        # once GREEN has aligned all five (fails today: script absent).
+        # once GREEN has aligned every declaration (fails today: script absent).
         real_result = _run(REPO_ROOT, "--check")
         assert real_result.returncode == 0, (
             f"--check against the real repo (post instance-fix) must exit 0, "
@@ -523,30 +673,36 @@ class TestVersionParity:
             f"registry: {missing}"
         )
 
-    def test_ac9_all_five_repo_declarations_read_canonical_version(self):
-        """AC9 (production side-effect): all five REAL declarations must read
-        the same version as canonical engine_py/pyproject.toml. Derived from
-        the canonical file, not hardcoded, so it survives future bumps."""
+    def test_ac9_every_real_declaration_reads_the_canonical_version(self):
+        """AC9 (production side-effect): every REAL declaration must read the
+        same version as canonical engine_py/pyproject.toml. Derived from the
+        canonical file, not hardcoded, so it survives future bumps.
+
+        Quantified over the registry and read by registered `kind`, rather than
+        the four hand-listed files this AC used to open-code: that form silently
+        stopped covering `packaging/pypi-pointer/pyproject.toml` the moment it
+        was added, so the one real declaration most likely to drift -- the
+        freshly introduced one -- was the only one nothing here checked.
+        """
         canonical = _canonical_version(REPO_ROOT)
 
-        pkg = json.loads((REPO_ROOT / "package.json").read_text())
-        assert pkg["version"] == canonical
+        checked = []
+        for rel in DECL_RELPATHS:
+            if rel == CANONICAL_RELPATH:
+                continue
+            path = REPO_ROOT / rel
+            assert path.is_file(), (
+                f"registered declaration {rel} does not exist in the real tree"
+            )
+            got = _read_declared_version(path, DECL_KINDS[rel])
+            assert got == canonical, (
+                f"{rel} (kind={DECL_KINDS[rel]}) version {got!r} != canonical "
+                f"{canonical!r}"
+            )
+            checked.append(rel)
 
-        npm_pkg = json.loads((REPO_ROOT / "npm" / "package.json").read_text())
-        assert npm_pkg["version"] == canonical
-
-        plugin = json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json").read_text())
-        assert plugin["version"] == canonical, (
-            f".claude-plugin/plugin.json version {plugin['version']!r} != "
-            f"canonical {canonical!r}"
-        )
-
-        marketplace = json.loads(
-            (REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text()
-        )
-        assert marketplace["plugins"][0]["version"] == canonical, (
-            f".claude-plugin/marketplace.json plugins[0].version "
-            f"{marketplace['plugins'][0]['version']!r} != canonical {canonical!r}"
+        assert set(checked) == set(DECL_RELPATHS) - {CANONICAL_RELPATH}, (
+            f"AC9 must visit every non-canonical declaration; visited={checked!r}"
         )
 
     def test_ac10_ci_yml_manifests_job_shape(self):
@@ -705,7 +861,7 @@ class TestVersionParity:
 
     def test_ac14_write_invalid_version_arg_rejects_and_writes_nothing(self, tmp_path):
         """AC14: --write not-a-version exits 1, names the rejected argument,
-        and leaves ALL FIVE files byte-identical (all-or-nothing)."""
+        and leaves EVERY declaration file byte-identical (all-or-nothing)."""
         repo = _make_tmp_repo(tmp_path, dict(ALL_AGREE_VERSIONS))
         rel_paths = [
             "engine_py/pyproject.toml",
@@ -780,19 +936,27 @@ class TestVersionParity:
             f"{default_result.returncode}, --check rc={explicit_check_result.returncode}"
         )
 
-    def test_ac16_list_declarations_emits_exactly_the_five_entries(self, tmp_path):
-        """AC16: --list-declarations exits 0, emits valid JSON, and contains
-        EXACTLY the five {path, kind} pairs, against the spec's closed
-        `kind` vocabulary (toml-project-version, json-flat, json-nested) --
-        not a superset, not a subset, not a hardcoded stub list, and not
-        merely a non-empty-kind check."""
-        expected_kinds = {
-            "engine_py/pyproject.toml": "toml-project-version",
-            "package.json": "json-flat",
-            "npm/package.json": "json-flat",
-            ".claude-plugin/plugin.json": "json-flat",
-            ".claude-plugin/marketplace.json": "json-nested",
-        }
+    def test_ac16_list_declarations_agrees_with_the_source_registry(self, tmp_path):
+        """AC16: --list-declarations exits 0, emits valid JSON, and its entries
+        agree exactly with the UUT's own `DECLARATIONS` literal, against the
+        spec's closed `kind` vocabulary -- not a superset, not a subset, not a
+        hardcoded stub list, and not merely a non-empty-kind check.
+
+        The old form of this AC additionally pinned `len(registry) == 5` and a
+        transcribed path->kind table. That was a STATE pin (bd#13): it had to be
+        hand-re-tuned every time the repo legitimately gained a declaration, and
+        the re-tuning was the only thing it ever detected. The claim worth
+        making is AGREEMENT between the shipped interface and the source of
+        truth, which holds at any size.
+
+        Not circular: the expected side is parsed out of the script's source
+        with `ast` (`SOURCE_REGISTRY`), while the actual side is the stdout of a
+        real subprocess run of the shipped `--list-declarations` path. A stub
+        that prints a hardcoded list still fails the moment it disagrees with
+        `DECLARATIONS`, and a `DECLARATIONS` entry the CLI forgets to emit is
+        caught too. AC28 closes the remaining gap -- that the registry is also
+        what `--write` actually acts on.
+        """
         repo = _make_tmp_repo(tmp_path, dict(ALL_AGREE_VERSIONS))
         result = _run(repo, "--list-declarations")
         assert result.returncode == 0, (
@@ -805,12 +969,31 @@ class TestVersionParity:
             raise AssertionError(
                 f"--list-declarations stdout is not valid JSON: {result.stdout!r} ({e})"
             )
-        assert isinstance(registry, list) and len(registry) == 5, (
-            f"expected exactly 5 declaration entries, got: {registry!r}"
+
+        assert isinstance(registry, list), (
+            f"--list-declarations must emit a JSON list, got {type(registry).__name__}"
         )
-        actual_pairs = {entry.get("path"): entry.get("kind") for entry in registry}
-        assert actual_pairs == expected_kinds, (
-            f"registry {{path: kind}} pairs {actual_pairs!r} != expected {expected_kinds!r}"
+        for entry in registry:
+            assert isinstance(entry, dict) and set(entry) == {"path", "kind"}, (
+                f"every registry entry must be an object with exactly "
+                f"{{path, kind}}, got {entry!r}"
+            )
+
+        emitted_paths = [entry["path"] for entry in registry]
+        assert len(emitted_paths) == len(set(emitted_paths)), (
+            f"--list-declarations emitted a duplicate path: {emitted_paths!r}"
+        )
+
+        unknown = {entry["kind"] for entry in registry} - KNOWN_KINDS
+        assert not unknown, (
+            f"--list-declarations emitted kind(s) outside the closed §2.4 "
+            f"vocabulary {sorted(KNOWN_KINDS)}: {sorted(unknown)}"
+        )
+
+        emitted_pairs = {entry["path"]: entry["kind"] for entry in registry}
+        assert emitted_pairs == DECL_KINDS, (
+            f"--list-declarations disagrees with the DECLARATIONS literal in "
+            f"{SCRIPT.name}: emitted={emitted_pairs!r} source={DECL_KINDS!r}"
         )
 
     def test_ac17_missing_file_and_divergence_share_exit_1(self, tmp_path):
@@ -899,7 +1082,7 @@ class TestVersionParity:
 
     def test_ac20_write_with_unresolvable_declaration_writes_nothing(self, tmp_path):
         """AC20: --write where a declaration fails to resolve (e.g. one
-        file missing) -> exit 1, ALL FIVE fixture files left byte-identical
+        file missing) -> exit 1, EVERY fixture declaration left byte-identical
         (snapshot bytes before, compare after -- same rigor as AC14, which
         covers only the bad-argument half of all-or-nothing)."""
         repo = _make_tmp_repo(tmp_path, dict(ALL_AGREE_VERSIONS))
@@ -911,7 +1094,7 @@ class TestVersionParity:
             ".claude-plugin/marketplace.json",
         ]
         (repo / "npm" / "package.json").unlink()
-        # Snapshot existence/bytes for all five up front -- the deliberately
+        # Snapshot existence/bytes for every declaration up front -- the deliberately
         # missing one's "before" state is simply "does not exist".
         before_exists = {rel: (repo / rel).exists() for rel in rel_paths}
         before_bytes = {
@@ -1101,3 +1284,120 @@ class TestVersionParity:
         assert marketplace_after == marketplace_expected, (
             f"marketplace.json nested write must be byte-surgical: got={marketplace_after!r}"
         )
+
+    # -- bd#13: the fixture builder and the registry may never drift apart ----
+
+    def test_ac27_fixture_builder_covers_every_registered_declaration(self, tmp_path):
+        """AC27 (bd#13, the durable guard): `_make_tmp_repo` must materialise a
+        file for EVERY declaration the UUT registers, and for no other path.
+
+        This is the invariant bd#13 violated. The builder hand-wrote five files
+        while the registry grew to six, so every fixture repo was missing one
+        declaration and the tool -- correctly -- refused it with
+        `packaging/pypi-pointer/pyproject.toml: missing`. Seven tests went red
+        for a reason that had nothing to do with what any of them asserted.
+
+        Asserted as set equality against the registry rather than as a count,
+        so a seventh declaration cannot reproduce the same wedge: the builder
+        either covers it or this test names exactly what it missed.
+        """
+        repo = _make_tmp_repo(tmp_path, dict(ALL_AGREE_VERSIONS))
+
+        registered = set(DECL_RELPATHS)
+        materialised = {
+            rel for rel in registered if (repo / rel).is_file()
+        }
+        assert materialised == registered, (
+            f"_make_tmp_repo must create every registered declaration; "
+            f"missing={sorted(registered - materialised)}"
+        )
+
+        # And the fixture is a faithful subject: the tool accepts it.
+        result = _run(repo, "--check")
+        assert result.returncode == 0, (
+            f"a fixture covering every declaration must pass --check, got "
+            f"{result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}"
+        )
+
+    def test_ac28_registry_is_closed_and_every_entry_is_actually_written(
+        self, tmp_path
+    ):
+        """AC28 (bd#13): the declaration registry is CLOSED over what --write
+        touches -- asserted as a property, with no count anywhere.
+
+        Replaces the count half of the old AC16 ("exactly five entries"), which
+        pinned a STATE: it had to be re-tuned by hand every time the repo
+        legitimately gained a declaration, and re-tuning it was the only thing
+        it ever measured. The property that actually matters is that the
+        registry and the set of files the writer rewrites are the same set --
+        no entry declared and then ignored by --write, and no file rewritten
+        without being declared.
+        """
+        repo = _make_tmp_repo(tmp_path, dict(ALL_AGREE_VERSIONS))
+
+        before = {
+            rel: (repo / rel).read_bytes()
+            for rel in DECL_RELPATHS
+            if (repo / rel).is_file()
+        }
+        assert set(before) == set(DECL_RELPATHS), (
+            f"fixture is missing declarations, cannot measure the write set: "
+            f"missing={sorted(set(DECL_RELPATHS) - set(before))}"
+        )
+
+        result = _run(repo, "--write", "9.9.9")
+        assert result.returncode == 0, (
+            f"--write over a complete fixture must exit 0, got "
+            f"{result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}"
+        )
+
+        changed = {
+            rel for rel, was in before.items() if (repo / rel).read_bytes() != was
+        }
+        assert changed == set(DECL_RELPATHS), (
+            f"--write must rewrite exactly the registered declarations; "
+            f"declared-but-untouched={sorted(set(DECL_RELPATHS) - changed)}"
+        )
+
+        # Every rewritten file now reads back the requested version, by its
+        # registered `kind` -- so `kind` is load-bearing, not decorative.
+        for rel in DECL_RELPATHS:
+            assert _read_declared_version(repo / rel, DECL_KINDS[rel]) == "9.9.9", (
+                f"{rel} (kind={DECL_KINDS[rel]}) does not read back the written "
+                f"version"
+            )
+
+    def test_ac29_every_registered_declaration_is_load_bearing_on_check(
+        self, tmp_path
+    ):
+        """AC29 (bd#13): diverging ANY ONE registered declaration, on its own,
+        must make --check exit 1 and name that file.
+
+        Quantified over the registry, so it is the check-path counterpart of
+        AC28. AC2/AC3 assert this for one and for several files; making it
+        universal is what closes the hole a count-based AC1 leaves open.
+
+        `--check`'s success line reports its count as `len(DECLARATIONS)`, i.e.
+        the registry size, NOT the number of declarations it actually resolved.
+        So a checker that skips an entry still prints `OK: <n> declarations
+        match` with the full n, and no assertion over that line -- derived count
+        or hardcoded -- can see the skip. Only exercising each declaration's
+        divergence individually can, which is the bd#1/#2/#3 rule ("never report
+        a pass that was not earned") applied to this tool.
+        """
+        for rel in DECL_RELPATHS:
+            versions = dict(ALL_AGREE_VERSIONS)
+            versions[rel] = "7.7.7"
+            repo = _make_tmp_repo(tmp_path / f"decl-{DECL_RELPATHS.index(rel)}", versions)
+
+            result = _run(repo, "--check")
+            assert result.returncode == 1, (
+                f"diverging {rel} alone must fail --check, got exit "
+                f"{result.returncode}; stdout={result.stdout!r}. That "
+                f"declaration is registered but never actually verified."
+            )
+            if rel != CANONICAL_RELPATH:
+                assert rel in result.stdout, (
+                    f"--check must name the diverging declaration {rel}; "
+                    f"stdout={result.stdout!r}"
+                )
