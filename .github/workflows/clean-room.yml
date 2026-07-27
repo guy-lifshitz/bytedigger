@@ -11,23 +11,18 @@ name: clean-room
 # Three jobs, all blocking, none allowed to fail. See docs/clean-room.md
 # §Decision for why the split exists and what closes each part of it.
 #
-# ONE-TIME SETUP: these jobs require the `docker` runner label, carried only by
-# hosts with a live docker daemon (today: bytedigger-mac-studio). The
-# `bytedigger` label alone spans two machines and only one of them has a daemon,
-# so without the extra label the jobs pass or fail by scheduling luck. Add it in
-# Settings -> Actions -> Runners -> the runner -> Labels. Until then these jobs
-# sit QUEUED, which is the honest signal: the requirement is stated and unmet,
-# not green. Deliberately a capability label, not a machine name — a name breaks
-# the moment another runner is added; `docker` keeps describing the requirement.
+# Runner: `ubuntu-latest`, used ONLY as a docker host — the image ships a live
+# daemon, so the capability these jobs need is guaranteed by the runner label
+# itself rather than by a hand-applied one. The host-coupling this workflow
+# exists to catch is removed by the container, not by the runner: nothing is
+# mounted from the host, no docker socket is exposed to the container, and the
+# container gets no host paths — see scripts/clean-room/run.sh.
 #
-# Runner: [self-hosted, bytedigger], used ONLY as a docker host. The repo is
-# private, so GitHub-hosted minutes are billed and every existing job is
-# self-hosted; the host-coupling this workflow exists to catch is removed by
-# the container, not by the runner. Nothing is mounted from the host, no docker
-# socket is exposed to the container, and the container gets no host paths —
-# see scripts/clean-room/run.sh. Fork pull requests must stay gated behind
-# GitHub's "require approval for all outside collaborators" setting: this
-# workflow gives PR code access to the runner's docker daemon.
+# This was [self-hosted, bytedigger, docker] while the repo was private, because
+# GitHub-hosted minutes were billed against the plan quota. On a public repo
+# standard GitHub-hosted runners are free and unmetered, so the only thing
+# self-hosted still bought was risk: it would hand pull-request code from any
+# contributor a shell on a personal machine, with a docker daemon attached.
 
 on:
   workflow_dispatch:
@@ -43,7 +38,7 @@ concurrency:
 jobs:
   # An outsider's real path: bare stock image, zero host tools, README verbatim.
   quickstart:
-    runs-on: [self-hosted, bytedigger, docker]
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +50,7 @@ jobs:
 
   # The suite itself, plus the exact host dependencies it silently requires.
   suite:
-    runs-on: [self-hosted, bytedigger, docker]
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +64,7 @@ jobs:
   # "delete the block when bd#102 lands" an enforced exit criterion instead of
   # a comment.
   debt-watch:
-    runs-on: [self-hosted, bytedigger, docker]
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4

@@ -4,9 +4,10 @@
 
 ## Why
 
-`ci.yml` checks the repository out and runs it **in place**, on a preconfigured
-self-hosted runner. Anything the runner happens to have — a tool on PATH, an
-untracked file, a stale artefact — is silently part of the test environment.
+`ci.yml` checks the repository out and runs it **in place**, on whatever the
+runner image already provides. Anything the runner happens to have — a tool on
+PATH, an untracked file, a stale artefact — is silently part of the test
+environment.
 That is not hypothetical: bd#97 made the test suite uncollectable from a clean
 clone and survived, because no check we ran ever started from a
 committed-tree-only copy.
@@ -166,32 +167,29 @@ clean-room script are updated with it.
 
 ## Operational notes
 
-- **One-time setup — the `docker` runner label.** These jobs need a docker
-  daemon, and the `bytedigger` label spans two machines of which only
-  `bytedigger-mac-studio` has one; `bytedigger-macbook` has the CLI but no
-  reachable daemon. Without a distinguishing label the jobs pass or fail by
-  scheduling luck, so `runs-on` is `[self-hosted, bytedigger, docker]` and the
-  `docker` label goes on the daemon-bearing hosts only (Settings → Actions →
-  Runners → the runner → Labels). Until it is added the jobs sit **queued**
-  rather than red — the requirement is stated and unmet, which is the honest
-  signal, and no false green is possible.
+- **Runner.** `ubuntu-latest`, used only as a docker host — the image ships a
+  running daemon, so the one capability these jobs need comes with the standard
+  label instead of a hand-applied one. The host coupling this workflow exists to
+  catch is removed by the *container*, not by the runner: nothing is
+  bind-mounted, no docker socket is passed in, and the container receives no
+  host paths. What the host can still influence is the docker layer cache and
+  the base-image tag it resolved.
 
-  It is deliberately a **capability** label rather than a machine name: pinning
-  to `bytedigger-mac-studio` would silently break the moment another runner is
-  added, whereas `docker` keeps describing what the job actually needs. For the
-  same reason `heavy` was dropped from `runs-on` — `docker` is the binding
-  constraint, and stacking labels only narrows scheduling without adding a
-  guarantee. If a second daemon-bearing host is ever added, labelling it
-  `docker` is all that is required.
-- **Runner.** `[self-hosted, bytedigger]`, used only as a docker host — the repo
-  is private, so GitHub-hosted minutes are billed and every existing job is
-  self-hosted. The host coupling this workflow exists to catch is removed by the
-  *container*, not by the runner: nothing is bind-mounted, no docker socket is
-  passed in, and the container receives no host paths. What the host can still
-  influence is the docker layer cache and the base-image tag it resolved.
-- **Fork pull requests.** This workflow gives PR-authored code access to the
-  runner's docker daemon. Keep GitHub's approval requirement for outside
-  collaborators enabled; do not add `pull_request_target`.
+  This was previously `[self-hosted, bytedigger, docker]`. That existed for two
+  reasons, both now gone. Minutes: while the repo was private, GitHub-hosted
+  minutes were billed against the plan quota, so every job was self-hosted; on a
+  public repo standard GitHub-hosted runners are free and unmetered. Scheduling:
+  the `bytedigger` label spanned two machines and only one had a reachable
+  daemon, so a third `docker` label had to be applied by hand to keep the jobs
+  from passing or failing by scheduling luck. `ubuntu-latest` answers both — no
+  quota to protect, and the daemon is a property of the image rather than of
+  whichever host picked up the job.
+- **Fork pull requests.** This workflow gives PR-authored code access to a
+  docker daemon. On `ubuntu-latest` that daemon lives in a throwaway VM that is
+  destroyed with the job, which is most of why moving off self-hosted mattered
+  once the repo went public — the same workflow on a personal machine would have
+  handed any contributor a shell there. Keep GitHub's approval requirement for
+  outside collaborators enabled anyway; do not add `pull_request_target`.
 - **Requirements on the runner:** `docker` on PATH and a reachable daemon.
   `run.sh` preflights both and fails with a clear message otherwise. It also
   **resolves the daemon socket itself**: a runner started as a launchd/systemd
