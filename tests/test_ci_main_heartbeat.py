@@ -9,7 +9,7 @@ always succeeds and failure happens at assert time.
 
 The script is never imported: it is invoked as a real subprocess via
 sys.executable. Fixture-mode tests always pass an EXPLICIT --runs-json (input
-is never inferred from cwd); live-mode tests (AC13/AC14) deliberately omit it
+is never inferred from cwd); live-mode tests (AC13/AC14/AC14b) deliberately omit it
 and instead put a `gh` shim first on PATH -- that stubs an external binary,
 not the unit. Every invocation passes an EXPLICIT --now, so the 7-day window is
 never read off the wall clock and no test rots. Default subprocess cwd is a
@@ -152,6 +152,17 @@ def _extract_job_block(text: str, job_name: str) -> str:
     m2 = re.search(r"(?m)^  \S", text[start:])
     end = start + m2.start() if m2 else len(text)
     return text[start:end]
+
+
+def _runs_on_labels(value) -> set:
+    """`runs-on` is legal as a scalar (`ubuntu-latest`) or as a list
+    (`[ubuntu-latest]`). Normalise both to a set of labels before comparing, so
+    a correct workflow is not failed on its YAML spelling."""
+    if value is None:
+        return set()
+    if isinstance(value, (list, tuple)):
+        return {_as_str(item) for item in value}
+    return {_as_str(value)}
 
 
 def _fires_at_least_daily(cron: str) -> bool:
@@ -664,13 +675,16 @@ class TestCiMainHeartbeat:
                 f"{label}: the report must name what was wrong ({reason!r}): {combined!r}"
             )
 
-    def test_ac21_window_boundary_is_half_open_closed_on_the_left(self, tmp_path):
-        """AC21: created_at == now - days exactly → inside (exit 0); one second
-        older → outside (exit 1); one second newer than --now → outside (exit 1)."""
+    def test_ac21_window_boundary_is_closed_on_both_ends(self, tmp_path):
+        """AC21: the window is closed on BOTH ends (now - days <= created_at <= now):
+        created_at == now - days exactly → inside (exit 0); one second older →
+        outside (exit 1); created_at == now exactly → inside (exit 0); one second
+        newer than --now → outside (exit 1)."""
         # --now 2026-07-27T12:00:00Z, --days 7 → left edge 2026-07-20T12:00:00Z.
         cases = {
             "2026-07-20T12:00:00Z": 0,  # exactly on the left edge: inside
             "2026-07-20T11:59:59Z": 1,  # one second older: outside
+            "2026-07-27T12:00:00Z": 0,  # exactly on the right edge (== --now): inside
             "2026-07-27T12:00:01Z": 1,  # one second after --now: outside
         }
         for created_at, expected in cases.items():
@@ -682,8 +696,106 @@ class TestCiMainHeartbeat:
             result = _run("--runs-json", str(runs), "--now", NOW, "--days", "7")
             assert result.returncode == expected, (
                 f"created_at={created_at} with --now {NOW} --days 7 must exit "
-                f"{expected} (window is half-open, closed on the left); got "
+                f"{expected} (the window is closed on both ends: "
+                f"now - days <= created_at <= now); got "
                 f"{result.returncode}, output={_out(result)!r}"
+            )
+
+    def test_ac24_predicate_is_event_agnostic(self, tmp_path):
+        """AC24: a sole executed main run with event == "workflow_dispatch" → exit 0.
+        `event` is never part of the predicate -- a dispatched run is equally valid
+        evidence that main executed."""
+        runs = _runs_json(tmp_path, [_entry(id=24, event="workflow_dispatch")])
+        result = _run("--runs-json", str(runs), "--now", NOW, "--days", "7")
+        assert result.returncode == 0, (
+            "a completed main ci run with 3 jobs is evidence that main executed no "
+            "matter what triggered it; an event == 'push' fence reports a repo kept "
+            f"alive by dispatched runs as dead; got exit {result.returncode}, "
+            f"output={_out(result)!r}"
+        )
+
+    def test_ac25_job_threshold_is_one_and_non_integer_is_a_shape_error(self, tmp_path):
+        """AC25: the job-count threshold is 1, not the 3 this repo happens to have --
+        a sole executed main run with jobs_total_count == 1 → exit 0. A string
+        jobs_total_count ("3") is a shape error → exit 2, reason named, no Traceback."""
+        assert SCRIPT.exists(), f"{SCRIPT} does not exist yet"
+
+        one = _runs_json(
+            tmp_path, [_entry(id=25, jobs_total_count=1)], name="runs_one_job.json"
+        )
+        result = _run("--runs-json", str(one), "--now", NOW, "--days", "7")
+        assert result.returncode == 0, (
+            "the predicate is jobs_total_count >= 1; hard-coding this repo's current 3 "
+            "makes the check fail the day ci.yml drops to a single job; got exit "
+            f"{result.returncode}, output={_out(result)!r}"
+        )
+
+        stringy = _raw_json(
+            tmp_path,
+            {"workflow_runs": [_entry(id=26, jobs_total_count="3")]},
+            name="runs_string_jobs.json",
+        )
+        result = _run("--runs-json", str(stringy), "--now", NOW, "--days", "7")
+        combined = _out(result)
+        assert "Traceback" not in combined, (
+            "a non-integer jobs_total_count must be reported, not raised -- an uncaught "
+            f"comparison against a str exits 1, a crash disguised as a verdict: {combined!r}"
+        )
+        assert result.returncode == 2, (
+            "jobs_total_count as the string '3' is shape-invalid input (2), not a "
+            f"health verdict (0/1); got {result.returncode}: {combined!r}"
+        )
+        assert "jobs_total_count" in combined, (
+            f"the report must name the offending field: {combined!r}"
+        )
+
+    def test_ac26_days_zero_is_an_empty_window_and_negative_is_usage(self, tmp_path):
+        """AC26: --days 0 → empty window → exit 1. --days -1 → exit 2."""
+        assert SCRIPT.exists(), f"{SCRIPT} does not exist yet"
+
+        runs = _runs_json(tmp_path, [_entry(created_at="2026-07-26T06:00:00Z")])
+
+        zero = _run("--runs-json", str(runs), "--now", NOW, "--days", "0")
+        zero_out = _out(zero)
+        assert "Traceback" not in zero_out, f"--days 0 raised: {zero_out!r}"
+        assert zero.returncode == 1, (
+            "--days 0 is a legal, empty window: no run can be inside it, so the verdict "
+            "is 'no executed run' (1), not a usage error and certainly not healthy; got "
+            f"exit {zero.returncode}, output={zero_out!r}"
+        )
+
+        negative = _run("--runs-json", str(runs), "--now", NOW, "--days", "-1")
+        neg_out = _out(negative)
+        assert "Traceback" not in neg_out, f"--days -1 raised: {neg_out!r}"
+        assert negative.returncode == 2, (
+            "a negative --days inverts the window -- it is a usage error (2), never a "
+            f"health verdict; got exit {negative.returncode}, output={neg_out!r}"
+        )
+
+    def test_ac27_unusable_now_is_a_usage_error_not_a_verdict(self, tmp_path):
+        """AC27: --now 2026-07-27T12:00:00 (timezone-naive) and an unparsable --now
+        → exit 2, reason named, no Traceback. A naive/aware TypeError would exit 1,
+        which this contract reads as "main is dead"."""
+        assert SCRIPT.exists(), f"{SCRIPT} does not exist yet"
+
+        runs = _runs_json(tmp_path, [_entry()])
+        cases = {
+            "timezone-naive --now": "2026-07-27T12:00:00",
+            "unparsable --now": "last tuesday",
+        }
+        for label, now in cases.items():
+            result = _run("--runs-json", str(runs), "--now", now, "--days", "7")
+            combined = _out(result)
+            assert "Traceback" not in combined, (
+                f"{label}: an uncaught datetime error exits 1, which this contract "
+                f"reads as 'no executed run' -- a crash disguised as a verdict: {combined!r}"
+            )
+            assert result.returncode == 2, (
+                f"{label}: an unusable --now is a usage error (2), not a health "
+                f"verdict (0/1); got {result.returncode}: {combined!r}"
+            )
+            assert "now" in combined.lower(), (
+                f"{label}: the report must name --now as what was wrong: {combined!r}"
             )
 
     # ---- live mode -------------------------------------------------------
@@ -719,8 +831,10 @@ class TestCiMainHeartbeat:
 
     def test_ac14_live_mode_shares_one_predicate_and_scopes_to_ci_yml(self, tmp_path):
         """AC14: live mode with gh shimmed to print the captured archive verbatim →
-        exit 1 with the same report as AC8, and the recorded argv scopes the query
-        to ci.yml."""
+        exit 1 with the same report as AC8. The recorded argv scopes the query to
+        ci.yml AND requests a window-sized page (per_page >= 100, and no `-L 1` /
+        `per_page=1`) -- proving both modes share one predicate and that live mode
+        cannot degenerate into a latest-run reading."""
         assert SCRIPT.exists(), f"{SCRIPT} does not exist yet"
         assert ARCHIVE.exists(), f"committed bd#12 archive missing at {ARCHIVE}"
 
@@ -744,6 +858,49 @@ class TestCiMainHeartbeat:
         assert "ci.yml" in argv, (
             "the live query must be scoped to the ci.yml workflow -- an unscoped query "
             f"lets clean-room runs vouch for ci on main; recorded argv: {argv!r}"
+        )
+
+        page_sizes = [int(n) for n in re.findall(r"per[_-]page[=\s]+(\d+)", argv)]
+        assert page_sizes and max(page_sizes) >= 100, (
+            "the live query must request a page large enough to cover the window "
+            "(per_page >= 100). A collector that asks for one page of a few entries "
+            "reinstates the latest-run reading the ∃ quantifier forbids, in the only "
+            f"mode CI actually runs; recorded argv: {argv!r}"
+        )
+        assert not re.search(r"per[_-]page[=\s]+1(?![0-9])", argv), (
+            f"per_page=1 is a latest-run query in disguise; recorded argv: {argv!r}"
+        )
+        assert not re.search(r"(?:^|\s)(?:-L|--limit)[=\s]+1(?![0-9])", argv), (
+            "`-L 1` / `--limit 1` fetches only the newest run -- the ∃ quantifier "
+            f"needs the whole window; recorded argv: {argv!r}"
+        )
+
+    def test_ac14b_live_mode_is_exists_not_latest(self, tmp_path):
+        """AC14b: live-mode ∃ -- gh shimmed to print newest = queued/null, older =
+        executed and in window → exit 0. A collector that fetches only the newest
+        run reads this healthy repo as dead."""
+        assert SCRIPT.exists(), f"{SCRIPT} does not exist yet"
+
+        payload = _runs_json(
+            tmp_path,
+            [
+                _entry(id=91, status="queued", conclusion=None, jobs_total_count=3,
+                       created_at="2026-07-27T11:59:00Z"),   # newest: just pushed
+                _entry(id=90, created_at="2026-07-25T10:00:00Z"),  # executed, in window
+            ],
+            name="live_exists.json",
+        )
+        env, argv_log = _gh_shim(tmp_path, f'cat "{payload}"', tag="exists")
+        result = _run("--now", NOW, "--days", "7", env=env)
+        combined = _out(result)
+
+        assert "Traceback" not in combined, f"live mode raised: {combined!r}"
+        assert argv_log.exists(), f"live mode never invoked gh: {combined!r}"
+        assert result.returncode == 0, (
+            "live mode must apply the same ∃ predicate as fixture mode: a run queued "
+            "seconds ago must not mask an executed run earlier in the window. Exit 1 "
+            "here is the flapping latest-run reading, which trains everyone to ignore "
+            f"the detector; got exit {result.returncode}, output={combined!r}"
         )
 
     # ---- the workflows ---------------------------------------------------
@@ -816,7 +973,10 @@ class TestCiMainHeartbeat:
 
         jobs = data.get("jobs")
         assert isinstance(jobs, dict) and jobs, "ci-heartbeat.yml declares no jobs"
-        runners = {_as_str(job.get("runs-on")) for job in jobs.values() if isinstance(job, dict)}
+        runners = set()
+        for job in jobs.values():
+            if isinstance(job, dict):
+                runners |= _runs_on_labels(job.get("runs-on"))
         assert "ubuntu-latest" in runners, (
             "the heartbeat must run on stock hosted infra -- self-hosted labels with 0 "
             f"registered runners are the bd#12 mechanism; got runs-on {runners!r}"
@@ -859,13 +1019,11 @@ class TestCiMainHeartbeat:
         )
         group_template = concurrency.get("group")
         assert group_template is not None, "ci-heartbeat.yml concurrency has no group"
-        group = _as_str(group_template)
-        assert not group.startswith("ci-"), (
-            "the heartbeat must never share the ci- group family it is watching, got "
-            f"{group!r}"
-        )
+        # The group's NAME is unconstrained -- `ci-heartbeat-${{ github.run_id }}`
+        # is a correct group and must pass. What matters is (a) non-serialising,
+        # asserted below, and (b) distinctness from ci.yml's group, which AC23
+        # asserts semantically by rendering both. No prefix/substring proxy.
         try:
-            rendered = _as_str(_render(group_template, "refs/heads/main", "aaaaaaa"))
             cancel = _render(
                 concurrency.get("cancel-in-progress"), "refs/heads/main", "aaaaaaa"
             )
@@ -878,9 +1036,6 @@ class TestCiMainHeartbeat:
         except _ExprUnsupported as exc:  # pragma: no cover - diagnostic path
             pytest.fail(f"ci-heartbeat.yml concurrency expression not evaluable: {exc}")
 
-        assert not rendered.startswith("ci-"), (
-            f"heartbeat group renders into the ci- family on main: {rendered!r}"
-        )
         assert _truthy(cancel) or per_run_a != per_run_b, (
             "a schedule-triggered workflow has a constant github.ref, so a group with a "
             "constant key and cancel-in-progress false is byte-for-byte the bd#12 "
