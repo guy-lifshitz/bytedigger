@@ -836,16 +836,16 @@ def test_ac_e9_timeout_mechanism_not_signal_based_works_off_main_thread():
 
 
 def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accumulate():
-    """AC-E10 [G5:EDGE-6] [G6:MINOR-5]: the abandoned oracle MUST NOT be
-    able to hang shutdown, and MUST NOT accumulate. AC-E3/AC-E9 assert only
-    the VERDICT; nothing requires the timed-out worker to be reaped.
+    """AC-E10 [G5:EDGE-6] [G6:MINOR-5] [G7:self-1]: the abandoned oracle
+    MUST NOT be able to hang shutdown, and MUST NOT accumulate. AC-E3/AC-E9
+    assert only the VERDICT; nothing requires the timed-out worker to be
+    reaped.
 
     v6's formulation is REPLACED here — it was unmeasurable and partly
     false-failing: it used a 2.5s grace against a 2.0s _SlowOracle sleep, so
     a GREEN with NO reaping logic at all passed because the worker died on
-    its own inside the window; and a module-level ThreadPoolExecutor (a
-    defensible design) leaves an idle worker forever and would false-fail a
-    snapshot diff. Normative instead, asserting what is actually achievable:
+    its own inside the window. Normative instead, asserting what is
+    actually achievable:
 
     (1) Any worker still alive after a grace period MUST have daemon is
         True, so it cannot hang interpreter shutdown. Asserted with an
@@ -853,13 +853,26 @@ def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accu
         period this test waits (0.5s), so the worker is GUARANTEED still
         alive when checked — a positive-existence assertion, not a
         best-effort poll for absence.
+
+        [G7:self-1]: v7's own docstring called a stdlib
+        `concurrent.futures.ThreadPoolExecutor` "a defensible design" here,
+        contradicting this very clause — measured on this host (py3.14),
+        `ThreadPoolExecutor` workers are `daemon=False`, and
+        `concurrent.futures.thread._python_exit` joins them at interpreter
+        exit, so an abandoned worker delays shutdown by its own sleep
+        duration, unbounded for an oracle that never returns. The aside is
+        WITHDRAWN (SPEC.md v8): a pooled design is admissible only if its
+        workers are explicitly daemon threads; the stdlib default pool is
+        NOT admissible for evaluate_guarded's timeout path. This clause's
+        assertion (below) already catches that — recorded here so the next
+        reader does not re-litigate it.
     (2) Workers MUST NOT ACCUMULATE: over N=5 repeated timed-out calls
         (each against an oracle that outlives its own timeout), waited past
         every oracle's own completion, the live-thread count MUST NOT have
-        grown by N. This holds for BOTH a per-call-thread design (each
-        worker exits on its own once its sleep elapses) and a pooled
-        ThreadPoolExecutor design (bounded pool size, not N permanent
-        threads) — only a genuine per-call leak fails it."""
+        grown by N. This clause is design-agnostic: it holds for BOTH a
+        per-call-thread design (each worker exits on its own once its
+        sleep elapses) and a pooled design with a BOUNDED pool size (not N
+        permanent threads) — only a genuine per-call leak fails it."""
     import threading  # noqa: PLC0415
     import time  # noqa: PLC0415
 
@@ -3091,6 +3104,28 @@ def test_ac_l0_9_eight_negative_controls_and_no_vacuous_pass():
         f"{report.requirements!r}"
     )
 
+    # 7b) [G7:self-2]: clause 7's OTHER half — engine_version key ABSENT
+    # entirely (not merely empty). v7's spec text reads "empty OR ABSENT
+    # engine_version"; the round-7 RED mutated only the empty-string case,
+    # so a GREEN special-casing "" while treating a missing key as a
+    # structural breach ("failed") passed undetected.
+    events_absent_engine_version = []
+    for e in _valid_l0_events():
+        if e["event_type"] == "run_identity":
+            payload = dict(e["payload"])
+            payload.pop("engine_version", None)
+            e = {**e, "payload": payload}
+        events_absent_engine_version.append(e)
+    report = _check(events_absent_engine_version)
+    assert report.passed is False
+    assert any("R0.3" in v for v in report.violations), report.violations
+    assert report.requirements["R0.3"] == "not-checked", (
+        f"[G7:self-2]: clause 7's ABSENT-engine_version half (key missing "
+        f"entirely, not just empty) is the SAME unresolved-version case as "
+        f"the empty-string half — MUST also render 'not-checked', NOT "
+        f"'failed', got {report.requirements!r}"
+    )
+
     # 8) run_identity present but adapter_identity empty -> R0.3
     events_empty_adapter_identity = []
     for e in _valid_l0_events():
@@ -3102,6 +3137,34 @@ def test_ac_l0_9_eight_negative_controls_and_no_vacuous_pass():
     report = _check(events_empty_adapter_identity)
     assert report.passed is False
     assert any("R0.3" in v for v in report.violations), report.violations
+
+    # [G7:self-2] precedence rule: "'failed' dominates 'not-checked'" when a
+    # structural breach and an unmeasured channel COEXIST for the SAME
+    # requirement. Coexistence fixture: clause 7's unmeasured channel
+    # (engine_version absent) TOGETHER WITH a genuine R0.3 structural
+    # breach on the same requirement (adapter_identity emptied, clause 8) —
+    # a GREEN resolving this collision either way (i.e. picking
+    # "not-checked" because engine_version is unresolved, or picking
+    # "failed" only when engine_version itself is malformed) must still
+    # land on "failed", not "not-checked". Without this the spec's own
+    # reconciliation of clause 1 with AC-L0-6e is unasserted.
+    events_r03_breach_and_unmeasured_coexist = []
+    for e in _valid_l0_events():
+        if e["event_type"] == "run_identity":
+            payload = dict(e["payload"])
+            payload.pop("engine_version", None)  # unmeasured channel (clause 7)
+            payload["adapter_identity"] = ""       # structural breach (clause 8)
+            e = {**e, "payload": payload}
+        events_r03_breach_and_unmeasured_coexist.append(e)
+    report_coexist = _check(events_r03_breach_and_unmeasured_coexist)
+    assert report_coexist.passed is False
+    assert any("R0.3" in v for v in report_coexist.violations), report_coexist.violations
+    assert report_coexist.requirements["R0.3"] == "failed", (
+        f"[G7:self-2]: 'failed' MUST dominate 'not-checked' when a "
+        f"structural breach (adapter_identity emptied) and an unmeasured "
+        f"channel (engine_version absent) coexist for the SAME requirement "
+        f"(R0.3) — got {report_coexist.requirements!r}"
+    )
 
     # empty log MUST NOT pass (vacuous-checker guard)
     report_empty = check_bd_l0([], run_id="run-l0", writer=EventLog)
