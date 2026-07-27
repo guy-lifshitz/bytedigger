@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from helpers import host_tools as _host_tools
+from helpers import live_repo as _live_repo
 
 # bd#102: re-export the real hookwrapper object (not a reimplementation) so
 # pytest registers the same function this module owns and tests. The body,
@@ -114,6 +115,11 @@ def pytest_configure(config: pytest.Config) -> None:
     # pytest_configure — never a second one (that would shadow this hook and
     # reopen the burn-guard billing seam).
     _host_tools.freeze_host_tool_availability()
+
+    # bd#2: same rule, second environment axis — is this tree a git checkout?
+    # Must run AFTER _sentinel.pytest_configure above, which is what puts
+    # `_live_repo_sentinel` in sys.modules for the climb.
+    _live_repo.freeze_git_checkout_availability()
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:

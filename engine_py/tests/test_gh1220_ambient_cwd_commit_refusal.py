@@ -73,6 +73,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from helpers import live_repo  # noqa: E402 — bd#2 git-checkout requirement
 from contracts import StepResult, WorkflowContext  # noqa: E402
 import phase_5_implement as p5  # noqa: E402
 import phase_6_review as p6  # noqa: E402
@@ -1556,7 +1557,12 @@ def test_ac16_cheap_head_read_matches_git_rev_parse_on_live_repo():
     `.git` is a FILE, `gitdir: <path>`, and refs live in the commondir, NOT
     the per-worktree gitdir) equals `git rev-parse HEAD` run as a subprocess.
     Pre-GREEN FAIL: ImportError, tests/_live_repo_sentinel.py does not exist
-    yet."""
+    yet.
+
+    bd#2: real data means a real checkout. Skipped honestly for anyone running
+    from an installed wheel, a release tarball or a `git archive` export."""
+    live_repo.skip_without_git_checkout()
+
     import _live_repo_sentinel as sentinel  # noqa: PLC0415
 
     root = sentinel.find_repo_root()
@@ -1581,7 +1587,11 @@ def test_ac16_cheap_head_read_matches_git_rev_parse_on_live_repo():
 def test_ac17_baseline_capture_matches_git_rev_list_count_on_live_repo():
     """AC17 (real-data): baseline capture on the REAL live repo equals
     `git rev-list --count HEAD` from a subprocess. Pre-GREEN FAIL: ImportError,
-    module absent."""
+    module absent.
+
+    bd#2: requires a git checkout — skipped honestly without one."""
+    live_repo.skip_without_git_checkout()
+
     import _live_repo_sentinel as sentinel  # noqa: PLC0415
 
     root = sentinel.find_repo_root()
@@ -1755,7 +1765,12 @@ def test_ac31_sentinel_state_restored_after_tmp_repo_configure(tmp_path, monkeyp
     `pytest_sessionfinish` against the REAL live root does not redden the
     session. Pins the state-leak contract of C7 directly (independent of the
     autouse fixture, which this test also exercises implicitly for every
-    other test in this file). Pre-GREEN FAIL: ImportError, module absent."""
+    other test in this file). Pre-GREEN FAIL: ImportError, module absent.
+
+    bd#2: the "REAL live root" half of the contract is unobservable without a
+    checkout — skipped honestly without one."""
+    live_repo.skip_without_git_checkout()
+
     import _live_repo_sentinel as sentinel  # noqa: PLC0415
 
     live_root = sentinel.find_repo_root()  # the REAL live repo, unpatched
