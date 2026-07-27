@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   engine:
-    runs-on: [self-hosted, bytedigger]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "python venv (self-hosted, system python3 - no setup-python)"
+      - name: "python venv (stock runner python3 - no setup-python)"
         run: |
           python3 -m venv "$RUNNER_TEMP/ci-venv"
           echo "$RUNNER_TEMP/ci-venv/bin" >> "$GITHUB_PATH"
@@ -70,7 +70,7 @@ jobs:
           python run.py --help >/dev/null && echo "OK: run.py --help"
 
   pytest:
-    runs-on: [self-hosted, bytedigger, heavy]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
       run:
@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "python venv (self-hosted, system python3 - no setup-python)"
+      - name: "python venv (stock runner python3 - no setup-python)"
         run: |
           python3 -m venv "$RUNNER_TEMP/ci-venv"
           echo "$RUNNER_TEMP/ci-venv/bin" >> "$GITHUB_PATH"
@@ -103,7 +103,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "python venv (self-hosted, system python3 - no setup-python)"
+      - name: "python venv (stock runner python3 - no setup-python)"
         run: |
           python3 -m venv "$RUNNER_TEMP/mf-venv"
           echo "$RUNNER_TEMP/mf-venv/bin" >> "$GITHUB_PATH"
