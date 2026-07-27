@@ -1,0 +1,17 @@
+# bd#102 closure set — the host dependencies the engine test suite silently
+# requires but declares nowhere a user would read.
+#
+# THIS FILE IS THE SINGLE SOURCE OF TRUTH. scripts/clean-room/in-container.sh
+# installs exactly this set and asserts each entry is on PATH afterwards;
+# docs/clean-room.md must name every entry (checked). Adding a tool here is a
+# deliberate, reviewable act — which is the point.
+#
+# CLOSING bd#102 = emptying this file and deleting the install block that
+# consumes it. The `debt-watch` job fails the build the moment that becomes
+# possible, so the closure cannot be forgotten.
+#
+# Format: <tool>\t<why the suite needs it>
+git	90+ test modules shell out to git; tests that commit also need a git identity
+zsh	subprocess-seam tests invoke zsh
+bun	phase_5 red/green telemetry tests assert a ts test-group is executed
+semgrep	red-lint preflight refuses to run without it ("build-critical"); ships only in the optional [security] extra
