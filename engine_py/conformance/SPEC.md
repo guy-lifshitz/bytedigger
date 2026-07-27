@@ -1,5 +1,30 @@
 # Lot spec — bd#7: conformance harness + oracle interface + attestation writer + BD-L0
 
+**v5** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5). Round-4 findings tagged `[G4:n]`.
+
+Round 4 confirmed all four round-3 defects closed on their own terms and found no propagation
+contradiction — the `[G2:3]`/`[G3]` regression pattern did not recur. It found five NEW instances of
+the lot's one disqualifying class, through doors rounds 1–3 never opened:
+
+- `[G4:1]` The attestation's producer identity, provenance triple, `timestamp` and `level_claimed`
+  were asserted by **truthiness only**, so every one of the six arguments could be ignored and
+  replaced by a constant (`run_id: "unknown"`, `timestamp: "Z"`). The spec states this rule for
+  `adapter_identity` in the event log (§4.1 AC-L0-2b) and then dropped it for the same values in the
+  artifact §4 designates as what the reviewer is given.
+- `[G4:2]` Nothing pinned the **written file** to the built report, so a writer serialising a subset
+  could omit `labels`, `conformant`, `schema`, `unsigned` and all provenance from disk — `[G:MAJOR-5]`
+  and `[G:MAJOR-8]` reintroduced through the writer.
+- `[G4:3]` AC-L0-9 clause 5's duplicate `phase_artifacts` event **also** lacked `write_tracking`, so
+  the AC-L0-3a3 fail-closed branch satisfied both assertions and no test in the file required
+  duplicate detection to exist at all — the clause was present but inert.
+- `[G4:4]` AC-L0-3a's "for every step of the phase" quantifier had no negative control, and over
+  **zero** steps it is vacuously true — so the spec's own wording mandated publishing
+  `write_tracking: "git-delta"` for a phase the engine never scanned (`_scan_cwd` is resolved at
+  `engine.py:366`, after the zero-step early return at `:355`).
+- `[G4:5]` `written_digest` was asserted only by `startswith("sha256:")`, so a constant hash passed —
+  the digest is the sole evidence the elided path list was ever real, so AC-F9's own "a hash that
+  cannot detect anything" applied to the truncation escape hatch.
+
 **v4** — gate REJECTED v1 (8), v2 (4), v3 (4). Round-3 findings tagged `[G3:n]`.
 
 Round 3 confirmed all four round-2 defects closed on their own terms, but found that the
@@ -101,6 +126,12 @@ b"bdconf-freeze/v1\0" || u64(len(files))
   hash that cannot detect anything.
 - **AC-F10** `[G:MINOR-3]` `freeze` MUST return `"sha256:"` followed by exactly 64 lowercase hex
   characters.
+- **AC-F12** `[G4:MINOR-7]` **One known-answer vector.** AC-F1..F11 are all *relational*, so any
+  collision-resistant scheme satisfies them and the normative byte stream above is not actually
+  pinned — a published freeze would not be reproducible against the documented format across hosts or
+  versions, which is what R1.3/R1.4 want it for. Required: one golden-vector assertion over a fixed
+  two-file set, with the expected digest computed from the documented stream (domain prefix, u64
+  count, u64-length-prefixed relpaths and contents) in the test itself.
 - **AC-F11** `[G:MINOR-4]` "Unreadable" in AC-F7 MUST include a directory and a mode-000 file:
   both MUST raise `OracleFreezeError`, not `IsADirectoryError`/`PermissionError`. A path outside
   `root` MUST also raise `OracleFreezeError`, not `ValueError`.
@@ -166,6 +197,9 @@ were actually evaluated (`{"R0.1": ..., "R0.2": ..., "R0.3": ...}`, values `pass
 Adversary registry, from §4 + §8: ADV-1..ADV-2 → BD-L1; ADV-3..ADV-6 → BD-L2;
 ADV-7, ADV-8, ADV-10 → BD-L3; **ADV-9 is `declarative`** (§8) and is never required for a level.
 
+`[G4:MINOR-6]` Each `adversaries[]` entry is `{"id": "ADV-<n>", "status": <status>}` — pinned here
+because §3.0's own principle is that the frozen spec, not the RED, carries the interface.
+
 Status vocabulary: `passed` | `failed` | `not_executed` | `declarative`. Any other status value
 MUST raise `[G:MAJOR-1]` — an unrecognised status is a bug in the caller, and silently bucketing
 it is the same class of defect as defaulting to passed.
@@ -190,14 +224,53 @@ it is the same class of defect as defaulting to passed.
   lot's own gap in the attestation — the artifact §4 designates as what the reviewer is given. Its
   absence would let a report claim `BD-L0` with no visible sign that "artifacts read" was never
   observed, which is the §8-last-paragraph failure applied to ourselves.
+- **AC-A7b** `[G4:MINOR-6]` **The R0.2 label, stated normatively here** — v4 cited "AC-A7b" from both
+  §3 and §4.1 while §3 had no such bullet, leaving the lot's most-cited rule defined only in prose.
+  `labels["R0.2"]` MUST be derived from **`requirements["R0.2"]` specifically**:
+  `"writes-observed; reads-declared-only"` when `requirements["R0.2"] == "passed"`, and
+  `"writes-not-observed; reads-declared-only"` otherwise. Asserted differentially over two real runs
+  (AC-L0-3a's `git_cwd`-set / `git_cwd`-absent pair).
+  `[G4:MINOR-2]` It MUST NOT be derived from `l0.passed`: that mislabels a report where writes *were*
+  observed but R0.1 failed. Pinned by one case with `requirements = {"R0.1": "failed",
+  "R0.2": "passed", "R0.3": "passed"}` expecting `"writes-observed; reads-declared-only"`.
+- **AC-A24** `[G4:MINOR-1]` **A `failed` adversary MUST be published as `failed`.** AC-A11 pins that
+  `failed` does not earn a level, and AC-A1 pins absent → `not_executed`, but nothing pinned the
+  rendered status, so a GREEN reporting every non-passing adversary as `not_executed` erased a
+  *measured* failure from the reviewer artifact — §8's last paragraph names exactly that. Assert
+  `by_id["ADV-4"] == "failed"` on AC-A11's set, plus an explicitly-supplied `not_executed` case, so
+  the two are distinguishable in the report.
 - **AC-A8** The report MUST carry `engine_version`, `adapter_identity`, `host_identity`, `repo`,
   `commit`, `run_id` and a UTC `timestamp` with `Z` suffix; a missing or empty value for any of
   them MUST raise rather than emit a report with an anonymous producer `[G:MAJOR-8]`.
+  `[G4:1]` **These are echoes of the arguments, asserted by value, not by truthiness.** v4 asserted
+  only `assert report["repo"]` etc., so a GREEN hardcoding
+  `{"repo": "hal/bytedigger", "commit": "0"*40, "run_id": "unknown", "engine_version": "unknown",
+  "timestamp": "Z"}` ignored all six arguments and passed all 84 tests. Required: each field MUST be
+  asserted **equal to a distinctive sentinel** passed in (`run_id="run-A8-sentinel"`,
+  `engine_version="9.9.9-sentinel"`, `host_identity={"host":"sentinel-host"}`, etc.);
+  `report["level_claimed"]` MUST equal the argument for at least **two distinct** claims (v4 never
+  pinned the echo, and `level_achieved` is claim-independent by AC-A11b, so a hardcoded claim
+  round-tripped cleanly); and `timestamp` MUST be asserted by a real parse plus a freshness window
+  against `datetime.now(timezone.utc)`, not `endswith("Z")` — the single character `"Z"` satisfied v4.
+  This is verbatim the rule AC-L0-2b states for the event log — *"a constant `"unknown"` passes a
+  non-empty check while converting an unknown into an attested value"* — applied to the artifact §4
+  designates as what the reviewer is given, and to the three fields §8 relies on to justify shipping
+  unsigned at all.
 - **AC-A9** ADV-9 MUST appear with status `declarative` and MUST NOT be counted as `passed` when
   computing BD-L3, nor block it (§8: "BD-L3 v1 is reachable without it").
 - **AC-A10** Round-trip: the written file MUST parse as JSON and re-validate against the same
   level computation, yielding the identical `level_achieved` — recomputed from the report's **own**
   `l0` block, not from a re-supplied argument `[G:MAJOR-7c]`.
+  `[G4:2]` **The file MUST be the whole report: `reparsed == report`, asserted as full dict
+  equality** (both the all-good and the failing round-trip). v4 asserted only that
+  `level_achieved`, `l0`, `level_claimed` and `adversaries` were readable back, so a writer
+  serialising a subset — `{k: report[k] for k in ("schema","level_claimed","level_achieved",
+  "adversaries","l0")}` — passed AC-A10, AC-A21 and AC-L0-11 while publishing a file carrying **no
+  `labels`** (hence no `"writes-not-observed; reads-declared-only"`, no `"R1.2": "adapter-observed"`,
+  no `"R3.1": "host-attested"`), **no `conformant`**, and **no `repo`/`commit`/`run_id`**. That is
+  `[G:MAJOR-5]` and `[G:MAJOR-8]` reintroduced at the one seam that matters: §4 designates the
+  written artifact, not the in-memory dict, as what the reviewer is given, and every in-memory-only
+  assertion in this file is therefore unfalsifiable about the shipped evidence.
 - **AC-A11** `[G:MAJOR-1]` `[G2:3]` **A `failed` adversary MUST NOT count toward a level.** Over the
   **L1+L2 set only** (ADV-1..ADV-6 `passed`, ADV-7/ADV-8/ADV-10 absent, so the measured maximum is
   genuinely BD-L2): setting ADV-4 to `failed` MUST NOT yield `BD-L2`, and the positive control —
@@ -277,6 +350,11 @@ it is the same class of defect as defaulting to passed.
   later, at `llm_subprocess.py:1204` in the invoke path, NOT by the resolver `[G2:6]`). The test MUST assert
   the emitted value **tracks configuration** — set the backend via the env seam and assert both
   `backend` and `source` reflect it, then change it and assert the emitted value changes.
+  `[G4:MINOR-4]` The test MUST `delenv` **all three** spellings — `HAL_RUNNER_BACKEND`,
+  `BD_RUNNER_BACKEND`, `BYTEDIGGER_RUNNER_BACKEND` — because `config_provider._AliasEnviron`
+  (`config_provider.py:258-288`) resolves `HAL_<X>` from the `BD_`/`BYTEDIGGER_` aliases, so a host or
+  CI carrying `BD_RUNNER_BACKEND` breaks the `source == "default"` assertion for an environment
+  reason, inside the very test that closes `[G:MAJOR-6]`.
   Truthiness alone is insufficient: a constant `"unknown"` passes a non-empty check while
   converting an unknown into an attested value, which is the overclaim the standard exists to
   prevent. There is no `"unknown"` fallback — resolution always yields a real backend and the
@@ -293,11 +371,28 @@ it is the same class of defect as defaulting to passed.
   that configuration — converting "not measured" into the affirmative claim "nothing was written",
   which is strictly worse than the ambiguous absence §0 recorded for `files_touched`.
   Therefore: `write_tracking` MUST be `"git-delta"` only when a delta was **actually computed** —
-  i.e. `git_pre is not None and git_post is not None` for every step of the phase — and
-  `"not-observed"` otherwise, asserted **differentially** (one run with `git_cwd` set, one
-  without). `check_bd_l0` MUST report R0.2 as `"not-checked"` — not `"passed"` — when any phase
+  i.e. the phase ran **at least one step** `[G4:4]` **and** `git_pre is not None and
+  git_post is not None` for **every** step of the phase — and `"not-observed"` otherwise, asserted
+  **differentially** (one run with `git_cwd` set, one without). `check_bd_l0` MUST report R0.2 as
+  `"not-checked"` — not `"passed"` — when any phase
   carries `write_tracking: "not-observed"`, and `labels["R0.2"]` MUST then read
   `"writes-not-observed; reads-declared-only"` (AC-A7b).
+- **AC-L0-3a4** `[G4:4]` **The "every step" quantifier is asserted, and zero steps is not vacuous
+  truth.** v4 stated the quantifier and tested only single-step phases, leaving two false
+  affirmatives live:
+  1. **Partial delta failure.** An `any()`-shaped implementation (`"git-delta"` if *some* step
+     computed a delta) publishes `"git-delta"` for a phase where a later step's `git_read` raised
+     `subprocess.TimeoutExpired`/`FileNotFoundError` (`engine.py:1082`, a real runtime path) — a
+     step window that was never scanned, attested as measured. Required: a **two-step** phase with
+     the delta forced to fail on the **second step only** (inject through the `lib.git_port`
+     `get_git_read()` seam, `git_port.py:145-157`, the suite's established pattern) MUST yield
+     `write_tracking: "not-observed"` and `requirements["R0.2"] == "not-checked"`.
+  2. **Zero steps.** `_execute_steps` returns at `engine.py:355-361` **before** `_scan_cwd` is
+     resolved at `:366`, so a zero-step workflow scans nothing — yet `all([])` is `True`, so a
+     spec-faithful literal reading of v4 *mandated* `"git-delta"`. **Normative: a phase with zero
+     steps MUST carry `write_tracking: "not-observed"`**, asserted in AC-L0-3c 2/2 **with `git_cwd`
+     set**, together with `requirements["R0.2"] == "not-checked"`. v4's zero-step test asserted only
+     the event count, so the false affirmative shipped silently.
   This is the MAJOR-5 defect class on the write half: without it the lot's own flagship composed
   attestation (AC-L0-11) publishes `BD-L0` with `writes-observed` for a run whose write channel
   never ran.
@@ -310,7 +405,18 @@ it is the same class of defect as defaulting to passed.
   `"git-delta"` with `written: []`, which is the affirmative claim "nothing was written" over a
   channel that never ran, verbatim the `[G2:4]` defect through its failure branch.
 - **AC-L0-3a3** `[G3:MINOR-5]` A `phase_artifacts` event with **no** `write_tracking` key at all
-  MUST be treated as `"not-observed"` (fail-closed), not silently accepted.
+  MUST be treated as `"not-observed"` (fail-closed), not silently accepted. `[G4:EDGE-2]` The same
+  fail-close MUST apply to an **unrecognised** token: `write_tracking` of `"observed"`, `"git_delta"`
+  or `""` MUST yield `requirements["R0.2"] == "not-checked"`, not `"passed"`. The checker's input is
+  an arbitrary event list, so `if wt != "not-observed": passed` renders any unknown spelling — a
+  future engine's or a forged one — as a measured pass. Only the exact token `"git-delta"` counts.
+- **AC-L0-3e2** `[G4:EDGE-4]` **"Unconditionally" includes the crash path.** A step raising, or the
+  `RuntimeError` at `engine.py:679`, propagates out of `execute()`; without a `try/finally` around the
+  emit there is no artifact record at all, so AC-L0-3's "unconditionally at phase exit" is unasserted
+  on the one exit v4 never drove. This is not a false-green (the log also lacks `workflow_finished`, so
+  R0.2 fails honestly) — but the claim must either hold or be narrowed. **Normative: it holds** —
+  asserted with a step that raises, `pytest.raises` around `execute`, and exactly one
+  `phase_artifacts` in the log afterwards.
 - **AC-L0-3e** `[G2:edge-7]` `phase_artifacts` MUST also be emitted when the workflow ends
   `error`/`escalate` (`engine.py:674`, `:682`), not only on the `ok` path — asserted with a
   failing workflow. A failed run is exactly when the artifact record matters most.
@@ -339,11 +445,38 @@ it is the same class of defect as defaulting to passed.
   `written_count: <n>`, `written_digest: "sha256:…"` over the full sorted path list, and a bounded
   `written` sample. Asserted with a step writing enough paths to exceed 4096 bytes: the event MUST
   be present, `written_count` MUST equal the real count, and `check_bd_l0` MUST pass.
+  `[G4:5]` **The digest is a measured value, not a shape.** Its canonical form is normative here so
+  the test can recompute it: `"sha256:" + sha256("\n".join(sorted(relpaths)).encode("utf-8"))`,
+  lowercase hex, over the **full** path list in the same relpath spelling `written` uses. The test
+  MUST assert **equality** against a digest it computes itself from the real path set — v4 asserted
+  only `startswith("sha256:")`, so `"sha256:" + "0"*64` passed. In the truncated case the digest is
+  the only evidence the elided list was ever real (`written` is a bounded sample by design), so a
+  constant turns the escape hatch AC-L0-3d created into AC-F9's "a hash that cannot detect anything".
+  `[G4:MINOR-5]` The payload assertions here MUST be whole-dict-shape, as AC-L0-3g requires, not
+  key-by-key `payload.get(...)` probes.
+- **AC-L0-3d2** `[G4:EDGE-6]` **The truncation threshold is asserted at its boundary.** AC-L0-3d uses
+  ~13 KB and AC-L0-3g one path, so nothing exercises a payload *just* over or *just* under 4096
+  bytes. The size predicate MUST be computed over the **serialised event as `EventLog.append` sees
+  it** — envelope (`ts`, `run_id`, `event_type`, `payload`) included, ~60 bytes — not over the
+  payload alone. Asserted with two runs straddling the limit: the just-under run MUST NOT set
+  `written_truncated` and MUST list every path; the just-over run MUST truncate. An off-by-one that
+  measures the payload alone re-opens the swallowed-`EventLogLineTooLarge` hole exactly at the
+  boundary, which is where an inverted control does its damage.
 - **AC-L0-4** These emits MUST go through `_emit`, so a detached event log, the shadow-event
   path and the never-raise contract all keep working unchanged. (Pre-passing at RED time — a
   forward guard, declared as such `[G:MINOR-2]`. Its discriminating power appears after GREEN: a
   direct `self._event_log.append(...)` lets the exception escape `execute()` and fails this test,
   whereas `_emit` swallows it at `engine.py:710`.)
+
+`[G4:MINOR-8]` **What `requirements["R0.2"] == "passed"` actually means, recorded so the token is not
+over-read.** The write half fail-closes to `"not-checked"` when unmeasured (AC-L0-3a), but the **read**
+half is never observed at all (§5), and the vocabulary `passed|failed|not-checked` cannot express
+"partially evaluated". So `R0.2: "passed"` means *identity + outcome + the write half* — reads are
+declared-only, uniformly, and that is what `labels["R0.2"]` publishes. The asymmetry is deliberate:
+the read gap is uniform and declared, whereas an unmeasured write channel is a per-run accident. Note
+the consequence: **adding an engine-side read seam silently changes the meaning of the same token**,
+and since AC-A10 makes the `l0` block the downstream recomputation source, that change must come with
+a schema revision, not just a new emit.
 
 `read_tracking: "declared-only"` is a published gap in the §8 style: the engine has no central
 read seam (`io_utils` exposes only `atomic_write`), so v1 records reads that steps declare and
@@ -409,6 +542,13 @@ conformance defect. The checker scopes to one run.
   RED satisfiable only by a GREEN that grants BD-L0 over an unmeasured write channel. AC-A17's own
   rationale — "a level cannot be granted while a third of it was never evaluated" — applies
   identically to R0.2 and R0.3.
+- **AC-L0-6d** `[G4:EDGE-3]` **The R0.1 probe MUST NOT write outside a path it owns.** Nothing in v4
+  constrained *where* the probe writes, so `writer(Path("events.jsonl"))` would write into the
+  caller's cwd during a read-only conformance check — and with an `O_TRUNC` writer of the AC-L0-6c
+  shape it would truncate a real file at that path. The probe runs ~20× in this suite alone. Required:
+  the probe MUST use a temporary directory it creates and removes, asserted by running `check_bd_l0`
+  with `writer=EventLog` from a cwd whose contents are snapshotted before and after and MUST be
+  unchanged.
 - **AC-L0-6c** `[G2:1]` **Negative control for the R0.1 probe — three inputs, not two.** A writer
   whose `append` opens with `O_TRUNC`, and a writer that opens **without** `O_APPEND`, MUST each
   yield `requirements["R0.1"] == "failed"`, an `R0.1`-named entry in `violations`, and
@@ -430,7 +570,16 @@ conformance defect. The checker scopes to one run.
   3. `status` key stripped from `workflow_finished` → R0.2
   4. `phase_artifacts` removed → R0.2
   5. a **second** `phase_artifacts` added for the same phase → R0.2 (the failure mode AC-L0-3c
-     predicts on real retry runs; v1 tested only "missing")
+     predicts on real retry runs; v1 tested only "missing"). `[G4:3]` **The duplicate event MUST
+     differ from the baseline by duplication and nothing else** — i.e. it MUST carry
+     `write_tracking: "git-delta"` like the fixture it duplicates. v4's injected duplicate omitted
+     `write_tracking` entirely, so the AC-L0-3a3 fail-closed branch fired first and satisfied both
+     assertions; combined with AC-L0-13 (which tests only a *missing* event) and AC-L0-12d (which
+     asserts the *absence* of a duplicate violation), **no test in the file required duplicate
+     detection to exist**. A retry-path double emit — precisely what AC-L0-3c predicts on real runs —
+     was then attested `R0.2: "passed"`: the checker publishing a requirement it never checked.
+     Round 1 rejected this clause for testing only "missing" (`[G:MAJOR-3]`); v4 made it present but
+     inert.
   6. `run_identity` removed → R0.3
   7. `run_identity` present but `engine_version` empty → R0.3
   8. `run_identity` present but `adapter_identity` empty → R0.3
@@ -454,6 +603,11 @@ conformance defect. The checker scopes to one run.
   `report["l0"]["R0.2"] == "not-checked"`, `level_achieved is None`, `conformant is False`, and
   `labels["R0.2"] == "writes-not-observed; reads-declared-only"`. This is the pair that makes
   "not measured" observably different from "passed" in the reviewer-facing artifact.
+  `[G4:2]` **Asserted from the written file, not in memory.** This test MUST call
+  `write_attestation_report` and re-assert all five values from the **reparsed** file. v4 asserted
+  them on the in-memory dict and never wrote it, so the lot's own flagship "not measured ≠ passed"
+  pair said nothing about the artifact a reviewer actually receives — which is the only place the
+  distinction has any effect.
 - **AC-L0-12** `[G:edge-3]` A shadowed run (`HAL_ENGINE_SHADOW_EMITS` on, non-authoritative
   execution, every event mangled to `SHADOW_EVENT_TYPE` at `engine.py:699-708`) MUST be reported
   as a distinct `E_SHADOWED_RUN` violation, not as a generic pile of R0.2/R0.3 failures. A
@@ -472,7 +626,16 @@ conformance defect. The checker scopes to one run.
   the `[G:edge-4]` scenario it exists for produces a false PASS. Required: a log holding run A
   (missing `run_identity`) and run B (complete) under **different** `run_id`s — checking run A MUST
   fail R0.3, i.e. B's identity must not satisfy A, and B's `phase_artifacts` for a same-named phase
-  must not trip A's "exactly one per phase".
+  must not trip A's "exactly one per phase". `[G4:MINOR-3]` The duplicate-guard half MUST be asserted
+  as `not any(v.startswith("R0.2") for v in report_a.violations)` — run A is R0.2-clean by
+  construction — not by matching violation prose (`"second" in v.lower()`), which passes whenever a
+  GREEN words its message differently even if the guard *did* wrongly trip.
+- **AC-L0-12e** `[G4:EDGE-5]` **Two `phase_artifacts` for one phase under the SAME `run_id`.** This is
+  the scenario `run_id` scoping exists for (`event_log.py:82-88`: multiple appending processes), yet
+  v4 left the checker's behaviour on it undefined — AC-L0-12d covers only *different* `run_id`s.
+  **Normative: the checker cannot distinguish an interleaved co-writer from a real double emit, so it
+  MUST fail-closed and report it as the AC-L0-9-clause-5 R0.2 violation.** Recorded so the choice is
+  a decision rather than an accident.
 - **AC-L0-13** `[G2:edge-8]` "Exactly one `phase_artifacts` **per phase**" MUST be asserted with a
   run containing **two** phases. Every v2 fixture had a single `workflow_started`/`workflow_finished`
   pair, so a checker keyed on "exactly one per run" passed every test.
@@ -489,6 +652,17 @@ ADV-1…ADV-10 and everything they prove. Read instrumentation. Signing. §7.
 - **AC-P1** `[G:MINOR-9]` `pyproject.toml [tool.setuptools.packages.find] include` (line 104,
   currently `["lib*","workflows*","security*","scripts*"]`) MUST gain `"conformance*"`, asserted
   by a test reading the manifest — a wheel shipped without the package would fail silently.
-- `bd-drift-check.py` MUST still report `5 drift, 0 missing_bd, 0 extra_bd`.
-- Full engine suite delta against the `main` baseline (4 failed / 4131 passed / 5 skipped) MUST be
-  zero new failures.
+- **AC-P2** `[G4:EDGE-1]` **The manifest exclusion is a test, not an ops note.** §1 makes "`conformance/`
+  is NOT in `core_manifest.json`" a load-bearing design claim — it is what keeps `extra_bd` at zero —
+  yet nothing stopped GREEN from adding it, and the only check was a manual `bd-drift-check.py` run.
+  Assert that `engine_py/core_manifest.json` contains no `conformance` entry. AC-P1 asserts the
+  opposite direction (the `pyproject` include) and does not cover this.
+- `bd-drift-check.py` MUST still report its pre-lot baseline with `extra_bd == 0` — **measured on the
+  running host, not inherited.** The `5 drift / 0 / 0 / 31 skipped / 490 identical` figure in the
+  handoff is macstudio's `~/.claude` state; the same commit measures `7 / 0 / 0 / 31 / 488` on the
+  laptop, and `main` and `lot-bd7` measure byte-identically there. The invariant is "identical to this
+  host's own `main` baseline, `extra_bd == 0`", not a literal count.
+- Full engine suite delta against the `main` baseline MUST be zero new failures. Baseline is
+  **host-measured**: `0 failed / 4134 passed / 6 skipped` on this laptop at `606ab58` (the handoff's
+  `4 failed / 4131 / 5` was macstudio-environment-specific — all four of those tests pass here, so
+  there is no pre-existing failure to hide a regression behind).
