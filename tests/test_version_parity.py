@@ -219,6 +219,24 @@ def _extract_job_block(text: str, job_name: str) -> str:
     return text[start:end]
 
 
+def _runs_on_labels(runs_on) -> set:
+    """Every label a `runs-on:` value schedules against, in any of the
+    three shapes GitHub accepts: a bare string, a list of labels, or a
+    `{group, labels}` mapping. An unrecognised shape yields no labels
+    rather than raising -- the YAML parse in AC10 is what guards
+    well-formedness; this helper only answers "which labels"."""
+    if isinstance(runs_on, str):
+        return {runs_on}
+    if isinstance(runs_on, list):
+        return {x for x in runs_on if isinstance(x, str)}
+    if isinstance(runs_on, dict):
+        labels = runs_on.get("labels", [])
+        labels = [labels] if isinstance(labels, str) else labels
+        group = runs_on.get("group")
+        return {x for x in [*labels, group] if isinstance(x, str)}
+    return set()
+
+
 class TestVersionParity:
     def test_ac1_check_passes_when_all_five_agree_names_count(self, tmp_path):
         """AC1: --check exits 0 when all five agree, success line names count 5."""
@@ -582,17 +600,36 @@ class TestVersionParity:
         )
         assert marketplace["plugins"][0]["version"] == "3.4.5"
 
-    def test_ac21_manifests_job_runs_on_two_label_self_hosted(self):
-        """AC21: the manifests job's runs-on is the TWO-label form
-        `[self-hosted, bytedigger]` -- not the three-label
-        `[self-hosted, bytedigger, heavy]` variant used by the real
-        pytest job at ci.yml:73."""
+    def test_ac21_no_job_uses_a_self_hosted_runner(self):
+        """AC21: no job in ci.yml schedules onto a self-hosted runner.
+
+        This used to pin the manifests job to the literal two-label form
+        `[self-hosted, bytedigger]`, to keep it off the `heavy` pool that
+        the pytest job used. That pinned the STATE rather than the
+        PROPERTY: the moment the repo went public the labels were the
+        wrong answer and the assertion fired on a correct change instead
+        of a regression.
+
+        The property that actually matters on a public repo is the
+        opposite of what was pinned. GitHub-hosted runners are free and
+        unmetered here, so self-hosted buys nothing -- while a
+        self-hosted runner on a public repo executes pull-request code
+        from any contributor on a personal machine. Assert that, for
+        every job, so a new job cannot reintroduce it either. (The
+        original label-pin covered one job; three carried the labels.)
+        """
+        import yaml
         ci_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-        text = ci_path.read_text()
-        block = _extract_job_block(text, "manifests")
-        assert re.search(r"runs-on:\s*\[self-hosted,\s*bytedigger\]\s*$", block, re.M), (
-            f"manifests job must use runs-on: [self-hosted, bytedigger] "
-            f"(two-label form): block={block!r}"
+        jobs = yaml.safe_load(ci_path.read_text())["jobs"]
+        offenders = {
+            name: spec.get("runs-on")
+            for name, spec in jobs.items()
+            if "self-hosted" in _runs_on_labels(spec.get("runs-on"))
+        }
+        assert not offenders, (
+            f"self-hosted runners are not allowed on a public repo -- "
+            f"PR code would run on a personal machine. Offending jobs: "
+            f"{offenders}"
         )
 
     def test_ac22_check_and_write_together_exits_2(self, tmp_path):
