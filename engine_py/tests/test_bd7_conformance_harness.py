@@ -1,12 +1,13 @@
 """RED tests for bd#7 — conformance harness + oracle interface + attestation
 writer + BD-L0.
 
-Spec v3 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
-then REJECTED v2 on 4 blocking defects, [G2:1]/[G2:2]/[G2:3]/[G2:4]):
+Spec v4 (amended after gate REJECTED v1 on 8 blocking defects, MAJOR-1..8,
+REJECTED v2 on 4 blocking defects [G2:1]/[G2:2]/[G2:3]/[G2:4], then
+REJECTED v3 on 4 more blocking defects [G3:1]/[G3:2]/[G3:3]/[G3:4]):
 SHARED/memory/Decisions/2026-07-27_bd7_conformance_harness_spec.md (frozen),
 source of truth `2026-07-26_bytedigger_conformance_levels.md` §1-6, 9.
 
-v3 [G2:*] additions close the four round-2 blocking defects:
+v3 [G2:*] additions closed the four round-2 blocking defects:
   AC-L0-6c   R0.1 probe negative control (three inputs, not two)
   AC-A18     L0Report.passed/.violations are not ignorable
   AC-A11 (modified) / AC-A11b   level_achieved never capped by level_claimed
@@ -14,12 +15,25 @@ v3 [G2:*] additions close the four round-2 blocking defects:
 plus round-2 minors/edges: AC-A19, AC-A20, AC-A21, AC-L0-3e, AC-L0-3f,
 AC-L0-3g, AC-L0-12b, AC-L0-12c, AC-L0-13, AC-L0-14.
 
+v4 [G3:*] additions close the four round-3 blocking defects:
+  AC-L0-10/AC-L0-11 (modified) / AC-L0-11b / AC-L0-6b2
+      drive the composed path with a REAL git repo (org_config["git_cwd"]),
+      pair it with the explicit unmeasured case, and generalise the
+      "not-checked fail-closes" rule to R0.2/R0.3, not just R0.1
+  AC-A22   report["l0"] has a negative control (asserted on FAILING reports)
+  AC-A23   conformant is False whenever level_achieved is None, all 4 claims
+  AC-L0-3a2 / AC-L0-3a3
+      negative control for the write-tracking failure branch (git_cwd
+      pointing at a non-repo) and for a missing write_tracking key
+plus round-3 minors/edges: AC-L0-12d (run_id scoping is functionally
+asserted), whole-dict-shape payload assertion in AC-L0-3.
+
 Covers every AC in the spec, one test function per AC:
   AC-O1..AC-O5   OracleOutcome — three unmergeable states, no mixin base (§2.1)
   AC-F1..AC-F11  freeze() — hash over the artifact set including membership (§2.2)
   AC-E1..AC-E9   evaluate_guarded — the indeterminate guard (§2.3)
-  AC-A1..AC-A17  attestation writer (§3)
-  AC-L0-1..AC-L0-12  BD-L0 engine additions + checker (§4)
+  AC-A1..AC-A23  attestation writer (§3)
+  AC-L0-1..AC-L0-14  BD-L0 engine additions + checker (§4)
   AC-P1          non-regression: pyproject packages.find.include (§6)
 
 §1q-ext: `engine_py/conformance/{oracle,attestation,bd_l0}.py` do not exist
