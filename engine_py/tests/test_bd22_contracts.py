@@ -195,6 +195,21 @@ class TestL0Report:
         violations/labels). Field *values* are deliberately not asserted —
         only structure and immutability, per the spec's L2-owns-the-carrier
         scope limit.
+
+        `[G22:20]`: `frozen=True` blocks attribute *rebinding*, not in-place
+        *mutation* of a mutable container field. Round 1 of this fix passed
+        MUTABLE containers straight through and then asserted properties of
+        the test's own fixture objects (a tuple's missing `.append`, a
+        pre-built `MappingProxyType`'s rejection of item assignment) rather
+        than of anything `L0Report` did — a GREEN annotating
+        `requirements: list[str]` with no coercion passed all three,
+        because dataclasses do not coerce and the field held exactly the
+        list this test constructed. The forcing form passes MUTABLE inputs
+        in (`list`, `list`, `dict`) and asserts the STORED fields are
+        immutable *and* their contents survived the conversion — killing
+        both the annotation-only GREEN (stores the list unchanged, so
+        `isinstance(..., tuple)` fails) and a GREEN that "immutabilises" by
+        discarding contents (the equality checks fail).
         """
         import dataclasses
 
@@ -202,9 +217,9 @@ class TestL0Report:
 
         report = L0Report(
             passed=True,
-            requirements=(),
-            violations=(),
-            labels=(),
+            requirements=["a"],
+            violations=["b"],
+            labels={"k": "v"},
         )
 
         assert dataclasses.is_dataclass(report)
@@ -213,6 +228,15 @@ class TestL0Report:
 
         with pytest.raises(dataclasses.FrozenInstanceError):
             report.passed = False
+
+        assert isinstance(report.requirements, tuple)
+        assert isinstance(report.violations, tuple)
+        assert report.requirements == ("a",)
+        assert report.violations == ("b",)
+
+        with pytest.raises(TypeError):
+            report.labels["mutated"] = True
+        assert report.labels["k"] == "v"
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -228,6 +252,14 @@ class TestTokenVocabulary:
         status (e.g. spelling both "not-checked" the same as "not_executed",
         or vice versa) — bd#7's [G2:9] deliberately keeps them apart, and a
         lot that collapsed them would silently break every consumer.
+
+        M6: the distinctness check that used to follow these four assertions
+        (`len(values) == len(set(values))`) was dead weight — since each
+        value is pinned by-value to one of four already-distinct string
+        literals, distinctness cannot fail once these four assertions pass.
+        Dropped per §0.4 (no assertion that cannot fail); the by-value pins
+        above are strictly stronger and are what actually kills the
+        unification defect this test's docstring names.
         """
         from conformance.tokens import (
             ADVERSARY_NOT_EXECUTED,
@@ -240,14 +272,6 @@ class TestTokenVocabulary:
         assert REQUIREMENT_FAILED == "failed"
         assert REQUIREMENT_NOT_CHECKED == "not-checked"
         assert ADVERSARY_NOT_EXECUTED == "not_executed"
-
-        values = [
-            REQUIREMENT_PASSED,
-            REQUIREMENT_FAILED,
-            REQUIREMENT_NOT_CHECKED,
-            ADVERSARY_NOT_EXECUTED,
-        ]
-        assert len(values) == len(set(values))
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -308,6 +332,15 @@ class TestPackaging:
         `[tool.setuptools.packages.find] include`, silently excluding it
         from the shipped package — the packaging-side twin of the AC-P2
         manifest gap.
+
+        `[G22:21]` regression shield: `"conformance*" in include_list` alone
+        is satisfied by a GREEN that *replaces* the list with just
+        `["conformance*"]` — nothing else in the repo pins that list (no
+        other test, and CI parity reads `py-modules`, not this list), so
+        `lib*`/`workflows*`/`security*`/`scripts*` would silently stop
+        shipping. Kills that GREEN by asserting the four pre-existing
+        entries are still present as a subset, not merely that the new one
+        was added.
         """
         pyproject_path = _ENGINE_ROOT / "pyproject.toml"
         text = pyproject_path.read_text()
@@ -319,6 +352,7 @@ class TestPackaging:
         include_list = re.findall(r'"([^"]+)"', include_match.group(1))
 
         assert "conformance*" in include_list
+        assert {"lib*", "workflows*", "security*", "scripts*"} <= set(include_list)
 
     def test_ac_p2_core_manifest_excludes_conformance(self):
         """AC-P2 (declared pre-passing shield, §0.6). `core_manifest.json`
@@ -327,9 +361,19 @@ class TestPackaging:
         It gains power at GREEN, where an implementation that mistakenly
         registers `conformance` (or a `conformance/*.py` entry) as a core
         module will fail it, holding `extra_bd` at zero per §1.
+
+        `[G22:22]`: narrowed from a bare `"conformance" in entry` substring
+        check to an exact/prefix match — the substring form would false-fail
+        a legitimately-core module like `lib/conformance_checker.py`, which
+        L7-L12 plausibly add. Verified against the current 82-entry
+        `core_modules` list that no entry matches the substring form but not
+        this narrowed one, so nothing already covered is lost by narrowing.
         """
         manifest_path = _ENGINE_ROOT / "core_manifest.json"
         manifest = json.loads(manifest_path.read_text())
         core_modules = manifest.get("core_modules", [])
 
-        assert not any("conformance" in entry for entry in core_modules)
+        assert not any(
+            entry == "conformance" or entry.startswith("conformance/")
+            for entry in core_modules
+        )

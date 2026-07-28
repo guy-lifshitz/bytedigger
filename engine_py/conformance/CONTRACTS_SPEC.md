@@ -1,6 +1,6 @@
 # Lot spec — bd#22 (L2): conformance package, shared contracts, quantifier-completeness lint
 
-**v9.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **6 ACs** after the round-4 split. `AC-C5` (the quantifier-completeness lint) moved to **bd#24**;
+**v10.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **6 ACs** after the round-4 split. `AC-C5` (the quantifier-completeness lint) moved to **bd#24**;
 accounting stays convergent at 7 = 6 here + 1 there.
 
 Depends on nothing but `main`. Everything after L2 depends on it. It MUST NOT reference L1's emissions or any
@@ -313,8 +313,24 @@ potential lint failure.
   assertion while `report.requirements.append(...)` mutates the "frozen" record. **Every one of L3-L12 imports this
   carrier**, so that defeats for all of them the immutability this AC exists to buy. Normative: the three collection
   fields are **immutable containers** — `tuple` for `requirements` and `violations`, and a mapping that cannot be
-  mutated in place for `labels` (a `Mapping` that is not a `dict`, or a frozen equivalent). Asserted by attempting
-  in-place mutation on each and requiring it to fail.
+  mutated in place for `labels`.
+  `[G22:23]` **The requirement is COERCION AT CONSTRUCTION, and the assertion must pass MUTABLE containers IN.** My v9
+  wording ("asserted by attempting in-place mutation on each and requiring it to fail") invited a fixture-side
+  reading, and the RED took it: it constructed with `requirements=()` and `labels=MappingProxyType({})`, then asserted
+  those could not be mutated. Dataclasses **do not coerce or validate**, so those assertions test properties of
+  objects the *test* created — a tuple lacking `.append`, a proxy rejecting assignment — and the very GREEN they were
+  written to kill (`requirements: list[str]`, no coercion) **passes all three**, because an annotation has no runtime
+  effect and the field holds whatever the caller passed.
+  Normative instead: construct with **mutable** containers (`requirements=["a"]`, `violations=["b"]`,
+  `labels={"k": "v"}`) and require the **stored** fields to be immutable — `isinstance(report.requirements, tuple)`,
+  the same for `violations`, `labels` rejecting item assignment — **and the values preserved**
+  (`report.requirements == ("a",)`), so a GREEN that immutabilises by discarding contents fails too. That forces a
+  real mechanism (`__post_init__` coercion via `object.__setattr__`, or equivalent), which is the only thing that
+  hands L3-L12 an immutable carrier rather than one that merely blocks rebinding.
+  Third time in this lot a fix created the next finding, and the **second time the trigger was an ADDITION** rather
+  than a deletion — exactly the case the corrected (a)/(b) discriminator was written for. **Carry to bd#24: run the
+  candidate simulation over assertions you ADD, not only over fixtures you change.** An assertion that cannot fail is
+  invisible to the pass/fail count.
   This is field **structure**, not field **semantics**, so it does not breach the L2 scope limit below — values and
   their meaning remain L7-L12's.
   Attribute assignment MUST raise `FrozenInstanceError`; the type MUST be constructible with those four fields.
