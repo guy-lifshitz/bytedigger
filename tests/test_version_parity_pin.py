@@ -185,13 +185,19 @@ def _remove_pointer_dependencies_key(repo: Path, relpath: str) -> None:
     path.write_text(new_text)
 
 
-def _build_realistic_pointer_text(version: str, pin_version: str, canonical_old: str) -> str:
+def _build_realistic_pointer_text(
+    version: str, pin_version: str, canonical_old: str, pkg: str
+) -> str:
     """A pointer pyproject.toml resembling the REAL file (MAJOR-2 of the
     gate): a comment block ABOVE `dependencies` naming a historical
     version in prose, plus a second string array (`classifiers`) inside
     [project]. A naive whole-file `text.replace(old_version, new_version)`
     surgical writer corrupts the historical version named in the comment
-    prose; only a position-anchored writer survives byte-equality here."""
+    prose; only a position-anchored writer survives byte-equality here.
+    `pkg` is the derived registered package name (never a transcribed
+    'bytedigger-engine' literal) -- AC33 compares its --write output
+    against the same derived `_pkg_name()`, so the fixture must be built
+    from it too."""
     return (
         "[build-system]\n"
         'requires = ["setuptools>=68"]\n'
@@ -206,7 +212,7 @@ def _build_realistic_pointer_text(version: str, pin_version: str, canonical_old:
         "]\n"
         f"# historical: pin was bumped from {canonical_old} to {version} "
         f"after a drift incident\n"
-        f'dependencies = ["bytedigger-engine=={pin_version}"]\n'
+        f'dependencies = ["{pkg}=={pin_version}"]\n'
     )
 
 
@@ -355,6 +361,39 @@ class TestVersionParityPin:
             f"--write over a multiline pin must update the version AND "
             f"preserve the multiline layout byte-for-byte: got="
             f"{after_text!r} expected={expected_text!r}"
+        )
+
+        # Re-gate edge 1: a correct multiline pin followed by
+        # [project.urls], whose values are ALSO double-quoted. All prior
+        # multiline fixtures leave `dependencies` as the last construct in
+        # the file, so an "accumulate until EOF, then findall by quotes"
+        # parser passes every case above and only breaks here -- on the
+        # first real pointer converted to multiline form, which the URLs
+        # table would misparse as extra pin entries.
+        repo_urls = tvp._make_tmp_repo(tmp_path / "urls", _uniform_versions(V))
+        pointer_path_urls = repo_urls / pointer_rel
+        pointer_path_urls.write_text(
+            "[build-system]\n"
+            'requires = ["setuptools>=68"]\n'
+            'build-backend = "setuptools.build_meta"\n\n'
+            "[project]\n"
+            'name = "bytedigger-engine"\n'
+            f'version = "{V}"\n'
+            'description = "x"\n'
+            "dependencies = [\n"
+            f'  "{pkg}=={V}",\n'
+            "]\n\n"
+            "[project.urls]\n"
+            'Homepage = "https://example.com"\n'
+            'Source = "https://example.com/src"\n'
+        )
+        result_urls = tvp._run(repo_urls, "--check")
+        assert result_urls.returncode == 0, (
+            f"a correct multiline pin followed by [project.urls] (double-"
+            f"quoted values) must still pass --check -- an 'accumulate "
+            f"until EOF' parser would misparse the URLs table's quoted "
+            f"values as extra pin entries: got {result_urls.returncode}, "
+            f"stdout={result_urls.stdout!r} stderr={result_urls.stderr!r}"
         )
 
     def test_ac31_real_pointer_pin_equals_canonical_and_check_passes(self):
@@ -531,7 +570,7 @@ class TestVersionParityPin:
         repo = tvp._make_tmp_repo(tmp_path / "a", _uniform_versions(V))
         pointer_path = repo / pointer_rel
         before_text = _build_realistic_pointer_text(
-            version=V, pin_version=V, canonical_old="0.1.0"
+            version=V, pin_version=V, canonical_old="0.1.0", pkg=pkg
         )
         pointer_path.write_text(before_text)
 
@@ -562,7 +601,7 @@ class TestVersionParityPin:
         pointer_path2 = repo2 / pointer_rel
         pointer_path2.write_text(
             _build_realistic_pointer_text(
-                version=V2, pin_version=V, canonical_old="0.1.0"
+                version=V2, pin_version=V, canonical_old="0.1.0", pkg=pkg
             )
         )
         V3 = "9.1.2"
@@ -576,6 +615,31 @@ class TestVersionParityPin:
             f"--write over an already-diverged pin must land it on the "
             f"newly requested version: {entries3!r}"
         )
+
+        # Re-gate edge 2: all-or-nothing on the WRITE path. A pointer with
+        # NO dependencies key at all must make --write fail closed BEFORE
+        # any declaration file is touched -- the pin has to be pre-resolved
+        # in cmd_write's first pass, alongside every version, or a writer
+        # that assumes the key exists crashes mid-second-loop and leaves
+        # the tree partially rewritten. AC14/AC20 never see this: their
+        # fixtures always carry a valid pin.
+        repo3 = tvp._make_tmp_repo(tmp_path / "c", _uniform_versions(V))
+        _remove_pointer_dependencies_key(repo3, pointer_rel)
+        before_bytes = {rel: (repo3 / rel).read_bytes() for rel in tvp.DECL_RELPATHS}
+        result4 = tvp._run(repo3, "--write", V2)
+        assert result4.returncode == 1, (
+            f"--write over a pointer with no dependencies key must fail "
+            f"closed (all-or-nothing), got {result4.returncode}, "
+            f"stdout={result4.stdout!r} stderr={result4.stderr!r}"
+        )
+        for rel in tvp.DECL_RELPATHS:
+            after_bytes = (repo3 / rel).read_bytes()
+            assert after_bytes == before_bytes[rel], (
+                f"{rel} was mutated despite a --write failure -- all-or-"
+                f"nothing violated by resolving the pin too late in "
+                f"cmd_write: before={before_bytes[rel]!r} "
+                f"after={after_bytes!r}"
+            )
 
     def test_ac34_no_hardcoded_pin_or_semver_literal_in_code(self):
         """AC34 (anti-hal#1300 lint, hardened per MINOR-2/MINOR-3): scans
