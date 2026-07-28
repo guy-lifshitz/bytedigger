@@ -87,14 +87,23 @@ executing host, in an isolated worktree, at `dc6f0d0`, one at a time (no concurr
 | Corpus | Definition | Measured at `dc6f0d0` |
 |---|---|---|
 | **pytest** | executing host's dev interpreter (`/opt/homebrew/bin/python3`, 3.14), `dbos` **present**; `python3 -m pytest tests/ -q -p no:cacheprovider --timeout=180` from `engine_py/` | **4189 passed, 6 skipped, 0 failed** (273.35 s) |
-| **suite** | clean `venv` with `pip install -e "engine_py[test]"` only, `dbos` **absent** (mirrors `scripts/clean-room/readme-quickstart.manifest:21` and `.github/workflows/ci.yml:103`) | *(measured below before freeze)* |
+| **suite** | clean `venv` with `pip install -e "engine_py[test]"` only, `dbos` **absent** (mirrors `scripts/clean-room/readme-quickstart.manifest:21` and `.github/workflows/ci.yml:103`) | **4178 passed, 7 skipped, 0 failed** (266.84 s) |
 
 `[bd10:1]` **The numbers carried in the lot brief (`pytest` 4172/13, `suite` 4167/18) did NOT
-reproduce on this host** — corpus *pytest* measures 4189/6. Recorded, not reconciled: this is the
-third occurrence in this lot family of an inherited measurement failing to transfer
-(`EMISSIONS_SPEC.md:100-108`), and the rule stands — bases are measured, never inherited. The drift
-invariant is the **property** "identical to this host's own `main` for that corpus, `extra_bd == 0`",
-never a literal count.
+reproduce on this host**, and neither did the size of the divergence between them. Recorded, not
+reconciled: this is the third occurrence in this lot family of an inherited measurement failing to
+transfer (`EMISSIONS_SPEC.md:100-108`), and the rule stands — bases are measured, never inherited.
+The drift invariant is the **property** "identical to this host's own `main` for that corpus,
+`extra_bd == 0`", never a literal count.
+
+`[bd10:1a]` **The divergence is fully attributed, because an unexplained one would make every later
+delta unreadable.** Measured by diffing `--collect-only` between the two corpora: the *entire*
+difference is `tests/test_gh792_native_sentinel_emit.py`, whose `pytest.importorskip("dbos")`
+(that file, line 34) skips the module at collection when `dbos` is absent. Corpus *pytest* collects
+its **11** tests; corpus *suite* collects none of them and reports one module-level skip instead —
+4195 collected / 6 skipped versus 4184 collected + 1 module skip / 7 skipped. The brief's cause was
+right and its magnitude was not: the gap is **11 tests, not 5**. No other test differs between the
+corpora, so any future delta outside that one file is real in both.
 
 Ship in **0 failed on both corpora**.
 
