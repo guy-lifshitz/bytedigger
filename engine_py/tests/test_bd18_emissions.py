@@ -161,6 +161,16 @@ def _expected_digest(paths: list[str]) -> str:
     return "sha256:" + hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
+def _payload_by_run_id(events: list[dict], run_id: str) -> dict:
+    """Select one event's payload by run_id (AC-E4: on a miss, report the
+    OBSERVED run_ids rather than raising a bare StopIteration)."""
+    for e in events:
+        if e["run_id"] == run_id:
+            return e["payload"]
+    observed = [e["run_id"] for e in events]
+    raise AssertionError(f"no event with run_id={run_id!r} found; observed run_ids={observed!r}")
+
+
 def _raw_lines_of_type(raw_lines: list[bytes], event_type: str) -> list[bytes]:
     """Select raw JSONL lines by PARSED event_type, not substring match
     (`[G18:EDGE-6]`): a substring match on b'"phase_artifacts"' would also
@@ -465,9 +475,6 @@ def test_ac_e2_run_identity_immediately_follows_this_calls_workflow_started(tmp_
     assert len(events_of(log, "run_identity")) == 1
 
 
-_ADAPTER_SOURCE_CLOSED_SET = frozenset({"kwarg", "env", "default", "default-fallback"})
-
-
 def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp_path, monkeypatch):
     """AC-E2b: adapter_identity MUST be a mapping with non-empty `backend`
     and `source` — not a bare string (bd#7 [G2:8]: a bare-string fixture
@@ -483,10 +490,15 @@ def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp
     `(backend, source)` pair and reading the environment through
     `config_provider.env_mapping()` (:327-328) — a live `_AliasEnviron`, so
     `monkeypatch.setenv` on `HAL_RUNNER_BACKEND` reaches it. `source` is
-    asserted BY VALUE (not merely non-empty, §0.5) against the closed set
-    `{"kwarg","env","default","default-fallback"}` that resolver returns —
-    kills `source: "x"` satisfying both spec and test, the defect `backend`
-    already avoided and `source` did not in v1.
+    asserted BY VALUE (not merely non-empty, §0.5) — `_resolve_backend`
+    itself returns only `"kwarg"`/`"env"`/`"default"` (`llm_subprocess.py:
+    619-630`; `"default-fallback"` is produced at a different site,
+    `:1204`, out of scope here since both runs below only ever exercise
+    the env branch) — kills `source: "x"` satisfying both spec and test,
+    the defect `backend` already avoided and `source` did not in v1.
+    `[G18r2:MINOR-3]`: the standalone closed-set membership check and the
+    `backend != backend` inequality are dropped — both are subsumed once
+    backend/source are pinned by value below.
     """
     def _run_once(backend_env: str, subdir: str) -> dict:
         monkeypatch.setenv("HAL_RUNNER_BACKEND", backend_env)
@@ -502,11 +514,6 @@ def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp
     for identity in (identity_a, identity_b):
         assert isinstance(identity, dict), f"adapter_identity must be a mapping, got {type(identity)}"
         assert identity.get("backend"), "adapter_identity['backend'] must be non-empty"
-        assert identity.get("source") in _ADAPTER_SOURCE_CLOSED_SET, (
-            f"adapter_identity['source'] must be one of {_ADAPTER_SOURCE_CLOSED_SET!r}, "
-            f"got {identity.get('source')!r} — a bare non-emptiness check would let "
-            f"source: 'x' through"
-        )
 
     assert identity_a["backend"] == "claude-subprocess", (
         f"expected backend to reflect HAL_RUNNER_BACKEND=claude-subprocess, "
@@ -516,12 +523,10 @@ def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp
         f"expected backend to reflect HAL_RUNNER_BACKEND=claude-in-session, "
         f"got {identity_b['backend']!r}"
     )
-    assert identity_a["backend"] != identity_b["backend"], (
-        "a constant/hardcoded adapter_identity['backend'] would be identical "
-        "across differently-configured runs"
-    )
     # Both runs here go through the resolver's ENV branch (no kwarg is ever
-    # set) — asserted BY VALUE, not just closed-set membership.
+    # set) — asserted BY VALUE. `[G18r2:MINOR-3]`: the closed-set membership
+    # check and the backend != backend inequality are dropped here — both
+    # are subsumed once backend/source are pinned by value above.
     assert identity_a["source"] == "env", f"expected source == 'env', got {identity_a['source']!r}"
     assert identity_b["source"] == "env", f"expected source == 'env', got {identity_b['source']!r}"
 
@@ -745,13 +750,26 @@ def test_ac_e3_exactly_one_phase_artifacts_with_exact_key_set(tmp_path, git_repo
     instrumentation in this lot at all, §6), which `read_tracking:
     "declared-only"` exists specifically to announce rather than leave
     to be misread.
+
+    `[G18r2:MINOR-7]` `written`'s CONTAINER TYPE is pinned
+    (`isinstance(..., list)`). A set-valued accumulator serialises through
+    `json.dumps(..., default=str)` to the STRING `"{'a.txt', 'b.txt'}"`,
+    which makes every `"a.txt" in payload["written"]` substring-true
+    elsewhere in this file — currently killed only incidentally by one
+    `set(...)` call in AC-E3e. Pinned directly here.
+
+    `[G18r2:MINOR-4]` a DISTINCTIVE workflow name (`"wf"` is the name in
+    ~20 other tests here, too generic to prove `phase` reflects the
+    ACTUAL workflow name rather than a hardcoded literal that happens to
+    match every other fixture in this file).
     """
     log = make_log(tmp_path)
     eng = WorkflowEngine(event_log=log)
-    eng.register("wf", WorkflowDefinition(
-        name="wf", steps=[write_step("s1", git_repo, "a.txt"), write_step("s2", git_repo, "b.txt")],
+    workflow_name = "distinctive_phase_name_e3_9k2f"
+    eng.register(workflow_name, WorkflowDefinition(
+        name=workflow_name, steps=[write_step("s1", git_repo, "a.txt"), write_step("s2", git_repo, "b.txt")],
     ))
-    eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+    eng.execute(workflow_name, make_ctx(git_cwd=str(git_repo)), run_id="r1")
 
     pa = events_of(log, "phase_artifacts")
     assert len(pa) == 1, f"expected exactly one phase_artifacts, got {len(pa)}"
@@ -765,7 +783,15 @@ def test_ac_e3_exactly_one_phase_artifacts_with_exact_key_set(tmp_path, git_repo
         f"§6 — an unpinned value would let read: ['anything'] pass), got "
         f"{payload['read']!r}"
     )
-    assert payload["phase"] == "wf"
+    assert isinstance(payload["written"], list), (
+        f"expected written to be a list (a set serialises to a substring-"
+        f"matchable string via json.dumps(..., default=str)), got "
+        f"{type(payload['written'])}"
+    )
+    assert payload["phase"] == workflow_name, (
+        f"expected phase == {workflow_name!r} (distinctive, not the generic "
+        f"'wf' used elsewhere), got {payload['phase']!r}"
+    )
 
 
 def test_ac_e3a_phase_artifacts_emitted_on_ok_exit(tmp_path, git_repo):
@@ -1111,6 +1137,12 @@ def test_ac_e3c_written_accumulation_survives_retry_recursion(tmp_path, git_repo
     MUST still be present after _execute_steps is re-entered at
     engine.py:638-645 and the outer frame returns retry_result at :657
     without running its own tail.
+
+    `[G18r2:EDGE-1]` also pins `len(phase_artifacts) == 1` on this
+    ORDINARY two-frame retry exit — the most common two-frame path in
+    production, and previously only transitively covered by taking `[0]`
+    without a length check (a phase-level accumulator double-counting
+    across the two unwinding frames would have passed silently).
     """
     log = make_log(tmp_path)
     eng = WorkflowEngine(event_log=log)
@@ -1134,7 +1166,12 @@ def test_ac_e3c_written_accumulation_survives_retry_recursion(tmp_path, git_repo
         ],
     ))
     eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
-    payload = events_of(log, "phase_artifacts")[0]["payload"]
+    pa = events_of(log, "phase_artifacts")
+    assert len(pa) == 1, (
+        f"expected exactly one phase_artifacts across the pre-retry and "
+        f"post-retry frames of this ORDINARY two-frame retry, got {len(pa)}"
+    )
+    payload = pa[0]["payload"]
     assert "pre_retry_write.txt" in payload["written"], (
         f"pre-retry step's write must survive into the recursive frame's "
         f"final phase_artifacts payload; got written={payload['written']!r}"
@@ -1180,8 +1217,8 @@ def test_ac_e3c_written_resets_between_sequential_execute_calls(tmp_path, git_re
         f"SAME registered workflow (§0.1: quantified over execute() calls "
         f"too), got {len(pa)}"
     )
-    run1_payload = next(p["payload"] for p in pa if p["run_id"] == "run1")
-    run2_payload = next(p["payload"] for p in pa if p["run_id"] == "run2")
+    run1_payload = _payload_by_run_id(pa, "run1")
+    run2_payload = _payload_by_run_id(pa, "run2")
     assert "run1_only.txt" in run1_payload["written"], "fixture sanity: run 1 must have written the file"
     assert "run1_only.txt" not in run2_payload["written"], (
         f"an instance-level (or phase-keyed-but-unreset) accumulator "
@@ -1221,7 +1258,11 @@ def test_ac_e3d_large_written_list_truncates_but_stays_within_line_limit(tmp_pat
     )
 
     payload = json.loads(phase_artifacts_lines[0])["payload"]
-    assert payload.get("written_truncated"), "expected written_truncated=true when elided"
+    assert payload.get("written_truncated") is True, (
+        f"`[G18r2:MINOR-1]` written_truncated MUST be True BY IDENTITY when "
+        f"elision occurred, not merely truthy — 'yes' or 1 would satisfy a "
+        f"bare truthiness check; got {payload.get('written_truncated')!r}"
+    )
     assert payload.get("written_count") == len(many_paths), (
         f"expected written_count == {len(many_paths)} (the TRUE total), got "
         f"{payload.get('written_count')!r}"
@@ -1289,17 +1330,25 @@ def test_ac_e3d_pathological_single_long_path_still_emits_within_limit(tmp_path,
     )
 
 
-def test_ac_e3d_written_truncated_absent_or_falsey_when_no_elision(tmp_path, git_repo):
-    """AC-E3d: written_truncated MUST be absent or falsey when no elision
-    occurred, asserted on a small-list run."""
+def test_ac_e3d_written_truncated_key_absent_when_no_elision(tmp_path, git_repo):
+    """AC-E3d `[G18r2:MINOR-1]`: `written_truncated` MUST be ABSENT (not
+    merely falsey) when no elision occurred — v2 said "absent or falsey",
+    which contradicted AC-E3's exact-key-set requirement for the
+    untruncated case one clause away: a GREEN emitting
+    `written_truncated: false` always would pass a falsey check here but
+    fail the key-set test in test_ac_e3_exactly_one_phase_artifacts_with_
+    exact_key_set. The key set governs; asserted here by KEY ABSENCE.
+    """
     log = make_log(tmp_path)
     eng = WorkflowEngine(event_log=log)
     eng.register("wf", WorkflowDefinition(name="wf", steps=[write_step("s1", git_repo, "small.txt")]))
     eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
     payload = events_of(log, "phase_artifacts")[0]["payload"]
-    assert not payload.get("written_truncated"), (
-        f"expected written_truncated absent/falsey on a small run, got "
-        f"{payload.get('written_truncated')!r}"
+    assert "written_truncated" not in payload, (
+        f"expected the written_truncated KEY absent on a small (untruncated) "
+        f"run — a GREEN always emitting written_truncated: false satisfies "
+        f"a falsey check but violates AC-E3's exact key set; payload keys="
+        f"{sorted(payload.keys())!r}"
     )
 
 
@@ -1418,3 +1467,166 @@ def test_ac_e3f_execution_completes_normally_when_only_new_emits_fail(tmp_path, 
             f"{forbidden!r}'s append raised — it must NOT have reached the "
             f"real log"
         )
+
+
+# ─── v3 new ACs — AC-E4..AC-E7 ─────────────────────────────────────────────
+
+
+def test_ac_e4_both_new_events_carry_the_calls_run_id(tmp_path, git_repo):
+    """AC-E4 `[G18r2:MINOR-2]`: both run_identity and phase_artifacts carry
+    the emitting execute() call's run_id, asserted BY VALUE against the
+    run_id passed to execute(), on a distinctive run_id. `_emit(self,
+    event_type, payload, run_id)` (engine.py:686) takes run_id as a
+    required positional, so a GREEN cannot easily omit it — but "hard to
+    get wrong" is not a requirement, and this file already silently
+    depended on it (AC-E2d's per-call pairing, AC-E3c's reset test's
+    by-run_id payload selection) without ever asserting it directly.
+    """
+    distinctive_run_id = "distinctive-run-id-8f3c2a"
+    log = make_log(tmp_path)
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf", WorkflowDefinition(name="wf", steps=[write_step("s1", git_repo, "a.txt")]))
+    eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id=distinctive_run_id)
+
+    ri = events_of(log, "run_identity")
+    pa = events_of(log, "phase_artifacts")
+    assert len(ri) == 1 and len(pa) == 1
+    assert ri[0]["run_id"] == distinctive_run_id, (
+        f"expected run_identity's run_id == {distinctive_run_id!r}, got {ri[0]['run_id']!r}"
+    )
+    assert pa[0]["run_id"] == distinctive_run_id, (
+        f"expected phase_artifacts's run_id == {distinctive_run_id!r}, got {pa[0]['run_id']!r}"
+    )
+
+
+def test_ac_e5_phase_artifacts_emitted_before_workflow_finished_on_ok_exit(tmp_path, git_repo):
+    """AC-E5 `[G18r2:EDGE-2]`: phase_artifacts is emitted BEFORE
+    workflow_finished. AC-E3a pins the emit to the try/finally around
+    engine.py:271, which necessarily places it before workflow_cost_
+    rollup (:275-281) and workflow_finished (:289) — but nothing asserted
+    the ORDERING, so a GREEN emitting after the terminal event would pass
+    every other test in this file. bd#8..#10 are the consumers of this
+    log: a reader that stops at workflow_finished would never see the
+    record. Asserted by INDEX within the scoped run.
+    """
+    log = make_log(tmp_path)
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf", WorkflowDefinition(name="wf", steps=[write_step("s1", git_repo, "a.txt")]))
+    eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+
+    events = [e for e in log.read_all() if e["run_id"] == "r1"]
+    pa_idx = next((i for i, e in enumerate(events) if e["event_type"] == "phase_artifacts"), None)
+    wf_idx = next((i for i, e in enumerate(events) if e["event_type"] == "workflow_finished"), None)
+    assert pa_idx is not None, f"no phase_artifacts found; observed types={[e['event_type'] for e in events]!r}"
+    assert wf_idx is not None, f"no workflow_finished found; observed types={[e['event_type'] for e in events]!r}"
+    assert pa_idx < wf_idx, (
+        f"expected phase_artifacts (index {pa_idx}) before workflow_finished "
+        f"(index {wf_idx}) — a GREEN emitting phase_artifacts after the "
+        f"terminal event would pass every other test here"
+    )
+
+
+def test_ac_e5_phase_artifacts_emitted_before_workflow_finished_on_error_exit(tmp_path, git_repo):
+    """AC-E5: required on the ok path AND at least one non-ok exit, since
+    the finally runs on both — the error exit here."""
+    log = make_log(tmp_path)
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf", WorkflowDefinition(name="wf", steps=[error_step("s1")]))
+    result, _ = eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+    assert result.status == "error"
+
+    events = [e for e in log.read_all() if e["run_id"] == "r1"]
+    pa_idx = next((i for i, e in enumerate(events) if e["event_type"] == "phase_artifacts"), None)
+    wf_idx = next((i for i, e in enumerate(events) if e["event_type"] == "workflow_finished"), None)
+    assert pa_idx is not None, f"no phase_artifacts found; observed types={[e['event_type'] for e in events]!r}"
+    assert wf_idx is not None, f"no workflow_finished found; observed types={[e['event_type'] for e in events]!r}"
+    assert pa_idx < wf_idx, (
+        f"expected phase_artifacts (index {pa_idx}) before workflow_finished "
+        f"(index {wf_idx}) on the error exit, got the reverse"
+    )
+
+
+class _CrashError(RuntimeError):
+    """Distinctive step-raised exception for AC-E6 — its own type and
+    message must survive to the caller even when phase_artifacts' own
+    emit fails, so it must be distinguishable from any exception the
+    logging seam itself could raise."""
+
+
+def test_ac_e6_original_exception_survives_a_failing_phase_artifacts_emit(tmp_path, git_repo):
+    """AC-E6 `[G18r2:EDGE-3]`: a failing emit in the finally MUST NOT
+    replace or swallow the in-flight exception. AC-E3f covers a raising
+    LOG on a succeeding run; the crash-path AC-E3a tests cover a raising
+    STEP with a working log. Nothing combined them, so nothing forbade
+    the worst composition: on the crash path, a GREEN that emits
+    phase_artifacts DIRECTLY in the finally — bypassing _emit's except at
+    engine.py:710 — substitutes its own logging exception for the step's
+    original one, and the real error disappears silently. That is
+    strictly worse than AC-E3f's status regression, because a status
+    regression is visible and a swapped exception is not.
+
+    Composes `raising_step` (the crash path) with `_SelectivelyRaising
+    EventLog` (raise_for={"phase_artifacts"} ONLY — traced through the
+    engine path first: the step raises inside the step loop, the
+    exception propagates out of `_execute_steps`, and execute()'s
+    `finally` then attempts the phase_artifacts emit while that exception
+    is in flight; run_identity is emitted long before this point and is
+    NOT made to fail, so this composition cannot be confused with an
+    earlier-failing run). `pytest.raises` matches the STEP's own
+    exception type/message, never the log's.
+    """
+    real_log = EventLog(path=tmp_path / "events.jsonl")
+    log = _SelectivelyRaisingEventLog(real_log, raise_for={"phase_artifacts"})
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf", WorkflowDefinition(
+        name="wf", steps=[raising_step("s1", _CrashError("boom-original"))],
+    ))
+    with pytest.raises(_CrashError, match="boom-original"):
+        eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+
+    assert "phase_artifacts" in log.attempted, (
+        f"phase_artifacts must be ATTEMPTED from the finally around the "
+        f"crash path — proving this composition was actually exercised, "
+        f"not that the crash happened before any new emit ran; "
+        f"attempted={log.attempted!r}"
+    )
+
+
+def test_ac_e7_no_new_events_for_a_run_that_never_started(tmp_path, git_repo):
+    """AC-E7 `[G18r2:EDGE-4]`: neither new event is emitted for a run that
+    never started. execute() raises KeyError at engine.py:233 for an
+    unregistered workflow, BEFORE workflow_started at :269. A GREEN that
+    resolves/emits run_identity ahead of the registration check publishes
+    an identity with no workflow_started and no phase_artifacts — a log
+    shape AC-E2's "immediately following that call's workflow_started"
+    cannot describe.
+
+    Paired with a positive control on the SAME engine/log (a normal
+    registered run DOES emit both) so this test is not vacuously true
+    before GREEN implements either emission at all.
+    """
+    log = make_log(tmp_path)
+    eng = WorkflowEngine(event_log=log)
+
+    with pytest.raises(KeyError, match="not registered"):
+        eng.execute("ghost", make_ctx(git_cwd=str(git_repo)), run_id="ghost-run")
+
+    assert events_of(log, "run_identity") == [], (
+        "no run_identity may be emitted for a run that never started "
+        "(KeyError at engine.py:233, before workflow_started at :269)"
+    )
+    assert events_of(log, "phase_artifacts") == [], (
+        "no phase_artifacts may be emitted for a run that never started"
+    )
+
+    # Positive control, same log/engine: a NORMAL registered run DOES emit
+    # both — proves the absence above is a real property of the
+    # unregistered path, not just "neither event exists at all yet".
+    eng.register("wf", WorkflowDefinition(name="wf", steps=[ok_step("s1")]))
+    eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="real-run")
+    assert len(events_of(log, "run_identity")) == 1, (
+        "positive control: a normal execute() call must emit run_identity"
+    )
+    assert len(events_of(log, "phase_artifacts")) == 1, (
+        "positive control: a normal execute() call must emit phase_artifacts"
+    )
