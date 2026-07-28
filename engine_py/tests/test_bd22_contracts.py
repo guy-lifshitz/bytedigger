@@ -304,7 +304,16 @@ class TestQuantifierCompletenessLint:
         rung round 9 found below it. Both `phases` and `step_events` are
         missing a non-uniformity row entirely and must both be flagged
         independently — kills a lint that reports only one of the two.
+
+        `[G22:4]` coverage: the last two assertions cover `Finding`'s pinned
+        type contract (§1.5) using a `Finding` already in hand from this
+        fixture's result — a frozen dataclass. Kills a plain object,
+        `NamedTuple`, or dict masquerading via `.kind`/`.subject` attribute
+        access (not a dataclass), and a mutable dataclass (assignment does
+        not raise).
         """
+        import dataclasses
+
         from conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_MISSING_ROW_SPEC)
@@ -317,6 +326,11 @@ class TestQuantifierCompletenessLint:
             f.kind == "missing_non_uniformity_row" and f.subject == "step_events"
             for f in findings
         )
+
+        finding = findings[0]
+        assert dataclasses.is_dataclass(finding)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            finding.kind = "mutated"
 
     def test_ac_c5_flags_row_not_enumerating_reductions(self):
         """AC-C5(2). Kills a lint that accepts a NON-UNIFORMITY row with no
