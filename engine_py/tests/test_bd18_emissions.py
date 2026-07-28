@@ -161,6 +161,23 @@ def _expected_digest(paths: list[str]) -> str:
     return "sha256:" + hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
+def _raw_lines_of_type(raw_lines: list[bytes], event_type: str) -> list[bytes]:
+    """Select raw JSONL lines by PARSED event_type, not substring match
+    (`[G18:EDGE-6]`): a substring match on b'"phase_artifacts"' would also
+    match a shadowed event carrying `"shadowed_event":"phase_artifacts"`.
+    Cannot fire today (this lot patches nothing shadow-related, §6), but a
+    `== 1` count assertion should not rest on a substring coincidence."""
+    matched = []
+    for ln in raw_lines:
+        try:
+            obj = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("event_type") == event_type:
+            matched.append(ln)
+    return matched
+
+
 class _AlwaysRaisingEventLog:
     """Duck-typed event log whose append() ALWAYS raises, but records which
     event_type was attempted before raising."""
@@ -302,8 +319,8 @@ def test_ac_e1b_phase_present_on_every_step_event_in_multistep_phase(tmp_path):
         )
 
 
-def test_ac_e1b_phase_uniform_independently_across_both_step_event_kinds(tmp_path):
-    """AC-E1/AC-E1b [A2]: the EMISSION itself must be uniform across BOTH
+def test_ac_e1e_phase_uniform_independently_across_both_step_event_kinds(tmp_path):
+    """AC-E1e [A2]: the EMISSION itself must be uniform across BOTH
     step-event kinds, asserted PER KIND with no merged/reduced collection
     (bd#7's round-9 rung: a fixture that stripped `phase` from both kinds
     TOGETHER let a consumer reducing with any/first/last over the merged
@@ -448,6 +465,9 @@ def test_ac_e2_run_identity_immediately_follows_this_calls_workflow_started(tmp_
     assert len(events_of(log, "run_identity")) == 1
 
 
+_ADAPTER_SOURCE_CLOSED_SET = frozenset({"kwarg", "env", "default", "default-fallback"})
+
+
 def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp_path, monkeypatch):
     """AC-E2b: adapter_identity MUST be a mapping with non-empty `backend`
     and `source` — not a bare string (bd#7 [G2:8]: a bare-string fixture
@@ -456,6 +476,17 @@ def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp
     engine's one existing backend-selection seam, pinned per-test to
     'claude-subprocess' by conftest's autouse fixture) across two DIFFERENT
     configured values, so a constant fails.
+
+    `[G18:MINOR-3]` seam named (§0.6):
+    `llm_subprocess._resolve_backend(kwarg, env)` (llm_subprocess.py:608-630),
+    the engine's only backend selector, returning exactly a
+    `(backend, source)` pair and reading the environment through
+    `config_provider.env_mapping()` (:327-328) — a live `_AliasEnviron`, so
+    `monkeypatch.setenv` on `HAL_RUNNER_BACKEND` reaches it. `source` is
+    asserted BY VALUE (not merely non-empty, §0.5) against the closed set
+    `{"kwarg","env","default","default-fallback"}` that resolver returns —
+    kills `source: "x"` satisfying both spec and test, the defect `backend`
+    already avoided and `source` did not in v1.
     """
     def _run_once(backend_env: str, subdir: str) -> dict:
         monkeypatch.setenv("HAL_RUNNER_BACKEND", backend_env)
@@ -471,7 +502,11 @@ def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp
     for identity in (identity_a, identity_b):
         assert isinstance(identity, dict), f"adapter_identity must be a mapping, got {type(identity)}"
         assert identity.get("backend"), "adapter_identity['backend'] must be non-empty"
-        assert identity.get("source"), "adapter_identity['source'] must be non-empty"
+        assert identity.get("source") in _ADAPTER_SOURCE_CLOSED_SET, (
+            f"adapter_identity['source'] must be one of {_ADAPTER_SOURCE_CLOSED_SET!r}, "
+            f"got {identity.get('source')!r} — a bare non-emptiness check would let "
+            f"source: 'x' through"
+        )
 
     assert identity_a["backend"] == "claude-subprocess", (
         f"expected backend to reflect HAL_RUNNER_BACKEND=claude-subprocess, "
@@ -485,6 +520,10 @@ def test_ac_e2b_adapter_identity_is_mapping_with_nonempty_backend_and_source(tmp
         "a constant/hardcoded adapter_identity['backend'] would be identical "
         "across differently-configured runs"
     )
+    # Both runs here go through the resolver's ENV branch (no kwarg is ever
+    # set) — asserted BY VALUE, not just closed-set membership.
+    assert identity_a["source"] == "env", f"expected source == 'env', got {identity_a['source']!r}"
+    assert identity_b["source"] == "env", f"expected source == 'env', got {identity_b['source']!r}"
 
 
 def test_ac_e2c_engine_version_resolves_via_importlib_metadata_first(tmp_path, monkeypatch):
@@ -525,6 +564,14 @@ def test_ac_e2c_engine_version_falls_back_to_pyproject_when_metadata_absent(tmp_
     [project].version via Path.read_text(), patched PATH-CONDITIONALLY
     (§0.6 seam pin) so every OTHER Path.read_text call in the process is
     untouched — a blanket patch would break unrelated engine reads.
+
+    `[G18:MINOR-4]` the conditional compares RESOLVED paths
+    (`Path(self).resolve() == target.resolve()`): `Path.__eq__` compares
+    normalised strings, not filesystem identity, so a bare `self == target`
+    gate would miss a correct GREEN spelling the file
+    `Path(__file__).resolve().parent / "pyproject.toml"`, or any host where
+    a parent of engine_py is a symlink — falling through to the real read
+    and false-failing a correct GREEN.
     """
     def _raise_not_found(name):
         raise importlib_metadata.PackageNotFoundError(name)
@@ -532,10 +579,10 @@ def test_ac_e2c_engine_version_falls_back_to_pyproject_when_metadata_absent(tmp_
     monkeypatch.setattr(importlib_metadata, "version", _raise_not_found)
 
     real_read_text = Path.read_text
-    target = _pyproject_path()
+    target_resolved = _pyproject_path().resolve()
 
     def _conditional_read_text(self, *args, **kwargs):
-        if self == target:
+        if Path(self).resolve() == target_resolved:
             return '[project]\nname = "bytedigger-engine"\nversion = "7.7.7"\n'
         return real_read_text(self, *args, **kwargs)
 
@@ -559,7 +606,9 @@ def test_ac_e2c_failure_contract_absent_no_placeholder_no_propagation(tmp_path, 
     propagate out of execute(), and engine_version is absent/empty, NEVER
     a placeholder ('unknown', '0.0.0', '0+unknown' all forbidden by §0.5).
     Metadata always misses here (PackageNotFoundError); the pyproject-read
-    seam is patched path-conditionally per the three failure modes.
+    seam is patched path-conditionally per the three failure modes, gated
+    on RESOLVED paths (`[G18:MINOR-4]`) so a symlink-parent host or a
+    differently-spelled-but-identical path is not false-failed.
     """
     def _raise_not_found(name):
         raise importlib_metadata.PackageNotFoundError(name)
@@ -567,10 +616,10 @@ def test_ac_e2c_failure_contract_absent_no_placeholder_no_propagation(tmp_path, 
     monkeypatch.setattr(importlib_metadata, "version", _raise_not_found)
 
     real_read_text = Path.read_text
-    target = _pyproject_path()
+    target_resolved = _pyproject_path().resolve()
 
     def _conditional_read_text(self, *args, **kwargs):
-        if self != target:
+        if Path(self).resolve() != target_resolved:
             return real_read_text(self, *args, **kwargs)
         if source_effect == "oserror":
             raise PermissionError(f"blocked: {self}")
@@ -594,9 +643,6 @@ def test_ac_e2c_failure_contract_absent_no_placeholder_no_propagation(tmp_path, 
     assert not version, (
         f"engine_version must be absent or empty when neither seam resolves "
         f"({source_effect}), got {version!r}"
-    )
-    assert version not in ("unknown", "0.0.0", "0+unknown"), (
-        f"engine_version must never be a placeholder sentinel, got {version!r}"
     )
 
 
@@ -691,6 +737,14 @@ def test_ac_e3_exactly_one_phase_artifacts_with_exact_key_set(tmp_path, git_repo
     read_tracking) — kills a GREEN that always emits the truncation keys
     too. read_tracking == 'declared-only' (this lot adds no read
     instrumentation).
+
+    `[G18:MINOR-8]` `read` MUST be `[]`, asserted BY VALUE. Only pinning
+    the key in the exact key-set (as v1 did) lets a GREEN emit
+    `read: ["anything"]` and still satisfy the suite — an affirmative
+    claim over a channel that provably never opened (there is no read
+    instrumentation in this lot at all, §6), which `read_tracking:
+    "declared-only"` exists specifically to announce rather than leave
+    to be misread.
     """
     log = make_log(tmp_path)
     eng = WorkflowEngine(event_log=log)
@@ -706,6 +760,11 @@ def test_ac_e3_exactly_one_phase_artifacts_with_exact_key_set(tmp_path, git_repo
         f"expected exact key set for the untruncated case, got {sorted(payload.keys())!r}"
     )
     assert payload["read_tracking"] == "declared-only"
+    assert payload["read"] == [], (
+        f"expected read == [] (no read instrumentation exists in this lot, "
+        f"§6 — an unpinned value would let read: ['anything'] pass), got "
+        f"{payload['read']!r}"
+    )
     assert payload["phase"] == "wf"
 
 
@@ -759,6 +818,75 @@ def test_ac_e3a_phase_artifacts_emitted_when_step_raises(tmp_path, git_repo):
     )
 
 
+def test_ac_e3a_phase_artifacts_emitted_once_when_retry_start_step_beyond_range(tmp_path, git_repo):
+    """AC-E3a `[G18:EDGE-1]`: `start_step` beyond range raises RuntimeError
+    at engine.py:679 (reached via a retry whose `retry_from_step` exceeds
+    the last step index), from INSIDE the recursion — the place a
+    phase-level accumulator double-counts, and the reason the emit
+    belongs in execute()'s `finally` rather than inside `_execute_steps`.
+    "Exactly one phase_artifacts across the two unwinding frames" (the
+    recursive frame that raises, and the outer frame it propagates through)
+    is the non-obvious half.
+    """
+    log = make_log(tmp_path)
+    eng = WorkflowEngine(event_log=log)
+
+    def _trigger_out_of_range_retry(_ctx, _prev):
+        return StepResult(
+            status="error",
+            data={"retry_from_step": 99, "cycle_count": 1, "findings": ""},
+            duration_ms=0, step_name="s1", error_code="E_RETRY", recoverable=True,
+        )
+
+    eng.register("wf", WorkflowDefinition(
+        name="wf", steps=[StepContract(name="s1", execute=_trigger_out_of_range_retry)],
+    ))
+    with pytest.raises(RuntimeError, match="start_step beyond range"):
+        eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+
+    assert len(events_of(log, "phase_artifacts")) == 1, (
+        "exactly one phase_artifacts must be emitted across the two "
+        "unwinding frames (the recursive _execute_steps call that raises, "
+        "and the outer call it propagates through) — not zero, not "
+        "double-counted"
+    )
+
+
+def test_ac_e3a_phase_artifacts_emitted_once_on_same_cycle_retry_cap_exit(tmp_path, git_repo):
+    """AC-E3a `[G18:EDGE-2]`: the same-cycle-retry-cap exit at
+    engine.py:575 returns from WITHIN the retry recursion after
+    `same_cycle_retry_capped` fires — the only exit that leaves mid-retry
+    state. A step that returns the SAME `retry_from_step`/`cycle_count`
+    forever drives the engine's own same-cycle detection (`next_cycle <=
+    cycle`) past `_MAX_SAME_CYCLE_RETRIES` (3), so the cap fires from a
+    deeply-recursed frame rather than the outermost call. Exactly ONE
+    phase_artifacts must still be emitted for the phase.
+    """
+    log = make_log(tmp_path)
+    eng = WorkflowEngine(event_log=log)
+
+    def _same_cycle_retry_forever(_ctx, _prev):
+        return StepResult(
+            status="error",
+            data={"retry_from_step": 0, "cycle_count": 1, "findings": ""},
+            duration_ms=0, step_name="s1", error_code="E_RETRY", recoverable=True,
+        )
+
+    eng.register("wf", WorkflowDefinition(
+        name="wf", steps=[StepContract(name="s1", execute=_same_cycle_retry_forever)],
+    ))
+    result, _ = eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+
+    assert result.status == "error", (
+        f"expected the same-cycle-retry-cap exit to terminate with the "
+        f"underlying error result; got status={result.status!r}"
+    )
+    assert len(events_of(log, "phase_artifacts")) == 1, (
+        "exactly one phase_artifacts must be emitted for the phase even "
+        "though the same-cycle-retry-cap exit returns from mid-recursion"
+    )
+
+
 def test_ac_e3a_phase_artifacts_emitted_for_zero_step_workflow(tmp_path, git_repo):
     """AC-E3a: zero-step workflow — _execute_steps returns early at
     engine.py:355-361, BEFORE _scan_cwd resolves at :366; phase_artifacts
@@ -774,10 +902,17 @@ def test_ac_e3a_phase_artifacts_emitted_for_zero_step_workflow(tmp_path, git_rep
 
 def test_ac_e3b_git_delta_when_all_steps_succeed_in_real_repo(tmp_path, git_repo):
     """AC-E3b positive control: >=1 step AND a computed delta for EVERY
-    step of the phase -> 'git-delta'."""
+    step of the phase -> 'git-delta'.
+
+    `[G18:1]` raised to >=2 steps — a one-step control cannot be an
+    all-satisfy control OVER A COLLECTION, which is what §0.1 requires of
+    a positive control paired with a quantified requirement.
+    """
     log = make_log(tmp_path)
     eng = WorkflowEngine(event_log=log)
-    eng.register("wf", WorkflowDefinition(name="wf", steps=[write_step("s1", git_repo, "a.txt")]))
+    eng.register("wf", WorkflowDefinition(
+        name="wf", steps=[write_step("s1", git_repo, "a.txt"), write_step("s2", git_repo, "b.txt")],
+    ))
     eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
     payload = events_of(log, "phase_artifacts")[0]["payload"]
     assert payload["write_tracking"] == "git-delta"
@@ -824,76 +959,66 @@ def test_ac_e3b_not_observed_for_zero_step_workflow(tmp_path, git_repo):
     )
 
 
-class _CountingGitPort:
-    """Delegates to the real GitReadPort, counting calls (no failure
-    injection) — used to MEASURE, not predict, a call-count boundary."""
+class _OneShotFailAfterFlagGitPort:
+    """Delegates to the real GitReadPort. The NEXT git_read call after a
+    shared flag is set to True fails ONCE (consumed on use), then the port
+    reverts to delegating normally for every subsequent call.
 
-    def __init__(self) -> None:
-        self.n = 0
+    The flag is set BY A STEP'S OWN BODY when it runs — never by counting
+    calls — so the failure is keyed to step-body STATE, immune to how many
+    git_read calls a differently-shaped GREEN issues per step or per phase
+    (`[G18:2]`: a call-count boundary calibrated on one run shape is the
+    mechanism of bd#7's first Class B defect, even though it is not a byte
+    prediction and so does not violate §0.2 in letter).
+    """
+
+    def __init__(self, flag: dict) -> None:
+        self._flag = flag
         self._real = git_port.default_git_read()
 
     def __call__(self, args, *, cwd=None, timeout=None, dir_=None):
-        self.n += 1
+        if self._flag.get("fail_next"):
+            self._flag["fail_next"] = False  # one-shot: consume, then delegate again
+            return git_port.GitResult(returncode=1, stdout="", stderr="injected failure", timed_out=False)
         return self._real(args, cwd=cwd, timeout=timeout, dir_=dir_)
 
 
-class _FailAfterNGitPort:
-    """Delegates to the real GitReadPort for the first N calls, then fails
-    (non-zero returncode, no exception) every subsequent call."""
+def test_ac_e3b_not_observed_on_partial_delta_failure_fail_early(tmp_path, git_repo):
+    """AC-E3b `[G18:1]` fail-EARLY ordering (§0.1: the fixture set must
+    exclude every reduction the implementation could choose, both
+    orderings for an ordered collection, not one): step 1's delta
+    computation fails while step 2's (the LATER step's) succeeds. This is
+    the ordering that kills a `last`-shaped GREEN —
+    `"git-delta" if n_steps >= 1 and last_step_delta is not None else
+    "not-observed"` — which round 1's fail-LATE-only fixture could not
+    distinguish from a correct `all()` reduction, because in that fixture
+    the *last* delta was exactly the missing one.
 
-    def __init__(self, n_success: int) -> None:
-        self._n = n_success
-        self.count = 0
-        self._real = git_port.default_git_read()
-
-    def __call__(self, args, *, cwd=None, timeout=None, dir_=None):
-        self.count += 1
-        if self.count <= self._n:
-            return self._real(args, cwd=cwd, timeout=timeout, dir_=dir_)
-        return git_port.GitResult(returncode=1, stdout="", stderr="injected failure", timed_out=False)
-
-
-def test_ac_e3b_not_observed_on_partial_delta_failure_across_steps(tmp_path, git_repo):
-    """AC-E3b (§0.1 quantified over steps): _git_changes_vs_head returns
-    None on timeout/missing-git (engine.py:1082), so an any()-shaped
-    implementation would publish 'git-delta' when only SOME step's delta
-    computed. Non-uniform via the lib.git_port seam (git_port.py:145-157
-    resolves get_git_read() at call time, reaching engine.py:1076/:1079):
-    step 1's delta computation succeeds for real; step 2's fails from its
-    first git call onward.
-
-    The failure boundary (n_success) is MEASURED live against TODAY's
-    unmodified per-step git-snapshot machinery (files_touched, unaffected
-    by this lot) rather than a predicted call count, so it cannot drift
-    out from under a differently-shaped GREEN the way a byte boundary did
-    in bd#7 (§0.2 — this is a call-count measurement of pre-existing,
-    unchanged code, not a prediction of new serialised content).
+    Triggered off state step 1's OWN BODY sets when it runs (`[G18:2]`),
+    never a git-call ordinal: step 1 writes its file then flips the
+    shared one-shot flag, which fails exactly the next real git_read call
+    (step 1's own post-snapshot) and then self-clears, leaving step 2's
+    snapshots to succeed for real regardless of how many git_read calls
+    the GREEN issues per step.
     """
-    counting = _CountingGitPort()
-    git_port.set_default_git_read_factory(lambda: counting)
-    try:
-        calib_log = make_log(tmp_path, name="calibration.jsonl")
-        calib_eng = WorkflowEngine(event_log=calib_log)
-        calib_eng.register("calib", WorkflowDefinition(
-            name="calib", steps=[write_step("only_step", git_repo, "calib.txt")],
-        ))
-        calib_eng.execute("calib", make_ctx(git_cwd=str(git_repo)), run_id="calib")
-    finally:
-        git_port.reset_default_git_read_factory()
-    n_success = counting.n
-    assert n_success > 0, "calibration must have observed at least one git_read call"
+    flag = {"fail_next": False}
 
-    failing = _FailAfterNGitPort(n_success)
-    git_port.set_default_git_read_factory(lambda: failing)
+    def _step1(_ctx, _prev):
+        (git_repo / "s1.txt").write_text("x\n")
+        flag["fail_next"] = True  # fail THIS step's own next git snapshot
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="s1")
+
+    def _step2(_ctx, _prev):
+        (git_repo / "s2.txt").write_text("x\n")
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="s2")
+
+    git_port.set_default_git_read_factory(lambda: _OneShotFailAfterFlagGitPort(flag))
     try:
-        log = make_log(tmp_path, name="actual.jsonl")
+        log = make_log(tmp_path)
         eng = WorkflowEngine(event_log=log)
         eng.register("wf", WorkflowDefinition(
             name="wf",
-            steps=[
-                write_step("s1", git_repo, "s1_written.txt"),
-                write_step("s2", git_repo, "s2_written.txt"),
-            ],
+            steps=[StepContract(name="s1", execute=_step1), StepContract(name="s2", execute=_step2)],
         ))
         eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
     finally:
@@ -901,25 +1026,52 @@ def test_ac_e3b_not_observed_on_partial_delta_failure_across_steps(tmp_path, git
 
     payload = events_of(log, "phase_artifacts")[0]["payload"]
     assert payload["write_tracking"] == "not-observed", (
-        f"step 2's git delta computation failed (calibrated boundary "
-        f"n_success={n_success}); an any()-shaped implementation would "
-        f"still publish 'git-delta' here — got {payload['write_tracking']!r}"
+        f"step 1 (the EARLIER step) failed its delta computation while "
+        f"step 2 (the LATER step) succeeded — a last-shaped GREEN would "
+        f"wrongly publish 'git-delta' here; got {payload['write_tracking']!r}"
     )
 
 
-def test_ac_e3b_write_channel_never_ran_must_not_publish_written_alongside_git_delta(tmp_path):
-    """AC-E3b: a phase whose write channel never ran (no git_cwd) MUST NOT
-    publish written: [] alongside 'git-delta' — that would be the
-    affirmative claim 'nothing was written' over a channel that never
-    opened (bd#7's [G2:4])."""
-    log = make_log(tmp_path)
-    eng = WorkflowEngine(event_log=log)
-    eng.register("wf", WorkflowDefinition(name="wf", steps=[ok_step("s1")]))
-    eng.execute("wf", make_ctx(), run_id="r1")  # no git_cwd
+def test_ac_e3b_not_observed_on_partial_delta_failure_fail_late(tmp_path, git_repo):
+    """AC-E3b `[G18:1]` fail-LATE ordering (kills `any()`/`first()`-shaped
+    GREENs): step 1 succeeds, step 2's (the LATER step's) delta
+    computation fails. _git_changes_vs_head returns None on timeout/
+    missing-git (engine.py:1082), so an `any()`-shaped implementation
+    would still publish 'git-delta' here because SOME step's delta (step
+    1's) did compute.
+
+    Triggered off state step 2's OWN BODY sets when it runs (`[G18:2]`),
+    never a git-call ordinal.
+    """
+    flag = {"fail_next": False}
+
+    def _step1(_ctx, _prev):
+        (git_repo / "s1.txt").write_text("x\n")
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="s1")
+
+    def _step2(_ctx, _prev):
+        (git_repo / "s2.txt").write_text("x\n")
+        flag["fail_next"] = True  # fail THIS step's own next git snapshot
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="s2")
+
+    git_port.set_default_git_read_factory(lambda: _OneShotFailAfterFlagGitPort(flag))
+    try:
+        log = make_log(tmp_path)
+        eng = WorkflowEngine(event_log=log)
+        eng.register("wf", WorkflowDefinition(
+            name="wf",
+            steps=[StepContract(name="s1", execute=_step1), StepContract(name="s2", execute=_step2)],
+        ))
+        eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+    finally:
+        git_port.reset_default_git_read_factory()
+
     payload = events_of(log, "phase_artifacts")[0]["payload"]
-    assert not (payload["write_tracking"] == "git-delta" and payload["written"] == []), (
-        f"write channel never ran (no git_cwd) but published "
-        f"write_tracking={payload['write_tracking']!r} written={payload['written']!r}"
+    assert payload["write_tracking"] == "not-observed", (
+        f"step 2 (the LATER step) failed its delta computation while "
+        f"step 1 (the EARLIER step) succeeded — an any()/first()-shaped "
+        f"GREEN would wrongly publish 'git-delta' here; got "
+        f"{payload['write_tracking']!r}"
     )
 
 
@@ -990,22 +1142,50 @@ def test_ac_e3c_written_accumulation_survives_retry_recursion(tmp_path, git_repo
 
 
 def test_ac_e3c_written_resets_between_sequential_execute_calls(tmp_path, git_repo):
-    """AC-E3c: `written` is per-run state (engine.py:237-243) — run 2's
-    written MUST NOT carry run 1's paths. Kills an instance-level (rather
-    than per-run) accumulator."""
+    """AC-E3c `[G18:3]`: `written` is per-run state (engine.py:237-243) —
+    run 2's written MUST NOT carry run 1's paths.
+
+    ONE registered workflow, executed TWICE under different run_ids —
+    never two different workflow names. Round 1's `"wf"`/`"wf2"` fixture
+    kills only an UNKEYED `self._written = set()`; it misses a
+    `self._written_by_phase: dict[str, set]` left OUT of the reset at
+    engine.py:237-243, because two different workflow names never collide
+    in a keyed dict and run 2 simply reads a fresh (empty) bucket for its
+    own phase name, passing regardless of whether the reset actually ran.
+    That shape is actively invited here: the payload is keyed by `phase`,
+    and the neighbouring per-run state `self._same_cycle_retries` is
+    itself a keyed dict (:243, :540). The real defect this guards —
+    re-running the SAME phase on one engine instance, the ordinary case
+    and exactly what AC-E2d already does three times — would report run
+    1's paths in run 2's `written`: an affirmative false claim about which
+    files run 2 wrote.
+    """
+    calls = {"n": 0}
+
+    def _maybe_write(_ctx, _prev):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            (git_repo / "run1_only.txt").write_text("x\n")
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="s1")
+
     log = make_log(tmp_path)
     eng = WorkflowEngine(event_log=log)
-    eng.register("wf", WorkflowDefinition(name="wf", steps=[write_step("s1", git_repo, "run1_only.txt")]))
+    eng.register("wf", WorkflowDefinition(name="wf", steps=[StepContract(name="s1", execute=_maybe_write)]))
     eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="run1")
-
-    eng.register("wf2", WorkflowDefinition(name="wf2", steps=[ok_step("s1")]))
-    eng.execute("wf2", make_ctx(git_cwd=str(git_repo)), run_id="run2")
+    eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="run2")
 
     pa = events_of(log, "phase_artifacts")
-    assert len(pa) == 2
+    assert len(pa) == 2, (
+        f"expected exactly one phase_artifacts per execute() call on the "
+        f"SAME registered workflow (§0.1: quantified over execute() calls "
+        f"too), got {len(pa)}"
+    )
+    run1_payload = next(p["payload"] for p in pa if p["run_id"] == "run1")
     run2_payload = next(p["payload"] for p in pa if p["run_id"] == "run2")
+    assert "run1_only.txt" in run1_payload["written"], "fixture sanity: run 1 must have written the file"
     assert "run1_only.txt" not in run2_payload["written"], (
-        f"instance-level accumulator leaked run 1's write into run 2: "
+        f"an instance-level (or phase-keyed-but-unreset) accumulator "
+        f"leaked run 1's write into run 2 of the SAME phase: "
         f"{run2_payload['written']!r}"
     )
 
@@ -1015,7 +1195,7 @@ def test_ac_e3d_large_written_list_truncates_but_stays_within_line_limit(tmp_pat
     phase that writes MANY files, then read the RAW SERIALISED LINE back
     off disk and require len(raw_line) <= 4096. Kills a GREEN whose
     oversized phase_artifacts line vanishes silently
-    (event_log.py:74/:116, swallowed by engine.py:710). Also asserts the
+    (event_log.py:90/:132-133, swallowed by engine.py:710). Also asserts the
     elided-case digest is recomputable over the full sorted written list
     (a constant/zero digest MUST fail, §0.5).
     """
@@ -1028,7 +1208,7 @@ def test_ac_e3d_large_written_list_truncates_but_stays_within_line_limit(tmp_pat
     eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
 
     raw_lines = log_path.read_bytes().splitlines(keepends=True)
-    phase_artifacts_lines = [ln for ln in raw_lines if b'"phase_artifacts"' in ln]
+    phase_artifacts_lines = _raw_lines_of_type(raw_lines, "phase_artifacts")
     assert len(phase_artifacts_lines) == 1, (
         f"expected exactly one phase_artifacts line on disk, got "
         f"{len(phase_artifacts_lines)} — an oversized event that trips "
@@ -1060,33 +1240,42 @@ def test_ac_e3d_pathological_single_long_path_still_emits_within_limit(tmp_path,
     event within the limit — a count-based bound alone does not survive
     it: a sample-bounding (first-N-paths) implementation would still
     overflow on this single entry and vanish.
+
+    The fake keys off STEP-BODY STATE (a flag the step sets when it runs)
+    rather than "which numbered diff call is this" (`[G18:2]`): keying off
+    the first `diff` call assumes the phase's first diff IS the step's
+    pre-snapshot, which is false for a GREEN that takes an additional
+    phase-level baseline before the per-step loop.
     """
     long_name = "d/" + ("p" * 4200) + ".txt"
     real = git_port.default_git_read()
-    diff_calls = {"n": 0}
+    state = {"step_ran": False}
 
     def _fake_git_read(args, *, cwd=None, timeout=None, dir_=None):
         if args[:1] == ["diff"]:
-            diff_calls["n"] += 1
-            if diff_calls["n"] == 1:
-                return git_port.GitResult(returncode=0, stdout="", stderr="", timed_out=False)
-            return git_port.GitResult(returncode=0, stdout=f"A\t{long_name}\n", stderr="", timed_out=False)
+            if state["step_ran"]:
+                return git_port.GitResult(returncode=0, stdout=f"A\t{long_name}\n", stderr="", timed_out=False)
+            return git_port.GitResult(returncode=0, stdout="", stderr="", timed_out=False)
         if args[:1] == ["ls-files"]:
             return git_port.GitResult(returncode=0, stdout="", stderr="", timed_out=False)
         return real(args, cwd=cwd, timeout=timeout, dir_=dir_)
+
+    def _mark_ran(_ctx, _prev):
+        state["step_ran"] = True
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="s1")
 
     git_port.set_default_git_read_factory(lambda: _fake_git_read)
     try:
         log_path = tmp_path / "events.jsonl"
         log = EventLog(path=log_path)
         eng = WorkflowEngine(event_log=log)
-        eng.register("wf", WorkflowDefinition(name="wf", steps=[ok_step("s1")]))
+        eng.register("wf", WorkflowDefinition(name="wf", steps=[StepContract(name="s1", execute=_mark_ran)]))
         eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
     finally:
         git_port.reset_default_git_read_factory()
 
     raw_lines = log_path.read_bytes().splitlines(keepends=True)
-    phase_artifacts_lines = [ln for ln in raw_lines if b'"phase_artifacts"' in ln]
+    phase_artifacts_lines = _raw_lines_of_type(raw_lines, "phase_artifacts")
     assert len(phase_artifacts_lines) == 1, (
         "a single ~4200-char path must not make the whole phase_artifacts "
         "record vanish"
@@ -1171,3 +1360,61 @@ def test_ac_e3f_execution_completes_normally_when_event_log_append_always_raises
         f"phase_artifacts must be attempted (and its failure swallowed by "
         f"_emit); attempted={log.attempted!r}"
     )
+
+
+class _SelectivelyRaisingEventLog:
+    """Wraps a REAL EventLog; raises only for the given ``raise_for``
+    event_types, delegating every OTHER emit through to the real log
+    unchanged — so neighbouring emits (workflow_started, step_started,
+    workflow_cost_rollup, ...) land on disk exactly as production would,
+    and only the new emit(s) are forced through the failure path."""
+
+    def __init__(self, real_log: EventLog, raise_for: set[str]) -> None:
+        self._real = real_log
+        self._raise_for = raise_for
+        self.attempted: list[str] = []
+        self.path = real_log.path
+
+    def append(self, event_type: str, payload: dict, run_id: str | None = None):
+        self.attempted.append(event_type)
+        if event_type in self._raise_for:
+            raise RuntimeError(f"append always fails for {event_type}")
+        return self._real.append(event_type, payload, run_id)
+
+
+def test_ac_e3f_execution_completes_normally_when_only_new_emits_fail(tmp_path, git_repo):
+    """AC-E3f `[G18:EDGE-5]`: the unconditional-raise double is too blunt
+    on its own — its `path = None` short-circuits the `workflow_cost_
+    rollup` block (engine.py:275-281) and the dispatcher/stuck-report
+    paths (:302-325), so it proves swallowing only for a run whose
+    neighbouring emits were skipped entirely. A REAL EventLog whose
+    append raises ONLY for run_identity/phase_artifacts, leaving every
+    other emit working, is the run that actually resembles production —
+    it shows the new emits are swallowed IN SITU, not in a
+    stripped-down execution.
+    """
+    real_log = EventLog(path=tmp_path / "selective.jsonl")
+    log = _SelectivelyRaisingEventLog(real_log, raise_for={"run_identity", "phase_artifacts"})
+    eng = WorkflowEngine(event_log=log)
+    eng.register("wf", WorkflowDefinition(name="wf", steps=[write_step("s1", git_repo, "a.txt")]))
+    result, _ = eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+
+    assert result.status == "ok", (
+        f"execute() must complete with its normal status even when ONLY "
+        f"run_identity/phase_artifacts appends raise; got status={result.status!r}"
+    )
+    assert "run_identity" in log.attempted, "run_identity must be attempted"
+    assert "phase_artifacts" in log.attempted, "phase_artifacts must be attempted"
+
+    on_disk_types = {e["event_type"] for e in real_log.read_all()}
+    for expected in ("workflow_started", "step_started", "step_finished", "workflow_finished"):
+        assert expected in on_disk_types, (
+            f"expected {expected!r} to land on disk unaffected (only "
+            f"run_identity/phase_artifacts were made to fail); got "
+            f"types={sorted(on_disk_types)!r}"
+        )
+    for forbidden in ("run_identity", "phase_artifacts"):
+        assert forbidden not in on_disk_types, (
+            f"{forbidden!r}'s append raised — it must NOT have reached the "
+            f"real log"
+        )
