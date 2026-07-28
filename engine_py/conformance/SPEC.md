@@ -1,5 +1,43 @@
 # Lot spec — bd#7: conformance harness + oracle interface + attestation writer + BD-L0
 
+**v11** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (1), v8 (3), v10 (**2**). Round-8 findings
+tagged `[G8:n]`. Both round-8 blockers were **Class B — tests no correct implementation can pass** — and both
+were in round 8's *repairs* of round 7's Class B findings. I verified B1 against the code before accepting it.
+
+- `[G8:3]` BLOCKING, **unconditional false-RED**: AC-L0-3d3's "unshadowed" control was **shadowed**. The test
+  patches `engine.is_authoritative_execution` to `False` and never undoes it — there was **no
+  `monkeypatch.undo()` anywhere in the RED** — while its comment and docstring both claimed the second run ran
+  un-patched. Every event of that run became `SHADOW_EVENT_TYPE`, so the `phase_artifacts` filter was empty and
+  the exactly-one assertion was `0 == 1` for every implementation. **Fourth consecutive round in which this one
+  AC's repair carried the class it repairs.** The absence of shadowing is now asserted, not assumed.
+- `[G8:2]` BLOCKING, **false-fail + an under-quantified sibling**: AC-E10 clause 2 counted threads, so a cold
+  daemonising pool — which this AC declares admissible — spawns exactly N workers that finish and sit idle-alive,
+  making `N < N` false and failing a correct GREEN; it passed under `-p no:randomly` only because earlier
+  timed-out calls happen to leave idle workers, so its verdict depended on test order under the suite's default
+  `pytest-randomly`. Meanwhile clause 1's "**any** worker still alive" was asserted over exactly **one** thread,
+  letting a daemon worker plus a **non-daemon auxiliary** pass while still hanging shutdown. Both replaced by
+  one order-independent form: after the grace, **every alive non-main thread MUST be daemon**.
+- `[G8:1]` **My own `[G7:4]` rule was over-reaching, and its sanction asserted something false.** It attached to
+  any universal-sounding AC, condemning the *strongest* assertion form — exhaustive whole-collection equality
+  (`reparsed == report`, `requirements == {…}`) admits no reduction choice yet cited no fixture. And declaring an
+  uncited AC "unasserted" made the **spec** claim the RED lacked coverage it demonstrably had (AC-A8, AC-A22,
+  AC-A28, AC-L0-12) — this lot's own disqualifying class, one artifact over. Rescoped: the obligation attaches
+  only where non-uniformity is *possible* **and** the reduction is an *implementation choice*; the citation may
+  live in the AC, a §4.3 row, a named sibling, or prose; and the sanction is now an **open review item the gate
+  must resolve**, not invalidation. My mechanical sweep flagged 18 ACs and the gate reduced the residue to
+  **two** — it mis-scored 11 of 13, which is the empirical case for judgment over keyword matching.
+
+Also in v11: `[G8:EDGE-1]` the 4096 fence gains its 4097 face (AC-L0-3d2's just-over run overshoots to 4116, so
+a `> 4097` threshold passed both faces while losing a 4097-byte record); `[G8:EDGE-2]` digest equality on the
+shadow path, where the sample is guaranteed elided and the digest is the only surviving evidence;
+`[G8:EDGE-3]` the `writer` **constructor** as a second crash surface; `[G8:MINOR-3]` AC-L0-15 must pin a named
+violation; `[G8:MINOR-4]` the pyproject read's **failure contract** pinned beside its mechanism, since pinning
+only the mechanism traps a GREEN catching a different exception family; `[G8:4]` AC-L0-15's R0.1 coupling stated
+at the AC-L0-6b end too; `[G8:EDGE-4]` `run_id="ad-hoc"` declared an invalid scope; `[G8:EDGE-5]` the bounded
+sample's `≥1, ≤n−1` weakness recorded as accepted; and the §4.3 table's last three rows moved back **inside**
+the table, where two prose paragraphs had severed them into a second table whose first row rendered as a header
+— in the artifact that has now lost rows three times.
+
 **v10** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (1), v8 (3). Gate round 8 has **not**
 returned a verdict against v9 or v10: the round-8 gate process died on a session limit mid-audit, which is
 not a finding and is not evidence of soundness. v10 carries **one defect found in v9 by the lot owner, in
@@ -337,7 +375,29 @@ reproducibility of a published freeze. Out of scope for this lot.
      `[G7:1]` is the third instance of `[G7:self-1]`'s shape inside this one AC: v7 fixed the prose
      contradiction and left an assertion that still rejected the design the corrected prose admits.
   2. Workers MUST NOT accumulate: over N repeated timed-out calls the live-thread count MUST NOT grow by N.
-     This holds for both the per-call-thread and the pooled designs, and fails the leak.
+
+  `[G8:2]` **Both clauses are replaced by ONE assertion form, because thread-counting false-fails the pooled
+  design this AC blesses and clause 1 under-quantified.** Two defects, one fix:
+  - *Clause 2 false-failed (Class B).* Counting is the wrong instrument. The baseline is captured after
+    clause 1's still-sleeping worker, and with a cold `ThreadPoolExecutor`-shaped pool every one of the N
+    submits spawns a fresh worker (`_adjust_thread_count` spawns while `num_threads < max_workers`, default
+    `min(32, cpu+4)`), each finishes its sleep and sits **idle but alive** in the pool, so the growth is
+    exactly N and `N < N` is false — a correct, spec-blessed GREEN fails. Under `-p no:randomly` earlier
+    timed-out calls (AC-E3/E8/E9) happen to leave idle workers and it passes; under the suite's default
+    `pytest-randomly` — which AC-A28 exists **because** of — AC-E10 can run first against a cold pool. A
+    requirement whose verdict depends on test order is not a requirement.
+  - *Clause 1 under-quantified (Class A).* "**Any** worker still alive" was asserted over exactly **one**
+    member — the thread the oracle recorded. A GREEN whose oracle worker is a daemon but which leaves a
+    **non-daemon auxiliary thread** alive (a watchdog joining the abandoned worker) passes that assertion and
+    still hangs interpreter shutdown for the abandoned oracle's full duration — the 6.77 s `[G7:self-1]`
+    measured. `[G6:quant]` on the threads of a process, and this AC's collection is exactly where it bites.
+
+  **Normative form, discharging both:** after the grace period, **every alive non-main thread MUST have
+  `daemon is True`.** The oracle's own recorded `threading.current_thread()` remains the liveness anchor (it is
+  provably alive — its sleep outlasts the grace), but the daemon predicate is quantified over **all** alive
+  non-main threads, not over that one. No thread counting. This admits the per-call daemon thread and the
+  daemonising pool alike, is order-independent, and fails both the non-daemon worker and the non-daemon
+  auxiliary — which is why it replaces the count rather than joining it.
 
   `[G7:self-1]` **Correction to my own v7 text, which was internally contradictory.** v7 called a
   module-level `ThreadPoolExecutor` "a defensible design" in the same AC whose clause 1 requires every
@@ -583,7 +643,16 @@ it is the same class of defect as defaulting to passed.
   not bound at import (`from importlib.metadata import version`). Otherwise the RED's `monkeypatch` of
   the module attribute does not take effect and an otherwise-correct GREEN false-fails — the asymmetry
   `[G5:seam]` left when it pinned the source-checkout half precisely and the metadata half implicitly. Source-checkout side: the
-  read MUST go through `Path(<engine_py>/pyproject.toml).read_text()`. Without this second pin the RED
+  read MUST go through `Path(<engine_py>/pyproject.toml).read_text()`.
+  `[G8:MINOR-4]` **The FAILURE contract is pinned in the same breath as the mechanism, because pinning only
+  the mechanism traps a GREEN.** The RED forces the source-checkout read to fail by raising `OSError`, but the
+  spec never said which exception classes constitute "does not resolve" — so a GREEN catching
+  `(FileNotFoundError, KeyError, TOMLDecodeError)` (all reasonable, none of them `OSError` in general)
+  false-fails, and the exception escapes `execute()`. Normative: "does not resolve" covers **any `OSError`
+  subclass** (absent, unreadable, permission-denied), **`KeyError`** (no `[project].version`), and **any parse
+  error** from the reader. None of them may propagate out of `run_identity` emission or `check_bd_l0`; each
+  yields the absent/empty `engine_version` of AC-L0-2c and R0.3 `"not-checked"` per AC-L0-9 clause 7.
+  Without this second pin the RED
   had to *assume* a read mechanism, and a GREEN using `tomllib.load` on an open handle would fail an
   otherwise-correct test — a coupling that looks like a defect and isn't. Per §3.0's principle, the
   spec carries the interface.
@@ -886,6 +955,15 @@ conformance defect. The checker scopes to one run.
   while a third of it was never evaluated. Without this branch §4.2's own "one finding per
   violated requirement" is false for R0.1, and `l0_passed` reaches the attestation on the strength
   of two out-of-band unit tests.
+  `[G8:4]` **Reconciliation with AC-L0-15, stated at this end too so the contract is not split across two
+  ACs.** "The checker MUST itself probe" is conditioned on there being a run to report about: when the scope
+  contains **no events for the requested `run_id`**, `check_bd_l0` returns early per AC-L0-15 with all three
+  requirements `"not-checked"`, **including R0.1, and the probe does not run.** This is deliberate and it is
+  the one place R0.1 is not measured despite a `writer` being supplied: an `L0Report` is a record *about a
+  run*, so for a run that was never observed, "this run's log was append-only" is genuinely unmeasured rather
+  than passed. A GREEN that probes unconditionally is trapped by AC-L0-15 — which is why the rule is written
+  here as well, and why every other R0.1 AC (6c, 6d, 6f, 6g, and this one) passes a `run_id` matching its
+  fixture, so an early return on empty scope satisfies all of them.
 - **AC-L0-6b2** `[G3:MAJOR-1]` **`"not-checked"` fail-closes for ALL THREE requirements, not just
   R0.1.** Normative: `L0Report.passed` MUST be `False` and `level_achieved` MUST be `None` whenever
   ANY `requirements[r] != "passed"`. AC-L0-6b stated this for R0.1 only; v3 then made R0.2
@@ -1033,6 +1111,23 @@ conformance defect. The checker scopes to one run.
   **identical length**, or **recompute the boundary per run from the identifiers actually used** — the
   latter is preferred, being robust to any future rename. The 4-byte slack is the lesson: with this AC's
   envelope, an 11-character identifier change is three times the entire margin.
+  `[G8:3]` **The unshadowed control MUST actually be unshadowed, asserted rather than assumed.** Round 8's
+  repair fixed the arithmetic and left the control **shadowed**: the test patches
+  `engine.is_authoritative_execution` to `False` for the first half and **never undoes it** (no
+  `monkeypatch.undo()` existed anywhere in the RED), while its comment and docstring both claimed the second
+  run ran "at its real, un-monkeypatched value". Since `_emit` shadow-wraps whenever the gate is on and
+  `not is_authoritative_execution()` (`engine.py:696-711`), and the second engine is the same class from the
+  same patched module, every event of the "unshadowed" run became `SHADOW_EVENT_TYPE` — so the
+  `phase_artifacts` filter was **empty** and the exactly-one assertion was `0 == 1` for every implementation.
+  A fourth consecutive false-RED in this one AC's repair chain. Normative: the patch MUST be undone before the
+  unshadowed half, and that half MUST assert **no `SHADOW_EVENT_TYPE` event is present in its log** — the
+  absence is a precondition of the measurement, so it is asserted, not assumed. Repairing the *filter* instead
+  is prohibited: it re-enters the arithmetic dead end (113 paths = 4080 B unshadowed, + ~64 B of shadow
+  envelope ≈ 4144 B, so the run must truncate while the assertion demands it must not).
+  `[G8:EDGE-2]` **The shadowed half MUST assert `written_digest` by equality too.** It asserts only the
+  `written_truncated` flag, so a GREEN correct unshadowed and emitting a constant digest under shadow passes —
+  `[G4:5]`'s "hash that cannot detect anything" on the one path where the sample is *guaranteed* elided, which
+  makes the digest the only surviving evidence there.
 - **AC-L0-12** `[G:edge-3]` A shadowed run (`HAL_ENGINE_SHADOW_EMITS` on, non-authoritative
   execution, every event mangled to `SHADOW_EVENT_TYPE` at `engine.py:699-708`) MUST be reported
   as a distinct `E_SHADOWED_RUN` violation, not as a generic pile of R0.2/R0.3 failures. A
@@ -1079,6 +1174,25 @@ conformance defect. The checker scopes to one run.
   requirements `"not-checked"` (nothing was observed, so nothing was measured — this is not a structural
   breach), and MUST NOT grant a level. Asserted with a log holding a complete, *passing* run under a
   different `run_id`, so the fixture also proves the checker is not merely reading the whole log.
+  `[G8:MINOR-3]` **A named violation MUST be pinned, not just `passed` and `requirements`.** As first written
+  this AC pinned only the boolean and the exact `requirements` dict, so a GREEN returning `passed=False` with
+  an **empty** `violations` list satisfied it — contradicting §4.2's one-finding-per-violated-requirement, which
+  every sibling (AC-L0-6c, 6g, 9, 12d, 2c(3)) pins. Required: a violation naming each unmeasured requirement.
+  `[G8:EDGE-4]` **`run_id="ad-hoc"` is an invalid scope for `check_bd_l0`, and is declared rather than
+  asserted.** `event_log.py:110` maps a `None` `run_id` to the literal `"ad-hoc"`, so scoping to `"ad-hoc"`
+  unions arbitrarily many unrelated unnamed runs — the `[G:edge-4]` interleaving scenario arriving through a
+  *default value*, which would fail "exactly one `phase_artifacts` per phase" for a reason that is not a
+  conformance defect. Normative: a conformance check requires an explicit, run-specific `run_id`; `"ad-hoc"`
+  is not one. Declared, not asserted, because the honest fix is for the *caller* to supply a real `run_id` and
+  this lot has no runner CLI to enforce that. **Re-open criterion:** the first conformance-runner entry point,
+  which should refuse `"ad-hoc"` outright.
+  `[G8:EDGE-5]` **Recorded, accepted: "bounded sample" is only pinned as `≥1` and `≤ n−1`.** AC-L0-3d requires
+  `0 < len(sample) < n`, AC-L0-3b4 requires non-empty, AC-L0-3d4 tolerates empty — so a fixed **one-entry**
+  sample satisfies all three, though the spec reads as though the sample were maximal. Accepted rather than
+  pinned because `written_digest` carries the evidentiary weight by construction (that is AC-L0-3d's whole
+  design), and pinning maximality would constrain the byte-budget arithmetic that `[G8:EDGE-1]` and
+  `[G7:MINOR-4]` have just made mutually load-bearing. **Re-open criterion:** any consumer that reads
+  `written` as a representative sample rather than as an illustrative one.
 - **AC-L0-3d4** `[G7:EDGE-3]` **The TRUNCATED payload MUST itself fit under the limit.** AC-L0-3d bounds the
   sample by count, not by bytes: every fixture uses many short paths, so sample + digest always fit. A phase
   writing one pathological path (a single ~4200-character filename, legal on most filesystems in aggregate
@@ -1096,6 +1210,17 @@ conformance defect. The checker scopes to one run.
   serialising to **exactly** 4096 bytes MUST NOT be truncated. Asserted by constructing that exact size
   (pad a path name to hit it precisely) and requiring `written_truncated is not True` plus a successfully
   appended event. The boundary must be hit exactly, not approached.
+  `[G8:EDGE-1]` **The +1 side MUST be asserted at exactly 4097, because nothing else lands there.** AC-L0-3d2's
+  just-over run overshoots to **4116 B** (its step is one 31-char path = +34 B), so between them the fence was
+  pinned at 4096 from below and 4116 from above: a GREEN with threshold `> 4097` passes both and silently
+  loses a 4097-byte record to the swallow at `engine.py:710` — the inverted control AC-L0-3d exists to
+  prevent, one byte past the fence this AC was added to build. Required: construct `exact_path_len + 1`
+  (exactly 4097, verified before the run as the 4096 case already is) and require truncation. A fence needs
+  both faces; a boundary asserted only from below is a boundary asserted at whatever the other fixture
+  happens to overshoot to.
+  `[G8:MINOR-4x]` **Cross-reference, load-bearing in both directions:** this AC's exact-4096 arithmetic is
+  correct *only* because `[G7:MINOR-4]` pins the untruncated payload's key set to exactly five. Change either
+  and the other silently stops measuring what it claims.
 - **AC-L0-6g** `[G7:EDGE-6]` **A `writer` whose `append` RAISES MUST NOT be rendered as R0.1 `"passed"`.**
   AC-L0-6c supplies writers with wrong `os.open` flags; none that raises. `check_bd_l0` is documented as a
   read-only check that runs ~20× per suite, so an unhandled exception from a caller-supplied `writer` makes
@@ -1104,6 +1229,10 @@ conformance defect. The checker scopes to one run.
   unacceptable and the AC pins both directions: `check_bd_l0` MUST NOT propagate the exception, **and** MUST
   render R0.1 `"not-checked"` (with a violation naming R0.1) — never `"passed"`. Asserted with a writer
   whose `append` raises unconditionally.
+  `[G8:EDGE-3]` **The CONSTRUCTOR is the other crash surface and MUST be covered too.** The probe must call
+  `writer(path)` before it can call `append`, so a `writer` whose `__init__` raises hits the same two failure
+  modes one call earlier, and an implementation guarding only the `append` call is unprotected there. Both
+  halves, same two directions.
 - **AC-L0-3b7** `[G7:EDGE-7]` **A `phase_artifacts` preceding its own `workflow_started` is defined, not
   left to GREEN.** AC-L0-3b6 defines the *absent* `workflow_started` case as `"failed"`; a record appearing
   **before** the `workflow_started` for the same phase in the scoped run is undefined, so a streaming
@@ -1207,6 +1336,10 @@ the tests it cites* were accurate in all 13 original rows — the defect was omi
 | `[G7]` **zero-step precondition per phase** | **phases of a run** | **AC-L0-6e `[G7:2a]`: phase_b's step events dropped** | **uniform two-phase** |
 | `[G7]` **artifact-field validity per record** | **phases of a run** | **AC-L0-3b5 `[G7:2b]`: phase_b's record malformed** | **well-formed two-phase** |
 | `[G7]` **scoping isolation per run** | **runs of a log** | **AC-L0-12d: run A lacks identity, run B complete** | **AC-L0-12d's `report_b`** |
+| `[G7:MINOR-7]` relpath spelling per entry | entries of `written` | AC-L0-3b4: root / `sub/` / `sub/dir/` in one phase | all three spellings exact |
+| `[G7:4]` universal clauses per event set | events of a scope | AC-L0-15: scope matching nothing, log holds a passing run | same log under its real `run_id` |
+| `[G7:4]` manifest membership | entries of `core_manifest.json` | AC-P2 (absence; no violating member possible) | AC-P1's include list |
+| `[G8:2]` daemon-ness per thread | alive non-main threads of the process | AC-E10: daemon worker + non-daemon auxiliary | all-daemon after grace |
 
 Rows in **bold** are new in v7 (rows 5-7) or v9 (the three `[G7]` rows). Rows 5-7 are what `[G6:1]`
 required; the `[G7]` rows are what `[G7:2]` required.
@@ -1219,10 +1352,6 @@ Two standing cross-references, so the next round does not mistake either for a g
   fixture. Neither AC is redundant; removing 12d would silently un-assert the collection.
 - **Row 4 (zero-step vacuity) has no non-uniform member by construction** — the collection is empty. Its
   discrimination comes entirely from the positive control plus AC-L0-6e's per-phase row above.
-
-| `[G7:MINOR-7]` **relpath spelling per entry** | **entries of `written`** | **AC-L0-3b4: root / `sub/` / `sub/dir/` in one phase** | **all three spellings exact** |
-| `[G7:4]` **universal clauses per event set** | **events of a scope** | **AC-L0-15: scope matching nothing, log holds a passing run** | **same log under its real `run_id`** |
-| `[G7:4]` manifest membership | entries of `core_manifest.json` | AC-P2 (absence; no violating member possible) | AC-P1's include list |
 
 ### The completeness claim, and why the instrument changed `[G7:4]`
 
@@ -1242,12 +1371,44 @@ see what they left out.** Restating it more humbly does not fix that; three roun
 So the burden is inverted, from one global claim to a **per-AC obligation that is checkable where it is
 written**:
 
-> **Normative `[G7:4]`.** Any AC whose requirement is universally quantified — any AC whose text turns on
-> *every*, *each*, *all*, *per phase*, *per step*, *per record*, *per run*, or an implicit reduction over a
-> collection — MUST name its collection and cite its `[G6:quant]` fixture **in its own text**. An AC that
-> does not is **unasserted**, exactly as an AC asserted only over a uniform collection is unasserted. §4.3 is
-> then a convenience index over those per-AC citations, not the authority: if the table and an AC disagree,
-> **the AC governs**, and a missing row is a table bug rather than a silent hole in coverage.
+> **Normative `[G7:4]`, as rescoped by `[G8:1]`.** An AC carries a **quantifier obligation** when both hold:
+> (a) its requirement ranges over a collection where **non-uniformity is possible** — ≥2 members, at least
+> one able to violate while another satisfies; **and** (b) **the reduction is an implementation choice**, i.e.
+> a GREEN could pick `any`/`all`/`first`/`last` and the AC would not notice. Such an AC MUST identify its
+> collection and its discharging fixture. The citation may live **in the AC's own text, in a §4.3 row naming
+> the AC, in a named sibling AC, or in prose describing the fixture** — the literal `[G6:quant]` token is not
+> required. **Sanction:** an AC with an unmet obligation is an **open review item the gate MUST resolve — by
+> citation or by demonstrated discharge in the RED — before approving.** It is *not* deemed unasserted.
+> If a §4.3 row and an AC disagree, **the AC governs**; a missing row is a table bug, not a silent hole.
+
+**Why the rescoping, and why the sanction changed `[G8:1]`.** v10's version of this rule was over-reaching in
+one direction and wrong in another, and the round-8 gate was right on both counts.
+
+*Over-reaching:* it attached to any universal-sounding AC, which condemned the **strongest** available
+assertion form. `mro_names == {…}` (AC-O5), `reparsed == report` (AC-A10), `requirements == {…}` (AC-L0-12b),
+AC-A23's four-way `level_claimed` enumeration all pin the **entire** collection by value and admit no
+reduction choice at all — yet none "names its collection and cites its fixture", so v10 declared them
+unasserted. A rule that invalidates exhaustive whole-collection equality is inverted; hence clause (b), which
+is the half a keyword sweep cannot see and where the damage was.
+
+*Wrong sanction:* declaring an uncited AC "unasserted" makes **the spec assert something false about the
+RED** — the coverage may be there and merely uncited, which the gate demonstrated for AC-A8 (six sentinels
+plus a six-way missing-value loop), AC-A22, AC-A28 and AC-L0-12. That is this lot's own disqualifying class —
+publishing "not measured" over something that *was* measured — one artifact over. An open-review-item
+sanction states the truth (*we have not yet shown this is discharged*) instead of a falsehood.
+
+The mechanical sweep behind this is also evidence for clause (b) and for the citation-form clause: run against
+v10, a keyword sweep flagged 18 ACs and the gate's reading reduced the substantive residue to **two** — it
+over-counted by three ACs whose citations were in prose or in a named sibling rather than in the literal
+token, and eight more were narrative, fixed-arity, or exhaustive-equality. An instrument that mis-scores
+11 of 13 is not an instrument. Judgment per AC is required, which is precisely why the sanction is *review*
+rather than *invalidation*.
+
+**Open review items carried forward `[G8:1]`** — each a citation gap with real non-uniform coverage behind it,
+none a coverage hole: **AC-L0-7** (discharged by AC-L0-3a5(4) and AC-L0-13), **AC-L0-9 clause 1** (its §4.3 row
+covers `phase_artifacts` counting, **not** clause 1's per-step-event quantifier), **AC-L0-6b2**, **AC-L0-3a3**,
+**AC-L0-3b6**, **AC-A1**. **AC-E10 clause 1** was the one genuine coverage gap and is closed by `[G8:2]`
+below, not by a citation.
 
 The difference is that a reviewer auditing one AC can now settle the question by reading that AC, and a new
 AC arrives with its quantifier obligation attached rather than needing an editor to remember to extend a

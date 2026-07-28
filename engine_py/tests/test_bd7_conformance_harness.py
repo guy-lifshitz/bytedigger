@@ -915,9 +915,28 @@ def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accu
     be empty even under `-p no:randomly` — a false-fail against the very
     design the spec blesses. FIXED: the oracle now records its OWN
     `threading.current_thread()` into a caller-visible list, and the
-    assertion checks THAT thread's `.is_alive()`/`.daemon` — provably alive
-    (the sleep outlasts the grace) regardless of whether the thread was
-    newly created for this call or reused from a pool."""
+    liveness check uses THAT thread's `.is_alive()` — provably alive (the
+    sleep outlasts the grace) regardless of whether the thread was newly
+    created for this call or reused from a pool.
+
+    [G8:B2] BLOCKING FIX: clause 2's ORIGINAL check counted threads
+    (`len(surviving_new) < n_calls`), which is the wrong instrument —
+    `before_accum` was captured AFTER clause 1's own 5.0s worker was
+    already alive, so with a cold `ThreadPoolExecutor`-shaped pool, all
+    five submits below spawn FRESH workers that finish their 0.3s sleeps
+    and sit IDLE-BUT-ALIVE, giving `len(surviving_new) == 5` and `5 < 5`
+    is False — a correct, spec-blessed GREEN fails. Under `pytest-randomly`
+    (this suite's default) this test can also run FIRST with a cold pool,
+    making the failure unconditional in that ordering. FIXED: dropped the
+    count entirely and adopted the AC's own SECOND admissible form —
+    `daemon is True` asserted over EVERY alive non-main thread, both right
+    after clause 1's guaranteed-alive worker and again after the N-call
+    batch. This is design-agnostic (accumulation in a bounded pool is
+    harmless as long as nothing it leaves alive can block shutdown) and
+    closes a real coverage gap the gate found: a daemon ORACLE worker
+    paired with a non-daemon AUXILIARY thread (e.g. a watchdog joining the
+    abandoned worker) passed the single-recorded-thread check while still
+    hanging shutdown for the abandoned oracle's full duration."""
     import threading  # noqa: PLC0415
     import time  # noqa: PLC0415
 
@@ -961,18 +980,32 @@ def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accu
         "timeout fired, so the thread running evaluate() MUST still be "
         "observably alive for this check to mean anything"
     )
-    assert worker_thread.daemon is True, (
-        f"the thread running the abandoned oracle ({worker_thread.name!r}) "
-        f"is still alive after the grace period and is NOT a daemon "
-        f"thread — it can hang interpreter shutdown, whether it was "
-        f"spawned fresh for this call or reused from a pool"
-    )
 
-    # --- (2) workers must not accumulate over N repeated timed-out calls.
+    def _assert_every_alive_non_main_thread_is_daemon(context: str) -> None:
+        non_main_alive = [
+            t for t in threading.enumerate()
+            if t is not threading.main_thread() and t.is_alive()
+        ]
+        non_daemon = [t for t in non_main_alive if t.daemon is not True]
+        assert non_daemon == [], (
+            f"[{context}] every thread alive (other than the main thread) "
+            f"MUST be a daemon thread, so NONE of them can hang "
+            f"interpreter shutdown — found non-daemon thread(s): "
+            f"{[t.name for t in non_daemon]!r}. A daemon ORACLE worker "
+            f"paired with a non-daemon AUXILIARY thread (e.g. a watchdog "
+            f"joining the abandoned worker) would be caught here even "
+            f"though the single recorded oracle thread is itself a daemon"
+        )
+
+    _assert_every_alive_non_main_thread_is_daemon("clause 1: single guaranteed-alive worker")
+
+    # --- (2) [G8:B2] over N repeated timed-out calls, every thread left
+    # alive (whether newly spawned per-call or reused/accumulated from a
+    # pool) must still be a daemon — NOT a thread count, which false-fails
+    # a cold pool (see the docstring's [G8:B2] note).
     n_calls = 5
     short_sleep_s = 0.3  # each call's oracle outlives its own timeout briefly
 
-    before_accum = set(threading.enumerate())
     for _ in range(n_calls):
         outcome, _reason = evaluate_guarded(
             _LongSleepOracle(short_sleep_s), {}, timeout_s=0.05
@@ -981,18 +1014,10 @@ def test_ac_e10_abandoned_oracle_worker_does_not_hang_shutdown_and_does_not_accu
 
     # Wait well past every call's own oracle completion so a correctly
     # behaving worker (per-call-thread OR pooled) has had time to actually
-    # finish; only a genuine per-call LEAK survives this long.
+    # finish its sleep and either exit or settle to idle.
     time.sleep(short_sleep_s + 1.0)
-    after_accum = {t for t in threading.enumerate() if t.is_alive()}
-    surviving_new = after_accum - before_accum
 
-    assert len(surviving_new) < n_calls, (
-        f"over {n_calls} repeated timed-out calls, the live-thread count "
-        f"grew by {len(surviving_new)} and none have exited even after "
-        f"waiting well past every oracle's own sleep — workers are "
-        f"ACCUMULATING rather than being reaped or bounded by a pool: "
-        f"{[t.name for t in surviving_new]!r}"
-    )
+    _assert_every_alive_non_main_thread_is_daemon(f"clause 2: after {n_calls} repeated timed-out calls")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1113,14 +1138,32 @@ def test_ac_a5_levels_are_cumulative_l2_without_l1_does_not_achieve_l2():
     assert report["level_achieved"] not in ("BD-L2", "BD-L1")
 
 
-def test_ac_a6_conformant_false_when_claimed_outranks_achieved():
+def test_ac_a6_conformant_false_when_claimed_outranks_achieved(tmp_path):
     """AC-A6: conformant MUST be false when level_claimed outranks
-    level_achieved; the report is still written (not raised/suppressed)."""
+    level_achieved; the report is still WRITTEN (not raised/suppressed).
+
+    [G8:M2]: `assert report is not None` cannot fail — `_build()` returns a
+    dict or raises, so a `None` return is not a reachable outcome; deleted.
+    AC-A6's actual second half — `write_attestation_report` MUST still
+    produce the file for a shortfall report — was unasserted in its own
+    test. Added: call `write_attestation_report` and require the file to
+    exist on disk with the correct (non-conformant) content."""
+    from conformance.attestation import write_attestation_report  # noqa: PLC0415
+
     report = _build(level_claimed="BD-L3", results=_passed(*_L1_ADVS))
 
     assert report["level_achieved"] != "BD-L3"
     assert report["conformant"] is False
-    assert report is not None  # the shortfall report was still produced
+
+    out_path = tmp_path / "shortfall_attestation.json"
+    write_attestation_report(report, out_path)
+    assert out_path.exists(), (
+        "a report whose level_claimed outranks level_achieved (a "
+        "shortfall) MUST still be WRITTEN to disk — a report is evidence, "
+        "and refusing to write it would hide the shortfall"
+    )
+    reparsed = json.loads(out_path.read_text(encoding="utf-8"))
+    assert reparsed["conformant"] is False, reparsed
 
 
 def test_ac_a7_labels_equal_exactly_three_entries_by_value():
@@ -1227,7 +1270,9 @@ def test_ac_a8_missing_producer_identity_raises():
     ts_raw = report["timestamp"]
     assert isinstance(ts_raw, str) and ts_raw.endswith("Z"), ts_raw
     parsed = datetime.fromisoformat(ts_raw[:-1] + "+00:00")
-    assert parsed.tzinfo is not None
+    # [G8:M2]: `assert parsed.tzinfo is not None` deleted — always True
+    # after `fromisoformat(ts[:-1] + "+00:00")`, which always attaches a
+    # tzinfo; not a reachable failure.
     assert abs((parsed - after).total_seconds()) < 120, (
         f"timestamp {ts_raw!r} (parsed as {parsed!r}) is not within a 120s "
         f"freshness window of the build call (measured at {after!r}) — a "
@@ -1279,7 +1324,8 @@ def test_ac_a27_timestamp_utc_ness_confirmed_against_independent_clock_reading(m
     ts_raw = report["timestamp"]
     assert isinstance(ts_raw, str) and ts_raw.endswith("Z"), ts_raw
     parsed = datetime.fromisoformat(ts_raw[:-1] + "+00:00")
-    assert parsed.tzinfo is not None
+    # [G8:M2]: `assert parsed.tzinfo is not None` deleted — same
+    # always-True tautology as the base AC-A8 test.
 
     epoch_from_time_module = datetime.fromtimestamp(epoch_after, tz=timezone.utc)
     assert abs((parsed - epoch_from_time_module).total_seconds()) < 120, (
@@ -5113,9 +5159,28 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
         f"the shadow envelope, got {payload!r}"
     )
 
+    # [E2]: digest equality for the SHADOWED run too. Previously this test
+    # asserted only written_truncated on the shadow path, so a GREEN
+    # correct unshadowed but emitting a CONSTANT digest once shadowed would
+    # pass — [G4:5]'s "a hash that cannot detect anything" reopened on the
+    # one path where the sample is GUARANTEED elided (this is the
+    # borderline path count, chosen precisely because it overflows once
+    # shadow-wrapped).
+    import hashlib  # noqa: PLC0415
+
+    expected_shadowed_digest = "sha256:" + hashlib.sha256(
+        "\n".join(sorted(_paths_for(n_boundary))).encode("utf-8")
+    ).hexdigest()
+    assert payload.get("written_digest") == expected_shadowed_digest, (
+        f"the SHADOWED run's written_digest must equal the digest "
+        f"recomputed over the real full sorted path set — a constant "
+        f"digest under the shadow branch would pass written_truncated: "
+        f"true alone, got {payload.get('written_digest')!r}, expected "
+        f"{expected_shadowed_digest!r}"
+    )
+
     # [G6:MINOR-3] joint-satisfiability check, [G7:1b] arithmetic FIXED: a
-    # run driven WITHOUT the shadow branch (is_authoritative_execution left
-    # at its real, un-monkeypatched value) MUST NOT truncate at ITS OWN
+    # run driven WITHOUT the shadow branch MUST NOT truncate at ITS OWN
     # just-under-4096 boundary. An UNCONDITIONAL headroom reserve (rather
     # than "iff the shadow branch applies") would truncate this too, and
     # would then fail AC-L0-3d2's own just-under-4096 unshadowed control —
@@ -5123,6 +5188,18 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
     # the actual serialised form per emit, not by a predicate that always
     # reserves the overhead.
     #
+    # [G8:B1] BLOCKING FIX: the shadowed portion above monkeypatched
+    # `engine_module.is_authoritative_execution` to False and NEVER undid
+    # it, so `eng_unshadowed` below (the same patched `engine` module) was
+    # ALSO forced onto the shadow branch — every one of its emits,
+    # including phase_artifacts, was wrapped to SHADOW_EVENT_TYPE, so
+    # filtering by the plain "phase_artifacts" event_type found ZERO
+    # events and `len(unshadowed_artifacts) == 1` was `0 == 1` for EVERY
+    # implementation. Undo the monkeypatch here, before driving the
+    # "unshadowed" run, and guard against a future re-break with an
+    # explicit assertion that no shadow event appears in this run's log.
+    monkeypatch.undo()
+
     # [G7:1b]: the boundary is a function of the IDENTIFIERS, so it is
     # RECOMPUTED here from the identifiers this sub-check actually uses
     # (run_id_unshadowed / phase_unshadowed), rather than reusing
@@ -5155,7 +5232,7 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
         return StepResult(status="ok", data=None, duration_ms=0, step_name="write_probe")
 
     log_unshadowed = EventLog(tmp_path / "events_unshadowed.jsonl")
-    eng_unshadowed = WorkflowEngine(event_log=log_unshadowed)  # real engine module, shadow branch NOT forced
+    eng_unshadowed = WorkflowEngine(event_log=log_unshadowed)  # is_authoritative_execution UNDONE above — genuinely unshadowed
     eng_unshadowed.register(
         phase_unshadowed,
         WorkflowDefinition(name=phase_unshadowed, steps=[StepContract(name="write_probe", execute=_write_paths_unshadowed)]),
@@ -5165,6 +5242,14 @@ def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_
     )
 
     events_unshadowed = log_unshadowed.read_all()
+    # [G8:B1] guard: loud failure if this run is ever accidentally shadowed
+    # again (e.g. a future edit re-patches is_authoritative_execution
+    # without undoing it before this point).
+    assert not any(e["event_type"] == SHADOW_EVENT_TYPE for e in events_unshadowed), (
+        "sanity: this run must be genuinely UNSHADOWED — found "
+        "SHADOW_EVENT_TYPE events, meaning is_authoritative_execution is "
+        "still patched to False here"
+    )
     unshadowed_artifacts = [e for e in events_unshadowed if e["event_type"] == "phase_artifacts"]
     assert len(unshadowed_artifacts) == 1
     unshadowed_payload = unshadowed_artifacts[0]["payload"]
