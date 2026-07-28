@@ -1,6 +1,6 @@
 # Lot spec — bd#22 (L2): conformance package, shared contracts, quantifier-completeness lint
 
-**v6.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
+**v7.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
 issue before freeze so the split's 113-AC accounting stays checkable.
 
 Depends on nothing but `main`. Everything after L2 depends on it. It MUST NOT reference L1's emissions or any
@@ -156,6 +156,19 @@ recognised at line start, case-insensitive, and everything else is prose the lin
 - `EXCLUDES: <reduction>[, <reduction>...]` — which reductions that row's fixtures kill (`any`, `all`, `first`, `last`).
 - `SEAM: <name>` — declares an interception seam.
 - `ATTRIBUTE-PATH:`, `BINDING-TIME:`, `NORMALISATION:` — the properties a seam declaration must pin.
+
+`[G22:16]` **Two binding/casing semantics the round-6 simulation found unpinned, pinned here rather than guessed.**
+The RED agent reached both by simulating candidate implementations and **flagged them as gaps instead of inventing
+a semantic to test against** — which is the behaviour `[G22:13]` exists to produce, and the reason these are being
+decided in the spec instead of discovered in a later round:
+- **Marker prefixes are case-insensitive; OPERANDS are verbatim.** `§1.6` states the markers are recognised
+  case-insensitively and says nothing about the text after the colon. Normative: a `LEVEL` name, a row's
+  `<level>` operand, and a `SEAM` name are matched **case-sensitively and exactly** — `LEVEL: Audit` is not
+  discharged by `NON-UNIFORMITY: audit — …`. This follows from `Finding.subject` being pinned "verbatim from the
+  document" (`§1.5`): a lint that case-folds to match cannot also report verbatim.
+- **Property lines bind to the NEAREST PRECEDING `SEAM`**, exactly as `ADMITS` binds to the nearest preceding
+  `LEVEL`. `§1.6` pinned the latter and left the former to proximity-by-implication, so a lint binding a property
+  line to the *following* seam was untestable without inventing the rule. Same rule, stated once for both.
 
 - `ADMITS: <reduction>[, <reduction>...]` — **optional**, on a `LEVEL`; declares which reductions that level's
   fixtures could plausibly choose between. **Absent means all four.**
