@@ -62,14 +62,69 @@ command **prefix**, not substring).
 Ship in **0 failed**. Drift invariant is the **property** "identical to this host's own `main` at
 `extra_bd == 0`", never a literal count.
 
+## 1.5 The public API surface, pinned here and not in the RED `[G22:1]`
+
+**Why this section exists.** Round 1's RED had to invent the module paths, the exported names and a fixture-document
+grammar, because v1 named none of them — so the *test file* became the de facto interface and GREEN would have had
+to reverse-engineer it. That inverts bd#7's `§3.0` principle: **the interface is carried by the spec, not the
+RED.** bd#7 filed exactly this against itself (`AC-A7b`, where `adversaries[]`'s form lived in the RED and had to
+be moved into the spec). The RED agent flagged it rather than proceeding silently, which is why it is fixed here
+before GREEN rather than discovered during it.
+
+Normative — GREEN provides exactly these, and the RED asserts against these names:
+
+| Module | Exports |
+|---|---|
+| `conformance/__init__.py` | nothing re-exported; importing it MUST do no work (AC-C1) |
+| `conformance/report.py` | `L0Report` — frozen dataclass, fields `passed`, `requirements`, `violations`, `labels` |
+| `conformance/tokens.py` | `REQUIREMENT_PASSED = "passed"`, `REQUIREMENT_FAILED = "failed"`, `REQUIREMENT_NOT_CHECKED = "not-checked"`, `ADVERSARY_NOT_EXECUTED = "not_executed"` |
+| `conformance/quant_lint.py` | `lint_quantifier_completeness(text: str) -> list[Finding]` |
+
+`lint_quantifier_completeness` takes the spec document's **text** and returns a list of findings — an empty list
+means conformant. Each finding identifies its **kind** (which of the three checks failed) and the **subject** (the
+collection level, the row, or the seam at fault), so a caller can tell the three checks apart. It MUST NOT raise
+on a non-conformant document: returning findings is the contract, and raising would make "conformant" and
+"malformed" indistinguishable to the build step that consumes it.
+
+### 1.6 The AC-C5 fixture-document grammar, pinned `[G22:1]`
+
+The lint reads spec-like documents. Round 1's RED invented a line-marker grammar; it is adopted here, minimally,
+so that spec and RED agree and GREEN has something to parse. A fixture document is plain text; these markers are
+recognised at line start, case-insensitive, and everything else is prose the lint ignores:
+
+- `LEVEL: <name>` — declares a collection level the document quantifies over.
+- `NON-UNIFORMITY: <level> — <description>` — the row discharging that level.
+- `EXCLUDES: <reduction>[, <reduction>...]` — which reductions that row's fixtures kill (`any`, `all`, `first`, `last`).
+- `SEAM: <name>` — declares an interception seam.
+- `ATTRIBUTE-PATH:`, `BINDING-TIME:`, `NORMALISATION:` — the properties a seam declaration must pin.
+
+The three checks are then exactly: a `LEVEL` with no `NON-UNIFORMITY` row (check 1); a `NON-UNIFORMITY` row with
+no `EXCLUDES` line, or one naming fewer than the reductions its level admits (check 2); a `SEAM` missing any of
+the three property lines (check 3).
+
+This grammar is **deliberately not** the format of this lot's own spec documents. It is the lint's input format,
+and the lint is a tool, not a validator of these files. Conflating the two would make every prose sentence here a
+potential lint failure.
+
 ## 2. Package and contracts (AC-C1..AC-C4)
 
 - **AC-C1** `engine_py/conformance/` is an importable package with **no import-time side effects**: importing it
-  MUST NOT read a file, touch the network, resolve a version, spawn a process, or create a directory. Asserted by
-  importing it with `builtins.open`, `Path.read_text` and `subprocess.run` patched to raise — the import must
-  succeed. **Seam property (§0.2):** the patches are attribute patches on the modules the package would have to
-  reach at call time, so an implementation doing its work at import is caught regardless of how it spells the
-  import.
+  MUST NOT read a file, touch the network, resolve a version, spawn a process, or create a directory.
+  `[G22:2]` **The seams MUST be RECORD-AND-DELEGATE, never raise.** This is normative on the *assertion mechanism*,
+  because round 1 got it wrong in a way that made the entire file inert. It replaced `builtins.open` with a raiser —
+  and `open` is a primitive **pytest itself runs on**: assertion rewriting, traceback source reading, capture, and
+  the cache provider all call it. So the first failure broke pytest's own teardown, `monkeypatch`'s undo never
+  completed, the patch **leaked permanently**, every later test errored in setup, and pytest died in
+  `pytest_sessionfinish` (`_pytest/cacheprovider.py:221` reaching the raiser). Measured: **1 passed, 19 errors,
+  session crash** — not the nine clean failures intended, and in the full suite it would have poisoned every test
+  that ran after it.
+  Required form: wrap each seam so it **records the call and then delegates to the real implementation**, returning
+  the real result; purge `conformance*` from `sys.modules` so the import genuinely re-executes; import under the
+  recorders; then assert the recording holds no call attributable to the import. Nothing raises, so nothing can
+  break teardown even when the assertion fails — and the diagnostic improves, since a recorder can name *which*
+  seam was touched and with what argument where a raiser only reports that something was.
+  **The general rule this instance illustrates, and §0.3's sharper form: a test may not sabotage a primitive its own
+  harness runs on. Observation is safe; substitution is not.**
 - **AC-C2** `L0Report` is a **frozen** dataclass carrying `passed`, `requirements`, `violations` and `labels`.
   Attribute assignment MUST raise `FrozenInstanceError`; the type MUST be constructible with those four fields.
   **Field *values* are out of scope here** — their semantics belong to L7-L12. L2 owns the carrier only, and
