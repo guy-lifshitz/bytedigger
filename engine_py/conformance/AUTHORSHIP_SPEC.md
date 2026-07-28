@@ -8,7 +8,7 @@ chokepoint: >
   R3.3 and R3.6 adjudicate the adapter's return there. An emission or check placed inside one
   backend is out of contract: it leaves every other adapter unmeasured, which is the 1-of-9
   gradient the parent document exists to reverse.
-status: FROZEN v2
+status: FROZEN v3
 base: origin/main @ dc6f0d0
 ---
 
@@ -20,6 +20,15 @@ base: origin/main @ dc6f0d0
 > `[G18r2:MINOR-1]` shape this lot family has now filed against itself four times. Finding them
 > before the gate rather than during it is the entire reason the RED agent is instructed to stop
 > and report instead of inventing. AC count rises 23 → 24; §9's split criterion is unchanged.
+>
+> **v3 (pre-gate, post-RED-realignment).** Three further gaps the RED refused to guess (G8–G10) and
+> one it raised against its own test (`[bd10:11]`). `[bd10:12]` is the significant one and it is
+> **my own §0.1 violation, inside the clause written to prevent it**: v2's AC-C3 demanded a fixture
+> pair "whose only difference is absent-versus-empty" that cannot produce two verdicts, because
+> nothing recorded which of the two occurred. That, and G9's homeless "report marks R3.3
+> not-checked", had one root cause — the payload recorded what the adapter *reported* and never
+> whether it *could observe*. One key (`observed_tools`) and one aggregation rule (`[bd10:13]`)
+> close both. AC count unchanged at 24; the payload key set is now nine.
 
 # Lot spec — bd#10: BD-L3, attested authorship and inputs (R3.1–R3.6; ADV-7, ADV-8, ADV-10)
 
@@ -203,7 +212,7 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   exactly one `model_invocation_attested` event through `_emit_safe` (`llm_subprocess.py:2980`),
   with payload keys **exactly**
   `{step_name, backend, model_requested, prompt_sha256, injections, declared_capabilities,
-  capability_enforcement, observed_model}`. Asserted by exact key-set equality, so a GREEN carrying
+  capability_enforcement, observed_model, observed_tools}`. Asserted by exact key-set equality, so a GREEN carrying
   extra diagnostic keys fails and a consumer's key set cannot drift silently. Where there is no
   active run context the engine emits nothing and **MUST NOT raise** (AC-P8).
   *Kills:* an emit that omits any key; an emit that adds one.
@@ -225,6 +234,34 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   fix that makes R3.3 attestable from the log, which is the entire point of recording it. Value:
   the adapter's reported identity, or `null` when the adapter reported none — `null` is the
   recorded third state and MUST NOT be backfilled from `model_requested` (§5, AC-M1).
+
+  `[bd10:12]` **(G8, G9) `observed_tools` joins the key set too, and it is the same defect twice.**
+  The RED found that v2's AC-C3 asked for a fixture pair "whose only difference is absent-versus-
+  empty" that **cannot produce two verdicts**: an adapter reporting `[]` has escaped nothing under
+  every declaration, so both forms return `ok`, and nothing anywhere recorded which of the two had
+  happened. That is a one-outcome assertion — my own §0.1 violation, written into the clause that
+  exists to prevent it. Separately (G9) AC-M1's "the report marks R3.3 `not-checked`" had nowhere
+  to land, for the same underlying reason: the payload recorded what the adapter *reported* but
+  never whether it *could observe at all*.
+  One fix closes both. `observed_tools` is recorded exactly as `observed_model` is: the reported
+  sequence, or `null` when the adapter reported none. `null` is now the observable that makes
+  "absent" differ from "empty", and the two keys together let the report compute per-requirement
+  verdicts (`[bd10:13]`) instead of asserting them.
+
+  `[bd10:13]` **(G9) Per-requirement verdicts live in `labels` under a `verdict:` prefix, and are
+  AGGREGATES over the log, not per-invocation states.** `L0Report`'s four fields are bd#22's
+  contract and this lot does not widen them (`CONTRACTS_SPEC.md` §2, AC-C2: L2 owns the carrier).
+  v2's AC-M1 spoke of marking R3.3 `not-checked` "for that invocation", which a whole-log report
+  cannot express at all — the honest unit is the log. Normative, for R3.3 and R3.6 alike:
+  - `failed` if any invocation in the log recorded a violation of that requirement;
+  - else `not-checked` if **no** invocation carried a non-`null` observation for it
+    (`observed_model` for R3.3, `observed_tools` for R3.6);
+  - else `passed`.
+  The label keys are `"verdict:R3.3"` and `"verdict:R3.6"`, values drawn from `conformance.tokens`
+  (`REQUIREMENT_PASSED`, `REQUIREMENT_FAILED`, `REQUIREMENT_NOT_CHECKED`). The `verdict:` prefix
+  keeps them from colliding with the qualifier labels `"R3.1": "host-attested"` and
+  `"R3.6": "tool-head-only"`, which say something different about the same requirement and must
+  remain separately readable.
 - **AC-P2** `prompt_sha256` equals `"sha256:" + sha256(assembled.encode("utf-8")).hexdigest()`,
   asserted **by equality against a digest the test recomputes from the text it supplied** — never
   from a value read back out of the event (§0.1 subtype 3). `"sha256:" + "0"*64` and any constant
@@ -386,25 +423,33 @@ thing that separates the two.
   `observed_tools` reaches the chokepoint as `StepResult.data["observed_tools"]` (§2.4,
   `[bd10:6]`); **absent means the adapter cannot observe** — no check runs, no error is possible,
   and that is a third state distinct from an empty set, exactly as `observed_model`'s absence is
-  in §5. Asserted on one fixture pair whose only difference is absent-versus-empty.
+  in §5. `[bd10:12]` The absent-versus-empty pair is asserted **through the payload**, where the
+  two now differ (`observed_tools` `null` versus `[]`) and through the resulting
+  `"verdict:R3.6"` label (`not-checked` versus `passed`) — not through the returned status, which
+  is `ok` for both and cannot distinguish them.
   **The matching rule is pinned, not described** (`[G22:4]`): an observed `tool_use` block's `name`
   (e.g. `"Bash"`) is inside the declared set iff the set contains an entry whose text **before the
   first `"("`** equals that name exactly, case-sensitively. So `"Bash(graphify-shim.sh:*)"`
   (`workflows/phase_2_explore.py:372`) admits an observed `"Bash"`.
-  Observation reuses the transcript walk of `_written_paths_from_events`
-  (`llm_subprocess.py:2513-2571`) — the harness's own record of tool calls, not the worker's
-  self-report, and therefore not forgeable by the actor.
-  **Quantified over the `tool_use` blocks of a transcript, both orderings:** one fixture with the
-  escaping block **first** of three, one with it **last** of three, so `any`/`first`/`last`
-  reductions all die. Positive control over ≥2 blocks all inside the set → `ok`.
+  `[bd10:14]` **(G10) Two different things, kept apart in the wording.** The **adapter** derives
+  `observed_tools` by walking its own `tool_use` blocks, reusing the transcript walk of
+  `_written_paths_from_events` (`llm_subprocess.py:2513-2571`) — the harness's own record of tool
+  calls, not the worker's self-report, and therefore not forgeable by the actor. The **checker**
+  never sees a transcript: `capability_escapes` takes the derived `Sequence[str]`. v2 described
+  both sides as "the transcript blocks", which reads as stale against the pinned signature; the
+  distinction is the whole point of `[bd10:6]` and is now stated once, here.
+  **Quantified over the members of `observed_tools`, both orderings:** one fixture with the
+  escaping head **first** of three, one with it **last** of three, so `any`/`first`/`last`
+  reductions all die. Positive control over ≥2 heads all inside the set → `ok`.
 - **AC-C4** `allowed_tools is None` ⇒ **no escape check runs and no error is possible** — nothing
   can be outside a set that was never declared. Distinguished from `allowed_tools == []`, where
-  **any** observed tool use is an escape. One fixture each, with the *same* transcript, so the two
-  outcomes are attributable to the declaration alone.
+  **any** observed tool use is an escape. One fixture each, with the *same* `observed_tools`, so
+  the two outcomes are attributable to the declaration alone.
 - **AC-C5** `E_CAPABILITY_ESCAPE` and `E_MODEL_PIN_MISMATCH` present in `error_codes.ERROR_CODES`,
   and `error_codes.py --check` exits 0 on the real tree (as AC-I4).
 - **AC-C6** **Declared limit of v1, and it is in the attestation, not only here.** Only the tool
-  **head** is observable in the transcript block's `name`; an argument-level escape *within* an
+  **head** is observable — the adapter derives `observed_tools` from each `tool_use` block's `name`,
+  and the operand never leaves the adapter; an argument-level escape *within* an
   allowed head (a `Bash` call outside `graphify-shim.sh` under the declaration above) is **NOT
   detected by v1**. Asserted as a characterisation test so the boundary is recorded rather than
   discovered, and labelled in the report. **Re-open criterion:** an adapter interface that surfaces
