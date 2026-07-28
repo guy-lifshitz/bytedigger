@@ -319,14 +319,31 @@ def _run_covers_npm_install_hint(run_str: str) -> bool:
     return not excluded
 
 
+# On Python 3.12+, f-strings tokenize as FSTRING_START/MIDDLE/END rather
+# than a single STRING token; the literal text between the braces (where a
+# forbidden marker could land inside an f-string, e.g. an assert message)
+# must be blanked too. Older interpreters have no such attributes -- built
+# defensively so this file still runs there.
+_STRING_LIKE_TOKEN_TYPES = tuple(
+    t
+    for t in (
+        tokenize.STRING,
+        getattr(tokenize, "FSTRING_START", None),
+        getattr(tokenize, "FSTRING_MIDDLE", None),
+        getattr(tokenize, "FSTRING_END", None),
+    )
+    if t is not None
+)
+
+
 def _code_only_source(path: Path) -> str:
-    """This file's own source with docstrings and comments blanked out
-    (identified via `tokenize`, positions blanked IN PLACE so real code's
-    adjacency -- e.g. `pytest.mark.skip` -- is preserved character-for-
-    character). bd#11 AC34 precedent: a lint must scan CODE, not prose --
-    AC10's own docstring names every forbidden marker in order to explain
-    itself, and a raw-text scan would flag that prose, not an actual skip
-    mechanism."""
+    """This file's own source with docstrings, comments, and string
+    literals (including f-string text, py3.12+) blanked out (identified via
+    `tokenize`, positions blanked IN PLACE so real code's adjacency -- e.g.
+    `pytest.mark.skip` -- is preserved character-for-character). bd#11 AC34
+    precedent: a lint must scan CODE, not prose -- AC10's own docstring
+    names every forbidden marker in order to explain itself, and a raw-text
+    scan would flag that prose, not an actual skip mechanism."""
     source = path.read_text(encoding="utf-8")
     grid = [list(line) for line in source.splitlines(keepends=True)]
 
@@ -337,7 +354,7 @@ def _code_only_source(path: Path) -> str:
                 grid[row][col] = " "
 
     for tok in tokenize.generate_tokens(io.StringIO(source).readline):
-        if tok.type not in (tokenize.COMMENT, tokenize.STRING):
+        if tok.type not in (tokenize.COMMENT, *_STRING_LIKE_TOKEN_TYPES):
             continue
         (sr, sc), (er, ec) = tok.start, tok.end
         sr -= 1
@@ -540,10 +557,13 @@ class TestNpmInstallHint:
            narrowed to an alternation over the dictionary itself, which
            would pass parts 1-3 and every other AC while going blind to any
            form outside the dictionary;
-        5. prose decoy (E1 of the re-gate): the exact §2.7 lines GREEN will
-           print (`Install it with pipx (recommended for CLI tools):`,
-           `Or into an active virtualenv:`) must NOT be recognised as
-           commands."""
+        5. fence-boundary decoy (E1/F5 of the re-gate): a synthetic
+           markdown doc with the prose line `Prints the pipx install
+           instructions.` (3 tokens before "install" -- exactly what the
+           bare §2.1 grammar WOULD match) OUTSIDE any fence, plus a
+           ```bash fence holding one real command, must yield exactly one
+           hit through `_fenced_code_text` -- the fenced command, not the
+           prose."""
         result = _run_wrapper_isolated(tmp_path)
         wrapper_cmds = find_install_commands(result.stderr)
         assert wrapper_cmds, (
@@ -580,14 +600,41 @@ class TestNpmInstallHint:
             f"{sudo_cmds[0]['exe']!r} must not be an allowed installer form"
         )
 
-        for prose_line in (
-            "Install it with pipx (recommended for CLI tools):",
-            "Or into an active virtualenv:",
-        ):
-            hits = find_install_commands(prose_line)
-            assert not hits, (
-                f"grammar wrongly matched the §2.7 prose decoy {prose_line!r}: {hits!r}"
-            )
+        # Part 5 (F5 of the re-gate): the real danger is NOT a decoy line
+        # with zero tokens before "install" (those trivially never match
+        # any grammar requiring the literal "install") -- it's a line with
+        # EXACTLY three tokens before "install", which the §2.1 grammar
+        # alone WOULD match (exe="Prints the pipx"), and which only the
+        # §2.5-bis fence boundary excludes. This decoy exercises that fence
+        # directly: a synthetic markdown doc with the prose line OUTSIDE
+        # any fence, plus a ```bash fence holding one real command.
+        synthetic_md = (
+            "Prints the pipx install instructions.\n"
+            "\n"
+            "```bash\n"
+            "pipx install bytedigger-engine\n"
+            "```\n"
+        )
+
+        unfenced_cmds = find_install_commands(synthetic_md)
+        assert len(unfenced_cmds) == 2, (
+            "sanity check on the fixture itself: without fence-scoping, the "
+            "prose line 'Prints the pipx install instructions.' is grammar-"
+            f"matched (exe='Prints the pipx') alongside the fenced command -- "
+            f"expected 2 raw hits, got {unfenced_cmds!r}"
+        )
+
+        fenced_cmds = find_install_commands(_fenced_code_text(synthetic_md))
+        assert len(fenced_cmds) == 1, (
+            "the §2.5-bis fence boundary must exclude the prose line "
+            "'Prints the pipx install instructions.' (3 tokens before "
+            "\"install\", which the bare §2.1 grammar alone would match) -- "
+            f"expected exactly 1 fenced hit, got {fenced_cmds!r}"
+        )
+        assert fenced_cmds[0]["exe"] == "pipx" and fenced_cmds[0]["target"] == "bytedigger-engine", (
+            f"the one fenced hit must be the real command, not the prose "
+            f"line: {fenced_cmds!r}"
+        )
 
     def test_ac9_some_root_scoped_ci_step_can_actually_fail_on_this_file(self):
         """AC9 (§1l shield + MAJOR-3: the covering step must be able to
@@ -661,7 +708,20 @@ class TestNpmInstallHint:
         THIS docstring's own naming of the forbidden markers, which is
         prose, not a skip). Matching is case-insensitive so
         `@pytest.mark.XFail` style spellings are caught too."""
-        code_only = _code_only_source(Path(__file__)).lower()
+        code_only_raw = _code_only_source(Path(__file__))
+        # F7 of the re-gate: a positive anchor. Without this, a
+        # `_code_only_source` regression that returns "" (or blanks out
+        # real code, not just docstrings/comments) would make every
+        # `not in` assertion below pass vacuously -- the shield would turn
+        # itself off exactly the way AC10 exists to catch. `code_only_raw`
+        # must still contain this very test's own def line, proving real
+        # code (not just whitespace) survived the blanking.
+        assert "def test_ac10" in code_only_raw, (
+            "_code_only_source() lost real code -- expected this test's own "
+            f"`def test_ac10...` line to survive blanking; got {code_only_raw[:200]!r}..."
+        )
+
+        code_only = code_only_raw.lower()
         forbidden = (
             "pytest" + ".skip",
             "import" + "orskip",
