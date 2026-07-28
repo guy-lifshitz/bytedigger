@@ -793,10 +793,27 @@ class TestInstallFormsRegistry:
         `pip install X` in the domain' left all 13 v3 tests green."""
         install_forms = _load_install_forms_module()
         violations = install_forms.scan_domain(REPO_ROOT)
-        assert violations, (
-            "scan_domain(REPO_ROOT) returned no hits at all -- a broken walk "
-            "would vacuously report 'no violations' (spec AC14)"
+        hit_paths = {v["path"] for v in violations}
+
+        # Non-emptiness alone does not discriminate a shallow, non-recursive
+        # walk (e.g. glob("engine_py/*.py")) from the declared domain: such a
+        # walk still finds carriers at depth 1 and still stays inside
+        # CARRIERS, so a new file under engine_py/lib/ (recursion) or a
+        # dropped engine_py/README.md (non-.py extension) would go
+        # unnoticed. Anchor on one carrier per domain root/extension instead.
+        required_anchors = {
+            "engine_py/lib/reference_backends/agent_sdk.py",  # recursion into engine_py/**
+            "npm/bin/bytedigger.js",                          # npm/** root
+            "packaging/pypi-pointer/README.md",                # packaging/** root
+            "engine_py/README.md",                             # non-.py under engine_py
+        }
+        missing_anchors = required_anchors - hit_paths
+        assert not missing_anchors, (
+            f"scan_domain(REPO_ROOT) is missing hit(s) at required anchor "
+            f"path(s) -- a narrowed/non-recursive walk would silently drop "
+            f"these: {sorted(missing_anchors)}; got hit_paths={sorted(hit_paths)}"
         )
+
         carrier_paths = {relpath for relpath, _kind in install_forms.CARRIERS}
         offenders = [v for v in violations if v["path"] not in carrier_paths]
         assert not offenders, (
