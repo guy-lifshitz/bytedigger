@@ -66,6 +66,22 @@ shape ("offenders are 1st and 2nd with the conformant row 3rd") as "the
 model to copy" — that text is stale against the round-4 rebuild (5 rows, no
 conformant row at all); flagged to the team lead rather than corrected here,
 since it is spec prose, not this file.
+
+v7 (gate round 4, `[G22:16]`): spec now pins the two semantics round 6's
+simulation flagged as gaps instead of guessing — LEVEL/row/SEAM operands are
+matched case-sensitively and verbatim (unlike the case-insensitive marker
+prefixes), and seam property lines bind to the nearest preceding `SEAM`
+(same rule as `ADMITS`→`LEVEL`). Four new fixtures: `_LEVEL_CASE_MISMATCH_SPEC`
+and `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` assert the two newly-pinned
+semantics directly; `_CHECK2_WRONG_LEVEL_BINDING_SPEC` and
+`_SEAM_NAME_SUBSTRING_SPEC` close the two gaps flagged (not invented) in the
+round-7 report.
+
+Round 9: `_SEAM_NAME_CASE_MISMATCH_SPEC` closes the further gap flagged in
+the round-9 report — SEAM-name case-sensitivity specifically (as opposed to
+LEVEL/row-operand case-sensitivity, which `_LEVEL_CASE_MISMATCH_SPEC`
+covers), which `_SEAM_NAME_SUBSTRING_SPEC` does not discharge since its two
+seam names differ in more than case.
 """
 from __future__ import annotations
 
@@ -444,6 +460,34 @@ BINDING-TIME: call-time
 NORMALISATION: none
 """
 
+# Check-2 row-to-level binding fixture (flagged as a gap in the round-7
+# report, closed here): a present-but-short row bound to the WRONG level —
+# every prior check-2 fixture had its row immediately follow its own level,
+# so "incidental coverage" of the binding via check 1's fixture was never
+# verified for check 2 specifically (`[G22:10]`'s own rule: incidental
+# coverage is not coverage). The row here is textually adjacent to
+# `beta_gate` but its `<level>` operand names `alpha_gate` — a lint binding
+# by PROXIMITY (nearest preceding LEVEL) instead of reading the row's own
+# operand would misattribute it to `beta_gate`, wrongly reporting `beta_gate`
+# as present-but-short and `alpha_gate` as missing a row entirely (check 1),
+# rather than the reverse — exactly what correct (operand-text) binding
+# produces.
+_CHECK2_WRONG_LEVEL_BINDING_SPEC = """\
+# Fixture Spec — check 2: present-but-short row adjacent to one level,
+# naming another
+
+LEVEL: alpha_gate
+
+LEVEL: beta_gate
+NON-UNIFORMITY: alpha_gate — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first
+
+SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
 # `[G22:15]` check-1 row-to-level BINDING fixture: kills two GREENs that
 # survived all 19 tests through round 3 — document-global presence (any
 # `NON-UNIFORMITY:` line anywhere ⇒ nothing missing) and substring rather
@@ -476,6 +520,21 @@ SEAM: Path.read_text
 ATTRIBUTE-PATH: pathlib.Path.read_text
 BINDING-TIME: call-time
 NORMALISATION: none
+"""
+
+# `[G22:16]` case-sensitive operand matching, pinned in spec v7: `LEVEL:
+# Audit_Case` is NOT discharged by `NON-UNIFORMITY: audit_case — …`, since
+# `Finding.subject` is verbatim and a case-folding lint cannot both fold to
+# match and report verbatim. `Audit_Case` (mixed-case level) and
+# `audit_case` (all-lowercase row operand) differ ONLY in casing — a lint
+# that case-folds operands before comparing would wrongly see the row as
+# discharging the level; the level must still be flagged.
+_LEVEL_CASE_MISMATCH_SPEC = """\
+# Fixture Spec — level and row differ only in casing
+
+LEVEL: Audit_Case
+NON-UNIFORMITY: audit_case — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
 """
 
 # Bonus coverage (proactive, not required by the gate this round, but on
@@ -567,6 +626,76 @@ SEAM: subprocess.run
 ATTRIBUTE-PATH: subprocess.run
 BINDING-TIME: call-time
 NORMALISATION: none
+"""
+
+# `[G22:16]` property-line-to-seam wrong-neighbour binding, pinned in spec
+# v7 (same rule as `ADMITS`→`LEVEL`, now stated for `SEAM` too): property
+# lines bind to the NEAREST PRECEDING `SEAM`, never a following one.
+# `Seam.Alpha`'s three property lines sit directly above `Seam.Beta`'s
+# declaration; `Seam.Beta` supplies only two lines of its own
+# (ATTRIBUTE-PATH, BINDING-TIME — missing NORMALISATION under correct
+# binding). A following-binding lint attributes `Seam.Alpha`'s block
+# forward to `Seam.Beta` (the nearest SEAM *after* those lines), so
+# `Seam.Beta` looks fully pinned (NORMALISATION "borrowed" from above) and
+# `Seam.Alpha` looks entirely unpinned (its own lines never attributed back
+# to it, and nothing follows it to inherit from) — the reverse of correct,
+# preceding-binding output.
+_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC = """\
+# Fixture Spec — property lines bind to the nearest preceding SEAM, not
+# following
+
+SEAM: Seam.Alpha
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+
+SEAM: Seam.Beta
+ATTRIBUTE-PATH: Seam.Beta
+BINDING-TIME: call-time
+"""
+
+# Check-3 seam-name substring confusion (flagged as a gap in the round-7
+# report, closed here) — the check-3 analogue of check 1's `audit`/
+# `audit_field`. `Path.read` is a substring/prefix of `Path.read_text`
+# and is fully conformant; `Path.read_text` is the longer name and is
+# offending (missing NORMALISATION). A substring-matching lint might credit
+# `Path.read_text`'s missing property from `Path.read`'s complete block,
+# since `Path.read` textually matches as a substring of `Path.read_text`.
+_SEAM_NAME_SUBSTRING_SPEC = """\
+# Fixture Spec — one seam name is a substring of another's
+
+SEAM: Path.read
+ATTRIBUTE-PATH: pathlib.Path.read
+BINDING-TIME: call-time
+NORMALISATION: none
+
+SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+"""
+
+# `[G22:16]` seam-name case-sensitivity, distinct from the substring fixture
+# above (whose two names differ in more than case) — flagged as a live-but-
+# untested candidate in the round-9 report, closed here rather than left
+# for a later round. `path.read_text` (lowercase) and `Path.Read_Text`
+# (mixed-case) are the SAME text except for casing — pinned by `[G22:16]`
+# as two DISTINCT seams, not one. `path.read_text` is fully conformant;
+# `Path.Read_Text` is missing NORMALISATION. A case-folding lint that
+# conflates the two (treating them as one seam) would see the union of
+# both blocks' properties as complete — ATTRIBUTE-PATH and BINDING-TIME
+# from `Path.Read_Text`'s own lines, NORMALISATION borrowed from
+# `path.read_text`'s block — and wrongly clear `Path.Read_Text`.
+_SEAM_NAME_CASE_MISMATCH_SPEC = """\
+# Fixture Spec — two seam names differ only in casing
+
+SEAM: path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+
+SEAM: Path.Read_Text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
 """
 
 # `[G22:9]` bonus coverage (not required by the gate, flagged as such in the
@@ -709,6 +838,25 @@ class TestQuantifierCompletenessLint:
         assert not any(f.subject == "workers" for f in findings)
         assert not any(f.subject == "audit_field" for f in findings)
 
+    def test_ac_c5_level_operand_matched_case_sensitively(self):
+        """AC-C5(1). `[G22:16]`: `LEVEL: Audit_Case` and
+        `NON-UNIFORMITY: audit_case — …` differ only in casing — pinned in
+        spec v7 as NOT a match (`Finding.subject` is verbatim from the
+        document, and a lint that case-folds operands to match them cannot
+        also report verbatim). Kills a lint that lower-cases (or otherwise
+        folds) operands before comparing `LEVEL` names against row
+        `<level>` operands; `Audit_Case` must still be flagged as missing
+        its own row.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_LEVEL_CASE_MISMATCH_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "Audit_Case"
+            for f in findings
+        )
+
     def test_ac_c5_admits_binds_to_preceding_level_not_following(self):
         """AC-C5(2), bonus coverage (proactive, `[G22:13]`'s standing
         candidate list — "operand bound to the wrong neighbour"; not
@@ -729,6 +877,39 @@ class TestQuantifierCompletenessLint:
         assert not any(f.subject == "alpha_level" for f in findings)
         assert any(
             f.kind == "missing_reductions" and f.subject == "beta_level"
+            for f in findings
+        )
+
+    def test_ac_c5_check2_row_binds_by_operand_not_proximity(self):
+        """AC-C5(2). Flagged as a gap in the round-7 report, closed here:
+        a present-but-short row textually adjacent to `beta_gate` but whose
+        `<level>` operand names `alpha_gate`. Correct (operand-text)
+        binding: `alpha_gate` gets the present-but-short row (missing
+        `last`); `beta_gate` has no row of its own at all (check 1). A
+        proximity-binding lint (attributing the row to the nearest
+        preceding `LEVEL` instead of reading its operand) would get this
+        backwards or miss it, since it was never forced by any prior check-2
+        fixture (all of which had rows immediately following their own
+        level).
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_CHECK2_WRONG_LEVEL_BINDING_SPEC)
+
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "alpha_gate"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "beta_gate"
+            for f in findings
+        )
+        assert not any(
+            f.kind == "missing_reductions" and f.subject == "beta_gate"
+            for f in findings
+        )
+        assert not any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "alpha_gate"
             for f in findings
         )
 
@@ -893,6 +1074,69 @@ class TestQuantifierCompletenessLint:
         )
         assert not any(f.subject == "Path.read_text" for f in findings)
         assert not any(f.subject == "subprocess.run" for f in findings)
+
+    def test_ac_c5_seam_property_line_binds_to_preceding_seam_not_following(self):
+        """AC-C5(3). `[G22:16]`: property lines bind to the NEAREST
+        PRECEDING `SEAM`, never a following one (spec v7, same rule as
+        `ADMITS`→`LEVEL`). `Seam.Alpha`'s three property lines sit directly
+        above `Seam.Beta`'s declaration; `Seam.Beta` supplies only two lines
+        of its own. A following-binding lint attributes `Seam.Alpha`'s block
+        forward onto `Seam.Beta` (making it look fully pinned) and leaves
+        `Seam.Alpha` with nothing (making it look entirely unpinned) — the
+        reverse of correct output. Kills that lint on both halves at once.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC)
+
+        assert not any(f.subject == "Seam.Alpha" for f in findings)
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Seam.Beta"
+            for f in findings
+        )
+
+    def test_ac_c5_flags_seam_name_substring_confusion(self):
+        """AC-C5(3). Flagged as a gap in the round-7 report, closed here —
+        the check-3 analogue of check 1's `audit`/`audit_field`. `Path.read`
+        is a substring/prefix of `Path.read_text` and is fully conformant;
+        `Path.read_text` is the longer name and is missing NORMALISATION. A
+        substring-matching lint (crediting `Path.read_text`'s properties
+        from any seam whose name it contains as a substring) would wrongly
+        treat `Path.read_text` as fully pinned via `Path.read`'s complete
+        block.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SEAM_NAME_SUBSTRING_SPEC)
+
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Path.read_text"
+            for f in findings
+        )
+        assert not any(f.subject == "Path.read" for f in findings)
+
+    def test_ac_c5_flags_seam_name_case_mismatch_as_distinct_seams(self):
+        """AC-C5(3). `[G22:16]`: flagged as a live-but-untested candidate in
+        the round-9 report (distinct from `_SEAM_NAME_SUBSTRING_SPEC`, whose
+        two names differ in more than case), closed here. `path.read_text`
+        and `Path.Read_Text` are the same text except for casing — pinned
+        as two DISTINCT seams, not one, for the same reason a level and a
+        row differing only in casing are distinct (`Finding.subject` is
+        verbatim, and a lint that case-folds to conflate them cannot also
+        report each verbatim). `path.read_text` is fully conformant;
+        `Path.Read_Text` is missing NORMALISATION. A case-folding lint that
+        treats them as one seam sees the union of both blocks' properties as
+        complete and wrongly clears `Path.Read_Text`.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SEAM_NAME_CASE_MISMATCH_SPEC)
+
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Path.Read_Text"
+            for f in findings
+        )
+        assert not any(f.subject == "path.read_text" for f in findings)
 
     def test_ac_c5_conformant_control_passes(self):
         """AC-C5 control. A document with every level's non-uniformity row
