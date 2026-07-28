@@ -1,5 +1,22 @@
 # Lot spec — bd#7: conformance harness + oracle interface + attestation writer + BD-L0
 
+**v10** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (1), v8 (3). Gate round 8 has **not**
+returned a verdict against v9 or v10: the round-8 gate process died on a session limit mid-audit, which is
+not a finding and is not evidence of soundness. v10 carries **one defect found in v9 by the lot owner, in
+v9's own addition**, plus its two smaller siblings:
+
+- `[G7:4]` **§4.3's completeness claim was falsified by an AC added in the same version.** v9 replaced v7's
+  false completeness sentence with a hand-built enumeration of collections plus an invitation to falsify it —
+  and omitted **the events of a scope**, which is precisely what v9's own new AC-L0-15 quantifies over. Two
+  smaller omissions came with it (`written`'s entries → `[G7:MINOR-7]`, `core_manifest`'s entries). Third
+  consecutive round in which the audit artifact carried the defect it audits. **The instrument is therefore
+  replaced, not reworded:** the global enumeration is demoted to a convenience index, and each AC now carries
+  its own quantifier-and-fixture citation, so an AC without one is unasserted and a reviewer can settle the
+  question by reading the AC rather than by redoing a list. If table and AC disagree, the AC governs.
+- `[G7:MINOR-7]` AC-L0-3b4's `written` entries were uniform in depth (all 300 paths under one directory), so
+  a producer special-casing depth was untested in the combined case. Now asserted over root, `sub/`, and
+  `sub/dir/` spellings in one phase. Not blocking — the test loops rather than reduces — but cheap.
+
 **v9** — gate REJECTED v1 (8), v2 (4), v3 (4), v4 (5), v5 (1), v6 (1), v8 (**3**). Round-7 findings tagged
 `[G7:n]`. Every one of the three blocking findings was re-verified against the code by the lot owner before
 being accepted — one of them arithmetically, to the byte — and the gate's refutation of one of the owner's
@@ -1203,12 +1220,43 @@ Two standing cross-references, so the next round does not mistake either for a g
 - **Row 4 (zero-step vacuity) has no non-uniform member by construction** — the collection is empty. Its
   discrimination comes entirely from the positive control plus AC-L0-6e's per-phase row above.
 
-The completeness claim, stated so it can be falsified rather than trusted: the collections quantified over
-in this design are steps of a phase, frames of a phase, phases of a run, runs of a log, the required
-adversary set, the three requirements, the two `l0` signals, and the files of a freeze. Every one has a row.
-Nothing quantifies over multiple log files, multiple hosts, or multiple `L0Report`s. **If a reviewer finds a
-collection not in that list, this table is wrong and the rule was not applied** — which is exactly how
-`[G7:2]` was found.
+| `[G7:MINOR-7]` **relpath spelling per entry** | **entries of `written`** | **AC-L0-3b4: root / `sub/` / `sub/dir/` in one phase** | **all three spellings exact** |
+| `[G7:4]` **universal clauses per event set** | **events of a scope** | **AC-L0-15: scope matching nothing, log holds a passing run** | **same log under its real `run_id`** |
+| `[G7:4]` manifest membership | entries of `core_manifest.json` | AC-P2 (absence; no violating member possible) | AC-P1's include list |
+
+### The completeness claim, and why the instrument changed `[G7:4]`
+
+v9 stated completeness as a hand-built enumeration of collections, with an explicit invitation to falsify
+it. **It was falsified within the same version, by an AC added in that same version:** AC-L0-15 quantifies
+every universal R0.2/R0.3 clause over *the events of a scope* — that is its entire subject, `all([])` one
+scope out — and neither the collection nor the row was present. Two further gaps came with it (`written`'s
+entries, `core_manifest`'s entries), all three now rows above.
+
+That is the **third consecutive round in which the audit artifact carried the defect it audits**: v7's table
+claimed completeness while omitting three quantifiers (`[G7:2]`), and v9's replacement — written expressly to
+fix that, with a falsification invitation attached — omitted one from its own version. The missing rows are
+trivial. The pattern is the finding, and it says the instrument is wrong, not the wording: **a global
+enumeration is a claim no reviewer can check without redoing it, and its author is the person least able to
+see what they left out.** Restating it more humbly does not fix that; three rounds of evidence say so.
+
+So the burden is inverted, from one global claim to a **per-AC obligation that is checkable where it is
+written**:
+
+> **Normative `[G7:4]`.** Any AC whose requirement is universally quantified — any AC whose text turns on
+> *every*, *each*, *all*, *per phase*, *per step*, *per record*, *per run*, or an implicit reduction over a
+> collection — MUST name its collection and cite its `[G6:quant]` fixture **in its own text**. An AC that
+> does not is **unasserted**, exactly as an AC asserted only over a uniform collection is unasserted. §4.3 is
+> then a convenience index over those per-AC citations, not the authority: if the table and an AC disagree,
+> **the AC governs**, and a missing row is a table bug rather than a silent hole in coverage.
+
+The difference is that a reviewer auditing one AC can now settle the question by reading that AC, and a new
+AC arrives with its quantifier obligation attached rather than needing an editor to remember to extend a
+global list. The rows above remain as the index; they are no longer the claim.
+
+Nothing in this design quantifies over multiple log files, multiple hosts, or multiple `L0Report`s
+(`build_attestation_report` takes exactly one). That statement is now a **narrow negative about three
+specific things I checked**, not a completeness claim about a list — the ladder's top per `[G7:3]`, stated
+where it can be checked rather than trusted.
 
 ## 5. Out of scope
 
