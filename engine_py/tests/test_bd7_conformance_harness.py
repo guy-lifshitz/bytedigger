@@ -2476,38 +2476,78 @@ def test_ac_l0_3b3_written_accumulates_across_validation_retry_recursion(tmp_pat
 
 
 def test_ac_l0_3b4_written_relpath_is_posix_against_scan_root_for_nested_paths(tmp_path):
-    """AC-L0-3b4 [G6:EDGE-4]: the relpath spelling is asserted for NESTED
-    paths — both halves the AC names: exact string equality AND the digest
-    recomputed over that spelling. Every existing write fixture writes to
-    the repo root, so written/written_digest are only ever exercised on
-    bare filenames — a GREEN emitting absolute paths, "./"-prefixed paths,
-    or OS-separator paths for files in subdirectories would pass every
-    other test in this file while making written_digest non-reproducible
-    for any real phase that writes into a subtree (the normal case).
+    """AC-L0-3b4 [G6:EDGE-4] [G7:MINOR-7]: the relpath spelling is asserted
+    for NESTED paths — both halves the AC names: exact string equality AND
+    the digest recomputed over that spelling. Every existing write fixture
+    writes to the repo root, so written/written_digest are only ever
+    exercised on bare filenames — a GREEN emitting absolute paths,
+    "./"-prefixed paths, or OS-separator paths for files in subdirectories
+    would pass every other test in this file while making written_digest
+    non-reproducible for any real phase that writes into a subtree (the
+    normal case).
 
-    Enough files under sub/dir/ are written to force truncation (as
-    AC-L0-3d does), so written_digest is present and can be checked, by
-    EQUALITY, against the real full sorted list of NESTED relpaths."""
+    [G7:MINOR-7]: `written` is quantified over path entries, and the prior
+    fixture was UNIFORM IN DEPTH — all 300 paths sat under `sub/dir/`. A
+    producer that special-cases depth (correct at root, wrong once nested,
+    or the reverse) was untested in the combined case, since the loop over
+    `sample` checked membership against a set of otherwise-identical-shaped
+    names. Fixed: the fixture now writes THREE DISTINCT DEPTHS in the same
+    phase — `root.txt` (repo root), `sub/one.txt`, `sub/dir/nested.txt` —
+    alongside enough filler files (still at the `sub/dir/` depth) to keep
+    forcing truncation as before.
+
+    The per-depth guarantee is discharged by two assertions already
+    present below, now made load-bearing by the depth mix rather than by
+    any new per-name check: (1) the per-entry universal loop
+    (`for p in sample: assert p in expected_paths`), which kills an
+    absolute, `./`-prefixed, or backslash spelling AT ANY of the three
+    depths now that the fixture actually spans three of them; and (2) the
+    `written_digest` equality, recomputed over the FULL sorted three-depth
+    list — which a depth-conditional spelling bug cannot survive, because
+    the digest covers the whole list, including whichever depths the
+    BOUNDED SAMPLE happens to omit. The spec does not pin which entries a
+    bounded sample contains, so a sample-only per-name assertion would
+    either be vacuous (if it degenerates to checking the test's own input
+    list) or false-failing (if it required a specific path to be present
+    in `sample`); the digest is what makes the per-depth spelling
+    provable regardless of sampling.
+
+    Enough files are written to force truncation (as AC-L0-3d does), so
+    written_digest is present and can be checked, by EQUALITY, against the
+    real full sorted list of mixed-depth relpaths. No byte-boundary
+    arithmetic is involved here (unlike AC-L0-3d2/3d3/3d4/3d5) — this test
+    forces truncation by file COUNT, not by hitting an exact byte target,
+    so mixing depths changes no computed number."""
     import hashlib  # noqa: PLC0415
 
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
     repo_dir = tmp_path / "repo"
     _init_git_repo(repo_dir)
-    n_files = 300
+    n_filler_files = 300
 
-    def _write_nested_many(_ctx, _prev):
+    # [G7:MINOR-7]: three distinct depths, named so they cannot be confused
+    # with the filler template's shape.
+    root_depth_path = "root.txt"
+    mid_depth_path = "sub/one.txt"
+    nested_depth_path = "sub/dir/nested.txt"
+
+    def _write_mixed_depths_and_filler(_ctx, _prev):
+        (repo_dir / root_depth_path).write_text("x")
+        (repo_dir / "sub").mkdir(parents=True, exist_ok=True)
+        (repo_dir / mid_depth_path).write_text("x")
         nested_dir = repo_dir / "sub" / "dir"
         nested_dir.mkdir(parents=True, exist_ok=True)
-        for i in range(n_files):
-            (nested_dir / f"nested_{i:05d}.txt").write_text("x")
-        return StepResult(status="ok", data=None, duration_ms=0, step_name="write_nested_many")
+        (repo_dir / nested_depth_path).write_text("x")
+        for i in range(n_filler_files):
+            (nested_dir / f"nested_filler_{i:05d}.txt").write_text("x")
+        return StepResult(status="ok", data=None, duration_ms=0, step_name="write_mixed_depths")
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
     eng.register(
         "wf_l0_3b4",
-        WorkflowDefinition(name="wf_l0_3b4", steps=[StepContract(name="write_nested_many", execute=_write_nested_many)]),
+        WorkflowDefinition(name="wf_l0_3b4", steps=[StepContract(name="write_mixed_depths", execute=_write_mixed_depths_and_filler)]),
     )
     result, _ctx = eng.execute("wf_l0_3b4", _make_ctx(git_cwd=str(repo_dir)), run_id="run-l0-3b4")
     assert result.status == "ok"
@@ -2518,25 +2558,33 @@ def test_ac_l0_3b4_written_relpath_is_posix_against_scan_root_for_nested_paths(t
     payload = phase_artifacts[0]["payload"]
     assert payload["write_tracking"] == "git-delta", payload
 
-    expected_paths = sorted(f"sub/dir/nested_{i:05d}.txt" for i in range(n_files))
+    filler_paths = [f"sub/dir/nested_filler_{i:05d}.txt" for i in range(n_filler_files)]
+    expected_paths = sorted([root_depth_path, mid_depth_path, nested_depth_path, *filler_paths])
+    assert len({root_depth_path.count("/"), mid_depth_path.count("/"), nested_depth_path.count("/")}) == 3, (
+        "sanity: the three named paths must genuinely sit at THREE "
+        "DISTINCT depths (0, 1 and 2 path separators)"
+    )
 
     sample = payload["written"]
     assert sample, "expected a non-empty bounded sample of written paths"
     for p in sample:
         assert p in expected_paths, (
             f"written entry {p!r} is not an exact POSIX relpath against the "
-            f"scan root spelled 'sub/dir/nested_NNNNN.txt' — an absolute "
-            f"path, a './'-prefixed path, or an OS-separator ('sub\\\\dir\\\\...') "
-            f"path would all fail this"
+            f"scan root — with THREE genuinely different depth shapes now "
+            f"in play (root.txt / sub/one.txt / sub/dir/nested_*.txt), an "
+            f"absolute path, a './'-prefixed path, or an OS-separator "
+            f"('sub\\\\dir\\\\...') path at ANY one depth would fail this"
         )
 
     expected_digest = "sha256:" + hashlib.sha256(
         "\n".join(expected_paths).encode("utf-8")
     ).hexdigest()
     assert payload.get("written_digest") == expected_digest, (
-        f"written_digest must be recomputed over the FULL sorted NESTED "
-        f"relpath list in the SAME spelling `written` uses, got "
-        f"{payload.get('written_digest')!r}, expected {expected_digest!r}"
+        f"written_digest must be recomputed over the FULL sorted MIXED-"
+        f"DEPTH relpath list in the SAME spelling `written` uses — "
+        f"including root.txt, sub/one.txt and sub/dir/nested.txt as well "
+        f"as the filler paths — got {payload.get('written_digest')!r}, "
+        f"expected {expected_digest!r}"
     )
 
     report = check_bd_l0(events, run_id="run-l0-3b4", writer=EventLog)
