@@ -130,3 +130,6 @@ jobs:
 
       - name: npm install-hint property tests (bd#17)
         run: python -m pytest tests/test_npm_install_hint.py -q
+
+      - name: install-forms registry tests (bd#21)
+        run: python -m pytest tests/test_install_forms_registry.py -q

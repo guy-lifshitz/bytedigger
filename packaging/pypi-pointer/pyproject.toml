@@ -22,7 +22,7 @@ classifiers = [
 # The pin is exact and must equal this package's own version. `scripts/version_parity.py`
 # enforces that; without it the friendly name silently installs a stale engine, which is
 # exactly what happened between 0.1.0 and 0.1.1 (pointer pinned ==0.1.0 while the engine
-# shipped 0.1.1, so `pip install bytedigger` handed out the old engine).
+# shipped 0.1.1, so `pip install bytedigger` handed out the old engine). # install-forms-ok: historical broken advice, quoted verbatim -- not a live install hint
 dependencies = ["bytedigger-engine==0.1.1"]
 
 [project.urls]

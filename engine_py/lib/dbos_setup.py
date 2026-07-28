@@ -9,6 +9,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+# bd#21: the install hint is DERIVED from the canonical source, never spelled out
+# here — package_meta is the stdlib-only leaf that owns the dist name and the
+# extras, and `test_bd21_extras_parity.py` pins `EXTRA_DBOS` against
+# `pyproject.toml [project.optional-dependencies]` in both directions.
+from package_meta import EXTRA_DBOS, install_hint
+
 # GH612 Ship A: the phase key, the ctx-hash, the engine invoke and the backend
 # resolver live in the dbos-free `lib.phase_sentinel`. The dependency is one-way
 # (phase_sentinel NEVER imports dbos_setup) so Ship B deletes this module without
@@ -190,7 +196,7 @@ def _assert_pickle_clean(context_dict: dict[str, Any]) -> None:
 try:
     from dbos import DBOS, SetWorkflowID  # noqa: E402
     _DBOS_IMPORT_ERROR: Exception | None = None
-except ImportError as _e:  # dbos is an optional extra (pip install <pkg>[dbos])
+except ImportError as _e:  # dbos is an optional extra, not a hard dependency
     DBOS = None  # type: ignore[assignment]
     SetWorkflowID = None  # type: ignore[assignment]
     _DBOS_IMPORT_ERROR = _e
@@ -419,8 +425,8 @@ def execute_durable_workflow(
     if DBOS is None:
         raise E_DBOS_SCHEMA_INIT_FAILED(
             f"durable backend 'dbos' selected but the dbos package is not installed: "
-            f"{_DBOS_IMPORT_ERROR}. Suggested: pip install with the [dbos] extra, "
-            f"or unset HAL_ENGINE_DURABLE_BACKEND."
+            f"{_DBOS_IMPORT_ERROR}. Suggested: {install_hint(EXTRA_DBOS)}, or unset "
+            f"HAL_ENGINE_DURABLE_BACKEND."
         )
     _evict_orphan_pending(workflow_uuid)  # GH748 (B): clear mid-kill orphan
     _maybe_evict_on_retry(workflow_uuid)  # GH299: evict on any failed-terminal error_code
