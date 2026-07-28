@@ -1,4 +1,4 @@
-"""RED tests for bd#21 v3 (spec 2026-07-28, gate round 1: 10 MAJOR/11 MINOR) --
+"""RED tests for bd#21 v4 (spec 2026-07-28, re-gate: 4 blockers) --
 a single canonical install-forms module (`scripts/install_forms.py`) plus an
 enumerable platform registry (`CARRIERS`), so a brand-new platform carrying
 ANY install-command form (allowed or denied) fails the build instead of
@@ -150,7 +150,10 @@ def _js_console_error_strings(text: str) -> list[str]:
     ]
 
 
-def _carrier_scan_lines(install_forms, relpath: str, kind: str) -> list[str]:
+def _carrier_r1_lines(install_forms, relpath: str, kind: str) -> list[str]:
+    """R1 is scoped to the text actually printed/rendered: fenced code
+    blocks only (KIND_MARKDOWN), console.error literals only
+    (KIND_EXECUTED_NODE)."""
     path = REPO_ROOT / relpath
     assert path.is_file(), f"registered carrier {relpath!r} does not exist"
     text = path.read_text(encoding="utf-8")
@@ -158,9 +161,30 @@ def _carrier_scan_lines(install_forms, relpath: str, kind: str) -> list[str]:
         return install_forms.fenced_code_text(text).splitlines()
     if kind == install_forms.KIND_EXECUTED_NODE:
         return _js_console_error_strings(text)
-    if kind in (install_forms.KIND_PYTHON_LITERAL, install_forms.KIND_PYTHON_RUNTIME):
-        return text.splitlines()
-    raise AssertionError(f"unknown carrier kind {kind!r} for {relpath}")
+    raise AssertionError(f"{kind!r} is not an R1 kind for {relpath}")
+
+
+def _carrier_raw_lines(relpath: str) -> list[str]:
+    """R2's unit is the RAW PHYSICAL LINE of the whole file (spec §2.3
+    MAJOR-6/re-gate edge 4): applies to KIND_PYTHON_LITERAL,
+    KIND_PYTHON_RUNTIME, AND KIND_MARKDOWN -- a markdown carrier's file is
+    only amnestied for R1 inside fences; prose OUTSIDE fences (e.g.
+    engine_py/README.md:117, `pip install .`) is still R2's problem."""
+    path = REPO_ROOT / relpath
+    assert path.is_file(), f"registered carrier {relpath!r} does not exist"
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _all_carrier_lines(install_forms, relpath: str, kind: str) -> list[str]:
+    """Liveness (AC4/AC11) needs 'does this carrier carry a command at
+    all' regardless of which rule would eventually judge it -- R1-scoped
+    text for R1-only kinds (executed-node), raw lines for everything that
+    also gets R2 (python-literal, python-runtime, markdown)."""
+    if kind == install_forms.KIND_EXECUTED_NODE:
+        path = REPO_ROOT / relpath
+        assert path.is_file(), f"registered carrier {relpath!r} does not exist"
+        return _js_console_error_strings(path.read_text(encoding="utf-8"))
+    return _carrier_raw_lines(relpath)
 
 
 def _make_ac5_domain_fixture(tmp_path: Path) -> Path:
@@ -310,7 +334,7 @@ class TestInstallFormsRegistry:
             if kind not in r1_kinds:
                 continue
             checked_any = True
-            text = "\n".join(_carrier_scan_lines(install_forms, relpath, kind))
+            text = "\n".join(_carrier_r1_lines(install_forms, relpath, kind))
             for cmd in install_forms.find_install_commands(text):
                 if not install_forms.installer_form_is_allowed(cmd["exe"]):
                     bad.append((relpath, cmd))
@@ -319,23 +343,31 @@ class TestInstallFormsRegistry:
 
     # -- AC3 ---------------------------------------------------------------
     def test_ac3_every_r2_carrier_in_the_registry_carries_no_denied_form(self):
-        """AC3: for every CARRIERS entry of kind KIND_PYTHON_LITERAL or
-        KIND_PYTHON_RUNTIME, `contains_denied_form` is False on every RAW
-        PHYSICAL LINE of the carrier (spec §2.3 MAJOR-6: the same unit
-        AC5/scan_domain uses -- not an AST-literal scan, so it also catches
-        the dbos_setup.py:193 comment form)."""
+        """AC3: for every CARRIERS entry of kind KIND_PYTHON_LITERAL,
+        KIND_PYTHON_RUNTIME, or KIND_MARKDOWN, `contains_denied_form` is
+        False on every RAW PHYSICAL LINE of the carrier's whole file (spec
+        §2.3 MAJOR-6/re-gate edge 4: the same unit AC5/scan_domain uses --
+        catches the dbos_setup.py:193 comment form AND
+        engine_py/README.md:117's bare `pip install .` in prose OUTSIDE any
+        fence, which registering the carrier for R1 does not amnesty)."""
         install_forms = _load_install_forms_module()
-        r2_kinds = (install_forms.KIND_PYTHON_LITERAL, install_forms.KIND_PYTHON_RUNTIME)
+        r2_kinds = (
+            install_forms.KIND_PYTHON_LITERAL,
+            install_forms.KIND_PYTHON_RUNTIME,
+            install_forms.KIND_MARKDOWN,
+        )
         checked_any = False
         hits = []
         for relpath, kind in install_forms.CARRIERS:
             if kind not in r2_kinds:
                 continue
             checked_any = True
-            for line in _carrier_scan_lines(install_forms, relpath, kind):
+            for line in _carrier_raw_lines(relpath):
                 if install_forms.contains_denied_form(line):
                     hits.append((relpath, line))
-        assert checked_any, "no KIND_PYTHON_LITERAL/KIND_PYTHON_RUNTIME entry in CARRIERS"
+        assert checked_any, (
+            "no KIND_PYTHON_LITERAL/KIND_PYTHON_RUNTIME/KIND_MARKDOWN entry in CARRIERS"
+        )
         assert not hits, f"R2 violation(s) in registered carrier(s): {hits!r}"
 
     # -- AC4 -----------------------------------------------------------
@@ -349,7 +381,7 @@ class TestInstallFormsRegistry:
         assert install_forms.CARRIERS, "CARRIERS is empty"
         dead = []
         for relpath, kind in install_forms.CARRIERS:
-            lines = _carrier_scan_lines(install_forms, relpath, kind)
+            lines = _all_carrier_lines(install_forms, relpath, kind)
             if not any(install_forms.contains_any_install_form(line) for line in lines):
                 dead.append(relpath)
         assert not dead, f"registered carrier(s) with zero install commands: {dead!r}"
@@ -383,21 +415,61 @@ class TestInstallFormsRegistry:
         # this test if filtering happened here instead -- that vacuum is
         # exactly what the gate rejected v2 for.
         carrier_paths = {relpath for relpath, _kind in install_forms.CARRIERS}
-        hit_paths = {v["path"] for v in violations if v["path"] not in carrier_paths}
-        assert hit_paths == {
+        by_path = {}
+        for v in violations:
+            if v["path"] not in carrier_paths:
+                by_path.setdefault(v["path"], []).append(v)
+
+        assert set(by_path) == {
             "engine_py/new_backend.py",
             "packaging/newthing/README.md",
             "npm/new_hint.md",
             "engine_py/waived_empty.py",
         }, (
             f"scan_domain must itself drop only the validly-waived hit "
-            f"(engine_py/waived.py) and flag the rest; got {sorted(hit_paths)}"
+            f"(engine_py/waived.py) and flag the rest; got {sorted(by_path)}"
         )
+
+        # MINOR-1 of the re-gate: verify the VALUES of line/text, not just
+        # key presence -- a scan reporting the right files with `line: 0` /
+        # `text: ""` would pass a keys-only check while breaking the
+        # waiver's line-binding contract.
+        expected_by_path = {
+            "engine_py/new_backend.py": (
+                1,
+                'HINT = "pip install foo-bar to get going"',
+            ),
+            "packaging/newthing/README.md": (
+                1,
+                "Quickstart: run `pip install newthing` to get going.",
+            ),
+            "npm/new_hint.md": (
+                1,
+                "Quickstart: run `pipx install something-new` to get going.",
+            ),
+            "engine_py/waived_empty.py": (
+                1,
+                "# historical note: pip install waived-thing  # install-forms-ok:",
+            ),
+        }
+        for path, (expected_line, expected_text) in expected_by_path.items():
+            hits = by_path[path]
+            assert any(
+                v["line"] == expected_line and v["text"] == expected_text
+                for v in hits
+            ), (
+                f"scan_domain hit for {path!r} must carry line={expected_line!r} "
+                f"and text={expected_text!r}; got {hits!r}"
+            )
 
     # -- AC6 -----------------------------------------------------------
     def test_ac6_waiver_marker_with_empty_reason_is_not_a_valid_waiver(self):
         """AC6: `# install-forms-ok:` with no reason after the colon must
-        NOT count as a waiver -- fed synthetically in both directions."""
+        NOT count as a waiver -- fed synthetically in both directions.
+        Plus (re-gate §3/AC6): a valid waiver marker on a line with NO
+        install-form hit at all is harmless (still True -- the predicate
+        judges the marker+reason, not co-occurrence with a hit), and a
+        second marker on the same line does not retract a valid first one."""
         install_forms = _load_install_forms_module()
         assert install_forms.line_has_valid_waiver(
             "x = 1  # install-forms-ok: prose about pip install layout, not a hint"
@@ -410,6 +482,19 @@ class TestInstallFormsRegistry:
             assert install_forms.line_has_valid_waiver(empty_variant) is False, (
                 f"{empty_variant!r} must NOT count as a valid waiver"
             )
+
+        assert install_forms.line_has_valid_waiver(
+            "x = 1  # install-forms-ok: no install command on this line at all"
+        ) is True, (
+            "a valid waiver marker on a line with no install-form hit must "
+            "still be a valid waiver -- harmless, not penalised"
+        )
+        assert install_forms.line_has_valid_waiver(
+            "x = 1  # install-forms-ok: first reason  # install-forms-ok:"
+        ) is True, (
+            "a second, empty-reason marker on the same line must not retract "
+            "a preceding valid waiver"
+        )
 
     # -- AC7 -----------------------------------------------------------
     def test_ac7_doctor_optional_deps_detail_uses_an_allowed_form_naming_dist_name(
@@ -493,10 +578,42 @@ class TestInstallFormsRegistry:
             "sudo pip install pkg",
             "Install it via: pip install X",
             "PIP INSTALL X",
+            "uv install pkg",
         ):
             assert install_forms.contains_denied_form(decoy) is True, (
                 f"R2 must flag decoy {decoy!r}"
             )
+
+        # B3 of the re-gate: left-context normalisation must survive glued
+        # punctuation on REAL target texts (§2.6) -- `f'python3` / `(python3`
+        # are not literally in ALLOWED_INSTALLER_FORMS, but stripping the
+        # leading/trailing non-word characters (keeping `-`) before gluing
+        # must still resolve them to the allowed form.
+        assert install_forms.contains_denied_form(
+            'return f\'python3 -m pip install "x"\''
+        ) is False, (
+            "left-context normalisation must strip the glued f-string quote "
+            "off 'f'python3' and recognise the allowed form"
+        )
+        assert install_forms.contains_denied_form(
+            'foo (python3 -m pip install "x")'
+        ) is False, (
+            "left-context normalisation must strip the glued '(' off "
+            "'(python3' and recognise the allowed form"
+        )
+        assert install_forms.contains_denied_form(
+            '("pip install x")'
+        ) is True, (
+            "a genuinely denied form glued to punctuation must still be caught"
+        )
+
+        # re-gate edge 3: every match in the line is checked, not just the first.
+        assert install_forms.contains_denied_form(
+            "python3 -m pip install a && pip install b"
+        ) is True, (
+            "a line with one allowed and one denied match must still be a hit "
+            "-- every match must be checked, not only the first"
+        )
 
     # -- AC10 ----------------------------------------------------------
     def test_ac10_bd17_test_file_imports_the_canonical_definitions(self):
@@ -527,14 +644,28 @@ class TestInstallFormsRegistry:
         AC4 ('every entry is alive') would redden after a correct GREEN.
         Red today for its own reason (§4.0): dbos_setup.py:422 still says
         `pip install with the [dbos] extra` and :193 still comments the
-        same, independent of whether the canonical module exists."""
-        install_forms = _load_install_forms_module()
+        same -- read BEFORE the canonical module is loaded, so this AC's
+        own red-today reason cannot be masked by the module's absence
+        (re-gate note: AC11 must not fail 'for free' on the missing UUT)."""
         dbos_path = REPO_ROOT / "engine_py" / "lib" / "dbos_setup.py"
         assert dbos_path.is_file(), f"{dbos_path} missing -- fixture broken"
+        dbos_text = dbos_path.read_text(encoding="utf-8")
+        dbos_lines = dbos_text.splitlines()
+
+        # Own red-today reason (re-gate note), checked BEFORE the canonical
+        # module is even loaded: a cheap literal probe for the exact defect
+        # (`pip install with the [dbos] extra`) so this AC does not fail
+        # "for free" on the module's absence, indistinguishable from AC1-9/12.
+        assert not re.search(r"(?i)\bpip\s+install\b", dbos_text), (
+            f"{dbos_path} must not mention a pip install command at all "
+            f"(spec §2.7)"
+        )
+
+        install_forms = _load_install_forms_module()
 
         hits = [
             (i + 1, line)
-            for i, line in enumerate(dbos_path.read_text(encoding="utf-8").splitlines())
+            for i, line in enumerate(dbos_lines)
             if install_forms.contains_any_install_form(line)
         ]
         assert not hits, (
@@ -548,24 +679,39 @@ class TestInstallFormsRegistry:
         )
 
     # -- AC12 ----------------------------------------------------------
-    def test_ac12_every_measured_fixing_platform_is_registered(self):
-        """AC12 (NEW, gate edge case 5): every platform in spec §0's table
-        with decision "чиню" must be present in CARRIERS -- otherwise the
-        registry could be shrunk to two entries and AC2/AC3/AC4/AC5 would
-        all stay green."""
+    def test_ac12_every_measured_platform_is_registered_with_the_right_kind(self):
+        """AC12 (re-gate: all SEVEN platforms, including the bd#17 pair,
+        which v3's census dropped and which could otherwise be silently
+        removed from CARRIERS -- a regression shield for an already-shipped
+        layer). Plus platform<->KIND correspondence (re-gate MINOR-3:
+        `packaging/pypi-pointer/README.md` registered as
+        KIND_PYTHON_RUNTIME passed everything in v3). Without both halves,
+        the registry could be shrunk to two entries and AC2/AC3/AC4/AC5
+        would all stay green."""
         install_forms = _load_install_forms_module()
-        carrier_paths = {relpath for relpath, _kind in install_forms.CARRIERS}
-        expected_fixing_platforms = {
-            "packaging/pypi-pointer/README.md",
-            "engine_py/package_meta.py",
-            "engine_py/llm_subprocess.py",
-            "engine_py/lib/reference_backends/agent_sdk.py",
-            "engine_py/README.md",
+        carrier_kinds = dict(install_forms.CARRIERS)
+        expected_kind_by_platform = {
+            "npm/bin/bytedigger.js": install_forms.KIND_EXECUTED_NODE,
+            "npm/README.md": install_forms.KIND_MARKDOWN,
+            "packaging/pypi-pointer/README.md": install_forms.KIND_MARKDOWN,
+            "engine_py/package_meta.py": install_forms.KIND_PYTHON_RUNTIME,
+            "engine_py/llm_subprocess.py": install_forms.KIND_PYTHON_LITERAL,
+            "engine_py/lib/reference_backends/agent_sdk.py": install_forms.KIND_PYTHON_LITERAL,
+            "engine_py/README.md": install_forms.KIND_MARKDOWN,
         }
-        missing = expected_fixing_platforms - carrier_paths
+        missing = set(expected_kind_by_platform) - set(carrier_kinds)
         assert not missing, (
-            f"platform(s) measured in spec §0 with decision 'чиню' must be "
-            f"registered in CARRIERS: missing={sorted(missing)}"
+            f"platform(s) measured in spec §0 must be registered in "
+            f"CARRIERS: missing={sorted(missing)}"
+        )
+        wrong_kind = {
+            platform: (expected, carrier_kinds[platform])
+            for platform, expected in expected_kind_by_platform.items()
+            if carrier_kinds[platform] != expected
+        }
+        assert not wrong_kind, (
+            f"platform(s) registered with the wrong KIND (platform -> "
+            f"(expected, actual)): {wrong_kind!r}"
         )
 
     # -- AC13 ----------------------------------------------------------
@@ -635,3 +781,57 @@ class TestInstallFormsRegistry:
         assert len(kind_values) == 4, (
             f"expected exactly 4 distinct KIND_* values, got {kind_values!r}"
         )
+
+    # -- AC14 ----------------------------------------------------------
+    def test_ac14_scan_domain_on_the_real_tree_only_hits_registered_carriers(self):
+        """AC14 (NEW, gate blocker B1 -- the headline property of the lot,
+        unenforced in v3): `scan_domain(REPO_ROOT)` must be non-empty (a
+        broken walk would vacuously report 'no violations') and every hit
+        must lie in a file that is in CARRIERS. Without this AC,
+        `scan_domain` was a unit-tested predicate never actually run
+        against the real tree -- the mutation 'add a new file with
+        `pip install X` in the domain' left all 13 v3 tests green."""
+        install_forms = _load_install_forms_module()
+        violations = install_forms.scan_domain(REPO_ROOT)
+        assert violations, (
+            "scan_domain(REPO_ROOT) returned no hits at all -- a broken walk "
+            "would vacuously report 'no violations' (spec AC14)"
+        )
+        carrier_paths = {relpath for relpath, _kind in install_forms.CARRIERS}
+        offenders = [v for v in violations if v["path"] not in carrier_paths]
+        assert not offenders, (
+            f"scan_domain(REPO_ROOT) found hit(s) outside CARRIERS -- a new, "
+            f"unregistered platform must fail the build: {offenders!r}"
+        )
+
+    # -- AC15 ----------------------------------------------------------
+    def test_ac15_scan_domain_never_reports_files_outside_the_declared_domain(self):
+        """AC15 (NEW, re-gate edge 1): files outside the declared domain
+        that genuinely carry `pip install` (measured: engine_py/tests/**,
+        docs/**, and this file's own directory tests/**) must never appear
+        in scan_domain(REPO_ROOT)'s output -- otherwise 'walk the whole
+        tree from repo root' is indistinguishable from 'domain as declared',
+        and AC14 alone would turn 30+ real test/doc pins red."""
+        install_forms = _load_install_forms_module()
+        violations = install_forms.scan_domain(REPO_ROOT)
+        hit_paths = {v["path"] for v in violations}
+
+        out_of_domain_carriers_of_a_real_hit = (
+            "engine_py/tests/test_bd98_pip_floor_docs.py",
+            "engine_py/tests/test_contracts.py",
+            "engine_py/tests/test_doctor_v2.py",
+            "docs/backends.md",
+            "docs/configuration.md",
+            THIS_FILE_RELPATH,
+        )
+        for relpath in out_of_domain_carriers_of_a_real_hit:
+            path = REPO_ROOT / relpath
+            assert path.is_file(), f"{path} missing -- fixture broken"
+            assert re.search(r"(?i)\bpip\s*3?\s+install\b", path.read_text(encoding="utf-8")), (
+                f"{relpath} is expected to genuinely carry a 'pip install' "
+                f"string -- fixture assumption broken, pick another file"
+            )
+            assert relpath not in hit_paths, (
+                f"{relpath} lies outside the declared domain (spec §2.4) but "
+                f"appears in scan_domain(REPO_ROOT)'s output: {relpath!r}"
+            )
