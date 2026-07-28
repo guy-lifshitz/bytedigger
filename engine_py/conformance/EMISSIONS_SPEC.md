@@ -428,6 +428,36 @@ consequence that reads as "nothing happened" until a consumer trips over it.
   first lot that needs `derive_state` to interpret either new event. Teaching `derive_state` the two types is a
   one-line-per-type change in the lot that needs it — deliberately not done speculatively here.
 
+## 5.0b Semantics of `written`, recorded for the consumer lots `[G18ship]`
+
+The ship gate surfaced two properties of `written` that the implementation **already has**, that no AC requires
+otherwise, and that nothing recorded. They are written here because **bd#8..#10 will read this field by its name**,
+and a name is the worst possible specification.
+
+- **`[G18ship:3]` `written` is the raw git-delta union, NOT narrowed to the step manifest.** The `files_touched`
+  payload built from the *same* delta **is** intersected with the step's reported manifest and marked
+  `source: "manifest"` (`engine.py:500-511`); `phase_artifacts.written` unions every delta bucket unconditionally
+  (`:487`). So for any phase whose steps report `worker_written_paths`, `written` is a **strict superset** of
+  ∪`files_touched.paths`. No AC requires the intersection and the wider set is the honest one for a *phase*-level
+  record — but a consumer cross-checking the two records will see a mismatch, and it must be told rather than
+  discover it.
+- **`[G18ship:4]` `written` means TOUCHED, not written — it includes deleted and reverted paths.** `_diff_changes`
+  buckets a path present in `pre` and absent from `post` under `"D"` (`:1196-1199`), and `:487` unions every bucket.
+  A step that deletes a committed file contributes that file to `written`. This is consistent with the pre-existing
+  `files_touched.by_status["D"]`, so it is not new behaviour — but AC-E3c and AC-E3e specify the *spelling* of the
+  entries and never their *meaning*, and the field's name actively misleads on this point.
+  **Re-open criterion for both:** the first consumer that treats `written` as "files this phase created or
+  modified" — for a provenance claim, a diff, or a cleanup — rather than as "paths whose git status changed".
+  Narrowing the field later would be a breaking change for anything already reading it, which is precisely why it
+  is recorded before three lots depend on it and not after.
+
+`[G18ship:5]` **Also recorded, and out of scope by §6:** the truncation bound is computed on the *authoritative*
+envelope, so under a shadowed run `_emit`'s rewrite (`engine.py:750-758`) adds `shadowed_event` and `provenance`
+to the payload and can push a just-fitting `phase_artifacts` past the limit, where `EventLogLineTooLarge` is
+swallowed at `:761` and the record vanishes. AC-E3d's "MUST NEVER exceed" is written unqualified, so the honest
+statement is that it holds for authoritative execution and is **undefined** for shadowed runs, which §6 excludes.
+**Re-open criterion:** the first lot that brings shadowed runs into scope — L6, which owns the byte fences.
+
 ## 5.1 Constraints on GREEN carried from the accepted round's edges `[G18r3]`
 
 These are **normative constraints on the implementation** whose **tests are deliberately deferred** to a

@@ -202,9 +202,9 @@ class WorkflowEngine:
         execute(workflow_name, context, run_id=None) -> tuple[StepResult, WorkflowContext]
             Execute the workflow registered under *workflow_name*. Returns the
             final StepResult and the (immutable) WorkflowContext. If an
-            ``event_log`` was supplied at construction, emits four event types
-            per call: workflow_started, step_started/finished (per step),
-            workflow_finished.
+            ``event_log`` was supplied at construction, emits six event types
+            per call: workflow_started, run_identity, step_started/finished
+            (per step), phase_artifacts, workflow_finished.
 
     Each step receives (context, prev_step_result) and returns a StepResult.
     A non-skippable error stops the pipeline; ``skip_on_error=True`` continues.
@@ -218,6 +218,12 @@ class WorkflowEngine:
         # GH750 §2.3: per-instance same-cycle-retry attempt budget, keyed
         # (step_name, next_cycle). Reset per-run in execute() (below).
         self._same_cycle_retries: dict[tuple[str, int], int] = {}
+        # bd#18 §5: floor initialisation for direct-call safety (e.g. a bare
+        # _execute_steps() call on a fresh engine); execute() resets these
+        # per-run at :252-254 below.
+        self._written: set[str] = set()
+        self._phase_steps_run = 0
+        self._phase_steps_delta_ok = 0
 
     def register(self, name: str, workflow: WorkflowDefinition) -> None:
         if name in self._workflows:
