@@ -240,6 +240,7 @@ def _write_declaration(path: Path, kind: str, version: str) -> None:
             'name = "bytedigger-engine"\n'
             f'version = "{version}"\n'
             'description = "x"\n'
+            f'dependencies = ["bytedigger-engine=={version}"]\n'
         )
     elif kind == KIND_JSON_FLAT:
         path.write_text(

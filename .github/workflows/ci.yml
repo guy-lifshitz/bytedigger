@@ -122,5 +122,8 @@ jobs:
       - name: version parity unit tests
         run: python -m pytest tests/test_version_parity.py -q
 
+      - name: version parity pointer-pin unit tests (bd#11)
+        run: python -m pytest tests/test_version_parity_pin.py -q
+
       - name: ci main-heartbeat unit tests (bd#12 re-wedge fence)
         run: python -m pytest tests/test_ci_main_heartbeat.py -q

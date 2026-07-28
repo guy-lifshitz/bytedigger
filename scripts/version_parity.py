@@ -48,9 +48,18 @@ DECLARATIONS = [
 
 CANONICAL_RELPATH = "engine_py/pyproject.toml"
 
+# (relpath, required package name in its `[project].dependencies` pin) --
+# exactly 2-tuples, a separate registry from DECLARATIONS (spec §2.1).
+PIN_DECLARATIONS = [
+    ("packaging/pypi-pointer/pyproject.toml", "bytedigger-engine"),
+]
+
+PIN_MAP = dict(PIN_DECLARATIONS)
+
 _PROJECT_HEADER_RE = re.compile(r"^\[project\]\s*$")
 _TABLE_HEADER_RE = re.compile(r"^\[")
 _VERSION_LINE_RE = re.compile(r'^version\s*=\s*"([^"]+)"')
+_DEP_KEY_RE = re.compile(r"^dependencies\s*=")
 
 
 class DeclarationError(Exception):
@@ -85,6 +94,110 @@ def parse_project_version(text: str) -> str | None:
             if m:
                 return m.group(1)
     return None
+
+
+def _extract_project_dependencies_raw(text: str) -> str | None:
+    """[project]-table-anchored scan (spec §2.2) for the raw text of the
+    first `^dependencies\\s*=` line before the next `^[` table header,
+    accumulating physical lines until a line containing `]` is seen (or
+    EOF, if the value never terminates -- callers treat that as a grammar
+    failure). Returns `None` if no such key is found in `[project]` at all.
+    """
+    in_project = False
+    buf: str | None = None
+    for line in text.splitlines():
+        if _PROJECT_HEADER_RE.match(line):
+            in_project = True
+            continue
+        if not in_project:
+            continue
+        if buf is None:
+            if _TABLE_HEADER_RE.match(line):
+                break
+            if _DEP_KEY_RE.match(line):
+                buf = line.split("=", 1)[1]
+                if "]" in buf:
+                    break
+        else:
+            buf += "\n" + line
+            if "]" in line:
+                break
+    return buf
+
+
+def _resolve_pin_entry(root: Path, relpath: str) -> str:
+    """Resolve the single `dependencies` pin entry at `relpath` (spec §2.2
+    grammar, including the string-array fence). Raises DeclarationError
+    with the exact reasons of spec §2.4 -- caller decides what to compare
+    it against."""
+    path = root / relpath
+    text = path.read_text()
+    raw = _extract_project_dependencies_raw(text)
+    if raw is None:
+        raise DeclarationError(relpath, "no dependencies key")
+    if "[" not in raw:
+        raise DeclarationError(relpath, "dependencies is not an array of strings")
+    start = raw.index("[")
+    end = raw.rindex("]")
+    body = raw[start + 1 : end]
+    entries = re.findall(r'"([^"]*)"', body)
+    remainder = re.sub(r'"[^"]*"', "", body)
+    if not re.fullmatch(r"[\s,]*", remainder):
+        raise DeclarationError(relpath, "dependencies is not an array of strings")
+    if len(entries) != 1:
+        raise DeclarationError(
+            relpath, f"dependencies has {len(entries)} entries, expected exactly 1"
+        )
+    return entries[0]
+
+
+def _check_pin(root: Path, relpath: str, pkg: str, canonical: str) -> None:
+    """Pin equality check (spec §2.3): the single dependencies entry must
+    equal `f"{pkg}=={canonical}"`, where `pkg` comes from PIN_DECLARATIONS
+    (never from the entry itself -- spec AC30b)."""
+    entry = _resolve_pin_entry(root, relpath)
+    expected = f"{pkg}=={canonical}"
+    if entry != expected:
+        raise DeclarationError(relpath, f"pin is {entry}, expected {expected}")
+
+
+def _surgical_write_pin(root: Path, relpath: str, pkg: str, old_version: str, new_version: str) -> None:
+    """Position-anchored rewrite of the pin's version, mirroring
+    `_surgical_write_toml`: scan within `[project]`'s `dependencies =`
+    value (possibly spanning several physical lines) and replace only the
+    exact quoted `pkg==old_version` snippet, leaving every other byte
+    (comment prose, indentation, array layout) untouched (spec §2.5)."""
+    path = root / relpath
+    text = path.read_text()
+    old_snippet = f'"{pkg}=={old_version}"'
+    new_snippet = f'"{pkg}=={new_version}"'
+    lines = text.splitlines(keepends=True)
+    in_project = False
+    in_deps = False
+    for i, line in enumerate(lines):
+        stripped = line.rstrip("\n")
+        if _PROJECT_HEADER_RE.match(stripped):
+            in_project = True
+            continue
+        if not in_project:
+            continue
+        if not in_deps:
+            if _TABLE_HEADER_RE.match(stripped):
+                break
+            if _DEP_KEY_RE.match(stripped):
+                in_deps = True
+                if old_snippet in line:
+                    lines[i] = line.replace(old_snippet, new_snippet, 1)
+                    break
+                if "]" in stripped:
+                    break
+        else:
+            if old_snippet in line:
+                lines[i] = line.replace(old_snippet, new_snippet, 1)
+                break
+            if "]" in stripped:
+                break
+    path.write_text("".join(lines))
 
 
 def _read_canonical(root: Path) -> str:
@@ -190,6 +303,12 @@ def cmd_check(root: Path) -> int:
             continue
         if version != canonical:
             problems.append(f"{relpath}: found {version}, expected {canonical}")
+        pin_pkg = PIN_MAP.get(relpath)
+        if pin_pkg is not None:
+            try:
+                _check_pin(root, relpath, pin_pkg, canonical)
+            except DeclarationError as e:
+                problems.append(f"{e.path}: {e.reason}")
 
     if problems:
         for line in problems:
@@ -248,12 +367,21 @@ def cmd_write(root: Path, new_version: str) -> int:
         return 1
 
     resolved: dict[str, str] = {}
+    resolved_pins: dict[str, tuple[str, str]] = {}
     for relpath, kind in DECLARATIONS:
         try:
             path = root / relpath
             if not path.exists():
                 raise DeclarationError(relpath, "missing")
             version = _resolve(root, relpath, kind)
+            pin_pkg = PIN_MAP.get(relpath)
+            if pin_pkg is not None:
+                entry = _resolve_pin_entry(root, relpath)
+                if "==" in entry:
+                    entry_pkg, entry_version = entry.split("==", 1)
+                else:
+                    entry_pkg, entry_version = entry, ""
+                resolved_pins[relpath] = (entry_pkg, entry_version)
         except DeclarationError as e:
             print(f"{e.path}: {e.reason}")
             return 1
@@ -267,6 +395,9 @@ def cmd_write(root: Path, new_version: str) -> int:
             _surgical_write_flat(root, relpath, old_version, new_version)
         elif kind == KIND_JSON_NESTED:
             _surgical_write_nested(root, relpath, old_version, new_version)
+        if relpath in resolved_pins:
+            entry_pkg, entry_old_version = resolved_pins[relpath]
+            _surgical_write_pin(root, relpath, entry_pkg, entry_old_version, new_version)
 
     print(f"OK: wrote {new_version} to {len(DECLARATIONS)} declarations")
     return 0
