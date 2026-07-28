@@ -13,6 +13,8 @@ NOT a framework — routing + sequencing + formatting only.
 from __future__ import annotations
 
 import datetime
+import hashlib
+import importlib.metadata
 import json
 import logging
 import os
@@ -35,7 +37,9 @@ from contracts import (
 )
 import telemetry_ctx
 import llm_subprocess
-from config_provider import hal_root as _hal_root_fn, path as _path_fn, rework_log_relpath as _rework_log_relpath, foreign_state_dirname as _foreign_state_dirname_fn, get_config
+import package_meta
+from config_provider import hal_root as _hal_root_fn, path as _path_fn, rework_log_relpath as _rework_log_relpath, foreign_state_dirname as _foreign_state_dirname_fn, get_config, env_mapping as _config_env_mapping
+from event_log import _LINE_LIMIT_BYTES as _EVENT_LOG_LINE_LIMIT_BYTES
 from lib.git_port import git_read
 from execution_provenance import (
     SHADOW_EVENT_TYPE,
@@ -198,9 +202,9 @@ class WorkflowEngine:
         execute(workflow_name, context, run_id=None) -> tuple[StepResult, WorkflowContext]
             Execute the workflow registered under *workflow_name*. Returns the
             final StepResult and the (immutable) WorkflowContext. If an
-            ``event_log`` was supplied at construction, emits four event types
-            per call: workflow_started, step_started/finished (per step),
-            workflow_finished.
+            ``event_log`` was supplied at construction, emits six event types
+            per call: workflow_started, run_identity, step_started/finished
+            (per step), phase_artifacts, workflow_finished.
 
     Each step receives (context, prev_step_result) and returns a StepResult.
     A non-skippable error stops the pipeline; ``skip_on_error=True`` continues.
@@ -214,6 +218,12 @@ class WorkflowEngine:
         # GH750 §2.3: per-instance same-cycle-retry attempt budget, keyed
         # (step_name, next_cycle). Reset per-run in execute() (below).
         self._same_cycle_retries: dict[tuple[str, int], int] = {}
+        # bd#18 §5: floor initialisation for direct-call safety (e.g. a bare
+        # _execute_steps() call on a fresh engine); execute() resets these
+        # per-run at :252-254 below.
+        self._written: set[str] = set()
+        self._phase_steps_run = 0
+        self._phase_steps_delta_ok = 0
 
     def register(self, name: str, workflow: WorkflowDefinition) -> None:
         if name in self._workflows:
@@ -241,6 +251,13 @@ class WorkflowEngine:
         # GH750 §2.3 (B4): reset the same-cycle-retry budget per run so a
         # reused engine instance does not leak a prior run's counters.
         self._same_cycle_retries = {}
+        # bd#18 §5: phase_artifacts accounting, reset per run (one execute()
+        # call == one phase, even across the retry recursion) so a reused
+        # engine instance does not leak a prior run's written paths or
+        # write-tracking counts into this run.
+        self._written: set[str] = set()
+        self._phase_steps_run = 0
+        self._phase_steps_delta_ok = 0
 
         # GH767 §2.4a: outbound-leg cache-busting on a spec-defect reroute
         # entry. ONE-SHOT per (run_id, workflow, attempt) via mark-THEN-
@@ -267,8 +284,32 @@ class WorkflowEngine:
                 )
 
         self._emit("workflow_started", {"workflow_name": workflow_name}, rid)
+        # bd#18 AC-E2: run_identity, once per execute() call, immediately
+        # following THAT call's workflow_started (located by index of
+        # workflow_started, not position 0 — phase_reroute_entry above may
+        # precede it).
+        self._emit(
+            "run_identity",
+            {
+                "engine_version": _resolve_engine_version(),
+                "adapter_identity": _resolve_adapter_identity(),
+            },
+            rid,
+        )
         start = time.monotonic()
-        final_result = self._execute_steps(workflow, context, rid)
+        # bd#18 AC-E3a/AC-E5: phase_artifacts is emitted from the try/finally
+        # around _execute_steps so it survives every exit (ok, error,
+        # escalate, a step raising, the zero-step early return, the
+        # start-step-beyond-range RuntimeError, and the same-cycle-retry-cap
+        # return) and lands before workflow_finished on every path that
+        # reaches it. Everything the finally needs (self._written,
+        # self._phase_steps_run, self._phase_steps_delta_ok) is accumulated
+        # incrementally inside _execute_steps, never computed here
+        # (`[G18r3:EDGE-1]`: nothing in the finally may be able to raise).
+        try:
+            final_result = self._execute_steps(workflow, context, rid)
+        finally:
+            self._emit_phase_artifacts(workflow_name, rid)
         wall_ms = int((time.monotonic() - start) * 1000)
         # GH452 §2.3: rollup emit strictly before workflow_finished; never fail
         # the run on telemetry error, and never fall back to a default log path.
@@ -367,7 +408,7 @@ class WorkflowEngine:
 
         for step in workflow.steps[start_step:]:
             start_ms = int(time.monotonic() * 1000)
-            self._emit("step_started", {"step_name": step.name}, run_id)
+            self._emit("step_started", {"step_name": step.name, "phase": workflow.name}, run_id)
 
             # Decree 2026-04-26 cat A: push current run ctx so llm_subprocess
             # can emit subprocess_spawned/exited under this step.
@@ -382,6 +423,14 @@ class WorkflowEngine:
             # Decree 2026-04-26 cat B: snapshot git baseline before step
             # (changes-since-HEAD set so we can subtract to get per-step delta).
             git_pre = _git_changes_vs_head(_scan_cwd) if _scan_cwd else None
+            # bd#18 AC-E3b: count this step against the phase's step total
+            # BEFORE it runs, so a step that raises (crash path) or whose
+            # delta never resolves (no git_cwd / non-git dir / injected
+            # failure) still counts toward the "every step" denominator —
+            # self._phase_steps_delta_ok is only incremented below, once a
+            # delta is actually computed, so an incomplete step here leaves
+            # the two counters mismatched (never "git-delta" by accident).
+            self._phase_steps_run += 1
 
             # 04E3B874 S1: pre-execute boundary check — hard-fail when a
             # declared required ctx field is missing/None/empty/falsy.
@@ -435,6 +484,13 @@ class WorkflowEngine:
                 git_post = _git_changes_vs_head(_scan_cwd) if _scan_cwd else None
                 if git_post is not None:
                     delta = _diff_changes(git_pre, git_post)
+                    # bd#18 AC-E3b/AC-E3c: this step's delta computed
+                    # successfully — count it toward the phase's "every step"
+                    # denominator and union its touched paths into the
+                    # phase-level `written` accumulator, regardless of
+                    # whether the delta happened to be empty.
+                    self._phase_steps_delta_ok += 1
+                    self._written |= {p for ps in delta.values() for p in ps}
                     if any(delta.values()):
                         paths_flat = sorted({p for ps in delta.values() for p in ps})
                         by_status = {k: v for k, v in delta.items() if v}
@@ -476,6 +532,7 @@ class WorkflowEngine:
                     "status": result.status,
                     "duration_ms": result.duration_ms,
                     "error": result.error,
+                    "phase": workflow.name,
                 },
                 run_id,
             )
@@ -709,6 +766,33 @@ class WorkflowEngine:
             self._event_log.append(event_type, payload, run_id)
         except Exception as e:  # noqa: BLE001 — observability must not break execution
             logger.warning("event_log append failed for %s: %s", event_type, e)
+
+    def _emit_phase_artifacts(self, workflow_name: str, run_id: str) -> None:
+        """bd#18 AC-E3: emit exactly one phase_artifacts for this phase.
+
+        Called from execute()'s try/finally around _execute_steps, so it
+        runs on every exit path. Everything used here (self._written,
+        self._phase_steps_run, self._phase_steps_delta_ok) was already
+        accumulated incrementally inside _execute_steps — nothing here does
+        I/O or can raise (`[G18r3:EDGE-1]`), and it goes through self._emit,
+        never a direct event_log.append (AC-E3f/AC-E6).
+
+        write_tracking is "git-delta" only when >=1 step ran AND every one
+        of those steps had its delta successfully computed (an `all`
+        reduction, never `any`/`first`/`last`) — zero steps, an absent/
+        non-git git_cwd, or any step whose delta failed (including the
+        crash path, `[G18r3:EDGE-4]`, where the post-snapshot is never
+        reached) all fall through to "not-observed" (AC-E3b).
+        """
+        write_tracking = (
+            "git-delta"
+            if self._phase_steps_run >= 1 and self._phase_steps_delta_ok == self._phase_steps_run
+            else "not-observed"
+        )
+        payload = _build_phase_artifacts_payload(
+            workflow_name, sorted(self._written), write_tracking, run_id,
+        )
+        self._emit("phase_artifacts", payload, run_id)
 
 
 class LoopRunner:
@@ -1120,3 +1204,137 @@ def _diff_changes(
         if path not in post:
             out["D"].append(path)
     return out
+
+
+# ── bd#18: run_identity resolution helpers ────────────────────────────────
+
+
+def _parse_pyproject_version(text: str) -> str:
+    """Extract ``[project].version`` out of a pyproject.toml's text.
+
+    Deliberately hand-rolled (AC-N3: no third-party TOML dependency) —
+    scoped to the ``[project]`` table so a same-named key under a different
+    table is not mistaken for it. Raises KeyError if no such line is found,
+    mirroring the "not found" half of AC-E2c's failure contract.
+    """
+    in_project = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_project = stripped == "[project]"
+            continue
+        if in_project and stripped.startswith("version"):
+            _, sep, value = stripped.partition("=")
+            if not sep:
+                continue
+            value = value.strip().strip('"').strip("'")
+            if value:
+                return value
+    raise KeyError("[project].version not found in pyproject.toml")
+
+
+def _resolve_engine_version() -> str:
+    """bd#18 AC-E2c: engine_version, resolved per-emit (never memoised).
+
+    Order: importlib.metadata.version(PACKAGE_DIST_NAME) first (installed-
+    wheel path), then a read of this engine_py's own pyproject.toml
+    [project].version (source-checkout path). Reached via attribute lookup
+    at call time (`importlib.metadata.version(...)`, never a module-level
+    `from importlib.metadata import version`) so a test's
+    `monkeypatch.setattr(importlib.metadata, "version", ...)` reaches it.
+    Neither seam resolving (any OSError subclass, KeyError, or a parse
+    error) yields an absent/empty result here — NEVER a placeholder.
+    """
+    try:
+        return importlib.metadata.version(package_meta.PACKAGE_DIST_NAME)
+    except Exception:
+        pass
+    try:
+        pyproject_path = Path(__file__).resolve().parent / "pyproject.toml"
+        return _parse_pyproject_version(pyproject_path.read_text())
+    except Exception:
+        return ""
+
+
+def _resolve_adapter_identity() -> dict[str, str]:
+    """bd#18 AC-E2b: {"backend": ..., "source": ...} via the engine's one
+    existing backend-selection seam, llm_subprocess._resolve_backend, with
+    no kwarg (this call site has none) — so source is always "env" or
+    "default", read live through config_provider.env_mapping()."""
+    backend, source = llm_subprocess._resolve_backend(None, _config_env_mapping())
+    return {"backend": backend, "source": source}
+
+
+# ── bd#18: phase_artifacts truncation helpers ─────────────────────────────
+
+_PHASE_ARTIFACTS_TS_PLACEHOLDER = "2000-01-01T00:00:00.000Z"  # same fixed
+# length as event_log._utcnow_iso()'s real output, used only to size-estimate
+# the eventual serialised line without predicting its exact bytes (§0.2).
+
+
+def _serialized_phase_artifacts_size(payload: dict[str, Any], run_id: str) -> int:
+    """Bytes of the raw JSONL line EventLog.append would write for this
+    payload — same envelope shape/serialisation as event_log.py, so the
+    truncation decision below reflects the actual atomic-append limit."""
+    event = {
+        "ts": _PHASE_ARTIFACTS_TS_PLACEHOLDER,
+        "run_id": run_id or "ad-hoc",
+        "event_type": "phase_artifacts",
+        "payload": payload,
+    }
+    line = json.dumps(event, separators=(",", ":"), default=str) + "\n"
+    return len(line.encode("utf-8"))
+
+
+def _build_phase_artifacts_payload(
+    phase: str,
+    written_sorted: list[str],
+    write_tracking: str,
+    run_id: str,
+) -> dict[str, Any]:
+    """bd#18 AC-E3/AC-E3d: build the phase_artifacts payload, behaviourally
+    bounded to the atomic-append limit (§0.2 — no predicted byte count).
+
+    ``written_sorted`` is already the FULL sorted list; the digest below is
+    always computed over it, never over an elided sample. When the
+    untruncated payload already fits, it is returned as-is with the exact
+    key set (AC-E3) and no ``written_truncated`` key at all. When it does
+    not fit, the sample is binary-searched down to the largest prefix that
+    keeps the serialised line within the limit — surviving a single
+    pathological long path (sample size 0) as well as a long list.
+    """
+    base_payload: dict[str, Any] = {
+        "phase": phase,
+        "written": written_sorted,
+        "read": [],
+        "write_tracking": write_tracking,
+        "read_tracking": "declared-only",
+    }
+    if _serialized_phase_artifacts_size(base_payload, run_id) <= _EVENT_LOG_LINE_LIMIT_BYTES:
+        return base_payload
+
+    full_digest = "sha256:" + hashlib.sha256(
+        "\n".join(written_sorted).encode("utf-8")
+    ).hexdigest()
+    truncated_payload: dict[str, Any] = {
+        "phase": phase,
+        "written": [],
+        "read": [],
+        "write_tracking": write_tracking,
+        "read_tracking": "declared-only",
+        "written_truncated": True,
+        "written_count": len(written_sorted),
+        "written_digest": full_digest,
+    }
+    lo, hi, best = 0, len(written_sorted), 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = dict(truncated_payload)
+        candidate["written"] = written_sorted[:mid]
+        if _serialized_phase_artifacts_size(candidate, run_id) <= _EVENT_LOG_LINE_LIMIT_BYTES:
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    truncated_payload["written"] = written_sorted[:best]
+    return truncated_payload

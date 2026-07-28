@@ -59,10 +59,12 @@ def test_engine_run_then_replay_produces_expected_derived_state(tmp_path):
     events = EventLog(tmp_path / "events.jsonl").read_all()
     assert [e["event_type"] for e in events] == [
         "workflow_started",
+        "run_identity",  # bd#18 AC-E2: immediately after workflow_started
         "step_started",
         "step_finished",
         "step_started",
         "step_finished",
+        "phase_artifacts",  # bd#18 AC-E5: from execute()'s finally, before the rollup/terminal event
         "workflow_cost_rollup",  # GH452: per-run cost rollup, emitted just before workflow_finished
         "workflow_finished",
     ]
