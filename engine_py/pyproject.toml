@@ -101,7 +101,7 @@ py-modules = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["lib*", "workflows*", "security*", "scripts*"]
+include = ["lib*", "workflows*", "security*", "scripts*", "conformance*"]
 
 [tool.setuptools.package-data]
 "lib.plugins.anti_hallucination" = ["*.yaml", "*.md"]
