@@ -151,6 +151,16 @@ only defensible site, and both are load-bearing collections under `§0.1`:
 | `check_bd_l3(events: Sequence[Mapping]) -> L0Report` | consumes `conformance.report.L0Report` and `conformance.tokens` |
 | `validate_report(report: L0Report) -> tuple[str, ...]` | `[bd10:9]` (G5) — returns violation strings, empty when the report is well-formed. Exists because AC-A2's "a report that lists ADV-9 as executed is itself a failure" named no mechanism that could *detect* it, leaving the clause unassertable. |
 
+`[bd10:11]` **The two tables above are EXHAUSTIVE public surfaces, and that is normative on GREEN.**
+Raised by the RED agent against its own AC-A3, which discharges "no export grants a level" by exact
+equality between each module's public names and the tables in §2.2/§2.3. That assertion is only
+defensible if the tables are closed: if GREEN may add one public helper, a correct implementation
+is false-failed, which is a Class B defect the RED would have written unknowingly. Normative:
+`conformance/attest.py` exports exactly `EVENT_TYPE`, `hash_text`, `InjectedBlock`, `assemble`,
+`capability_escapes`; `conformance/bd_l3.py` exports exactly `REQUIREMENTS`, `check_bd_l3`,
+`validate_report`. Anything else GREEN needs is a module-private `_name`. Imported symbols are not
+exports and are excluded by origin, not by name.
+
 ### 2.4 Additions to the LLM seam
 
 - `invoke_llm_subprocess` gains keyword-only `injections: "Sequence[InjectedBlock] | None" = None`.
