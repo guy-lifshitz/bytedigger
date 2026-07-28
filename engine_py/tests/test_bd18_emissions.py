@@ -302,6 +302,53 @@ def test_ac_e1b_phase_present_on_every_step_event_in_multistep_phase(tmp_path):
         )
 
 
+def test_ac_e1b_phase_uniform_independently_across_both_step_event_kinds(tmp_path):
+    """AC-E1/AC-E1b [A2]: the EMISSION itself must be uniform across BOTH
+    step-event kinds, asserted PER KIND with no merged/reduced collection
+    (bd#7's round-9 rung: a fixture that stripped `phase` from both kinds
+    TOGETHER let a consumer reducing with any/first/last over the merged
+    event stream pass 123 tests, because the two-kind collection itself
+    was never checked for non-uniformity). engine.py:370 (step_started)
+    and engine.py:472 (step_finished) are genuinely separate emit sites,
+    so a GREEN can add `phase` to one and forget the other. Kills BOTH:
+      (1) phase added to step_started only (:370) — forgot step_finished (:472)
+      (2) phase added to step_finished only (:472) — forgot step_started (:370)
+    step_started and step_finished are collected and checked as two
+    SEPARATE lists below — never merged/reduced into one "step events"
+    collection, which is exactly the shape that hid this in bd#7.
+    """
+    log = make_log(tmp_path)
+    eng = WorkflowEngine(event_log=log)
+    steps = [ok_step("first"), ok_step("middle"), ok_step("last")]
+    eng.register("multi_phase_a2", WorkflowDefinition(name="multi_phase_a2", steps=steps))
+    eng.execute("multi_phase_a2", make_ctx(), run_id="r1")
+
+    started_events = events_of(log, "step_started")
+    finished_events = events_of(log, "step_finished")
+    assert len(started_events) == 3
+    assert len(finished_events) == 3
+
+    # Kind 1, checked entirely on its own — kills "phase added to
+    # step_finished only (:472), forgot step_started (:370)".
+    for evt in started_events:
+        assert evt["payload"].get("phase") == "multi_phase_a2", (
+            f"step_started for {evt['payload'].get('step_name')!r} missing/"
+            f"wrong phase — got {evt['payload'].get('phase')!r}. If every "
+            "step_finished in this same run carries phase correctly, the "
+            "GREEN added phase to :472 only and forgot :370."
+        )
+
+    # Kind 2, checked entirely on its own — kills "phase added to
+    # step_started only (:370), forgot step_finished (:472)".
+    for evt in finished_events:
+        assert evt["payload"].get("phase") == "multi_phase_a2", (
+            f"step_finished for {evt['payload'].get('step_name')!r} missing/"
+            f"wrong phase — got {evt['payload'].get('phase')!r}. If every "
+            "step_started in this same run carries phase correctly, the "
+            "GREEN added phase to :370 only and forgot :472."
+        )
+
+
 def test_ac_e1c_phase_value_equals_workflow_name_exactly(tmp_path):
     """AC-E1c: `phase` MUST equal the workflow name BY EQUALITY, not merely
     be non-empty (§0.5). Workflow name is distinct from every step name, so

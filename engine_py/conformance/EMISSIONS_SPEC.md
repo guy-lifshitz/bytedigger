@@ -82,6 +82,22 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   implementation is the plausible wrong GREEN here, and a single-step fixture cannot see it. Asserted over a
   **multi-step** workflow: **every** `step_started` and **every** `step_finished` carries `phase`, checked per
   event, with a ≥3-step fixture so first/last/any reductions are all distinguishable.
+- **AC-E1e** `[A2]` **The two step-event KINDS are asserted independently, because the ladder has two ends.**
+  bd#7's round-9 gate found a rung *below* the collection ladder its rounds 4-9 had been climbing
+  (step→phase→run→log→scope, monotonically **upward**): every fixture there stripped `phase` from
+  `step_started` **and** `step_finished` **together**, so the two-kind collection was never tested for
+  non-uniformity, and a consumer reducing over the merged list with `any`/`first`/`last` passed all 123 tests.
+  **This lot is the emitter of both events**, and they are emitted from two genuinely separate code sites —
+  `engine.py:370` and `engine.py:472` — so the plausible wrong implementation is the **half-implementation**:
+  `phase` added at one site and forgotten at the other. Without this AC the gap is directional and lands on us:
+  L8 would learn to *catch* a non-uniform log while L1 remained able to *produce* one, discovered only after
+  L1 had landed.
+  Normative: `phase` is asserted **kind by kind**, each kind's events collected and required to carry it
+  **separately** — never over a merged "step events" list, which is precisely the uniform collection that hid
+  this in bd#7. Both wrong implementations (missing at `:370`; missing at `:472`) MUST fail.
+  Note the direction: this is a **producer** requirement, so there is no strip-the-key-and-check-the-consumer
+  half here — nothing in this lot consumes the log. The §4.3-style row for the *consumer* side of this
+  collection belongs to L8.
 - **AC-E1c** The value MUST equal the workflow name **by equality**, not merely be non-empty (§0.5) — a GREEN
   emitting a constant, the step name, or `""` must fail. Asserted with a workflow whose name is distinct from
   every step name in it.
