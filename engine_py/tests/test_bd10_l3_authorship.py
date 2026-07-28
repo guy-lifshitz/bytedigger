@@ -195,7 +195,7 @@ REQUIREMENT_IDS = ("R3.1", "R3.2", "R3.3", "R3.4", "R3.5", "R3.6")
 # (AC-C1) with nothing narrowed, and exact-mapping equality is what makes that
 # absence an assertion rather than an omission.
 REQUIREMENT_LABELS = {
-    "R3.1": "host-attested",
+    "R3.1": "host-attested-within-run-context",
     "R3.2": "injections-channel-only",
     "R3.3": "in-session-warn-only",
     "R3.5": "adapter-declared",
