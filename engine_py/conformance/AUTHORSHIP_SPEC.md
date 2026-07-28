@@ -8,9 +8,18 @@ chokepoint: >
   R3.3 and R3.6 adjudicate the adapter's return there. An emission or check placed inside one
   backend is out of contract: it leaves every other adapter unmeasured, which is the 1-of-9
   gradient the parent document exists to reverse.
-status: FROZEN v1
+status: FROZEN v2
 base: origin/main @ dc6f0d0
 ---
+
+> **v2 (pre-gate, post-RED).** Not a rejection response — no gate has run yet. v2 takes the seven
+> gaps the RED agent **refused to guess** (G1–G7, recorded in the RED file under `SPEC GAPS`) plus
+> one the author found (`[bd10:4]`), because six of the eight are cases where v1 said something a
+> GREEN could not implement or could implement two ways. Two of them — `[bd10:5]` and `[bd10:6]` —
+> are **two of my own clauses demanding different things for one payload**, which is the
+> `[G18r2:MINOR-1]` shape this lot family has now filed against itself four times. Finding them
+> before the gate rather than during it is the entire reason the RED agent is instructed to stop
+> and report instead of inventing. AC count rises 23 → 24; §9's split criterion is unchanged.
 
 # Lot spec — bd#10: BD-L3, attested authorship and inputs (R3.1–R3.6; ADV-7, ADV-8, ADV-10)
 
@@ -132,7 +141,7 @@ only defensible site, and both are load-bearing collections under `§0.1`:
 | `hash_text(text: str) -> str` | returns `"sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()` |
 | `InjectedBlock` | frozen dataclass, exactly `source_id: str`, `content: str` |
 | `assemble(prompt: str, blocks: Sequence[InjectedBlock]) -> str` | see AC-I1 |
-| `capability_escapes(events, declared) -> tuple[str, ...]` | see AC-C3 |
+| `capability_escapes(observed_tools, declared) -> tuple[str, ...]` | see AC-C3; returns **sorted**, deduplicated (`[bd10:6]`, G7) |
 
 ### 2.3 New module — `conformance/bd_l3.py`
 
@@ -140,6 +149,7 @@ only defensible site, and both are load-bearing collections under `§0.1`:
 |---|---|
 | `REQUIREMENTS = ("R3.1","R3.2","R3.3","R3.4","R3.5","R3.6")` | `tuple[str, ...]` |
 | `check_bd_l3(events: Sequence[Mapping]) -> L0Report` | consumes `conformance.report.L0Report` and `conformance.tokens` |
+| `validate_report(report: L0Report) -> tuple[str, ...]` | `[bd10:9]` (G5) — returns violation strings, empty when the report is well-formed. Exists because AC-A2's "a report that lists ADV-9 as executed is itself a failure" named no mechanism that could *detect* it, leaving the clause unassertable. |
 
 ### 2.4 Additions to the LLM seam
 
@@ -148,8 +158,28 @@ only defensible site, and both are load-bearing collections under `§0.1`:
   "channel used, zero blocks". Neither is an error.
 - `_dispatch_backend` gains keyword-only `injections` and forwards **nothing** of it to the backend:
   blocks are assembled into `prompt` before dispatch, so the `LLMBackend` protocol is unchanged.
-- `StepResult.data` gains an **optional** `observed_model` key, written by the adapter. Absent means
-  "this adapter cannot observe"; it is not an error. See §5.
+- `StepResult.data` gains two **optional** keys, both written by the adapter, both meaning "what
+  this adapter observed". Absent means "this adapter cannot observe"; **absence is never an error**
+  and never a licence to substitute something the engine already knows:
+  - `observed_model: str` — the model identity the adapter invoked (§5).
+  - `observed_tools: Sequence[str]` — `[bd10:6]` (G2) the **distinct tool heads** the adapter saw
+    in its own transcript. See below for why this, and not the raw transcript.
+
+`[bd10:6]` **(G2) R3.6 had no input channel, so its enforcement clause was unimplementable.**
+v1 pinned `capability_escapes` as a pure function and then never said how a transcript reaches
+`_dispatch_backend`: §2.4 added only `observed_model`, and `_invoke_subprocess` returns
+`worker_written_paths` and `mcp_server_losses` (`llm_subprocess.py:1926,1932`) but never the events.
+So AC-C3's "a non-empty result yields `E_CAPABILITY_ESCAPE`" could not be written by any GREEN, and
+the RED correctly covered only the pure function.
+
+The channel is `observed_tools`, **not** the raw event list, and the choice is load-bearing rather
+than cosmetic. Returning the transcript would put an unbounded event list into `StepResult.data` —
+the same payload that `phase_artifacts` already truncates at a 4096-byte fence
+(`EMISSIONS_SPEC.md` AC-E3d) — and would hand every adapter a transcript-capture surface, which is
+the precise reason CL §8 struck ADV-9. A bounded set of distinct tool heads carries exactly the
+evidence R3.6 needs and nothing else. The adapter observes; the chokepoint adjudicates; the payload
+stays small. `claude-subprocess` derives it from the transcript walk it already performs
+(`llm_subprocess.py:2513-2571`), which is the harness's own record and not the actor's self-report.
 
 ### 2.5 Three new error codes
 
@@ -159,12 +189,32 @@ only defensible site, and both are load-bearing collections under `§0.1`:
 
 ## 3. R3.1 — the effective prompt is hashed into the event log
 
-- **AC-P1** Every dispatch emits exactly one `model_invocation_attested` event through
-  `_emit_safe` (`llm_subprocess.py:2980`), with payload keys **exactly**
+- **AC-P1** Every dispatch **for which `telemetry_ctx.get_current_run()` is not `None`** emits
+  exactly one `model_invocation_attested` event through `_emit_safe` (`llm_subprocess.py:2980`),
+  with payload keys **exactly**
   `{step_name, backend, model_requested, prompt_sha256, injections, declared_capabilities,
-  capability_enforcement}`. Asserted by exact key-set equality, so a GREEN carrying extra
-  diagnostic keys fails and a consumer's key set cannot drift silently.
+  capability_enforcement, observed_model}`. Asserted by exact key-set equality, so a GREEN carrying
+  extra diagnostic keys fails and a consumer's key set cannot drift silently. Where there is no
+  active run context the engine emits nothing and **MUST NOT raise** (AC-P8).
   *Kills:* an emit that omits any key; an emit that adds one.
+
+  `[bd10:4]` **The run-context guard is in the head clause because without it this AC is a Class B
+  trap of my own making.** `_emit_safe` takes `run_ctx.event_log`, and `run_ctx` is
+  `telemetry_ctx.get_current_run()`, which is `None` outside a run (`telemetry_ctx.py:73`). Every
+  existing emit at this seam guards first (`:917-919`, `:3192`). v1's unqualified "every dispatch
+  emits" false-failed a correctly-guarded GREEN, while a GREEN satisfying it literally would
+  dereference `None` and crash **every** context-free call — including ones the existing suite
+  already makes. Found by the author before the gate; recorded because `CONTRACTS_SPEC.md` §0.8
+  counts this family's discharged-literally-defect-one-level-down instances, and the count is only
+  honest if self-caught ones are in it.
+
+  `[bd10:5]` **(G3) `observed_model` joins the key set, because two of my own clauses disagreed.**
+  AC-M1 requires the L3 report to mark R3.3 `not-checked` for an invocation whose adapter reported
+  nothing — but `check_bd_l3` reads **events**, and v1's key set excluded `observed_model`, so the
+  checker could not learn it and AC-M1's report half was unimplementable. Adding the key is the
+  fix that makes R3.3 attestable from the log, which is the entire point of recording it. Value:
+  the adapter's reported identity, or `null` when the adapter reported none — `null` is the
+  recorded third state and MUST NOT be backfilled from `model_requested` (§5, AC-M1).
 - **AC-P2** `prompt_sha256` equals `"sha256:" + sha256(assembled.encode("utf-8")).hexdigest()`,
   asserted **by equality against a digest the test recomputes from the text it supplied** — never
   from a value read back out of the event (§0.1 subtype 3). `"sha256:" + "0"*64` and any constant
@@ -188,6 +238,12 @@ only defensible site, and both are load-bearing collections under `§0.1`:
   `model_invocation_attested` (targeted, per `[G18:EDGE-5]` — a blanket raiser proves nothing
   in situ), `invoke_llm_subprocess` returns its normal status. A direct `event_log.append` instead
   of `_emit_safe` fails this.
+- **AC-P8** `[bd10:4]` With **no** active run context, `invoke_llm_subprocess` completes with its
+  normal status and emits nothing. Asserted against a recording adapter on one fixture, whose
+  positive control is the **same** fixture under an active run context emitting exactly one event —
+  so the two outcomes are attributable to the run context alone. *Two outcomes:* the guarded GREEN
+  returns `ok` both times, emitting 0 then 1; a GREEN dereferencing `run_ctx.event_log` unguarded
+  raises `AttributeError` on the first.
 - **AC-P7** R3.1 is labelled **`host-attested`**, per CL §8: the engine hashes at assembly, not on
   the wire, so ADV-9 is not executable in v1. See AC-A2.
 
@@ -213,7 +269,12 @@ that ADV-8 tests a door the pipeline actually uses rather than an unused one.
   collapsed by deduplication all fail. `injections` is `[]` for both `None` and `()`; the two are
   distinguished nowhere in the payload and that is deliberate — recording the distinction would
   invite a consumer to read `None` as an assertion that nothing was injected by any route.
-- **AC-I3** **ADV-8.** A block whose `source_id` is missing, `None`, `""`, or not a `str` yields
+- **AC-I3** **ADV-8.** `[bd10:8]` (G1) The offender kinds are exactly **`None`, `""`, and a
+  non-`str`**. v1 also said "missing", which is unconstructible: §2.2 pins `InjectedBlock` as a
+  frozen dataclass with `source_id` required, so a block with the attribute absent cannot be built,
+  and a RED obeying v1 literally would have had to invent a second mapping-shaped input form. The
+  three constructible kinds are the requirement.
+  A block whose `source_id` is `None`, `""`, or not a `str` yields
   `StepResult(status="error", error_code="E_INJECT_UNATTRIBUTED", recoverable=False)` and **no
   dispatch occurs** — asserted positively by a recording adapter registered through
   `register_backend` (`llm_subprocess.py:2026`) whose call count is `0`, not by the absence of a
@@ -233,6 +294,14 @@ that ADV-8 tests a door the pipeline actually uses rather than an unused one.
   attributed channel is load-bearing on a real phase. Exactly one phase is migrated; the rest carry
   the re-open criterion above. Asserted end-to-end: the emitted event's `injections` carries that
   path and the digest of the file's text, recomputed by the test from the file it wrote.
+  `[bd10:10]` **(G6) The path spelling and the content normalisation are pinned, because two
+  plausible spellings produce two different digests and v1 chose neither.** `source_id` is
+  `str(Path(role_path).expanduser())` — the same resolution `_maybe_role_template` already performs
+  (`workflows/phase_2_explore.py:185`), **not** `.resolve()`, so a symlinked home does not change
+  the recorded identifier. `content` is the string that function returns today, i.e.
+  `rp.read_text(encoding="utf-8").rstrip() + "\n\n"` (`:188`) — the trailing normalisation is part
+  of the injected bytes and therefore part of the hash. Pinning both is what stops the digest
+  assertion from being satisfiable two ways.
 
 ## 5. R3.3 and ADV-7 — reported model identity versus the pin
 
@@ -263,7 +332,13 @@ thing that separates the two.
   `StepResult(status="error", error_code="E_MODEL_PIN_MISMATCH", recoverable=False)`, carrying both
   `observed_model` and `pinned_model` in `data`. Positive control on the same fixture shape: an
   adapter reporting the **same** family returns `ok`.
-- **AC-M3** The comparison target is the **dispatched request model**, not the caller's original
+- **AC-M3** `[bd10:7]` **(G4) `model_requested` in the payload is the POST-rebind dispatched model**,
+  the same value the comparison uses — pinned here because v1 named the payload key and left its
+  relationship to the tier rebind unstated, so a GREEN could honestly record either side of
+  `:1273` and the RED could only assert it on fixtures where the two coincide. Recording the
+  pre-rebind value would put a model in the log that was never invoked, which is the one thing an
+  attestation may not do.
+  The comparison target is likewise the **dispatched request model**, not the caller's original
   `model` argument. `llm_subprocess.py:1254-1273` deliberately rebinds `model` to a tier model when
   tier dispatch applies, and `:1270` calls the pre-rebind value `pinned_model`. Asserted with tier
   dispatch **active**: an adapter reporting the tier model MUST return `ok`. A GREEN comparing
@@ -295,9 +370,13 @@ thing that separates the two.
   `lib/reference_backends/anthropic_api.py:139,149` **accepts and ignores** `allowed_tools`, so an
   engine claiming enforcement uniformly would be claiming it for an adapter that has none.
   Asserted non-uniformly across **two** backends in one test, one of each value.
-- **AC-C3** **ADV-10 / R3.6.** `capability_escapes(events, declared)` returns the tool heads
-  observed in the transcript that are outside `declared`; a non-empty result yields
-  `StepResult(status="error", error_code="E_CAPABILITY_ESCAPE", recoverable=False)`.
+- **AC-C3** **ADV-10 / R3.6.** `capability_escapes(observed_tools, declared)` returns the sorted,
+  deduplicated tool heads in `observed_tools` that are outside `declared`; a non-empty result
+  yields `StepResult(status="error", error_code="E_CAPABILITY_ESCAPE", recoverable=False)`.
+  `observed_tools` reaches the chokepoint as `StepResult.data["observed_tools"]` (§2.4,
+  `[bd10:6]`); **absent means the adapter cannot observe** — no check runs, no error is possible,
+  and that is a third state distinct from an empty set, exactly as `observed_model`'s absence is
+  in §5. Asserted on one fixture pair whose only difference is absent-versus-empty.
   **The matching rule is pinned, not described** (`[G22:4]`): an observed `tool_use` block's `name`
   (e.g. `"Bash"`) is inside the declared set iff the set contains an entry whose text **before the
   first `"("`** equals that name exactly, case-sensitively. So `"Bash(graphify-shim.sh:*)"`
@@ -331,6 +410,14 @@ thing that separates the two.
   executed is itself a failure — CL:221-224, "an implementation that quietly counts an unexecuted
   adversary as passed is itself a conformance failure". Asserted in both directions on one fixture
   set: a conformant report passes, a report mutated to mark ADV-9 executed fails.
+  `[bd10:9]` **(G5) The label key and the detecting mechanism are pinned, because v1 supplied
+  neither.** The key is the literal `"ADV-9"` in `L0Report.labels`, whose value MUST be
+  `tokens.ADVERSARY_NOT_EXECUTED`. "A report that lists ADV-9 as executed **is itself a failure**"
+  names a *judgement*, and a judgement with no judge cannot be asserted — so §2.3's
+  `validate_report(report)` is the judge: it returns a non-empty violation tuple for any report
+  whose `"ADV-9"` label is absent or holds any other value, and an empty tuple otherwise. Both
+  directions run through `validate_report` on one fixture set, so the AC measures a mechanism
+  rather than the test's own opinion.
 - **AC-A3** `[bd10:3]` **`check_bd_l3` reports requirements; it does NOT grant BD-L3.** The level is
   cumulative (CL §2) and BD-L0/L1/L2 are not implemented on this base — bd#8, bd#9 and bd#27 are
   open, and `origin/main` carries no harness, no checker and no attestation writer, only the bd#22
@@ -350,7 +437,7 @@ change. Argument-level capability escape (AC-C6). Migrating injection sites beyo
 ## 9. Split criterion, declared before the first round rather than after the fourth
 
 This lot is larger than the two that have succeeded in this family (L1: 24 ACs, accepted round 2;
-L2: 6 ACs, accepted round 4 after a split) and carries 23 ACs across four independent surfaces.
+L2: 6 ACs, accepted round 4 after a split) and carries 24 ACs across four independent surfaces.
 Recorded now so narrowing is a rule rather than a concession: **if the gate returns REJECTED with a
 blocking finding in the same §-group twice, that group splits into its own issue** and this lot
 ships the remainder. The groups are exactly §3 (R3.1), §4 (R3.2), §5 (R3.3), §6 (R3.4–R3.6), §7
