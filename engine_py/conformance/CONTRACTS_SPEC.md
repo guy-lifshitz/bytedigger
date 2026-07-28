@@ -1,6 +1,6 @@
 # Lot spec — bd#22 (L2): conformance package, shared contracts, quantifier-completeness lint
 
-**v5.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
+**v6.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
 issue before freeze so the split's 113-AC accounting stays checkable.
 
 Depends on nothing but `main`. Everything after L2 depends on it. It MUST NOT reference L1's emissions or any
@@ -69,14 +69,32 @@ Not carelessness — each fix satisfied its clause literally:
 **So prose requirements are not enough, and this is the lot whose whole purpose is to mechanise that insight.**
 Three rules, stated so they can be checked rather than interpreted:
 
-1. **Both orderings, always.** Any fixture with ≥2 members MUST exist with the offending member **first** and with
-   it **last**. Satisfying "non-uniform" with a fixed member order leaves `first`-only or `last`-only alive — which
-   is `[G18:1]` verbatim, and it has now recurred twice after being written down.
+1. **Both orderings, always — at the level of the fixture SET, per check.** For each check, the fixture set MUST
+   place an offending member **first** in at least one fixture and **last** in at least one fixture. A single
+   fixture need not appear twice. `[G22:12]` This is the corrected wording: v5 stated rule 1 as an absolute
+   property of *every* fixture while `[G22:11]` required only one-of-three, so the flagship checkable rule read as
+   violated by three of its own fixtures — the fifth consecutive revision of this spec carrying an internal
+   contradiction. The set-level reading is the one that was implemented and the one that is adequate.
 2. **Every optional element's DEFAULT path is a separate fixture.** If a grammar element is optional with a
    default, a fixture exercising the element **present** does not exercise the default. Both, separately.
 3. **Enumerations are exhausted at the API level, not the concept level.** "Cover the five acts" is discharged by
    covering every *callable* that performs each act, not one per act. Where an enumeration is the requirement, the
    spec MUST list the members, because a concept boundary is not checkable and an API list is.
+
+4. **`[G22:13]` THE TERMINATING RULE — enumerate candidate implementations and simulate each; do not derive
+   fixtures from the requirement text.** Rules 1-3 were each derived from a defect and each was satisfied while the
+   defect moved one level down. Eight instances now. The recursion has no bottom **as long as fixtures are written
+   from the requirement**, because a requirement describes what must hold and a fixture must exclude what an
+   implementer might plausibly do instead — and those are different enumerations.
+   What the gate does, and the RED must do before submitting: **for each check, list the plausible implementations
+   and show each one dies against the fixture set.** For a lint over a marker grammar the standing list is:
+   presence-only; first-member-only; last-member-only; document-global presence (ignoring the member operand);
+   substring rather than exact operand match; the operand bound to the wrong neighbour (following instead of
+   preceding); each *individual member* of a defaulted set omitted; a fixed required order for unordered
+   properties; and case-folding where the spec pins verbatim text. Round 3's two blocking findings were
+   `document-global presence` and `one specific member of the default set` — both on that list, neither simulated.
+   **A round is not ready until that simulation is written down per check.** This rule supersedes 1-3 as the
+   primary obligation; they remain as the specific lessons that produced it.
 
 ## 1. Measured baseline
 
@@ -165,6 +183,13 @@ coverage check **only when an explicit `ADMITS:` is present** passed all 17 test
 this AC exists to catch. Keep a separate explicit-`ADMITS` short row as well, per `[G22:8]`'s rule 2 — present and
 default are two fixtures, not one. `ADMITS` binds to the **nearest preceding `LEVEL`**; a token outside the four is
 itself a finding of kind `missing_reductions`.
+  `[G22:14]` **And the MEMBERSHIP of the default set must be load-bearing, member by member.** Round 3 exercised
+  the default path with exactly one reduction missing (`all`), and `any` was never the missing reduction in any
+  fixture — so a GREEN whose default set is `{all, first, last}`, dropping `any`, passed all 19 tests, and a real
+  spec writing `EXCLUDES: all, first, last` with no `ADMITS` would be reported conformant while under-enumerating
+  `any`. `[G22:9]` made *whether* the default is exercised load-bearing; *which member is short* sat one level
+  below. Required: default-path rows omitting **`any`** and omitting **`first`**, in addition to the existing
+  `all` case.
 
 This is the fourth time in this lot that describing a value stood in for pinning one (`[G22:1]` grammar,
 `[G22:3]` forcing assumption, `[G22:4]` `Finding`, now this). The tell is the same each time: a clause that reads
@@ -294,6 +319,15 @@ different directions, all while the rule was written down and being cited.
      **one** of the three property lines, so each property is independently load-bearing.
   A lint that cannot catch the defects that motivated it is decoration. This clause is the one to check first in any
   later round.
+    `[G22:15]` **Check 1's row→level BINDING must be load-bearing.** Every fixture either gave a level no row at
+  all or gave it a row that immediately followed and named it exactly — so the row's `<level>` operand, which §1.6
+  makes load-bearing ("the row discharging **that** level"), was never tested. Two GREENs survived all 19: a
+  document-global presence check (`any` `NON-UNIFORMITY:` line anywhere ⇒ nothing missing), and substring rather
+  than exact operand matching (`LEVEL: audit` discharged by a row naming `audit_field`). Either ships a silent
+  miss: a spec declaring two levels with a row for only one returns **zero findings**, which is `[G6:quant]`'s
+  founding defect passing through the artifact built to mechanise it. Required: a fixture with **two declared
+  levels and one row naming the OTHER level** — the un-named level MUST still be flagged — plus a level whose name
+  is a substring of another's.
   `[G22:11]` **Corrected: BOTH ORDERINGS** (`[G22:8]` rule 1). Round 2 built the three property fixtures with the
   conformant seam **first** and the offending seam **last** — in all three — so a lint evaluating only the **last**
   `SEAM:` block (a loop-variable escape, entirely ordinary) passed **all 17 tests**. That is `[G18:1]` verbatim,
