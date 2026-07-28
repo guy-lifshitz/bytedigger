@@ -1,6 +1,6 @@
 # Lot spec — bd#22 (L2): conformance package, shared contracts, quantifier-completeness lint
 
-**v8.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **6 ACs** after the round-4 split. `AC-C5` (the quantifier-completeness lint) moved to **bd#24**;
+**v9.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **6 ACs** after the round-4 split. `AC-C5` (the quantifier-completeness lint) moved to **bd#24**;
 accounting stays convergent at 7 = 6 here + 1 there.
 
 Depends on nothing but `main`. Everything after L2 depends on it. It MUST NOT reference L1's emissions or any
@@ -114,6 +114,24 @@ RED.** bd#7 filed exactly this against itself (`AC-A7b`, where `adversaries[]`'s
 be moved into the spec). The RED agent flagged it rather than proceeding silently, which is why it is fixed here
 before GREEN rather than discovered during it.
 
+`[G22:18]` **OWNERSHIP, and this lot's GREEN scope — the split was incomplete without it.** When `AC-C5` moved to
+bd#24 the ACs went and **the interface stayed**, leaving this section specifying bd#24's deliverable as normative for
+*this* lot's GREEN with no AC asserting one clause of it. Both readings available to GREEN were harmful: implement
+the lint and an untested body ships to `main` while bd#24's RED can no longer be RED against it; or stub it, where
+`def lint_quantifier_completeness(text): return []` satisfies the pinned behaviour ("empty list means conformant",
+"MUST NOT raise") **exactly** and passes all six tests — a lint reporting every document conformant, shipped green.
+That is §0.4's vacuity promoted out of a test and into production code.
+
+Normative division, so GREEN infers nothing:
+- **bd#22 creates `conformance/quant_lint.py` as an IMPORT-ONLY PLACEHOLDER.** Its sole contract is AC-C1's
+  no-side-effect import. The module path is genuinely required here — `AC-C1` and `AC-C4` both force on
+  `import conformance.quant_lint`, so without the file two of the six ACs can never go green — but nothing in its
+  body is this lot's deliverable. It MUST NOT contain a working lint, and MUST NOT contain a stub that returns a
+  conformant verdict.
+- **`lint_quantifier_completeness`, `Finding`, and §1.6's entire grammar are bd#24's deliverable**, gated by bd#24's
+  RED. They are retained below as the **inherited interface contract** for that lot, not as a requirement on this
+  one. The table row for `quant_lint.py` therefore reads "placeholder (bd#24 owns the body)".
+
 Normative — GREEN provides exactly these, and the RED asserts against these names:
 
 | Module | Exports |
@@ -121,7 +139,7 @@ Normative — GREEN provides exactly these, and the RED asserts against these na
 | `conformance/__init__.py` | nothing re-exported; importing it MUST do no work (AC-C1) |
 | `conformance/report.py` | `L0Report` — frozen dataclass, fields `passed`, `requirements`, `violations`, `labels` |
 | `conformance/tokens.py` | `REQUIREMENT_PASSED = "passed"`, `REQUIREMENT_FAILED = "failed"`, `REQUIREMENT_NOT_CHECKED = "not-checked"`, `ADVERSARY_NOT_EXECUTED = "not_executed"` |
-| `conformance/quant_lint.py` | `lint_quantifier_completeness(text: str) -> list[Finding]` |
+| `conformance/quant_lint.py` | **placeholder only — bd#24 owns the body** (`[G22:18]`); import must do no work |
 
 `lint_quantifier_completeness` takes the spec document's **text** and returns a list of findings — an empty list
 means conformant. It MUST NOT raise on a non-conformant **or** malformed document: returning findings is the
@@ -145,7 +163,12 @@ than by parsing a message, and a lint implementing only one check cannot masquer
 grammar (`[G22:1]`), the forcing mechanism's assumption (`[G22:3]`), and now `Finding` — the RED had to invent it
 and the invention became the de facto interface. Describing a value is not specifying it.
 
-### 1.6 The AC-C5 fixture-document grammar, pinned `[G22:1]`
+### 1.6 The AC-C5 fixture-document grammar — INHERITED CONTRACT FOR bd#24, not a requirement on this lot `[G22:19]`
+
+**Every "Required of the RED" in this section is an obligation on bd#24's RED, not this one.** v8 left them worded
+as obligations on bd#22, whose RED now contains no fixture documents at all — so a later reader applying v8
+literally would reject a compliant RED. That is the ninth revision of this spec to carry an internal
+contradiction, and it arrived by the same route as `[G22:18]`: the split moved the ACs and left their text behind.
 
 The lint reads spec-like documents. Round 1's RED invented a line-marker grammar; it is adopted here, minimally,
 so that spec and RED agree and GREEN has something to parse. A fixture document is plain text; these markers are
@@ -285,6 +308,15 @@ potential lint failure.
   filesystem (`import conformance` fails today) that my own choice of where to put a *document* silently
   falsified. A forcing mechanism is a claim about the world and needs measuring like any other.
 - **AC-C2** `L0Report` is a **frozen** dataclass carrying `passed`, `requirements`, `violations` and `labels`.
+  `[G22:20]` **Field CONTAINER TYPES are pinned, because `frozen=True` alone does not give an immutable carrier.**
+  `frozen=True` blocks *rebinding*, not mutation: a GREEN annotating `requirements: list[str]` passes every AC-C2
+  assertion while `report.requirements.append(...)` mutates the "frozen" record. **Every one of L3-L12 imports this
+  carrier**, so that defeats for all of them the immutability this AC exists to buy. Normative: the three collection
+  fields are **immutable containers** — `tuple` for `requirements` and `violations`, and a mapping that cannot be
+  mutated in place for `labels` (a `Mapping` that is not a `dict`, or a frozen equivalent). Asserted by attempting
+  in-place mutation on each and requiring it to fail.
+  This is field **structure**, not field **semantics**, so it does not breach the L2 scope limit below — values and
+  their meaning remain L7-L12's.
   Attribute assignment MUST raise `FrozenInstanceError`; the type MUST be constructible with those four fields.
   **Field *values* are out of scope here** — their semantics belong to L7-L12. L2 owns the carrier only, and
   saying so is what keeps L2 from quietly becoming the checker lot.
@@ -322,8 +354,17 @@ which candidates the previous set killed and confirm each is still killed.
 ## 4. Packaging (AC-P1, AC-P2)
 
 - **AC-P1** `pyproject.toml [tool.setuptools.packages.find] include` gains `conformance*`, so the package ships.
+  `[G22:21]` **And the existing entries MUST be asserted to survive.** Membership of `conformance*` alone is
+  satisfied by a GREEN that *replaces* the list — `include = ["conformance*"]` passes, and nothing else in the repo
+  catches it: no test pins that list, and CI's parity step reads `py-modules`, not `packages.find`. `lib*`,
+  `workflows*`, `security*` and `scripts*` would silently stop shipping. Required:
+  `{"lib*","workflows*","security*","scripts*"} <= set(include)` beside the membership assertion.
   Verified present-tense on this base: `include = ["lib*", "workflows*", "security*", "scripts*"]`.
-- **AC-P2** (**pre-passing at RED time — declared**, §0.6) `core_manifest.json` **excludes** `conformance`. This
+- **AC-P2** (**pre-passing at RED time — declared**, §0.6) `core_manifest.json` **excludes** `conformance` — matched as `entry == "conformance"` or
+  `entry.startswith("conformance/")`, **not** as a substring `[G22:22]`. A substring test is correct today (verified:
+  none of the 82 `core_modules` entries contains it) but carries a forward hazard for the lots that follow — L7-L12
+  add checker modules, and a legitimately-core `lib/conformance_checker.py` would false-fail this shield in a later
+  lot. The narrower form expresses the actual requirement without booby-trapping a successor. This
   is what holds `extra_bd` at zero. An absence-shield: it necessarily passes before the change and gains its
   power at GREEN, where an implementation adding the entry fails it. It is the **only** pre-passing test in this
   lot.
