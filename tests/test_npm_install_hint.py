@@ -1,10 +1,13 @@
-"""RED tests for bd#17 (spec 2026-07-28, v3): the npm pointer package's
+"""RED tests for bd#17 (spec 2026-07-28, v4): the npm pointer package's
 "engine not found" hint must print a working install command, and that
 property must be enforced by a test, not just prose.
 
-Per workflows.md §1q, nothing here resolves paths or subprocess-invokes at
-module import time -- every test resolves/executes lazily inside its own
-body, so collection always succeeds and failure happens at assert time.
+Per workflows.md §1q, nothing here resolves REPO-SPECIFIC paths or
+subprocess-invokes at module import time -- every test resolves/executes
+those lazily inside its own body, so failure on repo content/behaviour
+happens at assert time. The one module-level exception is `import yaml`
+itself: it is a hard dependency of this file, and per AC10 its absence must
+raise a collection error, not be swallowed by a skip.
 
 Per §1l, AC1/AC2/AC4/AC5/AC6/AC8 assert on stderr produced by REALLY
 EXECUTING `npm/bin/bytedigger.js` with an isolated PATH (only `python3` and
@@ -25,10 +28,12 @@ Repo root is the parent of this tests/ directory.
 """
 from __future__ import annotations
 
+import io
 import re
 import shutil
 import subprocess
 import sys
+import tokenize
 from pathlib import Path
 
 import yaml
@@ -74,6 +79,7 @@ def find_install_commands(text: str) -> list[dict]:
         for _ in range(2):
             line = re.sub(r"^\$\s+", "", line)
             line = re.sub(r"^[-*]\s+", "", line)
+            line = re.sub(r"^\d+\.\s+", "", line)  # numbered-list marker (A8 of the gate)
         m = _INSTALL_LINE_RE.match(line)
         if not m:
             continue
@@ -142,17 +148,35 @@ def _engine_probe_name() -> str:
     gate) -- NOT to "the only has() call in the file": a natural
     improvement like `if (has("pipx")) { ...suggest pipx... }` with no
     spawnSync inside must not make this qualify (and must not turn AC4
-    red on a correct edit)."""
+    red on a correct edit).
+
+    v4 (blocker B1 of the re-gate): the block body is found by BRACE-DEPTH
+    counting, not by a `\\{([^{}]*)\\}` regex -- the real body contains a
+    nested literal (`{ stdio: "inherit" }`, npm/bin/bytedigger.js:21), so a
+    "body with no braces at all" regex matches nothing and this helper
+    would fail for a reason unrelated to the spec, redenning AC4/AC7 after
+    a correct GREEND that only touches the hint block (§5a scope)."""
     text = WRAPPER.read_text(encoding="utf-8")
-    blocks = re.findall(
-        r"if\s*\(\s*has\(\s*['\"]([^'\"]+)['\"]\s*\)\s*\)\s*\{([^{}]*)\}",
-        text,
-    )
-    qualifying = [
-        probe
-        for probe, body in blocks
-        if re.search(r"spawnSync\(\s*['\"]" + re.escape(probe) + r"['\"]", body)
-    ]
+    qualifying = []
+    for m in re.finditer(r"if\s*\(\s*has\(\s*['\"]([^'\"]+)['\"]\s*\)\s*\)\s*\{", text):
+        probe = m.group(1)
+        open_brace = m.end() - 1
+        depth = 0
+        close_brace = None
+        for i in range(open_brace, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    close_brace = i
+                    break
+        if close_brace is None:
+            continue
+        body = text[open_brace + 1:close_brace]
+        if re.search(r"spawnSync\(\s*['\"]" + re.escape(probe) + r"['\"]", body):
+            qualifying.append(probe)
+
     assert qualifying, (
         f"no `if (has(X)) {{ ... spawnSync(X, ...) ... }}` block found in {WRAPPER}"
     )
@@ -161,6 +185,20 @@ def _engine_probe_name() -> str:
         f"{WRAPPER}, found {sorted(set(qualifying))!r}"
     )
     return qualifying[0]
+
+
+_FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.S)
+
+
+def _fenced_code_text(markdown_text: str) -> str:
+    """Concatenated content of every fenced code block (``` ... ```) in a
+    markdown document (spec §2.5-bis, E1 of the re-gate). On the markdown
+    carrier, install commands are recognised ONLY inside fences -- prose
+    outside a fence is excluded structurally by the carrier's own
+    definition, not by a token-count heuristic that a short, correct
+    §2.7 line like `Prints the pipx install instructions.` could still
+    trip."""
+    return "\n".join(m.group(1) for m in _FENCE_RE.finditer(markdown_text))
 
 
 def _parse_project_name(text: str) -> str | None:
@@ -185,7 +223,7 @@ def _isolated_engine_missing_path(tmp_path: Path) -> Path:
     which/where -- `bytedigger-engine` is absent. Built fresh per test under
     tmp_path (never shared)."""
     bin_dir = tmp_path / "isolated_bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
 
     python3 = shutil.which("python3")
     assert python3, (
@@ -279,6 +317,44 @@ def _run_covers_npm_install_hint(run_str: str) -> bool:
         r"--(?:ignore|deselect)[= ]\S*test_npm_install_hint\.py", cleaned
     )
     return not excluded
+
+
+def _code_only_source(path: Path) -> str:
+    """This file's own source with docstrings and comments blanked out
+    (identified via `tokenize`, positions blanked IN PLACE so real code's
+    adjacency -- e.g. `pytest.mark.skip` -- is preserved character-for-
+    character). bd#11 AC34 precedent: a lint must scan CODE, not prose --
+    AC10's own docstring names every forbidden marker in order to explain
+    itself, and a raw-text scan would flag that prose, not an actual skip
+    mechanism."""
+    source = path.read_text(encoding="utf-8")
+    grid = [list(line) for line in source.splitlines(keepends=True)]
+
+    def _blank(row: int, col: int) -> None:
+        if 0 <= row < len(grid) and 0 <= col < len(grid[row]):
+            ch = grid[row][col]
+            if ch not in ("\n", "\r"):
+                grid[row][col] = " "
+
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type not in (tokenize.COMMENT, tokenize.STRING):
+            continue
+        (sr, sc), (er, ec) = tok.start, tok.end
+        sr -= 1
+        er -= 1
+        if sr == er:
+            for col in range(sc, ec):
+                _blank(sr, col)
+            continue
+        for col in range(sc, len(grid[sr])):
+            _blank(sr, col)
+        for row in range(sr + 1, er):
+            for col in range(len(grid[row])):
+                _blank(row, col)
+        for col in range(0, ec):
+            _blank(er, col)
+
+    return "".join("".join(row) for row in grid)
 
 
 def _step_can_fail_the_job(step: dict, job: dict) -> tuple[bool, str]:
@@ -414,10 +490,13 @@ class TestNpmInstallHint:
         second carrier, using the same named helpers). Red today (both
         README lines): line 12 shares the wrapper's non-allowed `pip` + git
         URL, line 20 is bare `pip install -e .` (P1 violation), and no line
-        targets a bare package name at all (P2 non-emptiness fails too)."""
-        text = README.read_text(encoding="utf-8")
+        targets a bare package name at all (P2 non-emptiness fails too).
+        Only text inside fenced code blocks is considered (spec §2.5-bis) --
+        README:12/:20 are inside ```bash fences and stay counted; README:9,
+        :27 and `## Install` are excluded structurally."""
+        text = _fenced_code_text(README.read_text(encoding="utf-8"))
         cmds = find_install_commands(text)
-        assert cmds, f"grammar found no install commands in {README}"
+        assert cmds, f"grammar found no install commands inside fenced code blocks of {README}"
 
         probe_name = _engine_probe_name()
         canonical_name = _parse_project_name(PYPROJECT.read_text(encoding="utf-8"))
@@ -445,16 +524,26 @@ class TestNpmInstallHint:
         )
 
     def test_ac8_grammar_is_non_empty_round_trips_and_is_not_escaped(self, tmp_path):
-        """AC8, three parts (v3):
-        1. non-emptiness: each carrier (executed wrapper stderr; README)
-           yields >=1 install command;
+        """AC8, five parts (v4):
+        1. non-emptiness: each carrier (executed wrapper stderr; README
+           fenced code blocks) yields >=1 install command;
         2. round-trip (§1ab): every ALLOWED_INSTALLER_FORMS form, embedded
            as `f"{form} install pkg"`, is recognised by the grammar with
            exe == form -- the dictionary and the grammar are mutually
            obligated;
         3. decoy: `uv pip install git+https://x.git` IS recognised by the
            grammar (exe == "uv pip") -- the exact escape hatch that let any
-           two-token form through unmatched in v1 (MAJOR-2)."""
+           two-token form through unmatched in v1 (MAJOR-2);
+        4. decoy OUTSIDE both dictionaries (E3 of the re-gate): `sudo pip
+           install pkg` IS recognised (exe == "sudo pip") and rejected by
+           `_installer_form_is_allowed` -- otherwise the grammar could be
+           narrowed to an alternation over the dictionary itself, which
+           would pass parts 1-3 and every other AC while going blind to any
+           form outside the dictionary;
+        5. prose decoy (E1 of the re-gate): the exact §2.7 lines GREEN will
+           print (`Install it with pipx (recommended for CLI tools):`,
+           `Or into an active virtualenv:`) must NOT be recognised as
+           commands."""
         result = _run_wrapper_isolated(tmp_path)
         wrapper_cmds = find_install_commands(result.stderr)
         assert wrapper_cmds, (
@@ -462,8 +551,8 @@ class TestNpmInstallHint:
             f"stderr={result.stderr!r}"
         )
 
-        readme_cmds = find_install_commands(README.read_text(encoding="utf-8"))
-        assert readme_cmds, f"grammar found zero install commands in {README}"
+        readme_cmds = find_install_commands(_fenced_code_text(README.read_text(encoding="utf-8")))
+        assert readme_cmds, f"grammar found zero install commands inside fenced code blocks of {README}"
 
         for form in ALLOWED_INSTALLER_FORMS:
             line = f"{form} install pkg"
@@ -480,6 +569,25 @@ class TestNpmInstallHint:
         assert _is_vcs_or_url_target(decoy_cmds[0]["target"]), (
             f"decoy target must be recognised as a VCS/URL by P3: {decoy_cmds!r}"
         )
+
+        sudo_decoy = "sudo pip install pkg"
+        sudo_cmds = find_install_commands(sudo_decoy)
+        assert sudo_cmds and sudo_cmds[0]["exe"] == "sudo pip", (
+            f"grammar must recognise the out-of-dictionary decoy {sudo_decoy!r}, "
+            f"got {sudo_cmds!r}"
+        )
+        assert not _installer_form_is_allowed(sudo_cmds[0]["exe"]), (
+            f"{sudo_cmds[0]['exe']!r} must not be an allowed installer form"
+        )
+
+        for prose_line in (
+            "Install it with pipx (recommended for CLI tools):",
+            "Or into an active virtualenv:",
+        ):
+            hits = find_install_commands(prose_line)
+            assert not hits, (
+                f"grammar wrongly matched the §2.7 prose decoy {prose_line!r}: {hits!r}"
+            )
 
     def test_ac9_some_root_scoped_ci_step_can_actually_fail_on_this_file(self):
         """AC9 (§1l shield + MAJOR-3: the covering step must be able to
@@ -540,20 +648,30 @@ class TestNpmInstallHint:
         )
 
     def test_ac10_this_suite_never_skips_or_conditionally_disables_itself(self):
-        """AC10 (A6 of the gate): this file's own source contains none of
-        the mechanisms that let a test silently not run. Absence of
-        `node`/`pyyaml` must fail this suite loudly, never switch it off --
-        that silent-skip is exactly the rot mechanism bd#17 targets.
-        Markers are built by concatenation so this assertion does not flag
-        its own source."""
-        source = Path(__file__).read_text(encoding="utf-8")
+        """AC10 (A6 of the gate, extended by E5 of the re-gate): this
+        file's own CODE contains none of the mechanisms that let a test
+        silently not run -- pytest's skip(), importorskip(), mark.skipif,
+        mark.skip (v4: the simplest way to silence a single test, absent
+        from v3's set), and xfail in any form. Absence of node/pyyaml must
+        fail this suite loudly, never switch it off -- that silent-skip is
+        exactly the rot mechanism bd#17 targets.
+
+        Scanned via `_code_only_source`: docstrings and comments are
+        blanked out first (bd#11 AC34 precedent -- a raw-text scan flags
+        THIS docstring's own naming of the forbidden markers, which is
+        prose, not a skip). Matching is case-insensitive so
+        `@pytest.mark.XFail` style spellings are caught too."""
+        code_only = _code_only_source(Path(__file__)).lower()
         forbidden = (
             "pytest" + ".skip",
             "import" + "orskip",
             "mark" + ".skipif",
+            "mark" + ".skip",
+            "x" + "fail",
         )
         for marker in forbidden:
-            assert marker not in source, (
-                f"{marker!r} found in this suite's own source -- a layer that "
-                "can silently not run is not a layer (spec AC10)"
+            assert marker.lower() not in code_only, (
+                f"{marker!r} found in this suite's own CODE (docstrings/"
+                "comments excluded) -- a layer that can silently not run is "
+                "not a layer (spec AC10)"
             )
