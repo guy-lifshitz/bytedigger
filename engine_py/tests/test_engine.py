@@ -171,7 +171,12 @@ def test_engine_emits_workflow_started_and_finished_when_log_attached():
     eng.execute("solo", make_ctx(), run_id="rid-1")
 
     kinds = [e[0] for e in log.events]
-    assert kinds == ["workflow_started", "step_started", "step_finished", "workflow_finished"]
+    # bd#18: run_identity (AC-E2, immediately after workflow_started) and
+    # phase_artifacts (AC-E5, immediately before workflow_finished) added.
+    assert kinds == [
+        "workflow_started", "run_identity", "step_started", "step_finished",
+        "phase_artifacts", "workflow_finished",
+    ]
     # All carry the same run_id
     assert {e[2] for e in log.events} == {"rid-1"}
 
@@ -311,4 +316,9 @@ def test_ac8_no_ambient_git_isolation_holds():
 
     kinds = [e[0] for e in log.events]
     assert "files_touched" not in kinds
-    assert kinds == ["workflow_started", "step_started", "step_finished", "workflow_finished"]
+    # bd#18: run_identity (AC-E2, immediately after workflow_started) and
+    # phase_artifacts (AC-E5, immediately before workflow_finished) added.
+    assert kinds == [
+        "workflow_started", "run_identity", "step_started", "step_finished",
+        "phase_artifacts", "workflow_finished",
+    ]
