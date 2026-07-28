@@ -399,6 +399,35 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   production, and the only one that shows the new emits are swallowed *in situ* rather than in a stripped-down
   execution.
 
+## 5.0 Consequences of the additive change, measured at GREEN `[G18g]`
+
+Recorded because they are real and were **measured**, not predicted — and because two of them are the kind of
+consequence that reads as "nothing happened" until a consumer trips over it.
+
+- **`[G18g:1]` Three existing exact-sequence expectations were stale and are updated.** `run_identity` now sits at
+  index 1 and `phase_artifacts` immediately before `workflow_finished`, so three tests asserting the **complete**
+  event-type sequence necessarily failed: `test_engine.py::test_engine_emits_workflow_started_and_finished_when_log_attached`,
+  `test_engine.py::test_ac8_no_ambient_git_isolation_holds`, and
+  `test_event_log_replay_e2e.py::test_engine_run_then_replay_produces_expected_derived_state`. The round-2 gate
+  predicted this as `[G18r2:EDGE-7]` and said the full-suite re-measure should be GREEN's **first** act; it was
+  run last, which is a process note against me, not against the implementation.
+  **They were updated, not weakened, and the distinction is the point:** each remains an exact-equality assertion
+  over the full sequence — no `in`, no subset, no filtering the new types out, no length check — with only the
+  expected list corrected. `test_ac8`'s `assert "files_touched" not in kinds` is untouched, since that assertion
+  is that test's whole purpose and unrelated to this change. Editing existing tests so one's own change passes is
+  the standard way a regression is hidden, so the edits are deliberately confined to three list literals plus
+  comments (16 lines total) and are submitted to the gate for exactly that scrutiny.
+- **`[G18g:2]` A real engine run replayed through `derive_state.replay()` now reports `unknown_events == 2` per
+  run.** `derive_state.py:189-190` ends its known-event chain with `else: unknown += 1`, and this lot deliberately
+  does **not** teach it the two new types (AC-N2 scopes this lot to *not breaking* consumers, not to extending
+  them). Nothing currently asserts on that counter for a real run — the two places that assert it
+  (`test_gh700_shadow_completion.py:266` at `== 0`, `test_derive_state.py:140` at `== 2`) both fold **hand-built**
+  event lists with no engine involved, which is why both passed. This is also why AC-N2's shield deliberately does
+  **not** assert `unknown_events == 0`: doing so would have trapped a correct implementation.
+  **Re-open criterion:** the first consumer that reads `unknown_events` from a real run as a health signal, or the
+  first lot that needs `derive_state` to interpret either new event. Teaching `derive_state` the two types is a
+  one-line-per-type change in the lot that needs it — deliberately not done speculatively here.
+
 ## 5.1 Constraints on GREEN carried from the accepted round's edges `[G18r3]`
 
 These are **normative constraints on the implementation** whose **tests are deliberately deferred** to a
