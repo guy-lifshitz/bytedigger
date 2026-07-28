@@ -9,7 +9,7 @@ chokepoint: >
   R3.3 and R3.6 adjudicate the adapter's return there. An emission or check placed inside one
   backend is out of contract: it leaves every other adapter unmeasured, which is the 1-of-9
   gradient the parent document exists to reverse.
-status: FROZEN v4
+status: FROZEN v5
 base: origin/main @ dc6f0d0
 ---
 
@@ -45,6 +45,22 @@ base: origin/main @ dc6f0d0
 > CL:98 asks that blocks *carry* an identifier and hash, not that the engine concatenate them.
 > AC count 27 → 32 (AC-I6, AC-I7, AC-A4, AC-A5, AC-M6), then → **26** after the two cuts the
 > dispatcher approved on that evidence: §7 → bd#28, §5's flip → bd#29. See §9 for the full table.
+>
+> **v5 (post-gate round 2, REJECTED — 1 blocking).** Round 2 ran in a separate window, on its own
+> tree, and **executed pytest** — round 1 could not, which is why it could not answer its own input
+> requirement. The difference between the rounds is instrumental, not diligence: reading finds
+> contradictions in a spec, execution finds what a spec never mentions.
+> `[bd10:24]` (BLOCKING-1, Class A) no AC asserted that a dispatch the chokepoint FAILED is still
+> attested, so a GREEN early-returning on the pin and escape checks passed all 26 ACs and all 35
+> items while emitting attestations **only for clean invocations** — leaving bd#28 structurally
+> unable to return `failed`. The §7 cut moved the oracle; the obligation to produce its evidence
+> stayed here and was unmeasured. Closed on AC-M2's and AC-C3's existing fixtures; **26 ACs stays
+> 26**. Also closed: `[bd10:25]` (M-1) R3.1's label named one narrowing when it has two, and
+> `[bd10:26]` (M-2) AC-M5 claimed an additivity that measurement showed does not exist. M-3…M-5 are
+> non-blocking and deliberately not pulled into this pass.
+> Recorded as measurement, not consolation: four of the author's five self-declared v4 risks did
+> **not** reproduce under execution, both cuts were clean, and every fixture precondition was live —
+> each test fails on its measuring assertion, not on a precondition. The RED was not rewritten.
 
 # Lot spec — bd#10: BD-L3, attested authorship and inputs (R3.1–R3.6; ADV-7, ADV-8, ADV-10)
 
@@ -240,6 +256,19 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   capability_enforcement, observed_model, observed_tools}`. Asserted by exact key-set equality, so a GREEN carrying
   extra diagnostic keys fails and a consumer's key set cannot drift silently. Where there is no
   active run context the engine emits nothing and **MUST NOT raise** (AC-P8).
+
+  `[bd10:24]` **(gate round 2, BLOCKING-1) A dispatch that HAPPENED is attested regardless of what
+  the chokepoint's checkers then decide.** The attestation records the invocation, not the verdict:
+  the pin check (R3.3) and the escape check (R3.6) run **after** the emit and change the returned
+  `StepResult`, never whether the event exists. An implementation that early-returns on either check
+  before reaching `_emit_safe` is out of contract.
+  This is not a detail of ordering. v4 moved the checker to bd#28 (§7) but left the **evidence**
+  obligation here, and no AC measured it: everywhere `status == "error"` was expected, nothing in
+  the log was asserted afterwards. A GREEN returning early on both checks therefore passed all 26
+  ACs and all 35 items while emitting attestations **only for invocations with no violation** — so
+  bd#28's aggregation ("`failed` if any invocation recorded a violation") could never return
+  `failed` at all. The oracle left; its evidence did not; and an oracle whose rejection is
+  physically impossible is green always. Asserted on AC-M2's and AC-C3's existing fixtures.
   *Kills:* an emit that omits any key; an emit that adds one.
 
   `[bd10:4]` **The run-context guard is in the head clause because without it this AC is a Class B
@@ -320,11 +349,27 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
 
   | Key | Value | Why |
   |---|---|---|
-  | `R3.1` | `host-attested` | CL §8 — the engine hashes at assembly, not on the wire; ADV-9 is struck from the executable set |
+  | `R3.1` | `host-attested-within-run-context` | `[bd10:25]` two narrowings, not one — see below |
   | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; one of eight role-template inlining sites is migrated |
   | `R3.3` | `in-session-warn-only` | `[bd10:2]` — enforced at the chokepoint for reporting adapters; the in-session path still warns (bd#29) |
   | `R3.5` | `adapter-declared` | `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a mechanism outside the actor's reach |
   | `R3.6` | `tool-head-only` | AC-C6 — the operand never leaves the adapter |
+
+  `[bd10:25]` **(gate round 2, M-1) R3.1's label carries TWO narrowings, because it has two.**
+  v4 wrote `host-attested`, which states only CL §8's point — the engine hashes at assembly rather
+  than on the wire, so ADV-9 is not executable. It said nothing about the **second** narrowing this
+  lot introduced itself: CL:97 requires hashing "for **every** model invocation", and this lot emits
+  only where `telemetry_ctx.get_current_run()` is not `None` (`[bd10:4]`), with AC-P8 pinning that
+  silence as *correct*. A reader of `host-attested` would not learn that some invocations are not
+  attested at all. That is a third unlabelled narrowing of exactly the kind AC-P7 exists to prevent,
+  and it was in the label the lot was proudest of.
+  **Exposure measured, and it is nil today:** `set_current_run` is written in production at exactly
+  one site, `engine.py:415`, inside step execution, and every production caller of
+  `invoke_llm_subprocess` lives under the engine (`workflows/*`, `lib/directed_repair.py:521`). No
+  uncovered production path was found. The gap is therefore in the **declaration**, not in the
+  behaviour — which is precisely why it must be declared rather than argued away.
+  **Re-open criterion:** the first production caller of `invoke_llm_subprocess` outside an engine
+  step, at which point the narrowing acquires real exposure and R3.1 needs a mechanism, not a label.
 
   Asserted by **exact mapping equality**, so both an omitted label and an invented one fail; and the
   mapping is immutable, so a caller cannot edit the record of what we claim. R3.4 carries no label
@@ -501,9 +546,31 @@ Normative for this lot:
   `lib.llm_provider._claude_model_family` and differ. An unresolvable observed family → no error,
   recorded as `not-checked` (an unrecognised token is not evidence of drift). Asserted by value
   against the external ladder at `lib/llm_provider.py:113`, not against a constant this lot writes.
-- **AC-M5** The existing `model_pin_mismatch` telemetry event is still emitted on the flip
-  (additivity for its existing consumers), **and** the step now ends `status == "error"`. Both on
-  one fixture, so the AC cannot be discharged by either half alone.
+- **AC-M5** A `model_pin_mismatch` telemetry event is emitted for a chokepoint-detected mismatch,
+  **and** the step ends `status == "error"`. Both on one fixture, so the AC cannot be discharged by
+  either half alone. The payload carries `chokepoint: true`.
+
+  `[bd10:26]` **(gate round 2, M-2) The word "additivity" is withdrawn, because measurement showed
+  there is nothing to be additive to — and the honest reading makes this a NEW writer of an EXISTING
+  event type with a DIFFERENT meaning.** v4 said the event was "**still** emitted on the flip
+  (additivity for its existing consumers)". The gate ran it: on the chokepoint path this event is
+  not written at all today (observed `events seen: ['runner_backend_resolved']`), and the only
+  production writer in the tree is `llm_subprocess.py:919` — the in-session path this lot declared
+  untouchable when the flip moved to bd#29 (`[bd10:2]`). So "still emitted" described a continuity
+  that does not exist, and "additivity" named a property that cannot hold.
+
+  What is actually being introduced matters more than the wording: until now `model_pin_mismatch`
+  meant *"we warned and continued"*; this lot makes it also mean *"the step failed"*. A consumer
+  reading the event type alone cannot tell the two apart, and no AC pinned a discriminator — which
+  is the same overclaim-by-omission this lot exists to remove, arriving through a telemetry payload
+  instead of an attestation label.
+
+  Normative: the payload carries **`chokepoint: true`** on the events this lot emits, asserted by
+  value, so the two meanings are distinguishable by a consumer rather than by provenance. The
+  in-session writer at `:919` is untouched and continues to emit without the key, which is what
+  makes the discriminator meaningful. Existing consumers of the old event are unaffected because
+  this lot adds no writer on their path; that is a statement about *scope*, not about additivity,
+  and it is worth saying in those terms rather than borrowing a word that promised more.
 
 ## 6. R3.4, R3.5, R3.6 and ADV-10 — the declared capability set
 

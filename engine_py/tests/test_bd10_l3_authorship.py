@@ -1488,7 +1488,27 @@ def test_ac_m2_family_mismatch_errors_and_family_match_is_ok() -> None:
     tier is active here, so the dispatched request model and the caller's
     argument coincide and `pinned_model` is unambiguous.
 
-    Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
+    A FAILED DISPATCH IS STILL ATTESTED, and that assertion comes FIRST.  The
+    wrong GREEN this kills is the one that EARLY-RETURNS on the pin check
+    BEFORE reaching `_emit_safe`: it satisfies every status/error_code
+    assertion in this file while the attestation log ends up containing only
+    the invocations where nothing went wrong.  bd#28's aggregation
+    (`[bd10:13]` — `failed` if any invocation recorded a violation) could then
+    never return `failed`, and an oracle whose rejection is impossible is green
+    always.  §7 moved the ORACLE to bd#28; the obligation to produce its
+    EVIDENCE stayed here.  Ordering the assertion first is also the semantics:
+    a dispatch that OCCURRED is attested regardless of what the checker later
+    decides about it.
+
+    Both outcomes on ONE fixture: the emitting GREEN produces exactly one
+    attestation carrying this call's `step_name` (with the error result); the
+    early-returning GREEN produces ZERO on the identical fixture.
+
+    NO `injections` OVERRIDE.  Passing `injections=None` would raise TypeError
+    pre-GREEN before any assert ran, making the attestation assertion dead —
+    and R3.2's kwarg is not what this AC measures.  Without it the call really
+    dispatches today, so this assertion fails pre-GREEN on exactly the property
+    it measures: the dispatch happens, no attestation is emitted.
     """
     drifting = _RecordingAdapter(
         "m2-drift", data={"observed_model": "claude-haiku-4-5-20251001"}
@@ -1497,8 +1517,20 @@ def test_ac_m2_family_mismatch_errors_and_family_match_is_ok() -> None:
     log = _FakeEventLog()
     set_run(log)
 
-    result = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(model="sonnet", injections=None)
+    result = llm_subprocess.invoke_llm_subprocess(**invoke_kwargs(model="sonnet"))
+
+    attests = log.attests()
+    assert len(attests) == 1, (
+        f"AC-M2: a dispatch the chokepoint FAILED must still be attested — exactly "
+        f"one {EVENT_TYPE!r} event.  A GREEN early-returning on the pin check before "
+        f"`_emit_safe` logs only the clean invocations, which makes bd#28's "
+        f"`failed` verdict (`[bd10:13]`) unreachable; got {len(attests)} "
+        f"(all events: {log.types()!r})"
+    )
+    assert attests[0]["step_name"] == "invoke_bd10_llm", (
+        f"AC-M2: the attestation must be THIS dispatch's — step_name "
+        f"'invoke_bd10_llm', so a stray event from elsewhere cannot satisfy the "
+        f"count above; got {attests[0]['step_name']!r}"
     )
 
     assert result.status == "error", (
@@ -1525,9 +1557,7 @@ def test_ac_m2_family_mismatch_errors_and_family_match_is_ok() -> None:
     matching = _RecordingAdapter("m2-match", data={"observed_model": "claude-sonnet-4-6"})
     register("bd10-rec", matching)
     set_run(log)
-    control = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(model="sonnet", injections=None)
-    )
+    control = llm_subprocess.invoke_llm_subprocess(**invoke_kwargs(model="sonnet"))
     assert control.status == "ok" and control.error_code is None, (
         f"AC-M2 positive control: a same-family report must be ok; got "
         f"status={control.status!r} error_code={control.error_code!r}"
@@ -1657,24 +1687,48 @@ def test_ac_m4_family_comparison_not_raw_equality() -> None:
 
 
 def test_ac_m5_mismatch_event_still_emitted_and_step_errors() -> None:
-    """AC-M5: the existing `model_pin_mismatch` telemetry event is STILL
-    emitted when the chokepoint fails a drifted invocation (additivity for its
-    existing consumers), AND the step ends `status == "error"`.
+    """AC-M5 (v5): a `model_pin_mismatch` telemetry event is emitted for a
+    CHOKEPOINT-detected mismatch, its payload carries `chokepoint: true`, AND
+    the step ends `status == "error"`.  All three on ONE fixture — one
+    dispatch, one measurement — so the AC cannot be discharged by any half
+    alone.
 
-    Kills: a GREEN that errors and drops the event (silently breaking every
-    consumer of `model_pin_mismatch`, which today is written only from the
-    in-session path at llm_subprocess.py:919); a GREEN that emits the event and
-    leaves the step `ok`.  Both halves are asserted on ONE fixture, so the AC
-    cannot be discharged by either half alone.
+    `[bd10:26]` (gate round 2, M-2) THE WORD "ADDITIVITY" IS WITHDRAWN AND THE
+    DISCRIMINATOR REPLACES IT.  v4 said the event was "still" emitted, which
+    measurement disproved: on the chokepoint path it is not written at all
+    today, and the tree's only production writer is llm_subprocess.py:919 — the
+    in-session path this lot declared untouchable (`[bd10:2]`, bd#29 owns the
+    flip).  So this lot adds a NEW writer of an EXISTING event type with a
+    DIFFERENT meaning: until now the event meant "we warned and continued", and
+    it will now also mean "the step failed".
 
-    `[bd10:2]`: this is the CHOKEPOINT's behaviour for a reporting adapter.
-    The in-session warn-only path is untouched and belongs to bd#29.
+    `chokepoint is True` is what kills a GREEN that reuses the event type
+    WITHOUT a discriminator, under which the two meanings are indistinguishable
+    to any consumer reading the type alone — the same overclaim-by-omission
+    this lot exists to remove, arriving through a telemetry payload instead of
+    an attestation label.  Asserted by IDENTITY against `True`, per-field per
+    §0.5: a truthy stand-in such as `"yes"` or `1` is out of contract and must
+    fail here.  The `:919` writer stays untouched and keeps emitting WITHOUT
+    the key, which is precisely what makes the discriminator meaningful.
 
-    Two measured outcomes on ONE fixture: intact, the event is present and the
-    status is `error`; with the emit deleted the same fixture fails the first
-    half, and with the flip reverted it fails the second.
+    Kills, additionally: a GREEN that errors and drops the event; a GREEN that
+    emits the event and leaves the step `ok`.
 
-    Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
+    Two measured outcomes on ONE fixture: intact, the event is present with
+    `chokepoint` `True` and the status is `error`; with the emit deleted the
+    same fixture fails the first half, with the discriminator omitted (or
+    written as a truthy non-`True`) it fails the second, and with the flip
+    reverted it fails the third.
+
+    THE TELEMETRY HALVES COME FIRST, AND THERE IS NO `injections` OVERRIDE.
+    Passing `injections=None` would raise TypeError pre-GREEN before any assert
+    ran, which would leave the `chokepoint` discriminator declared and
+    unmeasured — the defect this very clause was added to close.  R3.2's kwarg
+    is not what AC-M5 measures; `invoke_kwargs` does not carry it by default,
+    so without the override the call really reaches `_dispatch_backend` and
+    dispatches to the registered adapter today.  This event is not written on
+    the chokepoint path at all on this base, so the existence half fails
+    pre-GREEN on exactly the property it measures.
     """
     register("bd10-rec", _RecordingAdapter(
         "m5", data={"observed_model": "claude-haiku-4-5-20251001"}
@@ -1682,14 +1736,19 @@ def test_ac_m5_mismatch_event_still_emitted_and_step_errors() -> None:
     log = _FakeEventLog()
     set_run(log)
 
-    result = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(model="sonnet", injections=None)
-    )
+    result = llm_subprocess.invoke_llm_subprocess(**invoke_kwargs(model="sonnet"))
 
     mismatch = log.payloads("model_pin_mismatch")
     assert len(mismatch) >= 1, (
-        f"AC-M5: the existing 'model_pin_mismatch' event must still be emitted on the "
-        f"flip; events seen: {log.types()!r}"
+        f"AC-M5: a 'model_pin_mismatch' event must be emitted for a "
+        f"chokepoint-detected mismatch; events seen: {log.types()!r}"
+    )
+    assert mismatch[0].get("chokepoint") is True, (
+        f"AC-M5 (`[bd10:26]`): the payload must carry chokepoint=True by IDENTITY — "
+        f"without the discriminator a consumer cannot tell this lot's 'the step "
+        f"failed' from llm_subprocess.py:919's 'we warned and continued', and a "
+        f"truthy stand-in is out of contract (§0.5); got "
+        f"{mismatch[0].get('chokepoint')!r}"
     )
     assert result.status == "error", (
         f"AC-M5: the step must now END in error, not warn-and-proceed; got "
@@ -1918,7 +1977,26 @@ def test_ac_c3_escape_at_chokepoint_errors_both_orderings(position) -> None:
     that code, the permitted sequence on the identical call is `ok` — so the
     verdict is attributable to `observed_tools` alone.
 
-    Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
+    A FAILED DISPATCH IS STILL ATTESTED, and that assertion comes FIRST.  The
+    wrong GREEN this kills is the one that EARLY-RETURNS on the escape check
+    BEFORE reaching `_emit_safe`: it satisfies every status/error_code
+    assertion here while the attestation log retains only the invocations where
+    no escape occurred.  bd#28's aggregation (`[bd10:13]` — `failed` if any
+    invocation recorded a violation) could then never return `failed`, and an
+    oracle whose rejection is impossible is green always.  §7 moved the ORACLE
+    to bd#28; the obligation to produce its EVIDENCE stayed here.  Ordering the
+    assertion first is also the semantics: a dispatch that OCCURRED is attested
+    regardless of what the checker later decides about it.
+
+    Both outcomes on ONE fixture: the emitting GREEN produces exactly one
+    attestation carrying this call's `step_name` (with the error result); the
+    early-returning GREEN produces ZERO on the identical fixture.
+
+    NO `injections` OVERRIDE.  Passing `injections=None` would raise TypeError
+    pre-GREEN before any assert ran, making the attestation assertion dead —
+    and R3.2's kwarg is not what this AC measures.  Without it the call really
+    dispatches today, so this assertion fails pre-GREEN on exactly the property
+    it measures: the dispatch happens, no attestation is emitted.
     """
     escaping = ["Task", "Read", "Bash"] if position == "first" else ["Read", "Bash", "Task"]
 
@@ -1927,7 +2005,21 @@ def test_ac_c3_escape_at_chokepoint_errors_both_orderings(position) -> None:
     set_run(log)
 
     result = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(allowed_tools=list(REAL_DECLARED_TOOLS), injections=None)
+        **invoke_kwargs(allowed_tools=list(REAL_DECLARED_TOOLS))
+    )
+
+    attests = log.attests()
+    assert len(attests) == 1, (
+        f"AC-C3 ({position}): a dispatch the chokepoint FAILED must still be "
+        f"attested — exactly one {EVENT_TYPE!r} event.  A GREEN early-returning on "
+        f"the escape check before `_emit_safe` logs only the clean invocations, "
+        f"which makes bd#28's `failed` verdict (`[bd10:13]`) unreachable; got "
+        f"{len(attests)} (all events: {log.types()!r})"
+    )
+    assert attests[0]["step_name"] == "invoke_bd10_llm", (
+        f"AC-C3 ({position}): the attestation must be THIS dispatch's — step_name "
+        f"'invoke_bd10_llm', so a stray event from elsewhere cannot satisfy the "
+        f"count above; got {attests[0]['step_name']!r}"
     )
 
     assert result.status == "error", (
@@ -1949,7 +2041,7 @@ def test_ac_c3_escape_at_chokepoint_errors_both_orderings(position) -> None:
     ))
     set_run(log)
     control = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(allowed_tools=list(REAL_DECLARED_TOOLS), injections=None)
+        **invoke_kwargs(allowed_tools=list(REAL_DECLARED_TOOLS))
     )
     assert control.status == "ok" and control.error_code is None, (
         f"AC-C3 positive control ({position}): ≥2 permitted heads must not error; got "
