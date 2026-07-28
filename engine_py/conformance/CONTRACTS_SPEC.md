@@ -1,7 +1,7 @@
 # Lot spec — bd#22 (L2): conformance package, shared contracts, quantifier-completeness lint
 
-**v7.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
-issue before freeze so the split's 113-AC accounting stays checkable.
+**v8.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **6 ACs** after the round-4 split. `AC-C5` (the quantifier-completeness lint) moved to **bd#24**;
+accounting stays convergent at 7 = 6 here + 1 there.
 
 Depends on nothing but `main`. Everything after L2 depends on it. It MUST NOT reference L1's emissions or any
 later lot's design.
@@ -297,65 +297,27 @@ potential lint failure.
   dependency set in `pyproject.toml`, not by inspecting imports — an import scan cannot distinguish a stdlib
   module from a vendored one.
 
-## 3. AC-C5 — the quantifier-completeness lint `[A3]`
+## 3. AC-C5 — MOVED to bd#24 `[G22:17]`
 
-bd#7's `[G6:quant]` rule was **live and normative for four rounds while the defect it forbids kept recurring**,
-because its audit was prose plus a hand-built table. Rounds 4-9 climbed the ladder upward; round 9 found a rung
-below it; L1 round 1 found a fixture non-uniform in one ordering only. Three failures of the same rule, in three
-different directions, all while the rule was written down and being cited.
+`AC-C5` left this lot under the dispatcher's round-4 exit criterion. Gate round 4 returned REJECTED with a
+**type (a)** blocker — one introduced by our own previous fix, proven by diff: round 1's `_SEAM_NOT_PINNED_SPEC`
+carried a bare `SEAM:` with zero property lines, and commit `9947142` deleted it while implementing the
+`[G22:7]` fix. Clause 3 of the criterion therefore forbids a fifth spec round on that shape and requires the lot
+to narrow or split.
 
-**Prose does not hold this. AC-C5 makes it mechanical.**
+**Why the seam falls here.** All eight blocking findings across four gate rounds were in `AC-C5`'s fixtures. The
+six ACs that remain were found clean round after round and never produced a blocking finding, so keeping them
+behind the lint made L3-L12 wait on the hardest artifact in the split for no reason.
 
-- **AC-C5** A lint, **failing the build**, that reads a conformance spec and reports:
-  1. **Every collection level named in the spec that has no non-uniformity row** — in **both** directions,
-     containers and element kinds and payload fields. A named collection without a row is a lint failure, not a
-     review note.
-  2. **Every quantified requirement whose row does not enumerate the reductions it excludes.** This is the part
-     `[G18:1]` requires and the part a level-only enumeration misses: a row saying "non-uniform, ≥2 members" is
-     insufficient; it must name which of `any` / `all` / `first` / `last` its fixtures kill.
-  3. **Every named seam that does not pin its interception property** (§0.2) — attribute path, call-time
-     resolution, normalisation. Three consecutive lots were bitten with the seam correctly named.
-  Asserted on **fixture spec documents**, at least one of which is non-conformant in each of the three ways, plus
-  a conformant control that MUST pass. Per §0.1 the fixture set is non-uniform in each dimension independently,
-  so a lint implementing only one of the three checks fails.
-  `[G22:7]` **Non-uniformity is required WITHIN each check, not only ACROSS the three.** Round 1 satisfied it for
-  check 1 (two levels, each asserted independently) and failed it for the other two, which is `[G18:1]` reappearing
-  **inside the lint written to mechanise `[G6:quant]`** — one lot later, in the artifact built to prevent it:
-  1. **Check 2 ranges over rows** and its fixture had exactly **one** row, so a lint reporting only the *first*
-     offending row passed. Required: ≥2 rows, at least one conformant and one not.
-  2. **Check 3 ranges over seams** and its fixture had exactly **one** seam. Same gap, same fix.
-  3. **Check 3 also ranges over the three property lines, and the fixture omitted all three at once.** The check is
-     "a seam missing **any** of the three", so a lint testing only `ATTRIBUTE-PATH` presence passed both that test
-     and the conformant control. **That implementation would miss two of this lot's own three founding cases** —
-     `mkdtemp` (binding time unpinned), `Path.read_text` (normalisation unpinned) — both of which pinned the
-     attribute path correctly and failed on the *other* properties. Required: three fixtures, each omitting exactly
-     **one** of the three property lines, so each property is independently load-bearing.
-  A lint that cannot catch the defects that motivated it is decoration. This clause is the one to check first in any
-  later round.
-    `[G22:15]` **Check 1's row→level BINDING must be load-bearing.** Every fixture either gave a level no row at
-  all or gave it a row that immediately followed and named it exactly — so the row's `<level>` operand, which §1.6
-  makes load-bearing ("the row discharging **that** level"), was never tested. Two GREENs survived all 19: a
-  document-global presence check (`any` `NON-UNIFORMITY:` line anywhere ⇒ nothing missing), and substring rather
-  than exact operand matching (`LEVEL: audit` discharged by a row naming `audit_field`). Either ships a silent
-  miss: a spec declaring two levels with a row for only one returns **zero findings**, which is `[G6:quant]`'s
-  founding defect passing through the artifact built to mechanise it. Required: a fixture with **two declared
-  levels and one row naming the OTHER level** — the un-named level MUST still be flagged — plus a level whose name
-  is a substring of another's.
-  `[G22:11]` **Corrected: BOTH ORDERINGS** (`[G22:8]` rule 1). Round 2 built the three property fixtures with the
-  conformant seam **first** and the offending seam **last** — in all three — so a lint evaluating only the **last**
-  `SEAM:` block (a loop-variable escape, entirely ordinary) passed **all 17 tests**. That is `[G18:1]` verbatim,
-  inside the fixtures written to fix its analogue, and the second recurrence after the rule was written down.
-  Required: at least one of the three property fixtures places the offending seam **first**, or carries a third
-  conformant seam after it. Check 2 already got this right — its offenders are 1st and 2nd with the conformant row
-  3rd, which kills first-only and last-only together — and it is the model to copy.
+Everything accumulated for the lint — the `[G22:13]` candidate list, the `[G22:16]` semantics, both round-4
+findings as input requirements, and `_SEAM_NOT_PINNED_SPEC` as a form not to lose twice — is recorded in bd#24.
 
-The lint lives here, not in L8, because the defect class is the **enumeration** — in L8 it would be one row for
-one collection. It is L2's business because L2 owns the cross-lot invariants.
-
-**Scope limit, deliberate:** the lint checks that a spec *documents* its quantifiers and seams. It does **not**
-verify that the cited fixtures exist or discriminate — that is the gate's judgement and cannot be mechanised, as
-bd#7 proved when a keyword sweep over its own specs mis-scored 11 of 13 ACs. A lint that claimed to do the gate's
-job would be a worse artifact than the prose it replaces.
+**One method change goes with it, and it is the substantive lesson of round 4:** candidate simulation catches
+"the implementation picked the wrong reduction"; it does **not** catch "a fixture that covered the base case
+disappeared". Round 3 deleted check 3's base-case coverage while satisfying its requirement to the letter, and
+neither the requirement nor the simulation table noticed, because both looked at the shape the requirement named.
+bd#24 therefore gates on a **coverage diff per fix**: every round that modifies or removes a fixture must show
+which candidates the previous set killed and confirm each is still killed.
 
 ## 4. Packaging (AC-P1, AC-P2)
 
