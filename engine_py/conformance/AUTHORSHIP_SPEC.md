@@ -1,6 +1,7 @@
 ---
 voice-profile: technical-en
 lot: bd#10
+children: [bd#28 (checker + attestation report, ex-§7), bd#29 (in-session model-pin flip, ex-§5)]
 class: SYSTEMATIC
 chokepoint: >
   llm_subprocess._dispatch_backend (llm_subprocess.py:971) — the single call site through which
@@ -42,14 +43,15 @@ base: origin/main @ dc6f0d0
 > the author and the gate.
 > B-5 forced the one real design change: **attribution is now separated from assembly**, because
 > CL:98 asks that blocks *carry* an identifier and hash, not that the engine concatenate them.
-> AC count 27 → 32 (AC-I6, AC-I7, AC-A4, AC-A5, AC-M6). That growth is itself evidence for the
-> split recorded in §9 — see the note there.
+> AC count 27 → 32 (AC-I6, AC-I7, AC-A4, AC-A5, AC-M6), then → **26** after the two cuts the
+> dispatcher approved on that evidence: §7 → bd#28, §5's flip → bd#29. See §9 for the full table.
 
 # Lot spec — bd#10: BD-L3, attested authorship and inputs (R3.1–R3.6; ADV-7, ADV-8, ADV-10)
 
 `[bd10:21]` **Accounting correction, recorded rather than quietly fixed.** v1 through v3 stated "23"
 then "24" ACs. The real counts, obtained by enumerating the AC identifiers in this document, are
-**26** at v1 (P1-P7=7, I1-I5=5, M1-M5=5, C1-C6=6, A1-A3=3), **27** at v2 and v3, and **32** at v4.
+**26** at v1 (P1-P7=7, I1-I5=5, M1-M5=5, C1-C6=6, A1-A3=3), **27** at v2 and v3, **32** at v4
+before the cuts and **26** after them.
 The error originated in v1's own header and was propagated by me into the RED agent's brief, the
 round-1 gate's brief, and two issue comments. **No coverage was lost** — both agents enumerated the
 ACs by identifier and worked the real set, and the gate's `[G22:13]` table covers all of them — so
@@ -101,7 +103,6 @@ a **real file with `file:line` provenance** outside the artifact under test. For
 | `E_INJECT_UNATTRIBUTED` | CL:98 @ `fd35e1304` (R3.2) |
 | `E_CAPABILITY_ESCAPE` | CL:102 @ `fd35e1304` (R3.6) |
 | requirement ids `R3.1`…`R3.6` | CL:97–102 @ `fd35e1304` |
-| `ADVERSARY_NOT_EXECUTED == "not_executed"` | `conformance/tokens.py:10` on this base |
 | a real declared capability set | `workflows/phase_2_explore.py:372` on this base |
 | the tool-head form with an operand | `"Bash(graphify-shim.sh:*)"`, same line |
 
@@ -177,39 +178,22 @@ only defensible site, and both are load-bearing collections under `§0.1`:
 | `InjectedBlock` | frozen dataclass, exactly `source_id: str`, `content: str` |
 | `assemble(prompt: str, blocks: Sequence[InjectedBlock]) -> str` | see AC-I1 |
 | `capability_escapes(observed_tools, declared) -> tuple[str, ...]` | see AC-C3; returns **sorted**, deduplicated (`[bd10:6]`, G7) |
+| `REQUIREMENT_LABELS` | `[bd10:23]` immutable mapping, requirement id → honesty qualifier; see AC-P7 |
 
-### 2.3 New module — `conformance/bd_l3.py`
+`[bd10:23]` **The honesty labels live in the SEAM, not in the report, and that is what lets them
+survive §7's cut.** They were B-4's repair — the lot was attesting R3.2 and R3.5 at full width while
+measuring them at one-of-eight and at backend self-declaration — and B-4 is a defect of *what the
+engine may claim*, which is this lot's business. bd#28's checker **reads** this mapping; it does not
+author it. Exact contents pinned by AC-P7, so a lot that narrows a requirement without adding its
+label fails a test rather than shipping a quiet overclaim.
 
-| Export | Form |
-|---|---|
-| `REQUIREMENTS = ("R3.1","R3.2","R3.3","R3.4","R3.5","R3.6")` | `tuple[str, ...]` |
-| `check_bd_l3(events: Sequence[Mapping]) -> L0Report` | consumes `conformance.report.L0Report` and `conformance.tokens` |
-| `validate_report(report: L0Report) -> tuple[str, ...]` | `[bd10:9]` (G5) — returns violation strings, empty when the report is well-formed. Exists because AC-A2's "a report that lists ADV-9 as executed is itself a failure" named no mechanism that could *detect* it, leaving the clause unassertable. |
+### 2.3 `conformance/bd_l3.py` — MOVED TO bd#28
 
-`[bd10:18]` **(gate BLOCKING-2) Exhaustiveness is expressed as `__all__`, because the origin
-heuristic false-fails a correct GREEN.** `[bd10:11]` said imports are "excluded by origin, not by
-name", and the RED implemented that as
-`getattr(value, "__module__", module.__name__) == module.__name__`. Builtin instances expose no
-`__module__` — `"x".__module__` and `(1,2).__module__` both raise `AttributeError` — so the default
-fires and every **imported immutable constant** counts as an export. `conformance/bd_l3.py` needs
-`from conformance.tokens import REQUIREMENT_PASSED, REQUIREMENT_FAILED, …`, the vocabulary
-`[bd10:13]` itself mandates, and any such import fails the equality. Class B, and it interacts
-viciously with `[bd10:17]`: repairing the `failed` branch makes `REQUIREMENT_FAILED` a near-certain
-import, so fixing one finding detonates the other.
-Normative: both modules define `__all__` naming exactly the members of their table, and AC-A3
-asserts equality against `__all__`. That is the direct expression of "exhaustive public surface" —
-mechanically checkable, independent of import style, and it stops the RED enforcing an unstated
-import convention as an interface contract (`[G22:1]`'s inversion).
+The checker module, `REQUIREMENTS`, `check_bd_l3`, `validate_report`, `[bd10:13]`'s verdict
+aggregation and the `verdict:` label keys are bd#28's deliverable (§7). This lot exports no checker
+and asserts nothing about one. `[bd10:18]`'s `__all__` requirement travels with it and additionally
+binds `conformance/attest.py` here.
 
-`[bd10:11]` **The two tables above are EXHAUSTIVE public surfaces, and that is normative on GREEN.**
-Raised by the RED agent against its own AC-A3, which discharges "no export grants a level" by exact
-equality between each module's public names and the tables in §2.2/§2.3. That assertion is only
-defensible if the tables are closed: if GREEN may add one public helper, a correct implementation
-is false-failed, which is a Class B defect the RED would have written unknowingly. Normative:
-`conformance/attest.py` exports exactly `EVENT_TYPE`, `hash_text`, `InjectedBlock`, `assemble`,
-`capability_escapes`; `conformance/bd_l3.py` exports exactly `REQUIREMENTS`, `check_bd_l3`,
-`validate_report`. Anything else GREEN needs is a module-private `_name`. Imported symbols are not
-exports and are excluded by origin, not by name.
 
 ### 2.4 Additions to the LLM seam
 
@@ -269,10 +253,12 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   honest if self-caught ones are in it.
 
   `[bd10:5]` **(G3) `observed_model` joins the key set, because two of my own clauses disagreed.**
-  AC-M1 requires the L3 report to mark R3.3 `not-checked` for an invocation whose adapter reported
-  nothing — but `check_bd_l3` reads **events**, and v1's key set excluded `observed_model`, so the
-  checker could not learn it and AC-M1's report half was unimplementable. Adding the key is the
-  fix that makes R3.3 attestable from the log, which is the entire point of recording it. Value:
+  v2's AC-M1 required a report to mark R3.3 `not-checked` for an invocation whose adapter reported
+  nothing — but a checker reads **events**, and v1's key set excluded `observed_model`, so no
+  checker could learn it and that clause was unimplementable. Adding the key is the fix that makes
+  R3.3 attestable from the log at all. The consumer is now bd#28 (§7), which does not change why the
+  key exists: **the seam must record the observation whether or not this lot ships the reader.**
+  Value:
   the adapter's reported identity, or `null` when the adapter reported none — `null` is the
   recorded third state and MUST NOT be backfilled from `model_requested` (§5, AC-M1).
 
@@ -289,20 +275,16 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   "absent" differ from "empty", and the two keys together let the report compute per-requirement
   verdicts (`[bd10:13]`) instead of asserting them.
 
-  `[bd10:13]` **(G9) Per-requirement verdicts live in `labels` under a `verdict:` prefix, and are
-  AGGREGATES over the log, not per-invocation states.** `L0Report`'s four fields are bd#22's
-  contract and this lot does not widen them (`CONTRACTS_SPEC.md` §2, AC-C2: L2 owns the carrier).
-  v2's AC-M1 spoke of marking R3.3 `not-checked` "for that invocation", which a whole-log report
-  cannot express at all — the honest unit is the log. Normative, for R3.3 and R3.6 alike:
-  - `failed` if any invocation in the log recorded a violation of that requirement;
-  - else `not-checked` if **no** invocation carried a non-`null` observation for it
-    (`observed_model` for R3.3, `observed_tools` for R3.6);
-  - else `passed`.
-  The label keys are `"verdict:R3.3"` and `"verdict:R3.6"`, values drawn from `conformance.tokens`
-  (`REQUIREMENT_PASSED`, `REQUIREMENT_FAILED`, `REQUIREMENT_NOT_CHECKED`). The `verdict:` prefix
-  keeps them from colliding with the qualifier labels `"R3.1": "host-attested"` and
-  `"R3.6": "tool-head-only"`, which say something different about the same requirement and must
-  remain separately readable.
+  `[bd10:13]` **(G9) The verdict AGGREGATION moved to bd#28 with the report; the OBSERVATIONS it
+  aggregates stay here.** The rule — `failed` if any invocation recorded a violation, else
+  `not-checked` if no invocation carried a non-`null` observation, else `passed` — is bd#28's
+  deliverable, together with its `verdict:` label keys. What this lot owes bd#28 is the evidence:
+  `observed_model` and `observed_tools`, each `null` when the adapter reported nothing. Recording
+  the observation rather than a verdict flag is deliberate and survives the split — a recorded
+  verdict would let the emitter grade itself, which is §0.1 subtype 3 at the level of the whole
+  system.
+
+
 - **AC-P2** `prompt_sha256` equals `"sha256:" + sha256(assembled.encode("utf-8")).hexdigest()`,
   asserted **by equality against a digest the test recomputes from the text it supplied** — never
   from a value read back out of the event (§0.1 subtype 3). `"sha256:" + "0"*64` and any constant
@@ -332,8 +314,24 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   so the two outcomes are attributable to the run context alone. *Two outcomes:* the guarded GREEN
   returns `ok` both times, emitting 0 then 1; a GREEN dereferencing `run_ctx.event_log` unguarded
   raises `AttributeError` on the first.
-- **AC-P7** R3.1 is labelled **`host-attested`**, per CL §8: the engine hashes at assembly, not on
-  the wire, so ADV-9 is not executable in v1. See AC-A2.
+- **AC-P7** `[bd10:23]` **`REQUIREMENT_LABELS` contents pinned exactly** — this is where every
+  narrowing this lot knows about is written down, and asserting it by exact equality is what stops a
+  future lot narrowing a requirement without saying so:
+
+  | Key | Value | Why |
+  |---|---|---|
+  | `R3.1` | `host-attested` | CL §8 — the engine hashes at assembly, not on the wire; ADV-9 is struck from the executable set |
+  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; one of eight role-template inlining sites is migrated |
+  | `R3.3` | `in-session-warn-only` | `[bd10:2]` — enforced at the chokepoint for reporting adapters; the in-session path still warns (bd#29) |
+  | `R3.5` | `adapter-declared` | `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a mechanism outside the actor's reach |
+  | `R3.6` | `tool-head-only` | AC-C6 — the operand never leaves the adapter |
+
+  Asserted by **exact mapping equality**, so both an omitted label and an invented one fail; and the
+  mapping is immutable, so a caller cannot edit the record of what we claim. R3.4 carries no label
+  and that is deliberate — it is recorded verbatim (AC-C1) with nothing narrowed.
+  *Two outcomes, one fixture:* the pinned mapping matches; a GREEN dropping any single entry — most
+  plausibly `R3.3`, the one that admits an open hole — fails the same assertion.
+
 
 ## 4. R3.2 and ADV-8 — attributed injection
 
@@ -441,62 +439,45 @@ that ADV-8 tests a door the pipeline actually uses rather than an unused one.
 
 ## 5. R3.3 and ADV-7 — reported model identity versus the pin
 
-`[bd10:2]` **This AC group supersedes a live HAL decision, and says so.** Today a non-hard-gate
-in-session step whose dispatched model drifts from its pin emits a `model_pin_mismatch` event and
-**proceeds** (`llm_subprocess.py:917-919`; `_detect_nonhardgate_model_drift`, `:3106`), per
-agreement 220E5F63 / GH#222, asserted at
-`tests/test_2FDA949D_model_pin_warn.py` AC10 (`StepResult.status == "ok"`, "non-blocking warn").
-CL R3.3 (CL:99) says a declared pin that mismatches **MUST fail**. Both cannot hold. This lot takes
-CL as governing for the reason CL exists (§0: publishing a level we do not meet is the one failure
-mode it was written to prevent), flips the path fail-closed, and **updates that one test rather
-than deleting it** — the edit is confined to AC10's expected status and error code, its drift-detection
-assertions untouched, and it is submitted to the gate for exactly that scrutiny. Editing an existing
-test so one's own change passes is the standard way a regression is hidden; declaring it is the only
-thing that separates the two.
+`[bd10:2]` **SUPERSESSION WITHDRAWN — the in-session flip is bd#29, and the residual gap is
+LABELLED here.** Decision recorded in bd#10 (issuecomment-5107410749).
+
+v3 **declared** that this lot flips the non-hard-gate in-session drift path fail-closed against
+agreement 220E5F63 / GH#222, and the round-1 gate proved the declaration unreachable: every R3.3
+test installs an adapter and reads `StepResult.data["observed_model"]`, which `_invoke_in_session`
+does not write (`llm_subprocess.py:929-938`), so a GREEN implementing the pin check only at the
+chokepoint — what every other AC requires — passed all 36 items with the warn-only path intact and
+`tests/test_2FDA949D_model_pin_warn.py` AC10 green and unedited.
+
+**A declaration without a measurement is worse than an honestly labelled gap**, because it closes
+the question in a reader's mind while the hole stays open. That is this family's "shield that is
+green the whole time the hole is open", and it is why the resolution is not "declare harder".
+
+Normative for this lot:
+- **No production behaviour is changed on the in-session path.** `llm_subprocess.py:917-919` is
+  untouched, `tests/test_2FDA949D_model_pin_warn.py` is untouched, and no AC edits it.
+- R3.3 is enforced **at the chokepoint, for adapters that report** `observed_model` (AC-M2, AC-M4).
+- The gap is recorded, not implied: `REQUIREMENT_LABELS["R3.3"] == "in-session-warn-only"`
+  (§2.2, AC-P7). An attestation reading that label learns R3.3 is enforced where the adapter reports
+  and warn-only on the in-session path, which is the true state of this tree.
+- **Re-open criterion:** bd#29, which owns the flip, its own RED, and — the part that could not ride
+  along here — an exposure measurement of how many paths run in-session today and what befalls them
+  when a drifting step starts failing hard instead of warning.
 
 - **AC-M1** An adapter reports the model it invoked as `StepResult.data["observed_model"]`.
   **Absence is a first-class third state, not a failure** — mirroring CL R2.1's
-  rejected/accepted/indeterminate split. Absent → no comparison, no error; the payload records
-  `observed_model: null` (`[bd10:5]`), and the log-level aggregate `labels["verdict:R3.3"]` reads
-  `REQUIREMENT_NOT_CHECKED` (`[bd10:13]`, `conformance/tokens.py:9`) when **no** invocation in the
-  log reported a model.
+  rejected/accepted/indeterminate split. Absent → no comparison, no error, and the payload records
+  `observed_model: null` (`[bd10:5]`). The aggregation that turns a log of such records into a
+  requirement verdict is bd#28's (`[bd10:13]`); this lot is asserted on the record itself.
   *Kills:* a GREEN that substitutes `model_requested` when the adapter reports nothing — that is
   §0.1 subtype 3 promoted into production, a pin compared against itself, which can never fail.
   Asserted by a fixture whose adapter omits the key: `payload["observed_model"] is None` and the
-  status is `ok`, **and** on the same fixture a GREEN mutated to default it to `model_requested`
-  is caught by the verdict reading `passed` where `not-checked` is required.
-  `[bd10:15]` **This bullet was stale against `[bd10:5]` and `[bd10:13]` until now** — it said
-  "absent" where the payload pins `null`, and "for that invocation" where the aggregate is
-  log-level. Caught by the RED agent, which followed the normative clauses rather than this
-  paragraph and flagged the divergence instead of silently picking one. Recorded because a
-  normative section carrying superseded wording is the artifact-drift class this lot family has
-  filed against itself repeatedly (`EMISSIONS_SPEC.md:36-41`), and it is no less a defect for
-  being editorial.
-- **AC-M6** `[bd10:20]` **(gate BLOCKING-3) The in-session flip is MEASURED, and AC10's own
-  assertions are re-asserted rather than replaced.**
-  v3 declared the supersession of 220E5F63 and no AC reached the path. Every R3.3 test installs a
-  `_RecordingAdapter` and reads `StepResult.data["observed_model"]`, but `_invoke_in_session` does
-  not write that key — its result dict (`llm_subprocess.py:929-938`) carries `raw_response`,
-  `response_bytes`, `model`, `tokens_out`, `tokens_in`, `cost_usd`, `worker_written_paths`,
-  `manifest_source`. So a GREEN implementing the pin check **only** at `_dispatch_backend` — which
-  is what every other AC demands — passed all 36 items with the warn-only path untouched and
-  `tests/test_2FDA949D_model_pin_warn.py` AC10 still green and unedited. The spec would have
-  declared a change the lot did not make, and the attestation would have reported R3.3 while the one
-  production path in this tree that actually detects drift today still warned and proceeded.
-  Normative:
-  1. `_invoke_in_session` reports `observed_model` from `result_obj["dispatched_model"]`, so the
-     in-session path reaches the same adjudication as every other adapter and the flip is a
-     consequence of the chokepoint rather than a second implementation of it.
-  2. A test drives `_invoke_in_session` end-to-end with a drifting dispatched model and asserts
-     `status == "error"` and `E_MODEL_PIN_MISMATCH`.
-  3. **The same test re-asserts AC10's drift-detection halves unchanged** — the `model_pin_mismatch`
-     event is still emitted, carrying `observed_model`, `pinned_model` and `step_name`. This is the
-     point: editing a live regression test to expect the opposite outcome means the change is graded
-     by an artifact this lot authored, so the surviving assertions must be re-anchored in a *new*
-     oracle. Declaring the edit distinguishes it from a hidden regression; it does not substitute
-     for measuring it.
-  4. The edit to `test_2FDA949D_model_pin_warn.py` is confined to AC10's expected status and error
-     code. Its `_detect_nonhardgate_model_drift` unit assertions (AC5-AC9) are untouched.
+  status is `ok`, with a foreign-family liveness control on the same engine proving the comparison
+  path is reachable at all (so the `is None` half cannot pass merely because nothing ran).
+  *Two outcomes, one fixture:* the faithful GREEN records `null`; a GREEN defaulting to
+  `model_requested` records `"opus"` on the identical fixture.
+
+
 - **AC-M2** **ADV-7.** An adapter registered via `register_backend` that reports a model of a
   **different family** from the dispatched request yields
   `StepResult(status="error", error_code="E_MODEL_PIN_MISMATCH", recoverable=False)`, carrying both
@@ -546,10 +527,13 @@ thing that separates the two.
   `observed_tools` reaches the chokepoint as `StepResult.data["observed_tools"]` (§2.4,
   `[bd10:6]`); **absent means the adapter cannot observe** — no check runs, no error is possible,
   and that is a third state distinct from an empty set, exactly as `observed_model`'s absence is
-  in §5. `[bd10:12]` The absent-versus-empty pair is asserted **through the payload**, where the
-  two now differ (`observed_tools` `null` versus `[]`) and through the resulting
-  `"verdict:R3.6"` label (`not-checked` versus `passed`) — not through the returned status, which
-  is `ok` for both and cannot distinguish them.
+  in §5. `[bd10:12]` The absent-versus-empty pair is asserted **through the payload**, where the two
+  differ (`observed_tools` `null` versus `[]`) — **not** through the returned status, which is `ok`
+  for both and cannot distinguish them. The verdict half of this pair left with the report (§7,
+  bd#28); the payload half is the whole measurement here, and it is sufficient, because `null` and
+  `[]` are two observable values on one fixture pair whose only difference is that key. That was
+  the entire point of `[bd10:12]` — the observable had to exist somewhere, and the payload is the
+  side of the split this lot owns.
   **The matching rule is pinned, not described** (`[G22:4]`): an observed `tool_use` block's `name`
   (e.g. `"Bash"`) is inside the declared set iff the set contains an entry whose text **before the
   first `"("`** equals that name exactly, case-sensitively. So `"Bash(graphify-shim.sh:*)"`
@@ -578,105 +562,68 @@ thing that separates the two.
   discovered, and labelled in the report. **Re-open criterion:** an adapter interface that surfaces
   the tool operand alongside the head.
 
-## 7. Attestation — what may be claimed, and what may not
+## 7. MOVED OUT — the checker and the attestation report are bd#28
 
-- **AC-A1** `check_bd_l3(events)` returns an `L0Report` (`conformance/report.py:14`) whose
-  `requirements` is exactly `REQUIREMENTS`, and whose `labels` carry `"R3.1": "host-attested"`
-  (CL §8, ADV-9 struck from the executable set) and `"R3.6": "tool-head-only"` (AC-C6).
-  `[bd10:19]` **(gate BLOCKING-4) Two further qualifiers, because the lot was attesting two
-  requirements at full width while measuring them far narrower.** v3 labelled its two known
-  narrowings honestly and left two larger ones unlabelled, sitting in `REQUIREMENTS` and folding
-  into `passed`:
-  - `"R3.2": "injections-channel-only"` — AC-I5 migrates **one** site; the identical
-    `read_text(...).rstrip() + "\n\n"` role-template inlining exists in **eight** files on this base
-    (measured: `phase_2_explore`, `phase_3_clarify`, `phase_45_spec`, `phase_45_spec_lite`,
-    `phase_5_integrity`, `phase_6_fix_integrity`, `phase_7_synthesize`, `phase_workflows_common`),
-    plus `phase_05_inject`'s file-body reads. §4's re-open criterion is already satisfied seven
-    times over — it even names `phase_workflows_common.py:410` as "today's live example" and then
-    migrates a different file.
-  - `"R3.5": "adapter-declared"` — `capability_enforcement` derives from a token the backend
-    supplies **about itself** at `register_backend` time. The RED demonstrates the forgeability in
-    its own fixtures: an adapter that enforces nothing is recorded `"runtime-allowlist"`. CL:101
-    requires enforcement "by a mechanism outside the actor's reach"; recording a self-declaration is
-    the most an engine can do, and the attestation must say so rather than imply more.
-  Both asserted alongside the existing two. CL:221-224 governs this and is **not** confined to
-  ADV-9: the attestation lists what was executed against what was attested. The lot knew how to be
-  honest about a boundary twice and had not applied it where the gap was widest.
-  Constructed with **mutable** containers per `[G22:23]`, so coercion is exercised.
-- **AC-A4** `[bd10:17]` **(gate BLOCKING-1) The `failed` branch is specified in MECHANISM and
-  asserted in OUTCOME. Without this the checker is an oracle that cannot reject.**
-  v3 pinned a three-branch aggregation and the RED measured two of them; `REQUIREMENT_FAILED`
-  (`conformance/tokens.py:8`) was not even bound in the test file, and no fixture ever handed
-  `check_bd_l3` a log containing a violating invocation. Three plausible GREENs survived all 36
-  items: the `failed` branch omitted; `passed=True` returned unconditionally; `violations=()`
-  always. That is `[G22:18]`'s vacuity promoted into production, and it inverts CL §1's P2 — an
-  oracle that cannot fail converts "unverified" into "verified" on every dashboard that reads it.
-  For the artifact whose only job is to attest a level, that is the worst available defect.
+`[bd10:22]` **Cut by decision recorded in bd#10 (issuecomment-5107410749). The line is ownership,
+not size.** bd#10 builds the seam (R3.1-R3.6 recorded and adjudicated at `_dispatch_backend`); the
+checker and the report belong to the lot that brings the harness and the attestation writer.
 
-  **Mechanism, which v3 never gave (the checker had no way to learn a violation had occurred).**
-  `check_bd_l3` derives violations from the payload alone, recomputing the same comparisons the
-  chokepoint made:
-  - **R3.3 violated** by an invocation whose `observed_model` is non-`null` and whose family
-    (`lib/llm_provider.py:113`) differs from `model_requested`'s.
-  - **R3.6 violated** by an invocation whose `observed_tools` is non-`null`, whose
-    `declared_capabilities` is non-`null`, and for which `capability_escapes` returns a non-empty
-    tuple.
-  Recomputation rather than a recorded verdict flag is deliberate: a flag would let the emitter
-  grade itself, which is §0.1 subtype 3 at the level of the whole system.
-  - **`check_bd_l3` reads only `model_invocation_attested` events** and ignores every other event
-    type. Pinned because a real event log is heterogeneous and every RED fixture is homogeneous
-    (gate EDGE-8), so a GREEN with no filter passes an all-attestation corpus and then
-    miscounts on a real one.
+The cut is not a concession to the round-1 verdict — it is what the verdict revealed. Both §7
+blocking findings (B-1, the oracle that cannot reject; B-2, the export equality that false-fails a
+correct GREEN) were defects **of the checker**, not of the seam. §3 came through the gate with zero
+findings and §4-§6 close with assertions. And a level cannot be granted on this base at all:
+BD-L0/L1/L2 do not exist, bd#8, bd#9 and bd#27 are open, and bd#7's attestation writer never landed.
+`check_bd_l3` here would have been a report with no consumer.
 
-  Asserted in **both directions on one fixture set**: a log with a drifted `observed_model` gives
-  `labels["verdict:R3.3"] == REQUIREMENT_FAILED`, `passed is False`, and `violations` non-empty;
-  the same log with the drift removed gives `passed is True` and empty `violations`. Mirrored for
-  R3.6 with an escaping `observed_tools`. This is the AC that makes `passed` and `violations`
-  measured at all — v3 asserted only `isinstance(report.passed, bool)`.
+**Moved to bd#28 verbatim as input requirements:** `conformance/bd_l3.py` (`REQUIREMENTS`,
+`check_bd_l3`, `validate_report`), `[bd10:13]`'s verdict aggregation and its `verdict:` label keys,
+ADV-9's `not_executed` status and its judge, gate findings **B-1** and **B-2** in full, and gate
+edges **EDGE-1** (empty log) and **EDGE-8** (heterogeneous input filter). Nothing is discarded.
 
-- **AC-A5** `[bd10:17]` **(gate EDGE-1) An empty log is `not-checked`, and `passed` is FALSE.**
-  Under `[bd10:13]` a log with no invocations has no non-`null` observation, so both verdicts read
-  `not-checked` — and v3 left `passed` undefined for that case, which is the purest form of
-  BLOCKING-1: a report over zero evidence returning `passed=True`. Normative: `passed` is `True`
-  only when **every** requirement in `REQUIREMENTS` has verdict `passed`; `not-checked` is not
-  `passed`. Asserted on `check_bd_l3([])` against a populated conformant log.
-
-- **AC-A2** ADV-9's status is `tokens.ADVERSARY_NOT_EXECUTED` and a report that lists ADV-9 as
-  executed is itself a failure — CL:221-224, "an implementation that quietly counts an unexecuted
-  adversary as passed is itself a conformance failure". Asserted in both directions on one fixture
-  set: a conformant report passes, a report mutated to mark ADV-9 executed fails.
-  `[bd10:9]` **(G5) The label key and the detecting mechanism are pinned, because v1 supplied
-  neither.** The key is the literal `"ADV-9"` in `L0Report.labels`, whose value MUST be
-  `tokens.ADVERSARY_NOT_EXECUTED`. "A report that lists ADV-9 as executed **is itself a failure**"
-  names a *judgement*, and a judgement with no judge cannot be asserted — so §2.3's
-  `validate_report(report)` is the judge: it returns a non-empty violation tuple for any report
-  whose `"ADV-9"` label is absent or holds any other value, and an empty tuple otherwise. Both
-  directions run through `validate_report` on one fixture set, so the AC measures a mechanism
-  rather than the test's own opinion.
-- **AC-A3** `[bd10:3]` **`check_bd_l3` reports requirements; it does NOT grant BD-L3.** The level is
-  cumulative (CL §2) and BD-L0/L1/L2 are not implemented on this base — bd#8, bd#9 and bd#27 are
-  open, and `origin/main` carries no harness, no checker and no attestation writer, only the bd#22
-  carriers. A function returning "BD-L3 achieved" here would be the exact overclaim CL exists to
-  prevent. Asserted: no export of this module returns a level grant, and `L0Report.passed` is
-  scoped to R3.1–R3.6.
-  **Re-open criterion:** the harness lot that lands the level grant consumes `check_bd_l3` as one
-  input among four.
+**What stays here, because the seam owns it:** the nine payload keys, including `observed_model` and
+`observed_tools` — bd#28 recomputes verdicts *from* them, so the recording is this lot's obligation
+and the aggregation is that one's. And the requirement labels, which move from the report into
+`conformance.attest.REQUIREMENT_LABELS` (§2.2, AC-P7): the engine **records** what it can honestly
+claim, the checker **reads** it. That split is why B-4's honesty labels survive the cut intact
+rather than leaving with the report.
 
 ## 8. Out of scope
 
-ADV-9 (CL §8: not executable in v1). The BD-L0/L1/L2 checkers and their adversaries (bd#8, bd#9,
-bd#27). The attestation *writer* and its report schema, and the level grant (AC-A3). Signing
-(CL §8). Shadowed runs (`EMISSIONS_SPEC.md:514`) — this lot asserts nothing a shadowed run would
-change. Argument-level capability escape (AC-C6). Migrating injection sites beyond AC-I5's one.
+**The checker, the attestation report and the verdict aggregation — bd#28** (§7). **The in-session
+model-pin flip and the supersession of 220E5F63 — bd#29** (§5). ADV-9 (CL §8: not executable in v1).
+The BD-L0/L1/L2 checkers and their adversaries (bd#8, bd#9, bd#27). The attestation *writer*, its
+report schema, and any grant of a level. Signing (CL §8). Shadowed runs
+(`EMISSIONS_SPEC.md:514`) — this lot asserts nothing a shadowed run would change. Argument-level
+capability escape (AC-C6). Migrating injection sites beyond AC-I5's one (`[bd10:19]`).
 
-## 9. Split criterion, declared before the first round rather than after the fourth
+## 9. Split criterion — FIRED, and what it took with it
 
-This lot is larger than the two that have succeeded in this family (L1: 24 ACs, accepted round 2;
-L2: 6 ACs, accepted round 4 after a split) and carries 32 ACs across four independent surfaces.
-Recorded now so narrowing is a rule rather than a concession: **if the gate returns REJECTED with a
-blocking finding in the same §-group twice, that group splits into its own issue** and this lot
-ships the remainder. The groups are exactly §3 (R3.1), §4 (R3.2), §5 (R3.3), §6 (R3.4–R3.6), §7
-(attestation), and they share only the payload key set of AC-P1.
+§9 was declared before round 1 rather than after round 4: *if the gate returns REJECTED with a
+blocking finding in the same §-group twice, that group splits.* Round 1 returned five blocking
+findings distributed §4:2, §7:2, §5:1, §6:1, **§3:0**. The literal rule had not fired — it needs the
+same group twice **across rounds** — but the dispatcher cut on the evidence rather than waiting for
+the second round to satisfy a formality, which is what a stop criterion is for.
+
+**Two cuts, by ownership rather than by size:**
+- **§7 → bd#28.** Both its findings were defects of the checker, not the seam; and no level is
+  grantable on this base anyway.
+- **§5's flip → bd#29.** A declared-but-unmeasured behaviour change cannot ride along with the lot
+  that builds the seam; it needs its own RED and an exposure measurement.
+
+**Accounting, named rather than waved at** (`[bd10:21]`; counted mechanically):
+
+| Revision | ACs | Change |
+|---|---|---|
+| v1 | 26 | (stated as "23" — the error `[bd10:21]` records) |
+| v2 | 27 | +AC-P8 |
+| v3 | 27 | — |
+| v4 pre-cut | 32 | +AC-I6, AC-I7, AC-A4, AC-A5, AC-M6 |
+| **v4 final** | **26** | −AC-A1…A5 (§7 → bd#28), −AC-M6 (§5 → bd#29); AC-P7 repurposed as the label pin |
+
+So the B-1/B-3/B-4/B-5 repairs added five ACs and the two cuts removed six: the lot is **exactly the
+size of the v1 that was frozen** (26), with a materially different surface, and its remaining surface is the one §-group that passed the gate
+clean plus three that close with assertions.
+
 
 ## 10. Process
 
