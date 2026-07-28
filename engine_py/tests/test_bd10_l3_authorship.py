@@ -51,47 +51,27 @@ PRE-PASSING, DECLARED (§0.6).  Exactly two half-assertions pass today:
     half of both ACs FAILS today.
 Every other assertion in this file fails pre-GREEN.
 
-ALIGNED TO SPEC v2 (`f8f6473`).  The v1 gap list G1-G7 is closed as follows:
+ALIGNED TO SPEC v3 (`b16915f`).  Every gap this RED refused to guess is now
+closed by the spec, and each closure is asserted rather than worked around:
 G1 by `[bd10:8]` (three constructible offender kinds), G2 by `[bd10:6]` (the
-`observed_tools` channel — AC-C3's enforcement half is now written), G3's INPUT
-side by `[bd10:5]` (`observed_model` joins the key set), G4 by `[bd10:7]`
+`observed_tools` channel — AC-C3's enforcement half is written), G3 by
+`[bd10:5]` (`observed_model` in the key set), G4 by `[bd10:7]`
 (`model_requested` is post-rebind), G5 by `[bd10:9]` (`validate_report` is the
 judge), G6 by `[bd10:10]` (path spelling and content normalisation), G7 by
-`[bd10:6]` (sorted, deduplicated).  AC-P8 is new per `[bd10:4]`.  `[bd10:11]`
-closes both public export surfaces, which is what makes AC-A3's exact-equality
-assertion safe in the other direction — see that test's docstring.
+`[bd10:6]` (sorted, deduplicated), G8 and G9 by `[bd10:12]` + `[bd10:13]`
+(`observed_tools` in the key set, and `verdict:`-prefixed log-level aggregates
+in `labels`), G10 by `[bd10:14]` (adapter derives, checker consumes).  AC-P8 is
+new per `[bd10:4]`; `[bd10:11]` closes both public export surfaces, which is
+what makes AC-A3's exact-equality assertion safe in the other direction.
 
-SPEC GAPS STILL OPEN — recorded, NOT guessed (AUTHORSHIP_SPEC.md §2's `[G22:1]`
-rule: where the spec describes a shape instead of pinning it, the RED must not
-invent it).
-  G8. **AC-C3's absent-versus-empty fixture pair cannot yield two verdicts.**
-      v2 asks for "one fixture pair whose only difference is
-      absent-versus-empty", but the two are observationally identical: an
-      adapter reporting `[]` has escaped nothing under EVERY declaration, so
-      both forms return `ok`, and AC-P1's exact key set carries no
-      `observed_tools` field in which the distinction could be recorded.  A
-      test asserting both is one measurement written twice (§0.4).  The empty
-      case is therefore asserted as a declared shield, and the forcing pair in
-      `test_ac_c3_absent_observed_tools_runs_no_check` is
-      absent-versus-REPORTING under `allowed_tools=[]`, which does yield two
-      verdicts.  To make absent-vs-empty measurable v2 would have to give the
-      distinction an observable: e.g. an `observed_tools` key in the payload,
-      or an R3.6 `not-checked` mark in the report.
-  G9. **AC-M1's report clause still names no field.**  `[bd10:5]` fixed the
-      input side — `check_bd_l3` can now read `observed_model` from the event —
-      but "the L3 report marks R3.3 `not-checked` for that invocation" has
-      nowhere to land: `L0Report` (conformance/report.py:14) carries `passed`,
-      `requirements`, `violations` and `labels`, none of them a per-invocation
-      or per-requirement verdict map, and AC-A1 pins `labels` around R3.1/R3.6.
-      Not asserted.  AC-M1's kill is carried instead by the payload assertion
-      `observed_model is None`, which `[bd10:5]` makes exact and which no
-      backfilling GREEN can satisfy.
-  G10. Descriptive drift left by `[bd10:6]`, non-blocking: §6's AC-C3 and AC-C6
-      still speak of "the `tool_use` blocks of a transcript" and "the
-      transcript block's `name`", while the pinned parameter is now a
-      `Sequence[str]` of heads.  Read as describing how the ADAPTER derives
-      `observed_tools`, the text is consistent; read as describing the
-      checker's input, it is stale.  Tested against the pinned signature.
+NO SPEC GAPS OPEN.  One editorial residue, recorded because a reader comparing
+the RED to the spec will trip on it and it is NOT a gap: §5's AC-M1 bullet
+still carries its v1 wording — "the payload's `observed_model` is ABSENT" and
+"the report marks R3.3 not-checked FOR THAT INVOCATION".  Both are superseded
+in the same document by `[bd10:5]` (the key is always present; its value is
+`null`) and `[bd10:13]` (the verdict is a log-level aggregate, because a
+whole-log report cannot express a per-invocation state).  The tests follow the
+normative clauses: `observed_model is None`, and `labels["verdict:R3.3"]`.
 
 AC map (test function → AC):
   AC-P1  test_ac_p1_exact_payload_key_set
@@ -117,7 +97,7 @@ AC map (test function → AC):
   AC-C2  test_ac_c2_capability_enforcement_non_uniform_across_two_backends
   AC-C3  test_ac_c3_capability_escapes_both_orderings (pure function)
          test_ac_c3_escape_at_chokepoint_errors_both_orderings (2 params)
-         test_ac_c3_absent_observed_tools_runs_no_check (third state)
+         test_ac_c3_absent_versus_empty_observed_tools (third state)
   AC-C4  test_ac_c4_none_declaration_versus_empty_declaration
   AC-C5  test_ac_c5_capability_and_pin_codes_registered_and_drift_gate_clean
   AC-C6  test_ac_c6_argument_level_escape_is_not_detected_in_v1
@@ -150,9 +130,10 @@ from lib.llm_provider import CLAUDE_PROVIDER
 # AUTHORSHIP_SPEC.md §2.2 (`EVENT_TYPE`) and §3 AC-P1.
 EVENT_TYPE = "model_invocation_attested"
 
-# AUTHORSHIP_SPEC.md §3 AC-P1 (v2, `[bd10:5]`) — the payload key set, EXACTLY.
-# EIGHT keys: `observed_model` joined in v2 so `check_bd_l3` can adjudicate R3.3
-# from the log at all.
+# AUTHORSHIP_SPEC.md §3 AC-P1 (v3) — the payload key set, EXACTLY.
+# NINE keys: `observed_model` joined in v2 (`[bd10:5]`) and `observed_tools` in
+# v3 (`[bd10:12]`), so the log records not just what each adapter REPORTED but
+# whether it could observe at all.
 ATTEST_KEYS = frozenset({
     "step_name",
     "backend",
@@ -162,7 +143,14 @@ ATTEST_KEYS = frozenset({
     "declared_capabilities",
     "capability_enforcement",
     "observed_model",
+    "observed_tools",
 })
+
+# AUTHORSHIP_SPEC.md §3 `[bd10:13]` — per-requirement verdicts are log-level
+# AGGREGATES in `labels`, under a prefix that cannot collide with the qualifier
+# labels `"R3.1": "host-attested"` / `"R3.6": "tool-head-only"`.
+VERDICT_R33 = "verdict:R3.3"
+VERDICT_R36 = "verdict:R3.6"
 
 # CL:98 / CL:99 / CL:102 @ HAL fd35e1304 (R3.2 / R3.3 / R3.6).  NOT imported
 # from error_codes.ERROR_CODES: this lot authors those entries (§0.2).
@@ -173,7 +161,10 @@ E_CAPABILITY_ESCAPE = "E_CAPABILITY_ESCAPE"
 # CL:97-102 @ fd35e1304.
 REQUIREMENT_IDS = ("R3.1", "R3.2", "R3.3", "R3.4", "R3.5", "R3.6")
 
-# conformance/tokens.py:10 on this base (shipped by bd#22, not by this lot).
+# conformance/tokens.py:7-10 on this base (shipped by bd#22, not by this lot, so
+# these ARE an external source under §0.2 — unlike the three new error codes).
+REQUIREMENT_PASSED = "passed"
+REQUIREMENT_NOT_CHECKED = "not-checked"
 ADVERSARY_NOT_EXECUTED = "not_executed"
 
 # workflows/phase_2_explore.py:372 on this base — a real declared capability
@@ -360,13 +351,14 @@ def _bd10_isolation(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_ac_p1_exact_payload_key_set() -> None:
-    """AC-P1 (v2): one dispatch UNDER AN ACTIVE RUN CONTEXT emits exactly one
+    """AC-P1 (v3): one dispatch UNDER AN ACTIVE RUN CONTEXT emits exactly one
     `model_invocation_attested` event whose payload key set is EXACTLY the
-    EIGHT pinned keys (`[bd10:5]` added `observed_model`).
+    NINE pinned keys (`[bd10:5]` added `observed_model`, `[bd10:12]` added
+    `observed_tools`).
 
-    Kills: an emitter that omits any of the eight; an emitter that adds a ninth
+    Kills: an emitter that omits any of the nine; an emitter that adds a tenth
     diagnostic key (which would let a consumer's key set drift silently); a
-    GREEN carrying v1's seven-key payload.
+    GREEN carrying v1's seven-key or v2's eight-key payload.
 
     Two measured outcomes on ONE fixture: with the emitter intact the
     equality holds; with the GREEN mutated to append e.g.
@@ -386,9 +378,13 @@ def test_ac_p1_exact_payload_key_set() -> None:
         f"got {GREEN_EVENT_TYPE!r}"
     )
 
-    # Same family as the dispatched request, so the pin comparison passes and
-    # `observed_model` is meaningfully populated rather than null.
-    adapter = _RecordingAdapter("p1", data={"observed_model": "claude-sonnet-4-6"})
+    # Both observation keys meaningfully populated rather than null: the model
+    # is the same family as the dispatched request (pin comparison passes) and
+    # the tool head is inside the declaration below (no escape).
+    adapter = _RecordingAdapter("p1", data={
+        "observed_model": "claude-sonnet-4-6",
+        "observed_tools": ["Read"],
+    })
     register("bd10-rec", adapter)
     log = _FakeEventLog()
     set_run(log)
@@ -430,6 +426,10 @@ def test_ac_p1_exact_payload_key_set() -> None:
     assert payload["observed_model"] == "claude-sonnet-4-6", (
         f"AC-P1 (`[bd10:5]`): observed_model must carry the adapter's reported "
         f"identity verbatim; got {payload['observed_model']!r}"
+    )
+    assert payload["observed_tools"] == ["Read"], (
+        f"AC-P1 (`[bd10:12]`): observed_tools must carry the adapter's reported "
+        f"sequence verbatim; got {payload['observed_tools']!r}"
     )
 
 
@@ -1123,7 +1123,7 @@ def test_ac_m1_absent_observed_model_is_a_third_state(tmp_path, monkeypatch) -> 
     nothing.  That is §0.1 subtype (3) promoted into production — a pin
     compared against itself, which can never fail.
 
-    Two measured outcomes on ONE fixture, and v2's `[bd10:5]` makes the
+    Two measured outcomes on ONE fixture, and `[bd10:5]` makes the
     substitution DIRECTLY observable in the log: the payload's
     `observed_model` MUST be `null`, so a backfilling GREEN writes the
     dispatched model there and fails the equality on the same fixture.  The
@@ -1134,12 +1134,22 @@ def test_ac_m1_absent_observed_model_is_a_third_state(tmp_path, monkeypatch) -> 
     here, not an absence: §0.5 forbids discharging it with a presence check,
     and the key itself is required by AC-P1's exact set.
 
-    The positive control proves the comparison is live on this fixture at all —
-    an adapter that DOES report a foreign family errors — so the `ok` above
-    cannot come from the check being skipped.
+    THE REPORT HALF, writable at last via `[bd10:13]`: a log whose only
+    invocation carried a `null` `observed_model` aggregates to
+    `"verdict:R3.3" == not-checked`; the SAME log shape where the adapter DID
+    report aggregates to `passed`.  That pair is the second reading of the
+    same mutation — a GREEN backfilling `model_requested` compares a pin
+    against itself, always matches, and reports `passed` where `not-checked`
+    is required.
+
+    A third call proves the comparison is live on this fixture at all — an
+    adapter reporting a FOREIGN family errors — so the two `ok`s above cannot
+    come from the check being skipped.
 
     Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
     """
+    from conformance.bd_l3 import check_bd_l3
+
     _write_tier_config(tmp_path, monkeypatch, tier="SIMPLE", model="haiku")
 
     silent = _RecordingAdapter("m1-silent")
@@ -1175,16 +1185,45 @@ def test_ac_m1_absent_observed_model_is_a_third_state(tmp_path, monkeypatch) -> 
         f"backfilled from model_requested or from the caller's pin; got "
         f"{log.attests()[0]['observed_model']!r}"
     )
+    silent_verdict = check_bd_l3(log.attests()).labels.get(VERDICT_R33)
+    assert silent_verdict == REQUIREMENT_NOT_CHECKED, (
+        f"AC-M1 (`[bd10:13]`): a log in which NO invocation carried a non-null "
+        f"observed_model aggregates to {REQUIREMENT_NOT_CHECKED!r} for R3.3 — a "
+        f"backfilling GREEN compares the pin against itself, always matches, and "
+        f"reports {REQUIREMENT_PASSED!r} here; got {silent_verdict!r}"
+    )
 
-    # Positive control: the comparison IS live on this fixture shape.
-    reporting = _RecordingAdapter("m1-reporting", data={"observed_model": "claude-sonnet-4-6"})
-    register("bd10-rec", reporting)
+    # Same log shape, adapter DID report the dispatched family → passed.
+    register("bd10-rec", _RecordingAdapter(
+        "m1-reporting", data={"observed_model": "claude-haiku-4-5-20251001"}
+    ))
+    log_reporting = _FakeEventLog()
+    set_run(log_reporting, tier="SIMPLE")
+    reported = llm_subprocess.invoke_llm_subprocess(
+        **invoke_kwargs(model="opus", injections=None)
+    )
+    assert reported.status == "ok" and reported.error_code is None, (
+        f"AC-M1: an adapter reporting the dispatched family must be ok; got "
+        f"status={reported.status!r} error_code={reported.error_code!r}"
+    )
+    reported_verdict = check_bd_l3(log_reporting.attests()).labels.get(VERDICT_R33)
+    assert reported_verdict == REQUIREMENT_PASSED, (
+        f"AC-M1 (`[bd10:13]`): a log whose invocation DID report a matching model "
+        f"aggregates to {REQUIREMENT_PASSED!r} for R3.3 — without this half, "
+        f"{REQUIREMENT_NOT_CHECKED!r} above is satisfiable by a checker that returns "
+        f"it unconditionally; got {reported_verdict!r}"
+    )
+
+    # Liveness control: the comparison IS live on this fixture shape.
+    register("bd10-rec", _RecordingAdapter(
+        "m1-foreign", data={"observed_model": "claude-sonnet-4-6"}
+    ))
     set_run(log, tier="SIMPLE")
     control = llm_subprocess.invoke_llm_subprocess(
         **invoke_kwargs(model="opus", injections=None)
     )
     assert control.error_code == E_MODEL_PIN_MISMATCH, (
-        f"AC-M1 positive control: an adapter reporting a foreign family on this same "
+        f"AC-M1 liveness control: an adapter reporting a foreign family on this same "
         f"fixture must error, otherwise the 'ok' above measures nothing; got "
         f"error_code={control.error_code!r}"
     )
@@ -1672,61 +1711,84 @@ def test_ac_c3_escape_at_chokepoint_errors_both_orderings(position) -> None:
     )
 
 
-def test_ac_c3_absent_observed_tools_runs_no_check() -> None:
-    """AC-C3's third state (`[bd10:6]`): `observed_tools` ABSENT means the
-    adapter cannot observe — no check runs, no error is possible.
+def test_ac_c3_absent_versus_empty_observed_tools() -> None:
+    """AC-C3's third state, `[bd10:12]`: `observed_tools` ABSENT means the
+    adapter CANNOT OBSERVE; an EMPTY sequence means it observed and saw
+    nothing.  v3 makes the two distinguishable, so this is a real pair.
 
-    Kills: a GREEN that treats an adapter which cannot observe as one that
-    observed nothing and then, under an empty declaration, manufactures an
-    escape out of a report that was never made; and a GREEN that raises
-    `KeyError` on the absent key.
+    ASSERTED THROUGH THE PAYLOAD AND THE VERDICT LABEL, NOT THE STATUS.  The
+    returned status is `ok` for both and cannot tell them apart — asserting it
+    on both halves would be one measurement written twice (§0.1), which is the
+    defect v2 carried and `[bd10:12]` fixes.  The observables are
+    `observed_tools` `null` versus `[]` in the event, and `"verdict:R3.6"`
+    `not-checked` versus `passed` in the report.
 
-    Two measured outcomes on ONE fixture: with `allowed_tools=[]` — the
-    strictest possible declaration, where ANY reported head is an escape — the
-    adapter that reports NOTHING is `ok`, while the adapter that reports one
-    head on the identical call errors.  That pairing is what makes the `ok`
-    a measurement rather than a vacuum.
+    Kills: a GREEN that coerces the absent key to `[]` (both payloads then read
+    `[]` and both verdicts read `passed`); one that coerces `[]` to `null` (the
+    mirror); one that raises `KeyError` on the absent key; and — via the
+    verdict — one that records the key correctly but aggregates
+    "no invocation could observe" as `passed`, which would attest a check that
+    never ran.
 
-    DECLARED LIMIT (G8, reported to the orchestrator): absent versus an EMPTY
-    `observed_tools` is not observationally distinguishable under v2 — both
-    yield `ok` for every declaration, and the payload key set (AC-P1) carries
-    no `observed_tools` field in which the distinction could be recorded.  The
-    empty case is therefore asserted here as a shield, not as a second
-    measurement, and the forcing pair is absent-versus-reporting.
+    Two measured outcomes on ONE fixture pair whose ONLY difference is that
+    key: same declaration, same call, same adapter shape.  The declaration is
+    the strictest one (`allowed_tools=[]`, where ANY reported head is an
+    escape), so a GREEN that adjudicates an adapter which cannot observe shows
+    up as an error rather than a silent mislabel.
 
     Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
     """
+    from conformance.bd_l3 import check_bd_l3
+
     register("bd10-rec", _RecordingAdapter("c3-blind"))  # no observed_tools key
-    log = _FakeEventLog()
-    set_run(log)
+    log_blind = _FakeEventLog()
+    set_run(log_blind)
     blind = llm_subprocess.invoke_llm_subprocess(
         **invoke_kwargs(allowed_tools=[], injections=None)
     )
+
+    register("bd10-rec", _RecordingAdapter("c3-empty", data={"observed_tools": []}))
+    log_empty = _FakeEventLog()
+    set_run(log_empty)
+    empty = llm_subprocess.invoke_llm_subprocess(
+        **invoke_kwargs(allowed_tools=[], injections=None)
+    )
+
     assert blind.status == "ok" and blind.error_code is None, (
         f"AC-C3: an adapter that cannot observe must not be adjudicated, even under "
         f"an empty declaration; got status={blind.status!r} "
         f"error_code={blind.error_code!r}"
     )
-
-    register("bd10-rec", _RecordingAdapter("c3-empty", data={"observed_tools": []}))
-    set_run(log)
-    empty = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(allowed_tools=[], injections=None)
-    )
     assert empty.status == "ok" and empty.error_code is None, (
-        f"AC-C3 (shield, see G8): an adapter reporting zero heads has escaped "
-        f"nothing; got status={empty.status!r} error_code={empty.error_code!r}"
+        f"AC-C3: an adapter reporting zero heads has escaped nothing; got "
+        f"status={empty.status!r} error_code={empty.error_code!r}"
     )
 
-    register("bd10-rec", _RecordingAdapter("c3-one", data={"observed_tools": ["Read"]}))
-    set_run(log)
-    reporting = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(allowed_tools=[], injections=None)
+    assert len(log_blind.attests()) == 1 and len(log_empty.attests()) == 1, (
+        f"AC-C3: both calls must be attested; got {len(log_blind.attests())} and "
+        f"{len(log_empty.attests())}"
     )
-    assert reporting.error_code == E_CAPABILITY_ESCAPE, (
-        f"AC-C3: under an empty declaration a single reported head IS an escape — "
-        f"without this the 'ok' above measures nothing; got "
-        f"error_code={reporting.error_code!r}"
+    assert log_blind.attests()[0]["observed_tools"] is None, (
+        f"AC-C3 (`[bd10:12]`): an adapter that reported nothing records `null`, NOT "
+        f"[] — that null is what makes 'cannot observe' distinguishable from "
+        f"'observed nothing'; got {log_blind.attests()[0]['observed_tools']!r}"
+    )
+    assert log_empty.attests()[0]["observed_tools"] == [], (
+        f"AC-C3 (`[bd10:12]`): an adapter that reported an empty sequence records [], "
+        f"NOT null; got {log_empty.attests()[0]['observed_tools']!r}"
+    )
+
+    blind_verdict = check_bd_l3(log_blind.attests()).labels.get(VERDICT_R36)
+    empty_verdict = check_bd_l3(log_empty.attests()).labels.get(VERDICT_R36)
+    assert blind_verdict == REQUIREMENT_NOT_CHECKED, (
+        f"AC-C3 (`[bd10:13]`): a log in which NO invocation carried a non-null "
+        f"observed_tools aggregates to {REQUIREMENT_NOT_CHECKED!r} for R3.6 — "
+        f"reporting {REQUIREMENT_PASSED!r} would attest a check that never ran; got "
+        f"{blind_verdict!r}"
+    )
+    assert empty_verdict == REQUIREMENT_PASSED, (
+        f"AC-C3 (`[bd10:13]`): a log whose invocation DID observe, and escaped "
+        f"nothing, aggregates to {REQUIREMENT_PASSED!r} for R3.6; got {empty_verdict!r}"
     )
 
 
@@ -1817,11 +1879,13 @@ def test_ac_c6_argument_level_escape_is_not_detected_in_v1() -> None:
     overclaim in the other direction); and, via the second half, a GREEN whose
     head matching is broken outright.
 
-    `[bd10:6]` sharpens WHY: the channel is `observed_tools`, a sequence of
-    tool HEADS, so the operand is not merely unchecked — it is not
-    representable in the evidence the chokepoint receives.  The
-    characterisation records that boundary rather than leaving a reader to
-    discover it.
+    `[bd10:14]` states WHY, and keeps the two sides apart: the ADAPTER derives
+    `observed_tools` by walking its own `tool_use` blocks and keeps only each
+    block's `name`, so the operand never leaves the adapter; the CHECKER only
+    ever sees the derived `Sequence[str]`.  The operand is therefore not merely
+    unchecked — it is not representable in the evidence the chokepoint
+    receives.  The characterisation records that boundary rather than leaving a
+    reader to discover it.
 
     Two measured outcomes on ONE fixture: `["Bash"]` under a declaration that
     permits `Bash` only for one operand yields `()`, while `["Bash", "Write"]`
@@ -1851,11 +1915,13 @@ def test_ac_c6_argument_level_escape_is_not_detected_in_v1() -> None:
 # ---------------------------------------------------------------------------
 
 def _conformant_attest_payload() -> dict:
-    """A payload with exactly AC-P1's EIGHT-key set (v2), used as checker input.
+    """A payload with exactly AC-P1's NINE-key set (v3), used as checker input.
 
-    `observed_model` resolves to the same family as `model_requested`, so the
-    fixture describes an invocation whose R3.3 comparison passed rather than
-    one the checker must mark `not-checked`.
+    Both observations are non-`null` and both are clean: `observed_model` is
+    the same family as `model_requested`, and `observed_tools` holds one head
+    inside `declared_capabilities`.  So the log describes an invocation for
+    which R3.3 and R3.6 were both CHECKED and both passed — `[bd10:13]`'s
+    `passed` branch, not its `not-checked` one.
     """
     return {
         "step_name": "invoke_bd10_llm",
@@ -1866,6 +1932,7 @@ def _conformant_attest_payload() -> dict:
         "declared_capabilities": list(REAL_DECLARED_TOOLS),
         "capability_enforcement": "runtime-allowlist",
         "observed_model": "claude-sonnet-4-6",
+        "observed_tools": ["Read"],
     }
 
 
@@ -1917,6 +1984,17 @@ def test_ac_a1_report_shape_requirements_labels_and_coercion() -> None:
     assert report.labels["R3.6"] == "tool-head-only", (
         f"AC-A1: labels['R3.6'] must be 'tool-head-only' (AC-C6's declared limit); "
         f"got {report.labels.get('R3.6')!r}"
+    )
+    # `[bd10:13]`: the qualifier label and the verdict label say DIFFERENT
+    # things about the same requirement and must both remain readable.  A GREEN
+    # that wrote the verdict under the bare "R3.6" key would destroy the
+    # qualifier — the assertion above catches that, and this one catches the
+    # mirror, a GREEN that never writes the prefixed key at all.
+    assert report.labels.get(VERDICT_R36) == REQUIREMENT_PASSED, (
+        f"AC-A1 (`[bd10:13]`): the fixture's one invocation observed a permitted head, "
+        f"so {VERDICT_R36!r} aggregates to {REQUIREMENT_PASSED!r} — and it must live "
+        f"under the prefixed key, alongside the separate 'R3.6' qualifier, not instead "
+        f"of it; got {report.labels.get(VERDICT_R36)!r}"
     )
     with pytest.raises(TypeError):
         report.labels["R3.1"] = "wire-attested"  # type: ignore[index]

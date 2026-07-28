@@ -367,13 +367,22 @@ thing that separates the two.
 
 - **AC-M1** An adapter reports the model it invoked as `StepResult.data["observed_model"]`.
   **Absence is a first-class third state, not a failure** — mirroring CL R2.1's
-  rejected/accepted/indeterminate split. Absent → no comparison, no error, and the L3 report marks
-  R3.3 `not-checked` for that invocation (`conformance/tokens.py:9`).
+  rejected/accepted/indeterminate split. Absent → no comparison, no error; the payload records
+  `observed_model: null` (`[bd10:5]`), and the log-level aggregate `labels["verdict:R3.3"]` reads
+  `REQUIREMENT_NOT_CHECKED` (`[bd10:13]`, `conformance/tokens.py:9`) when **no** invocation in the
+  log reported a model.
   *Kills:* a GREEN that substitutes `model_requested` when the adapter reports nothing — that is
   §0.1 subtype 3 promoted into production, a pin compared against itself, which can never fail.
-  Asserted by a fixture whose adapter omits the key: the payload's `observed_model` is absent and
-  the status is `ok`, **and** on the same fixture a GREEN mutated to default it to
-  `model_requested` is caught by the report reading `passed` where `not-checked` is required.
+  Asserted by a fixture whose adapter omits the key: `payload["observed_model"] is None` and the
+  status is `ok`, **and** on the same fixture a GREEN mutated to default it to `model_requested`
+  is caught by the verdict reading `passed` where `not-checked` is required.
+  `[bd10:15]` **This bullet was stale against `[bd10:5]` and `[bd10:13]` until now** — it said
+  "absent" where the payload pins `null`, and "for that invocation" where the aggregate is
+  log-level. Caught by the RED agent, which followed the normative clauses rather than this
+  paragraph and flagged the divergence instead of silently picking one. Recorded because a
+  normative section carrying superseded wording is the artifact-drift class this lot family has
+  filed against itself repeatedly (`EMISSIONS_SPEC.md:36-41`), and it is no less a defect for
+  being editorial.
 - **AC-M2** **ADV-7.** An adapter registered via `register_backend` that reports a model of a
   **different family** from the dispatched request yields
   `StepResult(status="error", error_code="E_MODEL_PIN_MISMATCH", recoverable=False)`, carrying both
