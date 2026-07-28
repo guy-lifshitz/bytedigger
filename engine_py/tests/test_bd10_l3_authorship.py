@@ -1,13 +1,13 @@
 """RED tests for bd#10 — BD-L3, attested authorship and inputs (R3.1-R3.6).
 
-Frozen spec: engine_py/conformance/AUTHORSHIP_SPEC.md (FROZEN v1, base dc6f0d0).
+Frozen spec: engine_py/conformance/AUTHORSHIP_SPEC.md (FROZEN v4, base dc6f0d0).
 Discipline inherited verbatim: EMISSIONS_SPEC.md §0.1-§0.6, CONTRACTS_SPEC.md
 §0.1-§0.8, plus AUTHORSHIP_SPEC.md §0.1 (two measured outcomes on one fixture),
 §0.2 (external provenance for every pinned constant) and §0.4 (the
 `effective_prompt` naming collision).
 
-COLLECTION SAFETY (§1q / D1CF5FDF).  `conformance.attest`, `conformance.bd_l3`
-and `invoke_llm_subprocess(injections=...)` do NOT exist on this base.  Every
+COLLECTION SAFETY (§1q / D1CF5FDF).  `conformance.attest` and
+`invoke_llm_subprocess(injections=...)` do NOT exist on this base.  Every
 reference to them is DEFERRED into a test body (`from conformance import attest`
 inside the function, or a keyword argument that raises TypeError at call time),
 so this module COLLECTS cleanly pre-GREEN and FAILS at assert/call time.  There
@@ -43,51 +43,70 @@ SEAM PINS (§0.2 of CONTRACTS_SPEC).
     raiser is `_TargetedRaisingEventLog`, which raises for exactly ONE event
     type and records-and-delegates everything else (AC-P6, [G18:EDGE-5]).
 
-PRE-PASSING, DECLARED (§0.6).  Exactly two half-assertions pass today:
+PRE-PASSING, DECLARED (§0.6).  Three half-assertions pass today; every other
+assertion in this file fails pre-GREEN, and no TEST passes today in full:
   * AC-I4 and AC-C5's `error_codes.main(["--check"]) == 0` half — the existing
     drift gate is already clean on this tree (tests/test_gh1067_ignored_dir_
     exclusion.py:120 is its enforcement).  It is a shield: it pins that this
     lot's three new codes do not break the gate.  The ERROR_CODES-membership
     half of both ACs FAILS today.
-Every other assertion in this file fails pre-GREEN.
+  * AC-I6's byte-comparison half, BY CONSTRUCTION — it pins the PRE-migration
+    bytes, so of course the pre-migration tree produces them.  That is what a
+    fence is.  It is not a vacuum: it dies the moment a GREEN routes the role
+    template through `assemble`, which is the exact wrong implementation
+    `[bd10:16]` was written to stop.  The test as a whole still fails today, on
+    the attestation half that ties those bytes to the emitted digest.
 
-ALIGNED TO SPEC v3 (`b16915f`).  Every gap this RED refused to guess is now
-closed by the spec, and each closure is asserted rather than worked around:
-G1 by `[bd10:8]` (three constructible offender kinds), G2 by `[bd10:6]` (the
-`observed_tools` channel — AC-C3's enforcement half is written), G3 by
-`[bd10:5]` (`observed_model` in the key set), G4 by `[bd10:7]`
-(`model_requested` is post-rebind), G5 by `[bd10:9]` (`validate_report` is the
-judge), G6 by `[bd10:10]` (path spelling and content normalisation), G7 by
-`[bd10:6]` (sorted, deduplicated), G8 and G9 by `[bd10:12]` + `[bd10:13]`
-(`observed_tools` in the key set, and `verdict:`-prefixed log-level aggregates
-in `labels`), G10 by `[bd10:14]` (adapter derives, checker consumes).  AC-P8 is
-new per `[bd10:4]`; `[bd10:11]` closes both public export surfaces, which is
-what makes AC-A3's exact-equality assertion safe in the other direction.
+ALIGNED TO SPEC v4 (FROZEN, 26 ACs).  Two cuts left the lot entirely and this
+file follows them exactly:
 
-NO SPEC GAPS OPEN.  One editorial residue, recorded because a reader comparing
-the RED to the spec will trip on it and it is NOT a gap: §5's AC-M1 bullet
-still carries its v1 wording — "the payload's `observed_model` is ABSENT" and
-"the report marks R3.3 not-checked FOR THAT INVOCATION".  Both are superseded
-in the same document by `[bd10:5]` (the key is always present; its value is
-`null`) and `[bd10:13]` (the verdict is a log-level aggregate, because a
-whole-log report cannot express a per-invocation state).  The tests follow the
-normative clauses: `observed_model is None`, and `labels["verdict:R3.3"]`.
+  * §7 — the checker, the attestation report and `[bd10:13]`'s verdict
+    AGGREGATION — is bd#28.  `conformance.bd_l3` is not referenced anywhere in
+    this file: no `check_bd_l3`, no `validate_report`, no `REQUIREMENTS`, no
+    `L0Report`, no `verdict:`-prefixed labels, no ADV-9 status.  AC-A1, AC-A2
+    and AC-A3 are deleted, not weakened.
+  * §5's in-session fail-closed flip — the supersession of 220E5F63 — is
+    bd#29.  Nothing here touches `_invoke_in_session`,
+    `llm_subprocess.py:917-919` or `tests/test_2FDA949D_model_pin_warn.py`,
+    and there is no AC-M6.
 
-AC map (test function → AC):
+WHAT SURVIVED THE §7 CUT, AND WHY IT MATTERS (`[bd10:12]`, `[bd10:13]`).
+AC-M1 and AC-C3 each measured their third state through BOTH the payload and a
+verdict label.  The verdict half left with the report; **the payload half is
+now the entire measurement and it is sufficient** — `observed_model is None`,
+and `observed_tools` `null` versus `[]`, are two observable values on one
+fixture pair whose only difference is the adapter's report.  The nine payload
+keys are unchanged: bd#28 recomputes verdicts FROM them, so recording them is
+this lot's obligation.  AC-M1 keeps its foreign-family liveness control.
+
+ATTRIBUTION IS SEPARATED FROM ASSEMBLY (`[bd10:16]`, gate BLOCKING-5).  The
+caller places its own text; it DECLARES each block through `injections`; the
+chokepoint records `{source_id, sha256}` and VERIFIES the declared content
+occurs in the assembled prompt.  Three consequences visible throughout this
+file: AC-I5's role template stays PREPENDED where
+`workflows/phase_2_explore.py:294-297` puts it; AC-I6 fences that with a
+byte-level comparison; AC-I7 makes verification real by declaring a block whose
+text is absent.  Every other fixture that declares a block therefore supplies a
+prompt that actually CONTAINS the declared content — otherwise it would trip
+AC-I7's rule and measure that instead of its own AC.
+
+AC map (test function → AC), 26 ACs:
   AC-P1  test_ac_p1_exact_payload_key_set
   AC-P2  test_ac_p2_prompt_sha256_recomputed_by_the_test
   AC-P3  test_ac_p3_hash_covers_pre_hoist_text
   AC-P4  test_ac_p4_both_dispatch_branches_emit
   AC-P5  test_ac_p5_one_call_two_dispatches_two_events
   AC-P6  test_ac_p6_emission_failure_does_not_break_execution
-  AC-P7  test_ac_p7_r31_labelled_host_attested
+  AC-P7  test_ac_p7_requirement_labels_pinned_exactly_and_immutable
   AC-P8  test_ac_p8_no_run_context_emits_nothing_and_does_not_raise
   AC-I1  test_ac_i1_assemble_order_and_separator
   AC-I2  test_ac_i2_injections_in_declaration_order
          test_ac_i2_injections_empty_for_none_and_for_empty_sequence
   AC-I3  test_ac_i3_unattributed_block_blocks_dispatch (6 params, both orderings)
   AC-I4  test_ac_i4_inject_unattributed_registered_and_drift_gate_clean
-  AC-I5  test_ac_i5_phase_2_explore_role_template_routes_through_injections
+  AC-I5  test_ac_i5_phase_2_explore_role_template_declared_through_injections
+  AC-I6  test_ac_i6_migrated_phase_prompt_is_byte_identical
+  AC-I7  test_ac_i7_declared_block_absent_from_prompt_is_unattributed
   AC-M1  test_ac_m1_absent_observed_model_is_a_third_state
   AC-M2  test_ac_m2_family_mismatch_errors_and_family_match_is_ok
   AC-M3  test_ac_m3_comparison_target_is_the_dispatched_tier_model
@@ -101,9 +120,14 @@ AC map (test function → AC):
   AC-C4  test_ac_c4_none_declaration_versus_empty_declaration
   AC-C5  test_ac_c5_capability_and_pin_codes_registered_and_drift_gate_clean
   AC-C6  test_ac_c6_argument_level_escape_is_not_detected_in_v1
-  AC-A1  test_ac_a1_report_shape_requirements_labels_and_coercion
-  AC-A2  test_ac_a2_adv9_recorded_not_executed
-  AC-A3  test_ac_a3_no_export_grants_a_level
+
+ONE SPEC RESIDUE, FLAGGED AND NOT GUESSED AT.  §2.4 still carries its v3
+sentence "blocks are assembled into `prompt` before dispatch", which v4's §4
+`[bd10:16]` supersedes ("the caller places its own text… VERIFIES each declared
+block's `content` occurs in the assembled prompt").  The two cannot both hold:
+if the chokepoint assembled the blocks itself, AC-I7's verification could never
+fail and AC-I6's byte comparison would break.  These tests follow §4, which is
+the clause v4 rewrote; §2.4's sentence is stale wording, not a second reading.
 """
 from __future__ import annotations
 
@@ -146,26 +170,28 @@ ATTEST_KEYS = frozenset({
     "observed_tools",
 })
 
-# AUTHORSHIP_SPEC.md §3 `[bd10:13]` — per-requirement verdicts are log-level
-# AGGREGATES in `labels`, under a prefix that cannot collide with the qualifier
-# labels `"R3.1": "host-attested"` / `"R3.6": "tool-head-only"`.
-VERDICT_R33 = "verdict:R3.3"
-VERDICT_R36 = "verdict:R3.6"
-
 # CL:98 / CL:99 / CL:102 @ HAL fd35e1304 (R3.2 / R3.3 / R3.6).  NOT imported
 # from error_codes.ERROR_CODES: this lot authors those entries (§0.2).
 E_INJECT_UNATTRIBUTED = "E_INJECT_UNATTRIBUTED"
 E_MODEL_PIN_MISMATCH = "E_MODEL_PIN_MISMATCH"
 E_CAPABILITY_ESCAPE = "E_CAPABILITY_ESCAPE"
 
-# CL:97-102 @ fd35e1304.
+# CL:97-102 @ fd35e1304 — the six requirement ids AC-P7's mapping is keyed on.
 REQUIREMENT_IDS = ("R3.1", "R3.2", "R3.3", "R3.4", "R3.5", "R3.6")
 
-# conformance/tokens.py:7-10 on this base (shipped by bd#22, not by this lot, so
-# these ARE an external source under §0.2 — unlike the three new error codes).
-REQUIREMENT_PASSED = "passed"
-REQUIREMENT_NOT_CHECKED = "not-checked"
-ADVERSARY_NOT_EXECUTED = "not_executed"
+# AUTHORSHIP_SPEC.md §3 AC-P7 / `[bd10:23]` — the honesty qualifiers, one per
+# narrowing this lot knows about, each with its own justification in the spec's
+# table (CL §8 for R3.1, `[bd10:19]` for R3.2 and R3.5, `[bd10:2]` for R3.3,
+# AC-C6 for R3.6).  R3.4 is DELIBERATELY unlabelled: it is recorded verbatim
+# (AC-C1) with nothing narrowed, and exact-mapping equality is what makes that
+# absence an assertion rather than an omission.
+REQUIREMENT_LABELS = {
+    "R3.1": "host-attested",
+    "R3.2": "injections-channel-only",
+    "R3.3": "in-session-warn-only",
+    "R3.5": "adapter-declared",
+    "R3.6": "tool-head-only",
+}
 
 # workflows/phase_2_explore.py:372 on this base — a real declared capability
 # set, including the tool-head-with-operand form (§0.2).
@@ -389,8 +415,13 @@ def test_ac_p1_exact_payload_key_set() -> None:
     log = _FakeEventLog()
     set_run(log)
 
+    # `[bd10:16]`: the CALLER places the block's text; the chokepoint verifies
+    # the declared content OCCURS in the prompt (AC-I7).  So this fixture must
+    # supply a prompt that really contains it, or it would measure AC-I7's rule
+    # instead of AC-P1's key set.
     result = llm_subprocess.invoke_llm_subprocess(
         **invoke_kwargs(
+            prompt="BD10 PROMPT BODY\n\nP1 BLOCK",
             allowed_tools=list(REAL_DECLARED_TOOLS),
             injections=(InjectedBlock(source_id="src-p1", content="P1 BLOCK"),),
         )
@@ -716,29 +747,52 @@ def test_ac_p8_no_run_context_emits_nothing_and_does_not_raise() -> None:
     )
 
 
-def test_ac_p7_r31_labelled_host_attested() -> None:
-    """AC-P7: R3.1 is labelled `host-attested` (CL §8) — the engine hashes at
-    assembly, not on the wire, so ADV-9 is not executable in v1.
+def test_ac_p7_requirement_labels_pinned_exactly_and_immutable() -> None:
+    """AC-P7 / `[bd10:23]`: `conformance.attest.REQUIREMENT_LABELS` is the
+    record of every narrowing this lot knows about, pinned by EXACT MAPPING
+    EQUALITY and immutable.
 
-    Kills: a report that omits the label (a consumer would then read R3.1 as
-    wire-attested by default) and a report that overclaims it as
-    `wire-attested`.  Equality rejects both.
+    The labels live in the SEAM, not in the report, which is what let them
+    survive §7's cut to bd#28: the engine RECORDS what it can honestly claim,
+    the checker READS it.
 
-    Two measured outcomes on ONE fixture: the conformant event set yields
-    `host-attested`; a GREEN mutated to label R3.1 `wire-attested` — the
-    overclaim CL §8 exists to prevent — fails the same assertion on the same
-    events.
+    Kills, and exact equality is load-bearing in BOTH directions: a GREEN that
+    OMITS an entry — most plausibly `R3.3`, the one that admits an open hole
+    (the in-session path still warns; bd#29 owns the flip) — makes the
+    attestation silently read as unnarrowed; a GREEN that INVENTS an entry,
+    e.g. labelling R3.4, claims a narrowing that does not exist.  A subset
+    check would let the first through and a superset check the second, so
+    neither is used.  The immutability half kills a plain-`dict` GREEN, under
+    which any caller could edit the record of what we claim after the fact.
 
-    Pre-GREEN: `conformance.bd_l3` does not exist (ImportError).
+    Two measured outcomes on ONE fixture: the pinned mapping matches; the same
+    mapping with any single entry dropped or added flips the same equality.
+    The five values come from AUTHORSHIP_SPEC.md §3 AC-P7's table, each with
+    its own external justification (CL §8, `[bd10:19]`, `[bd10:2]`, AC-C6), and
+    the keys from CL:97-102 @ fd35e1304 — not from the module under test.
+
+    Pre-GREEN: `conformance.attest` does not exist (ImportError).
     """
-    from conformance.bd_l3 import check_bd_l3
+    from conformance.attest import REQUIREMENT_LABELS as GREEN_LABELS
 
-    report = check_bd_l3([_conformant_attest_payload()])
-
-    assert report.labels["R3.1"] == "host-attested", (
-        f"AC-P7: labels['R3.1'] must be 'host-attested' per CL §8; got "
-        f"{report.labels.get('R3.1')!r}"
+    # Provenance sanity on the TEST's own constant: every key is a CL
+    # requirement id, and R3.4 is the one deliberately absent (it is recorded
+    # verbatim by AC-C1 with nothing narrowed).
+    assert set(REQUIREMENT_LABELS) == set(REQUIREMENT_IDS) - {"R3.4"}, (
+        "fixture sanity: the pinned label keys must be CL:97-102's requirement "
+        "ids minus R3.4"
     )
+
+    assert dict(GREEN_LABELS) == REQUIREMENT_LABELS, (
+        f"AC-P7: REQUIREMENT_LABELS must equal {REQUIREMENT_LABELS!r} EXACTLY — an "
+        f"omitted label reads as an unnarrowed requirement and an invented one is a "
+        f"claim we cannot support; got {dict(GREEN_LABELS)!r} "
+        f"(missing={sorted(set(REQUIREMENT_LABELS) - set(GREEN_LABELS))!r}, "
+        f"extra={sorted(set(GREEN_LABELS) - set(REQUIREMENT_LABELS))!r})"
+    )
+
+    with pytest.raises(TypeError):
+        GREEN_LABELS["R3.3"] = "enforced"  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
@@ -826,7 +880,16 @@ def test_ac_i2_injections_in_declaration_order() -> None:
     log = _FakeEventLog()
     set_run(log)
 
-    llm_subprocess.invoke_llm_subprocess(**invoke_kwargs(injections=blocks))
+    # `[bd10:16]`: the caller places the text, so the prompt must really carry
+    # all three declared contents (AC-I7's rule), and it carries them in an
+    # order that is NOT the declaration order — the recorded order must come
+    # from the declaration, never from where the bytes happen to sit.
+    llm_subprocess.invoke_llm_subprocess(
+        **invoke_kwargs(
+            prompt="CHARLIE CONTENT\n\nALPHA CONTENT\n\nBRAVO CONTENT",
+            injections=blocks,
+        )
+    )
 
     attests = log.attests()
     assert len(attests) == 1, (
@@ -910,10 +973,14 @@ def test_ac_i3_unattributed_block_blocks_dispatch(bad_source_id, position) -> No
     """
     from conformance.attest import InjectedBlock
 
-    good_a = InjectedBlock(source_id="src-good-a", content="A")
-    good_b = InjectedBlock(source_id="src-good-b", content="B")
-    offender = InjectedBlock(source_id=bad_source_id, content="OFFENDER")
-    repaired = InjectedBlock(source_id="src-repaired", content="OFFENDER")
+    # Every content below really occurs in `i3_prompt`, so the positive control
+    # dispatches on the attribution rule alone and never on AC-I7's occurrence
+    # rule (`[bd10:16]`).
+    i3_prompt = "ALPHA BODY\n\nBRAVO BODY\n\nOFFENDER BODY"
+    good_a = InjectedBlock(source_id="src-good-a", content="ALPHA BODY")
+    good_b = InjectedBlock(source_id="src-good-b", content="BRAVO BODY")
+    offender = InjectedBlock(source_id=bad_source_id, content="OFFENDER BODY")
+    repaired = InjectedBlock(source_id="src-repaired", content="OFFENDER BODY")
 
     if position == "first":
         blocks = [offender, good_a, good_b]
@@ -927,7 +994,9 @@ def test_ac_i3_unattributed_block_blocks_dispatch(bad_source_id, position) -> No
     log = _FakeEventLog()
     set_run(log)
 
-    result = llm_subprocess.invoke_llm_subprocess(**invoke_kwargs(injections=blocks))
+    result = llm_subprocess.invoke_llm_subprocess(
+        **invoke_kwargs(prompt=i3_prompt, injections=blocks)
+    )
 
     assert result.status == "error", (
         f"AC-I3 ({position}, {bad_source_id!r}): an unattributed block must fail the "
@@ -948,7 +1017,7 @@ def test_ac_i3_unattributed_block_blocks_dispatch(bad_source_id, position) -> No
 
     # Positive control on the SAME three blocks with the offender attributed.
     control_result = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(injections=control_blocks)
+        **invoke_kwargs(prompt=i3_prompt, injections=control_blocks)
     )
     assert control_result.status == "ok", (
         f"AC-I3 positive control ({position}): three attributed blocks must dispatch; "
@@ -991,21 +1060,28 @@ def test_ac_i4_inject_unattributed_registered_and_drift_gate_clean() -> None:
     )
 
 
-def test_ac_i5_phase_2_explore_role_template_routes_through_injections(tmp_path) -> None:
-    """AC-I5: `phase_2_explore`'s role-template inlining
-    (workflows/phase_2_explore.py:180,294) routes through the `injections`
-    channel with `source_id` equal to the resolved role-template path, so
-    ADV-8 tests a door the pipeline actually uses.
+def test_ac_i5_phase_2_explore_role_template_declared_through_injections(tmp_path) -> None:
+    """AC-I5 (v4, `[bd10:16]`): `phase_2_explore` DECLARES its role-template
+    block through the `injections` channel with `source_id` equal to the
+    resolved role-template path, so ADV-8 tests a door the pipeline actually
+    uses.
+
+    ATTRIBUTION IS SEPARATED FROM ASSEMBLY.  The phase keeps placing the role
+    template where `workflows/phase_2_explore.py:294-297` puts it — PREPENDED,
+    exactly as `:22` documents — and declares it; the chokepoint records
+    `{source_id, sha256}` and verifies the declared bytes occur in the prompt.
+    This AC does NOT route that site through `assemble`, and AC-I6 is the fence
+    that keeps a GREEN from doing so anyway.
 
     Kills: a GREEN that adds the `injections` parameter but migrates no real
     call site (the attributed channel would then be dead code); a GREEN that
-    routes the block but attributes it to a constant like "role_template"
+    declares the block but attributes it to a constant like "role_template"
     instead of the resolved path; a GREEN that digests the wrong text.
 
     Two measured outcomes on ONE fixture: with the phase migrated, the emitted
     event's `injections` equals the single record below, recomputed here from
-    the file this test wrote; with the phase left on string concatenation the
-    same run emits `injections == []`.
+    the file this test wrote; with the phase left on undeclared string
+    concatenation the same run emits `injections == []`.
 
     `[bd10:10]` v2 PINS both normalisations the digest depends on, so the
     fixture no longer has to dodge them and the assertion is satisfiable
@@ -1098,6 +1174,199 @@ def test_ac_i5_phase_2_explore_role_template_routes_through_injections(tmp_path)
     )
 
 
+def _explore_ctx(*, scratchpad, role_path, session_id: str) -> WorkflowContext:
+    """One explore fixture, parameterised ONLY by whether a role template is
+    configured — everything else (scratchpad, question, persona) is identical,
+    which is what makes AC-I6's byte comparison attributable to the role
+    template alone."""
+    org_config = {"scratchpad_dir": str(scratchpad), "model": "sonnet"}
+    if role_path is not None:
+        org_config["role_template_path"] = str(role_path)
+    return WorkflowContext(
+        tenant_id="hal",
+        scope=None,
+        db_path=None,
+        org_config=org_config,
+        question="bd10 AC-I6 feature request",
+        session_id=session_id,
+        persona="hal",
+        framework=None,
+        domain=None,
+    )
+
+
+def test_ac_i6_migrated_phase_prompt_is_byte_identical(tmp_path) -> None:
+    """AC-I6 `[bd10:16]` (gate BLOCKING-5): the migrated phase's assembled
+    prompt is BYTE-IDENTICAL to the pre-migration prompt.  This is the fence
+    that makes AC-I5 a MIGRATION rather than a rewrite.
+
+    v3's AC-I1 pinned `assemble` to APPEND blocks after the caller's prompt,
+    while `workflows/phase_2_explore.py:22` documents the role template as
+    "Prepended to prompt" and `:294-297` implements it.  A GREEN that migrated
+    AC-I5's site through `assemble` would move ~3 KB of role framing from the
+    HEAD of a live production prompt to its TAIL, behind the output schema and
+    the out-of-role block — and `tests/test_phase_2_explore.py:303` asserts the
+    role text's PRESENCE, not its position, so the existing suite would report
+    a delta of zero.  This test is the instrument that does not.
+
+    Kills: exactly that GREEN.  The pre-migration composition rule is measured
+    HERE, on this base, rather than quoted: the same phase is driven twice on
+    ONE fixture whose ONLY difference is `role_template_path`, and the pinned
+    property is `with_role == role.rstrip() + "\\n\\n" + without_role` — the
+    byte-level statement of ":294-297 prepends".  An `assemble`-routing GREEN
+    produces `without_role + "\\n\\n" + role…` and fails.
+
+    Two measured outcomes on ONE fixture: the byte comparison above, and the
+    emitted `prompt_sha256`, recomputed here over the byte string THIS TEST
+    composed from its own role file and the baseline run (§0.1 subtype 3 — the
+    expected digest is never read back out of the event, nor taken from the
+    adapter's kwargs).  The second half is what ties the bytes to the
+    attestation and what fails pre-GREEN; the first half is declared
+    pre-passing in the module docstring, by construction, because a fence pins
+    the bytes that already exist.
+    """
+    scratchpad = tmp_path / "scratch"
+    role_path = tmp_path / "role.md"
+    role_file_text = "AC-I6 ROLE HEAD\nAC-I6 ROLE TAIL\n  \n"
+    role_path.write_text(role_file_text, encoding="utf-8")
+    expected_content = role_file_text.rstrip() + "\n\n"
+
+    from phase_2_explore import phase_2_explore_workflow
+
+    adapter = _RecordingAdapter("i6", data={"raw_response": "findings\n\nSTATUS: DONE\n"})
+    register("claude-subprocess", adapter,
+             capabilities=("manifest", "progress_since", "abort"))
+
+    log = _FakeEventLog()
+    engine = WorkflowEngine(event_log=log)
+    engine.register("p2", phase_2_explore_workflow())
+    with_role, _ = engine.execute("p2", _explore_ctx(
+        scratchpad=scratchpad, role_path=role_path, session_id="bd10-i6-role"))
+
+    baseline_log = _FakeEventLog()
+    baseline_engine = WorkflowEngine(event_log=baseline_log)
+    baseline_engine.register("p2", phase_2_explore_workflow())
+    without_role, _ = baseline_engine.execute("p2", _explore_ctx(
+        scratchpad=scratchpad, role_path=None, session_id="bd10-i6-plain"))
+
+    # Fixture preconditions, NOT the AC: both runs must reach dispatch, so a
+    # downstream contract break can never be mistaken for this RED.
+    assert with_role.status == "ok" and without_role.status == "ok", (
+        f"AC-I6 precondition: both explore runs must complete; got "
+        f"{with_role.status!r} and {without_role.status!r} — fixture failure, not a "
+        f"measurement of R3.2"
+    )
+    assert len(adapter.calls) == 2, (
+        f"AC-I6 precondition: the same adapter must have seen both prompts; got "
+        f"{len(adapter.calls)} call(s)"
+    )
+
+    role_prompt = adapter.calls[0]["prompt"]
+    plain_prompt = adapter.calls[1]["prompt"]
+    assert role_prompt != plain_prompt, (
+        "fixture sanity: the role template must actually change the prompt, "
+        "otherwise the byte comparison below cannot distinguish head from tail"
+    )
+    assert role_prompt == expected_content + plain_prompt, (
+        "AC-I6 (`[bd10:16]`): the migrated phase's prompt must be BYTE-IDENTICAL to "
+        "the pre-migration one — the role template PREPENDED, per "
+        "workflows/phase_2_explore.py:22,294-297.  A GREEN routing it through "
+        "`assemble` moves it to the tail.  Head of what we got: "
+        f"{role_prompt[:120]!r}"
+    )
+
+    attests = log.attests()
+    assert len(attests) == 1, (
+        f"AC-I6: the migrated dispatch must emit exactly one {EVENT_TYPE!r} event; "
+        f"got {len(attests)}"
+    )
+    assert attests[0]["prompt_sha256"] == sha256_of(expected_content + plain_prompt), (
+        "AC-I6: the attested digest must cover the byte string this test composed "
+        "from its own role file plus the baseline prompt — so the bytes the fence "
+        "pins and the bytes R3.1 hashes are the same bytes; got "
+        f"{attests[0]['prompt_sha256']!r}"
+    )
+
+
+def test_ac_i7_declared_block_absent_from_prompt_is_unattributed() -> None:
+    """AC-I7 `[bd10:16]`: a declared block whose `content` does NOT occur in
+    the assembled prompt yields `E_INJECT_UNATTRIBUTED` and NO dispatch.
+
+    This is the clause that stops declaration being an honour system.  Once
+    attribution is separated from assembly (§4, v4), the caller places its own
+    text and merely TELLS the engine what it placed — so without verification a
+    phase could declare a block it never wrote, and the attestation would carry
+    a `{source_id, sha256}` record corresponding to no bytes the model ever
+    read.
+
+    Kills: a GREEN that records declarations without verifying them (returns
+    `ok`, dispatches once); a GREEN that verifies but proceeds anyway
+    (dispatch count 1); a GREEN that returns `recoverable=True`; a GREEN that
+    verifies by comparing digests of the WHOLE prompt rather than looking for
+    the block's bytes inside it (the positive control's block is a strict
+    substring, never the whole prompt).
+
+    "No dispatch occurred" is asserted POSITIVELY by the recording adapter's
+    call count, and the positive control proves that counter can reach 1 on
+    this very adapter (§0.1 subtype 1).
+
+    Two measured outcomes on ONE fixture: the SAME prompt and the SAME
+    `source_id` are used twice, and the ONLY difference is whether the declared
+    `content` is a substring of that prompt — absent → error with call count 0,
+    present → `ok` with call count 1.
+
+    Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
+    """
+    from conformance.attest import InjectedBlock
+
+    prompt = "AC-I7 PROMPT HEAD\n\nPRESENT BLOCK BODY\n\nAC-I7 PROMPT TAIL"
+    absent = InjectedBlock(source_id="src-i7", content="ABSENT BLOCK BODY")
+    present = InjectedBlock(source_id="src-i7", content="PRESENT BLOCK BODY")
+    assert absent.content not in prompt and present.content in prompt, (
+        "fixture sanity: the two blocks must differ exactly in whether their "
+        "content occurs in the prompt"
+    )
+
+    adapter = _RecordingAdapter("i7")
+    register("bd10-rec", adapter)
+    log = _FakeEventLog()
+    set_run(log)
+
+    result = llm_subprocess.invoke_llm_subprocess(
+        **invoke_kwargs(prompt=prompt, injections=(absent,))
+    )
+
+    assert result.status == "error", (
+        f"AC-I7: a block declared but not present in the prompt must fail the call; "
+        f"got status={result.status!r}"
+    )
+    assert result.error_code == E_INJECT_UNATTRIBUTED, (
+        f"AC-I7: error_code must be {E_INJECT_UNATTRIBUTED!r} (CL:98 @ fd35e1304); "
+        f"got {result.error_code!r}"
+    )
+    assert result.recoverable is False, (
+        f"AC-I7: E_INJECT_UNATTRIBUTED is non-recoverable; got "
+        f"recoverable={result.recoverable!r}"
+    )
+    assert len(adapter.calls) == 0, (
+        f"AC-I7: NO dispatch may occur — an unverifiable declaration must fail "
+        f"CLOSED; the adapter recorded {len(adapter.calls)} call(s)"
+    )
+
+    # Positive control on the SAME fixture: identical block, text present.
+    control = llm_subprocess.invoke_llm_subprocess(
+        **invoke_kwargs(prompt=prompt, injections=(present,))
+    )
+    assert control.status == "ok" and control.error_code is None, (
+        f"AC-I7 positive control: a declaration whose bytes ARE in the prompt must "
+        f"dispatch; got status={control.status!r} error_code={control.error_code!r}"
+    )
+    assert len(adapter.calls) == 1, (
+        f"AC-I7 positive control: the adapter must have been called exactly once in "
+        f"total; got {len(adapter.calls)}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # §5 — R3.3 and ADV-7, reported model identity versus the pin
 # ---------------------------------------------------------------------------
@@ -1134,22 +1403,20 @@ def test_ac_m1_absent_observed_model_is_a_third_state(tmp_path, monkeypatch) -> 
     here, not an absence: §0.5 forbids discharging it with a presence check,
     and the key itself is required by AC-P1's exact set.
 
-    THE REPORT HALF, writable at last via `[bd10:13]`: a log whose only
-    invocation carried a `null` `observed_model` aggregates to
-    `"verdict:R3.3" == not-checked`; the SAME log shape where the adapter DID
-    report aggregates to `passed`.  That pair is the second reading of the
-    same mutation — a GREEN backfilling `model_requested` compares a pin
-    against itself, always matches, and reports `passed` where `not-checked`
-    is required.
+    THE PAYLOAD IS NOW THE WHOLE MEASUREMENT (§7's cut).  v3 read this third
+    state twice — once in the payload and once as `"verdict:R3.3"` in the
+    report — and the report half left with bd#28.  What remains is sufficient
+    and is the side of the split this lot owns (`[bd10:12]`): `null` versus a
+    substituted model id are two observable values on one fixture, and the
+    aggregation bd#28 performs is a function OF this record, so a lot that
+    records it wrongly cannot be rescued downstream.
 
-    A third call proves the comparison is live on this fixture at all — an
-    adapter reporting a FOREIGN family errors — so the two `ok`s above cannot
-    come from the check being skipped.
+    A second call proves the comparison is live on this fixture at all — an
+    adapter reporting a FOREIGN family errors — so the `ok` above cannot come
+    from the check being skipped entirely.
 
     Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
     """
-    from conformance.bd_l3 import check_bd_l3
-
     _write_tier_config(tmp_path, monkeypatch, tier="SIMPLE", model="haiku")
 
     silent = _RecordingAdapter("m1-silent")
@@ -1185,35 +1452,6 @@ def test_ac_m1_absent_observed_model_is_a_third_state(tmp_path, monkeypatch) -> 
         f"backfilled from model_requested or from the caller's pin; got "
         f"{log.attests()[0]['observed_model']!r}"
     )
-    silent_verdict = check_bd_l3(log.attests()).labels.get(VERDICT_R33)
-    assert silent_verdict == REQUIREMENT_NOT_CHECKED, (
-        f"AC-M1 (`[bd10:13]`): a log in which NO invocation carried a non-null "
-        f"observed_model aggregates to {REQUIREMENT_NOT_CHECKED!r} for R3.3 — a "
-        f"backfilling GREEN compares the pin against itself, always matches, and "
-        f"reports {REQUIREMENT_PASSED!r} here; got {silent_verdict!r}"
-    )
-
-    # Same log shape, adapter DID report the dispatched family → passed.
-    register("bd10-rec", _RecordingAdapter(
-        "m1-reporting", data={"observed_model": "claude-haiku-4-5-20251001"}
-    ))
-    log_reporting = _FakeEventLog()
-    set_run(log_reporting, tier="SIMPLE")
-    reported = llm_subprocess.invoke_llm_subprocess(
-        **invoke_kwargs(model="opus", injections=None)
-    )
-    assert reported.status == "ok" and reported.error_code is None, (
-        f"AC-M1: an adapter reporting the dispatched family must be ok; got "
-        f"status={reported.status!r} error_code={reported.error_code!r}"
-    )
-    reported_verdict = check_bd_l3(log_reporting.attests()).labels.get(VERDICT_R33)
-    assert reported_verdict == REQUIREMENT_PASSED, (
-        f"AC-M1 (`[bd10:13]`): a log whose invocation DID report a matching model "
-        f"aggregates to {REQUIREMENT_PASSED!r} for R3.3 — without this half, "
-        f"{REQUIREMENT_NOT_CHECKED!r} above is satisfiable by a checker that returns "
-        f"it unconditionally; got {reported_verdict!r}"
-    )
-
     # Liveness control: the comparison IS live on this fixture shape.
     register("bd10-rec", _RecordingAdapter(
         "m1-foreign", data={"observed_model": "claude-sonnet-4-6"}
@@ -1235,10 +1473,15 @@ def test_ac_m2_family_mismatch_errors_and_family_match_is_ok() -> None:
     `E_MODEL_PIN_MISMATCH`, `recoverable=False`, carrying both
     `observed_model` and `pinned_model` in `data`.
 
-    Kills: a GREEN that warns and proceeds (the pre-`[bd10:2]` behaviour at
-    llm_subprocess.py:917-919); a GREEN that errors but drops the two
-    diagnostic fields; a GREEN that errors on EVERY invocation (the positive
-    control catches that).
+    Kills: a GREEN that warns and proceeds at the CHOKEPOINT; a GREEN that
+    errors but drops the two diagnostic fields; a GREEN that errors on EVERY
+    invocation (the positive control catches that).
+
+    `[bd10:2]`: the in-session path (llm_subprocess.py:917-919) is OUT OF SCOPE
+    — the supersession of 220E5F63 is withdrawn to bd#29, and the residual gap
+    is labelled rather than implied (`REQUIREMENT_LABELS["R3.3"] ==
+    "in-session-warn-only"`, AC-P7).  This fixture reaches the chokepoint
+    through a registered adapter and touches nothing in-session.
 
     Two measured outcomes on ONE fixture shape: the haiku-reporting adapter
     errors, the sonnet-reporting adapter on the identical call is `ok`.  No
@@ -1415,14 +1658,17 @@ def test_ac_m4_family_comparison_not_raw_equality() -> None:
 
 def test_ac_m5_mismatch_event_still_emitted_and_step_errors() -> None:
     """AC-M5: the existing `model_pin_mismatch` telemetry event is STILL
-    emitted on the flip (additivity for its existing consumers), AND the step
-    now ends `status == "error"`.
+    emitted when the chokepoint fails a drifted invocation (additivity for its
+    existing consumers), AND the step ends `status == "error"`.
 
-    Kills: a GREEN that flips the status and drops the event (silently
-    breaking every consumer of `model_pin_mismatch`); a GREEN that keeps the
-    event and leaves the step `ok` (the pre-`[bd10:2]` warn-only behaviour).
-    Both halves are asserted on ONE fixture, so the AC cannot be discharged by
-    either half alone.
+    Kills: a GREEN that errors and drops the event (silently breaking every
+    consumer of `model_pin_mismatch`, which today is written only from the
+    in-session path at llm_subprocess.py:919); a GREEN that emits the event and
+    leaves the step `ok`.  Both halves are asserted on ONE fixture, so the AC
+    cannot be discharged by either half alone.
+
+    `[bd10:2]`: this is the CHOKEPOINT's behaviour for a reporting adapter.
+    The in-session warn-only path is untouched and belongs to bd#29.
 
     Two measured outcomes on ONE fixture: intact, the event is present and the
     status is `error`; with the emit deleted the same fixture fails the first
@@ -1716,19 +1962,23 @@ def test_ac_c3_absent_versus_empty_observed_tools() -> None:
     adapter CANNOT OBSERVE; an EMPTY sequence means it observed and saw
     nothing.  v3 makes the two distinguishable, so this is a real pair.
 
-    ASSERTED THROUGH THE PAYLOAD AND THE VERDICT LABEL, NOT THE STATUS.  The
-    returned status is `ok` for both and cannot tell them apart — asserting it
-    on both halves would be one measurement written twice (§0.1), which is the
-    defect v2 carried and `[bd10:12]` fixes.  The observables are
-    `observed_tools` `null` versus `[]` in the event, and `"verdict:R3.6"`
-    `not-checked` versus `passed` in the report.
+    ASSERTED THROUGH THE PAYLOAD, NOT THE STATUS.  The returned status is `ok`
+    for both and cannot tell them apart — asserting it on both halves would be
+    one measurement written twice (§0.1), which is the defect v2 carried and
+    `[bd10:12]` fixes.  The observable is `observed_tools` `null` versus `[]`
+    in the event.
+
+    THE VERDICT HALF LEFT WITH THE REPORT (§7 → bd#28) AND THE PAYLOAD HALF IS
+    SUFFICIENT: `null` and `[]` are two observable values on one fixture pair
+    whose ONLY difference is that key, which was the entire point of
+    `[bd10:12]` — the observable had to exist somewhere, and the payload is the
+    side of the split this lot owns.  bd#28 aggregates FROM this record, so a
+    lot that flattens the two states here cannot be repaired downstream.
 
     Kills: a GREEN that coerces the absent key to `[]` (both payloads then read
-    `[]` and both verdicts read `passed`); one that coerces `[]` to `null` (the
-    mirror); one that raises `KeyError` on the absent key; and — via the
-    verdict — one that records the key correctly but aggregates
-    "no invocation could observe" as `passed`, which would attest a check that
-    never ran.
+    `[]`, and bd#28 would later attest `passed` for a check that never ran);
+    one that coerces `[]` to `null` (the mirror); one that raises `KeyError` on
+    the absent key.
 
     Two measured outcomes on ONE fixture pair whose ONLY difference is that
     key: same declaration, same call, same adapter shape.  The declaration is
@@ -1738,8 +1988,6 @@ def test_ac_c3_absent_versus_empty_observed_tools() -> None:
 
     Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
     """
-    from conformance.bd_l3 import check_bd_l3
-
     register("bd10-rec", _RecordingAdapter("c3-blind"))  # no observed_tools key
     log_blind = _FakeEventLog()
     set_run(log_blind)
@@ -1776,19 +2024,6 @@ def test_ac_c3_absent_versus_empty_observed_tools() -> None:
     assert log_empty.attests()[0]["observed_tools"] == [], (
         f"AC-C3 (`[bd10:12]`): an adapter that reported an empty sequence records [], "
         f"NOT null; got {log_empty.attests()[0]['observed_tools']!r}"
-    )
-
-    blind_verdict = check_bd_l3(log_blind.attests()).labels.get(VERDICT_R36)
-    empty_verdict = check_bd_l3(log_empty.attests()).labels.get(VERDICT_R36)
-    assert blind_verdict == REQUIREMENT_NOT_CHECKED, (
-        f"AC-C3 (`[bd10:13]`): a log in which NO invocation carried a non-null "
-        f"observed_tools aggregates to {REQUIREMENT_NOT_CHECKED!r} for R3.6 — "
-        f"reporting {REQUIREMENT_PASSED!r} would attest a check that never ran; got "
-        f"{blind_verdict!r}"
-    )
-    assert empty_verdict == REQUIREMENT_PASSED, (
-        f"AC-C3 (`[bd10:13]`): a log whose invocation DID observe, and escaped "
-        f"nothing, aggregates to {REQUIREMENT_PASSED!r} for R3.6; got {empty_verdict!r}"
     )
 
 
@@ -1907,229 +2142,4 @@ def test_ac_c6_argument_level_escape_is_not_detected_in_v1() -> None:
         f"AC-C6: the checker is nonetheless live — a disallowed HEAD in the same "
         f"sequence is reported; got "
         f"{tuple(capability_escapes(['Bash', 'Write'], declared))!r}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# §7 — attestation: what may be claimed, and what may not
-# ---------------------------------------------------------------------------
-
-def _conformant_attest_payload() -> dict:
-    """A payload with exactly AC-P1's NINE-key set (v3), used as checker input.
-
-    Both observations are non-`null` and both are clean: `observed_model` is
-    the same family as `model_requested`, and `observed_tools` holds one head
-    inside `declared_capabilities`.  So the log describes an invocation for
-    which R3.3 and R3.6 were both CHECKED and both passed — `[bd10:13]`'s
-    `passed` branch, not its `not-checked` one.
-    """
-    return {
-        "step_name": "invoke_bd10_llm",
-        "backend": "bd10-rec",
-        "model_requested": "sonnet",
-        "prompt_sha256": sha256_of("BD10 PROMPT BODY"),
-        "injections": [],
-        "declared_capabilities": list(REAL_DECLARED_TOOLS),
-        "capability_enforcement": "runtime-allowlist",
-        "observed_model": "claude-sonnet-4-6",
-        "observed_tools": ["Read"],
-    }
-
-
-def test_ac_a1_report_shape_requirements_labels_and_coercion() -> None:
-    """AC-A1: `check_bd_l3(events)` returns an `L0Report`
-    (conformance/report.py:14) whose `requirements` is exactly `REQUIREMENTS`
-    and whose `labels` carry `"R3.1": "host-attested"` (CL §8, ADV-9 struck
-    from the executable set) and `"R3.6": "tool-head-only"` (AC-C6).
-
-    Kills: a checker returning a bare dict or tuple; one whose `requirements`
-    drifts from R3.1-R3.6 (tuple equality pins order and membership); one that
-    omits either label; one that hands back the caller's mutable containers.
-
-    Constructed with MUTABLE containers per `[G22:23]` — the events are a
-    `list` and the labels are asserted to have been coerced — so
-    `L0Report.__post_init__`'s coercion (report.py:32-35) is actually
-    exercised rather than bypassed by a pre-frozen input.  `REQUIREMENTS` is
-    pinned here against CL:97-102 @ fd35e1304, not against the module's own
-    export.
-
-    Pre-GREEN: `conformance.bd_l3` does not exist (ImportError).
-    """
-    from conformance.report import L0Report
-    from conformance.bd_l3 import REQUIREMENTS, check_bd_l3
-
-    assert tuple(REQUIREMENTS) == REQUIREMENT_IDS, (
-        f"AC-A1: REQUIREMENTS must be {REQUIREMENT_IDS!r} (CL:97-102 @ fd35e1304); "
-        f"got {tuple(REQUIREMENTS)!r}"
-    )
-
-    events = [_conformant_attest_payload()]  # mutable container, [G22:23]
-    report = check_bd_l3(events)
-
-    assert isinstance(report, L0Report), (
-        f"AC-A1: check_bd_l3 must return an L0Report; got {type(report).__name__}"
-    )
-    assert report.requirements == REQUIREMENT_IDS, (
-        f"AC-A1: report.requirements must be exactly {REQUIREMENT_IDS!r}; got "
-        f"{report.requirements!r}"
-    )
-    assert isinstance(report.requirements, tuple), (
-        f"AC-A1: requirements must be coerced to an immutable tuple; got "
-        f"{type(report.requirements).__name__}"
-    )
-    assert report.labels["R3.1"] == "host-attested", (
-        f"AC-A1: labels['R3.1'] must be 'host-attested'; got "
-        f"{report.labels.get('R3.1')!r}"
-    )
-    assert report.labels["R3.6"] == "tool-head-only", (
-        f"AC-A1: labels['R3.6'] must be 'tool-head-only' (AC-C6's declared limit); "
-        f"got {report.labels.get('R3.6')!r}"
-    )
-    # `[bd10:13]`: the qualifier label and the verdict label say DIFFERENT
-    # things about the same requirement and must both remain readable.  A GREEN
-    # that wrote the verdict under the bare "R3.6" key would destroy the
-    # qualifier — the assertion above catches that, and this one catches the
-    # mirror, a GREEN that never writes the prefixed key at all.
-    assert report.labels.get(VERDICT_R36) == REQUIREMENT_PASSED, (
-        f"AC-A1 (`[bd10:13]`): the fixture's one invocation observed a permitted head, "
-        f"so {VERDICT_R36!r} aggregates to {REQUIREMENT_PASSED!r} — and it must live "
-        f"under the prefixed key, alongside the separate 'R3.6' qualifier, not instead "
-        f"of it; got {report.labels.get(VERDICT_R36)!r}"
-    )
-    with pytest.raises(TypeError):
-        report.labels["R3.1"] = "wire-attested"  # type: ignore[index]
-
-
-def test_ac_a2_adv9_recorded_not_executed() -> None:
-    """AC-A2: ADV-9's status is `tokens.ADVERSARY_NOT_EXECUTED`, and a report
-    that lists ADV-9 as executed is itself a failure — CL:221-224, "an
-    implementation that quietly counts an unexecuted adversary as passed is
-    itself a conformance failure".
-
-    `[bd10:9]` v2 supplies the judge this clause was missing:
-    `bd_l3.validate_report(report)` returns violation strings, empty when the
-    report is well-formed.  BOTH directions therefore run through the
-    MECHANISM rather than through this test's own opinion, which is the whole
-    point of the addition.
-
-    Kills: a checker that omits the `"ADV-9"` label; one that marks it
-    executed or passed; and — the direction v1 could not express — a
-    `validate_report` that rubber-stamps everything, since a report mutated to
-    mark ADV-9 executed must come back with a NON-EMPTY violation tuple.
-
-    Two measured outcomes on ONE fixture set: the produced report validates
-    clean, and the same report reconstructed with `"ADV-9": "executed"` — one
-    label changed, everything else identical — does not.  `"not_executed"` is
-    pinned from conformance/tokens.py:10 (shipped by bd#22, external to this
-    lot, §0.2); the underscore spelling is deliberate (tokens.py:1-5).
-
-    Pre-GREEN: `conformance.bd_l3` does not exist (ImportError).
-    """
-    from conformance import tokens
-    from conformance.report import L0Report
-    from conformance.bd_l3 import check_bd_l3, validate_report
-
-    assert tokens.ADVERSARY_NOT_EXECUTED == ADVERSARY_NOT_EXECUTED, (
-        f"AC-A2: conformance/tokens.py:10 must still spell the token "
-        f"{ADVERSARY_NOT_EXECUTED!r}; got {tokens.ADVERSARY_NOT_EXECUTED!r}"
-    )
-
-    report = check_bd_l3([_conformant_attest_payload()])
-
-    assert report.labels.get("ADV-9") == ADVERSARY_NOT_EXECUTED, (
-        f"AC-A2: the report must record ADV-9 under the literal 'ADV-9' label as "
-        f"{ADVERSARY_NOT_EXECUTED!r}; got {report.labels.get('ADV-9')!r}"
-    )
-    assert tuple(validate_report(report)) == (), (
-        f"AC-A2 (direction 1): a conformant report must validate clean; got "
-        f"{tuple(validate_report(report))!r}"
-    )
-
-    # Direction 2: one label changed, nothing else.
-    mutated_labels = dict(report.labels)
-    mutated_labels["ADV-9"] = "executed"
-    mutated = L0Report(
-        passed=report.passed,
-        requirements=list(report.requirements),
-        violations=list(report.violations),
-        labels=mutated_labels,
-    )
-    assert tuple(validate_report(mutated)) != (), (
-        "AC-A2 (direction 2): a report marking ADV-9 executed must be rejected by "
-        "validate_report — CL:221-224, quietly counting an unexecuted adversary as "
-        "passed is itself a conformance failure; got an empty violation tuple"
-    )
-
-
-def test_ac_a3_no_export_grants_a_level() -> None:
-    """AC-A3 / `[bd10:3]`: `check_bd_l3` REPORTS REQUIREMENTS; it does NOT
-    grant BD-L3.  The level is cumulative (CL §2) and BD-L0/L1/L2 are not
-    implemented on this base (bd#8, bd#9, bd#27 open), so a function returning
-    "BD-L3 achieved" here would be the exact overclaim CL exists to prevent.
-
-    Kills: a GREEN that adds a `grant_bd_l3()` / `attest_level()` export
-    alongside the checker (the public-surface equalities below fail on any
-    extra export), and a GREEN whose report scope creeps beyond R3.1-R3.6
-    (the requirements equality fails if an L0/L1/L2 token appears).
-
-    This is asserted against each module's runtime surface and the report's
-    value, not against source text — a pattern-presence assertion would pass
-    for a module that merely spells its grant differently.
-
-    `[bd10:11]` **EXACT EQUALITY IS LOAD-BEARING; DO NOT WEAKEN IT TO A SUBSET
-    CHECK.**  I raised this against my own AC-A3 and v2 closed it: §2.2 and
-    §2.3's tables are normatively EXHAUSTIVE public surfaces, anything else
-    GREEN needs is a module-private `_name`.  A later round "simplifying"
-    these to `>=` would delete the only thing that detects an added export —
-    and only the closedness of the tables makes the equality safe from the
-    other side, i.e. from false-failing a correct GREEN.  Both modules are
-    checked, because `[bd10:11]` pins both.
-
-    Names re-exported from elsewhere (`L0Report`, `tokens`, typing aliases)
-    are excluded BY ORIGIN, not by name, so a correct GREEN that imports its
-    dependencies normally is not false-failed.
-
-    Two measured outcomes on ONE fixture: the conformant modules expose
-    exactly the pinned names and the report is scoped to R3.1-R3.6; adding one
-    level-granting export flips the corresponding equality on the same import.
-
-    Pre-GREEN: `conformance.bd_l3` does not exist (ImportError).
-    """
-    import types
-
-    import conformance.attest as attest
-    import conformance.bd_l3 as bd_l3
-
-    def _public_surface(module) -> set:
-        return {
-            name for name, value in vars(module).items()
-            if not name.startswith("_")
-            and not isinstance(value, types.ModuleType)
-            and getattr(value, "__module__", module.__name__) == module.__name__
-        }
-
-    bd_l3_public = _public_surface(bd_l3)
-    assert bd_l3_public == {"REQUIREMENTS", "check_bd_l3", "validate_report"}, (
-        f"AC-A3 (`[bd10:11]`): conformance.bd_l3 must expose exactly the three names "
-        f"in AUTHORSHIP_SPEC.md §2.3 — no level-granting export (the harness lot lands "
-        f"the grant, consuming this as one input among four); got {sorted(bd_l3_public)!r}"
-    )
-
-    attest_public = _public_surface(attest)
-    assert attest_public == {
-        "EVENT_TYPE", "hash_text", "InjectedBlock", "assemble", "capability_escapes",
-    }, (
-        f"AC-A3 (`[bd10:11]`): conformance.attest must expose exactly the five names in "
-        f"AUTHORSHIP_SPEC.md §2.2; anything else GREEN needs is a module-private "
-        f"`_name`; got {sorted(attest_public)!r}"
-    )
-
-    report = bd_l3.check_bd_l3([_conformant_attest_payload()])
-    assert report.requirements == REQUIREMENT_IDS, (
-        f"AC-A3: L0Report.passed is scoped to R3.1-R3.6 only; requirements were "
-        f"{report.requirements!r}"
-    )
-    assert isinstance(report.passed, bool), (
-        f"AC-A3: `passed` is a requirement-scoped boolean, not a level grant; got "
-        f"{type(report.passed).__name__}"
     )
