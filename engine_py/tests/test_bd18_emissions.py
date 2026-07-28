@@ -830,6 +830,24 @@ def test_ac_e3a_phase_artifacts_emitted_when_step_raises(tmp_path, git_repo):
     try/finally (around telemetry_ctx only, today) does not catch this;
     phase_artifacts must still be emitted, from the OUTER try/finally at
     engine.py:271, before the exception propagates out of execute().
+
+    `[G18r3:EDGE-4]`: the crash path must not OVERCLAIM. `git_pre` is
+    taken at engine.py:419 but the step raises at :464, before the
+    post-snapshot at :478 — so no per-step delta is EVER computed for the
+    crashed step. Kills a GREEN that publishes `written: []` alongside
+    `"git-delta"` here: every other AC-E3b differential fixture is
+    non-raising, so the crash path is the one place `[G2:4]`'s overclaim
+    shape (an affirmative "nothing was written" over a channel that never
+    finished opening) would otherwise pass unnoticed.
+
+    DECLARED SHIELD (§0.6): the two `write_tracking`/`written` assertions
+    below are ALREADY satisfied by the current implementation —
+    `_phase_steps_run` is incremented before the step runs (engine.py:427)
+    but `_phase_steps_delta_ok`/`self._written` only after a resolved
+    post-snapshot (:486-487), so a crashed step structurally mismatches
+    the two counters and `write_tracking` falls through to
+    "not-observed" today. This guards a constraint the implementation
+    satisfies structurally now, not a gap in it.
     """
     log = make_log(tmp_path)
     eng = WorkflowEngine(event_log=log)
@@ -838,9 +856,21 @@ def test_ac_e3a_phase_artifacts_emitted_when_step_raises(tmp_path, git_repo):
     ))
     with pytest.raises(RuntimeError, match="boom"):
         eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
-    assert len(events_of(log, "phase_artifacts")) == 1, (
+    pa = events_of(log, "phase_artifacts")
+    assert len(pa) == 1, (
         "phase_artifacts must be emitted from the outer try/finally even "
         "when a step raises, before the exception propagates"
+    )
+    payload = pa[0]["payload"]
+    assert payload["write_tracking"] == "not-observed", (
+        f"the crashed step's delta never resolved (raised before the "
+        f"post-snapshot) — write_tracking must be 'not-observed', got "
+        f"{payload['write_tracking']!r}"
+    )
+    assert payload["written"] == [], (
+        f"MUST NOT publish written: [] alongside a claim of git-delta "
+        f"tracking having completed — got written={payload['written']!r} "
+        f"with write_tracking={payload['write_tracking']!r}"
     )
 
 
@@ -1589,6 +1619,98 @@ def test_ac_e6_original_exception_survives_a_failing_phase_artifacts_emit(tmp_pa
         f"crash path — proving this composition was actually exercised, "
         f"not that the crash happened before any new emit ran; "
         f"attempted={log.attempted!r}"
+    )
+
+
+class _GitPortCrash(RuntimeError):
+    """Simulated git failure that escapes `_git_changes_vs_head`'s narrow
+    except clause (`FileNotFoundError`, `subprocess.TimeoutExpired` only,
+    engine.py:1160) — stands in for a real timeout/missing-binary
+    failure reaching an unguarded phase-level git call from inside
+    execute()'s finally. Distinguishable from `_CrashError` so
+    `pytest.raises` cannot be satisfied by the wrong exception."""
+
+
+class _FailAfterStepStartsGitPort:
+    """Delegates to the real GitReadPort until a shared flag — set by the
+    crashing step's OWN BODY, right before it raises, never a call
+    ordinal (`[G18:2]`) — becomes True; every call from that point on
+    raises `_GitPortCrash` and is recorded in `calls_after_flag`, so the
+    test can assert none occurred."""
+
+    def __init__(self, flag: dict) -> None:
+        self._flag = flag
+        self._real = git_port.default_git_read()
+        self.calls_after_flag: list[list[str]] = []
+
+    def __call__(self, args, *, cwd=None, timeout=None, dir_=None):
+        if self._flag.get("crashing"):
+            self.calls_after_flag.append(list(args))
+            raise _GitPortCrash("simulated git timeout/missing-binary")
+        return self._real(args, cwd=cwd, timeout=timeout, dir_=dir_)
+
+
+def test_ac_e6_finally_makes_no_git_calls_that_could_replace_the_exception(tmp_path, git_repo):
+    """`[G18r3:EDGE-1]` (AC-E6 hardening): the finally must not be ABLE to
+    raise, not merely must not re-raise. AC-E6 covers a failing `append`,
+    which `_emit`'s except at engine.py:710 absorbs — it does not cover a
+    finally that raises BEFORE reaching the emit, e.g. an unguarded
+    phase-level `_git_changes_vs_head` call that reaches subprocess-backed
+    git and can fail on timeout or missing binary. That exception would
+    be raised OUTSIDE `_emit`'s protection, REPLACING the in-flight
+    `_CrashError` — the real error would disappear.
+
+    Engine-path trace: the step raises inside the step loop (engine.py
+    :464) -> propagates out of `_execute_steps` -> execute()'s finally
+    (:303-306) runs with the exception in flight -> the CURRENT
+    implementation's finally does no I/O at all (`_emit_phase_artifacts`
+    only reads accumulated instance state — self._written,
+    self._phase_steps_run, self._phase_steps_delta_ok, engine.py:299-301,
+    767-772) -> it emits and the original `_CrashError` survives
+    untouched.
+
+    DECLARED SHIELD (§0.6): this asserts behaviour that is ALREADY
+    correct today — `_emit_phase_artifacts` does no I/O, so this test
+    passes on arrival. It guards a constraint the implementation
+    satisfies structurally today, not a gap in it.
+
+    Vacuity trap avoided: `pytest.raises(_CrashError)` ALONE would pass
+    today regardless of whether the finally does I/O, because the
+    current finally happens to do none — that assertion cannot
+    distinguish a correct implementation from one that added an unguarded
+    git call that merely got lucky (e.g. succeeded, or failed in a way
+    caught elsewhere) on this host/run. The FORCING assertion is
+    `calls_after_flag == []`: the injected port records every call made
+    after the crashing step's own body has run (never a call-count
+    ordinal, `[G18:2]`) — a GREEN that adds ANY phase-level git
+    computation inside the finally, succeeding or failing, would show up
+    here even on a host/timing where it happens not to raise.
+    """
+    flag = {"crashing": False}
+    port = _FailAfterStepStartsGitPort(flag)
+
+    def _crash_after_marking(_ctx, _prev):
+        flag["crashing"] = True
+        raise _CrashError("boom-original")
+
+    git_port.set_default_git_read_factory(lambda: port)
+    try:
+        log = make_log(tmp_path)
+        eng = WorkflowEngine(event_log=log)
+        eng.register("wf", WorkflowDefinition(
+            name="wf", steps=[StepContract(name="s1", execute=_crash_after_marking)],
+        ))
+        with pytest.raises(_CrashError, match="boom-original"):
+            eng.execute("wf", make_ctx(git_cwd=str(git_repo)), run_id="r1")
+    finally:
+        git_port.reset_default_git_read_factory()
+
+    assert port.calls_after_flag == [], (
+        f"the finally must make NO git calls at all — any call recorded "
+        f"here (succeeding or failing) means a phase-level git computation "
+        f"exists in the finally, which on a real timeout/missing-binary "
+        f"host would replace the in-flight exception instead of letting "
+        f"it propagate; recorded calls={port.calls_after_flag!r}"
     )
 
 
