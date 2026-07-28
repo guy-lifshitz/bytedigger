@@ -81,10 +81,26 @@ Normative — GREEN provides exactly these, and the RED asserts against these na
 | `conformance/quant_lint.py` | `lint_quantifier_completeness(text: str) -> list[Finding]` |
 
 `lint_quantifier_completeness` takes the spec document's **text** and returns a list of findings — an empty list
-means conformant. Each finding identifies its **kind** (which of the three checks failed) and the **subject** (the
-collection level, the row, or the seam at fault), so a caller can tell the three checks apart. It MUST NOT raise
-on a non-conformant document: returning findings is the contract, and raising would make "conformant" and
-"malformed" indistinguishable to the build step that consumes it.
+means conformant. It MUST NOT raise on a non-conformant **or** malformed document: returning findings is the
+contract, and raising would make "conformant" and "malformed" indistinguishable to the build step that consumes it.
+
+`[G22:4]` **`Finding` is pinned here too, for the same reason the grammar was.** v2 said a finding "identifies its
+kind and the subject" and named neither the attributes nor the values — so the RED had to choose them, and the RED
+agent flagged that rather than proceeding silently, which is the second time it has caught this class. `Finding`
+lives in `conformance/quant_lint.py` beside the function, and is a frozen dataclass with exactly:
+
+| Attribute | Type | Values |
+|---|---|---|
+| `kind` | `str` | one of `"missing_non_uniformity_row"`, `"missing_reductions"`, `"seam_not_pinned"` |
+| `subject` | `str` | the offending level name, row level, or seam name — verbatim from the document |
+
+The three `kind` values correspond 1:1 to AC-C5's three checks, so a caller can tell them apart by value rather
+than by parsing a message, and a lint implementing only one check cannot masquerade as implementing three.
+`subject` is quoted from the document so a failure names the actual level or seam, not an index.
+
+**The pattern, now three for three:** every time this spec described a shape instead of pinning it — the fixture
+grammar (`[G22:1]`), the forcing mechanism's assumption (`[G22:3]`), and now `Finding` — the RED had to invent it
+and the invention became the de facto interface. Describing a value is not specifying it.
 
 ### 1.6 The AC-C5 fixture-document grammar, pinned `[G22:1]`
 
@@ -125,6 +141,19 @@ potential lint failure.
   seam was touched and with what argument where a raiser only reports that something was.
   **The general rule this instance illustrates, and §0.3's sharper form: a test may not sabotage a primitive its own
   harness runs on. Observation is safe; substitution is not.**
+  `[G22:3]` **`conformance` MUST be a REAL package (`__init__.py` present), and the RED must force on that.**
+  Measured after the `[G22:2]` fix: AC-C1 and AC-C4 **passed** where both were expected to fail. Cause — and it is
+  mine: this spec document lives at `engine_py/conformance/CONTRACTS_SPEC.md`, and a directory with no
+  `__init__.py` is a **namespace package**, so `import conformance` **already succeeds** today, resolving to an
+  empty namespace that reads no file and touches no seam. Both tests were therefore vacuous in the precise sense
+  §0.4 forbids — they passed pre-implementation and would pass identically after it, measuring nothing.
+  The forcing mechanism must be the **real submodules**, which genuinely do not exist: import
+  `conformance.report`, `conformance.tokens` and `conformance.quant_lint` under the recorders. AC-C1 MUST also
+  assert the package is real rather than a namespace — `conformance.__file__ is not None` — because §1.5 pins
+  `conformance/__init__.py`, and a namespace package is not the artifact this lot ships.
+  **Worth stating as a lesson, not just a fix:** the RED's forcing mechanism rested on an assumption about the
+  filesystem (`import conformance` fails today) that my own choice of where to put a *document* silently
+  falsified. A forcing mechanism is a claim about the world and needs measuring like any other.
 - **AC-C2** `L0Report` is a **frozen** dataclass carrying `passed`, `requirements`, `violations` and `labels`.
   Attribute assignment MUST raise `FrozenInstanceError`; the type MUST be constructible with those four fields.
   **Field *values* are out of scope here** — their semantics belong to L7-L12. L2 owns the carrier only, and

@@ -11,11 +11,15 @@ it asserts an absence that cannot yet be violated.
 Deferred-import discipline (§1q): every `conformance.*` symbol is imported
 inside the test body, never at module level, so collection does not break.
 
-The AC-C5 fixture documents use a small inline DSL (LEVEL/REDUCTION/
-NON-UNIFORMITY/EXCLUDES/SEAM/ATTRIBUTE-PATH/BINDING-TIME/NORMALISATION line
-markers) invented for this test file to give the lint something concrete to
-parse; it is not part of the spec's prose and GREEN is free to choose any
-parser that recognises it.
+v2: module paths and exported names are now pinned by spec §1.5, and the
+AC-C5 fixture-document grammar (LEVEL/NON-UNIFORMITY/EXCLUDES/SEAM/
+ATTRIBUTE-PATH/BINDING-TIME/NORMALISATION) by §1.6 — this file asserts
+against those names/grammar rather than inventing its own. `Finding`'s
+attribute names (`kind`, `subject`) and the three `kind` string values
+(`missing_non_uniformity_row`, `missing_reductions`, `seam_not_pinned`) are
+not pinned by the spec beyond "identifies its kind and subject" (§1.5); this
+file's choices for them are noted to the team lead as a possible further
+pinning gap, not asserted as spec text.
 """
 from __future__ import annotations
 
@@ -41,13 +45,23 @@ class TestConformancePackageImport:
         importlib.metadata, spawning a subprocess to discover a git root, or
         scanning a directory to build a registry).
 
+        `[G22:3]`: forcing on `import conformance` alone is vacuous — a
+        directory with no `__init__.py` is a namespace package, so the bare
+        top-level import already succeeds today without touching any real
+        code. This test instead imports the real submodules pinned by §1.5
+        (`conformance.report`, `conformance.tokens`, `conformance.quant_lint`),
+        which do not exist yet and raise `ModuleNotFoundError` today, and
+        additionally asserts `conformance.__file__ is not None` — §1.5 pins
+        `conformance/__init__.py`, so a namespace package is not the artifact
+        this lot ships, independent of any RED-forcing concern.
+
         Record-and-delegate, not raise-and-sabotage: each seam is wrapped to
         record the call and then delegate to the real implementation, so
         pytest's own machinery (which also calls open/read_text/run) keeps
         working even if the import trips a seam. The assertion is on the
         recorded evidence, not on whether the interpreter survived. The
         patches are scoped to a `monkeypatch.context()` covering only the
-        `sys.modules` purge and the import statement, so they are undone
+        `sys.modules` purge and the import statements, so they are undone
         before this test's own teardown or any later test runs — no global
         state survives this test either way.
         """
@@ -81,7 +95,14 @@ class TestConformancePackageImport:
                     del sys.modules[name]
 
             import conformance  # noqa: F401
+            import conformance.quant_lint  # noqa: F401
+            import conformance.report  # noqa: F401
+            import conformance.tokens  # noqa: F401
 
+        assert conformance.__file__ is not None, (
+            "conformance resolved as a namespace package (no __init__.py) — "
+            "§1.5 pins conformance/__init__.py as a real module"
+        )
         assert calls == [], (
             "conformance import touched a recorded I/O seam: "
             + ", ".join(f"{seam}(args={args!r})" for seam, args, _kwargs in calls)
@@ -168,11 +189,14 @@ class TestNoNewDependency:
         package) to support the conformance package or its lint. Asserted
         against pyproject.toml's *declared* dependency lists — not an import
         scan, which cannot tell stdlib from vendored (per the spec's
-        explicit rejection of that mechanism). `import conformance` forces
-        RED today (ModuleNotFoundError); after GREEN, conformance must exist
-        AND the declared dependency set must be unchanged from this baseline.
+        explicit rejection of that mechanism). `[G22:3]`: a bare
+        `import conformance` is vacuous (namespace package, already
+        resolves) — this imports the real `conformance.quant_lint`
+        submodule instead, which forces `ModuleNotFoundError` today; after
+        GREEN, that submodule must exist AND the declared dependency set
+        must be unchanged from this baseline.
         """
-        import conformance  # noqa: F401 — forces failure today
+        import conformance.quant_lint  # noqa: F401 — forces failure today
 
         pyproject_path = _ENGINE_ROOT / "pyproject.toml"
         text = pyproject_path.read_text()
@@ -203,152 +227,160 @@ class TestNoNewDependency:
 # AC-C5 — quantifier-completeness lint (three independent checks)
 # ─────────────────────────────────────────────────────────────────────────
 
+# §1.6 fixture-document grammar, verbatim: LEVEL / NON-UNIFORMITY / EXCLUDES /
+# SEAM / ATTRIBUTE-PATH / BINDING-TIME / NORMALISATION, recognised at line
+# start, case-insensitive. This is the lint's input format, not this lot's
+# own spec-document format (§1.6) — these fixtures are never run over
+# CONTRACTS_SPEC.md itself.
+
 _MISSING_ROW_SPEC = """\
 # Fixture Spec — missing non-uniformity rows, both directions
 
-## Quantified Requirements
-- LEVEL: phases (container)
-  REDUCTION: implementation-choice
+LEVEL: phases
 
-- LEVEL: step_events (element)
-  REDUCTION: implementation-choice
+LEVEL: step_events
 
-## Seams
-- SEAM: Path.read_text
-  ATTRIBUTE-PATH: pathlib.Path.read_text
-  BINDING-TIME: call-time
-  NORMALISATION: none
+SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
 """
 
 _ROW_NO_REDUCTIONS_SPEC = """\
 # Fixture Spec — row present, reductions not enumerated
 
-## Quantified Requirements
-- LEVEL: phases (container)
-  REDUCTION: implementation-choice
-  NON-UNIFORMITY: fixture set has >=2 members, one violating, plus control
+LEVEL: phases
+NON-UNIFORMITY: phases — fixture set has >=2 members, one violating, plus control
 
-## Seams
-- SEAM: Path.read_text
-  ATTRIBUTE-PATH: pathlib.Path.read_text
-  BINDING-TIME: call-time
-  NORMALISATION: none
+SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
 """
 
 _SEAM_NOT_PINNED_SPEC = """\
 # Fixture Spec — seam named, interception property not pinned
 
-## Quantified Requirements
-- LEVEL: phases (container)
-  REDUCTION: implementation-choice
-  NON-UNIFORMITY: fixture set has >=2 members, one violating, plus control
-  EXCLUDES: any, all, first, last
+LEVEL: phases
+NON-UNIFORMITY: phases — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
 
-## Seams
-- SEAM: Path.read_text
+SEAM: Path.read_text
 """
 
 _CONFORMANT_SPEC = """\
 # Fixture Spec — fully conformant control
 
-## Quantified Requirements
-- LEVEL: phases (container)
-  REDUCTION: implementation-choice
-  NON-UNIFORMITY: fixture set has >=2 members, one violating, plus control
-  EXCLUDES: any, all, first, last
+LEVEL: phases
+NON-UNIFORMITY: phases — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
 
-- LEVEL: step_events (element)
-  REDUCTION: implementation-choice
-  NON-UNIFORMITY: fixture set is non-uniform in both orderings
-  EXCLUDES: any, first, last
+LEVEL: step_events
+NON-UNIFORMITY: step_events — fixture set is non-uniform in both orderings
+EXCLUDES: any, first, last
 
-## Seams
-- SEAM: Path.read_text
-  ATTRIBUTE-PATH: pathlib.Path.read_text
-  BINDING-TIME: call-time
-  NORMALISATION: none
+SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
+# Free-form prose with none of the §1.6 markers at all — exercises the
+# spec's explicit "MUST NOT raise" contract point (§1.5) rather than the
+# three checks, which the other fixtures already exercise.
+_MALFORMED_SPEC = """\
+This is not a spec-fixture document at all. It is free-form prose with no
+LEVEL, NON-UNIFORMITY, EXCLUDES or SEAM markers anywhere in it, and a stray
+mention of "excludes" and "level" in ordinary sentences, which are not
+markers because they are not at line start in the pinned form.
 """
 
 
 class TestQuantifierCompletenessLint:
-    def test_ac_c5_flags_missing_non_uniformity_row_both_directions(self, tmp_path):
+    def test_ac_c5_flags_missing_non_uniformity_row_both_directions(self):
         """AC-C5(1). Kills a lint that only walks collection levels in one
         direction — e.g. containers only, the exact shape of bd#7's rounds
         4-8, which climbed the ladder upward and missed the element-kind
-        rung round 9 found below it. Both `phases` (container) and
-        `step_events` (element) are missing a non-uniformity row entirely
-        and must both be flagged independently.
+        rung round 9 found below it. Both `phases` and `step_events` are
+        missing a non-uniformity row entirely and must both be flagged
+        independently — kills a lint that reports only one of the two.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
-        spec_path = tmp_path / "spec.md"
-        spec_path.write_text(_MISSING_ROW_SPEC)
-        violations = lint_quantifier_completeness(spec_path)
+        findings = lint_quantifier_completeness(_MISSING_ROW_SPEC)
 
         assert any(
-            v.startswith("phases:") and "no non-uniformity row" in v
-            for v in violations
+            f.kind == "missing_non_uniformity_row" and f.subject == "phases"
+            for f in findings
         )
         assert any(
-            v.startswith("step_events:") and "no non-uniformity row" in v
-            for v in violations
+            f.kind == "missing_non_uniformity_row" and f.subject == "step_events"
+            for f in findings
         )
 
-    def test_ac_c5_flags_row_not_enumerating_reductions(self, tmp_path):
-        """AC-C5(2). Kills a lint that accepts a bare "non-uniform, >=2
-        members" row without naming which of any/all/first/last the
-        fixtures exclude — the exact gap L1's [G18:1] found: a fixture
-        non-uniform in one ordering excluded `any` and `first` but left
-        `last` alive, and the wrong implementation passed all 38 tests.
-        Also confirms check (1) does not spuriously fire here, since a row
-        is present — a lint conflating "row present" with "row complete"
-        would fail this orthogonality assertion.
+    def test_ac_c5_flags_row_not_enumerating_reductions(self):
+        """AC-C5(2). Kills a lint that accepts a NON-UNIFORMITY row with no
+        EXCLUDES line at all — the part `[G18:1]` requires and a level-only
+        enumeration misses: a fixture non-uniform in one ordering excluded
+        `any` and `first` but left `last` alive, and the wrong implementation
+        passed all 38 tests. Also confirms check (1) does not spuriously
+        fire here, since a NON-UNIFORMITY row is present — a lint conflating
+        "row present" with "row complete" would fail this second assertion.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
-        spec_path = tmp_path / "spec.md"
-        spec_path.write_text(_ROW_NO_REDUCTIONS_SPEC)
-        violations = lint_quantifier_completeness(spec_path)
+        findings = lint_quantifier_completeness(_ROW_NO_REDUCTIONS_SPEC)
 
         assert any(
-            v.startswith("phases:") and "does not enumerate" in v
-            for v in violations
+            f.kind == "missing_reductions" and f.subject == "phases"
+            for f in findings
         )
-        assert not any("no non-uniformity row" in v for v in violations)
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
 
-    def test_ac_c5_flags_seam_not_pinning_interception_property(self, tmp_path):
-        """AC-C5(3). Kills a lint that accepts a bare seam name (mechanism
-        only) without the attribute path, call-time-resolution statement,
-        and normalisation note — the exact shape that bit three consecutive
-        lots (`mkdtemp`, `Path.read_text`, `importlib.metadata.version`),
-        each with the correct seam named but an unpinned property.
+    def test_ac_c5_flags_seam_not_pinning_interception_property(self):
+        """AC-C5(3). Kills a lint that accepts a bare SEAM declaration
+        (mechanism only) without ATTRIBUTE-PATH, BINDING-TIME and
+        NORMALISATION — the exact shape that bit three consecutive lots
+        (`mkdtemp`, `Path.read_text`, `importlib.metadata.version`), each
+        with the correct seam correctly named but an unpinned property.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
-        spec_path = tmp_path / "spec.md"
-        spec_path.write_text(_SEAM_NOT_PINNED_SPEC)
-        violations = lint_quantifier_completeness(spec_path)
+        findings = lint_quantifier_completeness(_SEAM_NOT_PINNED_SPEC)
 
         assert any(
-            v.startswith("Path.read_text:") and "does not pin interception property" in v
-            for v in violations
+            f.kind == "seam_not_pinned" and f.subject == "Path.read_text"
+            for f in findings
         )
 
-    def test_ac_c5_conformant_control_passes(self, tmp_path):
-        """AC-C5 control. A spec documenting every level's non-uniformity
-        row (both directions) with enumerated reductions, and a seam with
-        its full interception property, must produce zero violations. Kills
-        a lint that over-fires on well-formed input (e.g. a keyword sweep
-        that mis-scores conformant documents, the failure mode the spec's
-        §3 scope-limit note calls out from bd#7's own history).
+    def test_ac_c5_conformant_control_passes(self):
+        """AC-C5 control. A document with every level's non-uniformity row
+        (both directions) fully enumerating reductions, and a seam with its
+        full interception property, must produce zero findings. Kills a
+        lint that over-fires on well-formed input (e.g. a keyword sweep that
+        mis-scores conformant documents — the failure mode §3's scope-limit
+        note calls out from bd#7's own history: 11 of 13 ACs mis-scored).
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
-        spec_path = tmp_path / "spec.md"
-        spec_path.write_text(_CONFORMANT_SPEC)
-        violations = lint_quantifier_completeness(spec_path)
+        findings = lint_quantifier_completeness(_CONFORMANT_SPEC)
 
-        assert violations == []
+        assert findings == []
+
+    def test_ac_c5_does_not_raise_on_malformed_document(self):
+        """§1.5's explicit contract point: `lint_quantifier_completeness`
+        MUST NOT raise on a non-conformant (here: entirely unstructured)
+        document — raising would make "conformant" and "malformed"
+        indistinguishable to the build step consuming the lint's output.
+        Kills an implementation that raises KeyError/IndexError/ValueError
+        parsing a document with none of the §1.6 markers instead of
+        returning a (here, empty) findings list.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_MALFORMED_SPEC)
+
+        assert findings == []
 
 
 # ─────────────────────────────────────────────────────────────────────────
