@@ -32,6 +32,7 @@ import json
 import re
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import yaml
@@ -114,7 +115,9 @@ def _module_level_definition_sites(name: str) -> list[str]:
     hits = []
     for path in _bounded_repo_python_files():
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(path.read_text(encoding="utf-8"))
         except (SyntaxError, UnicodeDecodeError):
             continue
         for node in tree.body:

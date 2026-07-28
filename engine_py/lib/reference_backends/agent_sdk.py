@@ -49,7 +49,7 @@ from .pydantic_openai import _extract_usage_tokens
 from .pydantic_openai import _is_git_repo, _manifest_since, _snapshot_pre_state
 
 _PIP_EXTRA_HINT = (
-    "claude_agent_sdk is not installed. Install it via: pip install claude-agent-sdk"
+    "claude_agent_sdk is not installed. Install it via: python3 -m pip install claude-agent-sdk"
 )
 
 # ---------------------------------------------------------------------------

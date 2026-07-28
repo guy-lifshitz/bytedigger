@@ -190,7 +190,7 @@ def _assert_pickle_clean(context_dict: dict[str, Any]) -> None:
 try:
     from dbos import DBOS, SetWorkflowID  # noqa: E402
     _DBOS_IMPORT_ERROR: Exception | None = None
-except ImportError as _e:  # dbos is an optional extra (pip install <pkg>[dbos])
+except ImportError as _e:  # dbos is an optional extra, not a hard dependency
     DBOS = None  # type: ignore[assignment]
     SetWorkflowID = None  # type: ignore[assignment]
     _DBOS_IMPORT_ERROR = _e
@@ -419,8 +419,8 @@ def execute_durable_workflow(
     if DBOS is None:
         raise E_DBOS_SCHEMA_INIT_FAILED(
             f"durable backend 'dbos' selected but the dbos package is not installed: "
-            f"{_DBOS_IMPORT_ERROR}. Suggested: pip install with the [dbos] extra, "
-            f"or unset HAL_ENGINE_DURABLE_BACKEND."
+            f"{_DBOS_IMPORT_ERROR}. Suggested: install the dbos package, or unset "
+            f"HAL_ENGINE_DURABLE_BACKEND."
         )
     _evict_orphan_pending(workflow_uuid)  # GH748 (B): clear mid-kill orphan
     _maybe_evict_on_retry(workflow_uuid)  # GH299: evict on any failed-terminal error_code

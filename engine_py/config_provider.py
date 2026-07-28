@@ -183,7 +183,7 @@ def default_security_asset(name: str, legacy_default: Path) -> Path:
     The upstream build tree keeps security assets OUTSIDE the package
     (build_dir/security/, build_dir/security-lint.py) and phase code derives
     those paths via Path(__file__).parents[2]. That nesting exists only in the
-    upstream checkout — from a pip install parents[2] lands in site-packages'
+    upstream checkout — from a pip-installed tree parents[2] lands in site-packages'
     parent and resolves nothing. Order: legacy path first (upstream layout
     keeps winning byte-for-byte), else the packaged copy that ships alongside
     this module (engine_py/security/ in a checkout, security/ in

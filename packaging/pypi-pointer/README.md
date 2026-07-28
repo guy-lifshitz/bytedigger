@@ -4,7 +4,8 @@ Pointer package for [ByteDigger](https://github.com/guy-lifshitz/bytedigger) —
 agentic TDD engine. Installing this installs `bytedigger-engine`, which holds the code.
 
 ```bash
-pip install bytedigger
+pipx install bytedigger
+python3 -m pip install bytedigger
 ```
 
 The two names version together: `bytedigger X.Y.Z` always requires `bytedigger-engine==X.Y.Z`.

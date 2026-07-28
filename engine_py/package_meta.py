@@ -23,8 +23,8 @@ EXTRA_SECURITY = "security"
 def install_hint(extra: str | None = None) -> str:
     """Render the canonical pip command for this distribution.
 
-    `install_hint("security")` -> 'pip install "bytedigger-engine[security]"'
-    `install_hint()`           -> 'pip install "bytedigger-engine"'
+    `install_hint("security")` -> 'python3 -m pip install "bytedigger-engine[security]"'
+    `install_hint()`           -> 'python3 -m pip install "bytedigger-engine"'
     """
     target = f"{PACKAGE_DIST_NAME}[{extra}]" if extra else PACKAGE_DIST_NAME
-    return f'pip install "{target}"'
+    return f'python3 -m pip install "{target}"'

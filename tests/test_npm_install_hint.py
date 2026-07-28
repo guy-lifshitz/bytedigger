@@ -38,6 +38,17 @@ from pathlib import Path
 
 import yaml
 
+from scripts.install_forms import (
+    ALLOWED_INSTALLER_FORMS,
+    DENIED_INSTALLER_FORMS,
+    extract_package_name as _extract_package_name,
+    fenced_code_text as _fenced_code_text,
+    find_install_commands,
+    installer_form_is_allowed as _installer_form_is_allowed,
+    is_package_name_target as _is_package_name_target,
+    is_vcs_or_url_target as _is_vcs_or_url_target,
+)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WRAPPER = REPO_ROOT / "npm" / "bin" / "bytedigger.js"
 README = REPO_ROOT / "npm" / "README.md"
@@ -48,97 +59,6 @@ CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 # location), not resolution of anything under test, so it cannot make
 # collection fail; absence is asserted inside the test body (spec §2.5).
 NODE = shutil.which("node")
-
-# ---------------------------------------------------------------------------
-# §2.1 grammar (v3, MAJOR-2 fix) -- the ONE named helper every AC in this
-# file goes through (§1aa). `exe` is one to three tokens, lazily: `pip
-# install X` -> exe="pip"; `uv pip install X` -> exe="uv pip". The anchor at
-# line-start is what separates a command from prose ("...prints the pip
-# install instructions..." is never matched: more than three tokens precede
-# "install"). Measured on the current, unpatched content of the scope files
-# (v3 re-measurement per §4.0): the executed wrapper's stderr yields 1 hit,
-# npm/README.md yields 2 hits (`pip install git+...`, `pip install -e .`),
-# and NEITHER npm/README.md:9 ("...the editable install below needs pip
-# 21.3+...") NOR :27 ("...prints the pip install instructions...") is
-# matched -- both have far more than 3 tokens before "install". No false
-# positive was found on any prose line in the scope files.
-# ---------------------------------------------------------------------------
-_INSTALL_LINE_RE = re.compile(r"^(?P<exe>\S+(?:\s+\S+){0,2}?)\s+install\b")
-
-
-def find_install_commands(text: str) -> list[dict]:
-    """Lines of `text` that count as an "install command" under spec §2.1
-    (v3): after stripping leading whitespace, a `$ ` shell-prompt marker,
-    and a list-item marker (`- ` / `* `), what remains matches
-    ^(exe: 1-3 tokens, lazy)\\s+install\\b. Returns one dict per hit with
-    `exe` (the installer form), `target` (whatever follows `install`,
-    trimmed), and `line` (the stripped/marker-free line)."""
-    out = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        for _ in range(2):
-            line = re.sub(r"^\$\s+", "", line)
-            line = re.sub(r"^[-*]\s+", "", line)
-            line = re.sub(r"^\d+\.\s+", "", line)  # numbered-list marker (A8 of the gate)
-        m = _INSTALL_LINE_RE.match(line)
-        if not m:
-            continue
-        exe = m.group("exe")
-        target = line[m.end():].strip()
-        out.append({"exe": exe, "target": target, "line": line})
-    return out
-
-
-# §2.2 closed dictionary (v3) -- pinned in both directions (§1n). `uv` alone
-# is a v1 false-accept: `uv install X` is not a real command (`uv pip
-# install` / `uv tool install` / `uv add` are).
-ALLOWED_INSTALLER_FORMS = frozenset({"pipx", "uv pip", "uv tool", "python3 -m pip", "python -m pip"})
-DENIED_INSTALLER_FORMS = frozenset({"pip", "pip3", "uv"})
-
-
-def _installer_form_is_allowed(exe: str) -> bool:
-    """P1's single named predicate (§1aa) -- used by AC2, AC3 and AC7 alike;
-    no inline `exe in ALLOWED_INSTALLER_FORMS` duplicates anywhere else in
-    this file, so a future swap to `exe in DENIED_INSTALLER_FORMS` (which
-    would look almost identical but flip the decision rule) cannot hide in
-    one call site while the others still read correctly."""
-    return exe in ALLOWED_INSTALLER_FORMS
-
-
-# §2.4 P3 -- a command's target must not be a VCS/URL.
-_VCS_URL_RE = re.compile(r"git\+|https?://|\.git\b")
-
-
-def _is_vcs_or_url_target(target: str) -> bool:
-    return bool(_VCS_URL_RE.search(target))
-
-
-def _is_package_name_target(target: str) -> bool:
-    """P2 applies only to commands whose target is a bare package NAME, not
-    a path (`-e .`, `.`) or a VCS/URL (spec §2.3 opening clause)."""
-    if not target:
-        return False
-    if _is_vcs_or_url_target(target):
-        return False
-    if target.startswith("-") or target.startswith("."):
-        return False
-    return True
-
-
-def _extract_package_name(target: str) -> str:
-    """The bare package NAME out of a package-name target (spec §2.3,
-    MINOR-5): first token, quotes stripped, `[extras]` dropped, and any
-    version specifier (`==`, `>=`, `~=`, `!=`, `@`) truncated. Comparing the
-    whole tail of the line (v1) pinned STATE -- `pipx install
-    "bytedigger-engine"`, `... bytedigger-engine==0.1.2`, `...
-    bytedigger-engine --python python3.11` are all still correct and must
-    compare equal to the bare name."""
-    first = target.split()[0] if target.split() else ""
-    first = first.strip("'\"")
-    first = re.sub(r"\[[^\]]*\]", "", first)
-    first = re.split(r"==|>=|<=|~=|!=|@", first)[0]
-    return first
-
 
 def _engine_probe_name() -> str:
     """The engine package name the wrapper actually SPAWNS, read out of
@@ -185,20 +105,6 @@ def _engine_probe_name() -> str:
         f"{WRAPPER}, found {sorted(set(qualifying))!r}"
     )
     return qualifying[0]
-
-
-_FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.S)
-
-
-def _fenced_code_text(markdown_text: str) -> str:
-    """Concatenated content of every fenced code block (``` ... ```) in a
-    markdown document (spec §2.5-bis, E1 of the re-gate). On the markdown
-    carrier, install commands are recognised ONLY inside fences -- prose
-    outside a fence is excluded structurally by the carrier's own
-    definition, not by a token-count heuristic that a short, correct
-    §2.7 line like `Prints the pipx install instructions.` could still
-    trip."""
-    return "\n".join(m.group(1) for m in _FENCE_RE.finditer(markdown_text))
 
 
 def _parse_project_name(text: str) -> str | None:
