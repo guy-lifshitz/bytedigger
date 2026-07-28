@@ -9,7 +9,7 @@ chokepoint: >
   R3.3 and R3.6 adjudicate the adapter's return there. An emission or check placed inside one
   backend is out of contract: it leaves every other adapter unmeasured, which is the 1-of-9
   gradient the parent document exists to reverse.
-status: FROZEN v5
+status: FROZEN v6
 base: origin/main @ dc6f0d0
 ---
 
@@ -61,6 +61,24 @@ base: origin/main @ dc6f0d0
 > Recorded as measurement, not consolation: four of the author's five self-declared v4 risks did
 > **not** reproduce under execution, both cuts were clean, and every fixture precondition was live —
 > each test fails on its measuring assertion, not on a precondition. The RED was not rewritten.
+>
+> **v6 (post-gate round 3, REJECTED — 1 blocking).** `[bd10:27]` BLOCKING-1 is the **mirror** of
+> round 2's: nothing asserted that a dispatch which never happened leaves no attestation, so a GREEN
+> emitting before dispatch passed all 26 ACs while writing an authorship record for an invocation
+> that did not occur. A false record is worse than a missing one — the first reads as a fact and
+> ends enquiry, the second reads as a gap and invites it. Closed on AC-I3's and AC-I7's existing
+> fixtures; **26 ACs stays 26**.
+> Also closed, both non-blocking but both about not letting a measurement depend on a default:
+> **M-2**, `"injections" not in invoke_kwargs()` is now an **assertion, not a comment** — a returning
+> default would silently kill three measuring assertions behind a `TypeError`, and a dead assertion
+> is indistinguishable from a real RED by exit code, which is the path that cost rounds 1 and 2;
+> **M-1**, the attestation count is pinned on AC-M2's and AC-C3's positive controls, where a reused
+> log let a double emit pass.
+> Recorded, because it is the dispatcher's ruling and not the author's: the gate's five §5 items are
+> a **refusal**, not a gap in the work — full corpus, mutation battery against a non-existent GREEN,
+> the 13 `ModuleNotFoundError` items, the passability of the other 22 ACs and the live tmux/remote
+> path are **not establishable before GREEN**. Naming them instead of returning an empty set is the
+> correct behaviour, and it does not transfer to the author.
 
 # Lot spec — bd#10: BD-L3, attested authorship and inputs (R3.1–R3.6; ADV-7, ADV-8, ADV-10)
 
@@ -379,6 +397,22 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
 
 
 ## 4. R3.2 and ADV-8 — attributed injection
+
+`[bd10:27]` **(gate round 3, BLOCKING-1) An attestation is emitted IF AND ONLY IF a dispatch
+occurred.** `[bd10:24]` fixed one direction — a dispatch the chokepoint failed is still attested.
+This is its mirror, and it was open: **nothing asserted that a dispatch which never happened leaves
+no attestation.** A GREEN emitting before dispatching passes all 26 ACs and writes an authorship
+record for an invocation that never occurred.
+
+For a layer whose subject is *attested authorship* that is the worse of the two failures. A missing
+record reads as a gap and invites investigation; a false record reads as a fact and ends it. And it
+is the same §0.1 obligation the lot has now met twice by halves: a pair of directions on one
+surface is one measurement, not two, and asserting either alone leaves the other free.
+
+Normative: the emit happens **after** the dispatch returns, never before it. Where the chokepoint
+refuses to dispatch at all — an unattributed block (AC-I3) or a declared block absent from the
+prompt (AC-I7) — the log carries **zero** `model_invocation_attested` events for that call.
+Asserted on AC-I3's and AC-I7's existing fixtures, beside their `len(adapter.calls) == 0`.
 
 `[bd10:16]` **(gate BLOCKING-5) ATTRIBUTION IS SEPARATED FROM ASSEMBLY, because v3 could not
 migrate a real site without mutating it.** Found by the author while measuring AC-I5's blast radius

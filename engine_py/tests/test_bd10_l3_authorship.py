@@ -43,8 +43,10 @@ SEAM PINS (§0.2 of CONTRACTS_SPEC).
     raiser is `_TargetedRaisingEventLog`, which raises for exactly ONE event
     type and records-and-delegates everything else (AC-P6, [G18:EDGE-5]).
 
-PRE-PASSING, DECLARED (§0.6).  Three half-assertions pass today; every other
-assertion in this file fails pre-GREEN, and no TEST passes today in full:
+PRE-PASSING, DECLARED (§0.6).  Four half-assertions pass today; every other
+assertion in this file fails pre-GREEN (or is unreachable pre-GREEN behind the
+`injections=` TypeError, which is itself a failure), and no TEST passes today in
+full:
   * AC-I4 and AC-C5's `error_codes.main(["--check"]) == 0` half — the existing
     drift gate is already clean on this tree (tests/test_gh1067_ignored_dir_
     exclusion.py:120 is its enforcement).  It is a shield: it pins that this
@@ -56,6 +58,13 @@ assertion in this file fails pre-GREEN, and no TEST passes today in full:
     template through `assemble`, which is the exact wrong implementation
     `[bd10:16]` was written to stop.  The test as a whole still fails today, on
     the attestation half that ties those bytes to the emitted digest.
+  * The `"injections" not in invoke_kwargs()` guard in AC-M2, AC-M5 and AC-C3's
+    chokepoint test.  It is a GATE, not a measurement: those three ACs
+    deliberately pass NO `injections` override, because doing so would raise
+    TypeError pre-GREEN before their attestation / `chokepoint` assertions ran —
+    a dead assertion, indistinguishable from a real RED by exit code.  A comment
+    cannot enforce that; this assertion can, and it fires the moment anyone adds
+    the key to the shared helper's base dict.
 
 ALIGNED TO SPEC v4 (FROZEN, 26 ACs).  Two cuts left the lot entirely and this
 file follows them exactly:
@@ -1014,6 +1023,19 @@ def test_ac_i3_unattributed_block_blocks_dispatch(bad_source_id, position) -> No
         f"AC-I3 ({position}, {bad_source_id!r}): NO dispatch may occur; the adapter "
         f"recorded {len(adapter.calls)} call(s)"
     )
+    # The MIRROR of the "dispatch happened → attested" clause (AC-M2, AC-C3).
+    # Those close one direction; this closes the other: a dispatch that did NOT
+    # happen must leave NO attestation.  Kills a GREEN that emits the
+    # attestation BEFORE dispatching — it satisfies every assertion above while
+    # the log records an invocation that never occurred.  For a layer whose
+    # subject is attested authorship a FALSE record is worse than a missing one:
+    # a missing record reads as a gap, a false one reads as a fact.
+    assert len(log.attests()) == 0, (
+        f"AC-I3 ({position}, {bad_source_id!r}): a call that never dispatched must "
+        f"leave NO {EVENT_TYPE!r} event — a GREEN emitting the attestation before "
+        f"the dispatch writes an authorship record for an invocation that never "
+        f"happened; got {len(log.attests())} (all events: {log.types()!r})"
+    )
 
     # Positive control on the SAME three blocks with the offender attributed.
     control_result = llm_subprocess.invoke_llm_subprocess(
@@ -1352,6 +1374,20 @@ def test_ac_i7_declared_block_absent_from_prompt_is_unattributed() -> None:
         f"AC-I7: NO dispatch may occur — an unverifiable declaration must fail "
         f"CLOSED; the adapter recorded {len(adapter.calls)} call(s)"
     )
+    # The MIRROR of the "dispatch happened → attested" clause (AC-M2, AC-C3),
+    # and doubly load-bearing here: the block whose bytes are NOT in the prompt
+    # is exactly the one that must never acquire a {source_id, sha256} record.
+    # Kills a GREEN that emits the attestation BEFORE dispatching — the log
+    # would carry an attributed record for an invocation that never occurred,
+    # which is worse than a missing one: a gap reads as a gap, a false record
+    # reads as a fact.
+    assert len(log.attests()) == 0, (
+        f"AC-I7: a call that failed CLOSED before dispatch must leave NO "
+        f"{EVENT_TYPE!r} event — a GREEN emitting the attestation before the "
+        f"dispatch records an unverifiable declaration as an authorship fact about "
+        f"an invocation that never happened; got {len(log.attests())} (all events: "
+        f"{log.types()!r})"
+    )
 
     # Positive control on the SAME fixture: identical block, text present.
     control = llm_subprocess.invoke_llm_subprocess(
@@ -1510,6 +1546,17 @@ def test_ac_m2_family_mismatch_errors_and_family_match_is_ok() -> None:
     dispatches today, so this assertion fails pre-GREEN on exactly the property
     it measures: the dispatch happens, no attestation is emitted.
     """
+    # THE RETURNING-DEFAULT GUARD, AS AN ASSERTION — a comment is not a gate.
+    # This AC's whole measurement rests on `invoke_kwargs()` NOT carrying
+    # `injections`: if it ever did, the call below would raise TypeError
+    # pre-GREEN before the attestation assertion ran, and a dead assertion is
+    # indistinguishable from a real RED by exit code.
+    assert "injections" not in invoke_kwargs(), (
+        f"AC-M2 guard: invoke_kwargs() must not carry 'injections' in its base "
+        f"dict — with it, this test dies on TypeError pre-GREEN and its "
+        f"attestation assertion never runs; got keys {sorted(invoke_kwargs())!r}"
+    )
+
     drifting = _RecordingAdapter(
         "m2-drift", data={"observed_model": "claude-haiku-4-5-20251001"}
     )
@@ -1561,6 +1608,16 @@ def test_ac_m2_family_mismatch_errors_and_family_match_is_ok() -> None:
     assert control.status == "ok" and control.error_code is None, (
         f"AC-M2 positive control: a same-family report must be ok; got "
         f"status={control.status!r} error_code={control.error_code!r}"
+    )
+    # The count is PINNED, not lower-bounded: `log` is reused across both
+    # dispatches, so the running total must be exactly two.  A GREEN emitting
+    # twice per dispatch satisfies `>= 1` everywhere and would ship a log in
+    # which every invocation is double-counted.
+    assert len(log.attests()) == 2, (
+        f"AC-M2 positive control: the two dispatches on this shared log must have "
+        f"produced exactly two {EVENT_TYPE!r} events — one each.  A GREEN emitting "
+        f"twice per dispatch double-counts every invocation; got "
+        f"{len(log.attests())} (all events: {log.types()!r})"
     )
 
 
@@ -1730,6 +1787,17 @@ def test_ac_m5_mismatch_event_still_emitted_and_step_errors() -> None:
     the chokepoint path at all on this base, so the existence half fails
     pre-GREEN on exactly the property it measures.
     """
+    # THE RETURNING-DEFAULT GUARD, AS AN ASSERTION — a comment is not a gate.
+    # See AC-M2's copy: `invoke_kwargs()` carrying `injections` would make the
+    # `chokepoint` discriminator declared and unmeasured, which is the exact
+    # defect the clause above was added to close.
+    assert "injections" not in invoke_kwargs(), (
+        f"AC-M5 guard: invoke_kwargs() must not carry 'injections' in its base "
+        f"dict — with it, this test dies on TypeError pre-GREEN and the "
+        f"`chokepoint` discriminator is never measured; got keys "
+        f"{sorted(invoke_kwargs())!r}"
+    )
+
     register("bd10-rec", _RecordingAdapter(
         "m5", data={"observed_model": "claude-haiku-4-5-20251001"}
     ))
@@ -1998,6 +2066,16 @@ def test_ac_c3_escape_at_chokepoint_errors_both_orderings(position) -> None:
     dispatches today, so this assertion fails pre-GREEN on exactly the property
     it measures: the dispatch happens, no attestation is emitted.
     """
+    # THE RETURNING-DEFAULT GUARD, AS AN ASSERTION — a comment is not a gate.
+    # See AC-M2's copy: `invoke_kwargs()` carrying `injections` would make the
+    # attestation assertion below die on TypeError pre-GREEN, and a dead
+    # assertion is indistinguishable from a real RED by exit code.
+    assert "injections" not in invoke_kwargs(), (
+        f"AC-C3 ({position}) guard: invoke_kwargs() must not carry 'injections' in "
+        f"its base dict — with it, this test dies on TypeError pre-GREEN and its "
+        f"attestation assertion never runs; got keys {sorted(invoke_kwargs())!r}"
+    )
+
     escaping = ["Task", "Read", "Bash"] if position == "first" else ["Read", "Bash", "Task"]
 
     register("bd10-rec", _RecordingAdapter("c3", data={"observed_tools": escaping}))
@@ -2046,6 +2124,16 @@ def test_ac_c3_escape_at_chokepoint_errors_both_orderings(position) -> None:
     assert control.status == "ok" and control.error_code is None, (
         f"AC-C3 positive control ({position}): ≥2 permitted heads must not error; got "
         f"status={control.status!r} error_code={control.error_code!r}"
+    )
+    # The count is PINNED, not lower-bounded: `log` is reused across both
+    # dispatches, so the running total must be exactly two.  A GREEN emitting
+    # twice per dispatch satisfies `>= 1` everywhere and would ship a log in
+    # which every invocation is double-counted — and bd#28 aggregates FROM that
+    # log, so a duplicated record becomes a duplicated finding downstream.
+    assert len(log.attests()) == 2, (
+        f"AC-C3 positive control ({position}): the two dispatches on this shared log "
+        f"must have produced exactly two {EVENT_TYPE!r} events — one each; got "
+        f"{len(log.attests())} (all events: {log.types()!r})"
     )
 
 
