@@ -1,6 +1,30 @@
 # Lot spec — bd#18: engine conformance emissions (`phase`, `run_identity`, `phase_artifacts`)
 
-**v2.** Narrow lot split from bd#7 by decision recorded in bd#7. Base: `origin/main` @ `a2691f9`.
+**v3.** Narrow lot split from bd#7 by decision recorded in bd#7. Base: `origin/main` @ `a2691f9`.
+
+**Round 2 of this lot's gate: ACCEPTED, 0 blocking** — the first ACCEPTED anywhere in this lot family, after
+nine rejections on bd#7 and one here. It confirmed all three round-1 repairs genuine, the reduction table
+complete in both orderings, both new engine branches (`engine.py:679`, `:575`) reachable and failing for the
+right reason, the two new doubles unable to leak or be defeated, every citation resolving on this base, and —
+the thing that had failed five consecutive times in bd#7 — **no Class B defect introduced by the repairs**.
+
+v3 is **not** a rejection response. It takes the accepted round's non-blocking findings *before* GREEN starts,
+because four of them govern what GREEN must do and it is cheaper to state them than to discover them in
+implementation:
+- `[G18r2:MINOR-1]` v2 contained a **contradiction of its own** — AC-E3's exact key set forbids
+  `written_truncated` when untruncated, while AC-E3d permitted "absent **or falsey**". A GREEN following the
+  latter was false-failed by the former: `[G6:MINOR-2]`'s shape, self-inflicted, one clause apart. Resolved in
+  favour of the key set.
+- `[G18r2:MINOR-5]` The metadata seam named a **path** but not a **binding time**, so a correct GREEN written
+  `from importlib.metadata import version` would be false-failed by five tests. Third instance in this family of
+  the same lesson — `mkdtemp`, then `read_text`'s normalisation, now this — and it generalises: **naming a seam
+  is not enough; the spec must pin whatever property the interception depends on.**
+- **AC-E4..AC-E7 are new**, promoted from the accepted round's edges because each is a requirement on the log
+  that **bd#8..#10 will consume**: `run_id` attribution (an invariant two tests already relied on unstated),
+  emission **before** `workflow_finished` (a consumer stopping at the terminal event would never see the
+  record), the in-flight exception surviving a failing emit in the `finally` (a direct emit there makes the real
+  error *disappear* — worse than a status regression, because it is invisible), and neither event being emitted
+  for a run that never started.
 
 Round 1 of this lot's own gate: **REJECTED (2 blocking)**, both in the fragile family this lot knowingly
 inherited (`written` accumulation and the step quantifier), both verified against the code before acceptance,
@@ -156,12 +180,25 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   `config_provider.env_mapping()` (`:327-328`) — a live `_AliasEnviron`, so `monkeypatch.setenv` on
   `HAL_RUNNER_BACKEND` reaches it.
   And `source` MUST be asserted **by value**, not merely non-empty: it belongs to the closed set
-  `{"kwarg", "env", "default", "default-fallback"}` that resolver returns. v1 specified only non-emptiness, so
+  `{"kwarg", "env", "default", "default-fallback"}` that the module's backend-selection path produces —
+  `[G18r2:MINOR-6]` `_resolve_backend` itself returns only the first three (`llm_subprocess.py:619-630`);
+  `"default-fallback"` is produced at a different site, `llm_subprocess.py:1204`. v2 attributed the whole set to
+  that one resolver, which is the kind of inaccuracy in a normative section this lot has already filed against
+  itself twice. v1 specified only non-emptiness, so
   `source: "x"` satisfied both spec and test — the truthiness-where-a-value-is-specified defect §0.5 bans, which
   v1 avoided for `backend` and then committed for its sibling field one clause later.
 - **AC-E2c** **`engine_version` provenance survives packaging, and has no placeholder.** Resolution order:
   `importlib.metadata.version("bytedigger-engine")` **first** (installed-wheel path), then a read of
   `engine_py/pyproject.toml` `[project].version` (source-checkout path).
+  - `[G18r2:MINOR-5]` **The metadata seam's BINDING TIME is pinned, not just its path.** Resolution MUST reach
+    `importlib.metadata.version` by **attribute lookup at call time**; a module-level
+    `from importlib.metadata import version` is **out of contract**, because it binds at import and no
+    `monkeypatch.setattr(importlib_metadata, "version", …)` can reach it — five tests would false-fail a GREEN
+    that is otherwise correct. This is bd#7's `[G5:seam]` asymmetry for the third time in this lot family:
+    `mkdtemp` (mechanism pinned, binding not), `read_text` (`[G18:MINOR-4]`, mechanism pinned, normalisation
+    not), and now this. **Naming a seam is not enough — the spec must pin whatever property the test's
+    interception depends on**, which for an attribute patch is late lookup, for a path comparison is
+    normalisation, and for a factory is call-time resolution.
   - **Seam pins** (§0.6): the metadata half is patched at `importlib.metadata.version`; the source half MUST go
     through `Path(<engine_py>/pyproject.toml).read_text()`, and a test patching it MUST do so
     **path-conditionally**, delegating for every other path — a blanket patch breaks unrelated engine reads.
@@ -298,12 +335,50 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
     **full sorted** relpath list. Asserted **by equality against a locally recomputed digest** — `"sha256:" +
     "0"*64` and any constant MUST fail (§0.5; bd#7's `[G4:5]`, a hash that cannot detect anything). In the
     elided case the digest is the **only** evidence the omitted paths existed.
-  - `written_truncated` MUST be absent or falsey when no elision occurred, asserted on a small-list run.
+  - `[G18r2:MINOR-1]` `written_truncated` MUST be **absent** when no elision occurred — **not** "absent or
+    falsey", which is what v2 said and which contradicts AC-E3's exact-key-set requirement one clause away. A
+    GREEN implementing v2's letter (`written_truncated: false` always) satisfied the small-list test and was
+    **false-failed** by the key-set test: two of my own clauses demanding different things for one payload, the
+    `[G6:MINOR-2]` shape that trapped bd#7. AC-E3's key set governs; a falsey value is out of contract.
+    And when elision *did* occur, `written_truncated` MUST be `True` **by identity**, not merely truthy —
+    `written_truncated: "yes"` is out of contract (§0.5, per field).
 - **AC-E3e** **`written` entries are POSIX relpaths against the scan root**, asserted with a fixture spanning
   **three distinct depths** in one phase (repo root, one level, two levels) — every existing bd#7 fixture wrote at
   a single depth, so a producer special-casing depth was untested. Exact string equality per depth; absolute
   paths, `./`-prefixed paths and OS-separator spellings MUST all fail. The digest is recomputed over the full
   three-depth sorted list, which is what catches a depth-conditional bug for paths the elided sample omits.
+- **AC-E4** `[G18r2:MINOR-2]` **Both new events carry the emitting `execute()` call's `run_id`.** No AC stated
+  this, yet two tests already depend on it — and the whole `[G18:3]` reset repair rests on being able to tell
+  run 1's `phase_artifacts` from run 2's. A GREEN cannot easily omit it (`_emit(self, event_type, payload,
+  run_id)` at `engine.py:686` takes it as a **required positional**), but "hard to get wrong" is not a
+  requirement, and an unstated invariant that a test silently relies on is the shape this lot family keeps
+  filing. Asserted by value against the `run_id` passed to `execute()`, for both events, on a run whose
+  `run_id` is distinctive. Selection of a payload **by** `run_id` in any test MUST report the observed
+  `run_id`s on failure rather than raising `StopIteration`.
+- **AC-E5** `[G18r2:EDGE-2]` **`phase_artifacts` is emitted BEFORE `workflow_finished`.** AC-E3a pins it to the
+  `try/finally` around `engine.py:271`, which necessarily places it before `workflow_cost_rollup`
+  (`:275-281`) and `workflow_finished` (`:289`) — but nothing asserted the ordering, so a GREEN emitting after
+  the terminal event passed all 41 tests. **bd#8..#10 are the consumers of this log**, and a stream whose
+  terminal event precedes its artifact record is exactly what a consumer assumes away: a reader that stops at
+  `workflow_finished` would never see the record. Asserted by index within the scoped run: the
+  `phase_artifacts` index MUST be less than the `workflow_finished` index. Required on the ok path and on at
+  least one non-ok exit, since the `finally` runs on both.
+- **AC-E6** `[G18r2:EDGE-3]` **A failing emit in the `finally` MUST NOT replace or swallow the in-flight
+  exception.** AC-E3f covers a raising log on a *succeeding* run; AC-E3a covers a raising *step* with a working
+  log. Nothing combined them, so nothing forbade the worst composition: on the crash path, a GREEN that emits
+  **directly** in the `finally` — bypassing `_emit`'s `except` at `engine.py:710` — substitutes its own logging
+  exception for the step's original one, and the real error **disappears**. That is strictly worse than
+  AC-E3f's status regression, because a status regression is visible and a swapped exception is not. Asserted
+  by driving a raising step **with** a log whose `append` raises for `phase_artifacts`, and requiring the
+  **original** exception type and message to propagate (`pytest.raises` matching the step's own error, not the
+  log's).
+- **AC-E7** `[G18r2:EDGE-4]` **Neither new event is emitted for a run that never started.** `execute()` raises
+  `KeyError` at `engine.py:233` for an unregistered workflow, **before** `workflow_started` at `:269`. A GREEN
+  that resolves and emits `run_identity` ahead of the registration check publishes an identity with no
+  `workflow_started` and no `phase_artifacts` — a log shape for which AC-E2's "immediately following that
+  call's `workflow_started`" cannot hold, and which any consumer indexing from `workflow_started` will mis-scope.
+  Asserted: after a `KeyError` from an unregistered name, the log contains **no** `run_identity` and **no**
+  `phase_artifacts`.
 - **AC-E3f** **Emission MUST NOT be able to break execution.** Both new emits go through `_emit`
   (`engine.py:696-711`), whose `except` at `:710` swallows logging failures. Asserted with a log whose `append`
   raises unconditionally: `execute()` MUST still complete with its normal status. A direct
