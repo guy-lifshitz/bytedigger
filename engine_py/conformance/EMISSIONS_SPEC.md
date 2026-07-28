@@ -63,8 +63,14 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
 - **AC-N1** `step_started`/`step_finished` retain every key they carry today, unchanged, alongside the new
   `phase`. Asserted by comparing the full key set of a real run's step events against the pre-change key set,
   not by checking that `phase` is present.
-- **AC-N2** `derive_state.py` consumers are untouched: the existing state-derivation tests pass unchanged. This
-  is the regression surface that matters — the engine's event log is consumed, not just written.
+- **AC-N2** (**pre-passing at RED time — declared**) `derive_state.py` consumers are untouched: the existing
+  state-derivation tests pass unchanged, and a replay over a log carrying the new `phase` key derives the same
+  state. This is the regression surface that matters — the engine's event log is consumed, not just written.
+  **Declared pre-passing because it must be:** it is an *additivity shield*, and a shield over already-correct
+  behaviour necessarily passes before the change. It gains its power at GREEN, where it fails any
+  implementation that alters an existing payload key rather than adding beside it. bd#7's discipline applies —
+  an **undeclared** pre-passing test is a finding, because a reader cannot distinguish a shield from a test
+  that never measured anything; so this is declared here, and it is the **only** pre-passing test in this lot.
 - **AC-N3** No new hard dependency. Version resolution uses `importlib.metadata` (stdlib) and a file read; no
   third-party import is added to the engine's import path.
 
