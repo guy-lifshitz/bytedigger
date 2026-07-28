@@ -1,31 +1,55 @@
 # Lot spec — bd#18: engine conformance emissions (`phase`, `run_identity`, `phase_artifacts`)
 
-**v1.** Narrow lot split from bd#7 by decision recorded in bd#7. Base: `origin/main` @ `63af51b`.
+**v2.** Narrow lot split from bd#7 by decision recorded in bd#7. Base: `origin/main` @ `a2691f9`.
+
+Round 1 of this lot's own gate: **REJECTED (2 blocking)**, both in the fragile family this lot knowingly
+inherited (`written` accumulation and the step quantifier), both verified against the code before acceptance,
+both fixed by a fixture change rather than a spec rewrite — `[G18:1]` (the step quantifier excluded `any` and
+`first` but not `last`, so a last-delta GREEN passed all 38 tests) and `[G18:3]` (the reset test used two
+*different* workflow names, so a phase-keyed accumulator never reset survived). Eight minors and seven edges
+resolved alongside; `[G18:MINOR-1]` is a stale-citation defect of my own making, recorded at its site.
+
+**Correction to v1's own §0 history**, since §0 is normative here and inaccurate history in a normative section
+is the artifact-drift class this lot family has been bitten by repeatedly: bd#7 was rejected **nine** times, not
+eight, and produced **five** Class B defects, not four. v1 said "eight" while its own `AC-E1e` cited a round-9
+finding, and said "four" in the same paragraph as "bd#7's five boundary ACs". v1's §0.5 sentinel list also named
+a 40-hex git-sha placeholder for a field that does not exist in this lot; the sentinel that matters
+here is `"sha256:" + "0"*64`, which AC-E3d names correctly and the RED asserts.
 
 Scope: **three additive engine emissions. No checker, no attestation, no oracle, no freeze.** bd#8..#10 depend
-on exactly these three; every one of bd#7's eight rounds of gate findings lives in the checker and attestation,
+on exactly these three; every one of bd#7's nine rounds of gate findings lives in the checker and attestation,
 which is why this lot exists separately.
 
 ## 0. What this lot inherits from bd#7, and what it refuses to inherit
 
-bd#7 was rejected eight times in two classes, and both lessons are load-bearing here.
+bd#7 was rejected nine times in two classes, and both lessons are load-bearing here.
 
 **Class A — "not measured" published as "passed."** Its sharpest form is `[G6:quant]`, adopted here verbatim as
 **§0.1**: any requirement ranging over a collection **where the reduction is an implementation choice** MUST be
 asserted with a **non-uniform** collection of ≥2 members — at least one satisfying, at least one violating —
 **plus** the all-satisfy positive control. An AC asserted only over a uniform collection is unasserted, whatever
-its prose says. bd#7 found this defect four times, one rung higher each round (step→phase, step→phase union,
-phase→run, then inside its own audit table). The collections in *this* lot are: **steps of a phase**, **frames of
-a phase** (the retry recursion), and **`execute()` calls of an engine instance**. Nothing here ranges over
-phases of a run, runs of a log, or events of a scope — those are checker collections and they left with the
-checker.
+its prose says. bd#7 found this defect **five** times: four climbing *upward* one rung per round (step→phase,
+step→phase union, phase→run, then inside its own audit table), and once — in round 9 — a rung **downward**, the
+two step-event *kinds* asserted only as a merged set. **The ladder has two ends**, and the rule was applied
+monotonically upward for four rounds by an author who had declared the ladder's top with a falsification
+criterion attached. The collections in *this* lot are: **steps of a phase**, **frames of a phase** (the retry
+recursion), **`execute()` calls of an engine instance**, and — downward — the **two step-event kinds** (AC-E1e)
+and the **payload fields** (AC-N1, AC-E3). Nothing here ranges over phases of a run, runs of a log, or events of
+a scope; those are checker collections and they left with the checker.
 
-**Class B — a correct GREEN cannot pass.** bd#7 produced four of these, *each introduced by the fix for the
-previous one*, all four inside two ACs (`AC-L0-3d3`, `AC-E10`) that carried a fresh Class B defect for four
-consecutive rounds. Three concrete prohibitions follow, and they are why this spec is short:
+This lot's own round 1 then supplied a sixth instance, `[G18:1]`: a fixture non-uniform in *one ordering only*,
+which excluded `any` and `first` but not `last`. So the rule needs stating more sharply than "≥2 members, one
+violating": **the fixture set must exclude every reduction the implementation could have chosen**, which for an
+ordered collection means both orderings, not one.
+
+**Class B — a correct GREEN cannot pass.** bd#7 produced **five** of these, *each introduced by the fix for the
+previous one*: four inside two ACs (`AC-L0-3d3`, `AC-E10`), which carried a fresh Class B defect for four
+consecutive rounds, plus a fifth in `AC-L0-3d5` — a predicted byte count asserted at a point where the emitted
+event necessarily differs, introduced by the very AC added to close the fence's missing face. Three concrete
+prohibitions follow, and they are why this spec is short:
 
 - **§0.2 No exact byte-boundary arithmetic.** bd#7's 4096/4097 faces and shadow-envelope interaction produced
-  every one of the four Class B defects: a boundary derived for one identifier pair and reused under identifiers
+  every one of the five Class B defects: a boundary derived for one identifier pair and reused under identifiers
   22 bytes longer (4 bytes of slack, 18 bytes over), and a "unshadowed" control that was silently shadowed. This
   lot pins truncation **behaviourally** instead (**E3d**), by reading the raw serialised line back off disk. That
   formulation carries no predicted number, so the arithmetic cannot drift out from under it — and it is the only
@@ -39,8 +63,11 @@ consecutive rounds. Three concrete prohibitions follow, and they are why this sp
   assertion here must state, in its test's docstring, the wrong implementation it kills.
 
 **§0.5 Three standing prohibitions.** No truthiness where a value is specified — a sentinel (`"unknown"`,
-`"0.0.0"`, `"0+unknown"`, `"0"*40`) MUST fail, not pass a non-empty check. No present/absent where a behaviour is
-specified. Every assertion must distinguish a correct implementation from a plausible wrong one.
+`"0.0.0"`, `"0+unknown"`, `"sha256:" + "0"*64`) MUST fail, not pass a non-empty check. No present/absent where a
+behaviour is specified. Every assertion must distinguish a correct implementation from a plausible wrong one.
+This binds **every** specified value, including ones whose sibling already complies: `adapter_identity.backend`
+was pinned by value in v1 and `source` was not (`[G18:MINOR-3]`), and `read`'s value was left unpinned entirely
+(`[G18:MINOR-8]`) — the prohibition is per field, not per AC.
 
 **§0.6 Mechanism pins are spec-side, not RED-guesswork** (bd#7's `[G5:seam]`). Where a test must intercept a
 seam, this spec names the seam, so the RED pins a stated interface rather than an assumed one and a differently-
@@ -121,12 +148,30 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
 - **AC-E2b** `adapter_identity` MUST be a **mapping with non-empty `backend` and `source`** — not a bare string
   (bd#7 `[G2:8]`: a bare-string fixture pinned a weaker contract than the engine emits). Asserted by shape and by
   value against the configured backend, so a constant fails.
+  `[G18:MINOR-3]` **Seam named (§0.6) and `source` given a specified value.** v1 required assertion "by value
+  against the configured backend" while naming **no** seam, so the RED had to guess one — it guessed right, but
+  §0.6 exists precisely so a RED pins a *stated* interface rather than an assumption. The seam is
+  `llm_subprocess._resolve_backend(kwarg, env)` (`llm_subprocess.py:608-630`), the engine's only backend
+  selector, which returns exactly a `(backend, source)` pair and reads the environment through
+  `config_provider.env_mapping()` (`:327-328`) — a live `_AliasEnviron`, so `monkeypatch.setenv` on
+  `HAL_RUNNER_BACKEND` reaches it.
+  And `source` MUST be asserted **by value**, not merely non-empty: it belongs to the closed set
+  `{"kwarg", "env", "default", "default-fallback"}` that resolver returns. v1 specified only non-emptiness, so
+  `source: "x"` satisfied both spec and test — the truthiness-where-a-value-is-specified defect §0.5 bans, which
+  v1 avoided for `backend` and then committed for its sibling field one clause later.
 - **AC-E2c** **`engine_version` provenance survives packaging, and has no placeholder.** Resolution order:
   `importlib.metadata.version("bytedigger-engine")` **first** (installed-wheel path), then a read of
   `engine_py/pyproject.toml` `[project].version` (source-checkout path).
   - **Seam pins** (§0.6): the metadata half is patched at `importlib.metadata.version`; the source half MUST go
     through `Path(<engine_py>/pyproject.toml).read_text()`, and a test patching it MUST do so
     **path-conditionally**, delegating for every other path — a blanket patch breaks unrelated engine reads.
+    `[G18:MINOR-4]` **The conditional MUST compare RESOLVED paths.** `Path.__eq__` compares normalised strings,
+    not filesystem identity, so a `self == target` gate misses a correct GREEN that spells the file
+    `Path(__file__).resolve().parent / "pyproject.toml"`, and misses it on any host where a parent of `engine_py`
+    is a symlink — the conditional falls through to the real read, the injected version never appears, and a
+    correct GREEN is false-failed. Required: `Path(self).resolve() == target.resolve()`. This is bd#7's
+    `[G5:seam]` asymmetry one layer down: v1 pinned the *mechanism* (`read_text`) and not the *normalisation*,
+    exactly as bd#7 pinned `mkdtemp` and not its binding time.
   - The distribution name MUST come from `package_meta.PACKAGE_DIST_NAME`, **not** a bare literal. Asserted
     against the imported constant, so a rename that updates one and not the other fails. (bd#7 had this
     normative and asserted the literal on both sides, where the assertion could not discriminate.)
@@ -151,6 +196,12 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   `phase`, `written`, `read`, `write_tracking`, `read_tracking`.
   - `read_tracking` is `"declared-only"` — this lot adds **no** read instrumentation, and the label says so
     rather than leaving the absence to be read as "nothing was read."
+  - `[G18:MINOR-8]` **`read` MUST be `[]`, asserted by value.** v1 required the *key* in the exact key set and
+    specified nothing about its value, so a GREEN emitting `read: ["anything"]` satisfied both spec and suite.
+    AC-E3b's anti-overclaim rule — no affirmative claim over a channel that never opened — applies with **more**
+    force here than to `written`, because this channel provably never opened: there is no read instrumentation in
+    this lot at all (§6), which is the very thing `read_tracking: "declared-only"` announces. An unasserted `read`
+    lets us publish a list of files we claim to have read without ever having looked.
   - Asserted by **exact key-set equality** for the untruncated case, so a GREEN always emitting the truncation
     keys fails.
 - **AC-E3a** **Emitted on every exit path**, from the `try/finally` around the step loop (`engine.py:271`) —
@@ -158,6 +209,16 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   `retry_result` from the recursion (`:657`). Required on: ok exit, error exit (`:674`), escalate (`:682`), and a
   **step raising** (crash path, driven with `pytest.raises`). Exactly one per phase on each, including the
   zero-step workflow.
+  `[G18:EDGE-1/2]` **Two further terminal branches, both enumerated because both unwind from INSIDE the
+  recursion** — the place a phase-level accumulator double-counts, and the reason the emit belongs in
+  `execute()`'s `finally` rather than in `_execute_steps`:
+  1. **`start_step` beyond range** ⇒ `RuntimeError` at `engine.py:679`, reachable via a retry whose
+     `retry_from_step` exceeds the last index. `_execute_steps` **raises** rather than returns, so it behaves
+     like the crash path but from inside a recursive frame; "exactly one across two unwinding frames" is the
+     non-obvious half and MUST be asserted.
+  2. **Same-cycle-retry-cap exit** at `engine.py:575`, which returns from within the retry block after
+     `same_cycle_retry_capped`. It is the only exit that leaves mid-retry state.
+  Both MUST yield exactly one `phase_artifacts` for the phase.
 - **AC-E3b** **`write_tracking` never overclaims.** `"git-delta"` requires **≥1 step AND a computed delta for
   every step of the phase**; anything else is `"not-observed"`.
   - Differential: `org_config["git_cwd"]` on a real repo → `"git-delta"`; **absent** → `"not-observed"`
@@ -170,8 +231,28 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
     (`engine.py:1082`), so an `any()`-shaped implementation publishes `"git-delta"` when only *some* step was
     scanned. **Quantified over the steps of a phase**, asserted non-uniformly through the **`lib.git_port`**
     seam (§0.6; `git_port.py:145-157` resolves through `get_git_read()` at call time, so a factory injection
-    reaches `engine.py:1076`/`:1079`): step 1's delta succeeds, step 2's fails ⇒ `"not-observed"`, with the
-    all-succeed run as the positive control.
+    reaches `engine.py:1076`/`:1079`).
+    `[G18:1]` **BOTH orderings are required, and the positive control must span ≥2 steps.** Round 1 asserted
+    only the fail-**late** ordering (step 1 succeeds, step 2 fails) with a **one-step** positive control. That
+    excludes `any()` but **not** `last`: the wrong GREEN
+    `"git-delta" if n_steps >= 1 and last_step_delta is not None else "not-observed"` — one overwritten
+    variable instead of an `all` reduction — passed **all 38 tests**, because in the fail-late fixture the
+    *last* delta is exactly the missing one. §0.1 says the reduction is an implementation choice and only
+    *some* reductions were excluded, so the AC was unasserted for the rest. Required:
+    1. **fail-early**: step 1's delta fails, step 2's succeeds ⇒ `"not-observed"`. This is the ordering that
+       kills `last`, and it is the one that was missing.
+    2. **fail-late**: step 1 succeeds, step 2 fails ⇒ `"not-observed"` (kills `any` and `first`).
+    3. **positive control over ≥2 steps**, all deltas computed ⇒ `"git-delta"`. A one-step control cannot be
+       an all-satisfy control over a collection, which is what §0.1 requires of it.
+    The failure MUST be triggered off **state set inside the failing step's own body**, never off a git-call
+    ordinal calibrated on a differently-shaped run — see `[G18:2]`.
+  - `[G18:2]` **No boundary calibrated on one run shape may be reused on another.** Round 1 measured the
+    git-call count on a **1-step** run and reused it to trigger failure in a **2-step** run. That is safe only
+    while the GREEN makes fewer than four `git_read` calls after the last step, so a GREEN taking two full
+    `_git_changes_vs_head` snapshots at phase exit is false-failed. It is not a byte prediction, so §0.2 is not
+    violated in letter — but it is *boundary-reuse-across-shapes*, the mechanism of bd#7's first Class B
+    defect, and it is removable for free. Normative: trigger seam failures off **step-body state** (a flag the
+    step sets when it runs), never off a call ordinal.
   - **A phase whose write channel never ran MUST NOT publish `written: []` alongside `"git-delta"`** — that is
     the affirmative claim "nothing was written" over a channel that never opened (bd#7's `[G2:4]`).
 - **AC-E3c** **`written` accumulates over ALL steps of the phase**, as a union.
@@ -184,12 +265,28 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   - **Reset between sequential `execute()` calls on one engine instance**: run 2's `written` MUST NOT carry run
     1's paths. The accumulator is per-run state (`:237-243`), and this is the defect an instance-level
     accumulator produces.
+    `[G18:3]` **The two runs MUST be the SAME registered workflow, because a phase-keyed accumulator survives
+    two different ones.** Round 1 ran `"wf"` then `"wf2"`, which kills an unkeyed `self._written = set()` but
+    **not** `self._written_by_phase: dict[str, set]` left out of the reset at `engine.py:237-243` — under that
+    GREEN run 2 reads an empty bucket and the test passes. That shape is actively invited here: the payload is
+    keyed by `phase`, and the neighbouring per-run state `self._same_cycle_retries` is itself a keyed dict
+    (`:243`, `:540`). Meanwhile the real defect — **re-running the same phase on one engine**, the ordinary
+    case, and exactly what AC-E2d already does three times — would report run 1's paths in run 2's `written`,
+    an affirmative false claim about which files a run wrote. Required: **one registered workflow, executed
+    twice under different `run_id`s**, run 2 writing nothing; run 2's `written` MUST NOT contain run 1's paths.
+    This kills the keyed and unkeyed variants together. Also pin `len(phase_artifacts) == 2` for that
+    same-phase pair, so "exactly one per phase" is quantified over the `execute()` calls of one instance too.
   - **Concurrency is out of scope and declared, not assumed** (bd#7 `[G7:EDGE-5]`): one `WorkflowEngine`
     instance is **single-threaded with respect to `execute()`**. Declared because the accumulator lives on the
     instance; **re-open criterion:** the first consumer calling `execute()` concurrently on a shared instance.
 - **AC-E3d** **The emitted event MUST NEVER exceed the atomic-append limit, and truncation is asserted
-  behaviourally** (§0.2). `event_log.py:74` sets `_LINE_LIMIT_BYTES = 4096` and `:116` raises
-  `EventLogLineTooLarge` for `len(encoded) > 4096`; `_emit` swallows that at `engine.py:710`, so an oversized
+  behaviourally** (§0.2). `event_log.py:90` sets `_LINE_LIMIT_BYTES = 4096`, `:132` tests
+  `len(encoded) > _LINE_LIMIT_BYTES` and `:133` raises `EventLogLineTooLarge`; `_emit` swallows that at
+  `engine.py:710`, so an oversized
+  <!-- [G18:MINOR-1] These were cited as :74 and :116 in v1 — correct for bd#7's older base, stale here, where
+  they point at an unrelated `except` clause and a parameter default. I re-verified engine.py's citations for
+  this base and copied event_log.py's across without doing the same. Citations are base-relative; carrying them
+  between lots without re-resolving them is the same class as inheriting a measurement between hosts. -->
   `phase_artifacts` **vanishes silently** — the failure mode this AC exists to prevent.
   - Asserted by driving a phase that writes **many** files, then reading the **raw serialised line back off
     disk** and requiring `len(raw_line) <= 4096`. No predicted byte count appears anywhere in this AC.
@@ -211,6 +308,13 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   (`engine.py:696-711`), whose `except` at `:710` swallows logging failures. Asserted with a log whose `append`
   raises unconditionally: `execute()` MUST still complete with its normal status. A direct
   `self._event_log.append(...)` for either new emit would let the exception escape.
+  `[G18:EDGE-5]` **The unconditional-raise double is too blunt on its own and MUST be joined by a targeted
+  one.** A double with `path = None` short-circuits the `workflow_cost_rollup` block (`engine.py:275-281`) and
+  the dispatcher/stuck-report paths (`:302-325`), so it proves swallowing only for a run whose neighbouring
+  emits were skipped entirely. Required additionally: a **real** `EventLog` whose `append` raises **only** for
+  the two new event types, leaving every existing emit working. That is the run that actually resembles
+  production, and the only one that shows the new emits are swallowed *in situ* rather than in a stripped-down
+  execution.
 
 ## 6. Out of scope
 
