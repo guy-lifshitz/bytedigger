@@ -20,6 +20,16 @@ attribute names (`kind`, `subject`) and the three `kind` string values
 not pinned by the spec beyond "identifies its kind and subject" (§1.5); this
 file's choices for them are noted to the team lead as a possible further
 pinning gap, not asserted as spec text.
+
+v4 (gate round 1, `[G22:5]`/`[G22:6]`/`[G22:7]`): AC-C1's recorded seam set
+now covers all five prohibited acts plus directory-scan (14 seams, not 3);
+AC-C5's check-2 fixture now covers both the "no EXCLUDES" and "EXCLUDES
+present but short" (against the new `ADMITS` marker) sub-cases with a
+conformant control row alongside them in one document; check-3 is now three
+fixtures, each omitting exactly one of the three property lines, each
+alongside a conformant seam; plus case-insensitivity, empty-input/
+trailing-bare-line, and idempotence coverage for properties the spec pins
+but round 1 left unasserted.
 """
 from __future__ import annotations
 
@@ -55,6 +65,22 @@ class TestConformancePackageImport:
         `conformance/__init__.py`, so a namespace package is not the artifact
         this lot ships, independent of any RED-forcing concern.
 
+        `[G22:6]` coverage: AC-C1 prohibits five acts (read a file, touch the
+        network, resolve a version, spawn a process, create a directory),
+        plus directory-scan as the most plausible eager-registry shape — all
+        recorded here, not just the three (`open`/`read_text`/`run`) that
+        happened to be handy. Per seam, the wrong implementation this kills:
+        `os.listdir`/`Path.iterdir`/`Path.glob` — a `FIXTURES = ...glob(...)`
+        registry built at import; `os.mkdir`/`os.makedirs`/`Path.mkdir`/
+        `tempfile.mkdtemp` — an eager scratch/cache directory; `socket.socket`/
+        `urllib.request.urlopen` — a network reachability probe; `Path.open`
+        — a file read that routes through `io.open`, escaping a `builtins.open`
+        patch (`Path.read_text` alone only catches this incidentally, and only
+        on a cold path); `importlib.metadata.version` — resolved on the
+        module attribute at call time, since a module-level
+        `from importlib.metadata import version` binds too early for any
+        patch reached only afterward (`[G18r2:MINOR-5]`).
+
         Record-and-delegate, not raise-and-sabotage: each seam is wrapped to
         record the call and then delegate to the real implementation, so
         pytest's own machinery (which also calls open/read_text/run) keeps
@@ -66,29 +92,47 @@ class TestConformancePackageImport:
         state survives this test either way.
         """
         import builtins
+        import importlib.metadata
+        import os
+        import socket
         import subprocess
+        import tempfile
+        import urllib.request
 
         calls: list[tuple[str, tuple, dict]] = []
-        _real_open = builtins.open
-        _real_read_text = Path.read_text
-        _real_run = subprocess.run
 
-        def _recording_open(*args, **kwargs):
-            calls.append(("builtins.open", args, kwargs))
-            return _real_open(*args, **kwargs)
+        def _record(seam_name, real):
+            def _wrapped(*args, **kwargs):
+                calls.append((seam_name, args, kwargs))
+                return real(*args, **kwargs)
+            return _wrapped
 
-        def _recording_read_text(self_path, *args, **kwargs):
-            calls.append(("Path.read_text", (self_path, *args), kwargs))
-            return _real_read_text(self_path, *args, **kwargs)
-
-        def _recording_run(*args, **kwargs):
-            calls.append(("subprocess.run", args, kwargs))
-            return _real_run(*args, **kwargs)
+        # (owner, attribute, recorded seam label) — one entry per plausible
+        # eager-side-effect shape, covering all five acts AC-C1 prohibits
+        # plus directory-scan (§0.1 over the "prohibited side-effect kinds"
+        # collection: the recorded set must exclude every choice, not just
+        # the ones that happened to be convenient).
+        seams = [
+            (builtins, "open", "builtins.open"),
+            (Path, "read_text", "Path.read_text"),
+            (Path, "open", "Path.open"),
+            (subprocess, "run", "subprocess.run"),
+            (os, "listdir", "os.listdir"),
+            (Path, "iterdir", "Path.iterdir"),
+            (Path, "glob", "Path.glob"),
+            (os, "mkdir", "os.mkdir"),
+            (os, "makedirs", "os.makedirs"),
+            (Path, "mkdir", "Path.mkdir"),
+            (tempfile, "mkdtemp", "tempfile.mkdtemp"),
+            (socket, "socket", "socket.socket"),
+            (urllib.request, "urlopen", "urllib.request.urlopen"),
+            (importlib.metadata, "version", "importlib.metadata.version"),
+        ]
 
         with monkeypatch.context() as m:
-            m.setattr(builtins, "open", _recording_open)
-            m.setattr(Path, "read_text", _recording_read_text)
-            m.setattr(subprocess, "run", _recording_run)
+            for owner, attr, seam_name in seams:
+                real = getattr(owner, attr)
+                m.setattr(owner, attr, _record(seam_name, real))
 
             for name in list(sys.modules):
                 if name == "conformance" or name.startswith("conformance."):
@@ -228,10 +272,11 @@ class TestNoNewDependency:
 # ─────────────────────────────────────────────────────────────────────────
 
 # §1.6 fixture-document grammar, verbatim: LEVEL / NON-UNIFORMITY / EXCLUDES /
-# SEAM / ATTRIBUTE-PATH / BINDING-TIME / NORMALISATION, recognised at line
-# start, case-insensitive. This is the lint's input format, not this lot's
-# own spec-document format (§1.6) — these fixtures are never run over
-# CONTRACTS_SPEC.md itself.
+# ADMITS / SEAM / ATTRIBUTE-PATH / BINDING-TIME / NORMALISATION, recognised
+# at line start, case-insensitive. `ADMITS` is optional on a LEVEL; absent
+# means all four reductions (any/all/first/last). This is the lint's input
+# format, not this lot's own spec-document format (§1.6) — these fixtures
+# are never run over CONTRACTS_SPEC.md itself.
 
 _MISSING_ROW_SPEC = """\
 # Fixture Spec — missing non-uniformity rows, both directions
@@ -246,11 +291,26 @@ BINDING-TIME: call-time
 NORMALISATION: none
 """
 
-_ROW_NO_REDUCTIONS_SPEC = """\
-# Fixture Spec — row present, reductions not enumerated
+# `[G22:5]`/`[G22:7]` check-2 fixture: THREE rows, non-uniform in each of the
+# two ways check 2 can fire, plus a conformant row — so a lint reporting only
+# the first offending row, or implementing only "no EXCLUDES line at all"
+# while missing "EXCLUDES present but short", cannot pass this fixture.
+_CHECK2_SPEC = """\
+# Fixture Spec — check 2: no-EXCLUDES-at-all, present-but-short, and a
+# conformant row, in the same document (non-uniform within the check)
 
 LEVEL: phases
 NON-UNIFORMITY: phases — fixture set has >=2 members, one violating, plus control
+
+LEVEL: step_events
+ADMITS: any, all, first, last
+NON-UNIFORMITY: step_events — fixture set is non-uniform in both orderings
+EXCLUDES: any, first, last
+
+LEVEL: payload_field
+ADMITS: any, all
+NON-UNIFORMITY: payload_field — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
 
 SEAM: Path.read_text
 ATTRIBUTE-PATH: pathlib.Path.read_text
@@ -258,16 +318,54 @@ BINDING-TIME: call-time
 NORMALISATION: none
 """
 
-_SEAM_NOT_PINNED_SPEC = """\
-# Fixture Spec — seam named, interception property not pinned
-
-LEVEL: phases
-NON-UNIFORMITY: phases — fixture set has >=2 members, one violating, plus control
-EXCLUDES: any, all, first, last
+# `[G22:7]` check-3 fixtures: THREE documents, each with TWO seams (one fully
+# conformant, one missing exactly one of the three property lines) — so a
+# lint testing presence of only one property line cannot pass all three, and
+# a lint reporting only the first seam cannot pass any of them.
+_SEAM_MISSING_ATTRIBUTE_PATH_SPEC = """\
+# Fixture Spec — check 3: one seam missing ATTRIBUTE-PATH only
 
 SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+
+SEAM: importlib.metadata.version
+BINDING-TIME: call-time
+NORMALISATION: none
 """
 
+_SEAM_MISSING_BINDING_TIME_SPEC = """\
+# Fixture Spec — check 3: one seam missing BINDING-TIME only
+
+SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+
+SEAM: importlib.metadata.version
+ATTRIBUTE-PATH: importlib.metadata.version
+NORMALISATION: none
+"""
+
+_SEAM_MISSING_NORMALISATION_SPEC = """\
+# Fixture Spec — check 3: one seam missing NORMALISATION only
+
+SEAM: Path.read_text
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+
+SEAM: importlib.metadata.version
+ATTRIBUTE-PATH: importlib.metadata.version
+BINDING-TIME: call-time
+"""
+
+# Conformant control: every level's row covers exactly the reductions its
+# level ADMITS (default four, since neither level overrides ADMITS) — the
+# `[G22:5]` fix. A round-1 control named only three reductions for
+# `step_events` while requiring zero findings, which false-failed any GREEN
+# reading check 2 the only computable way ("cover all four").
 _CONFORMANT_SPEC = """\
 # Fixture Spec — fully conformant control
 
@@ -277,7 +375,7 @@ EXCLUDES: any, all, first, last
 
 LEVEL: step_events
 NON-UNIFORMITY: step_events — fixture set is non-uniform in both orderings
-EXCLUDES: any, first, last
+EXCLUDES: any, all, first, last
 
 SEAM: Path.read_text
 ATTRIBUTE-PATH: pathlib.Path.read_text
@@ -293,6 +391,21 @@ This is not a spec-fixture document at all. It is free-form prose with no
 LEVEL, NON-UNIFORMITY, EXCLUDES or SEAM markers anywhere in it, and a stray
 mention of "excludes" and "level" in ordinary sentences, which are not
 markers because they are not at line start in the pinned form.
+"""
+
+# §1.6 markers spelled lowercase — exercises the "recognised... case
+# insensitive" clause directly. Kills a case-sensitive GREEN that only
+# matches uppercase LEVEL:/SEAM:/etc, which would see this whole document as
+# unstructured prose (no findings at all, and no seam recognised either).
+_LOWERCASE_MARKERS_SPEC = """\
+# Fixture Spec — grammar markers spelled lowercase (§1.6 case-insensitivity)
+
+level: phases
+
+seam: Path.read_text
+attribute-path: pathlib.Path.read_text
+binding-time: call-time
+normalisation: none
 """
 
 
@@ -333,47 +446,96 @@ class TestQuantifierCompletenessLint:
             finding.kind = "mutated"
 
     def test_ac_c5_flags_row_not_enumerating_reductions(self):
-        """AC-C5(2). Kills a lint that accepts a NON-UNIFORMITY row with no
-        EXCLUDES line at all — the part `[G18:1]` requires and a level-only
-        enumeration misses: a fixture non-uniform in one ordering excluded
-        `any` and `first` but left `last` alive, and the wrong implementation
-        passed all 38 tests. Also confirms check (1) does not spuriously
-        fire here, since a NON-UNIFORMITY row is present — a lint conflating
-        "row present" with "row complete" would fail this second assertion.
+        """AC-C5(2). `[G22:5]`/`[G22:7]`: kills a lint implementing only the
+        "no EXCLUDES line at all" half of check 2 — `phases` has no EXCLUDES
+        line at all; `step_events` has one that is present but short
+        (EXCLUDES three of the four reductions its level ADMITS, the exact
+        gap `[G18:1]` requires and a level-only enumeration misses). Also
+        kills a lint reporting only the first offending row (three rows
+        here, two non-conformant, one conformant) and one that ignores an
+        explicit `ADMITS` override (`payload_field` ADMITS only `any, all` —
+        an unordered collection, where `first`/`last` are meaningless — and
+        its row's `EXCLUDES: any, all` fully covers that admitted set, so it
+        must NOT be flagged). Also confirms check (1) does not spuriously
+        fire, since every row here is present.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
-        findings = lint_quantifier_completeness(_ROW_NO_REDUCTIONS_SPEC)
+        findings = lint_quantifier_completeness(_CHECK2_SPEC)
 
         assert any(
             f.kind == "missing_reductions" and f.subject == "phases"
             for f in findings
         )
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "step_events"
+            for f in findings
+        )
+        assert not any(f.subject == "payload_field" for f in findings)
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
 
-    def test_ac_c5_flags_seam_not_pinning_interception_property(self):
-        """AC-C5(3). Kills a lint that accepts a bare SEAM declaration
-        (mechanism only) without ATTRIBUTE-PATH, BINDING-TIME and
-        NORMALISATION — the exact shape that bit three consecutive lots
-        (`mkdtemp`, `Path.read_text`, `importlib.metadata.version`), each
-        with the correct seam correctly named but an unpinned property.
+    def test_ac_c5_flags_seam_missing_attribute_path(self):
+        """AC-C5(3). `[G22:7]`: one of three fixtures, each omitting exactly
+        one of the three property lines, so each is independently
+        load-bearing — a lint testing only ATTRIBUTE-PATH presence would
+        pass this fixture's `Path.read_text` row (conformant) but must still
+        flag `importlib.metadata.version` (ATTRIBUTE-PATH missing here), and
+        must not flag the conformant seam (non-uniform within the check:
+        two seams, one conformant, one not).
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
-        findings = lint_quantifier_completeness(_SEAM_NOT_PINNED_SPEC)
+        findings = lint_quantifier_completeness(_SEAM_MISSING_ATTRIBUTE_PATH_SPEC)
 
         assert any(
-            f.kind == "seam_not_pinned" and f.subject == "Path.read_text"
+            f.kind == "seam_not_pinned" and f.subject == "importlib.metadata.version"
             for f in findings
         )
+        assert not any(f.subject == "Path.read_text" for f in findings)
+
+    def test_ac_c5_flags_seam_missing_binding_time(self):
+        """AC-C5(3). `[G22:7]`: kills a lint that tests only ATTRIBUTE-PATH
+        presence — `importlib.metadata.version` here pins ATTRIBUTE-PATH
+        correctly (as `mkdtemp` and `importlib.metadata.version` both
+        historically did, per §0.2) and omits only BINDING-TIME, which such
+        a lint would silently pass.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SEAM_MISSING_BINDING_TIME_SPEC)
+
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "importlib.metadata.version"
+            for f in findings
+        )
+        assert not any(f.subject == "Path.read_text" for f in findings)
+
+    def test_ac_c5_flags_seam_missing_normalisation(self):
+        """AC-C5(3). `[G22:7]`: kills a lint that tests only ATTRIBUTE-PATH
+        (or ATTRIBUTE-PATH + BINDING-TIME) presence — `importlib.metadata.version`
+        here pins both correctly (mirroring `Path.read_text`'s historical gap,
+        which pinned the seam and BINDING-TIME but not NORMALISATION) and
+        omits only NORMALISATION.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SEAM_MISSING_NORMALISATION_SPEC)
+
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "importlib.metadata.version"
+            for f in findings
+        )
+        assert not any(f.subject == "Path.read_text" for f in findings)
 
     def test_ac_c5_conformant_control_passes(self):
         """AC-C5 control. A document with every level's non-uniformity row
-        (both directions) fully enumerating reductions, and a seam with its
-        full interception property, must produce zero findings. Kills a
-        lint that over-fires on well-formed input (e.g. a keyword sweep that
-        mis-scores conformant documents — the failure mode §3's scope-limit
-        note calls out from bd#7's own history: 11 of 13 ACs mis-scored).
+        (both directions) fully covering its ADMITS-ed reductions (`[G22:5]`
+        — both levels here cover all four, the default admitted set), and a
+        seam with its full interception property, must produce zero
+        findings. Kills a lint that over-fires on well-formed input (e.g. a
+        keyword sweep that mis-scores conformant documents — the failure
+        mode §3's scope-limit note calls out from bd#7's own history: 11 of
+        13 ACs mis-scored).
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
@@ -395,6 +557,65 @@ class TestQuantifierCompletenessLint:
         findings = lint_quantifier_completeness(_MALFORMED_SPEC)
 
         assert findings == []
+
+    def test_ac_c5_does_not_raise_on_empty_input(self):
+        """§1.6/gate item 5: kills a GREEN doing an `i+1` lookahead over
+        `text.splitlines()` that raises `IndexError` on empty input, instead
+        of returning an empty findings list (nothing quantified yet).
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness("")
+
+        assert findings == []
+
+    def test_ac_c5_does_not_raise_on_trailing_bare_level_line(self):
+        """§1.6/gate item 5: kills the same `i+1`-lookahead GREEN on a
+        document whose *last* line is a bare `LEVEL:` with nothing after it
+        — the lookahead has no next line to read. Must still report the
+        missing-row finding for that level rather than raising.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness("LEVEL: phases")
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "phases"
+            for f in findings
+        )
+
+    def test_ac_c5_recognises_markers_case_insensitively(self):
+        """§1.6: markers are recognised at line start, case-insensitive.
+        Kills a case-sensitive GREEN that only matches uppercase
+        `LEVEL:`/`SEAM:`/etc — it would see this entire fixture as
+        unstructured prose: no missing-row finding for `phases` (from the
+        lowercase `level:` line) and no recognition of `seam:` as a seam
+        declaration at all.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_LOWERCASE_MARKERS_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "phases"
+            for f in findings
+        )
+        assert not any(f.subject == "Path.read_text" for f in findings)
+
+    def test_ac_c5_lint_is_idempotent_on_control(self):
+        """Gate item 6: kills a GREEN that accumulates findings into
+        module-level state across calls (e.g. an `_ALL_FINDINGS.append(...)`
+        instead of building a fresh list per call) — caught here directly on
+        repeated calls, rather than relying on incidental test-execution
+        ordering, which pytest's randomisation may not preserve.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        first = lint_quantifier_completeness(_CONFORMANT_SPEC)
+        second = lint_quantifier_completeness(_CONFORMANT_SPEC)
+
+        assert first == []
+        assert second == []
 
 
 # ─────────────────────────────────────────────────────────────────────────
