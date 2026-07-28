@@ -36,10 +36,10 @@ cheap deterministic checks, not with more LLM judgment.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 
-pip install .              # core: no runtime dependencies
-pip install ".[test]"      # + pytest, to run the suite
-pip install ".[dbos]"      # optional: DBOS durable-execution backend
-pip install ".[agentic-pydantic]"  # optional: provider-agnostic agentic backend
+python3 -m pip install .              # core: no runtime dependencies
+python3 -m pip install ".[test]"      # + pytest, to run the suite
+python3 -m pip install ".[dbos]"      # optional: DBOS durable-execution backend
+python3 -m pip install ".[agentic-pydantic]"  # optional: provider-agnostic agentic backend
 ```
 
 The core installs with **zero runtime dependencies** — stdlib plus the LLM
@@ -114,7 +114,7 @@ environment reads behind the `config_provider` seam.
 The engine lives at `SYSTEM/cli/build/engine_py/`, mirroring the upstream
 nesting: engine code resolves sibling tooling (deterministic lints, the
 security rule pack) by relative path, so the extracted tree keeps the same
-shape. Packaging flattens it — `pip install .` exposes the modules top-level.
+shape. Packaging flattens it — `python3 -m pip install .` exposes the modules top-level.
 Flattening the tree itself is upstream follow-up work.
 
 This tree is extracted from the upstream engine by

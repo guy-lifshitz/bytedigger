@@ -1991,7 +1991,7 @@ _KNOWN_BACKENDS = tuple(_BACKENDS)
 # Contract: resolved_backend is resolved/stripped upstream; register() names
 # are lowercase; this dict's keys must match those lowercase names exactly.
 _REFERENCE_BACKEND_INSTALL_HINTS: dict[str, str] = {
-    "agent-sdk": "pip install claude-agent-sdk",
+    "agent-sdk": "python3 -m pip install claude-agent-sdk",
     "anthropic-api": "install a package build that bundles lib.reference_backends (stdlib-only backend; its module was not importable)",
     # pydantic-ai covers both providers, so both hints resolve to one extra
     # (GH1112: the `agentic-pydantic-anthropic` ghost extra never existed).
