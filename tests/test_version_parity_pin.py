@@ -33,7 +33,7 @@ _PROJECT_HEADER_RE = re.compile(r"^\[project\]\s*$")
 _TABLE_HEADER_RE = re.compile(r"^\[")
 _DEP_KEY_RE = re.compile(r"^dependencies\s*=")
 _DEP_LINE_RE = re.compile(r"(?m)^dependencies = .*\n")
-_BARE_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+_BARE_SEMVER_RE = re.compile(r"\d+\.\d+\.\d+")
 
 
 def _source_pin_registry() -> list:
@@ -642,27 +642,56 @@ class TestVersionParityPin:
             )
 
     def test_ac34_no_hardcoded_pin_or_semver_literal_in_code(self):
-        """AC34 (anti-hal#1300 lint, hardened per MINOR-2/MINOR-3): scans
-        CODE string constants only (via `ast`, docstrings excluded) --
-        never the raw file text -- for (1) a `<pkg>==<digit>` pin literal,
-        and (2) ANY bare semver-shaped string literal (`\\d+\\.\\d+\\.\\d+`),
-        closing the `_PIN = "0.1.1"` + `f"{pkg}=={_PIN}"` split-literal
-        escape."""
+        """AC34 (anti-hal#1300 lint, hardened per MINOR-2/MINOR-3, and
+        again per the mutation-proof gate finding): scans CODE string
+        constants only (via `ast`, docstrings excluded, comments never
+        appear as ast nodes at all) -- never the raw file text -- for any
+        constant SEGMENT carrying (1) a `<pkg>==<digit...>` pin literal,
+        (2) an `==` immediately followed by a semver-shaped value
+        (`==\\s*\\d+\\.\\d+\\.\\d+`), or (3) a bare semver-shaped substring
+        ANYWHERE inside the constant (`\\d+\\.\\d+\\.\\d+`, a SUBSTRING
+        search, not a full-string match).
+
+        The substring form (not `fullmatch`) is load-bearing: an f-string
+        like `f"{pkg}=={canonical}"` mutated to `f"{pkg}==0.1.1"` compiles
+        to a JoinedStr whose literal segment is only `"==0.1.1"` -- never
+        the whole `"bytedigger-engine==0.1.1"` string and never a bare
+        `"0.1.1"` constant on its own, so neither a `<pkg>==\\d` search
+        keyed on the interpolated `pkg` nor a `^\\d+\\.\\d+\\.\\d+$`
+        FULL-match would ever see it; a substring search over `==0.1.1`
+        does. Verified against the real source: `VERSION_RE`'s pattern
+        constant is the literal characters `^\\d+\\.\\d+\\.\\d+$` (escaped
+        backslash-d, not actual digits), so it contains no digit substring
+        and is not flagged -- the real UUT stays green.
+        """
         source = tvp.SCRIPT.read_text()
         pkg = _pkg_name()
         constants = _non_docstring_string_constants(source)
 
-        pin_offenders = [v for v in constants if re.search(rf"{re.escape(pkg)}==\d", v)]
+        pin_offenders = [
+            v for v in constants if re.search(rf"{re.escape(pkg)}==\d", v)
+        ]
         assert not pin_offenders, (
             f"scripts/version_parity.py must never hardcode a version-"
             f"bearing pin literal for {pkg!r} in code (docstrings "
             f"excluded): found {pin_offenders!r}"
         )
 
-        semver_offenders = [v for v in constants if _BARE_SEMVER_RE.match(v)]
+        eq_semver_offenders = [
+            v for v in constants if re.search(r"==\s*\d+\.\d+\.\d+", v)
+        ]
+        assert not eq_semver_offenders, (
+            f"scripts/version_parity.py must never carry an '==' "
+            f"immediately followed by a semver-shaped value in a code "
+            f"string constant (including an f-string's own literal "
+            f"segment, e.g. f\"{{pkg}}==0.1.1\") -- found "
+            f"{eq_semver_offenders!r}"
+        )
+
+        semver_offenders = [v for v in constants if _BARE_SEMVER_RE.search(v)]
         assert not semver_offenders, (
-            f"scripts/version_parity.py must never carry a bare semver-"
-            f"shaped string literal in code (e.g. a split '_PIN = "
+            f"scripts/version_parity.py must never carry a semver-shaped "
+            f"substring in ANY code string constant (e.g. a split '_PIN = "
             f'"0.1.1"\' literal later joined into a pin) -- found '
             f"{semver_offenders!r}"
         )
