@@ -229,8 +229,12 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
 
 ## 5. Emission 3 — `phase_artifacts`
 
-- **AC-E3** Exactly **one** `phase_artifacts` per phase, payload keys exactly:
-  `phase`, `written`, `read`, `write_tracking`, `read_tracking`.
+- **AC-E3** Exactly **one** `phase_artifacts` per phase. Payload keys **in the untruncated case** are exactly
+  `phase`, `written`, `read`, `write_tracking`, `read_tracking` — `[G18r3:MINOR-2]` the qualifier is in this head
+  sentence deliberately, because v3 stated the key set unconditionally here and added three truncation keys in
+  AC-E3d two hundred lines away. That is the *shape* `[G18r2:MINOR-1]` was filed against — two clauses demanding
+  different things for one payload — even though the substance was already consistent. A reader of this sentence
+  alone must not be able to conclude the wrong thing.
   - `read_tracking` is `"declared-only"` — this lot adds **no** read instrumentation, and the label says so
     rather than leaving the absence to be read as "nothing was read."
   - `[G18:MINOR-8]` **`read` MUST be `[]`, asserted by value.** v1 required the *key* in the exact key set and
@@ -355,6 +359,10 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   filing. Asserted by value against the `run_id` passed to `execute()`, for both events, on a run whose
   `run_id` is distinctive. Selection of a payload **by** `run_id` in any test MUST report the observed
   `run_id`s on failure rather than raising `StopIteration`.
+  `[G18r3:MINOR-3]` **It is the event ENVELOPE's `run_id`, not a payload key** (`event_log.py:124-129` builds
+  `{"ts", "run_id", "event_type", "payload"}`). Stated because a GREEN that *additionally* mirrored `run_id` into
+  the payload would satisfy this AC while violating AC-E3's exact key set — two of my own ACs disagreeing about
+  one emit, which is the defect I have now filed against myself three times in this lot.
 - **AC-E5** `[G18r2:EDGE-2]` **`phase_artifacts` is emitted BEFORE `workflow_finished`.** AC-E3a pins it to the
   `try/finally` around `engine.py:271`, which necessarily places it before `workflow_cost_rollup`
   (`:275-281`) and `workflow_finished` (`:289`) — but nothing asserted the ordering, so a GREEN emitting after
@@ -390,6 +398,51 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   the two new event types, leaving every existing emit working. That is the run that actually resembles
   production, and the only one that shows the new emits are swallowed *in situ* rather than in a stripped-down
   execution.
+
+## 5.1 Constraints on GREEN carried from the accepted round's edges `[G18r3]`
+
+These are **normative constraints on the implementation** whose **tests are deliberately deferred** to a
+post-GREEN hardening round. I am recording that split explicitly rather than quietly: at GREEN time these two
+requirements are **stated but unasserted**, so nobody may read "all 46 tests pass" as covering them. The reason
+for deferring is that both need a *new composed fixture*, and composing two individually-working doubles is the
+exact shape that produced all five of bd#7's Class B defects — I will not add an unaudited composition to the
+RED on the way into GREEN. They get their own short RED round and their own gate, after GREEN is green.
+
+- **`[G18r3:EDGE-1]` The `finally` body MUST NOT be able to raise, not merely MUST NOT re-raise.** AC-E6 covers a
+  failing `append`, which `_emit`'s `except` at `engine.py:710` absorbs. It does **not** cover a `finally` that
+  raises *before* reaching the emit — e.g. an unguarded phase-level `_git_changes_vs_head(_scan_cwd)` computed
+  inside the `finally`, which reaches subprocess-backed git through `git_port` (`engine.py:1076`/`:1079`) and can
+  fail on timeout or a missing binary. That exception is raised **outside** `_emit`'s protection, so it replaces
+  the in-flight `_CrashError` and the original error disappears — precisely the invisible-failure mode AC-E6
+  exists to prevent, arriving by the one door AC-E6 does not watch. **Normative for GREEN: everything the
+  `finally` needs must either be already computed before the `try`, or be computed inside a guard of its own. No
+  unguarded work in the `finally`.**
+  **Re-open criterion / deferred test:** the same `_CrashError`-propagation assertion as AC-E6, on a crash-path
+  run with the `git_port` factory injected to fail.
+- **`[G18r3:EDGE-4]` The crash path MUST NOT overclaim the write channel.** With a raising step, `git_pre` is taken
+  at `engine.py:384` but the step raises at `:421` before the post-snapshot at `:435`, so **no per-step delta is
+  ever computed**. The correct emission is therefore `written: []` with `write_tracking: "not-observed"` — and
+  AC-E3b's anti-overclaim rule already demands exactly that. But every AC-E3b differential fixture is
+  non-raising, so the crash path is the one place where a GREEN publishing `written: []` beside `"git-delta"`
+  would pass: `[G2:4]`'s overclaim shape on the single path that never tests for it. **Normative for GREEN: the
+  crash path emits `"not-observed"`.**
+  **Re-open criterion / deferred test:** assert `write_tracking == "not-observed"` and `written == []` on the
+  existing crash-path fixture — cheap, and needs no new composition, which is why it should land first in the
+  hardening round.
+
+Also recorded, not deferred because nothing is owed: `[G18r3:EDGE-2]` a second never-started path exists (an
+exception out of the reroute block at `engine.py:250-267`, which precedes `workflow_started`), so AC-E7's claim is
+about a class of which it asserts one member; and `[G18r3:EDGE-3]` AC-E5's ordering has no counterpart on
+exception exits, because `workflow_finished` is never emitted there — correct rather than missing.
+
+`[G18r3:MINOR-1]` **A note on why AC-E6 and AC-E7 read as they do.** Both ACs, as worded in v3, would be
+satisfied by a RED that passes *pre-GREEN*: `pytest.raises(_CrashError)` alone is vacuous because the step's
+exception already propagates today, and AC-E7's negative assertions are trivially true before the emissions
+exist. The RED supplies the missing halves — the observed-attempt assertion and the same-engine positive control
+— so nothing is unasserted now. Normative, so a later round cannot "simplify" them back to the vacuous form:
+**AC-E6 additionally requires that the attempted emit be OBSERVED (the double records the attempt), and AC-E7
+additionally requires a positive control on the same engine and log.** Same family as `[G18r2:MINOR-5]`: the
+load-bearing property lived in the RED and not in the spec.
 
 ## 6. Out of scope
 
