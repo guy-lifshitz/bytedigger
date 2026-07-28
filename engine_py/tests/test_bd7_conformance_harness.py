@@ -611,11 +611,12 @@ def test_ac_f14_dedupe_on_normalised_relpath_not_object_identity(tmp_path):
     root.mkdir()
     (root / "a.txt").write_text("hi")
 
+    # [G8:M2]: the "sanity: two distinct Path objects" assertion that used
+    # to sit here was deleted — `Path.__truediv__` always constructs a NEW
+    # object, so `is not` on two freshly-built paths cannot fail; it is not
+    # a reachable check. Reusing the SAME object (AC-F8's case) would
+    # require passing one variable twice, which this list literal does not.
     distinct_objects_same_relpath = [root / "a.txt", root / "." / "a.txt"]
-    assert distinct_objects_same_relpath[0] is not distinct_objects_same_relpath[1], (
-        "sanity: these must be two DISTINCT Path objects (different "
-        "identity) — reusing the same object is AC-F8's case, not this one"
-    )
 
     with pytest.raises(OracleFreezeError):
         freeze(distinct_objects_same_relpath, root=root)
@@ -1119,7 +1120,7 @@ def test_ac_a4_failing_l0_yields_null_level_never_bd_l0():
     )
 
     assert report["level_achieved"] is None
-    assert report["level_achieved"] != "BD-L0"
+    # [G8:M2]: `!= "BD-L0"` deleted — implied by `is None` directly above.
     assert report["l0"] == failing_requirements, (
         f"report['l0'] must equal the L0Report's own (failing) requirements "
         f"dict, not a fabricated all-passed constant, got {report['l0']!r}"
@@ -3198,6 +3199,19 @@ class _RaisingWriter:
         raise RuntimeError("simulated: this writer always raises on append")
 
 
+class _RaisingConstructorWriter:
+    """AC-L0-6g [G8:E3] negative control (2/2): a writer whose
+    CONSTRUCTOR raises unconditionally — a second crash surface with the
+    same two failure modes as `_RaisingWriter.append`. `append` itself is
+    never reached here; `writer(path)` never returns."""
+
+    def __init__(self, path):
+        raise RuntimeError("simulated: this writer's constructor always raises")
+
+    def append(self, event_type, payload, run_id=None):  # pragma: no cover — unreachable
+        raise AssertionError("append must never be reached — the constructor already raised")
+
+
 def test_ac_l0_6g_writer_that_raises_is_not_checked_not_passed_and_does_not_propagate():
     """AC-L0-6g [G7:EDGE-6]: a writer whose append RAISES MUST NOT be
     rendered as R0.1 "passed". AC-L0-6c supplies writers with wrong
@@ -3209,7 +3223,12 @@ def test_ac_l0_6g_writer_that_raises_is_not_checked_not_passed_and_does_not_prop
     never ran. Both failure modes are unacceptable and this AC pins BOTH
     directions: check_bd_l0 MUST NOT propagate the exception, AND MUST
     render R0.1 "not-checked" (with a violation naming R0.1) — never
-    "passed"."""
+    "passed".
+
+    [G8:E3]: the CONSTRUCTOR half. The probe must call `writer(path)`
+    before it can call `.append(...)`, so a writer whose CONSTRUCTOR
+    raises is a second, earlier crash surface with the identical two
+    failure modes — asserted separately below against `_RaisingConstructorWriter`."""
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
     # (1) MUST NOT propagate — this call itself must not raise.
@@ -3225,6 +3244,16 @@ def test_ac_l0_6g_writer_that_raises_is_not_checked_not_passed_and_does_not_prop
     )
     assert any(v.startswith("R0.1") for v in report.violations), report.violations
     assert report.passed is False
+
+    # [G8:E3] (3) the CONSTRUCTOR half — same two directions, a writer
+    # whose __init__ raises instead of append.
+    report_ctor = check_bd_l0(_valid_l0_events(), run_id="run-l0", writer=_RaisingConstructorWriter)
+    assert report_ctor.requirements["R0.1"] == "not-checked", (
+        f"a writer whose CONSTRUCTOR raises unconditionally must render "
+        f"R0.1 'not-checked' — NEVER 'passed', got {report_ctor.requirements!r}"
+    )
+    assert any(v.startswith("R0.1") for v in report_ctor.violations), report_ctor.violations
+    assert report_ctor.passed is False
 
 
 def test_ac_l0_7_r0_2_phase_outcome_artifacts_pass_on_valid_log():
@@ -4213,7 +4242,13 @@ def test_ac_l0_15_empty_scope_must_not_vacuously_pass():
     holding a complete, PASSING run under a DIFFERENT run_id, so the
     fixture also proves the checker is not merely reading the whole log
     (i.e. it genuinely scopes by run_id, not "the log is non-empty
-    somewhere")."""
+    somewhere").
+
+    [G8:M3]: a NAMED violation is pinned per §4.2's "one finding per
+    violated requirement" — every sibling negative control (AC-L0-6c,
+    AC-L0-6g, AC-L0-9, AC-L0-12d, AC-L0-2c(3)) does this, and without it a
+    GREEN returning `passed=False` with an EMPTY `violations` list would
+    pass this test despite contradicting §4.2."""
     from conformance.attestation import build_attestation_report  # noqa: PLC0415
     from conformance.bd_l0 import check_bd_l0  # noqa: PLC0415
 
@@ -4234,6 +4269,13 @@ def test_ac_l0_15_empty_scope_must_not_vacuously_pass():
         f"three requirements must be 'not-checked' (not a structural "
         f"breach), got {report.requirements!r}"
     )
+    for req_id in ("R0.1", "R0.2", "R0.3"):
+        assert any(req_id in v for v in report.violations), (
+            f"[G8:M3]: an empty scope must name a violation for EACH "
+            f"unmeasured requirement, per §4.2's one-finding-per-violated- "
+            f"requirement rule — {req_id} is missing from "
+            f"{report.violations!r}"
+        )
 
     report_attest = build_attestation_report(
         level_claimed="BD-L0", results={}, l0=report,
@@ -4313,11 +4355,8 @@ def test_ac_l0_3a_check_bd_l0_reports_not_checked_when_write_tracking_not_observ
         events_not_observed.append(e)
     report = check_bd_l0(events_not_observed, run_id="run-l0", writer=EventLog)
 
-    assert report.requirements["R0.2"] != "passed", (
-        "a phase carrying write_tracking: 'not-observed' must NEVER let "
-        "R0.2 read 'passed' — that would attest an unmeasured write channel "
-        "as observed"
-    )
+    # [G8:M2]: `!= "passed"` deleted — implied by `== "not-checked"` below,
+    # which is the actual (stronger) claim.
     assert report.requirements["R0.2"] == "not-checked", report.requirements
 
 
@@ -4374,10 +4413,7 @@ def test_ac_l0_3a3_missing_write_tracking_key_treated_as_not_observed(tmp_path):
         events_no_write_tracking_key.append(e)
 
     report = check_bd_l0(events_no_write_tracking_key, run_id="run-l0", writer=EventLog)
-    assert report.requirements["R0.2"] != "passed", (
-        "a phase_artifacts event with no write_tracking key at all must "
-        "fail-close, not silently pass R0.2"
-    )
+    # [G8:M2]: `!= "passed"` deleted — implied by `== "not-checked"` below.
     assert report.requirements["R0.2"] == "not-checked", report.requirements
 
 
@@ -4721,11 +4757,10 @@ def test_ac_l0_3g_small_artifact_list_does_not_set_written_truncated(tmp_path):
     phase_artifacts = [e for e in events if e["event_type"] == "phase_artifacts"]
     assert len(phase_artifacts) == 1
     payload = phase_artifacts[0]["payload"]
-    assert payload.get("written_truncated") is not True, (
-        f"a small artifact list must NOT set written_truncated, got "
-        f"{payload.get('written_truncated')!r} — an always-truncating GREEN "
-        f"must not pass"
-    )
+    # [G8:M2]: `assert payload.get("written_truncated") is not True` deleted
+    # here — subsumed by the exact key-set equality below, which requires
+    # "written_truncated" to be ABSENT entirely (a stronger claim than
+    # merely not-True).
     assert payload["written"] == ["one_small_file.txt"], (
         "whole-dict-shape assertion: the untruncated case must carry the "
         "real path list, not a bounded sample"
@@ -5022,6 +5057,69 @@ def test_ac_l0_3d5_exactly_4096_bytes_is_legal_not_truncated(tmp_path):
 
     report = check_bd_l0(events, run_id=run_id, writer=EventLog)
     assert report.passed is True, getattr(report, "violations", report)
+
+    # [G8:E1]: the +1 SIDE. AC-L0-3d2's just-over run lands at 4116 B for
+    # its own identifiers, not 4097 — so a GREEN using threshold `> 4097`
+    # (one byte too generous) would pass BOTH AC-L0-3d2 and the exact-4096
+    # case above while silently losing a genuine 4097-byte record to the
+    # swallow at engine.py:710. Constructed the SAME way as the exact-4096
+    # case (SAME run_id/phase, so no identifier-length mismatch), one byte
+    # longer, and verified to be EXACTLY 4097 before driving the run.
+    exact_path_len_over = exact_path_len + 1
+    predicted_over = _event_bytes_for_path_len(exact_path_len_over)
+    assert predicted_over == 4097, (
+        f"sanity: the constructed path length must serialise to EXACTLY "
+        f"4097 bytes, got {predicted_over}"
+    )
+
+    exact_path_over = "p" * exact_path_len_over
+    call_count_over = {"n": 0}
+
+    def _spy_over(args, *, cwd=None, timeout=None, dir_=None):
+        call_count_over["n"] += 1
+        if call_count_over["n"] <= 2:
+            return GitResult(returncode=0, stdout="", stderr="", timed_out=False)
+        if args[:1] == ["ls-files"]:
+            return GitResult(returncode=0, stdout=exact_path_over + "\n", stderr="", timed_out=False)
+        return GitResult(returncode=0, stdout="", stderr="", timed_out=False)
+
+    log_path_over = tmp_path / "events_over.jsonl"
+    log_over = EventLog(log_path_over)
+    eng_over = WorkflowEngine(event_log=log_over)
+    eng_over.register(phase, WorkflowDefinition(name=phase, steps=[_ok_step("noop")]))
+    try:
+        set_default_git_read_factory(lambda: _spy_over)
+        result_over, _ctx = eng_over.execute(
+            phase, _make_ctx(git_cwd=str(tmp_path / "fake_repo_over")), run_id=run_id
+        )
+    finally:
+        reset_default_git_read_factory()
+
+    assert result_over.status == "ok"
+    assert call_count_over["n"] >= 4, "sanity: both git_pre and git_post must actually have been queried"
+
+    events_over = log_over.read_all()
+    phase_artifacts_over = [e for e in events_over if e["event_type"] == "phase_artifacts"]
+    assert len(phase_artifacts_over) == 1
+    payload_over = phase_artifacts_over[0]["payload"]
+
+    phase_artifacts_over_index = next(
+        i for i, e in enumerate(events_over) if e["event_type"] == "phase_artifacts"
+    )
+    raw_line_over = log_path_over.read_bytes().splitlines(keepends=True)[phase_artifacts_over_index]
+    assert len(raw_line_over) == predicted_over, (
+        f"sanity: the ACTUAL serialised line must match the predicted "
+        f"exact-4097 size, got {len(raw_line_over)}, predicted {predicted_over}"
+    )
+
+    assert payload_over.get("written_truncated") is True, (
+        f"a payload serialising to EXACTLY 4097 bytes (one byte over the "
+        f"true `> 4096` limit) MUST be truncated — a GREEN using a "
+        f"one-byte-too-generous threshold (`> 4097`, which AC-L0-3d2's own "
+        f"just-over run at 4116 B cannot discriminate) would wrongly leave "
+        f"this untruncated, losing the record to EventLogLineTooLarge, "
+        f"got {payload_over!r}"
+    )
 
 
 def test_ac_l0_3d3_truncation_predicate_leaves_headroom_for_shadow_envelope(tmp_path, monkeypatch):
