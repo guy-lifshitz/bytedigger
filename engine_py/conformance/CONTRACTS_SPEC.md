@@ -1,6 +1,6 @@
 # Lot spec — bd#22 (L2): conformance package, shared contracts, quantifier-completeness lint
 
-**v1.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
+**v4.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
 issue before freeze so the split's 113-AC accounting stays checkable.
 
 Depends on nothing but `main`. Everything after L2 depends on it. It MUST NOT reference L1's emissions or any
@@ -114,9 +114,31 @@ recognised at line start, case-insensitive, and everything else is prose the lin
 - `SEAM: <name>` — declares an interception seam.
 - `ATTRIBUTE-PATH:`, `BINDING-TIME:`, `NORMALISATION:` — the properties a seam declaration must pin.
 
+- `ADMITS: <reduction>[, <reduction>...]` — **optional**, on a `LEVEL`; declares which reductions that level's
+  fixtures could plausibly choose between. **Absent means all four.**
+
 The three checks are then exactly: a `LEVEL` with no `NON-UNIFORMITY` row (check 1); a `NON-UNIFORMITY` row with
-no `EXCLUDES` line, or one naming fewer than the reductions its level admits (check 2); a `SEAM` missing any of
-the three property lines (check 3).
+no `EXCLUDES` line, **or one that does not cover every reduction its level `ADMITS`** (check 2); a `SEAM` missing
+any of the three property lines (check 3).
+
+`[G22:5]` **Why `ADMITS` exists — check 2 was unimplementable as v1..v3 wrote it.** The clause said a row naming
+"fewer than the reductions its level admits" was a finding, and then never said how a lint computes what a level
+*admits*. The only computable reading was "all four", and the round-1 conformant control declared a level whose
+row named three (`any, first, last`, omitting `all`) while requiring zero findings. Both horns were live: an
+implementation reading the clause the only way it could be read **false-failed the control while being exactly
+spec-compliant**, and an implementation of only the first half (row has no `EXCLUDES` line at all) **passed all
+five AC-C5 tests**, because no fixture anywhere carried an `EXCLUDES` line that was *present but short* — so
+`[G18:1]`'s under-enumeration defect, the precise reason this AC exists, was never forced.
+
+Declaring the admitted set makes the check computable without pretending every collection admits all four:
+`first` and `last` are meaningless for an unordered collection, so demanding them universally would have been
+wrong in the other direction. **Required of the RED:** a fixture whose level `ADMITS` four and whose row
+`EXCLUDES` three — the present-but-short case — and the conformant control's rows must cover their levels'
+admitted sets exactly.
+
+This is the fourth time in this lot that describing a value stood in for pinning one (`[G22:1]` grammar,
+`[G22:3]` forcing assumption, `[G22:4]` `Finding`, now this). The tell is the same each time: a clause that reads
+as a rule but leaves the reader to supply the operative quantity.
 
 This grammar is **deliberately not** the format of this lot's own spec documents. It is the lint's input format,
 and the lint is a tool, not a validator of these files. Conflating the two would make every prose sentence here a
@@ -141,6 +163,23 @@ potential lint failure.
   seam was touched and with what argument where a raiser only reports that something was.
   **The general rule this instance illustrates, and §0.3's sharper form: a test may not sabotage a primitive its own
   harness runs on. Observation is safe; substitution is not.**
+  `[G22:6]` **The recorded seam set MUST cover all five prohibited acts, and `§0.1` applies to that collection.**
+  Rounds 1-4 recorded **three** seams (`builtins.open`, `Path.read_text`, `subprocess.run`) against the five acts
+  this AC prohibits, so an implementation choosing any of the other two shipped green — and the test's own
+  docstring claimed to kill "scanning a directory to build a registry", which it could not see. The uncovered
+  choices, each a plausible eager implementation for a package like this:
+  - **directory scan** — `os.listdir`, `Path.iterdir`, `Path.glob`. `FIXTURES = list(Path(__file__).parent.glob("*.md"))`
+    in `__init__.py` records nothing. This is the *most* plausible one, which is why its absence mattered most.
+  - **directory creation** — `os.mkdir`, `os.makedirs`, `Path.mkdir`, `tempfile.mkdtemp`. Spec-enumerated, zero coverage.
+  - **network** — `socket.socket`, `urllib.request.urlopen`. Spec-enumerated, zero coverage.
+  - **a file read off the `builtins` path** — `Path.open` routes through `io.open`, and patching the `builtins`
+    attribute does not rebind `io.open`, so `Path(x).open().read()` escaped both file recorders. `Path.read_text`
+    was caught only because it was patched on the class directly.
+  "Resolve a version" was covered only *incidentally* — `importlib.metadata`'s `PathDistribution.read_text` happens
+  to route through `Path.read_text`, and only on a cold metadata cache. Incidental coverage is not coverage:
+  `importlib.metadata.version` MUST be recorded on the module attribute, at call time, per `[G18r2:MINOR-5]`.
+  This is `§0.1` over the collection "prohibited side-effect kinds": the recorded set must exclude **every** choice
+  the implementation could have made, and three of five excludes none of the other two.
   `[G22:3]` **`conformance` MUST be a REAL package (`__init__.py` present), and the RED must force on that.**
   Measured after the `[G22:2]` fix: AC-C1 and AC-C4 **passed** where both were expected to fail. Cause — and it is
   mine: this spec document lives at `engine_py/conformance/CONTRACTS_SPEC.md`, and a directory with no
@@ -188,6 +227,20 @@ different directions, all while the rule was written down and being cited.
   Asserted on **fixture spec documents**, at least one of which is non-conformant in each of the three ways, plus
   a conformant control that MUST pass. Per §0.1 the fixture set is non-uniform in each dimension independently,
   so a lint implementing only one of the three checks fails.
+  `[G22:7]` **Non-uniformity is required WITHIN each check, not only ACROSS the three.** Round 1 satisfied it for
+  check 1 (two levels, each asserted independently) and failed it for the other two, which is `[G18:1]` reappearing
+  **inside the lint written to mechanise `[G6:quant]`** — one lot later, in the artifact built to prevent it:
+  1. **Check 2 ranges over rows** and its fixture had exactly **one** row, so a lint reporting only the *first*
+     offending row passed. Required: ≥2 rows, at least one conformant and one not.
+  2. **Check 3 ranges over seams** and its fixture had exactly **one** seam. Same gap, same fix.
+  3. **Check 3 also ranges over the three property lines, and the fixture omitted all three at once.** The check is
+     "a seam missing **any** of the three", so a lint testing only `ATTRIBUTE-PATH` presence passed both that test
+     and the conformant control. **That implementation would miss two of this lot's own three founding cases** —
+     `mkdtemp` (binding time unpinned), `Path.read_text` (normalisation unpinned) — both of which pinned the
+     attribute path correctly and failed on the *other* properties. Required: three fixtures, each omitting exactly
+     **one** of the three property lines, so each property is independently load-bearing.
+  A lint that cannot catch the defects that motivated it is decoration. This clause is the one to check first in any
+  later round.
 
 The lint lives here, not in L8, because the defect class is the **enumeration** — in L8 it would be one row for
 one collection. It is L2's business because L2 owns the cross-lot invariants.
