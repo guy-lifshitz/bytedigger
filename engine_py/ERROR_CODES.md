@@ -19,6 +19,10 @@
 - `E_CANARY_EVENTS_MISSING` — phase_5_integration_canary: expected canary events.jsonl not found
 - `E_CANARY_NO_MATCH` — phase_5_integration_canary: expected event pattern not found in canary run
 
+## E_CAPABILITY
+
+- `E_CAPABILITY_ESCAPE` — llm_subprocess: an adapter reported a tool head outside the step's declared capability set (bd#10 R3.6)
+
 ## E_CLARIFY
 
 - `E_CLARIFY_BLOCKED` — phase_3_clarify: subagent returned BLOCKED verdict, cannot proceed
@@ -122,6 +126,10 @@
 
 - `E_HARD_GATE_MODEL_DOWNGRADE` — llm_subprocess: hard-gated model downgraded below the configured floor
 
+## E_INJECT
+
+- `E_INJECT_UNATTRIBUTED` — llm_subprocess: an injected prompt block lacked a source identifier, or its content was absent from the assembled prompt (bd#10 R3.2)
+
 ## E_INSUFFICIENT
 
 - `E_INSUFFICIENT_FANOUT` — phase_6_review: reviewer fan-out produced fewer results than required
@@ -180,6 +188,10 @@
 - `E_MISSING_RED_BOUNDARY` — phase_5_implement: RED diff missing required boundary marker
 - `E_MISSING_REVIEW_DOC_PATH` — anti_hallucination helper/semantic_verifier: review doc path not supplied
 - `E_MISSING_SCRATCHPAD` — phase_6_review: expected scratchpad artifact for review was not found
+
+## E_MODEL
+
+- `E_MODEL_PIN_MISMATCH` — llm_subprocess: the adapter reported a model of a different family from the dispatched request (bd#10 R3.3)
 
 ## E_NO
 

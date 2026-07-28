@@ -70,7 +70,10 @@ PACKAGED_ASSETS = [
     "scripts/red_lint/rules.yml",
 ]
 
-_SHIPPED_DIRS = ("lib", "workflows", "security")
+# bd#10: `conformance` is a shipped package — pyproject packages.find has
+# carried `conformance*` since bd#22 — but this list was never updated, so a
+# legitimate `import conformance` read as the missing-module extraction class.
+_SHIPPED_DIRS = ("lib", "workflows", "security", "conformance")
 
 
 def _shipped_sources():

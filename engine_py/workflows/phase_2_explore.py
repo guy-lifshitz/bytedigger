@@ -57,6 +57,7 @@ sys.path.insert(0, str(_ENGINE_ROOT / "lib"))
 sys.path.insert(0, str(_ENGINE_ROOT / "lib" / "plugins"))
 
 from contracts import StepContract, StepResult, WorkflowDefinition  # noqa: E402
+from conformance.attest import InjectedBlock  # noqa: E402  bd#10 R3.2 (AC-I5)
 from llm_subprocess import invoke_llm_subprocess  # noqa: E402
 from skip_logic import make_skip_result, passthrough_if_skipped, should_skip_phase  # noqa: E402
 from anti_hallucination.helper import (  # noqa: E402
@@ -186,6 +187,33 @@ def _maybe_role_template(ctx) -> str:
     if not rp.is_file():
         return ""
     return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
+
+
+def _role_template_injections(ctx) -> "tuple[InjectedBlock, ...]":
+    """bd#10 AC-I5 (R3.2): DECLARE the role-template block on the `injections`
+    channel, so the attributed channel is load-bearing on a real phase.
+
+    ATTRIBUTION IS SEPARATED FROM ASSEMBLY (`[bd10:16]`). This declares only —
+    `_build_explore_prompt` keeps PREPENDING the template exactly where :294-297
+    puts it, and AC-I6 fences that with a byte-level comparison. `[bd10:10]`
+    pins both spellings the digest depends on: `source_id` is
+    `str(Path(role_path).expanduser())` (NOT `.resolve()`, so a symlinked home
+    does not change the recorded identifier) and `content` is what
+    `_maybe_role_template` returns, trailing normalisation included.
+    """
+    cfg = ctx.org_config or {}
+    role_path = cfg.get("role_template_path")
+    if not role_path:
+        return ()
+    content = _maybe_role_template(ctx)
+    if not content:
+        return ()
+    return (
+        InjectedBlock(
+            source_id=str(Path(role_path).expanduser()),
+            content=content,
+        ),
+    )
 
 
 def _perspectives_block(complexity: str) -> str:
@@ -370,6 +398,7 @@ def _invoke_explore_llm(ctx, prev) -> StepResult:
             "graph_source": graph_src,
         },
         allowed_tools=["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Write", "Bash(graphify-shim.sh:*)"],
+        injections=_role_template_injections(ctx),
     )
 
 

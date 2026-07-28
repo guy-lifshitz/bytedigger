@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import subprocess
 import threading
 import time
@@ -50,6 +50,13 @@ import config_provider
 from config_provider import hal_root as _hal_root_fn
 from lib.timeout_policy import classify_timeout_state, resolve_active_threshold_bytes
 from lib.llm_provider import get_provider  # GH451: provider seam (build_argv/parse_result/rank/family/floor)
+from lib.llm_provider import _claude_model_family  # bd#10 AC-M4: the external family ladder
+from conformance.attest import (  # bd#10: the attestation seam (R3.1-R3.6)
+    EVENT_TYPE as _ATTEST_EVENT_TYPE,
+    InjectedBlock,
+    capability_escapes,
+    hash_text,
+)
 import lib.model_config as _model_config
 from lib.env_limit import detect_env_limit
 
@@ -93,8 +100,14 @@ _ALLOWED_MANIFEST_SOURCES: frozenset[str] = frozenset(_BACKEND_MANIFEST_SOURCE.v
 # _BACKEND_MANIFEST_SOURCE — single source-of-truth for "does backend X
 # support capability Y". Fail-closed: backend not in dict for capability Y
 # means capability Y unavailable; probe rejects watchdog requests.
+#
+# bd#10 AC-C2 (R3.5): "tool_allowlist" declares that the backend ENFORCES the
+# caller's allowed_tools at runtime. claude-subprocess appends --allowed-tools
+# before spawn (:1374-1376); a backend that only accepts and ignores the
+# argument (lib/reference_backends/anthropic_api.py:139,149) must NOT declare
+# it, so the attestation records "not-enforced" rather than an overclaim.
 _BACKEND_CAPABILITIES: dict[str, frozenset[str]] = {
-    "claude-subprocess": frozenset({"manifest", "progress_since", "abort"}),
+    "claude-subprocess": frozenset({"manifest", "progress_since", "abort", "tool_allowlist"}),
     "claude-in-session": frozenset({"manifest"}),
 }
 
@@ -968,6 +981,231 @@ def _invoke_in_session(
     return StepResult(status="ok", data=data, duration_ms=duration_ms, step_name=step_name)
 
 
+def _injection_refusal(
+    injections: "Sequence[InjectedBlock] | None",
+    prompt: str,
+    step_name: str,
+) -> "StepResult | None":
+    """bd#10 R3.2 / ADV-8 (AC-I3, AC-I7): refuse to dispatch an unattributable
+    declaration. Returns the error StepResult, or None when every block passes.
+
+    Two ways a declaration fails CLOSED, and both must precede the dispatch:
+      * `source_id` is None, "" or not a str — the block carries no identifier,
+        so R3.2's "every injected block carries a source identifier" (CL:98)
+        cannot be satisfied for it;
+      * `content` does not occur in the assembled prompt — the declaration
+        corresponds to no bytes the model ever read, which is what stops
+        attribution being an honour system once `[bd10:16]` separated
+        attribution from assembly.
+    """
+    for index, block in enumerate(injections or ()):
+        source_id = getattr(block, "source_id", None)
+        if not isinstance(source_id, str) or not source_id:
+            return StepResult(
+                status="error",
+                data=None,
+                duration_ms=0,
+                step_name=step_name,
+                error=(
+                    f"injected block {index} carries no source identifier "
+                    f"(source_id={source_id!r})"
+                ),
+                error_code="E_INJECT_UNATTRIBUTED",
+                recoverable=False,
+            )
+        content = getattr(block, "content", "")
+        if not isinstance(content, str) or content not in prompt:
+            return StepResult(
+                status="error",
+                data=None,
+                duration_ms=0,
+                step_name=step_name,
+                error=(
+                    f"injected block {index} ({source_id!r}) declares content that "
+                    f"does not occur in the assembled prompt"
+                ),
+                error_code="E_INJECT_UNATTRIBUTED",
+                recoverable=False,
+            )
+    return None
+
+
+def _capability_enforcement(resolved_backend: str) -> str:
+    """bd#10 AC-C2 (R3.5): who enforces the declared capability set, read from
+    the `tool_allowlist` capability token rather than from the backend name."""
+    caps = _BACKEND_CAPABILITIES.get(resolved_backend) or frozenset()
+    return "runtime-allowlist" if "tool_allowlist" in caps else "not-enforced"
+
+
+def _observed(result: StepResult, key: str) -> object:
+    """bd#10 `[bd10:5]` / `[bd10:12]`: what the adapter REPORTED for *key*, or
+    None when it reported nothing. Absence is a first-class third state — it is
+    never an error and never a licence to substitute a value the engine knows."""
+    data = result.data if isinstance(result.data, dict) else {}
+    return data.get(key)
+
+
+def _attest_payload(
+    resolved_backend: str,
+    *,
+    prompt: str,
+    model: str,
+    step_name: str,
+    allowed_tools: "list[str] | None",
+    injections: "Sequence[InjectedBlock] | None",
+    result: StepResult,
+) -> "dict[str, object]":
+    """bd#10 AC-P1: the NINE payload keys, exactly.
+
+    `prompt` is the PRE-hoist assembled text (spec §0.4) — never
+    `_invoke_subprocess`'s `effective_prompt` local, which has `stable_prefix`
+    removed. `model` is the POST-tier-rebind dispatched model (`[bd10:7]`), so
+    the log never names a model that was not invoked.
+    """
+    observed_model = _observed(result, "observed_model")
+    observed_tools = _observed(result, "observed_tools")
+    return {
+        "step_name": step_name,
+        "backend": resolved_backend,
+        "model_requested": model,
+        "prompt_sha256": hash_text(prompt),
+        "injections": [
+            {"source_id": block.source_id, "sha256": hash_text(block.content)}
+            for block in (injections or ())
+        ],
+        # AC-C1: verbatim as a list, or null. Normalising None to [] would turn
+        # "no declaration" into the affirmative claim "no tools were granted".
+        "declared_capabilities": list(allowed_tools) if allowed_tools is not None else None,
+        "capability_enforcement": _capability_enforcement(resolved_backend),
+        "observed_model": observed_model if isinstance(observed_model, str) else None,
+        "observed_tools": (
+            list(observed_tools) if isinstance(observed_tools, (list, tuple)) else None
+        ),
+    }
+
+
+def _pin_mismatch_refusal(
+    result: StepResult,
+    *,
+    model: str,
+    step_name: str,
+    run_ctx: "_RunCtx | None",
+) -> "StepResult | None":
+    """bd#10 R3.3 / ADV-7 (AC-M2, AC-M4): drift iff BOTH families resolve and
+    differ. An adapter that reported nothing, or reported an unrecognised
+    token, is `not-checked` — an unrecognised token is not evidence of drift.
+
+    `[bd10:2]`: this is the CHOKEPOINT check only. The in-session warn-only
+    path (:917-919) is untouched; bd#29 owns that flip.
+    """
+    observed = _observed(result, "observed_model")
+    if not isinstance(observed, str) or not observed:
+        return None
+    observed_family = _claude_model_family(observed)
+    pinned_family = _claude_model_family(model)
+    if observed_family is None or pinned_family is None:
+        return None
+    if observed_family == pinned_family:
+        return None
+    if run_ctx is not None and run_ctx.event_log is not None:
+        # `[bd10:26]`: a NEW writer of an EXISTING event type with a DIFFERENT
+        # meaning. `chokepoint: True` is the discriminator that lets a consumer
+        # tell "the step failed" from :919's "we warned and continued".
+        _emit_safe(run_ctx.event_log, "model_pin_mismatch", {
+            "step_name": step_name,
+            "phase": run_ctx.phase,
+            "pinned_model": model,
+            "observed_model": observed,
+            "pinned_family": pinned_family,
+            "observed_family": observed_family,
+            "severity": "error",
+            "chokepoint": True,
+        }, run_ctx.run_id)
+    data = dict(result.data) if isinstance(result.data, dict) else {}
+    data["observed_model"] = observed
+    data["pinned_model"] = model
+    return StepResult(
+        status="error",
+        data=data,
+        duration_ms=result.duration_ms,
+        step_name=step_name,
+        error=(
+            f"model pin mismatch: dispatched {model!r} ({pinned_family}), adapter "
+            f"reported {observed!r} ({observed_family})"
+        ),
+        error_code="E_MODEL_PIN_MISMATCH",
+        recoverable=False,
+    )
+
+
+def _capability_escape_refusal(
+    result: StepResult,
+    *,
+    allowed_tools: "list[str] | None",
+    step_name: str,
+) -> "StepResult | None":
+    """bd#10 R3.6 / ADV-10 (AC-C3, AC-C4): a tool head outside the declaration.
+
+    `allowed_tools is None` ⇒ no check (nothing can be outside a set that was
+    never declared); `observed_tools` absent ⇒ no check (the adapter cannot
+    observe). Both are distinct from `[]`, which IS a declaration/observation.
+    """
+    if allowed_tools is None:
+        return None
+    observed_tools = _observed(result, "observed_tools")
+    if not isinstance(observed_tools, (list, tuple)):
+        return None
+    escapes = capability_escapes(
+        [tool for tool in observed_tools if isinstance(tool, str)], allowed_tools,
+    )
+    if not escapes:
+        return None
+    data = dict(result.data) if isinstance(result.data, dict) else {}
+    data["capability_escapes"] = list(escapes)
+    data["declared_capabilities"] = list(allowed_tools)
+    return StepResult(
+        status="error",
+        data=data,
+        duration_ms=result.duration_ms,
+        step_name=step_name,
+        error=f"capability escape: observed tool head(s) {list(escapes)!r} outside declaration",
+        error_code="E_CAPABILITY_ESCAPE",
+        recoverable=False,
+    )
+
+
+def _emit_attestation(
+    resolved_backend: str,
+    *,
+    prompt: str,
+    model: str,
+    step_name: str,
+    allowed_tools: "list[str] | None",
+    injections: "Sequence[InjectedBlock] | None",
+    result: StepResult,
+    run_ctx: "_RunCtx | None",
+) -> None:
+    """bd#10 R3.1 (AC-P1, AC-P6, AC-P8): one `model_invocation_attested` event
+    per DISPATCH, through `_emit_safe` so a failing event log can never break
+    execution, and only where a run context is active (`[bd10:4]`)."""
+    if run_ctx is None or run_ctx.event_log is None:
+        return
+    _emit_safe(
+        run_ctx.event_log,
+        _ATTEST_EVENT_TYPE,
+        _attest_payload(
+            resolved_backend,
+            prompt=prompt,
+            model=model,
+            step_name=step_name,
+            allowed_tools=allowed_tools,
+            injections=injections,
+            result=result,
+        ),
+        run_ctx.run_id,
+    )
+
+
 def _dispatch_backend(
     resolved_backend: str,
     *,
@@ -983,6 +1221,7 @@ def _dispatch_backend(
     straggler_cfg: "dict[str, object] | None",
     idle_timeout_sec: int | float | None,
     stable_prefix: str = "",
+    injections: "Sequence[InjectedBlock] | None" = None,
 ) -> StepResult:
     """GH1169 §2.2.1 extraction of the GH334 §2.2 two-branch dispatch tail.
 
@@ -995,9 +1234,33 @@ def _dispatch_backend(
     stay call-compatible (back-compat byte-identity). Explicit two-branch
     dispatch (not a dict-splat) so mypy sees typed kwargs against the
     LLMBackend protocol.
+
+    bd#10 (AUTHORSHIP_SPEC.md): this is the chokepoint every backend passes
+    through, so R3.1-R3.6 are recorded and adjudicated HERE and in no adapter.
+    THE ORDER OF OPERATIONS IS THE CONTRACT:
+
+      1. Validate `injections` BEFORE dispatching. A refusal returns without
+         calling the backend at all.
+      2. A refusal emits NOTHING (`[bd10:27]`): an attestation exists IF AND
+         ONLY IF a dispatch occurred, because a record of an invocation that
+         never happened reads as a fact and ends enquiry.
+      3. Dispatch.
+      4. Attest AFTER the adapter returns and BEFORE the checkers' verdict
+         (`[bd10:24]`): the attestation records the INVOCATION, not the
+         verdict, so a dispatch the checks then fail is still attested — which
+         is the evidence bd#28's aggregation needs to be able to say `failed`.
+      5. Then adjudicate. The checks change the returned StepResult; they never
+         change whether the event exists.
+
+    `injections` is forwarded to no backend — the LLMBackend protocol is
+    unchanged. `None` ("channel unused") and `()` ("channel used, zero blocks")
+    are both legal and both record `[]` (AC-I2).
     """
+    inject_refusal = _injection_refusal(injections, prompt, step_name)
+    if inject_refusal is not None:
+        return inject_refusal
     if stable_prefix:
-        return _BACKENDS[resolved_backend](
+        result = _BACKENDS[resolved_backend](
             prompt=prompt,
             model=model,
             timeout_sec=timeout_sec,
@@ -1011,19 +1274,41 @@ def _dispatch_backend(
             idle_timeout_sec=idle_timeout_sec,
             stable_prefix=stable_prefix,
         )
-    return _BACKENDS[resolved_backend](
+    else:
+        result = _BACKENDS[resolved_backend](
+            prompt=prompt,
+            model=model,
+            timeout_sec=timeout_sec,
+            step_name=step_name,
+            extra_data=extra_data,
+            allowed_tools=allowed_tools,
+            run_ctx=run_ctx,
+            hard_gate=hard_gate,
+            gate_label=gate_label,
+            straggler_cfg=straggler_cfg,
+            idle_timeout_sec=idle_timeout_sec,
+        )
+    _emit_attestation(
+        resolved_backend,
         prompt=prompt,
         model=model,
-        timeout_sec=timeout_sec,
         step_name=step_name,
-        extra_data=extra_data,
         allowed_tools=allowed_tools,
+        injections=injections,
+        result=result,
         run_ctx=run_ctx,
-        hard_gate=hard_gate,
-        gate_label=gate_label,
-        straggler_cfg=straggler_cfg,
-        idle_timeout_sec=idle_timeout_sec,
     )
+    pin_refusal = _pin_mismatch_refusal(
+        result, model=model, step_name=step_name, run_ctx=run_ctx,
+    )
+    if pin_refusal is not None:
+        return pin_refusal
+    escape_refusal = _capability_escape_refusal(
+        result, allowed_tools=allowed_tools, step_name=step_name,
+    )
+    if escape_refusal is not None:
+        return escape_refusal
+    return result
 
 
 def _fallback_hang_attempts(
@@ -1098,6 +1383,7 @@ def invoke_llm_subprocess(
     straggler_cfg: dict | None = None,
     backend: str | None = None,
     stable_prefix: str = "",
+    injections: "Sequence[InjectedBlock] | None" = None,
 ) -> StepResult:
     """Run ``command`` with ``prompt`` on stdin, return a StepResult.
 
@@ -1160,6 +1446,18 @@ def invoke_llm_subprocess(
         inside the chokepoint, so the ``hard_gate_refused`` event always fires
         when an active run is set — fixing HIGH #2 (workflows previously passed
         ``run_ctx=None`` so emission was a no-op).
+
+    bd#10 — ``injections`` (keyword-only, default None):
+        The attributed-injection channel (R3.2 / CL:98). The CALLER places its
+        own text and keeps whatever placement contract its site documents; it
+        merely DECLARES each injected block as an
+        ``conformance.attest.InjectedBlock(source_id=..., content=...)``.
+        ``_dispatch_backend`` records ``{source_id, sha256}`` per block in the
+        attestation and VERIFIES each declared ``content`` occurs in the
+        assembled prompt, returning ``E_INJECT_UNATTRIBUTED`` without
+        dispatching when a block is unattributed or unverifiable. ``None`` ("no
+        injection channel used") and ``()`` ("channel used, zero blocks") are
+        distinct inputs, both legal, and are indistinguishable in the payload.
 
     Telemetry (decree 2026-04-26 category A): if telemetry_ctx.get_current_run()
     is set, emits subprocess_spawned + subprocess_exited events. Failures in
@@ -1290,6 +1588,7 @@ def invoke_llm_subprocess(
         straggler_cfg=straggler_cfg,
         idle_timeout_sec=idle_timeout_sec,
         stable_prefix=stable_prefix,
+        injections=injections,
     )
 
     # GH1169 §2.2 — one-shot backend fallback: an agent-sdk step that timed
@@ -1317,6 +1616,7 @@ def invoke_llm_subprocess(
             straggler_cfg=straggler_cfg,
             idle_timeout_sec=idle_timeout_sec,
             stable_prefix=stable_prefix,
+            injections=injections,
         )
 
     return result
