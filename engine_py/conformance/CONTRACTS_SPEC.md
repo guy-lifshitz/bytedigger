@@ -1,6 +1,6 @@
 # Lot spec — bd#22 (L2): conformance package, shared contracts, quantifier-completeness lint
 
-**v4.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
+**v5.** Lot **L2** of the 12-lot split of bd#7. Base: `origin/main` @ `a2691f9`. Exactly **7 ACs**, pinned in the
 issue before freeze so the split's 113-AC accounting stays checkable.
 
 Depends on nothing but `main`. Everything after L2 depends on it. It MUST NOT reference L1's emissions or any
@@ -52,6 +52,31 @@ a reader cannot distinguish a shield from a test that never measured anything.
 measurements from another host and two did not reproduce. L1 carried two `event_log.py` citations from bd#7's
 older base and **both were stale**, pointing at unrelated code. Every citation in this spec is resolved against
 `a2691f9`; every number is measured on the executing host.
+
+## 0.8 The failure mode this lot has now produced six times `[G22:8]`
+
+Every defect in this lot has been **a requirement discharged exactly as worded, with the defect one level below**.
+Not carelessness — each fix satisfied its clause literally:
+
+| Stated | Discharged as | Defect landed at |
+|---|---|---|
+| `[G22:1]` "the RED asserts against pinned names" | grammar pinned | `Finding`'s attributes, unpinned (`[G22:4]`) |
+| `[G22:3]` "force on something that doesn't exist" | `import conformance` | it *did* exist, as a namespace package |
+| `[G22:5]` "a level that `ADMITS` four, a row that `EXCLUDES` three" | explicit `ADMITS` line | the `ADMITS`-**absent default** path, never exercised (`[G22:9]`) |
+| `[G22:6]` "record all five prohibited acts" | 14 seams, five acts | `os.scandir`/`os.walk` **inside** the scan act (`[G22:10]`) |
+| `[G22:7]` "non-uniform within each check" | ≥2 members per check | all three fixtures in **one ordering** (`[G22:11]`) |
+
+**So prose requirements are not enough, and this is the lot whose whole purpose is to mechanise that insight.**
+Three rules, stated so they can be checked rather than interpreted:
+
+1. **Both orderings, always.** Any fixture with ≥2 members MUST exist with the offending member **first** and with
+   it **last**. Satisfying "non-uniform" with a fixed member order leaves `first`-only or `last`-only alive — which
+   is `[G18:1]` verbatim, and it has now recurred twice after being written down.
+2. **Every optional element's DEFAULT path is a separate fixture.** If a grammar element is optional with a
+   default, a fixture exercising the element **present** does not exercise the default. Both, separately.
+3. **Enumerations are exhausted at the API level, not the concept level.** "Cover the five acts" is discharged by
+   covering every *callable* that performs each act, not one per act. Where an enumeration is the requirement, the
+   spec MUST list the members, because a concept boundary is not checkable and an API list is.
 
 ## 1. Measured baseline
 
@@ -132,9 +157,14 @@ five AC-C5 tests**, because no fixture anywhere carried an `EXCLUDES` line that 
 
 Declaring the admitted set makes the check computable without pretending every collection admits all four:
 `first` and `last` are meaningless for an unordered collection, so demanding them universally would have been
-wrong in the other direction. **Required of the RED:** a fixture whose level `ADMITS` four and whose row
-`EXCLUDES` three — the present-but-short case — and the conformant control's rows must cover their levels'
-admitted sets exactly.
+wrong in the other direction. **Required of the RED `[G22:9]`, corrected:** the present-but-short row's level MUST carry **no** `ADMITS` line,
+so the all-four **default** is what makes it a finding. Round 2 gave that row an *explicit* `ADMITS: any, all, first,
+last` — which satisfied the wording and is the one variant that never exercises the default, so a lint applying the
+coverage check **only when an explicit `ADMITS:` is present** passed all 17 tests. A real spec writing `LEVEL: x` /
+`NON-UNIFORMITY: x — …` / `EXCLUDES: any` with no `ADMITS` would have shipped green: exactly the under-enumeration
+this AC exists to catch. Keep a separate explicit-`ADMITS` short row as well, per `[G22:8]`'s rule 2 — present and
+default are two fixtures, not one. `ADMITS` binds to the **nearest preceding `LEVEL`**; a token outside the four is
+itself a finding of kind `missing_reductions`.
 
 This is the fourth time in this lot that describing a value stood in for pinning one (`[G22:1]` grammar,
 `[G22:3]` forcing assumption, `[G22:4]` `Finding`, now this). The tell is the same each time: a clause that reads
@@ -147,7 +177,11 @@ potential lint failure.
 ## 2. Package and contracts (AC-C1..AC-C4)
 
 - **AC-C1** `engine_py/conformance/` is an importable package with **no import-time side effects**: importing it
-  MUST NOT read a file, touch the network, resolve a version, spawn a process, or create a directory.
+  MUST do **no work at all** — that is the normative form, and the list that follows is illustrative rather than
+  exhaustive (`[G22:8]` rule 3): it must not read a file, touch the network, resolve a version, spawn a process,
+  scan a directory, or create one. Round 2 noted the enumeration said "five acts" while the recorded set covered
+  six kinds, directory *scan* not being among the five; "no work" is what the RED actually asserts and what GREEN
+  must satisfy.
   `[G22:2]` **The seams MUST be RECORD-AND-DELEGATE, never raise.** This is normative on the *assertion mechanism*,
   because round 1 got it wrong in a way that made the entire file inert. It replaced `builtins.open` with a raiser —
   and `open` is a primitive **pytest itself runs on**: assertion rewriting, traceback source reading, capture, and
@@ -180,6 +214,25 @@ potential lint failure.
   `importlib.metadata.version` MUST be recorded on the module attribute, at call time, per `[G18r2:MINOR-5]`.
   This is `§0.1` over the collection "prohibited side-effect kinds": the recorded set must exclude **every** choice
   the implementation could have made, and three of five excludes none of the other two.
+  `[G22:10]` **Corrected: the enumeration is exhausted at the API level, not the act level** (`[G22:8]` rule 3).
+  Round 2 recorded 14 seams covering five acts and still left the *most plausible* act open: `os.scandir` was
+  uncovered, and therefore so was **`os.walk`**, which resolves `scandir` as an `os` module global and so reaches
+  the real one without touching `os.listdir`, `Path.iterdir` or `Path.glob`. A one-line
+  `os.walk`-based registry build in `__init__.py` recorded **nothing**. Same shape one act over: "spawn a process"
+  was covered only by `subprocess.run`, while `subprocess.Popen` (which `run` *wraps*, so the coverage does not flow
+  backwards), `os.system` and `os.popen` all escaped. And note this AC's own rule forbids the reply that `Path.glob`
+  internally calls `os.scandir`: **incidental coverage is not coverage.**
+  The recorded set is therefore pinned as this list, and a later round adds to it rather than reasoning about acts:
+  `builtins.open`, `io.open`, `os.open`, `Path.open`, `Path.read_text`, `Path.write_text`,
+  `os.listdir`, `os.scandir`, `os.walk`, `Path.iterdir`, `Path.glob`, `Path.rglob`,
+  `os.mkdir`, `os.makedirs`, `Path.mkdir`, `tempfile.mkdtemp`, `tempfile.NamedTemporaryFile`,
+  `subprocess.run`, `subprocess.Popen`, `subprocess.check_output`, `os.system`, `os.popen`,
+  `socket.socket`, `socket.create_connection`, `urllib.request.urlopen`,
+  `importlib.metadata.version`, `importlib.metadata.distribution`.
+  Two mechanical notes for the RED: `socket.socket` is a **class**, so a function wrapper breaks `isinstance`/
+  subclassing for the duration of the window — acceptable only because the window contains nothing but imports, and
+  it MUST carry an inline comment saying so. And the recorder MUST filter by `threading.get_ident()`, because `calls`
+  is process-global and a concurrent thread touching any of these would be attributed to the import.
   `[G22:3]` **`conformance` MUST be a REAL package (`__init__.py` present), and the RED must force on that.**
   Measured after the `[G22:2]` fix: AC-C1 and AC-C4 **passed** where both were expected to fail. Cause — and it is
   mine: this spec document lives at `engine_py/conformance/CONTRACTS_SPEC.md`, and a directory with no
@@ -241,6 +294,13 @@ different directions, all while the rule was written down and being cited.
      **one** of the three property lines, so each property is independently load-bearing.
   A lint that cannot catch the defects that motivated it is decoration. This clause is the one to check first in any
   later round.
+  `[G22:11]` **Corrected: BOTH ORDERINGS** (`[G22:8]` rule 1). Round 2 built the three property fixtures with the
+  conformant seam **first** and the offending seam **last** — in all three — so a lint evaluating only the **last**
+  `SEAM:` block (a loop-variable escape, entirely ordinary) passed **all 17 tests**. That is `[G18:1]` verbatim,
+  inside the fixtures written to fix its analogue, and the second recurrence after the rule was written down.
+  Required: at least one of the three property fixtures places the offending seam **first**, or carries a third
+  conformant seam after it. Check 2 already got this right — its offenders are 1st and 2nd with the conformant row
+  3rd, which kills first-only and last-only together — and it is the model to copy.
 
 The lint lives here, not in L8, because the defect class is the **enumeration** — in L8 it would be one row for
 one collection. It is L2's business because L2 owns the cross-lot invariants.
