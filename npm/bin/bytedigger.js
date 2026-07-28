@@ -24,9 +24,13 @@ if (has("bytedigger-engine")) {
 
 console.error("ByteDigger's engine is a Python package -- this npm package is just a pointer.");
 console.error("");
-console.error("Install it with pip:");
+console.error("Install it with pipx (recommended for CLI tools):");
 console.error("");
-console.error("  pip install git+https://github.com/guy-lifshitz/bytedigger.git#subdirectory=engine_py");
+console.error("  pipx install bytedigger-engine");
+console.error("");
+console.error("Or into an active virtualenv:");
+console.error("");
+console.error("  python3 -m pip install bytedigger-engine");
 console.error("");
 console.error("Then re-run this command, or use `bytedigger-engine` directly.");
 console.error("Docs: https://github.com/guy-lifshitz/bytedigger");

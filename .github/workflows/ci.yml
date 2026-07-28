@@ -127,3 +127,6 @@ jobs:
 
       - name: ci main-heartbeat unit tests (bd#12 re-wedge fence)
         run: python -m pytest tests/test_ci_main_heartbeat.py -q
+
+      - name: npm install-hint property tests (bd#17)
+        run: python -m pytest tests/test_npm_install_hint.py -q
