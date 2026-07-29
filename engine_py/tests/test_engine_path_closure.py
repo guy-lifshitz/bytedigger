@@ -132,15 +132,10 @@ def _declared_shipped_dirs(root=None):
     return tuple(dirs)
 
 
-# RED-phase scaffold: the stale hand-kept copy bd#30 is about. Replaced by
-# _declared_shipped_dirs() in the GREEN commit.
-_SHIPPED_DIRS = ("lib", "workflows", "security", "conformance")
-
-
 def _shipped_sources():
     for p in ENGINE_PY_ROOT.glob("*.py"):
         yield p
-    for d in _SHIPPED_DIRS:
+    for d in _declared_shipped_dirs():
         yield from (ENGINE_PY_ROOT / d).rglob("*.py")
 
 
@@ -266,12 +261,7 @@ def test_ac2_packaged_assets_exist():
 
 
 def test_ac3_packaged_assets_are_wheel_visible():
-    if sys.version_info >= (3, 11):
-        import tomllib
-    else:  # pragma: no cover
-        import tomli as tomllib
-    with (ENGINE_PY_ROOT / "pyproject.toml").open("rb") as f:
-        cfg = tomllib.load(f)
+    cfg = _pyproject()
     include = cfg["tool"]["setuptools"]["packages"]["find"]["include"]
     assert any(pat.startswith("security") for pat in include), include
     assert any(pat.startswith("scripts") for pat in include), include
@@ -465,12 +455,7 @@ def _declared_deps():
     """Import names of everything pyproject declares (deps + all extras),
     read at test time so the set cannot go stale. Distribution names are
     normalized to import names; the few whose import name differs are mapped."""
-    if sys.version_info >= (3, 11):
-        import tomllib
-    else:  # pragma: no cover
-        import tomli as tomllib
-    with (ENGINE_PY_ROOT / "pyproject.toml").open("rb") as f:
-        cfg = tomllib.load(f)
+    cfg = _pyproject()
     raw = list(cfg["project"].get("dependencies", []))
     for extra in cfg["project"].get("optional-dependencies", {}).values():
         raw.extend(extra)
@@ -499,12 +484,12 @@ def test_ac4_unguarded_imports_resolve_in_tree_or_deps():
     # Bare sibling imports (import phase_45_spec from inside workflows/) resolve
     # at runtime because callers put the package dirs on sys.path -- so every
     # shipped module stem anywhere in the tree counts as local.
+    shipped_dirs = _declared_shipped_dirs()
     local_top = (
         {p.stem for p in ENGINE_PY_ROOT.glob("*.py")}
-        | {p.stem for d in _SHIPPED_DIRS for p in (ENGINE_PY_ROOT / d).rglob("*.py")}
-        | {p.parent.name for d in _SHIPPED_DIRS for p in (ENGINE_PY_ROOT / d).rglob("__init__.py")}
-        | set(_SHIPPED_DIRS)
-        | {"scripts"}
+        | {p.stem for d in shipped_dirs for p in (ENGINE_PY_ROOT / d).rglob("*.py")}
+        | {p.parent.name for d in shipped_dirs for p in (ENGINE_PY_ROOT / d).rglob("__init__.py")}
+        | set(shipped_dirs)
     )
     stdlib = set(sys.stdlib_module_names)
     declared = _declared_deps()
