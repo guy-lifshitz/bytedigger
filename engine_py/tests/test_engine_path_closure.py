@@ -32,6 +32,7 @@ from __future__ import annotations
 import ast
 import re
 import sys
+from fnmatch import fnmatch
 from pathlib import Path
 
 ENGINE_PY_ROOT = Path(__file__).resolve().parent.parent
@@ -70,16 +71,71 @@ PACKAGED_ASSETS = [
     "scripts/red_lint/rules.yml",
 ]
 
-# bd#10: `conformance` is a shipped package — pyproject packages.find has
-# carried `conformance*` since bd#22 — but this list was never updated, so a
-# legitimate `import conformance` read as the missing-module extraction class.
-_SHIPPED_DIRS = ("lib", "workflows", "security", "conformance")
+def _pyproject(root=None):
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:  # pragma: no cover
+        import tomli as tomllib
+    with ((root or ENGINE_PY_ROOT) / "pyproject.toml").open("rb") as f:
+        return tomllib.load(f)
+
+
+def _top_segment(pattern):
+    """The top-level-directory part of a packages.find pattern.
+
+    `lib*` -> `lib*`; `lib.plugins*` -> `lib`. A dotted pattern names a
+    SUBpackage, so reducing it to its root widens the include side (the root
+    dir is traversed whole) and would wrongly narrow the exclude side -- which
+    is why only the include side reduces; see _declared_shipped_dirs.
+    """
+    return pattern.split(".", 1)[0]
+
+
+def _declared_shipped_dirs(root=None):
+    """Top-level shipped package dirs, DERIVED from pyproject at test time.
+
+    bd#22 added `conformance*` to pyproject and bd#30 found `scripts*` in the
+    same state: a hand-kept second copy of the registry in this test goes stale
+    silently, and every check below then reports green over a shipment it never
+    walked -- green by absence of the checked, not by absence of violations.
+    So there is exactly one registry, `[tool.setuptools.packages.find]`, and
+    this reads it.
+
+    Semantics mirrored from setuptools, and their limits stated rather than
+    assumed:
+      * `packages.find` (not `find_namespace`) only discovers dirs carrying
+        `__init__.py`, so a dir without one is not a shipped package however
+        the patterns read.
+      * `include` defaults to everything when the key is absent.
+      * A dotted `include` pattern (`lib.plugins*`) restricts shipment to a
+        subtree; this returns its ROOT, so traversal covers a superset of the
+        shipment. Deliberate: for a blind-spot gate, over-walking is a false
+        alarm you see, under-walking is the defect being fixed.
+      * A dotted `exclude` pattern removes a subpackage, NOT the root dir, so
+        it is ignored here -- honouring it at root level would delete a whole
+        shipped tree from the traversal and rebuild the blind spot.
+    """
+    root = root or ENGINE_PY_ROOT
+    find = _pyproject(root)["tool"]["setuptools"].get("packages", {}).get("find", {})
+    include = find.get("include") or ["*"]
+    exclude = find.get("exclude") or []
+    flat_exclude = [p for p in exclude if "." not in p]
+    dirs = []
+    for child in sorted(p for p in root.iterdir() if p.is_dir()):
+        if not (child / "__init__.py").is_file():
+            continue
+        if not any(fnmatch(child.name, _top_segment(p)) for p in include):
+            continue
+        if any(fnmatch(child.name, p) for p in flat_exclude):
+            continue
+        dirs.append(child.name)
+    return tuple(dirs)
 
 
 def _shipped_sources():
     for p in ENGINE_PY_ROOT.glob("*.py"):
         yield p
-    for d in _SHIPPED_DIRS:
+    for d in _declared_shipped_dirs():
         yield from (ENGINE_PY_ROOT / d).rglob("*.py")
 
 
@@ -119,18 +175,93 @@ def test_ac1_every_out_of_package_path_is_packaged_or_allowlisted():
     )
 
 
+# ─── AC6: the traversal registry is derived from pyproject, not kept twice ───
+#
+# Asserted on the OBSERVED output of _shipped_sources() -- the real set of
+# walked paths -- not on the text of any list. A check that reads the registry
+# it is guarding proves only that the registry equals itself.
+
+
+def test_ac6a_traversal_covers_every_declared_shipped_dir():
+    """Every .py under every pyproject-declared shipped package is walked.
+
+    This is the reachability side: it goes red on a dir that pyproject ships
+    and the traversal skips -- `scripts*` today, `conformance*` in bd#22, and
+    whatever lands next.
+    """
+    walked = {p.resolve() for p in _shipped_sources()}
+    unwalked = []
+    for d in _declared_shipped_dirs():
+        for src in sorted((ENGINE_PY_ROOT / d).rglob("*.py")):
+            if src.resolve() not in walked:
+                unwalked.append(str(src.relative_to(ENGINE_PY_ROOT)))
+    assert not unwalked, (
+        "pyproject ships these files but the path-closure traversal never "
+        "reaches them, so every check in this module is silently green over "
+        "them. Derive the traversal from "
+        "[tool.setuptools.packages.find] instead of re-listing the dirs:\n  "
+        + "\n  ".join(unwalked)
+    )
+
+
+def test_ac6b_traversal_stays_inside_the_declaration():
+    """Nothing outside the declaration is walked.
+
+    The other side of AC6a, and the reason 'derive it' is not satisfied by
+    'walk everything': a traversal that picks up undeclared dirs (tests/,
+    examples/) stops asserting anything about the shipment. Root-level *.py is
+    allowed -- those are the py-modules block, a separate registry bd#30 does
+    not touch.
+    """
+    declared = set(_declared_shipped_dirs())
+    strays = sorted(
+        str(p.relative_to(ENGINE_PY_ROOT))
+        for p in _shipped_sources()
+        if p.parent != ENGINE_PY_ROOT
+        and p.relative_to(ENGINE_PY_ROOT).parts[0] not in declared
+    )
+    assert not strays, (
+        "path-closure traversal walks dirs that pyproject does not ship -- the "
+        "derivation has degraded into 'walk everything', which asserts nothing "
+        "about the shipment:\n  " + "\n  ".join(strays)
+    )
+
+
+def test_ac6c_pyproject_is_the_only_registry(tmp_path):
+    """A dir added to pyproject is picked up with NO edit to this test.
+
+    Hermetic, on a synthetic tree, so it states the property (single source of
+    truth) rather than the current contents of the real one:
+      * `gamma` is declared and picked up though no list here names it;
+      * `beta` is a real package and is NOT picked up -- undeclared;
+      * `delta` matches a pattern but carries no __init__.py, so
+        packages.find would not ship it either.
+    """
+    for name in ("alpha", "beta", "gamma", "delta"):
+        (tmp_path / name).mkdir()
+    for name in ("alpha", "beta", "gamma"):
+        (tmp_path / name / "__init__.py").write_text("")
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.setuptools.packages.find]\n"
+        'include = ["alpha*", "gamma*", "delta*"]\n'
+    )
+    assert _declared_shipped_dirs(tmp_path) == ("alpha", "gamma")
+
+    # the mutation: one line in the synthetic pyproject, nothing here
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.setuptools.packages.find]\n"
+        'include = ["alpha*", "beta*", "gamma*", "delta*"]\n'
+    )
+    assert _declared_shipped_dirs(tmp_path) == ("alpha", "beta", "gamma")
+
+
 def test_ac2_packaged_assets_exist():
     missing = [a for a in PACKAGED_ASSETS if not (ENGINE_PY_ROOT / a).is_file()]
     assert not missing, f"packaged asset(s) missing from tree: {missing}"
 
 
 def test_ac3_packaged_assets_are_wheel_visible():
-    if sys.version_info >= (3, 11):
-        import tomllib
-    else:  # pragma: no cover
-        import tomli as tomllib
-    with (ENGINE_PY_ROOT / "pyproject.toml").open("rb") as f:
-        cfg = tomllib.load(f)
+    cfg = _pyproject()
     include = cfg["tool"]["setuptools"]["packages"]["find"]["include"]
     assert any(pat.startswith("security") for pat in include), include
     assert any(pat.startswith("scripts") for pat in include), include
@@ -324,12 +455,7 @@ def _declared_deps():
     """Import names of everything pyproject declares (deps + all extras),
     read at test time so the set cannot go stale. Distribution names are
     normalized to import names; the few whose import name differs are mapped."""
-    if sys.version_info >= (3, 11):
-        import tomllib
-    else:  # pragma: no cover
-        import tomli as tomllib
-    with (ENGINE_PY_ROOT / "pyproject.toml").open("rb") as f:
-        cfg = tomllib.load(f)
+    cfg = _pyproject()
     raw = list(cfg["project"].get("dependencies", []))
     for extra in cfg["project"].get("optional-dependencies", {}).values():
         raw.extend(extra)
@@ -358,12 +484,12 @@ def test_ac4_unguarded_imports_resolve_in_tree_or_deps():
     # Bare sibling imports (import phase_45_spec from inside workflows/) resolve
     # at runtime because callers put the package dirs on sys.path -- so every
     # shipped module stem anywhere in the tree counts as local.
+    shipped_dirs = _declared_shipped_dirs()
     local_top = (
         {p.stem for p in ENGINE_PY_ROOT.glob("*.py")}
-        | {p.stem for d in _SHIPPED_DIRS for p in (ENGINE_PY_ROOT / d).rglob("*.py")}
-        | {p.parent.name for d in _SHIPPED_DIRS for p in (ENGINE_PY_ROOT / d).rglob("__init__.py")}
-        | set(_SHIPPED_DIRS)
-        | {"scripts"}
+        | {p.stem for d in shipped_dirs for p in (ENGINE_PY_ROOT / d).rglob("*.py")}
+        | {p.parent.name for d in shipped_dirs for p in (ENGINE_PY_ROOT / d).rglob("__init__.py")}
+        | set(shipped_dirs)
     )
     stdlib = set(sys.stdlib_module_names)
     declared = _declared_deps()
