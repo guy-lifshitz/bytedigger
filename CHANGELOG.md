@@ -12,6 +12,35 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-07-29
+
+### Fixed
+
+- **`pip install bytedigger` now prints and installs a command that works.** The npm wrapper
+  advertised an install form that did not resolve, and the same broken form was repeated in the
+  PyPI pointer README and in `package_meta.install_hint`. All install forms now come from one
+  canonical dictionary (`scripts/install_forms.py`), and the set of places allowed to state one is
+  an enforced registry — a new site that hand-writes a form fails the suite. (#20, #25)
+- **Pointer pin follows the canonical version.** `bytedigger` pinned `bytedigger-engine` to a
+  literal that could drift from the engine's actual version; the pin is now derived and checked by
+  `version_parity.py`. This is the defect that made `bytedigger 0.1.0` hand out a stale engine. (#19)
+- **Three phases and two checks no longer report a pass they never earned** — a gate that could not
+  reach its subject reported success instead of refusing. (#5)
+- **CI on `main` unwedged**, and a silent-skip path made loud. (#14, #15)
+
+### Added
+
+- **Conformance package (`BD-L2`)** — shared contracts and packaging for falsifiable conformance
+  checks. (#26)
+- **Attested authorship and inputs (`BD-L3`)** — attestation is emitted if and only if a dispatch
+  actually happened. (#31)
+- **Engine conformance emissions** — `phase`, `run_identity`, `phase_artifacts`. (#23)
+- **Event-log path override, worktree in-use veto, and Red-cell shape lint**, ported from upstream. (#16)
+
+### Changed
+
+- Clean-room verification runs on `ubuntu-latest` instead of a self-hosted docker label. (#6)
+
 ## [0.1.1] — 2026-07-27
 
 ### Added
