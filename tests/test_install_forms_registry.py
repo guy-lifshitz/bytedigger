@@ -253,8 +253,8 @@ def _temporary_tree_probe(files: dict[str, str]):
                 if REPO_ROOT in parent.parents and not parent.exists():
                     parent.mkdir()
                     created_dirs.append(parent)
-            path.write_text(content, encoding="utf-8")
-            created_files.append(path)
+            created_files.append(path)  # recorded BEFORE the write: a failed
+            path.write_text(content, encoding="utf-8")  # write must not leak
         yield
     finally:
         for path in created_files:
@@ -263,6 +263,38 @@ def _temporary_tree_probe(files: dict[str, str]):
         for path in reversed(created_dirs):
             with contextlib.suppress(OSError):
                 path.rmdir()
+
+
+def _subprocess_call_shape(path: Path) -> tuple[set[str], list[str]]:
+    """What a module actually EXECUTES, read via `ast` rather than by
+    searching the source text (AC20).
+
+    Returns the string constants that appear inside list/tuple literals
+    passed as the first positional argument of a `subprocess.*` call -- i.e.
+    the argv -- and the names of `subprocess.*` calls carrying a `timeout=`
+    keyword. Comments and docstrings are not expressions, so neither can
+    forge a method mandate, and a literal flag mentioned in prose cannot
+    trip a negative assertion."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    argv_strings: set[str] = set()
+    timeout_call_names: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "subprocess"
+        ):
+            continue
+        if any(kw.arg == "timeout" for kw in node.keywords):
+            timeout_call_names.append(func.attr)
+        if node.args and isinstance(node.args[0], (ast.List, ast.Tuple)):
+            for element in node.args[0].elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    argv_strings.add(element.value)
+    return argv_strings, timeout_call_names
 
 
 def _ac14_predicate(install_forms, violations) -> list[dict]:
@@ -1087,24 +1119,30 @@ class TestInstallFormsRegistry:
 
         Red today: scripts/install_forms.py shells out to nothing at all."""
         install_forms = _load_install_forms_module()
-        source = INSTALL_FORMS_PATH.read_text(encoding="utf-8")
+        # Read as CODE, via `ast`, the way AC1 does -- a prose claim ("mirrors
+        # `git check-ignore --stdin` semantics, implemented in-process to
+        # avoid a subprocess") must not be able to satisfy a method mandate,
+        # in either direction.
+        argv_strings, timeout_call_names = _subprocess_call_shape(INSTALL_FORMS_PATH)
 
-        assert "check-ignore" in source, (
-            f"{INSTALL_FORMS_RELPATH} must ask git for the ignored set via "
-            f"`git check-ignore` -- re-implementing .gitignore matching is the "
-            f"forbidden method (spec §1)"
+        assert "check-ignore" in argv_strings, (
+            f"{INSTALL_FORMS_RELPATH} must ask git for the ignored set by "
+            f"EXECUTING `git check-ignore` -- re-implementing gitignore "
+            f"matching in-process is the forbidden method one level down "
+            f"(spec §1); argv strings found: {sorted(argv_strings)}"
         )
-        assert "--stdin" in source, (
+        assert "--stdin" in argv_strings, (
             f"{INSTALL_FORMS_RELPATH} must feed the walked paths to a single "
-            f"`git check-ignore --stdin` invocation, not shell out per file"
+            f"`git check-ignore --stdin` invocation, not shell out per file; "
+            f"argv strings found: {sorted(argv_strings)}"
         )
-        assert "--no-index" not in source, (
+        assert "--no-index" not in argv_strings, (
             f"`git check-ignore --no-index` reports TRACKED files matching a "
             f"gitignore pattern as ignored, which would silently drop "
             f"registered carriers from the domain"
         )
-        assert "timeout" in source, (
-            f"the git call must carry a bounded timeout -- a wedged git must "
+        assert timeout_call_names, (
+            f"the git call must carry a bounded timeout= -- a wedged git must "
             f"take the fail-open path (spec §2), not hang the suite"
         )
 
@@ -1121,6 +1159,12 @@ class TestInstallFormsRegistry:
         files = {
             f"{probe_dir}/.gitignore": "notes.md\n",
             ignored: f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n",
+            # A pattern that WOULD match a TRACKED carrier. gitignore does not
+            # apply to tracked files, and only the index knows that -- so real
+            # `check-ignore` stays silent here, while `--no-index` and every
+            # hand-rolled pattern matcher (none of which read the index)
+            # report this carrier as ignored and drop it from the domain.
+            "packaging/pypi-pointer/.gitignore": "README.md\n",
         }
         with _temporary_tree_probe(files):
             answer = install_forms.git_ignored_paths(REPO_ROOT, [ignored, tracked])
@@ -1128,5 +1172,6 @@ class TestInstallFormsRegistry:
         assert set(answer) == {ignored}, (
             f"git_ignored_paths must return exactly the paths git calls "
             f"ignored: expected {{{ignored!r}}}, got {set(answer)!r} "
-            f"(a tracked carrier in the answer means the index was bypassed)"
+            f"({tracked!r} in the answer means the index was bypassed -- it is "
+            f"tracked, so a gitignore pattern naming it is inert)"
         )

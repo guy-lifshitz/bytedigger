@@ -10,6 +10,7 @@ them from here.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -236,19 +237,85 @@ def _iter_domain_files(root: Path) -> list[Path]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# bd#33 -- the domain is DERIVED FROM GIT, never from a list of build-artifact
+# directory names. A local package build leaves residue inside the declared
+# domain (measured: packaging/pypi-pointer/bytedigger.egg-info/PKG-INFO,
+# untracked and matched by .gitignore), and the scan used to read it as a live
+# install platform -- a false red on the tree of whoever built the package,
+# i.e. the releaser, while CI's clean checkout stayed green.
+#
+# Enumerating the exceptions (`build/`, `dist/`, `*.egg-info`, ...) is the
+# wrong method: the next packaging format reproduces the same red, and the
+# list is only as wide as its author's imagination. So we ask git, and we let
+# git answer -- re-implementing gitignore matching in-process is the same
+# mistake one level down (it would miss .git/info/exclude, core.excludesFile,
+# and the index exception below).
+#
+# `check-ignore` consults the index by default: gitignore does not apply to
+# TRACKED files, so a registered carrier matching some pattern is correctly
+# not reported. `--no-index` would report it and silently narrow the domain.
+# ---------------------------------------------------------------------------
+GIT_TIMEOUT_SECONDS = 30
+
+
+def git_ignored_paths(root: Path, rel_paths: list[str]) -> set[str]:
+    """The subset of `rel_paths` (POSIX, relative to `root`) that git calls
+    ignored, obtained from a single `git check-ignore --stdin`.
+
+    Fail-OPEN: an empty set whenever git cannot answer -- not a repository,
+    no git binary, a wedged git. In a tree without git (unpacked sdist,
+    exported archive) the ignored set is unknowable, and the alternative,
+    narrowing the domain on an unknown, would make the closure claim this
+    scan exists to support vacuously true exactly where it cannot be
+    checked. A false red is loud; a vacuous green is not. Fail-open also
+    keeps behaviour identical to the pre-bd#33 scan wherever git is absent:
+    this function can only ever REMOVE paths git positively certifies.
+    """
+    if not rel_paths:
+        return set()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "-z", "--stdin"],
+            input="\0".join(rel_paths).encode(),
+            capture_output=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # OSError covers a missing git binary; SubprocessError covers
+        # TimeoutExpired, which is NOT an OSError.
+        return set()
+    # rc 0: some paths are ignored. rc 1: none are -- both are answers.
+    # Anything else (128 "not a git repository", ...) is git declining to
+    # answer, which is the fail-open case.
+    if result.returncode not in (0, 1):
+        return set()
+    return {p for p in result.stdout.decode(errors="replace").split("\0") if p}
+
+
 def scan_domain(root: Path) -> list[dict]:
     """Every `contains_any_install_form` hit in the declared domain that is
     NOT covered by a valid waiver on its own line. Returns dicts with
     `path` (POSIX, relative to `root`), `line` (1-based), `text` (raw
-    line)."""
+    line).
+
+    The declared domain (§2.4) is narrowed by exactly one thing: paths git
+    reports as ignored are not part of the repository and cannot be install
+    platforms (bd#33)."""
     root = Path(root)
+    domain = _iter_domain_files(root)
+    ignored = git_ignored_paths(
+        root, [p.relative_to(root).as_posix() for p in domain]
+    )
     hits: list[dict] = []
-    for path in _iter_domain_files(root):
+    for path in domain:
+        rel = path.relative_to(root).as_posix()
+        if rel in ignored:
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        rel = path.relative_to(root).as_posix()
         for i, line in enumerate(text.splitlines(), start=1):
             if not contains_any_install_form(line):
                 continue

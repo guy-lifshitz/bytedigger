@@ -12,6 +12,17 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The install-platform scan no longer reads local build residue as a shipping platform.**
+  `scan_domain` walked the tree without asking git about a file's status, so leftovers from a
+  local package build (measured: `packaging/pypi-pointer/bytedigger.egg-info/`, untracked and
+  git-ignored) failed the platform-registry guard — green in CI's clean checkout, red on the tree
+  of whoever built the package. The domain is now derived from git (`git check-ignore --stdin`)
+  rather than from a list of build-artifact directory names, so the next packaging format does
+  not reproduce it. In a tree without git (unpacked sdist, exported archive) the scan fails open:
+  the full declared domain, exactly as before. (#33)
+
 ## [0.1.2] — 2026-07-29
 
 ### Fixed
