@@ -199,6 +199,19 @@ def _all_carrier_lines(install_forms, relpath: str, kind: str) -> list[str]:
 # ---------------------------------------------------------------------------
 BD33_INSTALL_TEXT = "pip install bytedigger"
 
+# AC14's anchors, hoisted so AC16/AC18 can re-assert them from the SAME
+# scan_domain call that carries a probe. Excluding git-ignored paths must
+# remove the ignored path and nothing else: an implementation that prunes
+# the ignore hit's whole PARENT DIRECTORY would drop the registered carrier
+# packaging/pypi-pointer/README.md, and would do so only on a tree that has
+# residue -- i.e. only on the releaser's, where AC14 itself never sees it.
+REQUIRED_DOMAIN_ANCHORS = {
+    "engine_py/lib/reference_backends/agent_sdk.py",  # recursion into engine_py/**
+    "npm/bin/bytedigger.js",                          # npm/** root
+    "packaging/pypi-pointer/README.md",                # packaging/** root
+    "engine_py/README.md",                             # non-.py under engine_py
+}
+
 
 def _git_says_ignored(relpath: str) -> bool:
     """git's own verdict on a path, asked exactly the way the fix must ask
@@ -217,9 +230,18 @@ def _git_says_ignored(relpath: str) -> bool:
 
 
 @contextlib.contextmanager
-def _temporary_tree_probe(files: dict[str, str], roots_to_remove: tuple[str, ...]):
-    """Write `files` (relpath -> content) into the real repo tree and remove
-    `roots_to_remove` afterwards, whatever happens."""
+def _temporary_tree_probe(files: dict[str, str]):
+    """Write `files` (relpath -> content) into the real repo tree and undo
+    exactly that, whatever happens.
+
+    Removal is scoped to what this helper actually created: a probe whose
+    parent directory already existed (the releaser's real
+    `bytedigger.egg-info/`, freshly produced by `python3 -m build`) must
+    leave that directory -- and every other file in it -- untouched. A probe
+    path that already exists is a broken fixture, never something to
+    overwrite and then delete."""
+    created_files: list[Path] = []
+    created_dirs: list[Path] = []
     try:
         for relpath, content in files.items():
             path = REPO_ROOT / relpath
@@ -227,16 +249,20 @@ def _temporary_tree_probe(files: dict[str, str], roots_to_remove: tuple[str, ...
                 f"probe path {relpath!r} already exists -- refusing to clobber a "
                 f"real file; pick another probe name"
             )
-            path.parent.mkdir(parents=True, exist_ok=True)
+            for parent in reversed(path.parents):
+                if REPO_ROOT in parent.parents and not parent.exists():
+                    parent.mkdir()
+                    created_dirs.append(parent)
             path.write_text(content, encoding="utf-8")
+            created_files.append(path)
         yield
     finally:
-        for relpath in roots_to_remove:
-            path = REPO_ROOT / relpath
-            if path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)
-            elif path.exists():
+        for path in created_files:
+            with contextlib.suppress(OSError):
                 path.unlink()
+        for path in reversed(created_dirs):
+            with contextlib.suppress(OSError):
+                path.rmdir()
 
 
 def _ac14_predicate(install_forms, violations) -> list[dict]:
@@ -860,13 +886,7 @@ class TestInstallFormsRegistry:
         # CARRIERS, so a new file under engine_py/lib/ (recursion) or a
         # dropped engine_py/README.md (non-.py extension) would go
         # unnoticed. Anchor on one carrier per domain root/extension instead.
-        required_anchors = {
-            "engine_py/lib/reference_backends/agent_sdk.py",  # recursion into engine_py/**
-            "npm/bin/bytedigger.js",                          # npm/** root
-            "packaging/pypi-pointer/README.md",                # packaging/** root
-            "engine_py/README.md",                             # non-.py under engine_py
-        }
-        missing_anchors = required_anchors - hit_paths
+        missing_anchors = REQUIRED_DOMAIN_ANCHORS - hit_paths
         assert not missing_anchors, (
             f"scan_domain(REPO_ROOT) is missing hit(s) at required anchor "
             f"path(s) -- a narrowed/non-recursive walk would silently drop "
@@ -921,16 +941,12 @@ class TestInstallFormsRegistry:
         releaser. The domain must be derived from git, so residue git calls
         ignored is not a live install platform."""
         install_forms = _load_install_forms_module()
-        residue = "packaging/pypi-pointer/bytedigger.egg-info/PKG-INFO"
-        files = {
-            residue: (
-                "Metadata-Version: 2.1\nName: bytedigger\n\n"
-                f"  {BD33_INSTALL_TEXT}\n"
-            )
-        }
-        with _temporary_tree_probe(
-            files, ("packaging/pypi-pointer/bytedigger.egg-info",)
-        ):
+        # A NEW file inside the residue directory, not PKG-INFO itself: on the
+        # releaser's tree that directory and its PKG-INFO already exist, and a
+        # probe that clobbers-then-deletes them would relocate bd#33's own
+        # failure direction rather than fix it.
+        residue = "packaging/pypi-pointer/bytedigger.egg-info/zz_bd33_probe.txt"
+        with _temporary_tree_probe({residue: f"  {BD33_INSTALL_TEXT}\n"}):
             assert _git_says_ignored(residue), (
                 f"fixture assumption broken: git does not consider {residue!r} "
                 f"ignored, so this test would not exercise the defect"
@@ -941,6 +957,12 @@ class TestInstallFormsRegistry:
         assert residue not in hit_paths, (
             f"{residue} is git-ignored build residue, not an install platform, "
             f"but scan_domain(REPO_ROOT) reported it"
+        )
+        missing_anchors = REQUIRED_DOMAIN_ANCHORS - hit_paths
+        assert not missing_anchors, (
+            f"excluding a git-ignored path must remove that path and nothing "
+            f"else -- these registered carriers vanished from the same scan: "
+            f"{sorted(missing_anchors)}"
         )
         offenders = _ac14_predicate(install_forms, violations)
         assert not offenders, (
@@ -958,7 +980,7 @@ class TestInstallFormsRegistry:
         install_forms = _load_install_forms_module()
         probe = "packaging/zz_bd33_visible_probe.md"
         files = {probe: f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n"}
-        with _temporary_tree_probe(files, (probe,)):
+        with _temporary_tree_probe(files):
             assert not _git_says_ignored(probe), (
                 f"fixture assumption broken: {probe!r} must NOT be git-ignored"
             )
@@ -991,7 +1013,7 @@ class TestInstallFormsRegistry:
             f"{probe_dir}/.gitignore": "notes.md\n",
             ignored: f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n",
         }
-        with _temporary_tree_probe(files, (probe_dir,)):
+        with _temporary_tree_probe(files):
             assert _git_says_ignored(ignored), (
                 f"fixture assumption broken: git must consider {ignored!r} "
                 f"ignored via the probe directory's own .gitignore"
@@ -1003,6 +1025,11 @@ class TestInstallFormsRegistry:
             f"{ignored} is git-ignored, but its name matches no build-artifact "
             f"convention -- a hardcoded exclusion list cannot see it. "
             f"scan_domain must ask git, not a name list"
+        )
+        missing_anchors = REQUIRED_DOMAIN_ANCHORS - hit_paths
+        assert not missing_anchors, (
+            f"excluding a git-ignored path must remove that path and nothing "
+            f"else; these registered carriers vanished: {sorted(missing_anchors)}"
         )
         offenders = _ac14_predicate(install_forms, violations)
         assert not offenders, f"AC14 must stay GREEN; offenders={offenders!r}"
@@ -1043,4 +1070,63 @@ class TestInstallFormsRegistry:
         assert {v["path"] for v in violations} == {"packaging/newthing/README.md"}, (
             f"without git the declared domain must be scanned in full "
             f"(fail-open, spec §2); got {violations!r}"
+        )
+
+    # -- AC20 (bd#33: git ANSWERS the question; we do not re-implement it) --
+    def test_ac20_the_ignored_set_is_answered_by_git_itself(self):
+        """bd#33 method pin, one level below AC18. AC18 kills a hardcoded
+        name list -- but a hand-rolled .gitignore matcher (walk the tree,
+        fnmatch the patterns) would pass AC16/AC17/AC18/AC19 too, and it is
+        the same anti-pattern one level down: only as correct as its
+        author's imagination (no .git/info/exclude, no core.excludesFile, no
+        index exception, hand-rolled negation and `**`). So the ignored set
+        must be OBTAINED FROM GIT, structurally: `git check-ignore` over
+        `--stdin`, with the index consulted (never `--no-index`, which would
+        report tracked carriers as ignored) and a bounded timeout so a
+        wedged git cannot hang the suite.
+
+        Red today: scripts/install_forms.py shells out to nothing at all."""
+        install_forms = _load_install_forms_module()
+        source = INSTALL_FORMS_PATH.read_text(encoding="utf-8")
+
+        assert "check-ignore" in source, (
+            f"{INSTALL_FORMS_RELPATH} must ask git for the ignored set via "
+            f"`git check-ignore` -- re-implementing .gitignore matching is the "
+            f"forbidden method (spec §1)"
+        )
+        assert "--stdin" in source, (
+            f"{INSTALL_FORMS_RELPATH} must feed the walked paths to a single "
+            f"`git check-ignore --stdin` invocation, not shell out per file"
+        )
+        assert "--no-index" not in source, (
+            f"`git check-ignore --no-index` reports TRACKED files matching a "
+            f"gitignore pattern as ignored, which would silently drop "
+            f"registered carriers from the domain"
+        )
+        assert "timeout" in source, (
+            f"the git call must carry a bounded timeout -- a wedged git must "
+            f"take the fail-open path (spec §2), not hang the suite"
+        )
+
+        # §1n / MINOR-2 of the gate: the helper §1 declares public is called
+        # directly here, in both directions, so it cannot quietly become an
+        # inlined detail whose ignored/not-ignored contract nothing pins.
+        assert callable(getattr(install_forms, "git_ignored_paths", None)), (
+            f"{INSTALL_FORMS_RELPATH} must expose git_ignored_paths(root, "
+            f"rel_paths) (spec §1)"
+        )
+        probe_dir = "packaging/zz_bd33_ac20_probe_dir"
+        ignored = f"{probe_dir}/notes.md"
+        tracked = "packaging/pypi-pointer/README.md"
+        files = {
+            f"{probe_dir}/.gitignore": "notes.md\n",
+            ignored: f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n",
+        }
+        with _temporary_tree_probe(files):
+            answer = install_forms.git_ignored_paths(REPO_ROOT, [ignored, tracked])
+
+        assert set(answer) == {ignored}, (
+            f"git_ignored_paths must return exactly the paths git calls "
+            f"ignored: expected {{{ignored!r}}}, got {set(answer)!r} "
+            f"(a tracked carrier in the answer means the index was bypassed)"
         )
