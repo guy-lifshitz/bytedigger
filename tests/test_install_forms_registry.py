@@ -27,11 +27,14 @@ Repo root is the parent of this tests/ directory.
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -188,6 +191,117 @@ def _all_carrier_lines(install_forms, relpath: str, kind: str) -> list[str]:
         assert path.is_file(), f"registered carrier {relpath!r} does not exist"
         return _js_console_error_strings(path.read_text(encoding="utf-8"))
     return _carrier_raw_lines(relpath)
+
+
+# ---------------------------------------------------------------------------
+# bd#33 (AC16-AC19) helpers -- probes written into the REAL tree, always
+# removed in `finally`, so the suite leaves `git status --porcelain` empty.
+# ---------------------------------------------------------------------------
+BD33_INSTALL_TEXT = "pip install bytedigger"
+
+# AC14's anchors, hoisted so AC16/AC18 can re-assert them from the SAME
+# scan_domain call that carries a probe. Excluding git-ignored paths must
+# remove the ignored path and nothing else: an implementation that prunes
+# the ignore hit's whole PARENT DIRECTORY would drop the registered carrier
+# packaging/pypi-pointer/README.md, and would do so only on a tree that has
+# residue -- i.e. only on the releaser's, where AC14 itself never sees it.
+REQUIRED_DOMAIN_ANCHORS = {
+    "engine_py/lib/reference_backends/agent_sdk.py",  # recursion into engine_py/**
+    "npm/bin/bytedigger.js",                          # npm/** root
+    "packaging/pypi-pointer/README.md",                # packaging/** root
+    "engine_py/README.md",                             # non-.py under engine_py
+}
+
+
+def _git_says_ignored(relpath: str) -> bool:
+    """git's own verdict on a path, asked exactly the way the fix must ask
+    it. `check-ignore` consults the index, so a TRACKED file matching a
+    gitignore pattern is not reported as ignored."""
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "check-ignore", "-q", "--", relpath],
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode in (0, 1), (
+        f"git check-ignore failed on {relpath!r}: rc={result.returncode}, "
+        f"stderr={result.stderr!r} -- these tests require a git checkout"
+    )
+    return result.returncode == 0
+
+
+@contextlib.contextmanager
+def _temporary_tree_probe(files: dict[str, str]):
+    """Write `files` (relpath -> content) into the real repo tree and undo
+    exactly that, whatever happens.
+
+    Removal is scoped to what this helper actually created: a probe whose
+    parent directory already existed (the releaser's real
+    `bytedigger.egg-info/`, freshly produced by `python3 -m build`) must
+    leave that directory -- and every other file in it -- untouched. A probe
+    path that already exists is a broken fixture, never something to
+    overwrite and then delete."""
+    created_files: list[Path] = []
+    created_dirs: list[Path] = []
+    try:
+        for relpath, content in files.items():
+            path = REPO_ROOT / relpath
+            assert not path.exists(), (
+                f"probe path {relpath!r} already exists -- refusing to clobber a "
+                f"real file; pick another probe name"
+            )
+            for parent in reversed(path.parents):
+                if REPO_ROOT in parent.parents and not parent.exists():
+                    parent.mkdir()
+                    created_dirs.append(parent)
+            created_files.append(path)  # recorded BEFORE the write: a failed
+            path.write_text(content, encoding="utf-8")  # write must not leak
+        yield
+    finally:
+        for path in created_files:
+            with contextlib.suppress(OSError):
+                path.unlink()
+        for path in reversed(created_dirs):
+            with contextlib.suppress(OSError):
+                path.rmdir()
+
+
+def _subprocess_call_shape(path: Path) -> tuple[set[str], list[str]]:
+    """What a module actually EXECUTES, read via `ast` rather than by
+    searching the source text (AC20).
+
+    Returns the string constants that appear inside list/tuple literals
+    passed as the first positional argument of a `subprocess.*` call -- i.e.
+    the argv -- and the names of `subprocess.*` calls carrying a `timeout=`
+    keyword. Comments and docstrings are not expressions, so neither can
+    forge a method mandate, and a literal flag mentioned in prose cannot
+    trip a negative assertion."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    argv_strings: set[str] = set()
+    timeout_call_names: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "subprocess"
+        ):
+            continue
+        if any(kw.arg == "timeout" for kw in node.keywords):
+            timeout_call_names.append(func.attr)
+        if node.args and isinstance(node.args[0], (ast.List, ast.Tuple)):
+            for element in node.args[0].elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    argv_strings.add(element.value)
+    return argv_strings, timeout_call_names
+
+
+def _ac14_predicate(install_forms, violations) -> list[dict]:
+    """AC14's own predicate, read out of the module rather than transcribed:
+    the hits that lie outside CARRIERS. AC14 is green iff this is empty."""
+    carrier_paths = {relpath for relpath, _kind in install_forms.CARRIERS}
+    return [v for v in violations if v["path"] not in carrier_paths]
 
 
 def _make_ac5_domain_fixture(tmp_path: Path) -> Path:
@@ -804,13 +918,7 @@ class TestInstallFormsRegistry:
         # CARRIERS, so a new file under engine_py/lib/ (recursion) or a
         # dropped engine_py/README.md (non-.py extension) would go
         # unnoticed. Anchor on one carrier per domain root/extension instead.
-        required_anchors = {
-            "engine_py/lib/reference_backends/agent_sdk.py",  # recursion into engine_py/**
-            "npm/bin/bytedigger.js",                          # npm/** root
-            "packaging/pypi-pointer/README.md",                # packaging/** root
-            "engine_py/README.md",                             # non-.py under engine_py
-        }
-        missing_anchors = required_anchors - hit_paths
+        missing_anchors = REQUIRED_DOMAIN_ANCHORS - hit_paths
         assert not missing_anchors, (
             f"scan_domain(REPO_ROOT) is missing hit(s) at required anchor "
             f"path(s) -- a narrowed/non-recursive walk would silently drop "
@@ -855,3 +963,215 @@ class TestInstallFormsRegistry:
                 f"{relpath} lies outside the declared domain (spec §2.4) but "
                 f"appears in scan_domain(REPO_ROOT)'s output: {relpath!r}"
             )
+
+    # -- AC16 (bd#33 shield 1: git-ignored => AC14 stays GREEN) ----------
+    def test_ac16_a_git_ignored_build_residue_does_not_reach_scan_domain(self):
+        """bd#33: the measured defect. A local package build leaves
+        packaging/pypi-pointer/bytedigger.egg-info/ -- untracked, matched by
+        .gitignore, invisible to `git status --porcelain` -- and AC14 turns
+        red on the tree of the one person who built the package, the
+        releaser. The domain must be derived from git, so residue git calls
+        ignored is not a live install platform."""
+        install_forms = _load_install_forms_module()
+        # A NEW file inside the residue directory, not PKG-INFO itself: on the
+        # releaser's tree that directory and its PKG-INFO already exist, and a
+        # probe that clobbers-then-deletes them would relocate bd#33's own
+        # failure direction rather than fix it.
+        residue = "packaging/pypi-pointer/bytedigger.egg-info/zz_bd33_probe.txt"
+        with _temporary_tree_probe({residue: f"  {BD33_INSTALL_TEXT}\n"}):
+            assert _git_says_ignored(residue), (
+                f"fixture assumption broken: git does not consider {residue!r} "
+                f"ignored, so this test would not exercise the defect"
+            )
+            violations = install_forms.scan_domain(REPO_ROOT)
+
+        hit_paths = {v["path"] for v in violations}
+        assert residue not in hit_paths, (
+            f"{residue} is git-ignored build residue, not an install platform, "
+            f"but scan_domain(REPO_ROOT) reported it"
+        )
+        missing_anchors = REQUIRED_DOMAIN_ANCHORS - hit_paths
+        assert not missing_anchors, (
+            f"excluding a git-ignored path must remove that path and nothing "
+            f"else -- these registered carriers vanished from the same scan: "
+            f"{sorted(missing_anchors)}"
+        )
+        offenders = _ac14_predicate(install_forms, violations)
+        assert not offenders, (
+            f"AC14 must stay GREEN while git-ignored residue sits in the tree; "
+            f"offenders={offenders!r}"
+        )
+
+    # -- AC17 (bd#33 shield 2: NOT ignored => AC14 must RED) -------------
+    def test_ac17_a_non_ignored_new_carrier_still_turns_scan_domain_red(self):
+        """bd#33, the half that keeps AC16 from being a vacuum: excluding
+        git-ignored paths must not excuse anything git actually tracks or
+        would track. The same install text in a NON-ignored new file inside
+        the domain must still be a hit AND must still break AC14 -- a
+        one-sided shield is a weakened guard, not a fix."""
+        install_forms = _load_install_forms_module()
+        probe = "packaging/zz_bd33_visible_probe.md"
+        files = {probe: f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n"}
+        with _temporary_tree_probe(files):
+            assert not _git_says_ignored(probe), (
+                f"fixture assumption broken: {probe!r} must NOT be git-ignored"
+            )
+            violations = install_forms.scan_domain(REPO_ROOT)
+
+        hit_paths = {v["path"] for v in violations}
+        assert probe in hit_paths, (
+            f"{probe} is a new, unregistered, NON-ignored install platform "
+            f"inside the domain -- scan_domain(REPO_ROOT) must report it; "
+            f"got hit_paths={sorted(hit_paths)}"
+        )
+        offenders = _ac14_predicate(install_forms, violations)
+        assert [v["path"] for v in offenders] == [probe], (
+            f"AC14 must go RED on a non-ignored unregistered carrier, and on "
+            f"nothing else; offenders={offenders!r}"
+        )
+
+    # -- AC18 (bd#33: the domain is DERIVED from git, not enumerated) ----
+    def test_ac18_ignored_exclusion_is_derived_from_git_not_from_a_name_list(self):
+        """bd#33 method pin. AC16 alone is satisfiable by hardcoding
+        `build/`, `dist/`, `*.egg-info` -- and the next packaging format
+        reproduces the same red, because such a list is only as wide as its
+        author's imagination. Here the ignored path carries no build-artifact
+        name at all: it is ignored solely because a .gitignore inside the
+        probe directory says so. Only asking git can pass this."""
+        install_forms = _load_install_forms_module()
+        probe_dir = "packaging/zz_bd33_probe_dir"
+        ignored = f"{probe_dir}/notes.md"
+        files = {
+            f"{probe_dir}/.gitignore": "notes.md\n",
+            ignored: f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n",
+        }
+        with _temporary_tree_probe(files):
+            assert _git_says_ignored(ignored), (
+                f"fixture assumption broken: git must consider {ignored!r} "
+                f"ignored via the probe directory's own .gitignore"
+            )
+            violations = install_forms.scan_domain(REPO_ROOT)
+
+        hit_paths = {v["path"] for v in violations}
+        assert ignored not in hit_paths, (
+            f"{ignored} is git-ignored, but its name matches no build-artifact "
+            f"convention -- a hardcoded exclusion list cannot see it. "
+            f"scan_domain must ask git, not a name list"
+        )
+        missing_anchors = REQUIRED_DOMAIN_ANCHORS - hit_paths
+        assert not missing_anchors, (
+            f"excluding a git-ignored path must remove that path and nothing "
+            f"else; these registered carriers vanished: {sorted(missing_anchors)}"
+        )
+        offenders = _ac14_predicate(install_forms, violations)
+        assert not offenders, f"AC14 must stay GREEN; offenders={offenders!r}"
+
+    # -- AC19 (bd#33: the no-git boundary is fail-OPEN, on purpose) ------
+    def test_ac19_without_git_the_domain_is_the_whole_declared_tree(self):
+        """bd#33 §2: in a tree with no git (unpacked sdist, exported
+        archive, git binary absent) the ignored-set is unknowable. The
+        decided direction is fail-OPEN -- the domain stays the full declared
+        walk, byte-identical to today. Fail-closed would make AC14's closure
+        claim vacuously GREEN in exactly the environment where it cannot be
+        checked, which is the failure AC14 exists to prevent; a false red is
+        loud, a vacuous green is not."""
+        install_forms = _load_install_forms_module()
+        # Built outside the repo so no ancestor .git can answer for it.
+        sdist_like = Path(tempfile.mkdtemp(prefix="bd33_nogit_"))
+        try:
+            target = sdist_like / "packaging" / "newthing" / "README.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n",
+                encoding="utf-8",
+            )
+            assert not (sdist_like / ".git").exists(), "fixture broken: .git present"
+            rc = subprocess.run(
+                ["git", "-C", str(sdist_like), "rev-parse", "--is-inside-work-tree"],
+                capture_output=True,
+                timeout=30,
+            ).returncode
+            assert rc != 0, (
+                f"fixture assumption broken: {sdist_like} is inside a git work "
+                f"tree, so this test would not exercise the no-git branch"
+            )
+            violations = install_forms.scan_domain(sdist_like)
+        finally:
+            shutil.rmtree(sdist_like, ignore_errors=True)
+
+        assert {v["path"] for v in violations} == {"packaging/newthing/README.md"}, (
+            f"without git the declared domain must be scanned in full "
+            f"(fail-open, spec §2); got {violations!r}"
+        )
+
+    # -- AC20 (bd#33: git ANSWERS the question; we do not re-implement it) --
+    def test_ac20_the_ignored_set_is_answered_by_git_itself(self):
+        """bd#33 method pin, one level below AC18. AC18 kills a hardcoded
+        name list -- but a hand-rolled .gitignore matcher (walk the tree,
+        fnmatch the patterns) would pass AC16/AC17/AC18/AC19 too, and it is
+        the same anti-pattern one level down: only as correct as its
+        author's imagination (no .git/info/exclude, no core.excludesFile, no
+        index exception, hand-rolled negation and `**`). So the ignored set
+        must be OBTAINED FROM GIT, structurally: `git check-ignore` over
+        `--stdin`, with the index consulted (never `--no-index`, which would
+        report tracked carriers as ignored) and a bounded timeout so a
+        wedged git cannot hang the suite.
+
+        Red today: scripts/install_forms.py shells out to nothing at all."""
+        install_forms = _load_install_forms_module()
+        # Read as CODE, via `ast`, the way AC1 does -- a prose claim ("mirrors
+        # `git check-ignore --stdin` semantics, implemented in-process to
+        # avoid a subprocess") must not be able to satisfy a method mandate,
+        # in either direction.
+        argv_strings, timeout_call_names = _subprocess_call_shape(INSTALL_FORMS_PATH)
+
+        assert "check-ignore" in argv_strings, (
+            f"{INSTALL_FORMS_RELPATH} must ask git for the ignored set by "
+            f"EXECUTING `git check-ignore` -- re-implementing gitignore "
+            f"matching in-process is the forbidden method one level down "
+            f"(spec §1); argv strings found: {sorted(argv_strings)}"
+        )
+        assert "--stdin" in argv_strings, (
+            f"{INSTALL_FORMS_RELPATH} must feed the walked paths to a single "
+            f"`git check-ignore --stdin` invocation, not shell out per file; "
+            f"argv strings found: {sorted(argv_strings)}"
+        )
+        assert "--no-index" not in argv_strings, (
+            f"`git check-ignore --no-index` reports TRACKED files matching a "
+            f"gitignore pattern as ignored, which would silently drop "
+            f"registered carriers from the domain"
+        )
+        assert timeout_call_names, (
+            f"the git call must carry a bounded timeout= -- a wedged git must "
+            f"take the fail-open path (spec §2), not hang the suite"
+        )
+
+        # §1n / MINOR-2 of the gate: the helper §1 declares public is called
+        # directly here, in both directions, so it cannot quietly become an
+        # inlined detail whose ignored/not-ignored contract nothing pins.
+        assert callable(getattr(install_forms, "git_ignored_paths", None)), (
+            f"{INSTALL_FORMS_RELPATH} must expose git_ignored_paths(root, "
+            f"rel_paths) (spec §1)"
+        )
+        probe_dir = "packaging/zz_bd33_ac20_probe_dir"
+        ignored = f"{probe_dir}/notes.md"
+        tracked = "packaging/pypi-pointer/README.md"
+        files = {
+            f"{probe_dir}/.gitignore": "notes.md\n",
+            ignored: f"Quickstart: run `{BD33_INSTALL_TEXT}` to get going.\n",
+            # A pattern that WOULD match a TRACKED carrier. gitignore does not
+            # apply to tracked files, and only the index knows that -- so real
+            # `check-ignore` stays silent here, while `--no-index` and every
+            # hand-rolled pattern matcher (none of which read the index)
+            # report this carrier as ignored and drop it from the domain.
+            "packaging/pypi-pointer/.gitignore": "README.md\n",
+        }
+        with _temporary_tree_probe(files):
+            answer = install_forms.git_ignored_paths(REPO_ROOT, [ignored, tracked])
+
+        assert set(answer) == {ignored}, (
+            f"git_ignored_paths must return exactly the paths git calls "
+            f"ignored: expected {{{ignored!r}}}, got {set(answer)!r} "
+            f"({tracked!r} in the answer means the index was bypassed -- it is "
+            f"tracked, so a gitignore pattern naming it is inert)"
+        )
