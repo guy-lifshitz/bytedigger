@@ -13,7 +13,7 @@ chokepoint: >
   contents. Placing them in a per-workflow step is out of contract for the opposite reason:
   a step runs inside the phase it is meant to bound, so an oracle phase could rewrite its own
   frozen set after the freeze.
-status: FROZEN v2 (pre-RED; v1's two gaps resolved — G1 by rule, G2 by measurement)
+status: FROZEN v3 (pre-RED; v1's two gaps resolved — G1 by rule, G2 by measurement; v3 adds the §8 PREFLIGHT)
 base: origin/main @ 2b6589f
 governing: SHARED/memory/Decisions/2026-07-26_bytedigger_conformance_levels.md (HAL fd35e1304) §3 BD-L1, §9
 ---
@@ -190,7 +190,35 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   not an engine guarantee, so the lookup is log-scoped with `run_id` as a fail-closed
   cross-check rather than as the key.
 
-## 8. Level claim
+## 8. PREFLIGHT — scope, siblings, and the two traps measured before freeze
+
+**In scope (files the GREEN may touch).** `engine_py/conformance/oracle.py` (new),
+`engine_py/run.py` (two call sites, §2), `engine_py/error_codes.py` (four registrations),
+`engine_py/ERROR_CODES.md` (regenerated, not hand-edited — it is `--markdown` output), and the
+new test file. Nothing else.
+
+**Explicitly NOT in scope (§1v).** `engine.py` — in particular `_emit_phase_artifacts` and its
+`finally`; the workflow modules under `engine_py/workflows/`; `attest.py` and the rest of the
+conformance package. A diff touching any of them is out of contract and should be rejected
+without reading further: it means the freeze migrated back into the phase it is meant to bound.
+
+**`[bd8:11]` Trap 1 — the error-code registry rejects codes that are registered but never
+raised.** `error_codes.py --check` reports BOTH `UNREGISTERED` (raised in the tree, absent from
+the dict) and **`DEAD`** (present in the dict, raised nowhere), and returns 1 on either. So the
+four codes in §5 must be registered *in the same change that raises them* in production code;
+a code exercised only from the test file still counts as dead. AC-11 is therefore not
+satisfiable by registering the codes early — which is the shape a GREEN naturally reaches for.
+
+**`[bd8:12]` Trap 2 — the sibling surface of `run.py` is wide and must be re-run, not assumed.**
+30 test files under `engine_py/tests/` reference `run.py`; two are load-bearing for this change
+and are named so the GREEN cannot claim a clean scoped pass without them:
+`test_engine_path_closure.py` (a new module in the import closure is exactly what it measures)
+and `test_bd22_contracts.py` (the package's no-I/O-at-import invariant, which `[bd8:5]` binds).
+Seven files reference the conformance package. §1a applies: the sibling audit runs
+`--require-clean` before and after, and a scoped pass is not the ship gate — the full-suite
+delta against a declared baseline is (this is BD-L2's R2.6 applied to this lot's own delivery).
+
+## 9. Level claim
 
 On GREEN this lot licenses the claim **BD-L1 over ADV-1 and ADV-2** — the two adversaries in
 AC-2 and AC-3, each executed. It licenses nothing about oracle quality (BD-L2) and nothing
