@@ -47,6 +47,16 @@ frozen digest is `"sha256:" + sha256(join("\n", lines))`. Content-only hashing w
 (add a file) pass; membership-only hashing would let ADV-1 (rewrite a file) pass. CL R1.4 says
 additions are mismatches, so membership is inside the hash, not beside it.
 
+**`[bd8:2a]` What is actually in that set — measured, not assumed.** `phase-45-spec` writes the
+spec document and the review document and gates on the review (`workflows/phase_45_spec.py`:
+`write_spec_doc`, `write_review_doc`, `gate_on_review`); it does **not** write RED tests. So the
+oracle frozen here is the *acceptance-criteria document*, which is exactly what CL R1.3 names
+("acceptance criteria … content-hashed at that phase's exit") — not a test suite. The review
+document is inside the set because the engine wrote it in that phase, and `[bd8:1]` takes the
+engine's own record rather than a second, curated list; the consequence is deliberate and must
+be stated in the level claim: editing the review during implementation is also
+`E_ORACLE_MUTATED`.
+
 **`[bd8:3]` Paths are recorded relative to the run's repository root** and compared as such,
 so a run whose worktree is at a different absolute path still verifies. The engine already
 resolves that root (`_resolve_scan_cwd`, engine.py); this lot reads it, it does not re-derive it.
