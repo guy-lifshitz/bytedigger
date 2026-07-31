@@ -2556,6 +2556,11 @@ EXCLUDES: any, all, first, last
 
 LEVEL: distant_invalid
 
+SEAM: Second.Between
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+NORMALISATION: none
+
 ADMITS: any, bogus
 NON-UNIFORMITY: distant_invalid — fixture set has >=2 members, one violating, plus control
 EXCLUDES: any, all, first, last
@@ -2590,7 +2595,7 @@ class TestQuantifierCompletenessLintBd24GateRound7:
         takes the default four and covers it, so a lint that clears everything
         is caught by the positives elsewhere and one that flags everything is
         caught here. The last assertion catches the check-2 -> check-1
-        inversion, since all four levels carry rows.
+        inversion, since all five levels carry rows.
 
         `distant_invalid` supplies the POSITIVE discriminator this fixture
         would otherwise lack -- five negatives alone are all satisfied by a
@@ -2602,6 +2607,16 @@ class TestQuantifierCompletenessLintBd24GateRound7:
         `EXCLUDES` covering exactly those four, and reports nothing. The two
         candidates this fixture targets are therefore caught by a positive
         assertion as well as by the negatives.
+
+        Corrected after gate round 8: `distant_invalid`'s `ADMITS` originally
+        sat below a blank line only, so `single_anchor_level_seam` still bound
+        it correctly and was caught by assertion 1 rather than by the positive
+        -- the sentence above was true of one candidate, not two. Its `ADMITS`
+        now sits below a complete `SEAM` block as well, which makes the claim
+        true as written. Coverage diff for the change: the previous form killed
+        `admits_previous_line_only` through this assertion and
+        `single_anchor_level_seam` through assertion 1; the new form kills both
+        through both. Strictly more, nothing traded.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
@@ -2615,4 +2630,90 @@ class TestQuantifierCompletenessLintBd24GateRound7:
             f.kind == "missing_reductions" and f.subject == "distant_invalid"
             for f in findings
         )
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+
+# ── Gate round-8 MAJOR: the (LEVEL, row) anchor pair (C2-28) ────────────────
+# Round 7 recorded this pair as covered by `_EXCLUDES_ROW_BINDING_SPEC`. That
+# was WRONG, and the gate traced it: that fixture kills C2-10 -- a lint binding
+# `EXCLUDES` to the nearest preceding `LEVEL` BY RULE -- and a lint with one
+# shared "current declaration" variable written by both `LEVEL:` and
+# `NON-UNIFORMITY:` behaves identically there, because each row line is the last
+# thing written before its own `EXCLUDES`. Both assertions pass.
+#
+# The two are different candidates and this lot has already ruled that they are:
+# C3-14 (property lines bound to the FOLLOWING seam) was killed long before
+# C3-19 (a single current-anchor variable serving two rules) was found alive,
+# and `_INTERLEAVED_ANCHORS_SPEC` exists because the first kill did not imply
+# the second. The (LEVEL, row) pair stands in exactly that relation to C2-10.
+#
+# It is also the sub-axis §0.9(3b)'s sweep stopped one grain short of. That
+# sweep asked "is each binding rule exercised at distance >= 2" and the answer
+# was yes -- but WHAT INTERVENES is itself a sub-axis whose members are the
+# other anchor kinds, and for `[G24:2]` the only intervening material ever used
+# was a property line. A `LEVEL:` had never intervened.
+#
+# `shared_anchor`'s `EXCLUDES` sits below an interposed `LEVEL:`; `[G24:2]` binds
+# it to the nearest preceding ROW, which is `shared_anchor`'s, so `shared_anchor`
+# is conformant. A shared-variable lint has `interposed_level` current when that
+# `EXCLUDES` arrives, leaves `shared_anchor`'s row with no coverage, and flags
+# it. `interposed_level` is short by two and must be flagged -- the positive
+# discriminator, per §0.8 rule 1.
+_SHARED_ANCHOR_SPEC = """\
+# Fixture Spec — a LEVEL interposed between a row and its EXCLUDES
+
+LEVEL: shared_anchor
+
+NON-UNIFORMITY: shared_anchor — fixture set has >=2 members, one violating, plus control
+LEVEL: interposed_level
+EXCLUDES: any, all, first, last
+
+NON-UNIFORMITY: interposed_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: shared_control
+NON-UNIFORMITY: shared_control — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound8:
+    """The (`LEVEL`, row) cell of `[G24:10]`, which round 7 recorded as filled
+    by a fixture that kills a different candidate.
+    """
+
+    def test_ac_c5_level_and_row_anchors_are_tracked_independently(self):
+        """AC-C5(2). Gate round-8 MAJOR, spec C2-28. Round 7 claimed
+        `_EXCLUDES_ROW_BINDING_SPEC` discriminated this pair; it does not. That
+        fixture kills a lint binding `EXCLUDES` to the nearest preceding
+        `LEVEL` by rule (C2-10), while a lint keeping ONE shared "current
+        declaration" variable written by both `LEVEL:` and `NON-UNIFORMITY:`
+        produces identical output there -- each row line is the last thing
+        written before its own `EXCLUDES`, so the shared variable always holds
+        the right value.
+
+        Here a `LEVEL:` is interposed between a row and its `EXCLUDES`, which
+        happens in no other fixture: every `EXCLUDES` in the file immediately
+        follows its row except in `_INTERLEAVED_ANCHORS_SPEC`, where a property
+        line intervenes. `[G24:2]` binds by nearest preceding ROW, so
+        `shared_anchor`'s `EXCLUDES` is its own and it is conformant; the
+        shared-variable lint has `interposed_level` current and leaves
+        `shared_anchor` with no coverage, flagging it.
+
+        `interposed_level` is short by two and must be flagged, so the fixture
+        discriminates within itself rather than relying on other documents.
+        `shared_control` holds the negative against an over-flagging lint, and
+        the last assertion catches the check-2 to check-1 inversion, since all
+        three levels carry rows.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SHARED_ANCHOR_SPEC)
+
+        assert not any(f.subject == "shared_anchor" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "interposed_level"
+            for f in findings
+        )
+        assert not any(f.subject == "shared_control" for f in findings)
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
