@@ -4139,3 +4139,127 @@ class TestQuantifierCompletenessLintBd39GateRound10:
             for f in findings
         )
         assert not any(f.subject == "token_control" for f in findings)
+
+
+# ── bd#42: `[G24:3]` ACROSS two independent grounds ───────────────────────
+# Cut at bd#39's GREEN acceptance. The code is correct; this is a hole in the
+# FIXTURE corpus, and it is the corpus that said so: of 74 mutants, 73 died and
+# the survivor was `no_collapse` -- the `seen` guard in `emit` deleted -- which
+# survived at ZERO divergence across all 59 fixtures.
+#
+# The reason the survivor is not a false alarm: `[G24:3]` has TWO axes and §5
+# wrote one. The dedup was measured for repeats WITHIN one ground -- mutants
+# `per_missing_reduction` and `per_missing_property` (C2-9, C3-9) both die --
+# and never ACROSS two grounds. Both `emit(KIND_MISSING_REDUCTIONS, …)` call
+# sites can fire for the SAME subject: check 2's row-independent half
+# (`[G24:12]`, an unrecognised token in the level's own `ADMITS`) and check 2
+# proper (the row's coverage). They are independent by construction -- §2 says
+# so verbatim -- so a document reaching both produces one finding with the
+# guard and two without it. This is `[G24:3]`'s own cell rule (§0.9(3))
+# applied to `[G24:3]`.
+#
+# Both halves of the reaching input were ALREADY in the corpus separately --
+# an invalid `ADMITS` token, and a row with no `EXCLUDES` -- and never in one
+# document. That is the class bd#39 hit in round 3 and that hal#1511 carries:
+# the implementation is silent about an input no fixture instantiates.
+#
+# WHY THE COLLAPSE FIXTURE ALONE WOULD NOT MEASURE IT, and this is the whole
+# point of the lot. `cross_ground` yields exactly one finding under the pinned
+# reading. It ALSO yields exactly one if either ground is dead -- a lint that
+# never reached `[G24:12]` at all passes the count. A bare `== 1` therefore
+# cannot distinguish "collapsed two findings" from "only ever had one", which
+# is `no_collapse`'s survival restated. So the two grounds are ALSO carried
+# singly, one level each: `admits_ground` fires on the row-independent half
+# ONLY, `row_ground` on the coverage half ONLY. Each at exactly one finding is
+# what proves the ground is live; `cross_ground` at exactly one is then the
+# collapse and nothing else.
+#
+# `admits_ground` is the delicate one and is why it needs its own level rather
+# than a reused name. `ADMITS: bogus` makes `declared_admits` true and the
+# admitted SET empty, since `bogus` is not one of the four. Its row therefore
+# has a complete `EXCLUDES` against an empty requirement and check 2 proper
+# stays silent -- the finding comes from `invalid_token` alone. `row_ground`
+# is the mirror: a valid `ADMITS`, so `invalid_token` is false, and no
+# `EXCLUDES` line at all, so only the coverage half fires. `cross_control`
+# is the negative, so a lint flagging every level fails here too.
+_CROSS_GROUND_SPEC = """\
+# Fixture Spec — one subject, two independent grounds for one kind
+
+LEVEL: cross_ground
+ADMITS: bogus
+NON-UNIFORMITY: cross_ground — fixture set has >=2 members, one violating, plus control
+
+LEVEL: admits_ground
+ADMITS: bogus
+NON-UNIFORMITY: admits_ground — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: row_ground
+ADMITS: any, all
+NON-UNIFORMITY: row_ground — fixture set has >=2 members, one violating, plus control
+
+LEVEL: cross_control
+ADMITS: any, all
+NON-UNIFORMITY: cross_control — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+
+class TestQuantifierCompletenessLintBd42CrossGroundCollapse:
+    """`[G24:3]` on its SECOND axis: one pair, two independent grounds."""
+
+    def test_ac_c5_single_ground_subjects_each_yield_exactly_one_finding(self):
+        """AC-C5(2). bd#42, the LIVENESS half — without it the collapse
+        assertion below is unfalsifiable.
+
+        `admits_ground` reaches check 2's row-independent half and only that
+        half: `ADMITS: bogus` sets `invalid_token`, and because `bogus` is
+        outside the four the admitted set is EMPTY, so its complete
+        `EXCLUDES` clears check 2 proper's superset test. `row_ground` is the
+        mirror -- a valid `ADMITS` leaves `invalid_token` false, and the
+        absent `EXCLUDES` line fires the coverage half alone.
+
+        Exactly one finding each is the measurement: a lint that never
+        reaches `[G24:12]` yields zero for `admits_ground`, and one that
+        never reaches the coverage half yields zero for `row_ground`. Both at
+        one is what licenses reading `cross_ground`'s one as a COLLAPSE
+        rather than as a ground that was never live.
+        """
+        from conformance.quant_lint import Finding, lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_CROSS_GROUND_SPEC)
+
+        admits_only = [f for f in findings if f.subject == "admits_ground"]
+        row_only = [f for f in findings if f.subject == "row_ground"]
+
+        assert admits_only == [
+            Finding("missing_reductions", "admits_ground")
+        ], admits_only
+        assert row_only == [Finding("missing_reductions", "row_ground")], row_only
+        assert not any(f.subject == "cross_control" for f in findings)
+
+    def test_ac_c5_one_pair_two_grounds_collapses_to_one_finding(self):
+        """AC-C5(2). bd#42, the COLLAPSE half. Spec `[G24:3]`: at most ONE
+        finding per `(kind, subject)` PAIR. The pinned reading is a pair-keyed
+        `seen` set in `emit`, and the corpus measured it only for repeats
+        within a single ground.
+
+        `cross_ground` carries both halves in ONE document -- `ADMITS: bogus`
+        on the level, and a row with no `EXCLUDES` -- so check 2's
+        row-independent half and check 2 proper both call
+        `emit("missing_reductions", "cross_ground")`. Independently, per §2:
+        neither is reachable from the other. With the guard the document
+        yields one finding; with `emit` appending unconditionally it yields
+        two, which is exactly the `no_collapse` mutant that survived bd#39's
+        59 fixtures at zero divergence.
+
+        The sibling test above establishes both grounds fire on their own, so
+        one finding here is the collapse and cannot be a dead ground.
+        """
+        from conformance.quant_lint import Finding, lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_CROSS_GROUND_SPEC)
+
+        cross = [f for f in findings if f.subject == "cross_ground"]
+
+        assert cross == [Finding("missing_reductions", "cross_ground")], cross
