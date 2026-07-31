@@ -1,10 +1,73 @@
-# Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
+# Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v11, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
-criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
-`AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
+**v1, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
+
+**AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
+adds none. Nothing downstream re-counts.
 
 Depends on bd#22's shipped `conformance` package. It MUST NOT reference L1's emissions or any later lot's design.
+
+## 0.0 Why this lot exists, and what it inherits — the constitution
+
+**The parent stopped on its own exit criterion.** bd#24's commit `1467aec` classified gate round 4's MAJOR as
+**type (a)** — a defect introduced by the round's own previous fix, in its own words, *"against the clause I
+introduced in v6"*. One type (a) stops spec rounds. There is therefore **no seventh revision inside the
+parent**: bd#24 freezes at **v7 / `1467aec`**, and everything after it belongs here.
+
+**The prescription arrived late, and not through the lot's fault.** The dispatch channel returned `state=busy`
+twenty-odd times consecutively while gate rounds 5-8 were running, so the stop never reached the executor. The
+defect is recorded separately as **hal#1512: the stop criterion has no enforcement layer** — a criterion that
+can only fire through a channel that can be busy is advisory, not gating. That is a finding about the harness,
+not about this artifact, and it is filed where it can be fixed.
+
+**Nothing found in rounds 5-8 is discarded.** All of it was confirmed by execution, and it enters here as
+**input requirements**, not as rediscoverable work:
+
+- **The marker-case finding (gate round 5).** `ADMITS:`, `NON-UNIFORMITY:` and `EXCLUDES:` appeared across the
+  whole fixture set **only in ALL-CAPS** and **only with their anchor already present**, so every clause
+  ranging over "the markers" was pinned over eight and measured on five. Closed by `_ROW_MARKER_CASE_SPEC`;
+  carried here as the standing instruction that **a clause's scope and its fixtures' scope are counted
+  separately, and the count is written down.**
+- **Gate round 8's MAJOR.** Anchor independence: the (`LEVEL`, row) cell was recorded as covered by
+  `_EXCLUDES_ROW_BINDING_SPEC`, which kills a **different** candidate (C2-10, binding by rule) than the one the
+  cell names (a single shared "current declaration" variable). Confirmed at 46/46. Closed by
+  `_SHARED_ANCHOR_SPEC`; carried here as the instruction that **a cell is filled by the candidate it names, not
+  by a candidate that happens to die in the same document.**
+- The `[G24:5]`/`[G24:4]` `ADMITS` halves, the distance axis `[G24:9]`/`[G24:10]`, and §0.9's (3a)/(3b)/(3c)
+  corrections all came from the same window and stand as written.
+- **Gate round 9's finding is NOT completed here.** Anchor independence is six **ordered** cells, not three
+  pairs; three were empty and three candidates were confirmed at 47/47. Its fixture `_ANCHOR_CYCLE_SPEC` is
+  present in the RED because deleting a fixture that kills three confirmed candidates is the exact act that
+  rejected bd#22 round 4 — but the round is **not** declared closed, and this lot's own gate rules on it.
+
+**The accepted correction, unchanged and unnarrowed.** Gate round 4's MAJOR is closed by **measuring the second
+side** (`_OPERAND_SPACING_SPEC`, C-SPACING), not by declaring the single space part of the marker. The
+reasoning is upheld verbatim: narrowing would let the fixture set choose the semantics rather than the reverse,
+and a fixture document written by hand carries both spellings.
+
+**Acceptance requirement, and it is measured rather than asserted:** mutant **#29** (`fixed_offset_operand`,
+`operand = line[len(key) + 2:].rstrip()`) **must die after the fix.** Run on the executing host at this freeze:
+
+> **MEASURED — reference 48/48 passed; mutant #29: 46 passed, 2 failed**, on
+> `test_ac_c5_operand_spacing_other_than_one_space` and `test_ac_c5_row_operand_extraction_path`.
+
+**§5's `[G22:13]` asymmetry caveat is preserved VERBATIM and is not to be reworded.** It is the more valuable
+artifact of the parent's last four rounds: twice consecutively the gate named a surviving candidate **by
+reading**, predicted its exact score, and was right (#28 at 40/40, #29 at 41/41), and neither was in the
+27-mutant enumeration. Execution is a floor, not a ceiling. Taken up as **hal#1511** as a measured limitation of
+the method.
+
+**The RED keeps its filename** (`engine_py/tests/test_bd24_quant_lint.py`). Renaming it would break the
+containment script's path to bd#22's round-9 artifact and buy nothing: the parent remains the bearer of
+`AC-C5`, so the file is named for the AC's owner, not for the lot currently working on it.
+
+**The revision notes below are bd#24's history, retained as inherited record.** Notes v2-v7 are the parent's
+own rounds; **v8-v11 are post-criterion material, now correctly located in this lot** rather than in the
+parent. They are not renumbered, because renumbering them would erase the evidence of when each was written —
+and when a thing was written is exactly what the exit criterion turns on.
+
+---
 
 **v2 revision, and why the freeze was reopened before the gate rather than after it.** Writing the RED against
 v1 and then running §0.9's own self-sweep over it surfaced a corner v1 had not pinned: the **base case of both

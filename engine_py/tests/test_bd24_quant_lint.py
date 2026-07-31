@@ -1,6 +1,11 @@
-"""RED tests for bd#24 (L2b): the quantifier-completeness lint (1 AC: AC-C5).
+"""RED tests for bd#39 (child of bd#24): the quantifier-completeness lint.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (v6, FROZEN), which inherits
+One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
+file keeps its name. Renaming it would break the containment script's path to
+bd#22's round-9 artifact and buy nothing.
+
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v1**, FROZEN under this
+lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
 
@@ -19,6 +24,18 @@ raiser -- a primitive pytest itself runs on -- and killed the session
 (`[G22:2]`, measured 1 passed / 19 errors / crash). `lint_quantifier_
 completeness` is a pure text -> findings function, so every test here is a
 call plus assertions on the returned list; there is no seam to substitute.
+
+PROVENANCE OF THE PARTS, and it is load-bearing rather than tidy. Parts 1-4
+were cut inside bd#24, up to and including the correction its exit criterion
+accepted -- gate round 4's MAJOR, closed by MEASURING the second side of
+`[G24:7]`'s framing clause (`_OPERAND_SPACING_SPEC`) rather than narrowing the
+clause. Parts 5-8 were cut after that criterion should have fired and did not,
+because the dispatch channel was returning `state=busy` (hal#1512). Their
+findings are real, every one confirmed by execution, and spec §0.0 carries them
+as this lot's INPUT REQUIREMENTS -- they are not rediscoverable work. The last
+of them, `_ANCHOR_CYCLE_SPEC`, is present but its round is **not** declared
+closed: deleting a fixture that kills three confirmed candidates is the exact
+act that rejected bd#22 round 4, so it stays and this lot's gate rules on it.
 
 STRUCTURE, and it is deliberate (spec §0.9 / §5, the coverage-diff
 obligation). Part 1 below is bd#22's round-9 AC-C5 artifact
@@ -2716,4 +2733,107 @@ class TestQuantifierCompletenessLintBd24GateRound8:
             for f in findings
         )
         assert not any(f.subject == "shared_control" for f in findings)
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+
+# ── Gate round-9 MAJOR: anchor independence is SIX ORDERED cells (C2-29) ────
+# §0.9(3c) and every table so far treated "across what" as a set of UNORDERED
+# pairs -- three cells, all three marked filled after round 9. But independence
+# is NOT symmetric. "Does an intervening X close a live Y?" and "does an
+# intervening Y close a live X?" are different questions with different
+# implementations, and each existing fixture answers exactly one direction:
+#
+#   victim SEAM  / intruder row    -> _INTERLEAVED_ANCHORS_SPEC
+#   victim LEVEL / intruder SEAM   -> _DISTANT_ADMITS_SPEC
+#   victim row   / intruder LEVEL  -> _SHARED_ANCHOR_SPEC
+#   victim LEVEL / intruder row    -> EMPTY
+#   victim SEAM  / intruder LEVEL  -> EMPTY
+#   victim row   / intruder SEAM   -> EMPTY
+#
+# The three filled cells form one cycle; the three empty ones are its reverse.
+# Verified against every fixture: no `ADMITS` ever follows its own level's row,
+# no property line ever follows an intervening `LEVEL:`, and no `EXCLUDES` ever
+# follows an intervening `SEAM:`. Each surviving lint is `if <other kind>:
+# cur_<this kind> = None` -- an anchor of one kind closing a live anchor of
+# another, which is exactly what `[G24:10]` forbids -- and each is the MIRROR of
+# a candidate already fixtured here. `_INTERLEAVED_ANCHORS_SPEC` exists because
+# a row must not close a live seam; nothing in that reasoning is
+# direction-specific, it was simply written in one direction.
+# All three confirmed at 47/47 before this fixture.
+#
+# With this, the table is CLOSED: "across what" ranges over the other anchor
+# kinds, there are three kinds, so there are 3 x 2 = 6 ordered cells and no
+# seventh.
+_ANCHOR_CYCLE_SPEC = """\
+# Fixture Spec — each anchor kind interposed inside another kind's block
+
+LEVEL: cyc_level
+NON-UNIFORMITY: cyc_level — fixture set has >=2 members, one violating, plus control
+ADMITS: any, all
+EXCLUDES: any, all
+
+SEAM: Cyc.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+LEVEL: cyc_between
+NORMALISATION: none
+NON-UNIFORMITY: cyc_between — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: cyc_seam_gap
+NON-UNIFORMITY: cyc_seam_gap — fixture set has >=2 members, one violating, plus control
+SEAM: Cyc.Interposed
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+NORMALISATION: none
+EXCLUDES: any, all, first, last
+
+LEVEL: cyc_short
+NON-UNIFORMITY: cyc_short — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound9:
+    """The reverse cycle of `[G24:10]`'s ordered cross-product — the three
+    cells whose mirrors were fixtured and which were never asked in this
+    direction.
+    """
+
+    def test_ac_c5_no_anchor_kind_closes_a_live_anchor_of_another_kind(self):
+        """AC-C5(2) and AC-C5(3). Gate round-9 MAJOR, spec C2-29. Anchor
+        independence is not symmetric: an intervening `X` closing a live `Y`
+        and an intervening `Y` closing a live `X` are different
+        implementations, and the three fixtures that covered this clause
+        answered one direction each, forming a cycle. This fixture is its
+        reverse.
+
+        `cyc_level` puts its `ADMITS` BELOW its own row: it admits {any, all}
+        and covers exactly that, so it is conformant -- `level_block_ends_at_row`
+        (`if row: cur_level = None`) gives it the default four and flags it.
+        `Cyc.Seam` puts its `NORMALISATION:` below an interposed `LEVEL:`: fully
+        pinned, so `seam_block_ends_at_level` loses the property and flags a
+        conformant seam -- that is C3-19 with `LEVEL` where the row stood, and
+        C3-19 was accepted as real. `cyc_seam_gap` puts its `EXCLUDES` below an
+        interposed `SEAM` block: covers four, so `row_block_ends_at_seam` loses
+        the line and flags it.
+
+        Three mutants, three different subjects, so one document keeps them
+        attributable. `cyc_short` is the positive discriminator (§0.8 rule 1)
+        and the last assertion catches the check-2 to check-1 inversion, since
+        every level here carries a row.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ANCHOR_CYCLE_SPEC)
+
+        assert not any(f.subject == "cyc_level" for f in findings)
+        assert not any(f.subject == "Cyc.Seam" for f in findings)
+        assert not any(f.subject == "cyc_seam_gap" for f in findings)
+        assert not any(f.subject == "Cyc.Interposed" for f in findings)
+        assert not any(f.subject == "cyc_between" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "cyc_short"
+            for f in findings
+        )
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
