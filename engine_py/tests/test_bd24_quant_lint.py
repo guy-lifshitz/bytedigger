@@ -2837,3 +2837,170 @@ class TestQuantifierCompletenessLintBd24GateRound9:
             for f in findings
         )
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+
+# =========================================================================
+# PART 9 -- bd#39 gate round 1. Two fixtures; the third MAJOR is spec-only.
+# Both close the SAME shape one marker-family over: a clause pinned over N
+# markers and measured on fewer, which is the standing instrument spec §0.0
+# carries forward from the parent's round-5 finding.
+# =========================================================================
+
+# ── MAJOR-2: `[G24:7]`'s framing clause has FIVE operand-bearing markers ───
+# `[G24:7]` pins, generically, "the text after the marker's colon, with
+# surrounding whitespace and the line terminator removed". Five markers carry an
+# operand: LEVEL, SEAM, NON-UNIFORMITY, ADMITS, EXCLUDES. Three were measured --
+# `_TRAILING_WHITESPACE_SPEC` and `_OPERAND_SPACING_SPEC` cover LEVEL and SEAM,
+# `_ROW_OPERAND_SPACING_SPEC` covers NON-UNIFORMITY. Every one of the reduction
+# lines in all 43 previous fixtures writes exactly one space after the colon,
+# ", " between tokens, no trailing whitespace, LF only; `_CRLF_SPEC` carries no
+# reduction line at all. So `raw = line[line.index(":") + 2:]` on reduction
+# lines alone -- marker plus one ASSUMED space, no strip -- passes 48/48.
+# Verified before this fixture.
+#
+# It is silently wrong on input the spec does not exclude: `EXCLUDES:any, …`
+# yields the first token `ny`, so a fully conformant row is reported both as
+# short AND as carrying an unrecognised token -- a finding about a conformant
+# document, the over-firing class F-1 exists to prevent.
+#
+# `control_red` is the positive discriminator: it is genuinely short, so a lint
+# that reports nothing fails too. The trailing-space line is built by
+# concatenation, not inside the triple-quoted block, for the reason
+# `_TRAILING_WHITESPACE_SPEC` gives -- a whitespace filter eats it otherwise.
+_REDUCTION_OPERAND_SPACING_SPEC = (
+    "# Fixture Spec — reduction lines spaced other than exactly one space\n"
+    "\n"
+    "LEVEL: packed_red\n"
+    "ADMITS:any, all\n"
+    "NON-UNIFORMITY: packed_red — fixture set has >=2 members, one violating, plus control\n"
+    "EXCLUDES:any, all\n"
+    "\n"
+    "LEVEL: padded_red\n"
+    "ADMITS:   any, all\n"
+    "NON-UNIFORMITY: padded_red — fixture set has >=2 members, one violating, plus control\n"
+    "EXCLUDES:   any, all\n"
+    "\n"
+    "LEVEL: trailing_red\n"
+    "NON-UNIFORMITY: trailing_red — fixture set has >=2 members, one violating, plus control\n"
+    "EXCLUDES: any, all, first, last   \n"
+    "\n"
+    "LEVEL: control_red\n"
+    "NON-UNIFORMITY: control_red — fixture set has >=2 members, one violating, plus control\n"
+    "EXCLUDES: any, all\n"
+)
+
+# ── MAJOR-3: `[G24:8]`'s line-start clause covers EIGHT markers ────────────
+# `[G24:8]` pins "markers are recognised at line start, and an indented marker
+# is prose" over all eight. Exactly three indented marker-shaped lines existed
+# in the whole RED: `LEVEL:` and `SEAM:` in `_INDENTED_MARKER_SPEC`, and one
+# `Excludes:` in `_ROW_MARKER_CASE_SPEC`. The v8 argument that produced that
+# third one was that "a lint using `line.startswith` for declarations and
+# `line.strip().startswith` FOR THE REST" survived -- and "the rest" is five
+# markers, of which one got a fixture.
+#
+# So a lint recognising the three PROPERTY markers after a strip, while
+# declarations and reduction lines require flush-left, passes 48/48. Verified
+# before this fixture. And it is wrong in the exact direction §0.2 exists to
+# prevent: an indented `NORMALISATION:` quoted inside prose after a bare `SEAM:`
+# silently COMPLETES the seam and suppresses the finding -- a seam declared and
+# not pinned, shipped conformant, which is this AC's founding case.
+#
+# `Bare.Quoted` must still be flagged, `quoted_row_level` must still be flagged
+# (the indented row markers discharge nothing), and the flush-left
+# `Flush.Conformant` must not be -- so a lint that simply flags every seam is
+# caught as well.
+_INDENTED_PROPERTY_SPEC = """\
+# Fixture Spec — indented property and row markers, quoted inside prose
+
+SEAM: Bare.Quoted
+
+A worked example, quoted at an indent so that it declares nothing:
+
+    ATTRIBUTE-PATH: pathlib.Path.read_text
+    BINDING-TIME: call-time
+    NORMALISATION: none
+
+LEVEL: quoted_row_level
+
+and the same for a row, quoted the same way:
+
+    NON-UNIFORMITY: quoted_row_level — fixture set has >=2 members, one violating, plus control
+    EXCLUDES: any, all, first, last
+
+SEAM: Flush.Conformant
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound1:
+    """bd#39 gate round 1: `[G24:7]` and `[G24:8]` each pinned over more
+    markers than they were measured on.
+    """
+
+    def test_ac_c5_reduction_line_operand_framing(self):
+        """AC-C5(2). bd#39 gate round-1 MAJOR-2, spec C2-30. `[G24:7]` pins
+        the operand's framing for FIVE operand-bearing markers and was
+        measured on three: `LEVEL` and `SEAM` (`_TRAILING_WHITESPACE_SPEC`,
+        `_OPERAND_SPACING_SPEC`) and `NON-UNIFORMITY`
+        (`_ROW_OPERAND_SPACING_SPEC`). Every reduction line in the file wrote
+        exactly one space after its colon, so a fixed offset applied to
+        reduction lines alone survived all 48 tests.
+
+        `packed_red` and `padded_red` are conformant only if `ADMITS:` and
+        `EXCLUDES:` are parsed rather than sliced: a fixed offset turns
+        `ADMITS:any, all` into the tokens `ny`/`all`, which `[G24:1]` then
+        makes a finding -- a `Finding` about a conformant document.
+        `trailing_red` covers all four with trailing spaces on the line, so a
+        lint that does not rstrip reads the last token as `last␣␣␣` and flags
+        it. `control_red` is genuinely short by two, so a lint that reports
+        nothing at all fails the last assertion rather than passing by
+        silence.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_REDUCTION_OPERAND_SPACING_SPEC)
+
+        assert not any(f.subject == "packed_red" for f in findings)
+        assert not any(f.subject == "padded_red" for f in findings)
+        assert not any(f.subject == "trailing_red" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "control_red"
+            for f in findings
+        )
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+    def test_ac_c5_indented_property_and_row_markers_are_prose(self):
+        """AC-C5(1) and AC-C5(3). bd#39 gate round-1 MAJOR-3, spec C3-21.
+        `[G24:8]` pins line-start recognition over all EIGHT markers and the
+        whole RED contained three indented marker-shaped lines: `LEVEL:` and
+        `SEAM:` in `_INDENTED_MARKER_SPEC`, and one `Excludes:` in
+        `_ROW_MARKER_CASE_SPEC`. The v8 argument that produced that third one
+        named "the rest" -- five markers -- and gave one of them a fixture.
+
+        A lint recognising the three PROPERTY markers after a strip, while
+        requiring declarations and reduction lines to be flush-left, therefore
+        passed all 48. It is wrong in the direction §0.2 exists to prevent:
+        the indented `ATTRIBUTE-PATH:`/`BINDING-TIME:`/`NORMALISATION:` quoted
+        below `Bare.Quoted` silently COMPLETE that seam, suppressing the
+        finding -- a seam declared and not pinned, shipped conformant, which
+        is this AC's founding case. The indented row markers below
+        `quoted_row_level` carry the same test for check 1.
+        `Flush.Conformant` is declared flush-left with all three properties
+        and must not be flagged, so a lint that flags every seam is caught
+        too.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_INDENTED_PROPERTY_SPEC)
+
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Bare.Quoted"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "quoted_row_level"
+            for f in findings
+        )
+        assert not any(f.subject == "Flush.Conformant" for f in findings)
