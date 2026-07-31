@@ -2256,3 +2256,154 @@ class TestQuantifierCompletenessLintBd24GateRound4:
         )
         assert not any(f.subject == "normal" for f in findings)
         assert not any(f.subject == "Normal.Seam" for f in findings)
+
+
+# =========================================================================
+# PART 6 -- gate round 5. Three MAJORs with ONE cause: `ADMITS:`,
+# `NON-UNIFORMITY:` and `EXCLUDES:` appear across all 37 previous fixtures
+# only in ALL-CAPS and only with their anchor already present. So every
+# clause ranging over "the markers" or over "the anchored lines" was measured
+# on the other five markers and on two of the three anchor rules. Two
+# fixtures close all three.
+# =========================================================================
+
+# ── MAJOR-1: §2.2's case-insensitivity, measured for five of eight markers ──
+# `_LOWERCASE_MARKERS_SPEC` and `_MIXED_CASE_MARKERS_SPEC` both spell the SAME
+# five: LEVEL, SEAM and the three property markers. Neither carries a row, an
+# `EXCLUDES` or an `ADMITS` line at all, and every other fixture writes those
+# three in upper case without exception -- so a lint recognising five markers
+# case-insensitively and the row/reduction three only in ALL-CAPS passes 42/42
+# (verified as mutant #30). It is C-CASE one marker-family over, and an
+# implementer made to pass those two fixtures has pressure on exactly the five
+# they spell and none at all on the other three.
+#
+# `title_row_level` is conformant ONLY if `Admits:` and `Excludes:` are both
+# recognised; a case-sensitive lint misses its row entirely and reports it under
+# check 1 instead. `lower_row_level` is flagged ONLY if its lower-case row and
+# short `excludes:` are read. The two assertions therefore fail in different
+# ways for the same GREEN.
+#
+# The trailing indented `Excludes:` also closes gate round-5's advisory on
+# `[G24:8]` for free: `_INDENTED_MARKER_SPEC` instantiates "an indented marker
+# is prose" for `LEVEL:` and `SEAM:` only, so a lint using `line.startswith` for
+# declarations and `line.strip().startswith` for the rest passed. Here a
+# stripping lint reads it as `lower_row_level`'s coverage -- it is the nearest
+# preceding row -- completes the row and clears a level that must be flagged.
+_ROW_MARKER_CASE_SPEC = """\
+# Fixture Spec — row and reduction markers in cases other than upper
+
+Level: title_row_level
+Admits: any, all
+Non-Uniformity: title_row_level — fixture set has >=2 members, one violating, plus control
+Excludes: any, all
+
+level: lower_row_level
+non-uniformity: lower_row_level — fixture set has >=2 members, one violating, plus control
+excludes: any, all
+
+Quoted at an indent, so it declares nothing and discharges nothing:
+
+    Excludes: any, all, first, last
+"""
+
+# ── MAJOR-2 and MAJOR-3: the ADMITS half of two clauses ─────────────────
+# `[G24:5]` states the no-anchor base case and then instantiates it for P3 and
+# `[G24:2]`. There are THREE anchored marker rules: P2 (`ADMITS` -> nearest
+# preceding `LEVEL`) has the same base case, it is in neither orphan fixture,
+# and every fixture carrying an `ADMITS` line places it directly under its own
+# `LEVEL:`. So `[G24:5]` was either two-thirds measured or `ADMITS`' base case
+# was silently unpinned -- and §6 exists to stop the second.
+# `[G24:4]` says "`ADMITS` **and** `EXCLUDES` are sets of recognised tokens" and
+# measured only `EXCLUDES`: `_BENIGN_DUPLICATE_SPEC` carries its duplicate on an
+# `EXCLUDES` line. That is gate round-2's MAJOR-2 verbatim with `ADMITS` where
+# `EXCLUDES` stood -- accepted as real then, so real now.
+#
+# The orphaned `ADMITS` is the one that would COMPLETE the level after it (the
+# `_FORWARD_CREDIT_SPEC` construction applied to the third rule): `fwd_admits_level`
+# defaults to four, covers two, and must be flagged -- a forward-crediting lint
+# clears it, and a lint dereferencing an unset current level raises and fails
+# everything. `dup_admits_level` admits {any, all} with `any` written twice and
+# covers both: conformant, and false-flagged by a duplicate-punishing lint.
+_ADMITS_BASE_CASE_SPEC = """\
+# Fixture Spec — an ADMITS line before any LEVEL, and a duplicated ADMITS token
+
+ADMITS: any, all
+
+LEVEL: fwd_admits_level
+NON-UNIFORMITY: fwd_admits_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: dup_admits_level
+ADMITS: any, all, any
+NON-UNIFORMITY: dup_admits_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound5:
+    """The row/reduction marker family: case-insensitivity for the three
+    markers no fixture spelled in another case, and the `ADMITS` side of the
+    two clauses that named it and measured `EXCLUDES`.
+    """
+
+    def test_ac_c5_row_and_reduction_markers_recognised_in_any_case(self):
+        """Gate round-5 MAJOR-1, spec C-CASE2 (and `[G24:8]`'s advisory).
+        §2.2 pins case-insensitive recognition over EIGHT markers, and the two
+        fixtures certifying it -- `_LOWERCASE_MARKERS_SPEC` and
+        `_MIXED_CASE_MARKERS_SPEC` -- spell the same FIVE. Neither carries a
+        row, an `EXCLUDES` or an `ADMITS` line, and every other fixture writes
+        those three in ALL-CAPS, so a lint case-folding five markers and
+        matching the row/reduction three against upper case only passes 42/42.
+
+        `title_row_level` is conformant only if `Admits:` and `Excludes:` are
+        both recognised -- a case-sensitive lint sees no row for it and
+        reports it under check 1, failing the first assertion.
+        `lower_row_level` is flagged only if its lower-case row and short
+        `excludes:` are read, failing the second. One GREEN, two different
+        failures.
+
+        The indented `Excludes:` at the end closes the `[G24:8]` advisory: a
+        lint using `line.strip().startswith(...)` for reduction lines reads it
+        as `lower_row_level`'s coverage -- it is the nearest preceding row --
+        completing the row and clearing a level that must be flagged.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ROW_MARKER_CASE_SPEC)
+
+        assert not any(f.subject == "title_row_level" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "lower_row_level"
+            for f in findings
+        )
+
+    def test_ac_c5_admits_base_case_and_duplicate_admits_token(self):
+        """Gate round-5 MAJOR-2 and MAJOR-3, spec C2-24 / C2-25.
+
+        `[G24:5]` pins the no-anchor base case and instantiates it for P3 and
+        `[G24:2]` -- but there are THREE anchored marker rules, and P2
+        (`ADMITS` to the nearest preceding `LEVEL`) has the same base case in
+        neither orphan fixture. Every fixture with an `ADMITS` line puts it
+        directly under its own `LEVEL:`. The orphan here is the one that would
+        COMPLETE the level after it, so `fwd_admits_level` defaults to four,
+        covers two and must be flagged: a forward-crediting lint clears it,
+        and one that dereferences an unset current level raises, failing both
+        assertions rather than returning findings (§2.1's MUST-NOT-RAISE, for
+        the one anchored marker `_ORPHAN_MARKER_LINES_SPEC` does not carry).
+
+        `[G24:4]` says "`ADMITS` **and** `EXCLUDES` are sets of recognised
+        tokens" and measured only `EXCLUDES`. `dup_admits_level` admits
+        {any, all} with `any` written twice and covers both, so it is
+        conformant and a duplicate-punishing lint false-flags it. That is gate
+        round-2's MAJOR-2 with `ADMITS` where `EXCLUDES` stood; the clause was
+        extended to both in the revision that measured one.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ADMITS_BASE_CASE_SPEC)
+
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "fwd_admits_level"
+            for f in findings
+        )
+        assert not any(f.subject == "dup_admits_level" for f in findings)

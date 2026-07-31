@@ -1,6 +1,6 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v7, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v8, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
@@ -114,6 +114,40 @@ hand will contain both spellings, so the narrower clause buys nothing but a smal
 (#28 sentinel seam, 40/40; #29 fixed offset, 41/41). Both were absent from my mutant enumeration. That is the
 `[G22:13]` asymmetry measured rather than argued, and it is the reason §5's simulation subsection is scoped as
 a floor rather than a proof.
+
+**v8 — gate round 5 returned REJECTED with three MAJOR: one family, one cause.** `ADMITS:`,
+`NON-UNIFORMITY:` and `EXCLUDES:` appear across all 37 fixtures **only in ALL-CAPS** and **only with their
+anchor already present**. Every clause ranging over "the markers" or over "the anchored lines" was therefore
+measured on the other five markers and on two of the three anchor rules:
+
+- **MAJOR-1** — §2.2 pins case-insensitivity over **eight** markers; `_LOWERCASE_MARKERS_SPEC` and
+  `_MIXED_CASE_MARKERS_SPEC` spell the same **five**, neither carrying a row, an `EXCLUDES` or an `ADMITS` line
+  at all. A lint case-folding those five and matching the row/reduction three against upper case only passes
+  42/42 — C-CASE one marker-family over. **Three §3 rows asserted coverage their fixtures did not have** and
+  are corrected below: the C1-12 shape, found by the sweep rather than by me.
+- **MAJOR-2** — `[G24:5]` states the no-anchor base case and instantiates it for P3 and `[G24:2]`. There are
+  **three** anchored marker rules: P2 (`ADMITS` → nearest preceding `LEVEL`) has the same base case, carried by
+  neither orphan fixture, with every `ADMITS` line in the file sitting directly under its own `LEVEL:`. Either
+  the clause was two-thirds measured or `ADMITS`' base case was **silently** unpinned — and §6 exists to stop
+  the second. One of the two survivors also breaches §2.1's MUST-NOT-RAISE.
+- **MAJOR-3** — `[G24:4]` says "`ADMITS` **and** `EXCLUDES` are sets of recognised tokens" and measured only
+  `EXCLUDES`. Gate round-2's MAJOR-2 verbatim with `ADMITS` where `EXCLUDES` stood: accepted as real then, real
+  now, and introduced by the revision that extended the clause to both while measuring one.
+
+All four predicted survivors were run and **all four passed 42/42**. Closed by two fixtures
+(`_ROW_MARKER_CASE_SPEC`, `_ADMITS_BASE_CASE_SPEC`) — two rather than one per §0.8 rule 2, so a failure is
+attributable. The gate's `[G24:8]` advisory, instantiated for `LEVEL:`/`SEAM:` only, closes for free via an
+indented `Excludes:` inside the first fixture's prose.
+
+**Three rounds, three confirmed predictions, and none of the three candidates was in my enumeration** (#28
+sentinel seam, #29 fixed offset, #30 case-sensitive row markers). The generalisation is therefore promoted from
+observation to rule, because it has now paid three times: **a clause that names N things is measured on N
+things, and the count is written down.** §5's table now records the SIDES each clause ranges over, not one
+fixture per clause.
+
+Self-caught in the same pass: §3.1's inventory was missing `_TRAILING_WHITESPACE_SPEC` and
+`_OPERAND_SPACING_SPEC`, added in v6 and v7 with candidate rows but never listed. A table that claims to
+enumerate the fixture set and does not is the same defect one register down; both rows added.
 
 ---
 
@@ -415,10 +449,14 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | `_BENIGN_DUPLICATE_SPEC` ✝✝✝ | 2 + 3 | a **conformant** level and a **conformant** seam, each carrying a repeated token / line, plus an offender |
 | `_INTERLEAVED_ANCHORS_SPEC` ✝✝✝ | 2 + 3 | level material and seam material interleaved in one block |
 | `_ROW_BEFORE_LEVEL_SPEC` ✝✝✝ | 1 | a row textually **above** the `LEVEL:` it names |
-| `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ | 1 + 3 | marker prefixes in **Title** case |
+| `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ | 1 + 3 | the **same five** marker prefixes in **Title** case — corrected in v8 |
+| `_TRAILING_WHITESPACE_SPEC` ✝✝✝✝ | 1 + 3 | trailing whitespace after a `LEVEL` and a `SEAM` operand (v8: added to this inventory) |
+| `_OPERAND_SPACING_SPEC` ✝✝✝✝✝ | 1 + 3 | no space and three spaces after a marker's colon (v8: added to this inventory) |
+| `_ROW_MARKER_CASE_SPEC` ✝✝✝✝✝✝ | 2 | `Admits:`/`Non-Uniformity:`/`Excludes:` in Title and lower case, plus an **indented** `Excludes:` |
+| `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | 2 | an `ADMITS` line before any `LEVEL`, and a duplicated `ADMITS` token |
 | `_CONFORMANT_SPEC` | control | every level covered, seam fully pinned; `EXCLUDES` tokens and property lines in **non-canonical order** |
 | `_MALFORMED_SPEC` | contract | free-form prose, no markers |
-| `_LOWERCASE_MARKERS_SPEC` | grammar | every marker spelled lowercase |
+| `_LOWERCASE_MARKERS_SPEC` | grammar | `LEVEL`, `SEAM` and the three property markers in lowercase — **five of eight**, corrected in v8; it carries no row, `EXCLUDES` or `ADMITS` line |
 | `""` (inline) | contract | empty document |
 | `"LEVEL: phases"` (inline) | contract | document whose last line is a bare `LEVEL:` |
 | `"SEAM: tempfile.mkdtemp"` (inline) ✝ | contract | document whose **only** line is a bare `SEAM:` — the literal §0.2 founding case |
@@ -467,6 +505,9 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C2-20 | K12 coverage as set **equality** instead of superset ✝✝ | `_EXCLUDES_SUPERSET_SPEC` ✝✝ | `superset_level` admits two and excludes four; `==` false-flags it. **Gate round 1 MAJOR-4** — no fixture had a strict superset, and the one row with an extra token carries an *unrecognised* one, so it is flagged under both readings and separates nothing |
 | C2-22 | one finding **per missing reduction** instead of one per `(kind, subject)` ✝✝✝ | `_EXCLUDES_SUPERSET_SPEC` ✝✝ (count assertion added in round 3) | `short_level` is missing **two** reductions and carries no unrecognised token, so the collapse rule can finally fail. **Gate round-2 MAJOR-1** — the only prior count assertion stood on a row missing exactly one |
 | C2-23 | a **duplicated recognised token** in `EXCLUDES` treated as a defect ✝✝✝ | `_BENIGN_DUPLICATE_SPEC` ✝✝✝ | `dup_level` covers all four with `all` written twice and is **conformant**; a duplicate-punishing lint false-flags it (`[G24:4]`) |
+| C-CASE2 | `ADMITS`/`NON-UNIFORMITY`/`EXCLUDES` matched against **ALL-CAPS only** while the other five are case-folded ✝✝✝✝✝✝ | `_ROW_MARKER_CASE_SPEC` ✝✝✝✝✝✝ | `title_row_level` is conformant only if `Admits:` and `Excludes:` are read; `lower_row_level` is flagged only if its lower-case row and short `excludes:` are. **Gate round-5 MAJOR-1**, confirmed at 42/42 |
+| C2-24 | an **unanchored `ADMITS`** raised on, or credited forward to the next `LEVEL` ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | the orphan would **complete** `fwd_admits_level`, which must be flagged. **Gate round-5 MAJOR-2** — `[G24:5]`'s third anchor rule; a raising lint also breaches §2.1 |
+| C2-25 | a **duplicated recognised token in `ADMITS`** treated as a defect ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | `dup_admits_level` admits {any, all} with `any` twice and covers both: conformant. **Gate round-5 MAJOR-3**, the `ADMITS` mirror of round-2's MAJOR-2 |
 | C2-17 | check 1 fires on a level whose row is merely short | `_CHECK2_SPEC` | asserts **no** `missing_non_uniformity_row` anywhere in that fixture |
 
 ### 3.4 Check 3 — `seam_not_pinned`
@@ -501,7 +542,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | F-2 | raises on an unstructured document | `_MALFORMED_SPEC` |
 | F-3 | raises on the empty string (`i+1` lookahead over `split("\n")`) | `""` inline |
 | F-4 | raises on a marker line that is the document's **last** line, with no following line to look ahead to | `"LEVEL: phases"`, `"SEAM: tempfile.mkdtemp"` ✝ inline |
-| F-5 | markers matched case-**sensitively** | `_LOWERCASE_MARKERS_SPEC` |
+| F-5 | markers matched case-**sensitively** | `_LOWERCASE_MARKERS_SPEC` for `LEVEL`/`SEAM`/the property markers; `_ROW_MARKER_CASE_SPEC` ✝✝✝✝✝✝ for `ADMITS`/`NON-UNIFORMITY`/`EXCLUDES` — v8: the first alone covered five of eight |
 | F-6 | accumulates findings in module-level state across calls | the idempotence test: snapshot-before-second-call, plus `second is not first` |
 | F-8 | dereferences a "current anchor" that was never set (raises on an unanchored marker line) ✝ | `_ORPHAN_MARKER_LINES_SPEC` ✝ |
 | F-9 | `Finding` **widened** with a third field (`message`, `line_number`) ✝✝ | a set-equality assertion on `dataclasses.fields` — §2.1 pins "exactly two attributes" and nothing measured the *exactly*. Gate round 1 MINOR-7 |
@@ -635,8 +676,8 @@ findings of one shape between them (`[G24:5]`, `[G24:6]`, `[G24:3]`, `[G24:4]`):
 a fixture that *walks* it, and never given a fixture whose expected output would **differ** if the clause were
 read the other way. So the audit below is now run over every normative clause, not only over new assertions:
 
-| Clause | Fixture whose expected output flips if the clause is read the other way |
-|---|---|
+| Clause | Sides it ranges over | Fixture whose expected output flips, per side |
+|---|---|---|
 | P1 operands verbatim/case-sensitive | `_LEVEL_CASE_MISMATCH_SPEC`, `_SEAM_NAME_CASE_MISMATCH_SPEC` |
 | P2 `ADMITS` → preceding `LEVEL` | `_ADMITS_WRONG_NEIGHBOUR_SPEC` |
 | P3 property → preceding `SEAM` | `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` |
@@ -644,13 +685,13 @@ read the other way. So the audit below is now run over every normative clause, n
 | `[G24:1]` token casing/vocabulary | `_REDUCTION_TOKEN_VOCABULARY_SPEC` (`bogus_extra` is the falsifying row) |
 | `[G24:2]` `EXCLUDES` → preceding row | `_EXCLUDES_ROW_BINDING_SPEC` (inverts under both wrong directions) |
 | `[G24:3]` collapse to one per `(kind, subject)` | `_SEAM_NOT_PINNED_SPEC` (check 3) **and** `_EXCLUDES_SUPERSET_SPEC`'s `short_level` count (check 2, added round 3) |
-| `[G24:4]` repetition collapsed, not punished | `_BENIGN_DUPLICATE_SPEC` — the carriers are **conformant**, so the clause can fail |
-| `[G24:5]` unanchored lines | `_ORPHAN_MARKER_LINES_SPEC` (F-8, not-a-finding) + `_FORWARD_CREDIT_SPEC` (forward-crediting) |
+| `[G24:4]` repetition collapsed, not punished | property lines, `EXCLUDES`, **`ADMITS`** | `_BENIGN_DUPLICATE_SPEC` (first two; carriers **conformant**, so the clause can fail) + `_ADMITS_BASE_CASE_SPEC` (third, v8) |
+| `[G24:5]` unanchored lines | P3, `[G24:2]`, **P2** | `_ORPHAN_MARKER_LINES_SPEC` (F-8, not-a-finding) + `_FORWARD_CREDIT_SPEC` (forward-crediting) + `_ADMITS_BASE_CASE_SPEC` (P2, v8) |
 | `[G24:6]` undeclared-level row still checked | `_UNDECLARED_LEVEL_ROW_SPEC` — the row is **short** |
-| `[G24:8]` markers at line start | `_INDENTED_MARKER_SPEC` |
+| `[G24:8]` markers at line start | declarations, reduction lines | `_INDENTED_MARKER_SPEC` (`LEVEL`/`SEAM`) + `_ROW_MARKER_CASE_SPEC`'s indented `Excludes:` (v8) |
 | `[G24:9]` order-independent row binding | `_ROW_BEFORE_LEVEL_SPEC` |
 | `[G24:10]` anchors tracked independently | `_INTERLEAVED_ANCHORS_SPEC` |
-| §2.2 markers case-insensitive | `_LOWERCASE_MARKERS_SPEC` + `_MIXED_CASE_MARKERS_SPEC` |
+| §2.2 markers case-insensitive | all **eight** markers | `_LOWERCASE_MARKERS_SPEC` + `_MIXED_CASE_MARKERS_SPEC` (five) + `_ROW_MARKER_CASE_SPEC` (the other three, v8) |
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
 | §2.1 must not raise; `Finding` shape | `_MALFORMED_SPEC`, `""`, `"LEVEL: phases"` (F-2/F-3/F-4) and the `is_dataclass`/`FrozenInstanceError`/field-set assertions (F-7, F-9) |
@@ -666,7 +707,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 42/42 and every one of the 29 mutants fails at least one test** (v7 figures;
+**Result: the reference passes 44/44 and every one of the 33 mutants fails at least one test** (v8 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 
