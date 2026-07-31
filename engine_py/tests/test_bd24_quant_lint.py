@@ -1,6 +1,6 @@
 """RED tests for bd#24 (L2b): the quantifier-completeness lint (1 AC: AC-C5).
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (v1, FROZEN), which inherits
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (v3, FROZEN), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
 
@@ -1409,15 +1409,22 @@ class TestQuantifierCompletenessLintBd24:
 #
 # Here a `NORMALISATION:` line and an `EXCLUDES:` line both precede every
 # anchor in the document. Correct behaviour (spec §2.4/§2.5): both bind to
-# nothing, contribute nothing, and are not themselves findings -- so
-# `orphan_level` still has no row (check 1 fires) and `Orphan.Seam` still has
-# no properties (check 3 fires). A lint binding either line FORWARD credits
-# the `EXCLUDES` to `orphan_level` (which then looks discharged, or at least
-# stops being reported as row-less) and the `NORMALISATION` to `Orphan.Seam`;
-# a lint that manufactures a finding out of an unanchored line reports a
-# `missing_reductions` with some invented subject. Both die below, and a
-# parser that dereferences a "current anchor" that was never set raises
-# instead of returning (F-8).
+# nothing, contribute nothing, and are not themselves findings.
+#
+# CORRECTED after gate round 1 (spec §5, MAJOR-3). This fixture was first
+# written claiming to kill FORWARD-crediting, and it does not: crediting the
+# orphaned `NORMALISATION:` forward still leaves `Orphan.Seam` without
+# ATTRIBUTE-PATH and BINDING-TIME, so check 3 fires and the assertion passes
+# anyway; and crediting the orphaned `EXCLUDES:` forward adds coverage to a
+# level that still has no ROW, so check 1 fires and that assertion passes
+# anyway -- checks 1 and 2 are defined over different objects. What this
+# fixture does kill is F-8 (a parser dereferencing a "current anchor" that
+# was never assigned raises instead of returning, failing all three
+# assertions) and the manufactures-a-finding candidate (assertion 3: there
+# is no row anywhere in this document, so any `missing_reductions` here can
+# only have come from the unanchored line). Forward-crediting is killed by
+# `_FORWARD_CREDIT_SPEC` below, where the credited marker COMPLETES its
+# anchor and therefore changes the verdict.
 _ORPHAN_MARKER_LINES_SPEC = """\
 # Fixture Spec — property and EXCLUDES lines that precede every anchor
 
@@ -1444,15 +1451,22 @@ class TestQuantifierCompletenessLintBd24Orphans:
         same unexercised base case that cost bd#22 round 4 on check 3 --
         three fixtures each missing one property, none with zero.
 
-        Both orphaned lines here precede every anchor in the document. A
-        lint crediting them FORWARD gets both checks wrong at once: the
-        `EXCLUDES` makes `orphan_level` look like it has a discharged row
-        (so the missing-row finding disappears), and the `NORMALISATION`
-        makes `Orphan.Seam` look partly pinned -- and if that is the lint's
-        only property test, fully cleared. A lint that dereferences a
-        current-anchor variable never assigned raises instead of returning.
-        The third assertion kills a lint that manufactures a finding out of
-        an unanchored line: there is no `kind` for one (`[G24:5]`), and
+        CORRECTED after gate round 1 (MAJOR-3): this docstring previously
+        claimed the fixture kills FORWARD-crediting. It does not. Crediting
+        the orphaned `NORMALISATION:` forward leaves `Orphan.Seam` still
+        missing ATTRIBUTE-PATH and BINDING-TIME, so check 3 fires either
+        way; crediting the orphaned `EXCLUDES:` forward adds coverage to a
+        level that still has no ROW, and check 1 is defined over rows, so it
+        fires either way. Both assertions passed for the very GREEN they
+        were written to kill. Forward-crediting is killed by
+        `_FORWARD_CREDIT_SPEC` instead, where the credited marker COMPLETES
+        its anchor.
+
+        What this fixture does kill: F-8 -- a parser that dereferences a
+        current-anchor variable it never assigned raises instead of
+        returning, failing all three assertions -- and, in the third
+        assertion, a lint that manufactures a finding out of an unanchored
+        line. There is no `kind` for one (`[G24:5]`), and
         `missing_reductions` is the only kind it could be spelled as, since
         no row exists in this document at all.
         """
@@ -1469,3 +1483,357 @@ class TestQuantifierCompletenessLintBd24Orphans:
             for f in findings
         )
         assert not any(f.kind == "missing_reductions" for f in findings)
+
+
+# =========================================================================
+# PART 3 -- closures for gate round 1 (spec §5). Purely additive: no fixture
+# in Parts 1 or 2 is edited, so the containment check against d39371f stays
+# 17/17 unmodified and the round-1 candidate set stays killed by the same
+# fixtures. The gate proposed editing two CARRIED fixtures for MAJOR-1 and
+# MAJOR-2; adding instead keeps §0.9 direction 1 at zero modifications AND
+# keeps the coverage those carried fixtures already provide, which an edit
+# would have traded away.
+# =========================================================================
+
+# ── MAJOR-1: the two check-2 axes are never crossed (spec C2-18) ─────────
+# A lint may resolve `subject` from the row's own `<level>` operand (correct,
+# and what every assertion in the file checks) while resolving WHICH LEVEL'S
+# `ADMITS` APPLIES from the nearest preceding `LEVEL:` line -- and pass all
+# 29 tests of round 1. `_CHECK2_WRONG_LEVEL_BINDING_SPEC` is the only carried
+# fixture where operand != nearest-preceding-LEVEL, and there NEITHER level
+# carries an `ADMITS` line, so both resolve to the same default four and the
+# outputs coincide. Every fixture that does carry an explicit `ADMITS` places
+# its row immediately under its own level. Operand-binding and ADMITS-lookup
+# are two independent axes and nothing crossed them.
+#
+# Crossed here, in both directions, so one fixture kills both mis-lookups:
+#   `alpha_cross` ADMITS {any, all} and its row covers exactly that -- but the
+#   row sits under `beta_cross`, which has NO ADMITS. Correct: conformant.
+#   Proximity lookup: checked against the default four, so it is FALSE-FLAGGED.
+#   `gamma_cross` has NO ADMITS (default four) and its row covers only
+#   {any, all} -- but the row sits under `delta_cross`, which ADMITS {any, all}.
+#   Correct: flagged. Proximity lookup: it looks covered and is CLEARED.
+# A proximity-lookup lint therefore gets one level wrong in each direction,
+# and the two assertions catch one each.
+_ADMITS_CROSS_AXIS_SPEC = """\
+# Fixture Spec — the row's operand and the ADMITS lookup disagree
+
+LEVEL: alpha_cross
+ADMITS: any, all
+
+LEVEL: beta_cross
+NON-UNIFORMITY: alpha_cross — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: gamma_cross
+
+LEVEL: delta_cross
+ADMITS: any, all
+NON-UNIFORMITY: gamma_cross — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+# ── MAJOR-2: [G24:6] had no discriminating fixture (spec C2-19) ──────────
+# The v2 pin says a row whose `<level>` operand names no declared `LEVEL` is
+# still checked, against the DEFAULT admitted set, and §2.5 states the reason
+# in its own words: skipping such rows lets a typo'd operand hide its own
+# row's under-enumeration. But the only row in the file naming an undeclared
+# level was `_LEVEL_CASE_MISMATCH_SPEC`'s `audit_case`, whose EXCLUDES covers
+# all four -- complete under either reading. So `if row_operand not in
+# levels: continue`, the exact alternative §2.5 rejects, passed all 29 tests.
+# Here the undeclared row is SHORT (missing `last`), so skipping it returns
+# no finding and the assertion fires. This also pins the `subject` of a
+# finding on an undeclared level, which nothing measured before.
+_UNDECLARED_LEVEL_ROW_SPEC = """\
+# Fixture Spec — a row naming a level the document never declares
+
+LEVEL: declared_level
+NON-UNIFORMITY: declared_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+NON-UNIFORMITY: undeclared_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first
+"""
+
+# ── MAJOR-3: forward-crediting, killed properly this time (C1-13/C3-17) ──
+# `[G24:5]`'s central clause is that an unanchored marker line MUST NOT be
+# credited FORWARD to the next anchor. `_ORPHAN_MARKER_LINES_SPEC` cannot
+# test it: there, forward-crediting leaves both anchors non-conformant for
+# other reasons, so both assertions pass for the GREEN they were meant to
+# kill. The credited marker has to be the one that COMPLETES its anchor:
+#   the orphaned `EXCLUDES` is complete and the following row has NO EXCLUDES
+#   of its own -- correct: `fwd_level`'s row is flagged; forward-crediting:
+#   the row looks fully enumerated and is cleared.
+#   the orphaned `NORMALISATION:` is exactly the property `Fwd.Seam` lacks --
+#   correct: `Fwd.Seam` is flagged; forward-crediting: it looks fully pinned.
+# Both assertions are positive, so a forward-crediting lint fails both.
+_FORWARD_CREDIT_SPEC = """\
+# Fixture Spec — an unanchored line that would COMPLETE the anchor after it
+
+LEVEL: fwd_level
+EXCLUDES: any, all, first, last
+NON-UNIFORMITY: fwd_level — fixture set has >=2 members, one violating, plus control
+
+NORMALISATION: none
+SEAM: Fwd.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+"""
+
+# ── MAJOR-4: coverage as EQUALITY rather than SUPERSET (spec C2-20) ──────
+# §2.6 pins `set(excludes) >= set(admits)`. The mis-write `==` survived all
+# 29 tests because no fixture had an `EXCLUDES` that is a STRICT superset of
+# its level's `ADMITS`: every explicit-ADMITS row covers exactly
+# (`payload_field`, `alpha_level`), and `bogus_extra`'s fifth token is
+# unrecognised, so it is flagged under both readings and separates nothing.
+# `superset_level` ADMITS two and excludes all four -- conformant under the
+# pinned superset reading, false-flagged under equality. `exact_level` is the
+# equal case and `short_level` the deficient one, so the fixture is
+# non-uniform within the check and an under-firing lint is caught too.
+_EXCLUDES_SUPERSET_SPEC = """\
+# Fixture Spec — EXCLUDES covering MORE than the level admits
+
+LEVEL: superset_level
+ADMITS: any, all
+NON-UNIFORMITY: superset_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: exact_level
+ADMITS: any, all
+NON-UNIFORMITY: exact_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: short_level
+ADMITS: any, all, first, last
+NON-UNIFORMITY: short_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+# ── [G24:7] line terminators are not part of an operand (spec C-CRLF) ────
+# `.split("\n")` over a CRLF document yields `"LEVEL: phases\r"`, so the
+# operand becomes `"phases\r"` -- and P1 forbids normalising a `subject`
+# after the fact, so such a GREEN cannot repair it on output either. Every
+# other fixture in this file is LF-only, so nothing forced the choice
+# between `.split("\n")` and `.splitlines()`. Flagged by the gate as a live
+# adversarial edge; pinned in spec §2.5 rather than left to a later round.
+_CRLF_SPEC = (
+    "# Fixture Spec — CRLF line terminators\r\n"
+    "\r\n"
+    "LEVEL: phases\r\n"
+    "\r\n"
+    "SEAM: Bare.Seam\r\n"
+)
+
+# ── [G24:8] markers are recognised AT LINE START (spec C-INDENT) ─────────
+# §1.6 says the markers are recognised at line start; every fixture in the
+# file is flush-left, so `line.strip().startswith(...)` and
+# `line.startswith(...)` are indistinguishable across the whole set. An
+# indented marker is prose: the lint must not see `indented_level` as a
+# declared level or `Indented.Seam` as a seam. A stripping GREEN reports two
+# findings on a document that has none.
+_INDENTED_MARKER_SPEC = """\
+# Fixture Spec — indented marker-looking lines are prose
+
+LEVEL: real_level
+NON-UNIFORMITY: real_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+Worked example, quoted at an indent so it is not itself a declaration:
+
+    LEVEL: indented_level
+    SEAM: Indented.Seam
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound1:
+    """Closures for the four MAJOR findings of gate round 1, plus the two
+    adversarial edges the gate raised as advisory and the `Finding`
+    attribute-set contract it found unmeasured. Additive only.
+    """
+
+    def test_ac_c5_check2_admits_looked_up_by_row_operand_not_by_proximity(self):
+        """AC-C5(2). Gate round-1 MAJOR-1, spec C2-18. Kills the lint that
+        takes `subject` from the row's operand -- as every assertion in the
+        file already required -- while taking the ADMITTED SET from the
+        nearest preceding `LEVEL:` line. Those are two independent axes and
+        no carried fixture crossed them: the one fixture where operand and
+        nearest-preceding-level differ has no `ADMITS` on either level, so
+        both resolve to the default four and the two lints agree.
+
+        Crossed here in both directions. `alpha_cross` ADMITS {any, all} and
+        its row covers exactly that, but the row sits under the
+        `ADMITS`-less `beta_cross`: correct binding clears it, proximity
+        lookup checks it against the default four and false-flags it.
+        `gamma_cross` has no `ADMITS` (default four) and its row covers only
+        {any, all}, but sits under `delta_cross`, which ADMITS {any, all}:
+        correct binding flags it, proximity lookup clears it. One assertion
+        catches each direction.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ADMITS_CROSS_AXIS_SPEC)
+
+        assert not any(f.subject == "alpha_cross" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "gamma_cross"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "beta_cross"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "delta_cross"
+            for f in findings
+        )
+
+    def test_ac_c5_check2_row_naming_an_undeclared_level_is_still_checked(self):
+        """AC-C5(2). Gate round-1 MAJOR-2, spec C2-19, closing `[G24:6]`.
+        Kills `if row_operand not in levels: continue` -- the alternative
+        §2.5 names and rejects, which passed all 29 tests of round 1 because
+        the only row naming an undeclared level (`audit_case`, in the
+        carried `_LEVEL_CASE_MISMATCH_SPEC`) covers all four reductions and
+        so is conformant under either reading.
+
+        Here the undeclared row is SHORT: it omits `last` against the
+        default admitted set. A lint that skips such rows returns nothing
+        for it, letting a typo'd operand hide its own row's
+        under-enumeration -- the defect this AC exists for. The negative
+        assertion also pins that the conformant declared level is not
+        dragged in, and the last one that an undeclared name does not
+        additionally produce a check-1 finding: it is not a declared level,
+        so there is no level to report as row-less.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_UNDECLARED_LEVEL_ROW_SPEC)
+
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "undeclared_level"
+            for f in findings
+        )
+        assert not any(f.subject == "declared_level" for f in findings)
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+    def test_ac_c5_unanchored_line_is_not_credited_forward_to_the_next_anchor(self):
+        """AC-C5(2) and AC-C5(3). Gate round-1 MAJOR-3, spec C1-13/C3-17,
+        closing the half of `[G24:5]` that `_ORPHAN_MARKER_LINES_SPEC` could
+        not reach. There, forward-crediting leaves both anchors
+        non-conformant for unrelated reasons, so both assertions pass for the
+        very GREEN they were written to kill -- an assertion that could not
+        fail for its stated candidate, which is exactly what §0.9 direction 2
+        exists to catch and what the gate caught instead.
+
+        The credited marker must COMPLETE its anchor for the verdict to
+        move. The orphaned `EXCLUDES` is complete and the row after it has
+        none of its own: correct binding flags `fwd_level`, forward-crediting
+        clears it. The orphaned `NORMALISATION:` is precisely the property
+        `Fwd.Seam` lacks: correct binding flags it, forward-crediting clears
+        it. Both assertions are positive, so a forward-crediting lint fails
+        both rather than one.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_FORWARD_CREDIT_SPEC)
+
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "fwd_level"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Fwd.Seam"
+            for f in findings
+        )
+
+    def test_ac_c5_check2_coverage_is_superset_not_equality(self):
+        """AC-C5(2). Gate round-1 MAJOR-4, spec C2-20. §2.6 pins coverage as
+        `set(excludes) >= set(admits)`; the mis-write `==` passed all 29
+        tests of round 1, because no fixture had an `EXCLUDES` that is a
+        STRICT superset of its level's `ADMITS` -- every explicit-`ADMITS`
+        row covered exactly, and the one row with an extra token carries an
+        UNRECOGNISED one, so it is flagged under both readings and separates
+        nothing.
+
+        `superset_level` ADMITS two and excludes all four: conformant under
+        the pinned reading, false-flagged under equality (F-1's over-firing
+        class). `exact_level` is the boundary case and `short_level` the
+        deficient one, so this fixture is non-uniform within the check and an
+        under-firing lint that clears everything fails the last assertion.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_EXCLUDES_SUPERSET_SPEC)
+
+        assert not any(f.subject == "superset_level" for f in findings)
+        assert not any(f.subject == "exact_level" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "short_level"
+            for f in findings
+        )
+
+    def test_ac_c5_line_terminators_are_not_part_of_the_operand(self):
+        """Spec `[G24:7]` / C-CRLF, raised by the gate as a live adversarial
+        edge and pinned rather than deferred. Kills a GREEN splitting on
+        `"\\n"`: over a CRLF document every operand acquires a trailing
+        `"\\r"`, so `subject` becomes `"phases\\r"` -- and P1 forbids
+        normalising `subject` after the fact, so such a GREEN cannot repair
+        it on output either. Every other fixture in this file is LF-only, so
+        nothing else forces the choice between `.split("\\n")` and
+        `.splitlines()`. The seam half makes the same point on check 3's
+        subject.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_CRLF_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "phases"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Bare.Seam"
+            for f in findings
+        )
+
+    def test_ac_c5_indented_marker_lines_are_prose(self):
+        """Spec `[G24:8]` / C-INDENT, the second advisory edge. §1.6 pins the
+        markers as recognised AT LINE START, but every fixture in this file
+        is flush-left, so `line.strip().startswith(...)` and
+        `line.startswith(...)` are indistinguishable across the entire set.
+        An indented marker is prose the lint ignores: a stripping GREEN sees
+        `indented_level` as a declared level with no row and
+        `Indented.Seam` as a seam with no properties, and reports two
+        findings on a document that has none. The conformant `real_level`
+        keeps this from being satisfiable by a lint that returns `[]`
+        unconditionally -- that one is killed by every other fixture here.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_INDENTED_MARKER_SPEC)
+
+        assert findings == []
+
+    def test_ac_c5_finding_has_exactly_the_two_pinned_attributes(self):
+        """Gate round-1 MINOR-7. §2.1 pins `Finding` as a frozen dataclass
+        with EXACTLY two attributes, `kind` and `subject`, and nothing
+        measured the "exactly". A GREEN adding a third field (a `message`, a
+        `line_number`) satisfies every other assertion in the file, and each
+        such field is interface every later lot would then depend on --
+        `Finding` is a shared carrier, so widening it silently is the same
+        class of defect as bd#22's `[G22:20]` mutable container.
+
+        The carried `test_ac_c5_flags_missing_non_uniformity_row_both_directions`
+        asserts `is_dataclass` and frozen-ness on a `Finding` in hand; this
+        adds the field-set equality it does not make. Asserted by set
+        equality, not by membership, since membership is what a widened
+        `Finding` would still satisfy.
+        """
+        import dataclasses
+
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_MISSING_ROW_SPEC)
+
+        assert findings != []
+        field_names = {f.name for f in dataclasses.fields(findings[0])}
+        assert field_names == {"kind", "subject"}
