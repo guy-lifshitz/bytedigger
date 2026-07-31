@@ -1,6 +1,6 @@
 # Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v7, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+**v8, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
 worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
 
 **AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
@@ -676,6 +676,15 @@ line, and inventing one would exceed the three pinned `kind` values).
   `Finding.subject` would become the empty string, and a property operand never becomes a subject, so the
   reason does not transfer and the case was **silently** unpinned. Exercised by `_EMPTY_PROPERTY_OPERAND_SPEC`
   (C3-22).
+  **And this clause put the three property markers INSIDE `[G24:7]`'s framing clause** (bd#39 gate round 7,
+  MAJOR-2): before it, a property operand was never read, so `[G24:7]` correctly ranged over five
+  operand-bearing markers; since it, **eight**. `[G24:15]` also names **two** spellings — *empty **or
+  whitespace-only*** — and the fixture set carried one, every property line in all 54 fixtures being either
+  `MARKER: value` or a bare `MARKER:`. Both survivors passed 59/59 at zero divergence and are wrong in
+  opposite directions: reading the raw text for non-emptiness pins `NORMALISATION:␣` — §0.2's founding case by
+  the second spelling this clause itself names — and a marker-plus-one-assumed-space offset reports a fully
+  pinned seam unpinned, which is mutant **#29** on the marker family that only just became operand-bearing.
+  Exercised by `_PROPERTY_OPERAND_FRAMING_SPEC` (C3-24).
   **Write policy** (bd#39 gate round 6): a property is pinned if **any** of its lines carries a non-empty
   operand, and **an unfilled line never unpins a filled one**. Before `[G24:15]` a property line's operand was
   never read, so check 3's store could be a **set of markers**, where repetition is idempotent by construction
@@ -683,9 +692,24 @@ line, and inventing one would exceed the three pinned `kind` values).
   **mapping**, and a mapping has a write policy a set does not — `props[marker] = operand` (last-wins) and
   `setdefault` (first-wins) each passed 58/58, failing on **opposite orders**. `[G24:4]` settles it in terms —
   repetition is "collapsed, **never punished**" — so this is not a contradiction but a clause reaching an input
-  it was not written for. Exercised in **both orders** by `_PROPERTY_WRITE_POLICY_SPEC` (C3-23). A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
+  it was not written for. Exercised in **both orders** by `_PROPERTY_WRITE_POLICY_SPEC` (C3-23).
+
+- **`[G24:11]` continued — the ROW-OPERAND delimiter, given its own bullet** (bd#39 gate round-7 MINOR-A: this
+  rule had been buried mid-paragraph under `[G24:15]`, the property-line clause, and round 6 reported the
+  restructuring closed when it was not — an inaccurate closure report, which is §5's own "the round claimed a
+  closure it had not made" one register out; and it was load-bearing, because MAJOR-1 below is a defect in
+  exactly this buried sentence). A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
   row carries none, so `NON-UNIFORMITY: phases` discharges `phases` and a second em dash inside a description
   changes nothing. Exercised by `_REDUCTION_DELIMITER_SPEC` (C2-32). Raised as an adversarial edge in bd#39
+  `[G24:11]` **em-dash framing** (bd#39 gate round 7, MAJOR-1): the delimiter is **the em dash itself**, and
+  **whitespace on either side of it belongs to neither operand** — pinned the way the comma beside it already
+  was. The clause named **two** delimiters and framed one, which is §0.0's standing instrument with N = 2;
+  every one of the 78 `NON-UNIFORMITY` lines in the RED wrote ` — `, so `split(" — ")` passed 59/59 **at zero
+  divergence**. An em dash set closed-up is ordinary house style, and the survivor reports
+  `missing_non_uniformity_row` on a conformant document. Exercised by `_ROW_DASH_FRAMING_SPEC` (C1-16).
+  *Whitespace here means whitespace, not the space character: a `.strip(" ")` spelling survives a tab, and no
+  fixture in the file contains one (round-7 MINOR-C, recorded rather than fixtured — `.strip()` is the default
+  spelling and the plausibility is low).*
   rounds 1 and 2 and closed rather than restated a third time; the `split(", ")` spelling is not contrived —
   it is what this lot's own confirmed mutant `fixed_offset_reduction_operand` used.
 - **`[G24:9]` A row discharges its level regardless of ORDER.** P4 binds a row to the level named by its
@@ -784,6 +808,8 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | `_SHARED_ANCHOR_SPEC` ✝✝✝✝✝✝✝✝✝ | 2 | a `LEVEL:` interposed between a row and its `EXCLUDES` |
 | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 + 3 | each anchor kind interposed inside another kind's block — the **reverse** cycle of `[G24:10]`'s ordered product |
 | `_REDUCTION_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 | `ADMITS:`/`EXCLUDES:` packed, padded and trailing-padded |
+| `_ROW_DASH_FRAMING_SPEC` (bd#39 r8) | 1 | an em dash set closed-up, and one padded with two spaces each side |
+| `_PROPERTY_OPERAND_FRAMING_SPEC` (bd#39 r8) | 3 | a whitespace-only property operand, and three packed ones |
 | `_PROPERTY_WRITE_POLICY_SPEC` (bd#39 r7) | 3 | a property marker repeated, once filled and once not, in **both orders** |
 | `_EMPTY_PROPERTY_OPERAND_SPEC` (bd#39 r6) | 3 | three property markers laid out unfilled; one empty among two filled; a fully pinned control |
 | `_ROW_ORDER_COVERAGE_SPEC` (bd#39 r5) | 2 | a row and its `EXCLUDES` above the `LEVEL` whose `ADMITS` governs them |
@@ -856,6 +882,8 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | C2-31 | `ADMITS:` recognised after a **strip** while the other seven markers require flush-left ✝ | `_INDENTED_ADMITS_SPEC` ✝ | a quoted `ADMITS: any, all` **narrows** the admitted set of the level above it, so a genuinely short row reads as complete and its finding is suppressed. **bd#39 round-2 MAJOR-1, type (a)**, confirmed at 50/50 |
 | C2-35 | coverage evaluated **in reading order**, against the admitted set as known when the `EXCLUDES` arrives (bd#39 r5) | `_ROW_ORDER_COVERAGE_SPEC` (bd#39 r5) | `late_admits`' row and `EXCLUDES` precede the `LEVEL` whose narrow `ADMITS` governs them, and cover it exactly: conformant. Inline evaluation sees the default four and flags it. **bd#39 round-4 MAJOR-1**, confirmed at 55/55 — `[G24:9]`'s second consequence, unmeasured because `_ROW_BEFORE_LEVEL_SPEC`'s level has no `ADMITS` |
 | C2-36 | a **bare `ADMITS:`** read as an empty admitted set, clearing every row on that level; a **bare `EXCLUDES:`** read as ignorable (bd#39 r5) | `_EMPTY_TOKEN_LIST_SPEC` (bd#39 r5) | both readings passed 55/55 — the spec decided the input via `[G24:11]` while §6 declared it undecided. **bd#39 round-4 MAJOR-2, type (a)**; closed by `[G24:14]` in the safe direction |
+| C1-16 | the row-operand delimiter read as `" — "` (dash **with** its spaces) rather than the dash itself (bd#39 r8) | `_ROW_DASH_FRAMING_SPEC` (bd#39 r8) | a closed-up dash makes the survivor take the whole operand, match no level, and report a conformant document. **bd#39 round-7 MAJOR-1**, 59/59 at **zero divergence** |
+| C3-24 | a **whitespace-only** property operand read as pinning; a property operand taken at a fixed offset (bd#39 r8) | `_PROPERTY_OPERAND_FRAMING_SPEC` (bd#39 r8) | wrong in opposite directions — one ships §0.2's founding case, the other reports a fully pinned seam unpinned. **bd#39 round-7 MAJOR-2**, both 59/59 at **zero divergence** |
 | C2-33 | whitespace **before** the comma not admitted; a trailing comma yielding an unrecognised empty token ✝ | `_SEPARATOR_SIDES_SPEC` ✝ | `any ,all , first,last` covers four and is conformant — `replace(", ", ",").split(",")` reads `any `/`all ` and flags it. **bd#39 round-3 MAJOR-1, type (a)**, confirmed at 53/53 |
 | C2-34 | an invalid `ADMITS` token requiring a row before it fires; or tokens validated **eagerly** on the line rather than on the bound level ✝ | `_TOKEN_VALIDATION_SPEC` ✝ | exact-set assertion: `bad_admits_no_row` must yield **both** kinds, and the two orphan lines carrying invalid tokens must yield nothing (`[G24:12]`, `[G24:13]`). **bd#39 round-3 MAJOR-2** — a contradiction between two frozen sentences, not a coverage gap |
 | C2-32 | the token separator read as the two-character `", "`; a row operand requiring an em dash, or split on the **last** one ✝ | `_REDUCTION_DELIMITER_SPEC` ✝ | `any,all,first,last` is four tokens, `NON-UNIFORMITY: no_dash_row` discharges its level, and a second em dash inside a description changes nothing (`[G24:11]`) |
@@ -1056,7 +1084,7 @@ read the other way. So the audit below is now run over every normative clause, n
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
 | §2.1 must not raise; `Finding` shape | `_MALFORMED_SPEC`, `""`, `"LEVEL: phases"` (F-2/F-3/F-4) and the `is_dataclass`/`FrozenInstanceError`/field-set assertions (F-7, F-9) |
-| `[G24:7]` operand framing (11 of 15 cells by fixture, 4 by construction — a single `.strip()` per marker collapses the three framing decisions into one, so no single-decision survivor exists for them; recorded rather than implied, bd#39 round-2 MINOR-D) | {terminator, trailing, leading} × the **five operand-bearing markers** {`LEVEL`, `SEAM`, `NON-UNIFORMITY`, `ADMITS`, `EXCLUDES`} = **15 cells** | `LEVEL`/`SEAM`: `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC`, `_OPERAND_SPACING_SPEC`. `NON-UNIFORMITY`: `_ROW_OPERAND_SPACING_SPEC` (v9). `ADMITS`/`EXCLUDES`: `_REDUCTION_OPERAND_SPACING_SPEC` (**bd#39 v2**, C2-30) — every reduction line in 43 fixtures wrote exactly one space after its colon, so a fixed offset on those lines alone passed 48/48 |
+| `[G24:7]` operand framing (11 of 15 cells by fixture, 4 by construction — a single `.strip()` per marker collapses the three framing decisions into one, so no single-decision survivor exists for them; recorded rather than implied, bd#39 round-2 MINOR-D) | {terminator, trailing, leading} × the **eight operand-bearing markers** {`LEVEL`, `SEAM`, `NON-UNIFORMITY`, `ADMITS`, `EXCLUDES`, `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION`} = **24 cells** — five markers until `[G24:15]` made property operands matter (bd#39 round-7 MAJOR-2, §0.9(3a): the row saying five was the claim under audit) | `LEVEL`/`SEAM`: `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC`, `_OPERAND_SPACING_SPEC`. `NON-UNIFORMITY`: `_ROW_OPERAND_SPACING_SPEC` (v9). `ADMITS`/`EXCLUDES`: `_REDUCTION_OPERAND_SPACING_SPEC` (bd#39 v2, C2-30). The three **property** markers: `_PROPERTY_OPERAND_FRAMING_SPEC` (**bd#39 v8**, C3-24) — every reduction line in 43 fixtures wrote exactly one space after its colon, so a fixed offset on those lines alone passed 48/48 |
 | §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
 
 ### Round 3 — EXECUTED candidate simulation, not reasoned
@@ -1068,7 +1096,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 59/59 and every one of the 57 mutants fails at least one test** (v11 figures;
+**Result: the reference passes 61/61 and every one of the 60 mutants fails at least one test** (v11 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 
@@ -1093,6 +1121,15 @@ claim** only once M is shown to diverge from the reference on at least one fixtu
 both outputs over every fixture before running the suite, **exits non-zero if they are identical**, and
 otherwise reports how many fixtures diverge — a faithful single-decision mutant diverges on few, a broken one
 on many.
+
+**The inference from it was wrong, and the correction matters more than the guard** (bd#39 gate round-7
+MINOR-B). Being identical to the reference on every fixture has **two** causes and the guard cannot tell them
+apart: the mutant failed to express its candidate, **or the candidate is real and no fixture reaches it** —
+which is exactly what the gate exists to find. v7 recorded the first as the conclusion, so an author following
+the procedure would have rewritten or discarded a genuine finding. **Both of round 7's MAJORs are of the second
+kind**, and the guard reported both as "expresses no candidate" when they were run. Corrected: a zero-divergence
+mutant is a **FORK**, not a verdict — adjudicate, either fix the mutant or file the fixture gap, and never
+silently discard.
 
 **It caught a defect on its first run, and the defect was mine.** `first_wins_property_value` was written so
 that an empty first occurrence still admitted the later filled one; it was **identical to the reference on all

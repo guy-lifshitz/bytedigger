@@ -4,7 +4,7 @@ One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
 file keeps its name. Renaming it would break the containment script's path to
 bd#22's round-9 artifact and buy nothing.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v7**, FROZEN under this
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v8**, FROZEN under this
 lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
@@ -3688,3 +3688,154 @@ class TestQuantifierCompletenessLintBd39GateRound6:
             f.kind == "seam_not_pinned" and f.subject == "Never.Filled"
             for f in findings
         )
+
+
+# =========================================================================
+# PART 13 -- bd#39 gate round 7. Two MAJORs, both type (b), both of the class
+# the mutant matrix is STRUCTURALLY blind to: a candidate that diverges from
+# the reference on ZERO fixtures, because no fixture reaches its input.
+# =========================================================================
+
+# ── MAJOR-1: `[G24:11]` names TWO delimiters and frames one ────────────────
+# The token separator is pinned as "a comma with optional whitespace on either
+# side of it" and measured on both sides since round 3. The row-operand
+# delimiter -- "the text up to the first em dash" -- has NO whitespace framing
+# pinned at all. That is §0.0's standing instrument with N = 2 and one side
+# done, and every one of the 78 `NON-UNIFORMITY` lines in the file writes
+# ` — ` (exactly one space each side) or carries no dash.
+#
+# `row_operand_dash_with_space` (`operand.split(" — ")[0]`) passed 59/59 at zero
+# divergence. It is not contrived: §2.2's grammar table writes the shape with
+# spaces, which is the same mechanism that made the *presence* wording literal
+# in round 5, and it is this lot's own accepted defect twice over -- mutant #29's
+# marker-plus-one-assumed-space, and round 3's `replace(", ", ",")`, which is
+# `[G24:11]`'s OTHER half, fixed one revision ago while this half was left.
+#
+# `closed_dash` kills it: an em dash set closed-up is ordinary house style, and
+# the survivor takes the whole operand, matches no declared level, and reports
+# `missing_non_uniformity_row` on a conformant document. `padded_dash` kills the
+# neighbouring variant that splits on the dash but does not strip.
+_ROW_DASH_FRAMING_SPEC = """\
+# Fixture Spec — the em dash set closed-up, and padded
+
+LEVEL: closed_dash
+NON-UNIFORMITY: closed_dash—fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: padded_dash
+NON-UNIFORMITY: padded_dash  —  fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: dash_rowless
+"""
+
+# ── MAJOR-2: `[G24:15]` made the property markers OPERAND-BEARING ──────────
+# Round 6 found that making a property operand matter created a write policy.
+# It created something else from the same change: `[G24:7]`'s framing clause
+# used to range over five operand-bearing markers, and since `[G24:15]` it
+# ranges over EIGHT -- the three new ones contributing nine cells, all empty.
+# §0.9(3a) verbatim: the row saying five is the claim under audit.
+#
+# `[G24:15]` itself names two spellings -- "empty OR WHITESPACE-ONLY" -- and the
+# fixture set carried one. Across all 54 fixtures every property line was either
+# `MARKER: value` (one space, nothing trailing) or `MARKER:` (bare colon).
+#
+# Two survivors, wrong in opposite directions, both 59/59 at zero divergence:
+#   `whitespace_only_property_pins` (truthiness on the raw text, no strip) --
+#   `NORMALISATION:␣` reports the property PINNED, so a hand-written template
+#   whose author typed a trailing space rather than nothing ships conformant
+#   with nothing pinned. That is §0.2's founding case, reached by the second
+#   spelling `[G24:15]` itself names, one round after `[G24:15]` was minted to
+#   prevent it by the first spelling.
+#   `fixed_offset_property_operand` (marker plus one assumed space) -- this is
+#   mutant #29, this lot's standing acceptance requirement, on the marker family
+#   that only just became operand-bearing. #29 is re-run every round on
+#   `LEVEL`/`SEAM` and cannot reach here.
+#
+# The whitespace-only line is built by concatenation, not inside a
+# triple-quoted block, for the reason `_TRAILING_WHITESPACE_SPEC` gives.
+_PROPERTY_OPERAND_FRAMING_SPEC = (
+    "# Fixture Spec — property operands whitespace-only, and packed\n"
+    "\n"
+    "SEAM: Whitespace.Only\n"
+    "ATTRIBUTE-PATH: pathlib.Path.read_text\n"
+    "BINDING-TIME: call-time\n"
+    "NORMALISATION:   \n"
+    "\n"
+    "SEAM: Packed.Properties\n"
+    "ATTRIBUTE-PATH:pathlib.Path.read_text\n"
+    "BINDING-TIME:call-time\n"
+    "NORMALISATION:-\n"
+    "\n"
+    "SEAM: Framing.Control\n"
+    "ATTRIBUTE-PATH: subprocess.run\n"
+    "BINDING-TIME: call-time\n"
+    "NORMALISATION: none\n"
+)
+
+
+class TestQuantifierCompletenessLintBd39GateRound7:
+    """The em dash's whitespace framing, and the property markers' — both
+    clauses reaching inputs no fixture carried.
+    """
+
+    def test_ac_c5_em_dash_framing_is_not_part_of_either_operand(self):
+        """AC-C5(1). bd#39 gate round-7 MAJOR-1, spec `[G24:11]` v8 / C1-16.
+        `[G24:11]` names two delimiters and frames one: the comma's whitespace
+        is pinned on both sides and measured, the em dash's is pinned nowhere.
+        All 78 `NON-UNIFORMITY` lines in the file write ` — ` or no dash at
+        all, so `operand.split(" — ")[0]` passed 59/59 while diverging from
+        the reference on ZERO fixtures.
+
+        `closed_dash` writes the dash closed-up, which is ordinary house
+        style: the survivor takes the whole operand, matches no declared
+        level, and reports `missing_non_uniformity_row` on a conformant
+        document -- F-1's over-firing class, against the row `[G24:11]` exists
+        to bind. `padded_dash` writes it with two spaces each side and kills
+        the neighbouring variant that splits on the dash without stripping.
+        `dash_rowless` is the positive discriminator: it has no row at all, so
+        a lint that reports nothing fails too.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ROW_DASH_FRAMING_SPEC)
+
+        assert not any(f.subject == "closed_dash" for f in findings)
+        assert not any(f.subject == "padded_dash" for f in findings)
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "dash_rowless"
+            for f in findings
+        )
+
+    def test_ac_c5_property_operand_framing(self):
+        """AC-C5(3). bd#39 gate round-7 MAJOR-2, spec `[G24:15]` v8 / C3-24.
+        `[G24:15]` made property operands matter, which put the three property
+        markers inside `[G24:7]`'s framing clause -- eight operand-bearing
+        markers where §5 recorded five, nine cells all empty -- and named two
+        spellings, "empty OR whitespace-only", of which the fixture set carried
+        one.
+
+        `Whitespace.Only`'s `NORMALISATION:` operand is spaces, so it must be
+        flagged: a lint testing the raw text for non-emptiness reports it
+        pinned, and a hand-written template whose author left a trailing space
+        rather than nothing ships conformant with nothing pinned -- §0.2's
+        founding case, by the second spelling `[G24:15]` itself names, one
+        round after that clause was minted to prevent it by the first.
+        `Packed.Properties` writes all three operands with no space after the
+        colon and must NOT be flagged: a marker-plus-one-assumed-space offset
+        reads its one-character `NORMALISATION` operand as empty and reports a
+        fully pinned seam as unpinned. That is mutant #29 -- this lot's
+        standing acceptance requirement -- on the marker family that only just
+        became operand-bearing, which #29's own fixtures cannot reach.
+        `Framing.Control` holds the ordinary spelling.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_PROPERTY_OPERAND_FRAMING_SPEC)
+
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Whitespace.Only"
+            for f in findings
+        )
+        assert not any(f.subject == "Packed.Properties" for f in findings)
+        assert not any(f.subject == "Framing.Control" for f in findings)
