@@ -4,7 +4,7 @@ One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
 file keeps its name. Renaming it would break the containment script's path to
 bd#22's round-9 artifact and buy nothing.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v9**, FROZEN under this
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v10**, FROZEN under this
 lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
@@ -3935,3 +3935,117 @@ class TestQuantifierCompletenessLintBd39GateRound8:
         )
         assert not any(f.subject == "audit gate" for f in findings)
         assert not any(f.subject == "Interior.Control" for f in findings)
+
+
+# ── bd#39 gate round 9 MAJOR: "EVERY character between the framing" ────────
+# `[G24:16]` names two things: interior WHITESPACE explicitly, then the general
+# rule -- "every character between the framing belongs to the name".
+# `_INTERIOR_SPACE_SPEC` instantiates the narrow half three times and the
+# general half never. That is `[G24:15]`'s "empty OR whitespace-only" shape
+# verbatim -- two spellings in one clause, the fixture set following whichever
+# the clause names first -- filed in round 7, closed in round 8, and reappearing
+# inside the clause written in round 9 to close its predecessor.
+#
+# Verified exhaustively: no marker line in any of the 57 fixtures contains a
+# SECOND COLON, in any case-spelling, indented or flush-left, in triple-quoted
+# or concatenated form. So `line.split(":")[1]` -- the pinned expression minus
+# its maxsplit argument, and the single most common spelling of "take the value
+# from a key: value line" -- passed 62/62 at ZERO divergence. So did
+# `" ".join(operand.split())`, which collapses runs of interior whitespace and
+# which single-space names cannot separate.
+#
+# The colon spelling is not exotic in THIS AC's subject matter: it is about
+# interception seams named by attribute path, and `pkg.module:function` is the
+# setuptools entry-point convention while pytest node IDs use `::`. A
+# hand-written document naming a seam is at least as likely to write
+# `pathlib:Path.read_text` as `pathlib.Path.read_text`. Same house-convention
+# argument §0.0 accepted for C-SPACING, the gate accepted for ` — `, and v9
+# accepted for `payload field` -- except here the alternative is a live standard.
+#
+# Wrong in the same two directions, the silent one again graver: `pkg.mod:func`
+# yields a subject absent from the document, and `pkg.mod:read` (fully pinned)
+# collides with `pkg.mod:write` (missing NORMALISATION) so that the union of the
+# two blocks is complete and a seam DECLARED AND NOT PINNED ships conformant --
+# §0.2's founding case, invisible in the output rather than wrong in it.
+_OPERAND_CHARACTER_SPEC = """\
+# Fixture Spec — interior colons, and a doubled interior space
+
+LEVEL: a:b
+
+LEVEL: c:d
+NON-UNIFORMITY: c:d — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: payload  field
+
+SEAM: pkg.mod:func
+ATTRIBUTE-PATH: pkg.mod:func
+BINDING-TIME: call-time
+
+SEAM: pkg.mod:read
+ATTRIBUTE-PATH: pkg.mod:read
+BINDING-TIME: call-time
+NORMALISATION: none
+
+SEAM: pkg.mod:write
+ATTRIBUTE-PATH: pkg.mod:write
+BINDING-TIME: call-time
+
+SEAM: Char.Control
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound9:
+    """`[G24:16]`'s general half: every character, not only whitespace."""
+
+    def test_ac_c5_operand_admits_every_interior_character(self):
+        """AC-C5(1) and AC-C5(3). bd#39 gate round-9 MAJOR, spec `[G24:16]`
+        v10 / C1-18. The clause names interior whitespace and then "every
+        character between the framing"; the fixture set instantiated the first
+        half only, which is `[G24:15]`'s two-spelling shape reappearing inside
+        the clause written to close it.
+
+        No marker line in the file carried a second colon, so
+        `line.split(":")[1]` -- the pinned expression minus its maxsplit
+        argument -- passed 62/62 at zero divergence, as did
+        `" ".join(operand.split())`.
+
+        `a:b` is row-less and must be reported with that exact literal;
+        `c:d` has a row and must not be flagged, crossing the row-operand path.
+        `payload  field` carries a DOUBLED interior space and must be reported
+        verbatim, which is the cheapest possible test of "every character" and
+        the only thing separating the whitespace-collapsing lint from the
+        pinned rule. `pkg.mod:func` carries the subject half on check 3.
+        `pkg.mod:read` and `pkg.mod:write` carry the COLLISION half: they share
+        everything up to the colon, the first is fully pinned and the second is
+        not, so a lint keying on the prefix sees the union as complete and
+        `pkg.mod:write` -- declared and not pinned -- ships conformant. A
+        negative on `pkg.mod:read` alone would not catch that; the positive on
+        `pkg.mod:write` is what does.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_OPERAND_CHARACTER_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "a:b"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "payload  field"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "pkg.mod:func"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "pkg.mod:write"
+            for f in findings
+        )
+        assert not any(f.subject == "c:d" for f in findings)
+        assert not any(f.subject == "pkg.mod:read" for f in findings)
+        assert not any(f.subject == "Char.Control" for f in findings)
