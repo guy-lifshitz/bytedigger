@@ -1,6 +1,6 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v5, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v6, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
@@ -68,6 +68,34 @@ rules at once), row-before-level order independence (`[G24:9]`, C1-14), and **mi
 MINOR-5: both gate rounds lacked a shell and could endorse no numbers, and a proof nobody can re-run is a claim).
 It is deliberately not a pytest test — it shells out to `git`, and CI's pytest job runs from an installed wheel
 with no repository present.
+
+**v5 — the candidate simulation was EXECUTED rather than reasoned** (§5). A reference implementation written
+from this spec plus 27 single-decision mutants, run against the RED outside the worktree: reference 40/40, all
+27 killed. It also disclosed two facts reading had not produced in time — an assertion claimed by round 3 that
+never landed in the file, and C-CRLF's candidate being narrower than §3 said.
+
+**v6 — gate round 3 returned REJECTED with one MAJOR, plus nine MINOR.** The MAJOR is the **third** kill
+`_ORPHAN_MARKER_LINES_SPEC` has been credited with and could not make: `[G24:5]`'s *not itself a finding* clause
+was measured for the `EXCLUDES` half only. The third assertion (`not any(kind == "missing_reductions")`) is
+sound because the document contains no row at all — but the document **does** contain a seam, so a spurious
+`seam_not_pinned` from the orphaned property line is indistinguishable from the expected one under `any(...)`.
+The gate offered a falsifiable prediction: a lint doing `seams.setdefault(cur_seam or "<unnamed>", set())` —
+the natural sentinel-default form, not a contrived one — would pass 40/40. **Run as mutant #28: it did.** Closed
+by a symmetric guard (C3-20), and re-run: it now fails.
+
+That the gate found a candidate my 27-mutant enumeration did not contain is the substantive point, and it is
+recorded here rather than in a footnote: **mutation adequacy is measured against the author's own enumeration of
+decisions, and the reference and the spec have one author.** A shared misreading is invisible to both. Execution
+raises the floor; it does not replace an adversary. §5's simulation subsection is scoped accordingly.
+
+Also closed: `[G24:7]`'s rationale contradicted §5's own note (MINOR-B) — reconciled by pinning what an operand
+**is** (§2.5), with a fixture, since the pin was otherwise unfalsifiable in exactly the way `[G24:5]` and
+`[G24:6]` were; §3.5's C-CRLF row rewritten to the precise candidate (MINOR-C); the harness's post-GREEN
+disposal stated (MINOR-D); the last five live `C1-13` citations renumbered (MINOR-E); the RED's spec-version
+citation, two versions stale (MINOR-F); **the containment script now compares carried test BODIES**, not only
+their names (MINOR-G) — with most candidates dying by exactly one test, a deleted assertion silently un-kills
+one, which is bd#22 round 4's hole in a different wall; two missing rows added to §5's clause table (MINOR-H);
+and "round 3" disambiguated between bd#22's and this lot's (MINOR-I).
 
 ---
 
@@ -275,17 +303,23 @@ line, and inventing one would exceed the three pinned `kind` values).
   row, each bind to nothing: they contribute no coverage to anything, they are **not** themselves findings
   (there is no `kind` for an unanchored line and inventing one would exceed the three pinned values), and they
   MUST NOT be credited **forward** to the next anchor. A `SEAM` that follows an orphaned `NORMALISATION:` line
-  is still missing `NORMALISATION`. Exercised for the not-a-finding and does-not-raise halves by `_ORPHAN_MARKER_LINES_SPEC` (§3, F-8), and for the **forward-crediting** half by `_FORWARD_CREDIT_SPEC` (C1-13, C3-17) — see the v3 note for why the first fixture cannot carry that half.
+  is still missing `NORMALISATION`. Exercised for the not-a-finding and does-not-raise halves by `_ORPHAN_MARKER_LINES_SPEC` (§3, F-8), and for the **forward-crediting** half by `_FORWARD_CREDIT_SPEC` (C2-21, C3-17) — see the v3 note for why the first fixture cannot carry that half.
 - **`[G24:6]` A `NON-UNIFORMITY` row whose `<level>` operand names no declared `LEVEL` is still checked**,
   against the **default** admitted set. Reached by the carried `_LEVEL_CASE_MISMATCH_SPEC`, whose row operand
   `audit_case` matches no level once P1 makes the comparison case-sensitive — so v1 left a clause that a carried
   fixture actually walks through. The alternative (skip such rows entirely) would let a typo'd operand hide its
   own row's under-enumeration, which is the defect this AC exists for. The fixture's row covers all four, so
   this pin adds no finding there and contradicts no carried expectation.
-- **`[G24:7]` Line terminators are not part of an operand.** A document may use CRLF; `LEVEL: phases\r\n`
-  declares the level `phases`, not `phases\r`. Splitting on `"\n"` and keeping the remainder verbatim would put
-  a carriage return inside `Finding.subject`, and P1 forbids normalising `subject` after the fact, so the split
-  is where it has to be right. Exercised by `_CRLF_SPEC` (C-CRLF). Raised by gate round 1 as a live edge.
+- **`[G24:7]` What an operand IS: the text after the marker's colon, with surrounding whitespace and the line
+  terminator removed.** "Verbatim" (P1) governs **case and interior characters**, not the framing. So a document
+  may use CRLF — `LEVEL: phases\r\n` declares `phases`, not `phases\r` — and `SEAM: Trailing.Seam  ` declares
+  `Trailing.Seam`. **Reconciled in v6** (gate round-3 MINOR-B): v4 justified this as "the split is where it has
+  to be right", while §5's executed simulation then recorded that an implementation splitting on `"\n"` and
+  **stripping** its operands is also correct. Both could not stand — and stripping is itself a normalisation,
+  which P1 forbids for `subject`. Pinning the operand's framing rather than the mechanism removes the
+  contradiction: any mechanism that yields this operand is admissible. Exercised by `_CRLF_SPEC` (C-CRLF) and
+  `_TRAILING_WHITESPACE_SPEC` (C-WS); the latter exists because the clause was otherwise unfalsifiable, no
+  fixture having carried trailing whitespace on an operand.
 - **`[G24:8]` Markers are recognised AT LINE START, and an indented marker is prose.** §1.6's "at line start" is
   the pinned wording; this states its consequence, because every fixture in the RED is flush-left and so
   `line.startswith(...)` and `line.strip().startswith(...)` are otherwise indistinguishable. A quoted or indented
@@ -387,7 +421,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C1-10 | K11 case-folding `subject` on output | `_MISSING_ROW_SPEC` (`Audit_Field`) | `subject` is asserted against the mixed-case literal; a normalising lint reports `audit_field` |
 | C1-14 | order-sensitive check 1 (a level is discharged only by a row **below** it) ✝✝✝ | `_ROW_BEFORE_LEVEL_SPEC` ✝✝✝ | `late_level`'s row precedes its declaration; an order-sensitive lint flags a discharged level (`[G24:9]`) |
 | C1-11 | K7/lookahead crash on a trailing bare `LEVEL:` | `"LEVEL: phases"` inline | an `i+1` lookahead raises `IndexError` instead of reporting |
-| ~~C1-12~~ | **WITHDRAWN, gate round 1 MAJOR-3.** Claimed `_ORPHAN_MARKER_LINES_SPEC` killed forward-crediting for check 1. **False:** crediting an orphaned `EXCLUDES` forward adds *coverage*, and check 1 is defined over *rows*, so the finding fires either way and the assertion passed for the GREEN it was written to kill. Superseded by C1-13 | — | — |
+| ~~C1-12~~ | **WITHDRAWN, gate round 1 MAJOR-3.** Claimed `_ORPHAN_MARKER_LINES_SPEC` killed forward-crediting for check 1. **False:** crediting an orphaned `EXCLUDES` forward adds *coverage*, and check 1 is defined over *rows*, so the finding fires either way and the assertion passed for the GREEN it was written to kill. Superseded by C2-21 | — | — |
 
 ### 3.3 Check 2 — `missing_reductions`
 
@@ -453,7 +487,9 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | F-6 | accumulates findings in module-level state across calls | the idempotence test: snapshot-before-second-call, plus `second is not first` |
 | F-8 | dereferences a "current anchor" that was never set (raises on an unanchored marker line) ✝ | `_ORPHAN_MARKER_LINES_SPEC` ✝ |
 | F-9 | `Finding` **widened** with a third field (`message`, `line_number`) ✝✝ | a set-equality assertion on `dataclasses.fields` — §2.1 pins "exactly two attributes" and nothing measured the *exactly*. Gate round 1 MINOR-7 |
-| C-CRLF | `.split("\n")` leaves `"\r"` inside `subject` ✝✝ | `_CRLF_SPEC` ✝✝ — every other fixture is LF-only (`[G24:7]`) |
+| C-CRLF | an operand kept **verbatim after splitting on `"\n"`**, so `"\r"` stays inside `subject` ✝✝ | `_CRLF_SPEC` ✝✝ — every other fixture is LF-only (`[G24:7]`). Precise form, v6: an implementation that splits on `"\n"` and then **strips** is correct and is not the candidate |
+| C-WS | trailing whitespace kept inside the operand ✝✝✝✝ | `_TRAILING_WHITESPACE_SPEC` ✝✝✝✝ — `LEVEL: phases␣␣␣` must still be discharged by its row, and `SEAM: Trailing.Seam␣␣` reported without the spaces |
+| C3-20 | an unanchored property line collected under a **sentinel seam** (`seams.setdefault(cur_seam or "<unnamed>", …)`) and reported as a finding ✝✝✝✝ | `_ORPHAN_MARKER_LINES_SPEC`'s fourth assertion ✝✝✝✝ — `[G24:5]`'s not-a-finding clause was measured for the `EXCLUDES` half only; the seam half needed a guard naming the one seam that legitimately appears. **Gate round-3 MAJOR**, predicted by the gate and confirmed by mutant #28 passing 40/40 without it |
 | C-CASE | marker recognition as **two literal spellings** (`startswith(("LEVEL:", "level:"))`) rather than case-insensitive ✝✝✝ | `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ — only ALL-CAPS and all-lowercase were walked; `Title.Conformant` additionally separates recognition of the three property markers from recognition of `Seam:` alone |
 | C-INDENT | `line.strip().startswith(...)` treats an indented marker as a declaration ✝✝ | `_INDENTED_MARKER_SPEC` ✝✝ — every other fixture is flush-left (`[G24:8]`) |
 | F-7 | `Finding` is not a frozen dataclass (plain object, dict, `NamedTuple`, mutable dataclass) | `_MISSING_ROW_SPEC`'s test: `dataclasses.is_dataclass` + `FrozenInstanceError` |
@@ -502,7 +538,7 @@ regressed, and the check is run anyway rather than reasoned about.
 
 Consequently every candidate the round-9 set killed is still killed by the same fixture, unchanged: C1-1,
 C1-2/3 (partially), C1-4, C1-5, C1-7, C1-8, C1-9, C1-10, C1-11; C2-1..C2-5, C2-12..C2-17; C3-2..C3-4,
-C3-5/6 (partially), C3-7, C3-10, C3-12, C3-13, C3-14, C3-15; F-1..F-7. **The one thing round 3 deleted
+C3-5/6 (partially), C3-7, C3-10, C3-12, C3-13, C3-14, C3-15; F-1..F-7. **The one thing bd#22's round 3 deleted
 (`_SEAM_NOT_PINNED_SPEC`, C3-1) is restored under its original name**, which is what round 4 rejected on.
 
 **Direction 2 — additions.** Eight new fixture constants, one new inline input, nine new tests. Per §0.9(2), each added assertion is
@@ -598,6 +634,9 @@ read the other way. So the audit below is now run over every normative clause, n
 | `[G24:10]` anchors tracked independently | `_INTERLEAVED_ANCHORS_SPEC` |
 | §2.2 markers case-insensitive | `_LOWERCASE_MARKERS_SPEC` + `_MIXED_CASE_MARKERS_SPEC` |
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
+| §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
+| §2.1 must not raise; `Finding` shape | `_MALFORMED_SPEC`, `""`, `"LEVEL: phases"` (F-2/F-3/F-4) and the `is_dataclass`/`FrozenInstanceError`/field-set assertions (F-7, F-9) |
+| `[G24:7]` operand framing | `_CRLF_SPEC` **and** `_TRAILING_WHITESPACE_SPEC` |
 | §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
 
 ### Round 3 — EXECUTED candidate simulation, not reasoned
@@ -609,7 +648,21 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 40/40 and every one of the 27 mutants fails at least one test.**
+**Result: the reference passes 41/41 and every one of the 28 mutants fails at least one test** (v6 figures;
+v5 recorded 40/40 over 27 before gate round 3 added the sentinel-seam candidate and the trailing-whitespace
+fixture).
+
+**Scope of this evidence, and its limit** (gate round-3's weighing, adopted): mutation adequacy is measured
+against **the author's own enumeration of decisions**, and the reference and this spec have one author, so a
+shared misreading is invisible to both. That is `[G22:13]` restated. The proof is mutant **#28**: the gate
+named a surviving candidate — an unanchored property line collected under a sentinel seam — that my 27-mutant
+list did not contain, predicted it would pass 40/40, and it did. Execution raises the floor. It does not
+replace an adversary, and this subsection is not offered as if it did.
+
+**Disposal** (gate round-3 MINOR-D): the harness is uncommitted **only until GREEN lands**, so GREEN cannot be
+copied from it. Once GREEN is in, the reference and the mutant set are committed beside the containment script,
+so the matrix becomes re-runnable — by §5's own standard, an unrepeatable proof is a claim, and the exception
+is temporary and for one stated reason.
 
 The reference passing is a result in its own right and one no gate round could produce: it shows the fixture set
 is **satisfiable** — no assertion contradicts another, and the spec as written is implementable. Five revisions
@@ -628,7 +681,7 @@ none.
 | `admits_by_proximity` | K13, C2-18 | 1 |
 | `skip_undeclared` | `[G24:6]`, C2-19 | 1 |
 | `excludes_by_level` | `[G24:2]`, C2-10 | 5 |
-| `forward_credit` | `[G24:5]`, C1-13/C3-17 | 1 |
+| `forward_credit` | `[G24:5]`, C2-21/C3-17 | 1 |
 | `single_anchor` | `[G24:10]`, C3-19 | 1 |
 | `row_below_only` | `[G24:9]`, C1-14 | 1 |
 | `ignore_bad_tokens` | `[G24:1]`, C2-8 | 1 |

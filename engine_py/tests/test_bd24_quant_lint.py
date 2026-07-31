@@ -1,6 +1,6 @@
 """RED tests for bd#24 (L2b): the quantifier-completeness lint (1 AC: AC-C5).
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (v3, FROZEN), which inherits
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (v6, FROZEN), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
 
@@ -1469,6 +1469,21 @@ class TestQuantifierCompletenessLintBd24Orphans:
         line. There is no `kind` for one (`[G24:5]`), and
         `missing_reductions` is the only kind it could be spelled as, since
         no row exists in this document at all.
+
+        The fourth assertion closes gate round-3's MAJOR (spec C3-20), and it
+        is the third kill this one fixture has been credited with and could
+        not make. The third assertion is sound only for the `EXCLUDES` half:
+        the document contains NO row, so any `missing_reductions` must have
+        come from the orphan. That reasoning does not transfer to the
+        property-line half, because the document DOES contain a seam, so a
+        spurious `seam_not_pinned` is indistinguishable from the expected one
+        under an `any(...)` assertion. The surviving implementation is not
+        contrived -- it is the natural one, a dict keyed by the current anchor
+        with a sentinel default: `seams.setdefault(cur_seam or "<unnamed>",
+        set()).add(marker)` collects the orphaned `NORMALISATION:` under
+        `<unnamed>`, finds it short of three properties, and reports a
+        finding about a seam that does not exist. Verified: that mutant
+        passes 40/40 without this assertion, and fails with it.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
@@ -1483,6 +1498,10 @@ class TestQuantifierCompletenessLintBd24Orphans:
             for f in findings
         )
         assert not any(f.kind == "missing_reductions" for f in findings)
+        assert not any(
+            f.kind == "seam_not_pinned" and f.subject != "Orphan.Seam"
+            for f in findings
+        )
 
 
 # =========================================================================
@@ -1555,7 +1574,7 @@ NON-UNIFORMITY: undeclared_level — fixture set has >=2 members, one violating,
 EXCLUDES: any, all, first
 """
 
-# ── MAJOR-3: forward-crediting, killed properly this time (C1-13/C3-17) ──
+# ── MAJOR-3: forward-crediting, killed properly this time (C2-21/C3-17) ──
 # `[G24:5]`'s central clause is that an unanchored marker line MUST NOT be
 # credited FORWARD to the next anchor. `_ORPHAN_MARKER_LINES_SPEC` cannot
 # test it: there, forward-crediting leaves both anchors non-conformant for
@@ -1716,7 +1735,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
 
     def test_ac_c5_unanchored_line_is_not_credited_forward_to_the_next_anchor(self):
-        """AC-C5(2) and AC-C5(3). Gate round-1 MAJOR-3, spec C1-13/C3-17,
+        """AC-C5(2) and AC-C5(3). Gate round-1 MAJOR-3, spec C2-21/C3-17,
         closing the half of `[G24:5]` that `_ORPHAN_MARKER_LINES_SPEC` could
         not reach. There, forward-crediting leaves both anchors
         non-conformant for unrelated reasons, so both assertions pass for the
@@ -2082,3 +2101,64 @@ class TestQuantifierCompletenessLintBd24GateRound2:
             for f in findings
         )
         assert not any(f.subject == "Title.Conformant" for f in findings)
+
+
+# =========================================================================
+# PART 5 -- gate round 3. One MAJOR (closed by the assertion added to
+# `test_ac_c5_unanchored_marker_lines_bind_to_nothing` above, not by a new
+# fixture) and one MINOR that needed a fixture: `[G24:7]`'s rationale said
+# "the split is where it has to be right", while §5's simulation note said a
+# stripping implementation is also correct. Both could not stand. Resolved in
+# spec §2.5 by pinning the operand's FRAMING (surrounding whitespace and the
+# line terminator are not part of it; "verbatim" governs case and interior
+# characters), and that pin needs a fixture to be falsifiable.
+# =========================================================================
+
+# Trailing spaces are written as explicit concatenation rather than inside a
+# triple-quoted block: trailing whitespace in a source line is exactly what an
+# editor, a linter or a `git` whitespace filter silently removes, and this
+# fixture is worthless the moment that happens.
+_TRAILING_WHITESPACE_SPEC = (
+    "# Fixture Spec — operands followed by trailing whitespace\n"
+    "\n"
+    "LEVEL: phases   \n"
+    "NON-UNIFORMITY: phases — fixture set has >=2 members, one violating, plus control\n"
+    "EXCLUDES: any, all, first, last\n"
+    "\n"
+    "SEAM: Trailing.Seam  \n"
+    "ATTRIBUTE-PATH: pathlib.Path.read_text\n"
+    "BINDING-TIME: call-time\n"
+)
+
+
+class TestQuantifierCompletenessLintBd24GateRound3:
+    """Gate round 3's MINOR-B: the operand's framing, pinned and measured."""
+
+    def test_ac_c5_trailing_whitespace_is_not_part_of_the_operand(self):
+        """Spec `[G24:7]` as reconciled in v6, C-WS. `[G24:7]` originally
+        justified itself with "the split is where it has to be right", while
+        §5's executed simulation recorded that a `.split("\\n")` implementation
+        which strips its operands behaves correctly -- and stripping is itself
+        a normalisation of the operand, which P1 forbids for `subject`. The
+        two statements could not both stand in a frozen spec. Resolved by
+        pinning what the operand IS: the text after the marker's colon with
+        surrounding whitespace and the line terminator removed. "Verbatim"
+        governs case and interior characters, not the framing.
+
+        Nothing measured that before -- no fixture carried trailing
+        whitespace on an operand -- so the pin was unfalsifiable in exactly
+        the way `[G24:5]` and `[G24:6]` were. Here `LEVEL: phases   ` must
+        still be discharged by `NON-UNIFORMITY: phases — …` (a lint keeping
+        the trailing spaces sees two different names and reports a missing
+        row), and `SEAM: Trailing.Seam  ` must be reported with its name
+        exactly, not with the spaces attached.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_TRAILING_WHITESPACE_SPEC)
+
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Trailing.Seam"
+            for f in findings
+        )

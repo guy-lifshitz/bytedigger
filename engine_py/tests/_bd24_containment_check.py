@@ -25,6 +25,10 @@ second assertion of the same numbers.
 Fixture constants are compared by value (`ast.literal_eval`) rather than by
 source text, so reflowed quoting or an added comment cannot be mistaken for a
 changed fixture, and a changed fixture cannot hide behind identical formatting.
+Carried test BODIES are compared too, via `ast.unparse` with the docstring
+dropped -- gate round 3's MINOR-G: name presence alone cannot see an assertion
+deleted from a carried test, and with most candidate implementations dying by
+exactly one test, one deleted assertion silently un-kills one candidate.
 """
 from __future__ import annotations
 
@@ -52,14 +56,35 @@ def _fixture_constants(source: str) -> dict[str, str]:
     }
 
 
-def _ac_c5_tests(source: str) -> set[str]:
-    return {
-        fn.name
-        for cls in ast.parse(source).body
-        if isinstance(cls, ast.ClassDef)
-        for fn in cls.body
-        if isinstance(fn, ast.FunctionDef) and fn.name.startswith("test_ac_c5")
-    }
+def _ac_c5_tests(source: str) -> dict[str, str]:
+    """Carried test bodies, normalised.
+
+    Name presence is not enough: an assertion deleted from a carried test is
+    invisible to a name check, and gate round 3 measured that 13 of 27
+    candidate implementations die by exactly ONE test -- so a single deleted
+    assertion silently un-kills a candidate, which is the same hole in a
+    different wall from the deleted fixture that rejected bd#22 round 4.
+    Docstrings are excluded so prose may be corrected (a withdrawn candidate
+    ID, say) without registering as a behavioural change; everything else is
+    compared as unparsed source.
+    """
+    out = {}
+    for cls in ast.parse(source).body:
+        if not isinstance(cls, ast.ClassDef):
+            continue
+        for fn in cls.body:
+            if not (isinstance(fn, ast.FunctionDef) and fn.name.startswith("test_ac_c5")):
+                continue
+            body = list(fn.body)
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                body = body[1:]
+            out[fn.name] = "\n".join(ast.unparse(node) for node in body)
+    return out
 
 
 def main() -> int:
@@ -84,7 +109,10 @@ def main() -> int:
         for k in old_fixtures
         if k in new_fixtures and new_fixtures[k] != old_fixtures[k]
     )
-    lost_tests = sorted(old_tests - new_tests)
+    lost_tests = sorted(k for k in old_tests if k not in new_tests)
+    altered_tests = sorted(
+        k for k in old_tests if k in new_tests and new_tests[k] != old_tests[k]
+    )
 
     print(f"containment of {PREDECESSOR_REV}:{PREDECESSOR_PATH} in {CURRENT_PATH.name}")
     print(
@@ -93,15 +121,19 @@ def main() -> int:
     )
     print(f"    absent : {absent or 'NONE'}")
     print(f"    changed: {changed or 'NONE'}")
-    print(f"  carried tests: {len(old_tests & new_tests)}/{len(old_tests)} present")
+    print(
+        f"  carried tests: {len(old_tests) - len(lost_tests)}/{len(old_tests)} present, "
+        f"{len(altered_tests)} with an altered body"
+    )
     print(f"    absent : {lost_tests or 'NONE'}")
+    print(f"    altered: {altered_tests or 'NONE'}")
     print(
         f"  totals now: {len(new_fixtures)} fixtures "
         f"({len(old_fixtures)} carried + {len(new_fixtures) - len(old_fixtures)} added), "
         f"{len(new_tests)} tests"
     )
 
-    if absent or changed or lost_tests:
+    if absent or changed or lost_tests or altered_tests:
         print("CONTAINMENT VIOLATED — spec §0.9 direction 1 applies: state which")
         print("candidates the previous fixture set killed and show each is still killed.")
         return 1
