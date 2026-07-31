@@ -647,3 +647,904 @@ Scoped, in the terms the levels require:
 
 It licenses nothing about oracle quality (BD-L2) and nothing about authorship attestation beyond
 what bd#10 already measured.
+
+---
+---
+
+# ⎯⎯ SECOND FROZEN SPEC IN THIS FILE ⎯⎯
+
+**`engine_py/conformance/oracle.py` is shared by two lots**, so this file carries **two independent
+frozen specs**. They collided by **file name only** — the symbol sets are disjoint and the modules
+complement each other rather than compete.
+
+| | Lot | Subject | Symbols |
+|---|---|---|---|
+| **§ above** | **bd#8** (BD-L1) | oracle freeze-and-verify | `OracleRefusal`, `is_oracle_workflow`, `is_implementing_workflow`, `doc_dir`, `list_members`, `member_digest`, `compute_digest`, `compute_scope`, `compute_scope_digest`, `crosscheck_from_payload`, `build_freeze_payload`, `build_amendment_payload`, event constants |
+| **§ below** | **bd#38** (L3, child of bd#27) | three-state outcome + guarded evaluation | `OracleOutcome`, `Oracle` (Protocol), `evaluate_guarded` |
+
+Neither spec is amended by the other, and neither document was edited to accommodate the merge:
+bd#8's text above is byte-identical to what it carried on `main`, and bd#38's below is byte-identical
+to what it carried on its branch. **Nothing was dropped from either side.**
+
+Note for both lots: bd#38's `AC-E9` parses this module with `ast` and asserts it imports `signal` in
+no form. That assertion now covers **bd#8's code as well** — re-measured on the merged file, not
+inherited. bd#8 imports `hashlib`, `json`, `pathlib`, `typing` and `__future__`; the assertion holds.
+
+# bd#27 (L3) — Oracle plugin interface + guarded evaluation
+
+FROZEN spec **v2**, lot **bd#27** → child **bd#38** after gate round 1 returned REJECTED on two
+type-(a) blockers. Carries exactly **15 ACs**: `AC-O1`..`AC-O5` (the three-state outcome type) and
+`AC-E1`..`AC-E10` (`evaluate_guarded`). Scope is one new module,
+`engine_py/conformance/oracle.py`.
+
+**v2 changes:** §3.1 AC-O3(b) sweeps `vars()` over the MRO instead of `dir()` (MAJOR 1), with the
+positive control measured on this base (§7.3); §4.1 row 8 and the §4.3 row rewritten rather than left
+carrying the falsified kill-claim; the RED docstring reconciled with §5 (MAJOR 2); and **§8 — the
+simulation table executed as code**: reference 37/37, 37 mutants all killed, 2 admissible designs
+passing.
+
+Process: frozen spec → RED → independent validation gate → GREEN.
+**GREEN does not start before an ACCEPTED verdict.**
+
+---
+
+## 0. Provenance, and what re-resolving the citation found
+
+AC text is preserved verbatim on branch **`lot-bd7`**, `engine_py/conformance/SPEC.md`. That branch
+is the carrier and **must not be deleted**.
+
+**Citation re-resolved on this base** (`git show lot-bd7:engine_py/conformance/SPEC.md`, 1456 lines):
+
+| Anchor | Carrier line |
+|---|---|
+| `## 2. Oracle plugin interface — engine_py/conformance/oracle.py` | 244 |
+| `### 2.1 Three states, unmergeable by type` | 246 |
+| `AC-O1` … `AC-O5` (first lines) | 255 … **264** |
+| `### 2.2 freeze` (**not this lot** — `AC-F1..F14`) | 269 |
+| `### 2.3 evaluate and the indeterminate guard` | 332 |
+| `AC-E1` … `AC-E10` | 338 … 353 |
+| `AC-E10`'s **resolved normative form** (`[G8:2]`) | **395–400** |
+| `[G7:self-1]` withdrawal of the `ThreadPoolExecutor` aside | 402–416 |
+| §2 ends (`## 3. Attestation writer` begins) | **422** (421 is blank) |
+
+**Finding — the inherited citation range is short.** The lot brief and issue #27 cite
+"§2 … lines 244–380". Line 380 lands **inside** `[G8:2]`'s preamble, one line into the two-defect
+list. The **resolved normative form of `AC-E10`** — the single sentence this lot is instructed not to
+re-derive — lives at **395–400**, and the measured `[G7:self-1]` withdrawal that makes a default
+`ThreadPoolExecutor` inadmissible lives at **402–416**. Both fall outside the cited range. Reading to
+the §2/§3 boundary (421) rather than to the cited endpoint is what recovered them. Recorded because
+"measurements and line citations are base-relative and do not transfer" cuts both ways: the range was
+not merely offset, it was **truncated before the operative clause**.
+
+Nothing else in §2 is in scope. In particular **`AC-F1`..`AC-F14` (carrier 269–331, module-level
+`freeze()`) are NOT this lot** — they are named here only so their absence is not later read as a gap.
+
+---
+
+## 1. Base, host, and measurement
+
+Measured on the executing host at this lot's base, **before** RED.
+
+- Base: `lot-27` @ `08b8413`, branched from `origin/main`. Working tree clean.
+- Host: macOS 26.5.1, 18 cores. CPython **3.14.6**.
+- Suite invocation, taken from `.github/workflows/ci.yml:103` (job `defaults.run.working-directory:
+  engine_py`): `python -m pytest tests/ -q -p no:cacheprovider --timeout=120`.
+- Installed pytest plugins on this host: **`pytest-xdist`, `pytest-timeout`** only.
+
+**`pytest-randomly` is NOT installed on this base.** The carrier spec reasons repeatedly about "the
+suite's default `pytest-randomly`" (carrier 386–387) and about `-p no:randomly`. That premise is
+base-relative and **does not transfer to this host**. It does not relax anything: `AC-E10`'s resolved
+form is order-independent by construction, which is the property that matters, and this lot asserts
+order-independence rather than inheriting it from a plugin's absence.
+
+### 1.1 Contention control (hal#1353)
+
+Checked before and after the baseline run, matched on command **prefix**: no `Runner.Worker`, no
+competing `pytest` / `python -m pytest` process. Recorded in §7.
+
+### 1.2 Baseline
+
+Recorded in §7 with the post-run contention re-check.
+
+**Drift invariant.** Ship in **0 failed**, and the drift property is *"identical to this host's own
+`main` at `extra_bd == 0`"* — never a literal count. `engine_py/conformance/` is bd-native and is
+**not** in `core_manifest.json` (precedent `lib/run_allowlist.py`), so HAL drift stays at baseline.
+`conformance*` is **already** in `[tool.setuptools.packages.find] include`
+(`engine_py/pyproject.toml:104`, shipped by L2) — **this lot changes no packaging.**
+
+### 1.3 Thread-spawn audit — re-verified on THIS base, not inherited
+
+L1's gate flagged that `AC-E10`'s assertion quantifies over the **process**, so a foreign non-daemon
+thread owned by pytest or another fixture would false-fail it. L1 audited `engine_py` and found none
+live. **That conclusion was re-derived here rather than inherited**, and it reproduces:
+
+| Site (this base) | Thread | Daemon |
+|---|---|---|
+| `llm_subprocess.py:609` | `llm-straggler-watchdog` | `daemon=True` |
+| `llm_subprocess.py:2515` | `llm-stream-feeder` | `daemon=True` |
+| `llm_subprocess.py:2518` | `llm-stream-reader` | `daemon=True` |
+| `lib/reference_backends/pydantic_anthropic.py:174` | anonymous | `daemon=True` |
+| `lib/reference_backends/pydantic_openai.py:616` | anonymous | `daemon=True` |
+| `workflows/phase_6_review.py:2675` | `ThreadPoolExecutor(max_workers=n)` | non-daemon, but **context-managed** — `with` calls `shutdown(wait=True)`, so no worker survives the block |
+
+No thread-spawning site in `engine_py/tests/conftest.py`, `engine_py/tests/helpers/`, or the repo-root
+`conftest.py`.
+
+**`pytest-timeout` measured, not assumed.** `--timeout=120` is in the CI command, and `pytest-timeout`
+spawns a `threading.Timer` under its `thread` method. On this host SIGALRM is available, so it selects
+the **signal** method and spawns nothing. Probed directly under the exact CI flags: alive non-main
+threads `[]`, non-daemon `[]`.
+
+**Declared limitation (measured hazard, deliberately not designed around).** `pytest-xdist` is
+installed. This lot's suite invocation does not use `-n`, and neither does CI. `AC-E10`'s
+process-quantified assertion is scoped to that invocation. Running the suite under `-n` is out of
+scope for this lot's verdict.
+
+**Self-inflicted instance of the same hazard, closed by construction:** `AC-E9` runs its assertions on
+a helper thread. That helper MUST be `daemon=True` **and** joined before its test returns, or it
+becomes exactly the foreign non-daemon thread that false-fails `AC-E10`. Pinned in `AC-E9`'s fixture
+below.
+
+---
+
+## 2. Frozen interface
+
+```python
+# engine_py/conformance/oracle.py
+
+class OracleOutcome(Enum):
+    REJECTED = "rejected"
+    ACCEPTED = "accepted"
+    INDETERMINATE = "indeterminate"
+
+class Oracle(Protocol):
+    def freeze(self, paths: Iterable[Path], *, root: Path) -> str: ...
+    def evaluate(self, state) -> OracleOutcome: ...
+
+def evaluate_guarded(
+    oracle: Oracle, state, *, timeout_s: float | None = None
+) -> tuple[OracleOutcome, str | None]: ...
+```
+
+The `Oracle` Protocol is declared because `evaluate_guarded` is typed against it. **No AC in this lot
+covers the Protocol itself**, and the module-level `freeze()` function of carrier §2.2 is **not
+implemented here** (`AC-F1..F14`, another lot).
+
+**Feasibility pre-checked before freezing** (CPython 3.14.6, this host). `AC-O1`..`AC-O5` are
+simultaneously satisfiable with `Enum` internals intact — a spec that cannot be implemented is a
+Class B defect, so this was verified rather than assumed:
+
+| Probe | Result |
+|---|---|
+| `bool(I)` | `TypeError` ✓ |
+| `I == True` / `True == I` / `I != True` | `TypeError` ✓ (both operand orders) |
+| `I == REJECTED` / `I == I` | `False` / `True` ✓ (comparison still works) |
+| `I == object()` / `I == "indeterminate"` | `False` ✓ (not over-broad) |
+| `len({R,A,I})` / `{R: 1}[R]` | `3` / `1` ✓ (hashable; `__hash__` must be restored explicitly) |
+| `OracleOutcome(True)` / `(1)` | `ValueError` ✓ |
+| `OracleOutcome("rejected")` | member ✓ (constructor still functional) |
+| `{c.__name__ for c in __mro__}` | `{"OracleOutcome","Enum","object"}` ✓ |
+| `json.dumps(I)` | `TypeError` ✓ |
+
+Note the trap this surfaced: defining `__eq__` sets `__hash__ = None`, which breaks `Enum` set/dict
+use. GREEN must restore it; the RED asserts set and dict-key usage so the trap cannot ship silently.
+
+---
+
+## 3. The 15 acceptance criteria
+
+AC text in **bold quote** is verbatim from the carrier. Everything after it is this lot's fixture
+design and its `[G22:13]` kill analysis.
+
+### 3.1 `OracleOutcome` — three states unmergeable by type
+
+#### AC-O1
+> **`bool(outcome)` MUST raise `TypeError`.** Enum members are truthy by default, so `if outcome:`
+> would silently read INDETERMINATE as accepted.
+
+**Fixture.** For **each of the three members** (per-member quantifier — a `__bool__` defined only on
+the member the author was thinking about is the standing "each individual member omitted" candidate):
+`pytest.raises(TypeError)` around `bool(m)`, and around an `if m:` truthiness context.
+
+**Vacuity guard.** `pytest.raises(TypeError)` alone is vacuous if the object never constructed. Paired
+with `isinstance(m, OracleOutcome)` and `m.value == <literal>` asserted **first**, so the guarded path
+is proven entered on a real member.
+
+#### AC-O2
+> **`outcome == True` / `outcome == False` MUST raise `TypeError`.** Equality against `bool` is the
+> second collapse path.
+
+**Fixture.** Three members × {`True`, `False`} × **both operand orders** (`m == True` and `True == m`)
+— the standing "operand bound to the wrong neighbour" / "both directions" candidate. Plus `m != True`.
+
+**Positive control, and it is the load-bearing half.** An implementation that raises `TypeError` for
+*every* operand satisfies the AC's letter and destroys the type. So, asserted alongside:
+`m == m` is `True`; `m == other_member` is `False`; `m == object()` is `False`; `m == "rejected"` is
+`False`; `{R, A, I}` has 3 elements; `{R: 1}[R] == 1`. The collection is non-uniform by construction —
+bool operands raise, non-bool operands compare normally.
+
+#### AC-O3
+> **No constructor from a boolean exists: `OracleOutcome` MUST NOT expose `from_bool`, and
+> `OracleOutcome(True)` MUST raise `ValueError`.**
+
+**Fixture.** (a) The named absence: `from_bool` not an attribute. (b) "and friends" made measurable
+rather than rhetorical — a structural sweep over **the class dicts of the MRO** (`vars(klass)` for
+`klass in OracleOutcome.__mro__`): no name containing `bool` case-insensitively, excluding `__bool__`
+(the standing "case-folding where verbatim text is pinned" candidate, applied in the direction that
+widens the net). (c) `OracleOutcome(True)` and `OracleOutcome(False)` raise `ValueError`; also
+`OracleOutcome(1)` and `OracleOutcome(0)`, since `True == 1`.
+
+**The collection swept is `vars()` over the MRO, never `dir()` — v1 got this wrong and it was the
+lot's first MAJOR.** `dir()` on an `Enum` dispatches to `EnumType.__dir__`, which returns a fixed
+literal list plus `cls._member_names_` and never consults the class dict, so the `dir()` form of this
+sweep **could not fail** and let a `from_boolean` classmethod ship. Measured both ways in §7.3, and
+executed against three renamed-constructor mutants in §8. The `__bool__` exclusion is **required and
+live** under `vars()` — AC-O1 obliges `__bool__` to exist and raise, and `vars()` does surface it,
+whereas under `dir()` the exclusion was dead code.
+
+**Positive control.** `OracleOutcome("rejected") is OracleOutcome.REJECTED` — without it, "the
+constructor raises for everything" passes vacuously.
+
+#### AC-O4
+> **The three members are distinct and `INDETERMINATE is not REJECTED`, `INDETERMINATE is not
+> ACCEPTED`.**
+
+**Fixture.** All three pairwise `is not`; `len(OracleOutcome) == 3`; and whole-collection equality on
+both names and values: `{m.name for m in OracleOutcome} == {"REJECTED","ACCEPTED","INDETERMINATE"}`,
+`{m.value for m in OracleOutcome} == {"rejected","accepted","indeterminate"}` (exact, lowercase —
+case-folding candidate).
+
+**Kill.** Enum **aliasing** is the live candidate: `INDETERMINATE = "rejected"` makes the two members
+the *same object*, silently. `len == 3` plus pairwise identity plus the value-set equality kill it.
+
+#### AC-O5
+> **`OracleOutcome` MUST NOT use a mixin base: its `__mro__` MUST contain no type other than
+> `OracleOutcome`, `Enum` and `object`.** A `str`/`int` mixin satisfies AC-O1..O4 while
+> `json.dumps(outcome)` re-emits a bare truthy scalar.
+
+**Fixture.** Set-equality exactly as mandated:
+`{c.__name__ for c in OracleOutcome.__mro__} == {"OracleOutcome", "Enum", "object"}`.
+This is exhaustive whole-collection equality and admits no `any`/`all`/`first`/`last` reduction, so it
+carries no `[G7:4]` quantifier obligation (`[G8:1]` clause (b)).
+
+**Declared corollary assertion.** The AC's *rationale* names the process boundary, so it is asserted:
+`json.dumps(OracleOutcome.INDETERMINATE)` raises `TypeError`. This is a **live** assertion, not
+decoration — it is exactly what a `str` mixin flips (a `str`-mixin member serialises to `"rejected"`).
+Declared here so the gate can rule on it rather than discover it.
+
+**Kills.** `(str, Enum)` → mro gains `str`. `(int, Enum)` / `IntEnum` → gains `int`. `StrEnum` → gains
+`str` and `ReprEnum`. A plain non-Enum class with three constants → mro is `{OracleOutcome, object}`.
+All four differ from the pinned set.
+
+### 3.2 `evaluate_guarded`
+
+#### AC-E1
+> **An oracle raising any `Exception` MUST yield `INDETERMINATE`, never `REJECTED`.**
+
+**Fixture.** A **non-uniform** set of raising doubles — `ValueError`, `RuntimeError`,
+`ZeroDivisionError`, and a lot-local `Exception` subclass — each asserted `outcome is INDETERMINATE`,
+`outcome is not REJECTED`, `outcome is not ACCEPTED`, reason non-empty (AC-E5 per-path).
+
+**Kills.** `except ValueError:` only, or any single-type catch → the other doubles escape as errors.
+Mapping exception → `REJECTED` → the `is not REJECTED` assert. The "any" quantifier is over exception
+*types*, and four dissimilar types is the non-uniform collection.
+
+#### AC-E2
+> **An oracle raising `ImportError`/`SyntaxError` (load error) MUST yield `INDETERMINATE`.**
+
+**Fixture.** Two doubles, one each, asserted separately (not one representative — "each individual
+member of a defaulted set omitted"). Same four assertions as AC-E1.
+
+#### AC-E3
+> **A timeout MUST yield `INDETERMINATE`.**
+
+**Fixture.** A slow double sleeping well beyond a small finite `timeout_s`. Asserts `INDETERMINATE`,
+`is not REJECTED`, `is not ACCEPTED`, reason non-empty.
+
+**Added live assertion — wall-clock bound.** `evaluate_guarded` must **return** in materially less
+than the oracle's sleep. Without it, an implementation that joins the worker unconditionally satisfies
+every outcome assertion while defeating the entire point of a timeout, and nothing in the AC set
+notices. This assertion can fail (a joining implementation fails it), so it is not decoration. Bound
+measured on this host, §7.
+
+#### AC-E4
+> **An oracle returning something that is not an `OracleOutcome` (including `True`/`False`) MUST yield
+> `INDETERMINATE`** — an adapter that returns a bool has not implemented the interface, and coercing it
+> would reintroduce the collapse.
+
+**Fixture — the enumeration is the point.** Doubles returning, each asserted independently:
+`True`, `False`, `None`, `0`, `1`, `"rejected"`, `"accepted"`, an object exposing `.value ==
+"rejected"` and `.name == "REJECTED"`, and a **foreign `Enum`** with identical member names and values.
+
+**Kills.** Truthiness coercion (`True`→ACCEPTED, `False`→REJECTED) — killed by `True`/`False`.
+`OracleOutcome(r)` value-coercion — killed by `"rejected"`, which such an implementation would happily
+convert into a real `REJECTED`. Duck-typing on `.value`/`.name` — killed by the lookalike object and
+the foreign `Enum`. A `type(r) is OracleOutcome` check and an `isinstance` check are both admissible
+and both survive.
+
+#### AC-E5
+> **The reason string MUST be non-empty whenever the outcome is `INDETERMINATE`.**
+
+**Fixture.** Asserted **in every INDETERMINATE-producing path** — exception (AC-E1), load error
+(AC-E2), timeout (AC-E3), non-outcome return (AC-E4) — as `isinstance(reason, str)` and
+`reason.strip() != ""`. Asserting it once would be the standing "first-only" reduction; the collection
+here is *the set of paths*, and it is non-uniform because a plausible implementation sets a reason on
+the exception path (where an exception message is at hand) and leaves `""` or `None` on the timeout
+and non-outcome paths, where it must be authored.
+
+**Declared limitation — presence-only survives, deliberately.** A constant reason (`"x"`) satisfies
+this AC. "Presence-only" is on the standing candidate list, and the kill would be to require the
+reasons of the four paths to be mutually distinguishable. **This lot does not add that requirement**:
+the AC text is frozen verbatim and `[G22:13]` is explicit that *rewriting the requirement does not
+close the gap*. Recorded as a known-admitted implementation, not as an oversight, so the gate rules on
+a stated position rather than finding an unstated hole.
+
+#### AC-E6
+> **A clean `REJECTED`/`ACCEPTED` passes through unchanged with reason `None`.**
+
+**Fixture.** **Both** members (non-uniform — one member only is "first-only"), `timeout_s=None`:
+returned outcome `is` the exact member, and `reason is None` (identity, not falsiness — `""` is a
+distinct and plausible wrong answer).
+
+**Kill worth naming.** An implementation that over-reads AC-E1's "never `REJECTED`" as "never *return*
+`REJECTED`" collapses the clean-rejection path to `INDETERMINATE`. Only the `REJECTED` half of this
+fixture catches it — which is why both members are required, and why an `ACCEPTED`-only fixture would
+have been the defect.
+
+#### AC-E7
+> **`evaluate_guarded` MUST NOT catch `KeyboardInterrupt`/`SystemExit`.**
+
+**Fixture.** Two doubles, one raising each, asserted to propagate out of `evaluate_guarded`.
+
+**Asserted under BOTH `timeout_s=None` and a finite `timeout_s`.** This is the kill that a
+single-path fixture misses. `KeyboardInterrupt`/`SystemExit` derive from `BaseException`, not
+`Exception`, so they do not propagate out of a worker thread on their own — an implementation that
+runs inline when `timeout_s is None` and threaded otherwise passes an `timeout_s=None`-only fixture
+while **silently swallowing** the interrupt on the guarded path, which is the path the AC is about.
+Both parameterisations are required; GREEN must re-raise non-`Exception` `BaseException`s in the
+caller's thread.
+
+**Vacuity guard (mandatory here).** `pytest.raises(KeyboardInterrupt)` is vacuous if the fixture would
+raise regardless. Each double **records into a caller-visible list immediately before raising**, and
+the test asserts that record is present — evidence the guarded path was *entered*.
+
+#### AC-E8
+> **Positive control for the timeout branch.** A *fast* oracle called with a *finite* `timeout_s` MUST
+> return its real outcome with reason `None`. Without this, `if timeout_s is not None: return
+> INDETERMINATE` satisfies AC-E3 and every other AC — R2.1's "a timeout MUST NOT count as rejection"
+> would be satisfied by never reaching a verdict at all.
+
+**Fixture.** Fast doubles returning **both** `ACCEPTED` and `REJECTED`, each with a finite `timeout_s`:
+outcome `is` the exact member, `reason is None`. Both members, because a
+`timeout_s is not None → ACCEPTED` implementation passes an `ACCEPTED`-only positive control.
+
+#### AC-E9
+> **The timeout mechanism MUST NOT be `signal`-based: `evaluate_guarded` MUST behave identically
+> (AC-E3 and AC-E8 both hold) when called from a non-main thread.**
+
+**Fixture — normative half.** Re-run AC-E3's timeout case and AC-E8's fast-finite case **from a
+non-main thread**; both must hold identically. Assertion failures on the helper thread are captured
+and **re-raised on the main thread** (a bare `assert` in a thread is otherwise invisible to pytest —
+an assertion that cannot fail).
+
+**Harness discipline — the helper thread is itself the hazard.** The helper MUST be `daemon=True` and
+**joined** before the test returns. A non-daemon, unjoined helper is precisely the foreign non-daemon
+thread that false-fails `AC-E10` (§1.3), and it would be self-inflicted.
+
+**Fixture — seam half, and the seam is pinned three ways.** Naming `signal` is not enough:
+- **attribute path** — `signal.setitimer`, `signal.alarm`, `signal.signal`;
+- **moment of resolution** — a monkeypatched `signal.<name>` is only reached if the implementation
+  resolves the attribute **at call time** (`import signal; signal.alarm(...)`). A
+  `from signal import alarm` binds at **import time** and slips straight past the patch;
+- **normalisation** — none is relied upon, deliberately.
+
+Because the resolution-moment hole cannot be closed by patching alone, the decisive assertion is
+**source-level and exact**: an AST parse of `oracle.py` asserting it imports `signal` in no form —
+neither `import signal` nor `from signal import ...`. That admits no resolution-moment or
+normalisation ambiguity, and it can fail (a signal-based GREEN fails it).
+
+**Record and delegate, never substitute.** Where `signal` *is* wrapped to observe calls, the wrapper
+**calls through** to the real function. `pytest-timeout` runs the suite on the signal mechanism
+(§1.3); replacing `signal.signal` with a raiser or a no-op would sabotage a primitive this harness
+itself runs on — bd#22's session-killing defect. Observation only.
+
+#### AC-E10
+> **The abandoned oracle MUST NOT be able to hang shutdown, and MUST NOT accumulate.**
+>
+> **Normative form, discharging both** (carrier 395–400): after the grace period, **every alive
+> non-main thread MUST have `daemon is True`.** The oracle's own recorded
+> `threading.current_thread()` remains the liveness anchor (it is provably alive — its sleep outlasts
+> the grace), but the daemon predicate is quantified over **all** alive non-main threads, not over
+> that one. No thread counting.
+
+This form is **inherited, not re-derived.** It is the settled output of four rounds, each of whose
+Class B defects was introduced by the previous round's fix: v6 unmeasurable (grace > sleep, so
+*no reaping logic at all* passed); `[G7:self-1]` self-contradictory (clause 1 required daemon workers
+while the prose blessed a stdlib `ThreadPoolExecutor`, whose workers are `daemon=False` and which
+`concurrent.futures.thread._python_exit` **joins** — a measured 6.77 s shutdown delay); `[G7:1]`
+false-fail (demanded a *newly created* thread, which a pool reusing an idle worker never produces);
+`[G8:2]` false-fail again (counted **threads**, so a cold pool spawning exactly N made `N < N` false,
+and it passed under fixed order only because earlier tests left idle workers).
+
+**Fixture.**
+1. An oracle double that, as the **first statements of its body**, appends
+   `threading.current_thread()` to a caller-visible holder and **sets a `threading.Event`** — then
+   sleeps **longer than the grace period**, so the worker is guaranteed alive at check time.
+2. `evaluate_guarded(..., timeout_s=<small>)` → `INDETERMINATE` (and reason non-empty).
+3. **`event.wait(timeout=<generous>)` and assert it was set, before touching the holder.** This closes
+   the inherited thread-startup race: `evaluate_guarded` returns on the timeout, and a thread start
+   slower than the timeout under load would otherwise leave the holder empty and `assert holder` would
+   fail for a correct GREEN. `assert holder` alone is order- and load-dependent — the exact defect
+   class that broke this AC twice.
+4. Sleep the grace period.
+5. Assert the anchor thread `is_alive()` — the liveness anchor, provably alive because its sleep
+   outlasts the grace.
+6. Assert `offenders == []`, where `offenders` is **every alive non-main thread whose `daemon` is not
+   `True`**. The failure message lists offender names, so a future foreign-thread false-fail is
+   diagnosable on sight rather than by re-derivation.
+
+**No counting anywhere.** Carrier clause 2 (accumulation by thread count) is **replaced**, not
+dropped, by `[G8:2]`. Stated explicitly so the gate does not read its absence as a coverage gap.
+
+**Quantifier obligation, discharged — and it is what makes the assertion non-vacuous.** The collection
+is *alive non-main threads*; the §4.3 row requires a non-uniform fixture (daemon worker + non-daemon
+auxiliary) and an all-daemon positive control. Step 6 is the positive control. The **non-uniform**
+member is discharged by a companion test that spawns a deliberate non-daemon thread and asserts the
+offender helper **reports it** (then joins it before returning). Without that companion, `offenders ==
+[]` is an assertion with no demonstrated ability to fail — invisible in the pass/fail count and
+misclassifiable as an inherited gap, which is exactly the failure mode the coverage-diff rule names
+for **added** assertions.
+
+**Order-independence.** No step reads a baseline captured before another test, counts threads, or
+diffs `threading.enumerate()` for a newly created thread. The verdict depends only on threads alive
+*at that moment*, and §1.3 establishes the process contains no non-daemon foreign thread.
+
+---
+
+## 4. `[G22:13]` simulation table — plausible implementations, and what kills each
+
+The deliverable. A requirement describes what must hold; a fixture must exclude what an implementer
+might plausibly do **instead**. Different enumerations.
+
+### 4.1 `OracleOutcome`
+
+| # | Plausible implementation | Killed by |
+|---|---|---|
+| 1 | Plain `Enum`, no `__bool__` | AC-O1 (members are truthy by default) |
+| 2 | `__bool__` on one member / only `INDETERMINATE` | AC-O1, asserted per member |
+| 3 | `__bool__` raises, `__eq__` untouched | AC-O2 (`m == True` returns `False` instead of raising) |
+| 4 | `__eq__` raises `TypeError` for **every** operand | AC-O2 positive control (`m == m`, `m == object()`) |
+| 5 | `__eq__` overridden, `__hash__` left `None` (the default consequence) | AC-O2 set/dict-key controls |
+| 6 | `__eq__` handles `True` but not `False`, or not the reflected order | AC-O2 (3 × 2 operands × 2 orders) |
+| 7 | `from_bool` classmethod provided "for adapters" | AC-O3 (a) |
+| 8 | Same, renamed `fromBool` / `from_boolean` / `of_bool` | AC-O3 (b) case-insensitive `bool` sweep **over `vars()` of the MRO**. Executed: mutants **M08/M08b/M08c** each die on `test_ac_o3_no_boolean_constructor` (§8). Under v1's `dir()` sweep all three **survived** — the row's original kill-claim was false |
+| 9 | `_missing_` maps `True`→`ACCEPTED` | AC-O3 (c) `OracleOutcome(True)` must raise `ValueError` |
+| 10 | Constructor hardened to raise for everything | AC-O3 positive control `OracleOutcome("rejected")` |
+| 11 | `INDETERMINATE` aliased to an existing value | AC-O4 `len == 3` + pairwise `is not` + value-set equality |
+| 12 | Uppercase / mixed-case values | AC-O4 exact lowercase value-set equality |
+| 13 | `class OracleOutcome(str, Enum)` | AC-O5 mro set equality; corollary `json.dumps` |
+| 14 | `IntEnum` / `(int, Enum)` | AC-O5 mro set equality |
+| 15 | `StrEnum` (3.11+) | AC-O5 mro set equality (gains `str`, `ReprEnum`) |
+| 16 | Not an `Enum` at all — a class with three constants | AC-O5 mro set equality (`{OracleOutcome, object}`) |
+
+### 4.2 `evaluate_guarded`
+
+| # | Plausible implementation | Killed by |
+|---|---|---|
+| 17 | `except ValueError` / any single exception type | AC-E1's four dissimilar types |
+| 18 | Exception → `REJECTED` ("it failed, so it's a fail") | AC-E1 `is not REJECTED` |
+| 19 | Handles `ImportError`, lets `SyntaxError` through | AC-E2 asserted per type |
+| 20 | Coerces a truthy/falsey return (`True`→`ACCEPTED`) | AC-E4 `True`/`False` |
+| 21 | Coerces via `OracleOutcome(r)` | AC-E4 `"rejected"` / `"accepted"` |
+| 22 | Duck-types on `.value` / `.name` | AC-E4 lookalike object + foreign `Enum` |
+| 23 | Treats `None` as "no verdict → `ACCEPTED`" | AC-E4 `None` |
+| 24 | Reason authored only on the exception path | AC-E5 asserted in all four paths |
+| 25 | Reason `""` / `None` where `INDETERMINATE` | AC-E5 `strip() != ""` |
+| 26 | Reason `None` replaced by `""` on the clean path | AC-E6 `reason is None` (identity, not falsiness) |
+| 27 | Clean `REJECTED` collapsed to `INDETERMINATE` (over-reading AC-E1) | AC-E6 `REJECTED` half |
+| 28 | `except BaseException` | AC-E7 both doubles |
+| 29 | Inline when `timeout_s is None`, threaded otherwise, thread path swallows `BaseException` | AC-E7 **asserted under a finite `timeout_s` too** |
+| 30 | `if timeout_s is not None: return INDETERMINATE` | AC-E8 |
+| 31 | `timeout_s is not None → ACCEPTED` | AC-E8 **both** members |
+| 32 | `signal.alarm` / `SIGALRM` timeout | AC-E9 off-main-thread (raises `ValueError`) + AST no-`signal` |
+| 33 | Signal-based with the off-thread `ValueError` caught and timeout silently skipped | AC-E9 off-main-thread AC-E3 half (no timeout → real outcome, not `INDETERMINATE`) |
+| 34 | `from signal import alarm` (import-time binding, evades a `signal.alarm` monkeypatch) | AC-E9 AST check covers both import forms |
+| 35 | Joins the worker unconditionally (no timeout escape) | AC-E3 wall-clock bound |
+| 36 | **Concurrency primitive:** per-call **daemon** thread | *admissible — must pass* |
+| 37 | **Concurrency primitive:** default `ThreadPoolExecutor` (workers `daemon=False`) | AC-E10 offender list (the anchor is a non-daemon pool worker) |
+| 38 | **Concurrency primitive:** daemonising pool (`initializer`/subclass) | *admissible — must pass* |
+| 39 | **Concurrency primitive:** raw `_thread.start_new_thread` | *admissible — the resulting `_DummyThread` reports `daemon=True` and does not block interpreter exit; recorded so a later round does not read its survival as a gap* |
+| 40 | Daemon worker **plus** a non-daemon watchdog joining the abandoned worker | AC-E10 — quantified over **all** alive non-main threads, not the anchor alone (`[G8:2]` Class A) |
+| 41 | No reaping logic whatsoever, worker dies inside the grace | AC-E10 — oracle sleep **exceeds** the grace, so the worker is alive at check time (kills v6's unmeasurable form) |
+| 42 | **Reduction:** thread **count** instead of thread **property** | not used by any fixture; the companion offender-helper test pins the property |
+
+### 4.3 Assertions ADDED by this lot, run through the coverage-diff rule
+
+An added assertion that cannot fail produces no deletion in the diff, is invisible in the pass/fail
+count, and would misclassify as a pre-existing gap. Each is shown able to fail:
+
+| Added assertion | Can fail because |
+|---|---|
+| AC-O5 `json.dumps` raises `TypeError` | a `str`-mixin member serialises to `"rejected"` (cand. 13) |
+| AC-O2 set / dict-key controls | `__eq__` without `__hash__` makes members unhashable (cand. 5) |
+| AC-O3(b) `bool` name sweep over `vars()` of the MRO | **executed**: fires on `from_bool` (M07), `from_boolean` (M08), `fromBool` (M08b), `of_bool` (M08c), and is `[]` for the reference (§7.3, §8). The v1 `dir()` form was an assertion that could not fail — see §5.3 |
+| AC-E3 wall-clock bound | a joining implementation exceeds it (cand. 35) |
+| AC-E7 finite-`timeout_s` parameterisation | the split-path implementation swallows the interrupt (cand. 29) |
+| AC-E9 AST no-`signal` check | any `signal`-based implementation (cand. 32, 34) |
+| AC-E10 companion offender-helper test | it spawns a real non-daemon thread and requires the predicate to report it — it fails if the predicate is ever narrowed to the recorded anchor alone (`[G8:2]` Class A) or to a thread count. It is **independent of `oracle.py`** and therefore a declared pre-passing shield (§5.1), not a test of the AC |
+
+This lot **modifies or removes no existing fixture** — `oracle.py` and its tests are new — so the
+deletion half of the coverage-diff rule has no subject here. Stated rather than omitted.
+
+---
+
+## 5. Pre-passing shields — declared
+
+**Exactly one**, and its declaration is a correction to this spec's first frozen version.
+
+### 5.1 The shield
+
+`TestEvaluateGuardedAbandonedWorker::test_ac_e10_offender_helper_reports_a_non_daemon_thread`
+— **passes today, by design and necessarily.**
+
+It never touches the unit under test. It spawns a deliberate non-daemon thread and requires the RED's
+own predicate `_non_daemon_alive_non_main_threads()` to report it, then joins the thread. Its subject
+is *the fixture's ability to fail*, not `oracle.py`, so no implementation of `oracle.py` can change
+its verdict and it cannot fail for the reason the other 36 do.
+
+It is nonetheless required, not decorative: it is the **non-uniform member** discharging AC-E10's
+quantifier obligation (§3.2, §4.3 row `[G8:2]`). Without it, `offenders == []` is an added assertion
+with no demonstrated ability to fail — invisible in the pass/fail count, producing no diff deletion,
+and misclassifiable as an inherited gap.
+
+### 5.2 The correction, recorded rather than quietly fixed
+
+This spec's first frozen version (commit `e80b45d`) stated **"There are none."** That was **false**,
+and the RED run falsified it immediately: `36 failed, 1 passed`. The claim was written from the
+premise "every AC needs the import, therefore every test needs the import", which does not hold for a
+test whose subject is the fixture rather than the AC — precisely the meta-test the same spec had
+already mandated two sections earlier. The two sections were written from different premises and
+never reconciled.
+
+Recorded in full because *"pre-passing tests MUST be declared as shields; an undeclared one is a
+finding"* is a non-negotiable of this lot, and because the defect shape is this lot's own inherited
+one: **an audit artifact carrying the defect it audits** (carrier `[G7:2]`/`[G7:4]`, three consecutive
+rounds). The count was not measured before being asserted — the same class as the carrier's own
+"a property asserted without being measured" (carrier 155–159).
+
+The other **36** tests fail today, all at `ModuleNotFoundError: No module named 'conformance.oracle'`
+— verified uniform, not assumed. This includes the absence-shaped assertions (AC-O3(b)'s class-dict
+sweep, AC-E9's AST check), which still need the import and so cannot pre-pass.
+
+### 5.3 v2 — the two gate blockers, and how each was closed
+
+Gate round 1 returned **REJECTED** on two MAJOR findings, both type (a). Round record:
+`ORACLE_SPEC_gate_round_1.md`. Both are closed here; the lot re-freezes as **v2** under child
+number **bd#38**.
+
+**MAJOR 1 — AC-O3(b) was an assertion that could not fail.** v1 swept `dir(OracleOutcome)`. `dir()`
+on an `Enum` never consults the class dict, so a boolean constructor under any name other than the
+literal `from_bool` shipped undetected. Closed by sweeping `vars()` across the MRO. **The positive
+control was measured on this base before being claimed** (§7.3) and then executed against three
+renamed-constructor mutants (§8) — not inherited from the gate, which had measured its own.
+Derivatives rewritten rather than left carrying the old claim: §3.1 AC-O3, §4.1 row 8, §4.3 row.
+
+**MAJOR 2 — the RED docstring contradicted §5.** It still read "Pre-passing shields: none (spec §5)"
+while §5, amended in the same commit, said exactly one. Closed by reconciling
+`test_bd27_oracle.py:14-17` with §5.1. Its **example** was corrected too, and this was the sharper
+half: the docstring had offered AC-O3(b)'s sweep as its specimen of an assertion that cannot
+pre-pass — an assertion that at that moment could not *fail*, i.e. it cited its own counterexample.
+Both halves are now true and both are measured.
+
+**Not carried:** the gate's MINOR 4 (`_DummyThread.is_alive()` raising) did **not** reproduce on this
+host and is recorded in the round file as unreproduced, not adopted. MINOR 5 (the thread-audit scope
+gap) rides with the parent lot by dispatcher decision and is not addressed here.
+
+**Deferred-import discipline (§1q), inherited from L2's RED.** Every `conformance.*` symbol is
+imported **inside the test body**, never at module level, so **collection stays clean** and the
+failures are real test failures rather than a collection error. No stub module is added: a stub would
+be a passability surface (`engine_py/stub_passability.py` exists to detect exactly that class), and
+the deferred-import idiom achieves clean collection without one.
+
+---
+
+## 6. Declared limitations
+
+1. **AC-E5 admits a constant reason** (§3.2 AC-E4/E5) — the AC text is frozen and is not rewritten.
+1a. **AC-O3(b) admits a boolean constructor spelled without the substring `bool`** — `from_flag`,
+   `of_truth`, `coerce`. Same disposition as limitation 1 and for the same reason: AC-O3's verbatim
+   text names `from_bool` and `OracleOutcome(True)`, and a semantic check would be a rewritten
+   requirement, which `[G22:13]` says does not close a gap. Declared because §3.1 calls the sweep
+   "'and friends' made measurable rather than rhetorical", which reads as closure over the family and
+   is closure over one substring. **Asymmetry corrected:** limitation 1 was declared from the start
+   and this one was not.
+1b. **AC-O3(b) constrains GREEN's naming.** Any class-body name containing `bool` other than
+   `__bool__` — `_BOOL_ERROR`, `_bool_guard` — fails the sweep on an otherwise conforming class.
+   Not Class B (three conforming designs were executed), but it is a real constraint and it is
+   stated rather than discovered.
+1c. **Four adversarial edges survive the RED and are closed by GREEN's choices, not by the fixtures**
+   (§8.3): `timeout_s = 0.0` must be tested with `is not None` and never for truthiness; `state` must
+   be passed through; the keyword-only `*` must be kept; and `signal` must stay out of every module
+   `conformance.oracle` imports, not only out of `oracle.py`. GREEN does all four; no assertion
+   enforces the first three.
+1d. **A pooled guard is inadmissible even when its workers are daemon.**
+   `concurrent.futures.thread` registers `_python_exit`, which **joins** its workers at interpreter
+   shutdown regardless of daemon status, so a `ThreadPoolExecutor`-subclass guard satisfies AC-E10's
+   daemon predicate and still delays exit for the abandoned oracle's full duration — the same
+   mechanism behind bd#7's measured 6.77 s. AC-E10's inherited normative form does not catch this, so
+   GREEN uses a plain per-call daemon thread and registers no `atexit` hook. §4.1 row 38's
+   "admissible" is therefore true of the daemon predicate and **not** of the AC's headline sentence.
+2. **`-n` / `pytest-xdist` is out of scope** for AC-E10's process-quantified assertion (§1.3).
+   Neither this lot's invocation nor CI uses it.
+3. **`Oracle` Protocol is uncovered by any AC** — declared for typing only (§2).
+4. **`AC-F1..F14` / module-level `freeze()` are not this lot** (§0).
+
+---
+
+## 7. Baseline, contention control, and measured constants
+
+All figures measured on the executing host (macOS 26.5.1, 18 cores, CPython 3.14.6) at this lot's
+base `lot-27` @ `08b8413`, **before** RED. They are host- and base-relative and do not transfer.
+
+### 7.1 Baseline
+
+Command (CI's, `.github/workflows/ci.yml:103`), run from `engine_py/`:
+
+```
+python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120
+```
+
+**`4227 passed, 6 skipped, 0 failed`** in 292.28 s (6 warnings, all pre-existing:
+3 × `PytestCollectionWarning` on `lib/plugins/disk_truth/test_runner.py:27`, 3 × `SyntaxWarning` on an
+invalid escape in `tests/test_phase_6_FEB64BA8_backtick_strip.py:282`).
+
+Contention control (hal#1353), matched on command **prefix**, both sides of the run:
+
+| | `Runner.Worker` | competing `pytest` / `python -m pytest` |
+|---|---|---|
+| before | none | none |
+| after | none | none |
+
+**Ship bar: 0 failed, and the suite identical to this host's own `main` at `extra_bd == 0`** — the
+property, never the literal 4227.
+
+### 7.2 Constants, and why each is safe
+
+| Constant | Value | Measured justification |
+|---|---|---|
+| `TIMEOUT_S` | `0.1 s` | guarded call returns at **median 0.1077 s, max 0.1103 s** over 20 runs against a 6 s oracle |
+| `ORACLE_SLEEP_S` (AC-E10) | `6.0 s` | must exceed the grace; margin **5.0 s** |
+| `GRACE_S` (AC-E10) | `1.0 s` | sleep − grace = **5.0 s**, so the worker is provably alive at check time — this is the inverted relation whose v6 form (grace 2.5 s > sleep 2.0 s) let *no reaping logic at all* pass |
+| `EVENT_WAIT_S` (AC-E10) | `10.0 s` | thread-start latency measured at **median 0.024 ms, p99 0.036 ms, max 0.053 ms** (200 samples, unloaded). The `Event` is retained regardless: the inherited hazard is a **loaded** host exceeding the 0.1 s timeout, which this unloaded measurement cannot rule out, and 10 s is ~190 000× the measured max |
+| AC-E3 wall-clock bound | `2.0 s` | **1.89 s** above the measured max return, **4.0 s** below the oracle's sleep — so it cannot flake, and a joining implementation (cand. 35) fails it by ~4 s |
+
+**Added suite cost of AC-E10:** ≈1.1 s of real waiting (grace + timeout). The abandoned worker lingers
+for the remaining ≈5 s as a **daemon** thread, which is precisely the property under test and cannot
+delay interpreter exit.
+
+### 7.3 `dir()` vs `vars()` — the MAJOR 1 measurement, taken on this base
+
+Required by the dispatcher: the positive control must be **measured here**, not asserted and not
+inherited from the gate. Run on CPython 3.14.6 against a deliberately planted `from_boolean`
+classmethod.
+
+`dir()` on an `Enum` class dispatches to `EnumType.__dir__`, which returns a **fixed literal list plus
+`cls._member_names_`** and never reads the class dict:
+
+```
+dir(OracleOutcome) = ['ACCEPTED','INDETERMINATE','REJECTED','__class__','__contains__','__doc__',
+                      '__getitem__','__init_subclass__','__iter__','__len__','__members__',
+                      '__module__','__name__','__qualname__']
+'from_boolean' in dir(...)        -> False      # v1 sweep passes
+OracleOutcome.from_boolean(True)  -> ACCEPTED   # the boolean constructor ships anyway
+'__bool__' in dir(...)            -> False      # v1's exclusion was DEAD CODE
+```
+
+The v2 sweep, `{n for k in cls.__mro__ for n in vars(k) if "bool" in n.lower() and n != "__bool__"}`:
+
+| Class under sweep | Result | Required |
+|---|---|---|
+| reference (no boolean constructor) | `[]` | must be empty — **positive control** |
+| `from_bool` (cand. 7) | `['from_bool']` | must catch |
+| `from_boolean` (cand. 8) | `['from_boolean']` | must catch |
+| `fromBool` (cand. 8, camelCase) | `['fromBool']` | must catch |
+| `str` mixin, MRO `[…, str, Enum, object]` | `[]` | no false positive from bases |
+| `int` mixin, MRO `[…, int, Enum, object]` | `[]` | no false positive from bases |
+
+`'__bool__' in vars(OracleOutcome)` is **`True`**, and `'__bool__' in vars(int)` is **`True`**. So
+under `vars()` the `__bool__` exclusion is **live and load-bearing** — it is what keeps AC-O1 (which
+obliges `__bool__` to exist and raise) from contradicting AC-O3(b). Under `dir()` it was inert.
+
+---
+
+## 8. The simulation table, EXECUTED
+
+hal#1511. §4 enumerates what a plausible implementer might do instead; **this section runs it.** A
+read table is a claim; MAJOR 1 was a row whose claim was false and which four rounds of reading did
+not catch.
+
+**Harness** (scratch-only, deliberately **not committed** — see below): a reference implementation
+built strictly from §2/§3, plus mutants. Each mutant is a single `old -> new` textual substitution
+against the reference, and the builder **asserts the anchor occurs exactly once**.
+
+**What that guarantee actually is — corrected in round 2.** The builder enforces a single **site**,
+not a single **decision**. A site can carry several decisions, and some here do: M14 flips the class
+header *and* all three member values; M17 flips both which exceptions are captured and whether
+non-`Exception` `BaseException`s are captured at all; M32/M34/M37/A2/A3 each replace a five-line block
+with a fifteen-to-twenty-five-line one. Localisation is therefore good but not mechanical, and the
+earlier claim that it was "mechanical rather than promised" is withdrawn. Where imprecise localisation
+cost something it is recorded — see §8.2 items 5 and 6.
+
+**Isolation.** `engine_py/tests/conftest.py:38-40` inserts `engine_py` at `sys.path[0]` at
+conftest-import time, so the real `conformance` package would shadow every variant. The RED is
+therefore copied to a scratch tree with no conftest in its ancestry and verified **byte-identical by
+SHA-256** against the committed file, and each variant's package directory is placed first on
+`sys.path`. The matrix is therefore provably a statement about the file under review.
+
+**The reference is deliberately NOT committed.** Committing it would let GREEN be written by copying
+the harness, which zeroes the RED's value.
+
+### 8.1 Results
+
+```
+REFERENCE    37 passed /  0 failed    SPEC IS SATISFIABLE
+mutants:     37   killed=37   SURVIVED=0
+admissible:   2   passing=2   FALSE-FAILED=0
+```
+
+**The reference passing 37/37 proves the RED admits at least one passing implementation** — i.e. the
+RED carries no Class B defect. Three structurally different designs reach it (per-call daemon thread,
+daemon-worker pool, raw `_thread`), which is stronger than one. This is the property the lot needs,
+because four of AC-E10's five historical rounds shipped a requirement no correct implementation could
+meet.
+
+**Scoped honestly — corrected in round 2.** This is *not* a proof that the frozen spec is satisfiable,
+which is what §8.1 first claimed. The RED is a strict subset of the spec's requirements, so a spec
+requirement the RED does not assert could be unsatisfiable and the matrix would be silent — §2's type
+annotations, for instance, are asserted by nothing. And the reference and the RED were written by the
+same author from the same reading of the carrier: **a shared misreading is self-consistent and the
+harness confirms it rather than exposing it.** The harness proves the RED is satisfiable; only a
+reader of the carrier proves it is faithful. Both gate rounds supply that half by re-reading
+`lot-bd7`. Execution does not subsume reading.
+
+Localisation is exact where it matters: **M07, M08, M08b, M08c each die on exactly
+`test_ac_o3_no_boolean_constructor`**; **M37, M40, M41 each die on exactly
+`test_ac_e10_abandoned_worker_cannot_hang_shutdown`**; **M32 and M34 each die on all three AC-E9
+tests**, confirming the three-way seam pin is genuinely redundant rather than three spellings of one
+check.
+
+### 8.2 What execution found that reading did not
+
+1. **MAJOR 1, reproduced as a matrix cell.** Against v1's RED, **M08/M08b/M08c passed 37/37** — three
+   boolean constructors shipping through a green suite. Against v2's, all three die. This is the
+   finding the dispatcher predicted the harness would surface in seconds.
+2. **The carrier's admissible-design claim is wrong on this interpreter.** §4.1 candidate 38 (from
+   carrier `[G7:self-1]`) blesses "a pool constructed with a daemonising `initializer`/subclass". The
+   `initializer` half **does not run**: `Thread.daemon`'s setter raises
+   `RuntimeError: cannot set daemon status of active thread`, so the pool is a `BrokenThreadPool` on
+   first submit and 27 tests fail. Only a pool whose workers are *created* daemon is admissible.
+   A2 was rebuilt as a hand-rolled daemon-worker pool and now passes 37/37. **This was a defect in the
+   harness, not in the RED** — but it is a measured correction to an inherited normative claim, and it
+   is exactly the class ("measurements are base-relative and do not transfer") this lot keeps meeting.
+3. **One equivalent mutant, excluded rather than silently dropped.** M10 was built as a `_missing_`
+   raising `ValueError` and measured 37/0. It is an **equivalent mutant**: `_missing_` is never
+   consulted for a value present in `_value2member_map_`, so `OracleOutcome("rejected")` still
+   resolves and the mutant is observationally identical to the reference on every input the RED
+   supplies.
+
+   **Split into its two obligations — corrected in round 2.** (a) *The positive control can fail*:
+   discharged by execution — **M12** fails `test_ac_o3_positive_control_constructor_still_works`.
+   (b) *Candidate 10 dies*: **derived, not demonstrated.** M10-as-built was never candidate 10, which
+   is "the constructor raises for **everything**" and on an `Enum` requires a metaclass `__call__`
+   override; that mutant was not built. Its death is certain — the positive control calls
+   `OracleOutcome("rejected")` and asserts member identity, which no raises-for-everything constructor
+   can satisfy — but certainty by derivation is not the same as a matrix cell, and the earlier wording
+   conflated the two.
+4. **Admissible designs confirmed by execution, not argument.** A2 (daemonising pool) and A3 (raw
+   `_thread.start_new_thread`) both pass 37/37. A3 passing also means round 1's MINOR 4 — that
+   `_DummyThread.is_alive()` would raise and turn AC-E10 into an error — **did not occur across a full
+   37-test run**, a second independent non-reproduction beyond the direct probe in the round record.
+
+5. **The AC-E3 wall-clock bound had no executed demonstrator, and §4.3's attribution was wrong.**
+   Round 2 caught this and it is the round's coverage-diff finding. §4.3 claimed the bound "can fail
+   because a joining implementation exceeds it (cand. 35)". It cannot fail that way: **M35** returns
+   `(ACCEPTED, None)` after 6 s, so `_assert_indeterminate` raises on the *outcome* assertion and the
+   wall-clock line is never evaluated. The bound is nonetheless live, and **M35b** now demonstrates it:
+   `worker.join(timeout_s)` → report the timeout, then `worker.join()` anyway — a plausible tidiness
+   reflex. Measured: **35 passed / 2 failed**, killers `test_ac_e3_timeout_yields_indeterminate` (the
+   wall-clock assertion firing, since the outcome assertion now passes) and
+   `test_ac_e10_abandoned_worker_cannot_hang_shutdown`. Dying twice is the right shape.
+
+6. **AC-E1's four-type non-uniformity was discharged by argument only, and is now executed.** **M17**
+   flips two decisions at one site, and the shape it produces never reaches AC-E1: an uncaptured
+   `RuntimeError` kills the worker, `box` stays empty, and the non-outcome branch returns
+   `INDETERMINATE` anyway — so M17 dies only on AC-E7. The single-type catch that *survives* AC-E7 is
+   **M17b**: `except ValueError` for the verdict path plus `except BaseException` re-raised in the
+   caller. Measured: **32 passed / 5 failed**, killers `test_ac_e1_...` and `test_ac_e2_...`. AC-E1's
+   four dissimilar types are load-bearing, now by execution rather than by claim.
+
+### 8.3 Completeness of the mutant set — declared, because `SURVIVED=0` does not mean what it looks like
+
+**`SURVIVED=0` is a statement about the enumeration the harness was handed, not about the RED.** The
+harness cannot discover a candidate the table omits. Declared in full rather than left to a reader's
+inference:
+
+| §4 candidate | Mutant | Status |
+|---|---|---|
+| 10 — constructor raises for everything | none faithful (M10 equivalent) | death **derived**, vacuity discharged by M12 (§8.2 item 3) |
+| 16 — not an `Enum` at all | **none** | not expressible as a single-anchor substitution. Death derived: MRO is `{OracleOutcome, object}` ≠ the pinned set, and AC-O1's `isinstance` vacuity guard fails on bare strings |
+| 33 — signal-based, off-thread `ValueError` caught and timeout skipped | **none** | death derived: fails the AST fence, and fails the AC-E3 half off-main-thread (skipped timeout returns the oracle's real `ACCEPTED`). Marginal over M32, which already dies on all three AC-E9 tests |
+| 36 — per-call daemon thread | none as a variant | it **is** the reference; passing 37/37 is its execution |
+| 42 — thread count vs thread property | none, and none possible | a fixture reduction, not an implementation choice |
+
+**And the sharper gap: no mutant in the set was drawn from round 1's eight adversarial edges.** Round 2
+established by construction that at least four of them are single-anchor substitutions against this
+reference that **survive 37/37**: `timeout_s = 0.0` treated truthily (`join(timeout_s if timeout_s else
+None)`); `state` dropped (`oracle.evaluate(None)`); the keyword-only `*` removed; and a boolean
+constructor spelled without the substring `bool` (`from_flag`). Three of these are closed by GREEN
+choosing correctly rather than by the RED forbidding the alternative, and they are declared as
+limitations in §6 rather than silently absorbed.
+
+### 8.4 Standing obligation
+
+Any future round that modifies or removes a fixture re-runs this harness and reports the matrix
+delta. A row that stops killing its mutant is a coverage regression, visible as a cell rather than as
+an argument. **Extended after round 2:** the previous round's adversarial-edge list is an **input** to
+the mutant set, not a separate document — the round-2 findings that cost the most (§8.2 items 5 and 6)
+were both edges no mutant covered.
+
+---
+
+## 9. Ship measurement (GREEN in place)
+
+Command, from `engine_py/`: `python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120`.
+
+**`4264 passed, 6 skipped, 0 failed`** in 289.81 s. `tests/test_bd27_oracle.py`: **37 passed**.
+
+`4264 = 4227` (§7.1 baseline) `+ 37` (this lot). No pre-existing test changed state, and the ship bar
+— **0 failed** — is met.
+
+### 9.1 Contention control, and it fired
+
+hal#1353 control **caught a real competing suite**: lot **bd#24** was running
+`python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120` from `wt-n24` on this host, matched on
+command **prefix**. That run was **discarded**, not reported. Two further attempts were also discarded
+— one whose wait-predicate matched its own shell wrapper and could never exit, and one that resolved
+`tests/` against the repo root instead of `engine_py/` and measured the 103-test root suite.
+
+The reported figure comes from a run with a **clean pre-check**. Honest limitation: bd#24 iterates on
+this host, and a competing run had reappeared by the post-check, so the run is not provably
+contention-free end to end. The number is nonetheless solid — **two fully independent runs, one
+entirely under contention and one starting clean, both produced exactly `4264 passed, 6 skipped,
+0 failed`.**
+
+### 9.2 The warning-count delta, measured rather than waved through
+
+The baseline recorded **6** warnings; every run since records **5**. The missing one is exactly the
+direct `SyntaxWarning` at `tests/test_phase_6_FEB64BA8_backtick_strip.py:282`; the three
+`PytestCollectionWarning`s and the two `<unknown>:282` runtime-`compile()` warnings are unchanged.
+
+Diagnosed by experiment, not by argument:
+
+| `__pycache__` state | `SyntaxWarning` count for that file |
+|---|---|
+| warm (as now) | 0 |
+| **cold** (`__pycache__` removed — the baseline's state) | **1** |
+| warm again | 0 |
+
+A module-level `SyntaxWarning` is emitted when CPython **compiles** the source; a warm `__pycache__`
+skips compilation and the warning with it. `-p no:cacheprovider` disables *pytest's* cache, not
+Python's. §7.1's baseline was the first pytest invocation in a freshly created worktree, so it alone
+ran cold.
+
+**The delta is a bytecode-cache artifact and not attributable to this lot's code.** Recorded because
+the standing rule that measurements are base- and host-relative has one more level to it that this
+lot found the hard way: they are also **cache-state-relative**, and a warning count is therefore not
+part of the drift invariant. The invariant remains the property *"identical to this host's own `main`
+at `extra_bd == 0`"* — `engine_py/conformance/` is bd-native and absent from `core_manifest.json`, so
+`extra_bd == 0` holds by construction, and this lot changed no packaging.
+
+---
+
+**FROZEN v2.** Re-frozen after gate round 1 (REJECTED, 2 MAJOR both type (a)) under child number
+bd#38. v1 was `e80b45d`. Any change after this point is a spec round and is reported as one.
