@@ -11,10 +11,24 @@ failures rather than a collection error. No stub module is added — a stub is a
 passability surface (`engine_py/stub_passability.py` exists to detect exactly
 that class), and the deferred-import idiom reaches clean collection without one.
 
-**Pre-passing shields: none** (spec §5). `conformance/oracle.py` does not exist
-on this base, so all 15 ACs fail today. This includes the absence-shaped
-assertions (AC-O3's `from_bool` sweep, AC-E9's AST check), which still need the
-import and so cannot pre-pass.
+**Pre-passing shields: exactly one** (spec §5.1) —
+`TestEvaluateGuardedAbandonedWorker::test_ac_e10_offender_helper_reports_a_non_daemon_thread`.
+It never touches the unit under test: its subject is *the fixture's ability to
+fail*, so no implementation of `oracle.py` can change its verdict. It is
+required all the same — it is the non-uniform member discharging AC-E10's
+quantifier obligation, without which `offenders == []` is an added assertion
+with no demonstrated ability to fail.
+
+The other **36** tests fail today at `ModuleNotFoundError: No module named
+'conformance.oracle'` — measured, not assumed. This includes the absence-shaped
+assertions (AC-O3(b)'s class-dict sweep, AC-E9's AST check), which still need
+the import and so cannot pre-pass.
+
+An earlier version of this docstring claimed "Pre-passing shields: none" and
+cited AC-O3(b)'s sweep as its example of an assertion that cannot pre-pass. Both
+halves were wrong at once: the count was 1, and that sweep was at the time an
+assertion that could not fail *at all* (it walked `dir()`). Both are corrected
+here and in spec §5.2 / §7.3.
 
 `AC-E10` is one of bd#7's two chronic anchors and carried a fresh Class B defect
 in four consecutive rounds, each introduced by the previous round's fix. Its
@@ -270,9 +284,23 @@ class TestOracleOutcomeType:
 
         # (b) 'and friends' — case-folding candidate, applied in the widening
         # direction: no attribute of the class mentions `bool` in any spelling.
-        bool_named = [
-            n for n in dir(OracleOutcome) if "bool" in n.lower() and n != "__bool__"
-        ]
+        #
+        # The sweep walks the MRO's CLASS DICTS, not `dir()`. `dir()` on an Enum
+        # dispatches to `EnumType.__dir__`, which returns a fixed literal list
+        # plus `cls._member_names_` and NEVER consults the class dict — measured
+        # on this interpreter (spec §7.3), which is why the `dir()` form of this
+        # assertion could not fail and let a `from_boolean` classmethod ship.
+        # The `__bool__` exclusion is REQUIRED and live: AC-O1 obliges
+        # `__bool__` to exist and raise, and `vars()` does surface it (unlike
+        # `dir()`, where the exclusion was dead code).
+        bool_named = sorted(
+            {
+                n
+                for klass in OracleOutcome.__mro__
+                for n in vars(klass)
+                if "bool" in n.lower() and n != "__bool__"
+            }
+        )
         assert bool_named == [], f"AC-O3: boolean constructor(s) exposed: {bool_named}"
 
         # (c) no boolean (or bool-equal integer) is a valid value

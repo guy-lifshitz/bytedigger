@@ -672,9 +672,16 @@ inherited. bd#8 imports `hashlib`, `json`, `pathlib`, `typing` and `__future__`;
 
 # bd#27 (L3) — Oracle plugin interface + guarded evaluation
 
-FROZEN spec for lot **bd#27**. Carries exactly **15 ACs**: `AC-O1`..`AC-O5` (the three-state
-outcome type) and `AC-E1`..`AC-E10` (`evaluate_guarded`). Scope is one new module,
+FROZEN spec **v2**, lot **bd#27** → child **bd#38** after gate round 1 returned REJECTED on two
+type-(a) blockers. Carries exactly **15 ACs**: `AC-O1`..`AC-O5` (the three-state outcome type) and
+`AC-E1`..`AC-E10` (`evaluate_guarded`). Scope is one new module,
 `engine_py/conformance/oracle.py`.
+
+**v2 changes:** §3.1 AC-O3(b) sweeps `vars()` over the MRO instead of `dir()` (MAJOR 1), with the
+positive control measured on this base (§7.3); §4.1 row 8 and the §4.3 row rewritten rather than left
+carrying the falsified kill-claim; the RED docstring reconciled with §5 (MAJOR 2); and **§8 — the
+simulation table executed as code**: reference 37/37, 37 mutants all killed, 2 admissible designs
+passing.
 
 Process: manual Option-D — frozen spec → RED → gate (`hal-gate-agent`, Opus) → GREEN.
 **GREEN does not start before an ACCEPTED verdict.**
@@ -861,10 +868,19 @@ bool operands raise, non-bool operands compare normally.
 > `OracleOutcome(True)` MUST raise `ValueError`.**
 
 **Fixture.** (a) The named absence: `from_bool` not an attribute. (b) "and friends" made measurable
-rather than rhetorical — a structural sweep: no attribute of `OracleOutcome` whose name contains
-`bool` case-insensitively (the standing "case-folding where verbatim text is pinned" candidate, applied
-in the direction that widens the net). (c) `OracleOutcome(True)` and `OracleOutcome(False)` raise
-`ValueError`; also `OracleOutcome(1)` and `OracleOutcome(0)`, since `True == 1`.
+rather than rhetorical — a structural sweep over **the class dicts of the MRO** (`vars(klass)` for
+`klass in OracleOutcome.__mro__`): no name containing `bool` case-insensitively, excluding `__bool__`
+(the standing "case-folding where verbatim text is pinned" candidate, applied in the direction that
+widens the net). (c) `OracleOutcome(True)` and `OracleOutcome(False)` raise `ValueError`; also
+`OracleOutcome(1)` and `OracleOutcome(0)`, since `True == 1`.
+
+**The collection swept is `vars()` over the MRO, never `dir()` — v1 got this wrong and it was the
+lot's first MAJOR.** `dir()` on an `Enum` dispatches to `EnumType.__dir__`, which returns a fixed
+literal list plus `cls._member_names_` and never consults the class dict, so the `dir()` form of this
+sweep **could not fail** and let a `from_boolean` classmethod ship. Measured both ways in §7.3, and
+executed against three renamed-constructor mutants in §8. The `__bool__` exclusion is **required and
+live** under `vars()` — AC-O1 obliges `__bool__` to exist and raise, and `vars()` does surface it,
+whereas under `dir()` the exclusion was dead code.
 
 **Positive control.** `OracleOutcome("rejected") is OracleOutcome.REJECTED` — without it, "the
 constructor raises for everything" passes vacuously.
@@ -1101,7 +1117,7 @@ might plausibly do **instead**. Different enumerations.
 | 5 | `__eq__` overridden, `__hash__` left `None` (the default consequence) | AC-O2 set/dict-key controls |
 | 6 | `__eq__` handles `True` but not `False`, or not the reflected order | AC-O2 (3 × 2 operands × 2 orders) |
 | 7 | `from_bool` classmethod provided "for adapters" | AC-O3 (a) |
-| 8 | Same, renamed `fromBool` / `from_boolean` / `of_bool` | AC-O3 (b) case-insensitive `bool` sweep |
+| 8 | Same, renamed `fromBool` / `from_boolean` / `of_bool` | AC-O3 (b) case-insensitive `bool` sweep **over `vars()` of the MRO**. Executed: mutants **M08/M08b/M08c** each die on `test_ac_o3_no_boolean_constructor` (§8). Under v1's `dir()` sweep all three **survived** — the row's original kill-claim was false |
 | 9 | `_missing_` maps `True`→`ACCEPTED` | AC-O3 (c) `OracleOutcome(True)` must raise `ValueError` |
 | 10 | Constructor hardened to raise for everything | AC-O3 positive control `OracleOutcome("rejected")` |
 | 11 | `INDETERMINATE` aliased to an existing value | AC-O4 `len == 3` + pairwise `is not` + value-set equality |
@@ -1151,7 +1167,7 @@ count, and would misclassify as a pre-existing gap. Each is shown able to fail:
 |---|---|
 | AC-O5 `json.dumps` raises `TypeError` | a `str`-mixin member serialises to `"rejected"` (cand. 13) |
 | AC-O2 set / dict-key controls | `__eq__` without `__hash__` makes members unhashable (cand. 5) |
-| AC-O3 case-insensitive `bool` attribute sweep | fires on `fromBool` / `of_bool` (cand. 8) |
+| AC-O3(b) `bool` name sweep over `vars()` of the MRO | **executed**: fires on `from_bool` (M07), `from_boolean` (M08), `fromBool` (M08b), `of_bool` (M08c), and is `[]` for the reference (§7.3, §8). The v1 `dir()` form was an assertion that could not fail — see §5.3 |
 | AC-E3 wall-clock bound | a joining implementation exceeds it (cand. 35) |
 | AC-E7 finite-`timeout_s` parameterisation | the split-path implementation swallows the interrupt (cand. 29) |
 | AC-E9 AST no-`signal` check | any `signal`-based implementation (cand. 32, 34) |
@@ -1197,8 +1213,32 @@ rounds). The count was not measured before being asserted — the same class as 
 "a property asserted without being measured" (carrier 155–159).
 
 The other **36** tests fail today, all at `ModuleNotFoundError: No module named 'conformance.oracle'`
-— verified uniform, not assumed. This includes the absence-shaped assertions (AC-O3's `from_bool`
+— verified uniform, not assumed. This includes the absence-shaped assertions (AC-O3(b)'s class-dict
 sweep, AC-E9's AST check), which still need the import and so cannot pre-pass.
+
+### 5.3 v2 — the two gate blockers, and how each was closed
+
+Gate round 1 returned **REJECTED** on two MAJOR findings, both type (a). Round record:
+`ORACLE_SPEC_gate_round_1.md`. Both are closed here; the lot re-freezes as **v2** under child
+number **bd#38**.
+
+**MAJOR 1 — AC-O3(b) was an assertion that could not fail.** v1 swept `dir(OracleOutcome)`. `dir()`
+on an `Enum` never consults the class dict, so a boolean constructor under any name other than the
+literal `from_bool` shipped undetected. Closed by sweeping `vars()` across the MRO. **The positive
+control was measured on this base before being claimed** (§7.3) and then executed against three
+renamed-constructor mutants (§8) — not inherited from the gate, which had measured its own.
+Derivatives rewritten rather than left carrying the old claim: §3.1 AC-O3, §4.1 row 8, §4.3 row.
+
+**MAJOR 2 — the RED docstring contradicted §5.** It still read "Pre-passing shields: none (spec §5)"
+while §5, amended in the same commit, said exactly one. Closed by reconciling
+`test_bd27_oracle.py:14-17` with §5.1. Its **example** was corrected too, and this was the sharper
+half: the docstring had offered AC-O3(b)'s sweep as its specimen of an assertion that cannot
+pre-pass — an assertion that at that moment could not *fail*, i.e. it cited its own counterexample.
+Both halves are now true and both are measured.
+
+**Not carried:** the gate's MINOR 4 (`_DummyThread.is_alive()` raising) did **not** reproduce on this
+host and is recorded in the round file as unreproduced, not adopted. MINOR 5 (the thread-audit scope
+gap) rides with the parent lot by dispatcher decision and is not addressed here.
 
 **Deferred-import discipline (§1q), inherited from L2's RED.** Every `conformance.*` symbol is
 imported **inside the test body**, never at module level, so **collection stays clean** and the
@@ -1259,6 +1299,111 @@ property, never the literal 4227.
 for the remaining ≈5 s as a **daemon** thread, which is precisely the property under test and cannot
 delay interpreter exit.
 
+### 7.3 `dir()` vs `vars()` — the MAJOR 1 measurement, taken on this base
+
+Required by the dispatcher: the positive control must be **measured here**, not asserted and not
+inherited from the gate. Run on CPython 3.14.6 against a deliberately planted `from_boolean`
+classmethod.
+
+`dir()` on an `Enum` class dispatches to `EnumType.__dir__`, which returns a **fixed literal list plus
+`cls._member_names_`** and never reads the class dict:
+
+```
+dir(OracleOutcome) = ['ACCEPTED','INDETERMINATE','REJECTED','__class__','__contains__','__doc__',
+                      '__getitem__','__init_subclass__','__iter__','__len__','__members__',
+                      '__module__','__name__','__qualname__']
+'from_boolean' in dir(...)        -> False      # v1 sweep passes
+OracleOutcome.from_boolean(True)  -> ACCEPTED   # the boolean constructor ships anyway
+'__bool__' in dir(...)            -> False      # v1's exclusion was DEAD CODE
+```
+
+The v2 sweep, `{n for k in cls.__mro__ for n in vars(k) if "bool" in n.lower() and n != "__bool__"}`:
+
+| Class under sweep | Result | Required |
+|---|---|---|
+| reference (no boolean constructor) | `[]` | must be empty — **positive control** |
+| `from_bool` (cand. 7) | `['from_bool']` | must catch |
+| `from_boolean` (cand. 8) | `['from_boolean']` | must catch |
+| `fromBool` (cand. 8, camelCase) | `['fromBool']` | must catch |
+| `str` mixin, MRO `[…, str, Enum, object]` | `[]` | no false positive from bases |
+| `int` mixin, MRO `[…, int, Enum, object]` | `[]` | no false positive from bases |
+
+`'__bool__' in vars(OracleOutcome)` is **`True`**, and `'__bool__' in vars(int)` is **`True`**. So
+under `vars()` the `__bool__` exclusion is **live and load-bearing** — it is what keeps AC-O1 (which
+obliges `__bool__` to exist and raise) from contradicting AC-O3(b). Under `dir()` it was inert.
+
 ---
 
-**FROZEN.** Committed before RED. Any change after this point is a spec round and is reported as one.
+## 8. The simulation table, EXECUTED
+
+hal#1511. §4 enumerates what a plausible implementer might do instead; **this section runs it.** A
+read table is a claim; MAJOR 1 was a row whose claim was false and which four rounds of reading did
+not catch.
+
+**Harness** (scratch-only, deliberately **not committed** — see below): a reference implementation
+built strictly from §2/§3, plus one mutant per flipped decision. Each mutant is a single
+`old -> new` textual substitution against the reference, and the builder **asserts the anchor occurs
+exactly once**, so the one-decision-per-mutant property is mechanical rather than promised.
+
+**Isolation.** `engine_py/tests/conftest.py:38-40` inserts `engine_py` at `sys.path[0]` at
+conftest-import time, so the real `conformance` package would shadow every variant. The RED is
+therefore copied to a scratch tree with no conftest in its ancestry and verified **byte-identical by
+SHA-256** against the committed file, and each variant's package directory is placed first on
+`sys.path`. The matrix is therefore provably a statement about the file under review.
+
+**The reference is deliberately NOT committed.** Committing it would let GREEN be written by copying
+the harness, which zeroes the RED's value.
+
+### 8.1 Results
+
+```
+REFERENCE    37 passed /  0 failed    SPEC IS SATISFIABLE
+mutants:     37   killed=37   SURVIVED=0
+admissible:   2   passing=2   FALSE-FAILED=0
+```
+
+**The reference passing 37/37 proves the frozen spec is satisfiable** — a property reading cannot
+establish, and one this lot needs, because four of AC-E10's five historical rounds shipped a
+requirement no correct implementation could meet.
+
+Localisation is exact where it matters: **M07, M08, M08b, M08c each die on exactly
+`test_ac_o3_no_boolean_constructor`**; **M37, M40, M41 each die on exactly
+`test_ac_e10_abandoned_worker_cannot_hang_shutdown`**; **M32 and M34 each die on all three AC-E9
+tests**, confirming the three-way seam pin is genuinely redundant rather than three spellings of one
+check.
+
+### 8.2 What execution found that reading did not
+
+1. **MAJOR 1, reproduced as a matrix cell.** Against v1's RED, **M08/M08b/M08c passed 37/37** — three
+   boolean constructors shipping through a green suite. Against v2's, all three die. This is the
+   finding the dispatcher predicted the harness would surface in seconds.
+2. **The carrier's admissible-design claim is wrong on this interpreter.** §4.1 candidate 38 (from
+   carrier `[G7:self-1]`) blesses "a pool constructed with a daemonising `initializer`/subclass". The
+   `initializer` half **does not run**: `Thread.daemon`'s setter raises
+   `RuntimeError: cannot set daemon status of active thread`, so the pool is a `BrokenThreadPool` on
+   first submit and 27 tests fail. Only a pool whose workers are *created* daemon is admissible.
+   A2 was rebuilt as a hand-rolled daemon-worker pool and now passes 37/37. **This was a defect in the
+   harness, not in the RED** — but it is a measured correction to an inherited normative claim, and it
+   is exactly the class ("measurements are base-relative and do not transfer") this lot keeps meeting.
+3. **One equivalent mutant, excluded rather than silently dropped.** M10 (candidate 10, "constructor
+   hardened to reject everything") was built as a `_missing_` raising `ValueError` and measured 37/0.
+   It is an **equivalent mutant**: `_missing_` is never consulted for a value present in
+   `_value2member_map_`, so `OracleOutcome("rejected")` still resolves and the mutant is
+   observationally identical to the reference. Candidate 10's genuine kill is demonstrated instead by
+   **M12**, measured to fail `test_ac_o3_positive_control_constructor_still_works` — so the positive
+   control provably can fail.
+4. **Admissible designs confirmed by execution, not argument.** A2 (daemonising pool) and A3 (raw
+   `_thread.start_new_thread`) both pass 37/37. A3 passing also means the gate's MINOR 4 — that
+   `_DummyThread.is_alive()` would raise and turn AC-E10 into an error — **did not occur across a full
+   37-test run**, a second independent non-reproduction beyond the direct probe in the round record.
+
+### 8.3 Standing obligation
+
+Any future round that modifies or removes a fixture re-runs this harness and reports the matrix
+delta. A row that stops killing its mutant is a coverage regression, visible as a cell rather than
+as an argument.
+
+---
+
+**FROZEN v2.** Re-frozen after gate round 1 (REJECTED, 2 MAJOR both type (a)) under child number
+bd#38. v1 was `e80b45d`. Any change after this point is a spec round and is reported as one.
