@@ -1,10 +1,20 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v1, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v2, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
 Depends on bd#22's shipped `conformance` package. It MUST NOT reference L1's emissions or any later lot's design.
+
+**v2 revision, and why the freeze was reopened before the gate rather than after it.** Writing the RED against
+v1 and then running §0.9's own self-sweep over it surfaced a corner v1 had not pinned: the **base case of both
+binding rules** — a property line or an `EXCLUDES` line with **no preceding anchor at all**. Every fixture in the
+file, carried and new, exercises P3 and `[G24:2]` only where an anchor exists. That is structurally the same miss
+as round-4's B2 (three fixtures each missing *one* property, none with *zero*), one rule over. bd#22's `[G22:16]`
+established the correct response: the RED **flags** an unpinned semantic and it is decided **in the spec**, rather
+than invented in a test and discovered by a later round. So it is pinned in §2.5 and given a fixture, and the
+spec is re-frozen at v2 before the gate. Nothing else changed: no carried expectation, no `[G24:1]`/`[G24:2]`
+wording, no measurement.
 
 ---
 
@@ -199,6 +209,18 @@ line, and inventing one would exceed the three pinned `kind` values).
 - **`[G24:4]` Repeated property lines do not add coverage.** Check 3 is over the **set** of property markers
   present under a seam, not their count: `ATTRIBUTE-PATH` + `BINDING-TIME` + `BINDING-TIME` is a seam missing
   `NORMALISATION`, not a seam with three properties. A repeated line is not itself a finding.
+- **`[G24:5]` A marker line with NO anchor preceding it binds to nothing.** The base case of P3 and `[G24:2]`,
+  and the v2 addition. A property line before any `SEAM`, and an `EXCLUDES` line before any `NON-UNIFORMITY`
+  row, each bind to nothing: they contribute no coverage to anything, they are **not** themselves findings
+  (there is no `kind` for an unanchored line and inventing one would exceed the three pinned values), and they
+  MUST NOT be credited **forward** to the next anchor. A `SEAM` that follows an orphaned `NORMALISATION:` line
+  is still missing `NORMALISATION`. Exercised by `_ORPHAN_MARKER_LINES_SPEC` (§3, C1-12 / C3-16 / F-8).
+- **`[G24:6]` A `NON-UNIFORMITY` row whose `<level>` operand names no declared `LEVEL` is still checked**,
+  against the **default** admitted set. Reached by the carried `_LEVEL_CASE_MISMATCH_SPEC`, whose row operand
+  `audit_case` matches no level once P1 makes the comparison case-sensitive — so v1 left a clause that a carried
+  fixture actually walks through. The alternative (skip such rows entirely) would let a typo'd operand hide its
+  own row's under-enumeration, which is the defect this AC exists for. The fixture's row covers all four, so
+  this pin adds no finding there and contradicts no carried expectation.
 - **Finding order** is deterministic for a given input (the idempotence test compares two calls' lists) and
   otherwise unspecified across inputs; no test asserts a position.
 - **Out of scope, explicitly:** the behaviour when two `NON-UNIFORMITY` rows name the **same** level. No fixture
@@ -247,6 +269,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | `_SEAM_NAME_SUBSTRING_SPEC` | 3 | conformant short name, offending long name |
 | `_SEAM_NAME_SUBSTRING_REVERSE_SPEC` ✝ | 3 | offending short names, conformant long names, both positions |
 | `_SEAM_NAME_CASE_MISMATCH_SPEC` | 3 | two seam names differing **only** in case |
+| `_ORPHAN_MARKER_LINES_SPEC` ✝ | 1 + 3 | a `NORMALISATION:` and an `EXCLUDES:` line that precede **every** anchor in the document |
 | `_CONFORMANT_SPEC` | control | every level covered, seam fully pinned; `EXCLUDES` tokens and property lines in **non-canonical order** |
 | `_MALFORMED_SPEC` | contract | free-form prose, no markers |
 | `_LOWERCASE_MARKERS_SPEC` | grammar | every marker spelled lowercase |
@@ -269,6 +292,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C1-9 | K11 case-folding operands | `_LEVEL_CASE_MISMATCH_SPEC` | `Audit_Case` vs `audit_case`; a folding lint clears the level |
 | C1-10 | K11 case-folding `subject` on output | `_MISSING_ROW_SPEC` (`Audit_Field`) | `subject` is asserted against the mixed-case literal; a normalising lint reports `audit_field` |
 | C1-11 | K7/lookahead crash on a trailing bare `LEVEL:` | `"LEVEL: phases"` inline | an `i+1` lookahead raises `IndexError` instead of reporting |
+| C1-12 | K7, base case: an **unanchored** `EXCLUDES` credited **forward** to the next `LEVEL` ✝ | `_ORPHAN_MARKER_LINES_SPEC` ✝ | the orphaned `EXCLUDES` precedes `LEVEL: orphan_level`; a forward-crediting lint treats the level as having a discharged row and stops reporting it row-less (`[G24:5]`) |
 
 ### 3.3 Check 2 — `missing_reductions`
 
@@ -311,6 +335,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C3-13 | K11 `subject` normalised on output | `_SEAM_MISSING_BINDING_TIME_SPEC` (`MixedCase.Attribute`), `_SEAM_NOT_PINNED_SPEC` ✝ (`MixedCase.BareSeam`) | asserted against the mixed-case literal |
 | C3-14 | K7 property lines bound to the **following** seam | `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` | inverts both seams simultaneously |
 | C3-15 | K10 fixed required order for property lines | `_CONFORMANT_SPEC` | the control's seam lists `BINDING-TIME`, `NORMALISATION`, `ATTRIBUTE-PATH` in that order |
+| C3-16 | K7, base case: an **unanchored** property line credited **forward** to the next `SEAM` ✝ | `_ORPHAN_MARKER_LINES_SPEC` ✝ | the orphaned `NORMALISATION:` precedes `SEAM: Orphan.Seam`; a forward-crediting lint counts it as that seam's `NORMALISATION` and clears a seam with zero properties of its own (`[G24:5]`). The carried `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` covers only the case where the line has a *preceding* seam to be taken from |
 
 ### 3.5 Whole-function contract
 
@@ -322,6 +347,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | F-4 | raises on a trailing bare marker (`.splitlines()` lookahead) | `"LEVEL: phases"`, `"SEAM: tempfile.mkdtemp"` ✝ inline |
 | F-5 | markers matched case-**sensitively** | `_LOWERCASE_MARKERS_SPEC` |
 | F-6 | accumulates findings in module-level state across calls | the idempotence test: snapshot-before-second-call, plus `second is not first` |
+| F-8 | dereferences a "current anchor" that was never set (raises on an unanchored marker line) ✝ | `_ORPHAN_MARKER_LINES_SPEC` ✝ |
 | F-7 | `Finding` is not a frozen dataclass (plain object, dict, `NamedTuple`, mutable dataclass) | `_MISSING_ROW_SPEC`'s test: `dataclasses.is_dataclass` + `FrozenInstanceError` |
 
 ---
@@ -357,7 +383,7 @@ C1-2/3 (partially), C1-4, C1-5, C1-7, C1-8, C1-9, C1-10, C1-11; C2-1..C2-5, C2-1
 C3-5/6 (partially), C3-7, C3-10, C3-12, C3-13, C3-14, C3-15; F-1..F-7. **The one thing round 3 deleted
 (`_SEAM_NOT_PINNED_SPEC`, C3-1) is restored under its original name**, which is what round 4 rejected on.
 
-**Direction 2 — additions.** Eight new fixtures and one new inline input. Per §0.9(2), each added assertion is
+**Direction 2 — additions.** Eight new fixture constants, one new inline input, nine new tests. Per §0.9(2), each added assertion is
 listed in §3 with the candidate it kills; an assertion is admissible only if a plausible implementation exists
 that it would fail. The additions that are *not* traceable to a candidate would be the finding — there are
 none: every ✝ row in §3 names both the candidate and the mechanism by which the candidate dies.
@@ -378,6 +404,18 @@ Added-contradiction check (the second half of the corrected (a)/(b) discriminato
 
 No carried expectation changes. Zero fixture edits were required to adopt either decision — which is the
 evidence that they are decisions about an under-specified corner, not re-specifications of a settled one.
+
+The v2 pins were replayed the same way. `[G24:5]` (unanchored lines) touches no carried fixture: every carried
+`EXCLUDES` has a preceding row and every carried property line a preceding seam — which is precisely why the
+corner was invisible. `[G24:6]` (a row naming no declared level) is walked by exactly one carried fixture,
+`_LEVEL_CASE_MISMATCH_SPEC`, whose row covers all four reductions, so the pin produces no finding there and its
+single assertion is unaffected.
+
+**Provenance, stated because §0.9 direction 2 is about additions nobody asked for.** `_ORPHAN_MARKER_LINES_SPEC`
+comes from this round's self-sweep, not from a gate finding. It is admitted under the same test as every other
+addition: it names candidates (C1-12, C3-16, F-8) that no other fixture in the set kills, and each is a
+plausible implementation — forward-crediting and unset-anchor dereferencing are the two things a single-pass
+line loop does most naturally when it meets a marker before its anchor.
 
 ## 6. Out of scope
 
