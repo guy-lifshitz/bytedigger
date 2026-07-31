@@ -12,6 +12,34 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Changed — BREAKING
+
+- **`phase_5_implement` now refuses to run unless the acceptance criteria it is about to implement
+  were recorded first.** Run it with `--event-log PATH`, where `PATH` is the same log the spec
+  phase (`phase_45_spec` or `phase_45_spec_lite`) wrote to earlier in the build. Without that, the
+  phase stops before it starts and reports `E_ORACLE_UNFROZEN` with exit code 1.
+
+  **Who this affects.** Only callers that invoke `python3 run.py --workflow phase_5_implement`
+  directly *without* `--event-log`. If you drive builds through the supplied driver, nothing
+  changes — it already passes `--event-log` on every phase. Measured before shipping: no such
+  caller exists in this repository, and no production build path omits the flag.
+
+  **What to do.** Add `--event-log` (and a `--run-id` shared with the spec phase) to the
+  invocation, so the run has a log to look the recorded criteria up in:
+
+  ```
+  python3 run.py --workflow phase_45_spec   --run-id BUILD1 --event-log .bytedigger/events.jsonl ...
+  python3 run.py --workflow phase_5_implement --run-id BUILD1 --event-log .bytedigger/events.jsonl ...
+  ```
+
+  **Why it is not optional.** The point of the check is that the criteria cannot be edited by the
+  actor being judged: they are hashed when the spec phase ends and re-checked before and after the
+  implementation runs, so an implementation that rewrote its own acceptance criteria mid-flight is
+  refused rather than accepted. A run with no log has nowhere to have recorded them, so it cannot
+  be distinguished from one whose criteria were removed — and treating "nothing was recorded" as
+  "nothing changed" would make the check announce a pass it never performed. Other workflows are
+  unaffected and still run with or without a log. (#8)
+
 ### Fixed
 
 - **The install-platform scan no longer reads local build residue as a shipping platform.**
