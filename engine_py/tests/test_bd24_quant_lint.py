@@ -3213,3 +3213,153 @@ class TestQuantifierCompletenessLintBd39GateRound2:
             for f in findings
         )
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+
+# =========================================================================
+# PART 11 -- bd#39 gate round 3. One type (a) against the clause round 2
+# wrote, and one CONTRADICTION between two frozen normative sentences.
+# =========================================================================
+
+# ── MAJOR-1 (type (a)): `[G24:11]` says "SURROUNDING whitespace" ───────────
+# and measured one side. Every reduction line in all 48 fixtures writes either
+# `tok, tok` or `tok,tok`; not one contains ` ,`. That is bd#24 gate round 4's
+# MAJOR verbatim -- `[G24:7]` pinned "surrounding whitespace" and measured the
+# trailing side only -- reproduced on the clause written next to it, and it is
+# the finding the parent's exit criterion fired on. §0.0 carries the resolution
+# as this lot's constitution: MEASURE THE SECOND SIDE, do not narrow.
+#
+# `separator_is_comma_space` (`operand.replace(", ", ",").split(",")`) is the
+# natural spelling for a clause admitting both forms and handles every line in
+# the file. Confirmed at 53/53. On `any , all` it yields `any ` and ` all`,
+# neither recognised, so a FULLY CONFORMANT row is reported `missing_reductions`
+# on two independent grounds -- F-1's over-firing class, on a spelling a
+# hand-written fixture document carries.
+#
+# `trailing_comma` closes the nearest live neighbour the gate raised in the
+# same breath: `[G24:11]` makes the separator the comma, so a trailing one
+# yields an empty final token. §6 declares an EMPTY token LIST unpinned, not an
+# empty token within a non-empty one; v4 pins it (empty tokens are ignored) and
+# this row measures it.
+_SEPARATOR_SIDES_SPEC = """\
+# Fixture Spec — whitespace before the comma, and a trailing comma
+
+LEVEL: before_comma
+NON-UNIFORMITY: before_comma — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any ,all , first,last
+
+LEVEL: trailing_comma
+NON-UNIFORMITY: trailing_comma — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last,
+
+LEVEL: sep_short
+NON-UNIFORMITY: sep_short — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+# ── MAJOR-2: the contradiction, and WHEN a token is validated ──────────────
+# Two frozen normative sentences disagreed. §2.4 `[G24:1]`: "an unrecognised
+# token in `ADMITS` makes the admitted set uncomputable and IS ITSELF a
+# `missing_reductions` finding on that level" -- no precondition, and its
+# rationale is that there is nothing to compute. §2.6: "a level with no row
+# yields check 1 ONLY (there is no row to check for reductions)" -- which
+# forbids exactly that finding. On `LEVEL: x` / `ADMITS: bogus` / no row the two
+# sentences require opposite outputs, and NO fixture reached that input: every
+# level carrying an invalid `ADMITS` also carried a row.
+#
+# Decided in spec v4 for §2.4's reading, because its rationale survives the
+# absence of a row and §2.6's does not: an uncomputable admitted set is a defect
+# of the LEVEL, not of a row it may or may not have. §2.6's independence
+# sentence is narrowed to say so.
+#
+# The second half is WHEN validation happens. `[G24:5]` forbids inventing a
+# finding from an unanchored line, so tokens are validated ON THE BOUND LEVEL,
+# never eagerly as each line is read: `eager_token_validation` emits
+# `Finding("missing_reductions", cur_level or "")` from an orphan -- C2-26
+# exactly, one clause over, and C2-26 was gate round 6's MAJOR.
+#
+# The assertion is an EXACT SET, so it constrains what else the list may
+# contain: `admits_token_needs_row` drops a required finding and
+# `eager_token_validation` adds two forbidden ones.
+_TOKEN_VALIDATION_SPEC = """\
+# Fixture Spec — when a reduction token is validated, and on what
+
+ADMITS: orphan_bogus, all
+EXCLUDES: also_bogus, all
+
+LEVEL: bad_admits_no_row
+ADMITS: any, bogus
+
+LEVEL: valid_control
+ADMITS: any, all
+NON-UNIFORMITY: valid_control — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound3:
+    """`[G24:11]`'s second side, and the §2.4/§2.6 contradiction."""
+
+    def test_ac_c5_whitespace_before_the_comma_and_a_trailing_comma(self):
+        """AC-C5(2). bd#39 gate round-3 MAJOR-1 (type (a)), spec C2-33.
+        `[G24:11]` pins the separator as "a comma with SURROUNDING whitespace"
+        and the fixtures measured `tok, tok` and `tok,tok` -- never ` ,`. That
+        is bd#24 gate round 4's MAJOR reproduced on the clause written beside
+        it, and §0.0 carries its resolution as this lot's constitution:
+        measure the second side, do not narrow.
+
+        `before_comma` mixes ` ,` and ` , ` and covers all four, so it is
+        conformant -- `separator_is_comma_space`
+        (`replace(", ", ",").split(",")`) reads `any ` and `all `, neither
+        recognised, and reports a conformant row on two independent grounds.
+        `trailing_comma` ends its list with a comma, so the final token is
+        empty and must be ignored (v4's `[G24:11]` extension; §6 declared an
+        empty token LIST unpinned, not an empty token inside a non-empty one).
+        `sep_short` is the positive discriminator and the last assertion
+        catches the check-2 to check-1 inversion.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SEPARATOR_SIDES_SPEC)
+
+        assert not any(f.subject == "before_comma" for f in findings)
+        assert not any(f.subject == "trailing_comma" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "sep_short"
+            for f in findings
+        )
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+    def test_ac_c5_invalid_token_is_validated_on_its_bound_level(self):
+        """AC-C5(1) and AC-C5(2). bd#39 gate round-3 MAJOR-2, spec C2-34,
+        closing a CONTRADICTION between two frozen normative sentences rather
+        than a coverage gap. §2.4 made an unrecognised `ADMITS` token "itself a
+        `missing_reductions` finding on that level" with no precondition; §2.6
+        said a level with no row yields check 1 "only". On `LEVEL: x` /
+        `ADMITS: bogus` / no row the two required opposite outputs, and no
+        fixture reached that input -- every level with an invalid `ADMITS` also
+        carried a row, so the contradiction was invisible to the RED, to the
+        containment check and to the mutant matrix.
+
+        Spec v4 decides for §2.4: an uncomputable admitted set is a defect of
+        the LEVEL, and that rationale survives the absence of a row where
+        §2.6's does not. So `bad_admits_no_row` yields BOTH findings -- check 1
+        for the missing row, check 2 for the uncomputable set -- which is also
+        the (different kind, same subject) cell of `[G24:3]`, asserted here a
+        second time from a different direction.
+
+        The second half is WHEN validation happens. `[G24:5]` forbids inventing
+        a finding from an unanchored line, so tokens are validated on the bound
+        level, never eagerly: the two orphan lines here each carry an invalid
+        token and must produce nothing. The assertion is an EXACT SET because
+        both surviving implementations are invisible to `any(...)` --
+        `admits_token_needs_row` drops a required finding, `eager_token_validation`
+        adds forbidden ones with an empty or borrowed `subject`.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_TOKEN_VALIDATION_SPEC)
+
+        assert {(f.kind, f.subject) for f in findings} == {
+            ("missing_non_uniformity_row", "bad_admits_no_row"),
+            ("missing_reductions", "bad_admits_no_row"),
+        }

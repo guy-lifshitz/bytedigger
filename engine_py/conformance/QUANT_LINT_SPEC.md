@@ -1,6 +1,6 @@
 # Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v3, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+**v4, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
 worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
 
 **AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
@@ -59,6 +59,17 @@ not about this artifact, and it is filed where it can be fixed.
   empty **by construction**: level names in this file are bare identifiers and seam names are dotted, so no
   name was ever both. `dedup_by_subject_only` passed 50/50; closed by `_SAME_SUBJECT_TWO_KINDS_SPEC`. Both
   MAJORs run and confirmed before closing, neither taken on report.
+
+  **v4 (bd#39 gate round 3): one type (a) and one CONTRADICTION.** The type (a) is `[G24:11]` — written in v3
+  saying "surrounding whitespace" and measuring one side, which is bd#24 gate round 4's MAJOR **verbatim** on
+  the clause written beside it, and the finding the parent's exit criterion fired on. Closed by measuring, per
+  §0.0. The second is graver in kind: **§2.4 and §2.6 required opposite outputs** on a level with an invalid
+  `ADMITS` and no row, and no fixture reached that input. §5 offers the reference passing as "the first
+  mechanical evidence that this spec has no internal contradiction" — and it is not evidence for that, because
+  the reference's author resolves such an ambiguity silently and the fixture set never asks. **That claim is
+  now scoped accordingly in §5.** Decided in `[G24:12]`, with `[G24:13]` pinning when validation happens; both
+  measured by `_TOKEN_VALIDATION_SPEC`, whose assertion is an **exact set** because both survivors are
+  invisible to `any(...)`.
 
 **The accepted correction, unchanged and unnarrowed.** Gate round 4's MAJOR is closed by **measuring the second
 side** (`_OPERAND_SPACING_SPEC`, C-SPACING), not by declaring the single space part of the marker. The
@@ -489,7 +500,7 @@ line is prose the lint ignores.
 |---|---|
 | `LEVEL: <name>` | declares a collection level the document quantifies over |
 | `ADMITS: <reduction>[, …]` | **optional**, on a `LEVEL`; which reductions that level's fixtures could plausibly choose between. **Absent means all four.** |
-| `NON-UNIFORMITY: <level> — <description>` | the row discharging that level |
+| `NON-UNIFORMITY: <level> — <description>` | the row discharging that level. The description and its em dash are **optional** — see `[G24:11]`, which pins the operand as the text up to the **first** em dash or the whole operand when there is none (bd#39 round-3 MINOR-A: §1.6 sketches the shape and does not forbid the short form, but a reader of this table alone concluded the dash was mandatory) |
 | `EXCLUDES: <reduction>[, …]` | which reductions that row's fixtures kill |
 | `SEAM: <name>` | declares an interception seam |
 | `ATTRIBUTE-PATH:` / `BINDING-TIME:` / `NORMALISATION:` | the three properties a seam declaration must pin |
@@ -587,8 +598,11 @@ line, and inventing one would exceed the three pinned `kind` values).
   `LEVEL:`/`SEAM:` inside prose declares nothing. Exercised by `_INDENTED_MARKER_SPEC` (C-INDENT).
 - **`[G24:11]` What the DELIMITERS are** (bd#39 v3), pinned the same way `[G24:7]` pinned the operand's
   framing — by saying what the thing **is**, so any mechanism producing it is admissible. The reduction-token
-  separator is a **comma with optional surrounding whitespace**, so `EXCLUDES: any,all,first,last` lists four
-  tokens. A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
+  separator is a **comma with optional whitespace on EITHER SIDE OF IT** — `any,all`, `any, all`, `any ,all`
+  and `any , all` all list two tokens — and an **empty token is ignored**, so a trailing comma changes
+  nothing. *Surrounding* meant both sides in v3 and only one was measured (bd#39 gate round 3, MAJOR-1), which
+  is bd#24 gate round 4's MAJOR reproduced on the clause written beside it; the second side is now measured by
+  `_SEPARATOR_SIDES_SPEC` (C2-33), per §0.0's rule that the close is to measure and never to narrow. A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
   row carries none, so `NON-UNIFORMITY: phases` discharges `phases` and a second em dash inside a description
   changes nothing. Exercised by `_REDUCTION_DELIMITER_SPEC` (C2-32). Raised as an adversarial edge in bd#39
   rounds 1 and 2 and closed rather than restated a third time; the `split(", ")` spelling is not contrived —
@@ -620,8 +634,23 @@ The coverage relation in check 2 is **superset, not equality**: `set(excludes) �
 fixture set that kills more than it had to, which is never the defect this AC hunts. Stated explicitly because
 gate round 1 found `==` surviving the entire fixture set (K12, C2-20).
 
-Checks 1 and 2 are **independent**: a level with no row yields check 1 only (there is no row to check for
-reductions); a level whose row is short yields check 2 only.
+Checks 1 and 2 are **independent**: a level with no row yields check 1 and **no coverage-based check-2
+finding** (there is no row whose coverage could be short); a level whose row is short yields check 2 only.
+
+`[G24:12]` **The one exception, and it resolves a contradiction v3 shipped** (bd#39 gate round 3, MAJOR-2). An
+**unrecognised token in a level's own `ADMITS`** is an independent ground and fires **whether or not the level
+has a row**. v3 asserted both sides of this: §2.4 made such a token "itself a `missing_reductions` finding on
+that level" with no precondition, while the sentence above said "check 1 **only**" — and on
+`LEVEL: x` / `ADMITS: bogus` / no row the two required opposite outputs. **No fixture reached that input**;
+every level carrying an invalid `ADMITS` also carried a row, so the contradiction was invisible to the RED, to
+the containment check and to the mutant matrix alike. Decided for §2.4, because its rationale survives the
+absence of a row and §2.6's does not: an uncomputable admitted set is a defect of the **level**, not of a row
+it may or may not have. Exercised by `_TOKEN_VALIDATION_SPEC` (C2-34).
+
+`[G24:13]` **Tokens are validated on the BOUND LEVEL, never eagerly as each line is read.** An orphan `ADMITS`
+or `EXCLUDES` carrying an unrecognised token produces **nothing**: `[G24:5]` forbids inventing a finding from
+an unanchored line, and an eager validator emits one with an empty or borrowed `subject` — which is C2-26
+(gate round 6's MAJOR) one clause over. Same fixture.
 
 ---
 
@@ -672,6 +701,8 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | `_SHARED_ANCHOR_SPEC` ✝✝✝✝✝✝✝✝✝ | 2 | a `LEVEL:` interposed between a row and its `EXCLUDES` |
 | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 + 3 | each anchor kind interposed inside another kind's block — the **reverse** cycle of `[G24:10]`'s ordered product |
 | `_REDUCTION_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 | `ADMITS:`/`EXCLUDES:` packed, padded and trailing-padded |
+| `_SEPARATOR_SIDES_SPEC` ✝ | 2 | whitespace before the comma, and a trailing comma |
+| `_TOKEN_VALIDATION_SPEC` ✝ | 1 + 2 | an invalid `ADMITS` on a row-less level, and two orphan lines carrying invalid tokens |
 | `_INDENTED_ADMITS_SPEC` ✝ | 2 | an `ADMITS:` line quoted at an indent inside prose |
 | `_SAME_SUBJECT_TWO_KINDS_SPEC` ✝ | 1 + 3 | one name declared as both a `LEVEL` and a `SEAM` |
 | `_REDUCTION_DELIMITER_SPEC` ✝ | 1 + 2 | comma-without-space tokens; a row with no em dash; a second em dash inside a description |
@@ -736,6 +767,8 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C2-25 | a **duplicated recognised token in `ADMITS`** treated as a defect ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | `dup_admits_level` admits {any, all} with `any` twice and covers both: conformant. **Gate round-5 MAJOR-3**, the `ADMITS` mirror of round-2's MAJOR-2 |
 | C2-29 | an anchor of one kind **closing a live anchor** of another (`if row: cur_level = None`, `if LEVEL: cur_seam = None`, `if SEAM: cur_row = None`) ✝✝✝✝✝✝✝✝✝✝ | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | the reverse cycle of the three cells already filled; each mutant is the exact mirror of one already killed, and all three passed 47/47. **bd#39 gate round-1 MAJOR-1** — the RED enforced this before the spec recorded it |
 | C2-31 | `ADMITS:` recognised after a **strip** while the other seven markers require flush-left ✝ | `_INDENTED_ADMITS_SPEC` ✝ | a quoted `ADMITS: any, all` **narrows** the admitted set of the level above it, so a genuinely short row reads as complete and its finding is suppressed. **bd#39 round-2 MAJOR-1, type (a)**, confirmed at 50/50 |
+| C2-33 | whitespace **before** the comma not admitted; a trailing comma yielding an unrecognised empty token ✝ | `_SEPARATOR_SIDES_SPEC` ✝ | `any ,all , first,last` covers four and is conformant — `replace(", ", ",").split(",")` reads `any `/`all ` and flags it. **bd#39 round-3 MAJOR-1, type (a)**, confirmed at 53/53 |
+| C2-34 | an invalid `ADMITS` token requiring a row before it fires; or tokens validated **eagerly** on the line rather than on the bound level ✝ | `_TOKEN_VALIDATION_SPEC` ✝ | exact-set assertion: `bad_admits_no_row` must yield **both** kinds, and the two orphan lines carrying invalid tokens must yield nothing (`[G24:12]`, `[G24:13]`). **bd#39 round-3 MAJOR-2** — a contradiction between two frozen sentences, not a coverage gap |
 | C2-32 | the token separator read as the two-character `", "`; a row operand requiring an em dash, or split on the **last** one ✝ | `_REDUCTION_DELIMITER_SPEC` ✝ | `any,all,first,last` is four tokens, `NON-UNIFORMITY: no_dash_row` discharges its level, and a second em dash inside a description changes nothing (`[G24:11]`) |
 | C2-30 | a **fixed offset** applied to reduction lines only (`line[line.index(":") + 2:]`, no strip) ✝✝✝✝✝✝✝✝✝✝ | `_REDUCTION_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝✝✝✝ | `EXCLUDES:any, …` yields the token `ny`, so a conformant row is reported both short and carrying an unrecognised token — F-1's over-firing class. **bd#39 gate round-1 MAJOR-2**, confirmed at 48/48 |
 | C2-28 | one shared "current declaration" variable written by both `LEVEL:` and `NON-UNIFORMITY:` ✝✝✝✝✝✝✝✝✝ | `_SHARED_ANCHOR_SPEC` ✝✝✝✝✝✝✝✝✝ | a `LEVEL:` is interposed between a row and its `EXCLUDES` — the case no other fixture contains. **Gate round-8 MAJOR**, confirmed at 46/46, against v10's explicit claim that `_EXCLUDES_ROW_BINDING_SPEC` covered this cell |
@@ -944,7 +977,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 53/53 and every one of the 49 mutants fails at least one test** (v11 figures;
+**Result: the reference passes 55/55 and every one of the 52 mutants fails at least one test** (v11 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 
@@ -955,13 +988,25 @@ named a surviving candidate — an unanchored property line collected under a se
 list did not contain, predicted it would pass 40/40, and it did. Execution raises the floor. It does not
 replace an adversary, and this subsection is not offered as if it did.
 
+**A limit of the same family, found in this lot's own harness** (bd#39 round-3 MINOR-C). The first
+`row_last_dash` mutant was written as `rsplit("—")[0]`, which returns the same first segment as `split` — so it
+expressed no candidate at all, passed 53/53, and reported nothing. **A mutant that cannot express its own
+candidate is the same defect as an assertion that cannot fail**, one layer out: it produces a green line in the
+matrix that looks like a kill. Corrected to `rsplit("—", 1)[0]` and re-run. The matrix is therefore only as
+good as each mutant's faithfulness to the candidate it names, which is a second reason — beside the `[G22:13]`
+asymmetry above — that execution is a floor.
+
 **Disposal** (gate round-3 MINOR-D): the harness is uncommitted **only until GREEN lands**, so GREEN cannot be
 copied from it. Once GREEN is in, the reference and the mutant set are committed beside the containment script,
 so the matrix becomes re-runnable — by §5's own standard, an unrepeatable proof is a claim, and the exception
 is temporary and for one stated reason.
 
 The reference passing is a result in its own right and one no gate round could produce: it shows the fixture set
-is **satisfiable** — no assertion contradicts another, and the spec as written is implementable. Five revisions
+is **satisfiable** — no assertion contradicts another, and the spec as written is implementable **at the points
+the fixtures ask about**. It is **not** evidence that the spec is free of internal contradiction (bd#39 gate
+round 3, MAJOR-2): where two clauses disagree on an input no fixture carries, the reference's author resolves
+it silently and the run cannot see it. That is the one claim this subsection was offered for that it does not
+support, and it is withdrawn here rather than defended. Five revisions
 of bd#22's spec shipped with an internal contradiction; this is the first mechanical evidence that this one has
 none.
 
@@ -1024,10 +1069,14 @@ nothing consumes it yet. Repeated `NON-UNIFORMITY` rows for one level (§2.5).
 **Declared unpinned, rather than left silently unpinned** (gate round 1's advisory edge list; each would need a
 decision no fixture currently forces, and inventing one per corner is how a spec acquires clauses nothing
 measures — the defect `[G24:6]` was found to be):
-- two `LEVEL:` lines declaring the **same name** — it interacts with `[G24:3]`'s `(kind, subject)` collapse and
-  the two would have to be decided together;
+- two `LEVEL:` lines declaring the **same name**. The v2 reason — that it had to be decided together with
+  `[G24:3]`'s collapse — **no longer holds**: the cross-kind case is decided and fixtured
+  (`_SAME_SUBJECT_TWO_KINDS_SPEC`). It stays unpinned on its own reason, which is that duplicate
+  *declarations* are a different question from cross-kind *subjects*, and no fixture forces it (bd#39 round-3
+  MINOR-B);
 - an **empty or whitespace-only operand** (`LEVEL:`, `SEAM: `), which would make `Finding.subject` the empty
-  string;
+  string — **and, since `[G24:11]`, the second route to one**: a row whose em dash comes first
+  (`NON-UNIFORMITY: — description`), whose operand is empty by that clause (bd#39 round-3 advisory);
 - an `EXCLUDES:` line with an **empty token list**;
 - **multiplicity of anchored lines under one anchor**: two `ADMITS` lines under one `LEVEL`, or two `EXCLUDES`
   lines under one row — union, last-wins, or a finding? Decided for property lines (`[G24:4]`: a set, repetition
