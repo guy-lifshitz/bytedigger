@@ -699,13 +699,13 @@ is the carrier and **must not be deleted**.
 |---|---|
 | `## 2. Oracle plugin interface — engine_py/conformance/oracle.py` | 244 |
 | `### 2.1 Three states, unmergeable by type` | 246 |
-| `AC-O1` … `AC-O5` | 255 … 268 |
+| `AC-O1` … `AC-O5` (first lines) | 255 … **264** |
 | `### 2.2 freeze` (**not this lot** — `AC-F1..F14`) | 269 |
 | `### 2.3 evaluate and the indeterminate guard` | 332 |
 | `AC-E1` … `AC-E10` | 338 … 353 |
 | `AC-E10`'s **resolved normative form** (`[G8:2]`) | **395–400** |
 | `[G7:self-1]` withdrawal of the `ThreadPoolExecutor` aside | 402–416 |
-| §2 ends (`## 3.` begins) | 421 |
+| §2 ends (`## 3. Attestation writer` begins) | **422** (421 is blank) |
 
 **Finding — the inherited citation range is short.** The lot brief and issue #27 cite
 "§2 … lines 244–380". Line 380 lands **inside** `[G8:2]`'s preamble, one line into the two-defect
@@ -1251,6 +1251,29 @@ the deferred-import idiom achieves clean collection without one.
 ## 6. Declared limitations
 
 1. **AC-E5 admits a constant reason** (§3.2 AC-E4/E5) — the AC text is frozen and is not rewritten.
+1a. **AC-O3(b) admits a boolean constructor spelled without the substring `bool`** — `from_flag`,
+   `of_truth`, `coerce`. Same disposition as limitation 1 and for the same reason: AC-O3's verbatim
+   text names `from_bool` and `OracleOutcome(True)`, and a semantic check would be a rewritten
+   requirement, which `[G22:13]` says does not close a gap. Declared because §3.1 calls the sweep
+   "'and friends' made measurable rather than rhetorical", which reads as closure over the family and
+   is closure over one substring. **Asymmetry corrected:** limitation 1 was declared from the start
+   and this one was not.
+1b. **AC-O3(b) constrains GREEN's naming.** Any class-body name containing `bool` other than
+   `__bool__` — `_BOOL_ERROR`, `_bool_guard` — fails the sweep on an otherwise conforming class.
+   Not Class B (three conforming designs were executed), but it is a real constraint and it is
+   stated rather than discovered.
+1c. **Four adversarial edges survive the RED and are closed by GREEN's choices, not by the fixtures**
+   (§8.3): `timeout_s = 0.0` must be tested with `is not None` and never for truthiness; `state` must
+   be passed through; the keyword-only `*` must be kept; and `signal` must stay out of every module
+   `conformance.oracle` imports, not only out of `oracle.py`. GREEN does all four; no assertion
+   enforces the first three.
+1d. **A pooled guard is inadmissible even when its workers are daemon.**
+   `concurrent.futures.thread` registers `_python_exit`, which **joins** its workers at interpreter
+   shutdown regardless of daemon status, so a `ThreadPoolExecutor`-subclass guard satisfies AC-E10's
+   daemon predicate and still delays exit for the abandoned oracle's full duration — the same
+   mechanism behind bd#7's measured 6.77 s. AC-E10's inherited normative form does not catch this, so
+   GREEN uses a plain per-call daemon thread and registers no `atexit` hook. §4.1 row 38's
+   "admissible" is therefore true of the daemon predicate and **not** of the AC's headline sentence.
 2. **`-n` / `pytest-xdist` is out of scope** for AC-E10's process-quantified assertion (§1.3).
    Neither this lot's invocation nor CI uses it.
 3. **`Oracle` Protocol is uncovered by any AC** — declared for typing only (§2).
@@ -1341,9 +1364,16 @@ read table is a claim; MAJOR 1 was a row whose claim was false and which four ro
 not catch.
 
 **Harness** (scratch-only, deliberately **not committed** — see below): a reference implementation
-built strictly from §2/§3, plus one mutant per flipped decision. Each mutant is a single
-`old -> new` textual substitution against the reference, and the builder **asserts the anchor occurs
-exactly once**, so the one-decision-per-mutant property is mechanical rather than promised.
+built strictly from §2/§3, plus mutants. Each mutant is a single `old -> new` textual substitution
+against the reference, and the builder **asserts the anchor occurs exactly once**.
+
+**What that guarantee actually is — corrected in round 2.** The builder enforces a single **site**,
+not a single **decision**. A site can carry several decisions, and some here do: M14 flips the class
+header *and* all three member values; M17 flips both which exceptions are captured and whether
+non-`Exception` `BaseException`s are captured at all; M32/M34/M37/A2/A3 each replace a five-line block
+with a fifteen-to-twenty-five-line one. Localisation is therefore good but not mechanical, and the
+earlier claim that it was "mechanical rather than promised" is withdrawn. Where imprecise localisation
+cost something it is recorded — see §8.2 items 5 and 6.
 
 **Isolation.** `engine_py/tests/conftest.py:38-40` inserts `engine_py` at `sys.path[0]` at
 conftest-import time, so the real `conformance` package would shadow every variant. The RED is
@@ -1362,9 +1392,20 @@ mutants:     37   killed=37   SURVIVED=0
 admissible:   2   passing=2   FALSE-FAILED=0
 ```
 
-**The reference passing 37/37 proves the frozen spec is satisfiable** — a property reading cannot
-establish, and one this lot needs, because four of AC-E10's five historical rounds shipped a
-requirement no correct implementation could meet.
+**The reference passing 37/37 proves the RED admits at least one passing implementation** — i.e. the
+RED carries no Class B defect. Three structurally different designs reach it (per-call daemon thread,
+daemon-worker pool, raw `_thread`), which is stronger than one. This is the property the lot needs,
+because four of AC-E10's five historical rounds shipped a requirement no correct implementation could
+meet.
+
+**Scoped honestly — corrected in round 2.** This is *not* a proof that the frozen spec is satisfiable,
+which is what §8.1 first claimed. The RED is a strict subset of the spec's requirements, so a spec
+requirement the RED does not assert could be unsatisfiable and the matrix would be silent — §2's type
+annotations, for instance, are asserted by nothing. And the reference and the RED were written by the
+same author from the same reading of the carrier: **a shared misreading is self-consistent and the
+harness confirms it rather than exposing it.** The harness proves the RED is satisfiable; only a
+reader of the carrier proves it is faithful. Both gate rounds supply that half by re-reading
+`lot-bd7`. Execution does not subsume reading.
 
 Localisation is exact where it matters: **M07, M08, M08b, M08c each die on exactly
 `test_ac_o3_no_boolean_constructor`**; **M37, M40, M41 each die on exactly
@@ -1385,23 +1426,72 @@ check.
    A2 was rebuilt as a hand-rolled daemon-worker pool and now passes 37/37. **This was a defect in the
    harness, not in the RED** — but it is a measured correction to an inherited normative claim, and it
    is exactly the class ("measurements are base-relative and do not transfer") this lot keeps meeting.
-3. **One equivalent mutant, excluded rather than silently dropped.** M10 (candidate 10, "constructor
-   hardened to reject everything") was built as a `_missing_` raising `ValueError` and measured 37/0.
-   It is an **equivalent mutant**: `_missing_` is never consulted for a value present in
-   `_value2member_map_`, so `OracleOutcome("rejected")` still resolves and the mutant is
-   observationally identical to the reference. Candidate 10's genuine kill is demonstrated instead by
-   **M12**, measured to fail `test_ac_o3_positive_control_constructor_still_works` — so the positive
-   control provably can fail.
+3. **One equivalent mutant, excluded rather than silently dropped.** M10 was built as a `_missing_`
+   raising `ValueError` and measured 37/0. It is an **equivalent mutant**: `_missing_` is never
+   consulted for a value present in `_value2member_map_`, so `OracleOutcome("rejected")` still
+   resolves and the mutant is observationally identical to the reference on every input the RED
+   supplies.
+
+   **Split into its two obligations — corrected in round 2.** (a) *The positive control can fail*:
+   discharged by execution — **M12** fails `test_ac_o3_positive_control_constructor_still_works`.
+   (b) *Candidate 10 dies*: **derived, not demonstrated.** M10-as-built was never candidate 10, which
+   is "the constructor raises for **everything**" and on an `Enum` requires a metaclass `__call__`
+   override; that mutant was not built. Its death is certain — the positive control calls
+   `OracleOutcome("rejected")` and asserts member identity, which no raises-for-everything constructor
+   can satisfy — but certainty by derivation is not the same as a matrix cell, and the earlier wording
+   conflated the two.
 4. **Admissible designs confirmed by execution, not argument.** A2 (daemonising pool) and A3 (raw
-   `_thread.start_new_thread`) both pass 37/37. A3 passing also means the gate's MINOR 4 — that
+   `_thread.start_new_thread`) both pass 37/37. A3 passing also means round 1's MINOR 4 — that
    `_DummyThread.is_alive()` would raise and turn AC-E10 into an error — **did not occur across a full
    37-test run**, a second independent non-reproduction beyond the direct probe in the round record.
 
-### 8.3 Standing obligation
+5. **The AC-E3 wall-clock bound had no executed demonstrator, and §4.3's attribution was wrong.**
+   Round 2 caught this and it is the round's coverage-diff finding. §4.3 claimed the bound "can fail
+   because a joining implementation exceeds it (cand. 35)". It cannot fail that way: **M35** returns
+   `(ACCEPTED, None)` after 6 s, so `_assert_indeterminate` raises on the *outcome* assertion and the
+   wall-clock line is never evaluated. The bound is nonetheless live, and **M35b** now demonstrates it:
+   `worker.join(timeout_s)` → report the timeout, then `worker.join()` anyway — a plausible tidiness
+   reflex. Measured: **35 passed / 2 failed**, killers `test_ac_e3_timeout_yields_indeterminate` (the
+   wall-clock assertion firing, since the outcome assertion now passes) and
+   `test_ac_e10_abandoned_worker_cannot_hang_shutdown`. Dying twice is the right shape.
+
+6. **AC-E1's four-type non-uniformity was discharged by argument only, and is now executed.** **M17**
+   flips two decisions at one site, and the shape it produces never reaches AC-E1: an uncaptured
+   `RuntimeError` kills the worker, `box` stays empty, and the non-outcome branch returns
+   `INDETERMINATE` anyway — so M17 dies only on AC-E7. The single-type catch that *survives* AC-E7 is
+   **M17b**: `except ValueError` for the verdict path plus `except BaseException` re-raised in the
+   caller. Measured: **32 passed / 5 failed**, killers `test_ac_e1_...` and `test_ac_e2_...`. AC-E1's
+   four dissimilar types are load-bearing, now by execution rather than by claim.
+
+### 8.3 Completeness of the mutant set — declared, because `SURVIVED=0` does not mean what it looks like
+
+**`SURVIVED=0` is a statement about the enumeration the harness was handed, not about the RED.** The
+harness cannot discover a candidate the table omits. Declared in full rather than left to a reader's
+inference:
+
+| §4 candidate | Mutant | Status |
+|---|---|---|
+| 10 — constructor raises for everything | none faithful (M10 equivalent) | death **derived**, vacuity discharged by M12 (§8.2 item 3) |
+| 16 — not an `Enum` at all | **none** | not expressible as a single-anchor substitution. Death derived: MRO is `{OracleOutcome, object}` ≠ the pinned set, and AC-O1's `isinstance` vacuity guard fails on bare strings |
+| 33 — signal-based, off-thread `ValueError` caught and timeout skipped | **none** | death derived: fails the AST fence, and fails the AC-E3 half off-main-thread (skipped timeout returns the oracle's real `ACCEPTED`). Marginal over M32, which already dies on all three AC-E9 tests |
+| 36 — per-call daemon thread | none as a variant | it **is** the reference; passing 37/37 is its execution |
+| 42 — thread count vs thread property | none, and none possible | a fixture reduction, not an implementation choice |
+
+**And the sharper gap: no mutant in the set was drawn from round 1's eight adversarial edges.** Round 2
+established by construction that at least four of them are single-anchor substitutions against this
+reference that **survive 37/37**: `timeout_s = 0.0` treated truthily (`join(timeout_s if timeout_s else
+None)`); `state` dropped (`oracle.evaluate(None)`); the keyword-only `*` removed; and a boolean
+constructor spelled without the substring `bool` (`from_flag`). Three of these are closed by GREEN
+choosing correctly rather than by the RED forbidding the alternative, and they are declared as
+limitations in §6 rather than silently absorbed.
+
+### 8.4 Standing obligation
 
 Any future round that modifies or removes a fixture re-runs this harness and reports the matrix
-delta. A row that stops killing its mutant is a coverage regression, visible as a cell rather than
-as an argument.
+delta. A row that stops killing its mutant is a coverage regression, visible as a cell rather than as
+an argument. **Extended after round 2:** the previous round's adversarial-edge list is an **input** to
+the mutant set, not a separate document — the round-2 findings that cost the most (§8.2 items 5 and 6)
+were both edges no mutant covered.
 
 ---
 

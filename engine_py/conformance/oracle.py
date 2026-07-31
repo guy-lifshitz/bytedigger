@@ -22,13 +22,35 @@ drops leading-dot names, which would let an implementing actor smuggle
 `specs/.hidden.md` past ADV-2. This applies to the member listing at freeze
 time as well as to the scope listing, and only the latter is test-forced
 (gate round 5, warning 2).
+
+────────────────────────────────────────────────────────────────────────
+SECOND LOT IN THIS MODULE — bd#38 (L3, child of bd#27)
+
+This file is shared by two lots that collided by FILE NAME only; the symbol
+sets are disjoint and the halves complement each other. Everything above
+belongs to bd#8 (freeze-and-verify). Everything below the divider belongs to
+bd#38: `OracleOutcome`, `Oracle` (Protocol) and `evaluate_guarded`.
+
+Frozen spec for that half: the second spec in ORACLE_SPEC.md.
+
+The bd#38 half exists so that an INDETERMINATE result cannot silently collapse
+into a pass or a fail: `bool(outcome)` raises, `outcome == True` raises, there
+is no boolean constructor, and there is no mixin base. `evaluate_guarded`
+converts every failure to evaluate — exception, load error, timeout,
+non-`OracleOutcome` return — into INDETERMINATE with a reason, never into
+REJECTED, and re-raises `KeyboardInterrupt`/`SystemExit` rather than catching
+them. Its timeout is deliberately NOT `signal`-based, and bd#38's `AC-E9`
+asserts by AST that this module imports `signal` in no form — an assertion that
+now covers bd#8's code as well.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Protocol
 
 # ── `[bd8:7]` The mapping is DECLARED, under registry names, never inferred ──
 ORACLE_WORKFLOWS: frozenset[str] = frozenset({"phase_45_spec", "phase_45_spec_lite"})
@@ -383,3 +405,130 @@ def verify_against(frozen_payload: dict[str, Any], scratchpad_dir: str | Path) -
             f"{TOKEN_ADDED}: oracle scope changed in {scope} — a file was added "
             "to the oracle set without re-entering the oracle phase",
         )
+
+# ═════════════════════════════════════════════════════════════════════════
+# bd#38 (L3) — three-state outcome + guarded evaluation
+# Nothing below this line is referenced by the bd#8 half above, and nothing
+# above is referenced below. Two lots, one file, disjoint symbols.
+# ═════════════════════════════════════════════════════════════════════════
+
+
+
+class OracleOutcome(Enum):
+    """A verdict that cannot be collapsed into a boolean.
+
+    `AC-O5`: no mixin base — the MRO is exactly `(OracleOutcome, Enum, object)`,
+    so the value never serialises as a bare scalar.
+    """
+
+    REJECTED = "rejected"
+    ACCEPTED = "accepted"
+    INDETERMINATE = "indeterminate"
+
+    def __bool__(self) -> bool:
+        """AC-O1. Enum members are truthy by default, so `if outcome:` would read
+        INDETERMINATE as accepted — the exact collapse this type exists to
+        prevent."""
+        raise TypeError(
+            "OracleOutcome has no truth value: compare members explicitly "
+            "(e.g. `outcome is OracleOutcome.ACCEPTED`)"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        """AC-O2. Equality against `bool` is the second collapse path.
+
+        Non-`bool` operands compare by identity as usual, so members remain
+        usable in the ordinary way.
+        """
+        if isinstance(other, bool):
+            raise TypeError(
+                "OracleOutcome cannot be compared to bool: an indeterminate "
+                "verdict must not collapse into a pass or a fail"
+            )
+        return self is other
+
+    def __ne__(self, other: object) -> bool:
+        if isinstance(other, bool):
+            raise TypeError(
+                "OracleOutcome cannot be compared to bool: an indeterminate "
+                "verdict must not collapse into a pass or a fail"
+            )
+        return self is not other
+
+    # Defining __eq__ sets __hash__ to None, which would break set and dict-key
+    # use of the members. Restored explicitly.
+    __hash__ = object.__hash__
+
+
+class Oracle(Protocol):
+    """Structural interface an oracle plugin must satisfy.
+
+    `freeze` is declared for typing; the module-level freeze implementation
+    (`AC-F1`..`AC-F14`) belongs to a different lot and is not defined here.
+    """
+
+    def freeze(self, paths: Iterable[Path], *, root: Path) -> str: ...
+
+    def evaluate(self, state: Any) -> OracleOutcome: ...
+
+
+def evaluate_guarded(
+    oracle: Oracle, state: Any, *, timeout_s: float | None = None
+) -> tuple[OracleOutcome, str | None]:
+    """Evaluate `oracle` against `state`, converting every failure mode into
+    `INDETERMINATE` rather than into a verdict.
+
+    Returns `(outcome, reason)`. `reason` is `None` for a clean `ACCEPTED` or
+    `REJECTED` and a non-empty string whenever the outcome is `INDETERMINATE`.
+
+    `KeyboardInterrupt` and `SystemExit` are re-raised, never converted.
+    """
+    box: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = oracle.evaluate(state)
+        except BaseException as exc:  # noqa: BLE001 — triaged below, in the caller
+            box["exc"] = exc
+
+    worker = threading.Thread(
+        target=_run, name="conformance-oracle-guard", daemon=True
+    )
+    worker.start()
+    worker.join(timeout_s)
+
+    # AC-E3/AC-E10: abandon the worker, never join it unconditionally. It is a
+    # daemon thread, so leaving it running cannot hang interpreter shutdown.
+    if worker.is_alive():
+        return (
+            OracleOutcome.INDETERMINATE,
+            f"oracle did not finish within the {timeout_s}s guard",
+        )
+
+    if "exc" in box:
+        exc = box["exc"]
+        # AC-E7: KeyboardInterrupt/SystemExit are not Exception subclasses and
+        # are not ours to convert. Re-raised in the caller's thread, since a
+        # BaseException raised in a worker would otherwise be swallowed.
+        if not isinstance(exc, Exception):
+            raise exc
+        # AC-E1/AC-E2: any Exception, load errors included, is a failure to
+        # evaluate — not a rejection.
+        return (
+            OracleOutcome.INDETERMINATE,
+            f"oracle raised {type(exc).__name__}: {exc}",
+        )
+
+    value = box.get("value")
+
+    # AC-E4: an adapter returning a bool (or a lookalike, or a same-named member
+    # of a different Enum) has not implemented the interface. Coercing it would
+    # reintroduce the collapse, so it is refused rather than interpreted.
+    if not isinstance(value, OracleOutcome):
+        return (
+            OracleOutcome.INDETERMINATE,
+            f"oracle returned {type(value).__name__}, not an OracleOutcome",
+        )
+
+    # AC-E6: clean verdicts pass through untouched.
+    return (value, None)
