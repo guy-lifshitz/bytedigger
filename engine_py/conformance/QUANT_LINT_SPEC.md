@@ -1,6 +1,6 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v3, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v4, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
@@ -38,6 +38,36 @@ are declared out of scope in §6 rather than left silently unpinned.
 instead keeps §0.9 direction 1 at zero modifications **and** keeps the coverage those carried fixtures already
 provide, which an edit would have traded away — `_CHECK2_WRONG_LEVEL_BINDING_SPEC`'s present-but-short row and
 `_LEVEL_CASE_MISMATCH_SPEC`'s single assertion are both still needed.
+
+**v4 revision — gate round 2 returned REJECTED with two MAJOR, both type (b) and both from round-1 material.**
+Neither is a new mistake; both are the *same* mistake as round 1's C1-12/C3-16, found in a different clause:
+**a normative clause pinned, and the fixture that claims to measure it unable to fail.**
+
+- **MAJOR-1 (C2-21).** `[G24:3]` collapses findings to one per `(kind, subject)`, and the only check-2 count
+  assertion stood on `alpha_count` — a row missing **exactly one** reduction. A lint emitting one finding per
+  missing reduction emits exactly one there and passes. Every other check-2 assertion is `any`/`not any`, blind
+  to duplicates. Closed by counting on `short_level`, which is missing **two** and carries no unrecognised token.
+- **MAJOR-2 (C3-18, C2-22).** `[G24:4]`'s first clause (set, not count) is discriminated; its second — *a
+  repeated line is not itself a finding* — was not, because both duplicate-carrying seams are offenders anyway
+  and the collapse rule makes a duplicate-punishing lint produce an identical list. Check 3 as "each marker
+  exactly once" passed all 36 while reporting a fully pinned seam as non-conformant. The check-2 mirror (a
+  duplicated **recognised** token in `EXCLUDES`) was unmeasured *and unpinned*; `[G24:4]` now covers both.
+
+**The pattern is now explicit, and it is the lot's own lesson turned on itself.** `[G24:5]`, `[G24:6]`, `[G24:3]`
+and `[G24:4]` were each written as a clause and each given a fixture that walked the clause without being able
+to contradict it. §0.9(2) already says naming a candidate is not the check; **§5 now adds the operational form:
+for every normative clause, name the fixture whose EXPECTED OUTPUT changes if the clause is read the other
+way.** A clause with no such fixture is unpinned in effect, however carefully it is worded.
+
+Three adversarial edges the gate raised are also closed rather than deferred: anchors tracked independently
+(C3-19 — every fixture was levels-first/seams-last, so a single "current anchor" variable satisfied both binding
+rules at once), row-before-level order independence (`[G24:9]`, C1-14), and **mixed-case** marker prefixes
+(C-CASE — only ALL-CAPS and all-lowercase were walked, so two literal spellings passed for case-insensitivity).
+
+**Containment is now a committed, runnable script**, `engine_py/tests/_bd24_containment_check.py` (gate round-2
+MINOR-5: both gate rounds lacked a shell and could endorse no numbers, and a proof nobody can re-run is a claim).
+It is deliberately not a pytest test — it shells out to `git`, and CI's pytest job runs from an installed wheel
+with no repository present.
 
 ---
 
@@ -231,15 +261,21 @@ line, and inventing one would exceed the three pinned `kind` values).
   three properties and yields **one** `seam_not_pinned`; a row missing two reductions yields **one**
   `missing_reductions`. Without this, `len(findings)` is not a defined quantity and the conformant control's
   `findings == []` is the only assertable shape in the whole AC. Asserted directly (§3, C2-9 / C3-9).
-- **`[G24:4]` Repeated property lines do not add coverage.** Check 3 is over the **set** of property markers
-  present under a seam, not their count: `ATTRIBUTE-PATH` + `BINDING-TIME` + `BINDING-TIME` is a seam missing
-  `NORMALISATION`, not a seam with three properties. A repeated line is not itself a finding.
+- **`[G24:4]` Repetition is collapsed, never punished — for property lines AND for reduction tokens.** Check 3
+  is over the **set** of property markers present under a seam, not their count: `ATTRIBUTE-PATH` +
+  `BINDING-TIME` + `BINDING-TIME` is a seam missing `NORMALISATION`, not a seam with three properties. **And a
+  repeated line is not itself a finding**: a seam carrying all three properties with one written twice is
+  conformant. The same holds for check 2, extended here (gate round-2 MAJOR-2, previously unpinned): `ADMITS`
+  and `EXCLUDES` are **sets** of recognised tokens, so `EXCLUDES: any, all, first, last, all` covers all four
+  and is conformant. Exercised by `_BENIGN_DUPLICATE_SPEC` (C3-18, C2-22), where the duplicate-carrying level
+  and seam are **conformant** — which is what makes the clause falsifiable. `_SEAM_PROPERTY_CARDINALITY_SPEC`'s
+  duplicate-carriers are offenders on the set rule anyway and so cannot separate the two readings.
 - **`[G24:5]` A marker line with NO anchor preceding it binds to nothing.** The base case of P3 and `[G24:2]`,
   and the v2 addition. A property line before any `SEAM`, and an `EXCLUDES` line before any `NON-UNIFORMITY`
   row, each bind to nothing: they contribute no coverage to anything, they are **not** themselves findings
   (there is no `kind` for an unanchored line and inventing one would exceed the three pinned values), and they
   MUST NOT be credited **forward** to the next anchor. A `SEAM` that follows an orphaned `NORMALISATION:` line
-  is still missing `NORMALISATION`. Exercised by `_ORPHAN_MARKER_LINES_SPEC` (§3, C1-12 / C3-16 / F-8).
+  is still missing `NORMALISATION`. Exercised for the not-a-finding and does-not-raise halves by `_ORPHAN_MARKER_LINES_SPEC` (§3, F-8), and for the **forward-crediting** half by `_FORWARD_CREDIT_SPEC` (C1-13, C3-17) — see the v3 note for why the first fixture cannot carry that half.
 - **`[G24:6]` A `NON-UNIFORMITY` row whose `<level>` operand names no declared `LEVEL` is still checked**,
   against the **default** admitted set. Reached by the carried `_LEVEL_CASE_MISMATCH_SPEC`, whose row operand
   `audit_case` matches no level once P1 makes the comparison case-sensitive — so v1 left a clause that a carried
@@ -254,6 +290,15 @@ line, and inventing one would exceed the three pinned `kind` values).
   the pinned wording; this states its consequence, because every fixture in the RED is flush-left and so
   `line.startswith(...)` and `line.strip().startswith(...)` are otherwise indistinguishable. A quoted or indented
   `LEVEL:`/`SEAM:` inside prose declares nothing. Exercised by `_INDENTED_MARKER_SPEC` (C-INDENT).
+- **`[G24:9]` A row discharges its level regardless of ORDER.** P4 binds a row to the level named by its
+  operand; position is not part of the binding, so a `NON-UNIFORMITY` row textually **above** its own `LEVEL:`
+  line discharges it. Stated because every fixture happened to place the row below, leaving "a level is
+  discharged by a row beneath it" alive across the whole set. Exercised by `_ROW_BEFORE_LEVEL_SPEC` (C1-14).
+- **`[G24:10]` The two anchors are tracked INDEPENDENTLY.** P3 (property line → nearest preceding `SEAM`) and
+  `[G24:2]` (`EXCLUDES` → nearest preceding `NON-UNIFORMITY` row) range over **different** anchor kinds: a row
+  is not a seam and a seam is not a row, so material of the two kinds may interleave freely. A single "current
+  anchor" variable serving both collapses them. Stated because every fixture was levels-first and seams-last.
+  Exercised by `_INTERLEAVED_ANCHORS_SPEC` (C3-19).
 - **Finding order** is deterministic for a given input (the idempotence test compares two calls' lists) and
   otherwise unspecified across inputs; no test asserts a position.
 - **Out of scope, explicitly:** the behaviour when two `NON-UNIFORMITY` rows name the **same** level. No fixture
@@ -265,12 +310,12 @@ line, and inventing one would exceed the three pinned `kind` values).
 |---|---|---|
 | 1 | `missing_non_uniformity_row` | a `LEVEL` has no `NON-UNIFORMITY` row naming it (P4, verbatim) |
 | 2 | `missing_reductions` | a `NON-UNIFORMITY` row has no `EXCLUDES` line, **or** its `EXCLUDES` does not cover every reduction its level `ADMITS`, **or** either line carries a token outside the four (`[G24:1]`) |
+| 3 | `seam_not_pinned` | a `SEAM` is missing any of `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION` — **including a `SEAM` with zero property lines** |
 
 The coverage relation in check 2 is **superset, not equality**: `set(excludes) ⊇ set(admits)`. A row excluding
 **more** than its level admits is conformant — `ADMITS: any, all` with `EXCLUDES: any, all, first, last` is a
 fixture set that kills more than it had to, which is never the defect this AC hunts. Stated explicitly because
 gate round 1 found `==` surviving the entire fixture set (K12, C2-20).
-| 3 | `seam_not_pinned` | a `SEAM` is missing any of `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION` — **including a `SEAM` with zero property lines** |
 
 Checks 1 and 2 are **independent**: a level with no row yields check 1 only (there is no row to check for
 reductions); a level whose row is short yields check 2 only.
@@ -279,9 +324,9 @@ reductions); a level whose row is short yields check 2 only.
 
 ## 3. Candidate simulation — the deliverable (`[G22:13]`)
 
-Notation: **✝** marks a fixture added in this lot's round 1; **✝✝** one added in round 2 to close a gate
-finding; everything un-daggered is carried **verbatim** from bd#22's round-9 artifact (`d39371f`,
-`engine_py/tests/test_bd22_contracts.py`) — see §5.
+Notation: **✝** marks a fixture added in this lot's round 1; **✝✝** one added in round 2 and **✝✝✝** one added
+in round 3, each closing a gate finding; everything un-daggered is carried **verbatim** from bd#22's round-9
+artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 
 ### 3.1 Fixture inventory
 
@@ -314,7 +359,11 @@ finding; everything un-daggered is carried **verbatim** from bd#22's round-9 art
 | `_EXCLUDES_SUPERSET_SPEC` ✝✝ | 2 | `EXCLUDES` a strict **superset** of `ADMITS`, plus the exact and the deficient case |
 | `_CRLF_SPEC` ✝✝ | 1 + 3 | CRLF line terminators |
 | `_INDENTED_MARKER_SPEC` ✝✝ | grammar | marker-looking lines at an indent, inside prose |
-| `_ORPHAN_MARKER_LINES_SPEC` ✝ | 3 + F | a `NORMALISATION:` and an `EXCLUDES:` line that precede **every** anchor in the document |
+| `_ORPHAN_MARKER_LINES_SPEC` ✝ | 1 + 3 + F | a `NORMALISATION:` and an `EXCLUDES:` line that precede **every** anchor in the document |
+| `_BENIGN_DUPLICATE_SPEC` ✝✝✝ | 2 + 3 | a **conformant** level and a **conformant** seam, each carrying a repeated token / line, plus an offender |
+| `_INTERLEAVED_ANCHORS_SPEC` ✝✝✝ | 2 + 3 | level material and seam material interleaved in one block |
+| `_ROW_BEFORE_LEVEL_SPEC` ✝✝✝ | 1 | a row textually **above** the `LEVEL:` it names |
+| `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ | 1 + 3 | marker prefixes in **Title** case |
 | `_CONFORMANT_SPEC` | control | every level covered, seam fully pinned; `EXCLUDES` tokens and property lines in **non-canonical order** |
 | `_MALFORMED_SPEC` | contract | free-form prose, no markers |
 | `_LOWERCASE_MARKERS_SPEC` | grammar | every marker spelled lowercase |
@@ -336,9 +385,9 @@ finding; everything un-daggered is carried **verbatim** from bd#22's round-9 art
 | C1-8 | K9 cardinality: `len(rows) == len(levels)` ⇒ conformant | `_LEVEL_CASE_MISMATCH_SPEC` | 1 level, 1 row, counts equal, identities differ; a counting lint returns no findings |
 | C1-9 | K11 case-folding operands | `_LEVEL_CASE_MISMATCH_SPEC` | `Audit_Case` vs `audit_case`; a folding lint clears the level |
 | C1-10 | K11 case-folding `subject` on output | `_MISSING_ROW_SPEC` (`Audit_Field`) | `subject` is asserted against the mixed-case literal; a normalising lint reports `audit_field` |
+| C1-14 | order-sensitive check 1 (a level is discharged only by a row **below** it) ✝✝✝ | `_ROW_BEFORE_LEVEL_SPEC` ✝✝✝ | `late_level`'s row precedes its declaration; an order-sensitive lint flags a discharged level (`[G24:9]`) |
 | C1-11 | K7/lookahead crash on a trailing bare `LEVEL:` | `"LEVEL: phases"` inline | an `i+1` lookahead raises `IndexError` instead of reporting |
 | ~~C1-12~~ | **WITHDRAWN, gate round 1 MAJOR-3.** Claimed `_ORPHAN_MARKER_LINES_SPEC` killed forward-crediting for check 1. **False:** crediting an orphaned `EXCLUDES` forward adds *coverage*, and check 1 is defined over *rows*, so the finding fires either way and the assertion passed for the GREEN it was written to kill. Superseded by C1-13 | — | — |
-| C1-13 | K7, base case done properly: an **unanchored** `EXCLUDES` credited **forward** onto a row that has none of its own ✝✝ | `_FORWARD_CREDIT_SPEC` ✝✝ | the orphaned `EXCLUDES` is complete and `fwd_level`'s row carries no `EXCLUDES`; correct binding flags the row, forward-crediting **completes** it and clears it — the verdict moves, which is what C1-12 lacked |
 
 ### 3.3 Check 2 — `missing_reductions`
 
@@ -360,9 +409,12 @@ finding; everything un-daggered is carried **verbatim** from bd#22's round-9 art
 | C2-14 | invalid `ADMITS` token ignored | `_ADMITS_INVALID_TOKEN_SPEC` | `bogus` must produce the finding although `EXCLUDES` covers all four |
 | C2-15 | K10 fixed required order for `EXCLUDES` tokens | `_CONFORMANT_SPEC` | `EXCLUDES: last, any, first, all` is out of the canonical order every other fixture uses; an order-sensitive lint false-flags the control |
 | C2-16 | check 2 fires on a level with **no** row | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` | asserts `beta_gate` gets check 1 and **not** check 2 |
+| C2-21 | K7, base case done properly: an **unanchored** `EXCLUDES` credited **forward** onto a row that has none of its own ✝✝ | `_FORWARD_CREDIT_SPEC` ✝✝ | the orphaned `EXCLUDES` is complete and `fwd_level`'s row carries no `EXCLUDES`; correct binding flags the row, forward-crediting **completes** it and clears it — the verdict moves, which is what C1-12 lacked. *(Renumbered from C1-13 in v4: gate round-2 MINOR-1 — it was filed under check 1 while asserting `missing_reductions`.)* |
 | C2-18 | K13 `subject` from the row's operand, `ADMITS` from the nearest preceding `LEVEL` ✝✝ | `_ADMITS_CROSS_AXIS_SPEC` ✝✝ | the two axes are crossed in both directions: `alpha_cross` (own `ADMITS` two, row under an `ADMITS`-less level) is false-flagged by the proximity lookup; `gamma_cross` (default four, row under a level admitting two) is cleared by it. **Gate round 1 MAJOR-1** — no carried fixture crossed the axes at all |
 | C2-19 | a row naming an **undeclared** level skipped entirely (`if operand not in levels: continue`) ✝✝ | `_UNDECLARED_LEVEL_ROW_SPEC` ✝✝ | the undeclared row is **short**, so skipping it returns nothing and `[G24:6]` is discriminated. **Gate round 1 MAJOR-2** — v2 pinned the clause with no fixture that could fail |
 | C2-20 | K12 coverage as set **equality** instead of superset ✝✝ | `_EXCLUDES_SUPERSET_SPEC` ✝✝ | `superset_level` admits two and excludes four; `==` false-flags it. **Gate round 1 MAJOR-4** — no fixture had a strict superset, and the one row with an extra token carries an *unrecognised* one, so it is flagged under both readings and separates nothing |
+| C2-22 | one finding **per missing reduction** instead of one per `(kind, subject)` ✝✝✝ | `_EXCLUDES_SUPERSET_SPEC` ✝✝ (count assertion added in round 3) | `short_level` is missing **two** reductions and carries no unrecognised token, so the collapse rule can finally fail. **Gate round-2 MAJOR-1** — the only prior count assertion stood on a row missing exactly one |
+| C2-23 | a **duplicated recognised token** in `EXCLUDES` treated as a defect ✝✝✝ | `_BENIGN_DUPLICATE_SPEC` ✝✝✝ | `dup_level` covers all four with `all` written twice and is **conformant**; a duplicate-punishing lint false-flags it (`[G24:4]`) |
 | C2-17 | check 1 fires on a level whose row is merely short | `_CHECK2_SPEC` | asserts **no** `missing_non_uniformity_row` anywhere in that fixture |
 
 ### 3.4 Check 3 — `seam_not_pinned`
@@ -383,6 +435,8 @@ finding; everything un-daggered is carried **verbatim** from bd#22's round-9 art
 | C3-12 | K11 seam names case-folded into one seam | `_SEAM_NAME_CASE_MISMATCH_SPEC` | the union of both blocks looks complete; `Path.Read_Text` must still be flagged |
 | C3-13 | K11 `subject` normalised on output | `_SEAM_MISSING_BINDING_TIME_SPEC` (`MixedCase.Attribute`), `_SEAM_NOT_PINNED_SPEC` ✝ (`MixedCase.BareSeam`) | asserted against the mixed-case literal |
 | C3-14 | K7 property lines bound to the **following** seam | `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` | inverts both seams simultaneously |
+| C3-18 | K9's twin: **exactly-once** property counting rather than set membership ✝✝✝ | `_BENIGN_DUPLICATE_SPEC` ✝✝✝ | `Dup.Seam` carries all three with `NORMALISATION:` twice and is **conformant**. **Gate round-2 MAJOR-2** — `_SEAM_PROPERTY_CARDINALITY_SPEC`'s duplicate-carriers are offenders on the set rule anyway, so they cannot separate the readings |
+| C3-19 | `[G24:10]` a **single** "current anchor" variable serving both binding rules ✝✝✝ | `_INTERLEAVED_ANCHORS_SPEC` ✝✝✝ | a row sits between `Mixed.Seam` and its `NORMALISATION:`; a single-anchor lint loses the property and flags a conformant seam |
 | C3-15 | K10 fixed required order for property lines | `_CONFORMANT_SPEC` | the control's seam lists `BINDING-TIME`, `NORMALISATION`, `ATTRIBUTE-PATH` in that order |
 | ~~C3-16~~ | **WITHDRAWN, gate round 1 MAJOR-3.** Claimed `_ORPHAN_MARKER_LINES_SPEC` killed forward-crediting for check 3. **False:** the credited `NORMALISATION:` still leaves `Orphan.Seam` without `ATTRIBUTE-PATH` and `BINDING-TIME`, so the finding fires either way. Superseded by C3-17 | — | — |
 | C3-17 | K7, base case done properly: an **unanchored** property line credited **forward** onto the one property its next seam lacks ✝✝ | `_FORWARD_CREDIT_SPEC` ✝✝ | `Fwd.Seam` carries `ATTRIBUTE-PATH` and `BINDING-TIME` and the orphaned line is exactly the missing `NORMALISATION`; correct binding flags it, forward-crediting clears it |
@@ -400,6 +454,7 @@ finding; everything un-daggered is carried **verbatim** from bd#22's round-9 art
 | F-8 | dereferences a "current anchor" that was never set (raises on an unanchored marker line) ✝ | `_ORPHAN_MARKER_LINES_SPEC` ✝ |
 | F-9 | `Finding` **widened** with a third field (`message`, `line_number`) ✝✝ | a set-equality assertion on `dataclasses.fields` — §2.1 pins "exactly two attributes" and nothing measured the *exactly*. Gate round 1 MINOR-7 |
 | C-CRLF | `.split("\n")` leaves `"\r"` inside `subject` ✝✝ | `_CRLF_SPEC` ✝✝ — every other fixture is LF-only (`[G24:7]`) |
+| C-CASE | marker recognition as **two literal spellings** (`startswith(("LEVEL:", "level:"))`) rather than case-insensitive ✝✝✝ | `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ — only ALL-CAPS and all-lowercase were walked; `Title.Conformant` additionally separates recognition of the three property markers from recognition of `Seam:` alone |
 | C-INDENT | `line.strip().startswith(...)` treats an indented marker as a declaration ✝✝ | `_INDENTED_MARKER_SPEC` ✝✝ — every other fixture is flush-left (`[G24:8]`) |
 | F-7 | `Finding` is not a frozen dataclass (plain object, dict, `NamedTuple`, mutable dataclass) | `_MISSING_ROW_SPEC`'s test: `dataclasses.is_dataclass` + `FrozenInstanceError` |
 
@@ -506,11 +561,52 @@ right and the wrong implementation. The lesson is recorded as a sharpening of §
 not the check; the check is stating what would have to change in the output for the assertion to fail.** Every
 ✝✝ row in §3 states that movement explicitly ("the verdict moves", "false-flags it", "clears it").
 
+### Round 3 (gate round 2 closures) — coverage diff
+
+**Direction 1: still zero deletions and zero fixture modifications.** Four fixtures added, four tests added, one
+**assertion** added to an existing round-2 test (`short_level`'s count), and two docstrings edited to drop the
+withdrawn C1-12/C3-16 citations. No fixture string changed anywhere, verified by the committed script:
+
+```
+$ python3 engine_py/tests/_bd24_containment_check.py
+carried fixture constants: 17/17 present, 0 modified
+carried tests: 20/20 present
+totals now: 35 fixtures (17 carried + 18 added), 40 tests
+CONTAINMENT HOLDS — the round is additive over the round-9 fixture set.
+```
+
+**Direction 2, in its sharpened form — the clause-falsifiability audit.** Gate rounds 1 and 2 produced four
+findings of one shape between them (`[G24:5]`, `[G24:6]`, `[G24:3]`, `[G24:4]`): a clause carefully worded, given
+a fixture that *walks* it, and never given a fixture whose expected output would **differ** if the clause were
+read the other way. So the audit below is now run over every normative clause, not only over new assertions:
+
+| Clause | Fixture whose expected output flips if the clause is read the other way |
+|---|---|
+| P1 operands verbatim/case-sensitive | `_LEVEL_CASE_MISMATCH_SPEC`, `_SEAM_NAME_CASE_MISMATCH_SPEC` |
+| P2 `ADMITS` → preceding `LEVEL` | `_ADMITS_WRONG_NEIGHBOUR_SPEC` |
+| P3 property → preceding `SEAM` | `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` |
+| P4 row → level by operand | `_CHECK2_WRONG_LEVEL_BINDING_SPEC`, `_ROW_LEVEL_BINDING_SPEC` |
+| `[G24:1]` token casing/vocabulary | `_REDUCTION_TOKEN_VOCABULARY_SPEC` (`bogus_extra` is the falsifying row) |
+| `[G24:2]` `EXCLUDES` → preceding row | `_EXCLUDES_ROW_BINDING_SPEC` (inverts under both wrong directions) |
+| `[G24:3]` collapse to one per `(kind, subject)` | `_SEAM_NOT_PINNED_SPEC` (check 3) **and** `_EXCLUDES_SUPERSET_SPEC`'s `short_level` count (check 2, added round 3) |
+| `[G24:4]` repetition collapsed, not punished | `_BENIGN_DUPLICATE_SPEC` — the carriers are **conformant**, so the clause can fail |
+| `[G24:5]` unanchored lines | `_ORPHAN_MARKER_LINES_SPEC` (F-8, not-a-finding) + `_FORWARD_CREDIT_SPEC` (forward-crediting) |
+| `[G24:6]` undeclared-level row still checked | `_UNDECLARED_LEVEL_ROW_SPEC` — the row is **short** |
+| `[G24:7]` line terminators | `_CRLF_SPEC` |
+| `[G24:8]` markers at line start | `_INDENTED_MARKER_SPEC` |
+| `[G24:9]` order-independent row binding | `_ROW_BEFORE_LEVEL_SPEC` |
+| `[G24:10]` anchors tracked independently | `_INTERLEAVED_ANCHORS_SPEC` |
+| §2.2 markers case-insensitive | `_LOWERCASE_MARKERS_SPEC` + `_MIXED_CASE_MARKERS_SPEC` |
+| §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
+| §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
+
 **Provenance, stated because §0.9 direction 2 is about additions nobody asked for.** `_ORPHAN_MARKER_LINES_SPEC`
-comes from round 1's self-sweep, not from a gate finding. It is admitted under the same test as every other
-addition: it names candidates (C1-12, C3-16, F-8) that no other fixture in the set kills, and each is a
-plausible implementation — forward-crediting and unset-anchor dereferencing are the two things a single-pass
-line loop does most naturally when it meets a marker before its anchor.
+comes from round 1's self-sweep, not from a gate finding. Of the three candidates it was admitted on, **two did not
+survive gate round 1**: C1-12 and C3-16 are withdrawn above, and what remains is F-8 (a single-pass loop
+dereferencing an anchor variable it never assigned) plus the manufactures-a-finding candidate in its third
+assertion, which is real because the document contains no row at all. The fixture stays because those two are
+genuine and no other fixture kills them; the forward-crediting half it was originally admitted on moved to
+`_FORWARD_CREDIT_SPEC`.
 
 ## 6. Out of scope
 
@@ -526,8 +622,10 @@ measures — the defect `[G24:6]` was found to be):
 - an **empty or whitespace-only operand** (`LEVEL:`, `SEAM: `), which would make `Finding.subject` the empty
   string;
 - an `EXCLUDES:` line with an **empty token list**;
-- an `EXCLUDES:` line appearing after a `SEAM:` but before any row — `[G24:2]` already answers it (nearest
-  preceding **row**, not nearest preceding anchor), so no new pin is needed, but no fixture walks the case.
+- an `EXCLUDES:` line appearing after a `SEAM:` but before **any** row in the document — `[G24:2]` and
+  `[G24:5]` between them already answer it (nearest preceding **row**; none, so it binds to nothing), and
+  `_INTERLEAVED_ANCHORS_SPEC` now walks the interleaving case where a row does exist, but the no-row-at-all
+  variant has no fixture of its own.
 
 A later lot that consumes the lint over real documents is where these acquire a forcing case.
 

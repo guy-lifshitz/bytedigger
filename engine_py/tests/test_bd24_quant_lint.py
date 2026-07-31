@@ -1396,7 +1396,7 @@ class TestQuantifierCompletenessLintBd24:
         )
         assert not any(f.subject == "Path.read_text" for f in findings)
 
-# ── Orphaned marker lines: the BASE CASE of both binding rules (C1-12/C3-16)
+# ── Orphaned marker lines: no anchor at all (spec F-8, and C2-9's mirror)
 # Found by this round's own self-sweep, not by the gate, and pinned in spec
 # §2.5 rather than invented here. P3 and `[G24:2]` say property lines bind to
 # the nearest PRECEDING `SEAM` and `EXCLUDES` to the nearest PRECEDING
@@ -1444,7 +1444,7 @@ class TestQuantifierCompletenessLintBd24Orphans:
     """
 
     def test_ac_c5_unanchored_marker_lines_bind_to_nothing(self):
-        """AC-C5(1) and AC-C5(3). Spec C1-12 / C3-16 / F-8, pinning
+        """AC-C5(1) and AC-C5(3). Spec F-8, pinning
         `[G24:5]`. P3 and `[G24:2]` bind property lines and `EXCLUDES` to the
         nearest PRECEDING anchor; every other fixture in this file exercises
         those rules only where an anchor exists, so "no anchor at all" is the
@@ -1758,7 +1758,18 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         the pinned reading, false-flagged under equality (F-1's over-firing
         class). `exact_level` is the boundary case and `short_level` the
         deficient one, so this fixture is non-uniform within the check and an
-        under-firing lint that clears everything fails the last assertion.
+        under-firing lint that clears everything fails the third assertion.
+
+        The fourth assertion closes gate round-2 MAJOR-1 (spec C2-21).
+        `[G24:3]` pins at most one finding per `(kind, subject)`, and until
+        now the only check-2 count assertion stood on `alpha_count`, which is
+        missing exactly ONE reduction -- so a lint emitting one finding per
+        missing reduction produced exactly one there and passed all 36 tests.
+        `short_level` is missing TWO (`first` and `last`) and carries no
+        unrecognised token, so it is the first row in the file where the
+        collapse rule can fail, and the clause whose stated purpose is
+        "without this, `len(findings)` is not a defined quantity" finally
+        measures something for check 2.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
@@ -1837,3 +1848,236 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         assert findings != []
         field_names = {f.name for f in dataclasses.fields(findings[0])}
         assert field_names == {"kind", "subject"}
+
+
+# =========================================================================
+# PART 4 -- closures for gate round 2. Additive again: no fixture in Parts
+# 1-3 is edited. Two assertions were added to existing round-2 tests (the
+# `short_level` count assertion above), and two docstrings dropped the
+# withdrawn C1-12/C3-16 citations; no fixture string changed, so containment
+# against d39371f is untouched -- re-run `_bd24_containment_check.py`.
+# =========================================================================
+
+# ── MAJOR-2: `[G24:4]`'s "a repeated line is not itself a finding" (C3-18)
+# and its check-2 mirror (C2-22) ─────────────────────────────────────────
+# `_SEAM_PROPERTY_CARDINALITY_SPEC` discriminates the SET-not-COUNT half of
+# `[G24:4]`, but not its second clause. Both seams carrying a duplicate there
+# are offenders on the set rule anyway, and under `[G24:3]`'s (kind, subject)
+# collapse a lint that ALSO treats a duplicate as a defect emits an identical
+# findings list. So check 3 as "each of the three markers appears EXACTLY
+# once" passed all 36 tests while reporting a fully pinned seam with one
+# repeated `NORMALISATION:` as non-conformant -- which §2.5 forbids in terms.
+# No conformant seam anywhere in the file carried a duplicate.
+#
+# The check-2 mirror -- a duplicated RECOGNISED token in `EXCLUDES` -- was
+# unmeasured for the same reason (`gamma_count`'s duplicate sits on a row
+# that is short anyway) and was not even pinned. Spec §2.5 now extends
+# `[G24:4]` to both, and this fixture walks both:
+#   `dup_level`  -- complete coverage, `all` listed twice: conformant.
+#   `Dup.Seam`   -- all three properties, `NORMALISATION:` twice: conformant.
+#   `Dup.Offender` -- `ATTRIBUTE-PATH` twice and no `NORMALISATION`: still a
+#                     finding, so the fixture is non-uniform within the check
+#                     and a lint that skips any seam carrying a duplicate
+#                     (rather than de-duplicating it) is caught too.
+_BENIGN_DUPLICATE_SPEC = """\
+# Fixture Spec — repeated lines and repeated tokens that change nothing
+
+LEVEL: dup_level
+NON-UNIFORMITY: dup_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last, all
+
+SEAM: Dup.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+NORMALISATION: none
+
+SEAM: Dup.Offender
+ATTRIBUTE-PATH: subprocess.run
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+"""
+
+# ── Adversarial edge 1: level material and seam material INTERLEAVED ─────
+# All 31 previous fixtures are levels-first, seams-last, so a lint keeping a
+# SINGLE "current anchor" variable for both P3 (property line -> nearest
+# preceding SEAM) and `[G24:2]` (EXCLUDES -> nearest preceding row) passes
+# every one of them while violating the independence of the two rules. Here
+# a `NON-UNIFORMITY` row sits between `Mixed.Seam` and its `NORMALISATION:`
+# line, and an `EXCLUDES` sits after that property line. Correct binding
+# reads the two anchors separately: `NORMALISATION:` still belongs to
+# `Mixed.Seam` (a row is not a seam) and `EXCLUDES` still belongs to the row
+# (a seam is not a row), so both are conformant. A single-anchor lint has
+# the row current when the property line arrives and the property line
+# current when the `EXCLUDES` arrives, and flags one or both.
+_INTERLEAVED_ANCHORS_SPEC = """\
+# Fixture Spec — level and seam material interleaved in one block
+
+LEVEL: mixed_level
+
+SEAM: Mixed.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NON-UNIFORMITY: mixed_level — fixture set has >=2 members, one violating, plus control
+NORMALISATION: none
+EXCLUDES: any, all, first, last
+
+SEAM: Mixed.Offender
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+"""
+
+# ── Adversarial edge 2: a row that PRECEDES its own level (spec [G24:9]) ─
+# P4 pins the row to the level named by its operand and says nothing about
+# order; every fixture in the file puts the row after its level, so an
+# order-sensitive check 1 ("a level is discharged by a row BELOW it")
+# survives the whole set. `late_level`'s row precedes its declaration and
+# must still discharge it; `unrowed_level` has no row anywhere and must
+# still be flagged, so a lint that answers by returning nothing is caught.
+_ROW_BEFORE_LEVEL_SPEC = """\
+# Fixture Spec — the row comes before the LEVEL it names
+
+NON-UNIFORMITY: late_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: late_level
+
+LEVEL: unrowed_level
+"""
+
+# ── Adversarial edge 4: MIXED-case marker prefixes (spec C-CASE) ─────────
+# §2.2 pins marker recognition as case-INSENSITIVE, but only ALL-CAPS
+# (everywhere) and all-lowercase (`_LOWERCASE_MARKERS_SPEC`) are walked, so
+# `line.startswith(("LEVEL:", "level:"))` -- two literal spellings rather
+# than a case-insensitive comparison -- passes all 36 tests. Title case is
+# neither. `Title.Conformant` carries all three properties under Title-case
+# markers and must NOT be flagged, which is what discriminates recognition
+# of the PROPERTY markers from recognition of `Seam:` alone: a lint reading
+# `Seam:` but not `Attribute-Path:` sees a bare seam and flags it.
+_MIXED_CASE_MARKERS_SPEC = """\
+# Fixture Spec — marker prefixes in Title case
+
+Level: title_level
+
+Seam: Title.Seam
+Attribute-Path: pathlib.Path.read_text
+Binding-Time: call-time
+
+Seam: Title.Conformant
+Attribute-Path: subprocess.run
+Binding-Time: call-time
+Normalisation: none
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound2:
+    """Closures for gate round 2: both MAJORs and the three adversarial
+    edges it raised that were not already covered. Additive only.
+    """
+
+    def test_ac_c5_repeated_lines_and_tokens_are_not_themselves_findings(self):
+        """AC-C5(2) and AC-C5(3). Gate round-2 MAJOR-2, spec C3-18 / C2-22,
+        closing the second clause of `[G24:4]`. The set-not-count half is
+        discriminated by `_SEAM_PROPERTY_CARDINALITY_SPEC`; this half was
+        not, because both duplicate-carrying seams there are offenders on the
+        set rule anyway and `[G24:3]`'s collapse makes a duplicate-punishing
+        lint produce an identical findings list. So check 3 as "each marker
+        appears EXACTLY once" passed all 36 tests while reporting a fully
+        pinned seam as non-conformant.
+
+        `Dup.Seam` carries all three properties with `NORMALISATION:` twice
+        and `dup_level`'s row covers all four reductions with `all` listed
+        twice -- both conformant, and both false-flagged by a lint that
+        treats repetition as a defect (the check-2 mirror was not previously
+        pinned at all). `Dup.Offender` repeats `ATTRIBUTE-PATH` and omits
+        `NORMALISATION`, so it is still a finding: de-duplicating is required,
+        skipping a seam that carries a duplicate is not.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_BENIGN_DUPLICATE_SPEC)
+
+        assert not any(f.subject == "Dup.Seam" for f in findings)
+        assert not any(f.subject == "dup_level" for f in findings)
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Dup.Offender"
+            for f in findings
+        )
+
+    def test_ac_c5_seam_and_level_anchors_are_tracked_independently(self):
+        """AC-C5(2) and AC-C5(3). Gate round-2 adversarial edge 1, spec
+        C3-19. P3 and `[G24:2]` are two separate binding rules over two
+        separate anchor kinds, but every fixture in the file is levels-first
+        and seams-last, so a lint keeping ONE "current anchor" variable for
+        both satisfies all 36 tests while collapsing the two rules into one.
+
+        Here a `NON-UNIFORMITY` row sits between `Mixed.Seam` and its
+        `NORMALISATION:` line, and the row's `EXCLUDES` sits after that
+        property line. Correct binding reads the anchors independently: a row
+        is not a seam, so `NORMALISATION:` still belongs to `Mixed.Seam`; a
+        seam is not a row, so `EXCLUDES` still belongs to the row. Both are
+        therefore conformant. A single-anchor lint has the row current when
+        the property line arrives -- losing `Mixed.Seam`'s `NORMALISATION` --
+        and flags it. `Mixed.Offender` keeps the fixture non-uniform, so a
+        lint that clears everything here is caught by the third assertion.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_INTERLEAVED_ANCHORS_SPEC)
+
+        assert not any(f.subject == "Mixed.Seam" for f in findings)
+        assert not any(f.subject == "mixed_level" for f in findings)
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Mixed.Offender"
+            for f in findings
+        )
+
+    def test_ac_c5_row_discharges_its_level_regardless_of_order(self):
+        """AC-C5(1). Gate round-2 adversarial edge 2, spec `[G24:9]` / C1-14.
+        P4 binds a row to the level named by its operand and says nothing
+        about position; every fixture in the file happens to place the row
+        after its level, so a lint reading check 1 as "a level is discharged
+        by a row BELOW it" survives the entire set. `late_level`'s row
+        precedes its declaration and must still discharge it. `unrowed_level`
+        has no row anywhere, so a lint that answers by reporting nothing at
+        all fails the second assertion.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ROW_BEFORE_LEVEL_SPEC)
+
+        assert not any(f.subject == "late_level" for f in findings)
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "unrowed_level"
+            for f in findings
+        )
+
+    def test_ac_c5_marker_prefixes_recognised_in_mixed_case(self):
+        """Gate round-2 adversarial edge 4, spec C-CASE. §2.2 pins marker
+        recognition as case-INSENSITIVE, and `[G24:8]` pins the other half of
+        the same predicate (at line start). But only ALL-CAPS and, in
+        `_LOWERCASE_MARKERS_SPEC`, all-lowercase are walked -- so
+        `line.startswith(("LEVEL:", "level:"))`, two literal spellings rather
+        than a case-insensitive comparison, passes all 36 tests and fails on
+        the Title case a real document would contain.
+
+        `title_level` must be flagged (no row) and `Title.Seam` must be
+        flagged (no `NORMALISATION:`); a two-spelling lint sees this document
+        as prose and returns nothing, failing both. `Title.Conformant` must
+        NOT be flagged, which separates recognition of the three PROPERTY
+        markers from recognition of `Seam:` alone -- a lint reading `Seam:`
+        but not `Attribute-Path:` sees a bare seam and false-flags it.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_MIXED_CASE_MARKERS_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "title_level"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Title.Seam"
+            for f in findings
+        )
+        assert not any(f.subject == "Title.Conformant" for f in findings)
