@@ -1,6 +1,6 @@
 """RED tests for bd#8 — BD-L1, oracle freeze-and-verify (R1.1-R1.5).
 
-Frozen spec: engine_py/conformance/ORACLE_SPEC.md (FROZEN v6, base 2b6589f).
+Frozen spec: engine_py/conformance/ORACLE_SPEC.md (FROZEN v7, base 2b6589f).
 v6 is the round-3 post-gate freeze; all four round-3 findings were type (b)
 — defects in this lot's implementation of its own spec, not a failure of the
 v5 foundation, which the gate confirmed correctly and completely executed.
@@ -404,7 +404,8 @@ def assert_token(payload: dict, expected: str, ctx: str) -> None:
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# DECLARED PRE-PASSING (§0.6) — MEASURED on base b5df16e (v5), not predicted.
+# DECLARED PRE-PASSING (§0.6) — MEASURED on code base f175f10 with this
+# file at 861f230 (spec FROZEN v7), not predicted.
 #
 #   MEASURED: 44 collected, **31 failed, 13 passed**.
 #
@@ -705,7 +706,11 @@ class TestAdversariesDuringImplementation:
 
     def test_ac3b_adv2_implementing_phase_adds_to_the_scope(self, monkeypatch, world):
         """AC-3b (ADV-2, as CL §4 defines it)."""
-        added = f"{DOC_DIR}/smuggled-by-impl.md"
+        # A DOTFILE on purpose: `[bd8:2b]` says "keep only REGULAR FILES" with no
+        # hidden-name exclusion, and a GREEN written with the `glob` module
+        # (glob.glob("*") drops leading-dot names; Path.iterdir() does not) would
+        # otherwise pass every test while letting ADV-2 smuggle one in.
+        added = f"{DOC_DIR}/.smuggled-by-impl.md"
         install_fixture_workflows(monkeypatch, impl=_impl_step(add=added))
         assert freeze(world, "run-ac3b")[0] == 0
 
