@@ -2494,3 +2494,125 @@ class TestQuantifierCompletenessLintBd24GateRound6:
             for f in findings
         )
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+
+# ── Gate round-7 MAJOR: `[G24:10]` has three anchors, and P2 was never ──────
+# ── exercised at DISTANCE (C2-27) ──────────────────────────────────────────
+# Two halves of one gap, both invisible to §0.9(3) as applied, because §5 still
+# recorded `[G24:10]` as a single-cell clause and v9's rewrite did not convert
+# it to axes -> cells.
+#
+# Half 1: `[G24:10]` names "the TWO anchors" -- P3's `SEAM` and `[G24:2]`'s row.
+# There are THREE, because there are three binding rules: P2's anchor is the
+# `LEVEL`. Independence is a property of PAIRS, so the cross-product is three:
+# (SEAM, row) -- `_INTERLEAVED_ANCHORS_SPEC`; (LEVEL, row) --
+# `_EXCLUDES_ROW_BINDING_SPEC`, where a lint conflating the two binds `EXCLUDES`
+# to the level and inverts both levels; and (LEVEL, SEAM) -- nothing. That is
+# the same correction `[G24:5]`'s grid took last round, one property over.
+#
+# Half 2: "nearest PRECEDING" makes two independent claims -- WHICH candidate
+# anchor is chosen when several precede, and THAT the rule reaches across
+# intervening lines at all. The second is an axis nobody named. Every `ADMITS`
+# line in all 40 previous fixtures sits on the line IMMEDIATELY after its own
+# `LEVEL:` -- distance 1, nothing between, not even a blank line. P3 and
+# `[G24:2]` are both exercised at distance; P2 never was, so "nearest preceding"
+# has never been distinguished from "the previous line" for it. The selection
+# half IS measured (`_EXCLUDES_SUPERSET_SPEC`'s three consecutive
+# `ADMITS`-bearing levels kill a first-`LEVEL`-only binding); the gap is
+# distance.
+#
+# `distant_admits` is conformant only if its `ADMITS` reaches back across an
+# entire `SEAM` block -- filling the (LEVEL, SEAM) pair and the distance axis at
+# once. `blank_gap_admits` is conformant only if a blank line does not break the
+# binding, which is what kills a previous-line-only lint specifically: every
+# fixture in this file separates blocks with blank lines, so that is the house
+# style applied one line earlier, not exotic input. `Between.Seam` is fully
+# pinned and must not be flagged, so a lint mis-assigning the `ADMITS` to the
+# seam is caught on the seam side too. `control_default` keeps the document
+# non-uniform, and the last assertion catches the check-2 -> check-1 inversion.
+_DISTANT_ADMITS_SPEC = """\
+# Fixture Spec — an ADMITS line far from its LEVEL, across other material
+
+LEVEL: distant_admits
+
+SEAM: Between.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+
+ADMITS: any, all
+NON-UNIFORMITY: distant_admits — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: blank_gap_admits
+
+ADMITS: any, all
+NON-UNIFORMITY: blank_gap_admits — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: control_default
+NON-UNIFORMITY: control_default — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: distant_invalid
+
+ADMITS: any, bogus
+NON-UNIFORMITY: distant_invalid — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound7:
+    """`[G24:10]`'s third anchor pair, and the distance axis of P2."""
+
+    def test_ac_c5_admits_binds_across_distance_and_intervening_material(self):
+        """AC-C5(2). Gate round-7 MAJOR, spec C2-27, closing two halves of one
+        gap: `[G24:10]` named two anchor kinds where there are three (P2's is
+        the `LEVEL`), and "nearest preceding" was never distinguished from
+        "the previous line" for P2 -- every `ADMITS` in the file sat on the
+        line immediately after its own `LEVEL:`, distance 1, with nothing
+        between, not even a blank line. P3 and `[G24:2]` are both exercised at
+        distance; P2 was not.
+
+        `distant_admits` admits {any, all} and covers exactly that, but its
+        `ADMITS` sits below an entire intervening `SEAM` block: conformant only
+        if the binding reaches back across it, and this fills the
+        (`LEVEL`, `SEAM`) pair of `[G24:10]`'s cross-product at the same time.
+        A lint keeping one "current declaration" variable for both kinds gives
+        it the default four against a two-token `EXCLUDES` and flags it.
+        `blank_gap_admits` is separated from its `ADMITS` by a blank line only:
+        a previous-line-only lint flags that one too, and every block in this
+        file is separated exactly that way, so it is the house style one line
+        earlier rather than exotic input.
+
+        `Between.Seam` is fully pinned and must not be flagged, catching a lint
+        that mis-assigns the `ADMITS` to the seam instead. `control_default`
+        takes the default four and covers it, so a lint that clears everything
+        is caught by the positives elsewhere and one that flags everything is
+        caught here. The last assertion catches the check-2 -> check-1
+        inversion, since all four levels carry rows.
+
+        `distant_invalid` supplies the POSITIVE discriminator this fixture
+        would otherwise lack -- five negatives alone are all satisfied by a
+        lint that returns nothing, and although that lint dies elsewhere, a
+        fixture should discriminate within itself (§0.8 rule 1). Its distant
+        `ADMITS` carries an unrecognised token, so `[G24:1]` makes the level a
+        finding whatever its `EXCLUDES` says -- while a lint that never binds
+        the distant `ADMITS` at all falls back to the default four, sees an
+        `EXCLUDES` covering exactly those four, and reports nothing. The two
+        candidates this fixture targets are therefore caught by a positive
+        assertion as well as by the negatives.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_DISTANT_ADMITS_SPEC)
+
+        assert not any(f.subject == "distant_admits" for f in findings)
+        assert not any(f.subject == "blank_gap_admits" for f in findings)
+        assert not any(f.subject == "Between.Seam" for f in findings)
+        assert not any(f.subject == "control_default" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "distant_invalid"
+            for f in findings
+        )
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)

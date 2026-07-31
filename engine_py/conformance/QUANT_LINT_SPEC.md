@@ -1,6 +1,6 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v9, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v10, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
@@ -182,6 +182,47 @@ C-ROWOP): `[G24:7]` was measured on `LEVEL:` and `SEAM:` operands but never on a
 has its own extraction path (the em-dash split), so a fixed offset applied to that marker alone passed 44/44;
 and `ADMITS:` was spelled in two cases where the other seven markers now appear in three.
 
+**v10 — gate round 7 returned REJECTED with one MAJOR: two halves of one gap, and the second half is an axis
+nobody had named.**
+
+**Half 1 — `[G24:10]` says "the TWO anchors" and there are three.** P2's anchor is the `LEVEL`, exactly as
+`[G24:5]`'s grid was corrected to 3 × 2 last round on the same reasoning. Independence is a property of
+**pairs**, so the cross-product is three: (`SEAM`, row) — `_INTERLEAVED_ANCHORS_SPEC`; (`LEVEL`, row) —
+`_EXCLUDES_ROW_BINDING_SPEC`, where a lint conflating the two binds `EXCLUDES` to the level and inverts both
+levels; (`LEVEL`, `SEAM`) — **empty**. The correction was not carried from `[G24:5]` to `[G24:10]`, which
+describes the same three rules one property over, and §5's table still recorded `[G24:10]` as a single cell.
+
+**Half 2 — "nearest PRECEDING" makes two independent claims**, and only one was ever measured: *which* candidate
+anchor is chosen when several precede, and *that the rule reaches across intervening lines at all*. **Distance
+is an axis, and it was in no table.** Every `ADMITS` line in all 40 fixtures sat on the line **immediately
+after** its own `LEVEL:` — distance 1, nothing between, not even a blank line — while P3 and `[G24:2]` are both
+exercised at distance. So for P2, "nearest preceding" had never been distinguished from "the previous line".
+The *selection* half is measured (`_EXCLUDES_SUPERSET_SPEC`'s three consecutive `ADMITS`-bearing levels kill a
+first-`LEVEL`-only binding); the gap was distance alone.
+
+Both predicted survivors — `admits_previous_line_only` and `single_anchor_level_seam` — were run and **both
+passed 45/45**. Closed by `_DISTANT_ADMITS_SPEC` (C2-27), which fills the (`LEVEL`, `SEAM`) pair and the
+distance axis in one document.
+
+**§0.9(3) is extended, because the cell rule did not catch this and could not have as written.** The rule said
+"for a clause ranging over more than one axis, record the cells" — and `[G24:10]` was recorded as a
+single-cell clause, so the rule never engaged. Two additions, both from this round's failure:
+
+> **(3a) Enumerating the axes is itself the step that gets skipped.** A clause is not exempt from the cell rule
+> because its table row has one cell; the row having one cell is the claim under audit. Every clause's axes are
+> re-derived from its *text*, not from its existing row.
+>
+> **(3b) `distance` is an axis on every binding rule.** "Nearest preceding X" claims both a selection and a
+> reach. A fixture where the anchored line is adjacent to its anchor measures selection only.
+
+Applied retroactively: P3 and `[G24:2]` are both exercised at distance (`_SEAM_MISSING_NORMALISATION_SPEC`,
+`_INTERLEAVED_ANCHORS_SPEC`), so (3b) leaves no other empty cell.
+
+The gate judged the (`LEVEL`, row) pair optional-to-fill; it is **not** filled with a new fixture because
+`_EXCLUDES_ROW_BINDING_SPEC` already discriminates it — a lint conflating the level and row anchors binds both
+`EXCLUDES` lines to `beta_bind` and inverts the fixture's two assertions. That is recorded in the table rather
+than left implicit.
+
 ---
 
 ## 0. What this lot inherits
@@ -249,6 +290,14 @@ requirement named. Round 4 rejected on exactly that.
    **cross-product**, and §5's table records the **cells**. An **empty cell is a finding**. Counting along one
    axis reads as complete while the other axis has a hole — which is K13, this lot's own candidate #13, applied
    to the instrument instead of to the lint.
+   - **(3a) (v10)** Enumerating the axes is itself the step that gets skipped. A clause is **not exempt**
+     because its table row already shows one cell — the row having one cell is the claim under audit. Axes are
+     re-derived from the clause's **text** each round, never inherited from its existing row. Gate round 7:
+     `[G24:10]` said "the two anchors", had three, and its single-cell row meant the cell rule never engaged.
+   - **(3b) (v10)** **`distance` is an axis on every binding rule.** "Nearest preceding X" claims a *selection*
+     (which candidate, when several precede) **and** a *reach* (that it crosses intervening lines at all). A
+     fixture whose anchored line is adjacent to its anchor measures selection only. Every `ADMITS` line in the
+     lot sat on the line immediately after its `LEVEL:` for ten rounds.
 
 2. **Addition trigger.** A purely additive round is checked too. An **added assertion that cannot fail** produces
    no deletions in the diff, does not move the pass/fail count, and is later classified as an inherited gap
@@ -490,6 +539,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ | 1 + 3 | the **same five** marker prefixes in **Title** case — corrected in v8 |
 | `_TRAILING_WHITESPACE_SPEC` ✝✝✝✝ | 1 + 3 | trailing whitespace after a `LEVEL` and a `SEAM` operand (v8: added to this inventory) |
 | `_OPERAND_SPACING_SPEC` ✝✝✝✝✝ | 1 + 3 | no space and three spaces after a marker's colon (v8: added to this inventory) |
+| `_DISTANT_ADMITS_SPEC` ✝✝✝✝✝✝✝✝ | 2 | `ADMITS` lines far from their `LEVEL` — across a whole `SEAM` block, and across a blank line |
 | `_ROW_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝ | 2 | a packed and a space-padded `NON-UNIFORMITY:` operand, plus a lower-case `admits:` |
 | `_ROW_MARKER_CASE_SPEC` ✝✝✝✝✝✝ | 2 | `Admits:`/`Non-Uniformity:`/`Excludes:` in Title and lower case, plus an **indented** `Excludes:` |
 | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | 2 | an `ADMITS` line before any `LEVEL`, and a duplicated `ADMITS` token |
@@ -547,6 +597,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C-CASE2 | `ADMITS`/`NON-UNIFORMITY`/`EXCLUDES` matched against **ALL-CAPS only** while the other five are case-folded ✝✝✝✝✝✝ | `_ROW_MARKER_CASE_SPEC` ✝✝✝✝✝✝ | `title_row_level` is conformant only if `Admits:` and `Excludes:` are read; `lower_row_level` is flagged only if its lower-case row and short `excludes:` are. **Gate round-5 MAJOR-1**, confirmed at 42/42 |
 | C2-24 | an **unanchored `ADMITS`** raised on, or credited forward to the next `LEVEL` ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | the orphan would **complete** `fwd_admits_level`, which must be flagged. **Gate round-5 MAJOR-2** — `[G24:5]`'s third anchor rule; a raising lint also breaches §2.1 |
 | C2-25 | a **duplicated recognised token in `ADMITS`** treated as a defect ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | `dup_admits_level` admits {any, all} with `any` twice and covers both: conformant. **Gate round-5 MAJOR-3**, the `ADMITS` mirror of round-2's MAJOR-2 |
+| C2-27 | `ADMITS` bound only when the **literal previous line** was its `LEVEL:`, or one "current declaration" variable serving `LEVEL` and `SEAM` ✝✝✝✝✝✝✝✝ | `_DISTANT_ADMITS_SPEC` ✝✝✝✝✝✝✝✝ | `distant_admits`' `ADMITS` reaches back across a whole `SEAM` block; `blank_gap_admits`' across a blank line — the house style one line earlier. `distant_invalid` gives the positive discriminator: its distant `ADMITS` carries an unrecognised token, so a lint that never binds it falls back to the default four, sees full coverage and reports nothing. **Gate round-7 MAJOR**, both candidates confirmed at 45/45 |
 | C2-26 | an **unanchored `ADMITS`** registered under a **sentinel level** (`levels.setdefault(cur_level or "", …)`), reported by check 1 with an empty `subject` ✝✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC`'s third assertion ✝✝✝✝✝✝✝ | both levels there carry rows, so **no** check-1 finding is correct in that document. **Gate round-6 MAJOR** — `[G24:5]`'s empty cell, confirmed at 44/44 |
 | C-ROWOP | a **fixed offset** on `NON-UNIFORMITY:` alone, whose operand has its own em-dash extraction path; and `admits:` unrecognised in lower case ✝✝✝✝✝✝✝ | `_ROW_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝ | `packed_row` is conformant only if the packed row operand AND the lower-case `admits:` are both read; `spaced_row` is flagged only if its leading spaces are stripped. **Gate round-6 advisories 1 and 2** |
 | C2-17 | check 1 fires on a level whose row is merely short | `_CHECK2_SPEC` | asserts **no** `missing_non_uniformity_row` anywhere in that fixture |
@@ -720,8 +771,8 @@ read the other way. So the audit below is now run over every normative clause, n
 | Clause | Axes → cells (§0.9(3)) | Fixture whose expected output flips, per cell |
 |---|---|---|
 | P1 operands verbatim/case-sensitive | `_LEVEL_CASE_MISMATCH_SPEC`, `_SEAM_NAME_CASE_MISMATCH_SPEC` |
-| P2 `ADMITS` → preceding `LEVEL` | `_ADMITS_WRONG_NEIGHBOUR_SPEC` |
-| P3 property → preceding `SEAM` | `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` |
+| P2 `ADMITS` → preceding `LEVEL` | {direction, selection, **distance**} | `_ADMITS_WRONG_NEIGHBOUR_SPEC` (direction), `_EXCLUDES_SUPERSET_SPEC` (selection among three consecutive), `_DISTANT_ADMITS_SPEC` (distance, **v10** — §0.9(3b)) |
+| P3 property → preceding `SEAM` | {direction, selection, distance} | `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` (direction/selection), `_SEAM_MISSING_NORMALISATION_SPEC` + `_INTERLEAVED_ANCHORS_SPEC` (distance) |
 | P4 row → level by operand | `_CHECK2_WRONG_LEVEL_BINDING_SPEC`, `_ROW_LEVEL_BINDING_SPEC` |
 | `[G24:1]` token casing/vocabulary | {`ADMITS`, `EXCLUDES`} × {wrong-case, non-vocabulary} = **4 cells** | `upper_excludes`, `bogus_extra`/`frist`, `Upper_Admits`, `_ADMITS_INVALID_TOKEN_SPEC` |
 | `[G24:2]` `EXCLUDES` → preceding row | `_EXCLUDES_ROW_BINDING_SPEC` (inverts under both wrong directions) |
@@ -731,7 +782,7 @@ read the other way. So the audit below is now run over every normative clause, n
 | `[G24:6]` undeclared-level row still checked | `_UNDECLARED_LEVEL_ROW_SPEC` — the row is **short** |
 | `[G24:8]` markers at line start | declarations, reduction lines | `_INDENTED_MARKER_SPEC` (`LEVEL`/`SEAM`) + `_ROW_MARKER_CASE_SPEC`'s indented `Excludes:` (v8) |
 | `[G24:9]` order-independent row binding | `_ROW_BEFORE_LEVEL_SPEC` |
-| `[G24:10]` anchors tracked independently | `_INTERLEAVED_ANCHORS_SPEC` |
+| `[G24:10]` anchors tracked independently | {`LEVEL`, `SEAM`, row} taken **pairwise** = **3 cells** | (`SEAM`, row) `_INTERLEAVED_ANCHORS_SPEC`; (`LEVEL`, row) `_EXCLUDES_ROW_BINDING_SPEC` — a lint conflating them binds both `EXCLUDES` to `beta_bind` and inverts; (`LEVEL`, `SEAM`) `_DISTANT_ADMITS_SPEC` (**v10 — the empty cell**) |
 | §2.2 markers case-insensitive | all **eight** markers | `_LOWERCASE_MARKERS_SPEC` + `_MIXED_CASE_MARKERS_SPEC` (five) + `_ROW_MARKER_CASE_SPEC` (the other three, v8) |
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
@@ -748,7 +799,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 45/45 and every one of the 35 mutants fails at least one test** (v9 figures;
+**Result: the reference passes 46/46 and every one of the 37 mutants fails at least one test** (v10 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 
