@@ -1,6 +1,6 @@
 # Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v6, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+**v7, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
 worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
 
 **AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
@@ -107,6 +107,36 @@ artifact of the parent's last four rounds: twice consecutively the gate named a 
 reading**, predicted its exact score, and was right (#28 at 40/40, #29 at 41/41), and neither was in the
 27-mutant enumeration. Execution is a floor, not a ceiling. Taken up as **hal#1511** as a measured limitation of
 the method.
+
+**The (a)/(b) criterion, sharpened by the dispatcher and in force for all lots from bd#39 v7.** The earlier
+wording — "introduced by this round's own change" — is read literally as "a finding against a clause I wrote in
+the previous revision", and by that letter three of this lot's findings were filed as **type (a)**. The rule
+does not exist for the letter. **Type (a) is a finding that OVERTURNS THE BASIS a revision stands on**: what
+the spec rested on turns out to be wrong, and the fix runs *against* a decision already taken. **Type (b) is
+everything else** — including "the clause is mine, I wrote it last revision, and I wrote it wrong" — whenever
+the fix **upholds** the decision already taken and follows it.
+
+> **The test is one question: after the fix, does the earlier decision still stand, or is it overturned?**
+> Stands ⇒ (b). Overturned ⇒ (a).
+
+Without this, the rule is self-sustaining: every lot finds a defect in its own recent clause within two rounds
+and must split forever. **The parent was stopped correctly** — bd#24's v6 introduced a clause and v7 repaired
+*that clause's own* defect with no enclosing basis dictating the repair. **This lot has such a basis**, in §0.0
+above, and it was bought at the price of the parent's stop; that is what the split was for.
+
+**Reclassified accordingly, and the reclassification is applied to every finding this lot filed, not only the
+one the dispatcher named:**
+
+| Round | Finding | Filed as | Now | Because the fix… |
+|---|---|---|---|---|
+| bd#39 r3 MAJOR-1 | `[G24:11]` said "surrounding whitespace" and measured one side | (a) | **(b)** | …does exactly what §0.0 already required — *measure the second side, never narrow*. The basis is not overturned; it is confirmed, and the clause was written inconsistently with it |
+| bd#39 r3 MAJOR-2 | §2.4 and §2.6 required opposite outputs | (b) | **(b)** | …resolves a contradiction *within* the revision; no earlier decision is overturned |
+| bd#39 r4 MAJOR-2 | v4's "an empty token is ignored" reached a bare `ADMITS:` | (a) | **(b)** | …restores the safe reading `[G24:1]` was minted for and leaves `[G24:11]`'s trailing-comma rule intact. The basis stands |
+| bd#39 r6 MAJOR | `[G24:15]` created an unpinned property write policy | (a) | **(b)** | …pins the policy `[G24:4]` already implied ("collapsed, never punished"). `[G24:15]` itself stands unchanged |
+
+**Not one of the four overturned a basis**, which is the substantive point rather than a bookkeeping one: this
+lot has been repairing its own execution against a constitution that held throughout, which is the state the
+split was created to make possible.
 
 **The RED keeps its filename** (`engine_py/tests/test_bd24_quant_lint.py`). Renaming it would break the
 containment script's path to bd#22's round-9 artifact and buy nothing: the parent remains the bearer of
@@ -645,7 +675,15 @@ line, and inventing one would exceed the three pinned `kind` values).
   ones. §6 could not absorb it either: its empty-operand bullet defers `LEVEL:`/`SEAM: ` because
   `Finding.subject` would become the empty string, and a property operand never becomes a subject, so the
   reason does not transfer and the case was **silently** unpinned. Exercised by `_EMPTY_PROPERTY_OPERAND_SPEC`
-  (C3-22). A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
+  (C3-22).
+  **Write policy** (bd#39 gate round 6): a property is pinned if **any** of its lines carries a non-empty
+  operand, and **an unfilled line never unpins a filled one**. Before `[G24:15]` a property line's operand was
+  never read, so check 3's store could be a **set of markers**, where repetition is idempotent by construction
+  and `[G24:4]` needed no code at all. Making the operand matter turns the natural structure into a
+  **mapping**, and a mapping has a write policy a set does not — `props[marker] = operand` (last-wins) and
+  `setdefault` (first-wins) each passed 58/58, failing on **opposite orders**. `[G24:4]` settles it in terms —
+  repetition is "collapsed, **never punished**" — so this is not a contradiction but a clause reaching an input
+  it was not written for. Exercised in **both orders** by `_PROPERTY_WRITE_POLICY_SPEC` (C3-23). A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
   row carries none, so `NON-UNIFORMITY: phases` discharges `phases` and a second em dash inside a description
   changes nothing. Exercised by `_REDUCTION_DELIMITER_SPEC` (C2-32). Raised as an adversarial edge in bd#39
   rounds 1 and 2 and closed rather than restated a third time; the `split(", ")` spelling is not contrived —
@@ -746,6 +784,7 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | `_SHARED_ANCHOR_SPEC` ✝✝✝✝✝✝✝✝✝ | 2 | a `LEVEL:` interposed between a row and its `EXCLUDES` |
 | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 + 3 | each anchor kind interposed inside another kind's block — the **reverse** cycle of `[G24:10]`'s ordered product |
 | `_REDUCTION_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 | `ADMITS:`/`EXCLUDES:` packed, padded and trailing-padded |
+| `_PROPERTY_WRITE_POLICY_SPEC` (bd#39 r7) | 3 | a property marker repeated, once filled and once not, in **both orders** |
 | `_EMPTY_PROPERTY_OPERAND_SPEC` (bd#39 r6) | 3 | three property markers laid out unfilled; one empty among two filled; a fully pinned control |
 | `_ROW_ORDER_COVERAGE_SPEC` (bd#39 r5) | 2 | a row and its `EXCLUDES` above the `LEVEL` whose `ADMITS` governs them |
 | `_EMPTY_TOKEN_LIST_SPEC` (bd#39 r5) | 2 | a bare `ADMITS:` and a bare `EXCLUDES:` |
@@ -868,6 +907,7 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | C-WS | trailing whitespace kept inside the operand ✝✝✝✝ | `_TRAILING_WHITESPACE_SPEC` ✝✝✝✝ — `LEVEL: phases␣␣␣` must still be discharged by its row, and `SEAM: Trailing.Seam␣␣` reported without the spaces |
 | C-COLLAPSE | the collapse step keyed on `subject` **alone** rather than on `(kind, subject)` ✝ | `_SAME_SUBJECT_TWO_KINDS_SPEC` ✝ | `cache` is a row-less `LEVEL` **and** a bare `SEAM`, so two findings of different `kind` share one `subject`; keying on `subject` drops one, and which one depends on emission order, unspecified across inputs. **bd#39 round-2 MAJOR-2**, confirmed at 50/50 |
 | C1-15 | `NON-UNIFORMITY:` recognised after a strip (the check-1 half of `_INDENTED_PROPERTY_SPEC`, split out per bd#39 round-2 MINOR-C) ✝ | `_INDENTED_PROPERTY_SPEC` assertion 2 ✝ | the indented row markers below `quoted_row_level` discharge nothing, so the level must still be flagged |
+| C3-23 | a **mapping** write policy for pinned properties — last-wins (`props[m] = operand`) or first-wins (`setdefault`) (bd#39 r7) | `_PROPERTY_WRITE_POLICY_SPEC` (bd#39 r7) | the two fail on **opposite orders**, so both are carried: `Filled.Then.Empty` kills last-wins, `Empty.Then.Filled` kills first-wins, `Never.Filled` is the positive. **bd#39 round-6 MAJOR**, both confirmed at 58/58 |
 | C3-22 | a property marker **present but unfilled** counted as pinning its property (bd#39 r6) | `_EMPTY_PROPERTY_OPERAND_SPEC` (bd#39 r6) | a template seam with all three markers laid out and none filled returns **no findings** under that reading — §0.2's founding case, by a route C3-1's fixture does not cover. **bd#39 round-5 MAJOR**, both readings confirmed at 57/57 |
 | C3-21 | the three **property** markers recognised after a strip while declarations and reduction lines require flush-left ✝✝✝✝✝✝✝✝✝✝ | `_INDENTED_PROPERTY_SPEC` ✝✝✝✝✝✝✝✝✝✝ | indented properties quoted below a bare `SEAM:` silently **complete** it and suppress the finding — a seam declared and not pinned, shipped conformant, this AC's founding case (§0.2). **bd#39 gate round-1 MAJOR-3**, confirmed at 48/48 |
 | C3-20 | an unanchored property line collected under a **sentinel seam** (`seams.setdefault(cur_seam or "<unnamed>", …)`) and reported as a finding ✝✝✝✝ | `_ORPHAN_MARKER_LINES_SPEC`'s fourth assertion ✝✝✝✝ — `[G24:5]`'s not-a-finding clause was measured for the `EXCLUDES` half only; the seam half needed a guard naming the one seam that legitimately appears. **Gate round-3 MAJOR**, predicted by the gate and confirmed by mutant #28 passing 40/40 without it |
@@ -1028,7 +1068,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 58/58 and every one of the 55 mutants fails at least one test** (v11 figures;
+**Result: the reference passes 59/59 and every one of the 57 mutants fails at least one test** (v11 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 
@@ -1046,6 +1086,24 @@ candidate is the same defect as an assertion that cannot fail**, one layer out: 
 matrix that looks like a kill. Corrected to `rsplit("—", 1)[0]` and re-run. The matrix is therefore only as
 good as each mutant's faithfulness to the candidate it names, which is a second reason — beside the `[G22:13]`
 asymmetry above — that execution is a floor.
+
+**The differential precondition — ADOPTED** (bd#39 gate rounds 5 and 6, MINOR-C; asked twice, so its status is
+recorded here rather than in a reply). "Mutant M failed N tests" is an **observation**; it becomes a **checked
+claim** only once M is shown to diverge from the reference on at least one fixture. The harness now computes
+both outputs over every fixture before running the suite, **exits non-zero if they are identical**, and
+otherwise reports how many fixtures diverge — a faithful single-decision mutant diverges on few, a broken one
+on many.
+
+**It caught a defect on its first run, and the defect was mine.** `first_wins_property_value` was written so
+that an empty first occurrence still admitted the later filled one; it was **identical to the reference on all
+54 fixtures** and expressed no candidate at all. That is the third harness defect in four rounds — one mutant
+expressing nothing (`rsplit("—")[0]`), one expressing far more than its candidate (an early `return`), and this
+one — and the **first caught mechanically rather than by the number looking wrong**. Rewritten faithfully, it
+now diverges on exactly one fixture and dies.
+
+What the precondition still cannot catch is the fourth class: a **reference** silently choosing one of two
+indistinguishable branches, which happened twice (`empty_admits_*`, `empty_property_*`). Nothing in the matrix
+can see it, because both branches are consistent with the matrix. Only an adversary naming the input finds it.
 
 **Disposal** (gate round-3 MINOR-D): the harness is uncommitted **only until GREEN lands**, so GREEN cannot be
 copied from it. Once GREEN is in, the reference and the mutant set are committed beside the containment script,
@@ -1132,8 +1190,9 @@ measures — the defect `[G24:6]` was found to be):
   (`NON-UNIFORMITY: — description`), whose operand is empty by that clause, **and a third**: a wholly bare `NON-UNIFORMITY:`, which `[G24:11]`'s "the whole operand when the row carries none" also makes empty (bd#39 rounds 3 and 5 advisories — same state, three routes, all named here);
 - ~~an `EXCLUDES:` line with an **empty token list**~~ — **decided in v5 by `[G24:14]`** (no coverage, so the row is short) and removed from this list. It was declared undecided here while `[G24:11]` determined it, which is two frozen sentences about one input (bd#39 round-4 MAJOR-2);
 - **multiplicity of anchored lines under one anchor**: two `ADMITS` lines under one `LEVEL`, or two `EXCLUDES`
-  lines under one row — union, last-wins, or a finding? Decided for property lines (`[G24:4]`: a set, repetition
-  collapsed) and declared here for the other two. Noted rather than pinned because no fixture forces the
+  lines under one row — union, last-wins, or a finding? Decided for property lines (`[G24:4]`: repetition collapsed, **and since `[G24:15]` also the write policy — a
+  property is pinned if any of its lines is filled**; the earlier "a set" description was accurate while the
+  store was a set of markers and is now incomplete) and declared here for the other two. Noted rather than pinned because no fixture forces the
   decision, and inventing a clause per corner is what `[G24:6]` was found to be. Recorded because
   `_ROW_MARKER_CASE_SPEC`'s analysis leans on a union reading for its *wrong-lint* branch — the indented
   `Excludes:` completing a row — so the reading is load-bearing somewhere while unpinned (gate round-8

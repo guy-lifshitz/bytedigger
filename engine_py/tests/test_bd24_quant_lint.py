@@ -4,7 +4,7 @@ One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
 file keeps its name. Renaming it would break the containment script's path to
 bd#22's round-9 artifact and buy nothing.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v5**, FROZEN under this
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v7**, FROZEN under this
 lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
@@ -3121,7 +3121,9 @@ class TestQuantifierCompletenessLintBd39GateRound2:
     """`[G24:8]`'s eighth marker, `[G24:3]`'s second axis, and `[G24:11]`."""
 
     def test_ac_c5_indented_admits_line_is_prose(self):
-        """AC-C5(2). bd#39 gate round-2 MAJOR-1 (type (a)), spec C2-31.
+        """AC-C5(2). bd#39 gate round-2 MAJOR-1, spec C2-31. Type **(b)** under the
+        sharpened criterion (§0.0): the fix completes the enumeration §0.0's
+        standing instrument already demanded.
         v2's `[G24:8]` row declared "all eight markers" and enumerated seven --
         no indented `ADMITS:` existed anywhere in the file, so a lint
         recognising `ADMITS:` after a strip while requiring the other seven
@@ -3300,7 +3302,10 @@ class TestQuantifierCompletenessLintBd39GateRound3:
     """`[G24:11]`'s second side, and the §2.4/§2.6 contradiction."""
 
     def test_ac_c5_whitespace_before_the_comma_and_a_trailing_comma(self):
-        """AC-C5(2). bd#39 gate round-3 MAJOR-1 (type (a)), spec C2-33.
+        """AC-C5(2). bd#39 gate round-3 MAJOR-1, spec C2-33. Type **(b)** under the
+        sharpened criterion (§0.0): the fix does exactly what §0.0 already
+        required -- measure the second side, never narrow -- so the basis is
+        confirmed, not overturned.
         `[G24:11]` pins the separator as "a comma with SURROUNDING whitespace"
         and the fixtures measured `tok, tok` and `tok,tok` -- never ` ,`. That
         is bd#24 gate round 4's MAJOR reproduced on the clause written beside
@@ -3476,8 +3481,10 @@ class TestQuantifierCompletenessLintBd39GateRound4:
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
 
     def test_ac_c5_empty_token_list_is_not_an_empty_admitted_set(self):
-        """AC-C5(2). bd#39 gate round-4 MAJOR-2 (type (a)), spec `[G24:14]` /
-        C2-36. v4 extended `[G24:11]` with "an empty token is ignored" -- right
+        """AC-C5(2). bd#39 gate round-4 MAJOR-2, spec `[G24:14]` / C2-36. Type **(b)**
+        under the sharpened criterion (§0.0): the fix restores the safe reading
+        `[G24:1]` was minted for and leaves `[G24:11]`'s trailing-comma rule
+        intact, so the basis stands. v4 extended `[G24:11]` with "an empty token is ignored" -- right
         for the trailing comma it was written for, and stated over tokens in
         general, so it reached two inputs it was not written for and moved both
         in the PERMISSIVE direction with no §3 row and no coverage diff.
@@ -3601,3 +3608,83 @@ class TestQuantifierCompletenessLintBd39GateRound5:
             for f in findings
         )
         assert not any(f.subject == "Fully.Pinned" for f in findings)
+
+
+# ── bd#39 gate round 6 MAJOR (type (b)): the property WRITE POLICY ─────────
+# Before v6 a property line's operand was never read, so check 3's store could
+# be a SET of marker names -- `props.add(marker)` -- where repetition is
+# idempotent by construction and `[G24:4]`'s "repetition is collapsed" needs no
+# code at all. `[G24:15]` made the operand matter, so the natural structure
+# becomes a MAPPING `marker -> operand`, and a mapping has a write policy that a
+# set does not. Nothing pinned it and no fixture measured it: every duplicated
+# property marker in the RED has BOTH occurrences filled.
+#
+# `last_wins_property_value` (`props[marker] = operand`, the natural spelling of
+# a mapping write) and `first_wins_property_value` (`setdefault`) each passed
+# 58/58. The correct answer IS derivable -- `[G24:4]` says repetition is
+# "collapsed, NEVER PUNISHED" and "a repeated line is not itself a finding", and
+# an unfilled line pins nothing but does not UNPIN what a filled one pinned --
+# so this is not a contradiction between clauses. It is the other class: a
+# clause whose wording reaches an input it was not written for, creating an
+# implementation decision point that did not exist one revision earlier.
+#
+# `[G24:15]` v7 pins it: a property is pinned if ANY of its lines carries a
+# non-empty operand, and an unfilled line never unpins a filled one. Both
+# ORDERS are measured, per §0.8 rule 1's own both-orderings discipline, because
+# last-wins and first-wins fail on opposite orders.
+_PROPERTY_WRITE_POLICY_SPEC = """\
+# Fixture Spec — a property marker repeated, once filled and once not
+
+SEAM: Filled.Then.Empty
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+NORMALISATION:
+
+SEAM: Empty.Then.Filled
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+NORMALISATION:
+NORMALISATION: none
+
+SEAM: Never.Filled
+ATTRIBUTE-PATH: os.scandir
+BINDING-TIME: call-time
+NORMALISATION:
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound6:
+    """`[G24:15]`'s write policy: an unfilled line never unpins a filled one."""
+
+    def test_ac_c5_an_unfilled_property_line_does_not_unpin_a_filled_one(self):
+        """AC-C5(3). bd#39 gate round-6 MAJOR, spec `[G24:15]` v7 / C3-23.
+        Type **(b)** under the sharpened criterion (§0.0): the fix pins the
+        policy `[G24:4]` already implied, and `[G24:15]` itself stands. `[G24:15]` made a property line's operand matter, which turned
+        check 3's store from a SET of markers -- where repetition is idempotent
+        by construction -- into a MAPPING, which has a write policy. The policy
+        was pinned nowhere and measured nowhere: every duplicated property
+        marker in the file had both occurrences filled.
+
+        `[G24:4]` settles the answer -- repetition is "collapsed, never
+        punished" -- so a property is pinned if ANY of its lines carries a
+        non-empty operand. `Filled.Then.Empty` kills `props[marker] = operand`
+        (last-wins overwrites with the empty string and flags a conformant
+        seam, resurrecting C2-23/C3-18's duplicate-punishing defect through a
+        new mechanism, on the clause written to fix a different problem).
+        `Empty.Then.Filled` kills `setdefault` (first-wins keeps the empty
+        string), which fails only on the reverse order -- so both orders are
+        required, exactly as §0.8 rule 1 demands of a fixture set.
+        `Never.Filled` is the positive discriminator: its `NORMALISATION` is
+        never filled at all, so it must be flagged under every reading.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_PROPERTY_WRITE_POLICY_SPEC)
+
+        assert not any(f.subject == "Filled.Then.Empty" for f in findings)
+        assert not any(f.subject == "Empty.Then.Filled" for f in findings)
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Never.Filled"
+            for f in findings
+        )
