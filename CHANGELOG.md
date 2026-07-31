@@ -40,6 +40,18 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   "nothing changed" would make the check announce a pass it never performed. Other workflows are
   unaffected and still run with or without a log. (#8)
 
+### Added
+
+- **`AC-C5` — the quantifier-completeness lint.** `conformance.quant_lint` gains
+  `lint_quantifier_completeness(text) -> list[Finding]` and the frozen two-field `Finding`, replacing the
+  import-only placeholder. Three independent checks over a spec document's own declarations: a collection
+  level with no non-uniformity row, a row that does not enumerate the reductions its level admits, and an
+  interception seam that has not pinned its attribute path, binding time and normalisation. It reports rather
+  than raises — on a malformed document as much as a non-conformant one — so "conformant" and "unparseable"
+  stay distinguishable to a caller. It checks that a document *documents* its quantifiers; it does not verify
+  that the fixtures a document cites exist or discriminate, which does not mechanise. Nothing consumes it yet.
+  (#39)
+
 ### Fixed
 
 - **The install-platform scan no longer reads local build residue as a shipping platform.**
