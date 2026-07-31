@@ -1,6 +1,6 @@
 # Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v4, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+**v5, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
 worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
 
 **AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
@@ -70,6 +70,18 @@ not about this artifact, and it is filed where it can be fixed.
   now scoped accordingly in §5.** Decided in `[G24:12]`, with `[G24:13]` pinning when validation happens; both
   measured by `_TOKEN_VALIDATION_SPEC`, whose assertion is an **exact set** because both survivors are
   invisible to `any(...)`.
+
+  **v5 (bd#39 gate round 4): one inherited, one type (a) — and the type (a) is a rule I added that moved the
+  verdict in the permissive direction with no §3 row and no coverage diff.** `[G24:9]` declares position not
+  part of the binding, which has **two** consequences — the level is discharged, and its `ADMITS` governs that
+  row's coverage — and `_ROW_BEFORE_LEVEL_SPEC` measured the first only, because its level has no `ADMITS`.
+  That is `[G24:5]`'s N×M correction one clause over; closed by `_ROW_ORDER_COVERAGE_SPEC`. The type (a) is
+  v4's "an empty token is ignored": correct for the trailing comma, stated over tokens in general, and so
+  reaching a bare `ADMITS:` — which §2.2 distinguishes from an absent one — and clearing **every** row on that
+  level. §0.9 direction 1 requires a round that changes behaviour to say what the previous set decided and
+  confirm it still holds; before v4 the empty string was a token outside the four and `[G24:1]` made it a
+  finding, which is the safe answer, and the change was recorded nowhere. `[G24:14]` restores the safe reading
+  and `_EMPTY_TOKEN_LIST_SPEC` measures it.
 
 **The accepted correction, unchanged and unnarrowed.** Gate round 4's MAJOR is closed by **measuring the second
 side** (`_OPERAND_SPACING_SPEC`, C-SPACING), not by declaring the single space part of the marker. The
@@ -602,7 +614,17 @@ line, and inventing one would exceed the three pinned `kind` values).
   and `any , all` all list two tokens — and an **empty token is ignored**, so a trailing comma changes
   nothing. *Surrounding* meant both sides in v3 and only one was measured (bd#39 gate round 3, MAJOR-1), which
   is bd#24 gate round 4's MAJOR reproduced on the clause written beside it; the second side is now measured by
-  `_SEPARATOR_SIDES_SPEC` (C2-33), per §0.0's rule that the close is to measure and never to narrow. A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
+  `_SEPARATOR_SIDES_SPEC` (C2-33), per §0.0's rule that the close is to measure and never to narrow.
+  `[G24:14]` **An empty token list is NOT an empty admitted set** (bd#39 gate round 4, MAJOR-2, **type (a)**).
+  v4's "an empty token is ignored" was written for the trailing comma and stated over tokens **in general**, so
+  it silently reached two inputs it was not written for and moved both in the **permissive** direction. A bare
+  `ADMITS:` is **present**, not absent, and under the literal reading its admitted set is empty — so
+  `set(excludes) ⊇ ∅` holds for **every** row and a level's rows are conformant however short they are. That is
+  this AC's founding defect, manufactured by an extension to the clause `[G24:1]`'s symmetric rule was minted
+  to prevent. Decided in the safe direction: a marker line whose operand contributes **zero** tokens reads as
+  **absent** for `ADMITS` (default four) and as **no coverage** for `EXCLUDES` (the row is short). The
+  trailing-comma rule is untouched — it removes an empty token from a **non-empty** list. Exercised by
+  `_EMPTY_TOKEN_LIST_SPEC` (C2-36). A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
   row carries none, so `NON-UNIFORMITY: phases` discharges `phases` and a second em dash inside a description
   changes nothing. Exercised by `_REDUCTION_DELIMITER_SPEC` (C2-32). Raised as an adversarial edge in bd#39
   rounds 1 and 2 and closed rather than restated a third time; the `split(", ")` spelling is not contrived —
@@ -626,7 +648,7 @@ line, and inventing one would exceed the three pinned `kind` values).
 | Check | `kind` | Fires when |
 |---|---|---|
 | 1 | `missing_non_uniformity_row` | a `LEVEL` has no `NON-UNIFORMITY` row naming it (P4, verbatim) |
-| 2 | `missing_reductions` | a `NON-UNIFORMITY` row has no `EXCLUDES` line, **or** its `EXCLUDES` does not cover every reduction its level `ADMITS`, **or** either line carries a token outside the four (`[G24:1]`) |
+| 2 | `missing_reductions` | a `NON-UNIFORMITY` row has no `EXCLUDES` line, **or** its `EXCLUDES` does not cover every reduction its level `ADMITS`, **or** either line carries a token outside the four (`[G24:1]`) — **and, independently of any row, a `LEVEL` whose own `ADMITS` carries such a token** (`[G24:12]`; bd#39 round-4 MINOR-A: v4 narrowed the independence sentence below and left this row's subject as a row) |
 | 3 | `seam_not_pinned` | a `SEAM` is missing any of `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION` — **including a `SEAM` with zero property lines** |
 
 The coverage relation in check 2 is **superset, not equality**: `set(excludes) ⊇ set(admits)`. A row excluding
@@ -656,9 +678,11 @@ an unanchored line, and an eager validator emits one with an empty or borrowed `
 
 ## 3. Candidate simulation — the deliverable (`[G22:13]`)
 
-Notation: **✝** marks a fixture added in this lot's round 1; **✝✝** one added in round 2 and **✝✝✝** one added
-in round 3, each closing a gate finding; everything un-daggered is carried **verbatim** from bd#22's round-9
-artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
+Notation: **un-daggered** rows are carried **verbatim** from bd#22's round-9 artifact (`d39371f`,
+`engine_py/tests/test_bd22_contracts.py`) — see §5. Everything **daggered** was added by bd#24 or bd#39 to
+close a gate finding. **The dagger count no longer encodes the round** (bd#39 round-4 MINOR-B: runs of ten
+daggers accumulated while bd#39's rounds all used one, so the notation stopped carrying information); the
+round is named in the row text where it matters, which is what §0.9's coverage diff actually needs.
 
 ### 3.1 Fixture inventory
 
@@ -701,6 +725,8 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | `_SHARED_ANCHOR_SPEC` ✝✝✝✝✝✝✝✝✝ | 2 | a `LEVEL:` interposed between a row and its `EXCLUDES` |
 | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 + 3 | each anchor kind interposed inside another kind's block — the **reverse** cycle of `[G24:10]`'s ordered product |
 | `_REDUCTION_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 | `ADMITS:`/`EXCLUDES:` packed, padded and trailing-padded |
+| `_ROW_ORDER_COVERAGE_SPEC` (bd#39 r5) | 2 | a row and its `EXCLUDES` above the `LEVEL` whose `ADMITS` governs them |
+| `_EMPTY_TOKEN_LIST_SPEC` (bd#39 r5) | 2 | a bare `ADMITS:` and a bare `EXCLUDES:` |
 | `_SEPARATOR_SIDES_SPEC` ✝ | 2 | whitespace before the comma, and a trailing comma |
 | `_TOKEN_VALIDATION_SPEC` ✝ | 1 + 2 | an invalid `ADMITS` on a row-less level, and two orphan lines carrying invalid tokens |
 | `_INDENTED_ADMITS_SPEC` ✝ | 2 | an `ADMITS:` line quoted at an indent inside prose |
@@ -767,6 +793,8 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C2-25 | a **duplicated recognised token in `ADMITS`** treated as a defect ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | `dup_admits_level` admits {any, all} with `any` twice and covers both: conformant. **Gate round-5 MAJOR-3**, the `ADMITS` mirror of round-2's MAJOR-2 |
 | C2-29 | an anchor of one kind **closing a live anchor** of another (`if row: cur_level = None`, `if LEVEL: cur_seam = None`, `if SEAM: cur_row = None`) ✝✝✝✝✝✝✝✝✝✝ | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | the reverse cycle of the three cells already filled; each mutant is the exact mirror of one already killed, and all three passed 47/47. **bd#39 gate round-1 MAJOR-1** — the RED enforced this before the spec recorded it |
 | C2-31 | `ADMITS:` recognised after a **strip** while the other seven markers require flush-left ✝ | `_INDENTED_ADMITS_SPEC` ✝ | a quoted `ADMITS: any, all` **narrows** the admitted set of the level above it, so a genuinely short row reads as complete and its finding is suppressed. **bd#39 round-2 MAJOR-1, type (a)**, confirmed at 50/50 |
+| C2-35 | coverage evaluated **in reading order**, against the admitted set as known when the `EXCLUDES` arrives (bd#39 r5) | `_ROW_ORDER_COVERAGE_SPEC` (bd#39 r5) | `late_admits`' row and `EXCLUDES` precede the `LEVEL` whose narrow `ADMITS` governs them, and cover it exactly: conformant. Inline evaluation sees the default four and flags it. **bd#39 round-4 MAJOR-1**, confirmed at 55/55 — `[G24:9]`'s second consequence, unmeasured because `_ROW_BEFORE_LEVEL_SPEC`'s level has no `ADMITS` |
+| C2-36 | a **bare `ADMITS:`** read as an empty admitted set, clearing every row on that level; a **bare `EXCLUDES:`** read as ignorable (bd#39 r5) | `_EMPTY_TOKEN_LIST_SPEC` (bd#39 r5) | both readings passed 55/55 — the spec decided the input via `[G24:11]` while §6 declared it undecided. **bd#39 round-4 MAJOR-2, type (a)**; closed by `[G24:14]` in the safe direction |
 | C2-33 | whitespace **before** the comma not admitted; a trailing comma yielding an unrecognised empty token ✝ | `_SEPARATOR_SIDES_SPEC` ✝ | `any ,all , first,last` covers four and is conformant — `replace(", ", ",").split(",")` reads `any `/`all ` and flags it. **bd#39 round-3 MAJOR-1, type (a)**, confirmed at 53/53 |
 | C2-34 | an invalid `ADMITS` token requiring a row before it fires; or tokens validated **eagerly** on the line rather than on the bound level ✝ | `_TOKEN_VALIDATION_SPEC` ✝ | exact-set assertion: `bad_admits_no_row` must yield **both** kinds, and the two orphan lines carrying invalid tokens must yield nothing (`[G24:12]`, `[G24:13]`). **bd#39 round-3 MAJOR-2** — a contradiction between two frozen sentences, not a coverage gap |
 | C2-32 | the token separator read as the two-character `", "`; a row operand requiring an em dash, or split on the **last** one ✝ | `_REDUCTION_DELIMITER_SPEC` ✝ | `any,all,first,last` is four tokens, `NON-UNIFORMITY: no_dash_row` discharges its level, and a second em dash inside a description changes nothing (`[G24:11]`) |
@@ -959,7 +987,7 @@ read the other way. So the audit below is now run over every normative clause, n
 | `[G24:5]` unanchored lines | {P2, P3, `[G24:2]`} × {not-a-finding, not-credited-forward} = **6 cells** | not-a-finding: `_ORPHAN_MARKER_LINES_SPEC` assertions 3 and 4 (`[G24:2]`, P3) + `_ADMITS_BASE_CASE_SPEC` assertion 3 (P2, **v9 — the empty cell**). Not-credited-forward: `_FORWARD_CREDIT_SPEC` (`fwd_level`, `Fwd.Seam`) + `_ADMITS_BASE_CASE_SPEC` assertion 1 (P2) |
 | `[G24:6]` undeclared-level row still checked | `_UNDECLARED_LEVEL_ROW_SPEC` — the row is **short** |
 | `[G24:8]` markers at line start | all **eight** markers, enumerated | `LEVEL`, `SEAM`: `_INDENTED_MARKER_SPEC`. `EXCLUDES`: `_ROW_MARKER_CASE_SPEC` (v8). `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION`, `NON-UNIFORMITY`: `_INDENTED_PROPERTY_SPEC` (bd#39 v2). **`ADMITS`: `_INDENTED_ADMITS_SPEC` (bd#39 v3, C2-31)** — v2 declared this row complete at eight and named seven, which is the parent's exit-criterion shape inside the correction written to close round 1 |
-| `[G24:9]` order-independent row binding | `_ROW_BEFORE_LEVEL_SPEC` |
+| `[G24:9]` order-independent row binding | {discharge, coverage} × {row above, row below} = **4 cells** | discharge: `_ROW_BEFORE_LEVEL_SPEC` (above), everywhere (below). Coverage: `_ROW_ORDER_COVERAGE_SPEC` (above, **bd#39 v5** — the empty cell), every `ADMITS`-bearing fixture (below) |
 | `[G24:10]` anchors tracked independently | {`LEVEL`, `SEAM`, row} **ordered** (victim × intruder) = **6 cells**, and the table is then closed | victim `SEAM`/intruder row: `_INTERLEAVED_ANCHORS_SPEC`. Victim `LEVEL`/intruder `SEAM`: `_DISTANT_ADMITS_SPEC` (v10). Victim row/intruder `LEVEL`: `_SHARED_ANCHOR_SPEC` (v11 — v10 recorded `_EXCLUDES_ROW_BINDING_SPEC` here, which kills C2-10, a **different** candidate). The reverse cycle — victim `LEVEL`/intruder row, victim `SEAM`/intruder `LEVEL`, victim row/intruder `SEAM`: `_ANCHOR_CYCLE_SPEC` (**bd#39 v2**, C2-29). Third consecutive round this row was wrong: recorded as one cell, then three with one mis-filled, then three when the text gives six |
 | §2.2 markers case-insensitive | all **eight** markers | `_LOWERCASE_MARKERS_SPEC` + `_MIXED_CASE_MARKERS_SPEC` (five) + `_ROW_MARKER_CASE_SPEC` (the other three, v8) |
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
@@ -977,7 +1005,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 55/55 and every one of the 52 mutants fails at least one test** (v11 figures;
+**Result: the reference passes 57/57 and every one of the 54 mutants fails at least one test** (v11 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 
@@ -1073,11 +1101,13 @@ measures — the defect `[G24:6]` was found to be):
   `[G24:3]`'s collapse — **no longer holds**: the cross-kind case is decided and fixtured
   (`_SAME_SUBJECT_TWO_KINDS_SPEC`). It stays unpinned on its own reason, which is that duplicate
   *declarations* are a different question from cross-kind *subjects*, and no fixture forces it (bd#39 round-3
-  MINOR-B);
+  MINOR-B). `[G24:12]` gives it a second interaction the bullet must name: a level-level finding is now
+  possible independently of rows, so two declarations of one name — one carrying an invalid `ADMITS` — make the
+  **number** of findings depend on this undecided question (bd#39 round-4 advisory);
 - an **empty or whitespace-only operand** (`LEVEL:`, `SEAM: `), which would make `Finding.subject` the empty
   string — **and, since `[G24:11]`, the second route to one**: a row whose em dash comes first
   (`NON-UNIFORMITY: — description`), whose operand is empty by that clause (bd#39 round-3 advisory);
-- an `EXCLUDES:` line with an **empty token list**;
+- ~~an `EXCLUDES:` line with an **empty token list**~~ — **decided in v5 by `[G24:14]`** (no coverage, so the row is short) and removed from this list. It was declared undecided here while `[G24:11]` determined it, which is two frozen sentences about one input (bd#39 round-4 MAJOR-2);
 - **multiplicity of anchored lines under one anchor**: two `ADMITS` lines under one `LEVEL`, or two `EXCLUDES`
   lines under one row — union, last-wins, or a finding? Decided for property lines (`[G24:4]`: a set, repetition
   collapsed) and declared here for the other two. Noted rather than pinned because no fixture forces the

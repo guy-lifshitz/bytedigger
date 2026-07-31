@@ -4,7 +4,7 @@ One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
 file keeps its name. Renaming it would break the containment script's path to
 bd#22's round-9 artifact and buy nothing.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v3**, FROZEN under this
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v5**, FROZEN under this
 lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
@@ -3363,3 +3363,147 @@ class TestQuantifierCompletenessLintBd39GateRound3:
             ("missing_non_uniformity_row", "bad_admits_no_row"),
             ("missing_reductions", "bad_admits_no_row"),
         }
+
+
+# =========================================================================
+# PART 12 -- bd#39 gate round 4. One inherited, one type (a) against v4's
+# own extension.
+# =========================================================================
+
+# ── MAJOR-1: `[G24:9]` has TWO consequences and one was measured ───────────
+# "Position is not part of the binding" has two observable consequences: the
+# level is DISCHARGED (check 1 silent), and the level's `ADMITS` GOVERNS that
+# row's coverage (check 2 evaluated against it). `_ROW_BEFORE_LEVEL_SPEC`
+# measures the first only -- `late_level` carries no `ADMITS` and covers all
+# four, which is also the default, so the second is satisfied identically under
+# either evaluation order. That is `[G24:5]`'s 3x2 correction one clause over.
+#
+# Verified empty across the set: for the two readings to diverge a document
+# needs a row whose `EXCLUDES` is read BEFORE its level's `ADMITS` is declared,
+# with that `ADMITS` narrower than four. In every fixture carrying an `ADMITS`
+# the line precedes the `EXCLUDES` it governs -- including `_ANCHOR_CYCLE_SPEC`,
+# where the `ADMITS` sits after the row but still before its `EXCLUDES`.
+#
+# `coverage_in_reading_order` -- check 2 evaluated inline against the admitted
+# set as known at that point -- passed 55/55. It is this lot's dominant
+# candidate family (C2-10, C2-27, C2-28, C3-19, C2-29 were all single-pass
+# "current declaration" shapes), applied to the comparison rather than to the
+# binding, and it over-fires on a document shape `[G24:9]` exists to declare
+# legal.
+_ROW_ORDER_COVERAGE_SPEC = """\
+# Fixture Spec — a row and its EXCLUDES above the LEVEL whose ADMITS governs them
+
+NON-UNIFORMITY: late_admits — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: late_admits
+ADMITS: any, all
+
+LEVEL: order_short
+ADMITS: any, all, first, last
+NON-UNIFORMITY: order_short — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+# ── MAJOR-2 (type (a)): v4's "an empty token is ignored" ───────────────────
+# The extension is right for the trailing comma, which `_SEPARATOR_SIDES_SPEC`
+# measures. But it was stated over tokens IN GENERAL and so reached two inputs
+# it was not written for, silently and in the PERMISSIVE direction:
+#
+#   `EXCLUDES:` with an empty list -- which §6 still declared UNPINNED, so the
+#   spec simultaneously decided the input and declared it undecided;
+#   `ADMITS:` with an empty list -- and this is the one that bites. §2.2 pins
+#   "ABSENT means all four"; a bare `ADMITS:` is PRESENT. Under v4's literal
+#   reading its token set is empty, so `set(excludes) >= set()` holds for EVERY
+#   row and the level's row is conformant no matter how short. An
+#   under-enumeration ships green -- the AC's founding defect, produced by the
+#   clause `[G24:1]`'s symmetric rule was minted to prevent.
+#
+# Before v4 both had a determinate and SAFE answer: the empty string was a token
+# outside the four, so `[G24:1]` made it a finding. v4 changed that answer with
+# no §3 row and no coverage diff. Both readings confirmed at 55/55.
+#
+# `[G24:14]` decides it in the safe direction: an empty token list is NOT an
+# empty admitted set. For `ADMITS` it is treated as ABSENT (default four); for
+# `EXCLUDES` it is no coverage, so the row is short.
+_EMPTY_TOKEN_LIST_SPEC = """\
+# Fixture Spec — marker lines whose operand contributes zero tokens
+
+LEVEL: bare_admits
+ADMITS:
+NON-UNIFORMITY: bare_admits — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: bare_excludes
+NON-UNIFORMITY: bare_excludes — fixture set has >=2 members, one violating, plus control
+EXCLUDES:
+
+LEVEL: empty_control
+NON-UNIFORMITY: empty_control — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound4:
+    """`[G24:9]`'s coverage consequence, and `[G24:14]`'s empty token list."""
+
+    def test_ac_c5_admits_governs_coverage_regardless_of_reading_order(self):
+        """AC-C5(2). bd#39 gate round-4 MAJOR-1, spec C2-35. `[G24:9]` says
+        position is not part of the binding, which has TWO consequences: the
+        level is discharged, and its `ADMITS` governs that row's coverage.
+        `_ROW_BEFORE_LEVEL_SPEC` measures the first only, because `late_level`
+        has no `ADMITS` and covers all four -- the default -- so the second is
+        satisfied identically under either evaluation order.
+
+        Here the row and its `EXCLUDES` are read before `late_admits` is
+        declared, and that level admits only {any, all}, which the row covers
+        exactly: conformant. A lint evaluating coverage inline, against the
+        admitted set as known when the `EXCLUDES` arrives, sees the default
+        four and flags a conformant row -- F-1's over-firing class on a
+        document shape `[G24:9]` exists to declare legal. `order_short` is the
+        positive discriminator and the last assertion catches the check-2 to
+        check-1 inversion.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ROW_ORDER_COVERAGE_SPEC)
+
+        assert not any(f.subject == "late_admits" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "order_short"
+            for f in findings
+        )
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+    def test_ac_c5_empty_token_list_is_not_an_empty_admitted_set(self):
+        """AC-C5(2). bd#39 gate round-4 MAJOR-2 (type (a)), spec `[G24:14]` /
+        C2-36. v4 extended `[G24:11]` with "an empty token is ignored" -- right
+        for the trailing comma it was written for, and stated over tokens in
+        general, so it reached two inputs it was not written for and moved both
+        in the PERMISSIVE direction with no §3 row and no coverage diff.
+
+        A bare `ADMITS:` is PRESENT, not absent, so under the literal v4
+        reading its admitted set is empty and `set(excludes) >= set()` holds
+        for every row -- a level whose rows are conformant however short they
+        are, which is this AC's founding defect produced by the clause
+        `[G24:1]` was minted to prevent. `[G24:14]` decides it in the safe
+        direction: an empty token list is not an empty admitted set. For
+        `ADMITS` it reads as ABSENT, so `bare_admits` takes the default four
+        and its two-token row is short. For `EXCLUDES` it is no coverage, so
+        `bare_excludes` is short too. Both must be flagged; `empty_control`
+        must not, so a lint that flags every row fails as well.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_EMPTY_TOKEN_LIST_SPEC)
+
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "bare_admits"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "bare_excludes"
+            for f in findings
+        )
+        assert not any(f.subject == "empty_control" for f in findings)
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
