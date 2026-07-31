@@ -1,6 +1,6 @@
 # Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v11, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+**v12, FROZEN under THIS lot's number. ACCEPTED by gate round 11.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
 worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
 
 **AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
@@ -474,6 +474,23 @@ requirement named. Round 4 rejected on exactly that.
      because its table row already shows one cell — the row having one cell is the claim under audit. Axes are
      re-derived from the clause's **text** each round, never inherited from its existing row. Gate round 7:
      `[G24:10]` said "the two anchors", had three, and its single-cell row meant the cell rule never engaged.
+   - **(3e) (bd#39 v12, gate round-11 ruling)** There are **three** dispositions for a cell, not two, and they
+     are different kinds of claim: **by fixture**; **by construction** — *no input breaks the reason*; and
+     **declared out on input implausibility, with the judgement stated** — *no plausible document contains
+     this input*. (3d) exists precisely to stop the last two being written the same way, since the third is
+     reopenable by a consuming lot producing such a document and the second is not.
+     **The two-legged test for the interior axis**, recorded as the reason rather than the conclusion: a
+     character class enters the axis only if **(i)** some clause assigns it a delimiter role **and** **(ii)** a
+     hand-written document plausibly contains it inside a name. The **colon** satisfies both — this AC is
+     about seams named by attribute path and `pkg.module:function` is the setuptools entry-point convention.
+     The **comma** and the **em dash** satisfy (i) only: nobody names a level `a,b` or a seam `a—b`. A
+     surviving mutant exists for each and neither is fixtured, because a fixture whose input no document would
+     contain buys an assertion against a defect nobody can commit — *inventing a clause per corner*, which is
+     what `[G24:6]` was found to be, one register out. **That test is also what makes the axis finite.**
+     Likewise `LEVEL : phases`: the marker token is `LEVEL:`, so `LEVEL :` is not a marker and declares
+     nothing; `^([A-Za-z-]+)\s*:` survives, but eight markers plus case-insensitivity push implementations
+     toward `line.upper().startswith(m + ":")`, which rejects it, and a spec document does not contain a prose
+     line beginning with an all-caps marker word and a space-colon. Declared out on both legs.
    - **(3d) (bd#39 v11)** **Every "by construction" cell states the reason AND the input on which the reason
      would fail.** A by-construction cell asserts that no fixture is needed, and it is the only place in this
      method where a claim is recorded with nothing that could contradict it. Of the last four such claims
@@ -1132,7 +1149,7 @@ read the other way. So the audit below is now run over every normative clause, n
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
 | §2.1 must not raise; `Finding` shape | `_MALFORMED_SPEC`, `""`, `"LEVEL: phases"` (F-2/F-3/F-4) and the `is_dataclass`/`FrozenInstanceError`/field-set assertions (F-7, F-9) |
-| `[G24:7]`/P1 what the operand IS — **{framing, interior}** (bd#39 v9; v8 enumerated framing only, §0.9(3a)). Framing: **19 of 24 cells by fixture, 5 by construction** — the three property markers share one dispatch branch, so `Whitespace.Only` collapses two trailing cells and all three terminator cells (round-8 MINOR-A: v8 declared 24 and accounted for 15). Interior: **{space, repeated space, colon, comma} × the operand-bearing markers** (bd#39 v10: one cell per marker was what let the space stand for every character, §0.9(3a) one grain down). Filled by `_INTERIOR_SPACE_SPEC`, `_OPERAND_CHARACTER_SPEC` and `_TOKEN_INTERIOR_SPEC`. **BY CONSTRUCTION, with the input that would break the reason stated beside it** (bd#39 round-10 discipline): *property* operands — an interior character cannot change whether a string is empty, and emptiness is all that is tested, so **no input breaks it**; that is what makes the cell genuinely closed. The *reduction* operands were recorded closed in v10 on the reason that they never become a `subject` — **true and irrelevant**, since their interior feeds **recognition** (`[G24:1]`), not `subject`. The sentence could not be written for them, and the attempt is what exposed the gap (bd#39 round-10 MAJOR) | {terminator, trailing, leading} × the **eight operand-bearing markers** {`LEVEL`, `SEAM`, `NON-UNIFORMITY`, `ADMITS`, `EXCLUDES`, `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION`} = **24 cells** — five markers until `[G24:15]` made property operands matter (bd#39 round-7 MAJOR-2, §0.9(3a): the row saying five was the claim under audit) | `LEVEL`/`SEAM`: `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC`, `_OPERAND_SPACING_SPEC`. `NON-UNIFORMITY`: `_ROW_OPERAND_SPACING_SPEC` (v9). `ADMITS`/`EXCLUDES`: `_REDUCTION_OPERAND_SPACING_SPEC` (bd#39 v2, C2-30). The three **property** markers: `_PROPERTY_OPERAND_FRAMING_SPEC` (**bd#39 v8**, C3-24) — every reduction line in 43 fixtures wrote exactly one space after its colon, so a fixed offset on those lines alone passed 48/48 |
+| `[G24:7]`/P1 what the operand IS — **{framing, interior}** (bd#39 v9; v8 enumerated framing only, §0.9(3a)). Framing: **19 of 24 cells by fixture, 5 by construction** — the three property markers share one dispatch branch, so `Whitespace.Only` collapses two trailing cells and all three terminator cells (round-8 MINOR-A: v8 declared 24 and accounted for 15). Interior: **{space, repeated space, colon} × the operand-bearing markers** — plus **comma and em dash, DECLARED OUT on input implausibility** (§0.9(3e), gate round-11 ruling): both satisfy the delimiter-role leg and neither satisfies the plausible-document leg, so a surviving mutant exists for each and neither is fixtured. Reopenable if a consuming lot ever produces such a document; that is what distinguishes this disposition from *by construction*, where no input breaks the reason at all (bd#39 v10: one cell per marker was what let the space stand for every character, §0.9(3a) one grain down). Filled by `_INTERIOR_SPACE_SPEC`, `_OPERAND_CHARACTER_SPEC` and `_TOKEN_INTERIOR_SPEC`. **BY CONSTRUCTION, with the input that would break the reason stated beside it** (bd#39 round-10 discipline): *property* operands — an interior character cannot change whether a string is empty, and emptiness is all that is tested, so **no input breaks it**; that is what makes the cell genuinely closed. The *reduction* operands were recorded closed in v10 on the reason that they never become a `subject` — **true and irrelevant**, since their interior feeds **recognition** (`[G24:1]`), not `subject`. The sentence could not be written for them, and the attempt is what exposed the gap (bd#39 round-10 MAJOR) | {terminator, trailing, leading} × the **eight operand-bearing markers** {`LEVEL`, `SEAM`, `NON-UNIFORMITY`, `ADMITS`, `EXCLUDES`, `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION`} = **24 cells** — five markers until `[G24:15]` made property operands matter (bd#39 round-7 MAJOR-2, §0.9(3a): the row saying five was the claim under audit) | `LEVEL`/`SEAM`: `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC`, `_OPERAND_SPACING_SPEC`. `NON-UNIFORMITY`: `_ROW_OPERAND_SPACING_SPEC` (v9). `ADMITS`/`EXCLUDES`: `_REDUCTION_OPERAND_SPACING_SPEC` (bd#39 v2, C2-30). The three **property** markers: `_PROPERTY_OPERAND_FRAMING_SPEC` (**bd#39 v8**, C3-24) — every reduction line in 43 fixtures wrote exactly one space after its colon, so a fixed offset on those lines alone passed 48/48 |
 | §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
 
 ### Round 3 — EXECUTED candidate simulation, not reasoned
