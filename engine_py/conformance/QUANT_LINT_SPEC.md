@@ -1025,6 +1025,57 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 
 ## 5. Coverage diff for this round — the §0.9 obligation
 
+### 5.0 GREEN — landed, and what the landing measured
+
+`conformance/quant_lint.py` implements `[G22:18]`'s placeholder. Written **from §2**, not from the validation
+harness, which is the one reason the harness was withheld; that reason has now expired and §5's disposal is
+executed below.
+
+> **MEASURED, on the REBASED base — `d8fa5e6`, the current head of `main`.** RED: **64 passed, 0 failed** (the
+> same file failed 64/64 at `ebc44b1`, so no test pre-passed — §4's obligation, re-checked by stashing GREEN
+> rather than asserted). Full suite: **4372 passed, 6 skipped, 0 failed** against `d8fa5e6`'s **4308** —
+> **4308 + 64, outside-lot delta 0**, and the same 5 pre-existing warnings as the RED-era run. Containment:
+> 17/17 carried fixtures, 20/20 carried test bodies, 0 modified.
+
+**§0.7 governs which base, and the rebase is why the rule needed its second half.** Measurements are
+base-relative and do not transfer — so `f589cd9` and `d8fa5e6` were correctly **not** this branch's baseline
+while the branch stood on `08b8413` (§1: 4227 + 64 = **4291**, measured and recorded before the rebase). The
+moment the branch is offered for merge, the base is obliged to BE the current head, or the green is false: a
+branch can read `CLEAN` with its CI passing while `git merge-base --is-ancestor origin/main HEAD` refuses,
+which is what happened to bd#8 the same day. Both numbers are kept above rather than one overwriting the
+other, because a re-measured figure that silently replaces its predecessor destroys the evidence that the
+delta — **+64, and nothing else** — held across a base change.
+
+**The acceptance requirement is discharged by EXECUTION, not by report** (§0.0). Mutant **#29**
+(`fixed_offset_operand`) was applied **to the shipped implementation** and run: **60 passed, 4 failed** — the
+two tests named at the freeze (`…operand_spacing_other_than_one_space`, `…row_operand_extraction_path`) plus
+the two later rounds added on the marker families that became operand-bearing after it
+(`…reduction_line_operand_framing`, `…property_operand_framing`). It dies, and it dies wider than predicted.
+
+**Disposal executed** (gate round-3 MINOR-D): the matrix is committed as
+`engine_py/tests/_bd24_mutation_matrix.py`, beside the containment script. It is a **strengthening rather than
+a port** — the mutants are now source substitutions applied to the **shipped** module, so "candidate C dies" is
+a statement about the delivered code instead of about an author-shared stand-in, and a substitution whose
+anchor no longer matches is a hard error rather than a silent skip. **74 mutants: 73 die.**
+
+**ONE SURVIVOR, and it is a real fixture gap rather than a defect in GREEN — referred, not closed.**
+`no_collapse` (drop `[G24:3]`'s `(kind, subject)` guard) survives at **zero divergence over all 59 fixtures**.
+Adjudicated per round 7's rule rather than discarded, and the adjudication lands on the **second** branch: the
+guard is genuinely unreachable on the fixture set, and reachable on an input no fixture carries. Both halves of
+that input are already in the file **separately** — an invalid `ADMITS` on a level (`_TOKEN_VALIDATION_SPEC`)
+and a row with no `EXCLUDES` (`_CHECK2_SPEC`) — and never in one document:
+
+```
+LEVEL: x / ADMITS: bogus / NON-UNIFORMITY: x — described     (no EXCLUDES)
+```
+
+`[G24:12]` fires on the level and check 2 fires on the row, **same `kind`, same `subject`, two independent
+grounds**. Shipped: one finding. Without the guard: two. So `[G24:3]` is measured for duplicates arising within
+one ground (C2-9, C3-9 — `per_missing_reduction` and `per_missing_property` each die) and **unmeasured across
+two**, which is §0.9(3)'s own cell rule applied to `[G24:3]`: the clause has two axes and §5 recorded one.
+GREEN is correct here — it collapses — so this is a RED obligation, and the spec is FROZEN and ACCEPTED, so it
+is **reported to the dispatcher rather than fixed inside the round that found it**.
+
 **Direction 1 — deletions and modifications: NONE.** This round's fixture set is a strict superset of bd#22's
 round-9 AC-C5 set. Every fixture constant carried from `d39371f` is byte-identical, and every round-9 AC-C5
 test function is present. Mechanically verifiable:
