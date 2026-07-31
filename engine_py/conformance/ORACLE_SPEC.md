@@ -683,7 +683,7 @@ carrying the falsified kill-claim; the RED docstring reconciled with §5 (MAJOR 
 simulation table executed as code**: reference 37/37, 37 mutants all killed, 2 admissible designs
 passing.
 
-Process: manual Option-D — frozen spec → RED → gate (`hal-gate-agent`, Opus) → GREEN.
+Process: frozen spec → RED → independent validation gate → GREEN.
 **GREEN does not start before an ACCEPTED verdict.**
 
 ---
