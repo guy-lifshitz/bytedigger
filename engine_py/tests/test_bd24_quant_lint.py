@@ -4,7 +4,7 @@ One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
 file keeps its name. Renaming it would break the containment script's path to
 bd#22's round-9 artifact and buy nothing.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v1**, FROZEN under this
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v3**, FROZEN under this
 lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
@@ -33,9 +33,12 @@ clause. Parts 5-8 were cut after that criterion should have fired and did not,
 because the dispatch channel was returning `state=busy` (hal#1512). Their
 findings are real, every one confirmed by execution, and spec §0.0 carries them
 as this lot's INPUT REQUIREMENTS -- they are not rediscoverable work. The last
-of them, `_ANCHOR_CYCLE_SPEC`, is present but its round is **not** declared
-closed: deleting a fixture that kills three confirmed candidates is the exact
-act that rejected bd#22 round 4, so it stays and this lot's gate rules on it.
+of them, `_ANCHOR_CYCLE_SPEC`, was carried in unclosed -- deleting a fixture
+that kills three confirmed candidates is the exact act that rejected bd#22
+round 4 -- and referred to this lot's gate. **bd#39 round 1 ruled**: the
+finding is sound, the fixture non-vacuous, the clause pinned. The deferral also
+produced the inverse of the usual defect -- the RED enforcing a semantic the
+frozen spec did not record -- which spec §0.0 v2 records and closes.
 
 STRUCTURE, and it is deliberate (spec §0.9 / §5, the coverage-diff
 obligation). Part 1 below is bd#22's round-9 AC-C5 artifact
@@ -3004,3 +3007,209 @@ class TestQuantifierCompletenessLintBd39GateRound1:
             for f in findings
         )
         assert not any(f.subject == "Flush.Conformant" for f in findings)
+
+
+# =========================================================================
+# PART 10 -- bd#39 gate round 2. Two MAJORs, plus the four adversarial edges
+# the gate raised twice and said it would not restate.
+# =========================================================================
+
+# ── MAJOR-1 (type (a), against the row THIS lot rewrote last round) ────────
+# v2's `[G24:8]` row declares the axis as "all EIGHT markers" and then names
+# seven: LEVEL and SEAM, EXCLUDES, the three property markers, NON-UNIFORMITY.
+# `ADMITS` is in no cell and in no fixture -- there is no indented `ADMITS:`
+# anywhere in the file. That is a fix leaving one member of its own enumeration
+# unfilled while declaring the enumeration complete: the shape the parent's exit
+# criterion turned on, now inside the correction written to close round 1.
+#
+# `ADMITS:` gets its own dispatch branch in any natural line classifier (the
+# three property markers share one, which is why C3-21's mutant is one line --
+# `ADMITS`' is likewise one), and this lot has now found `ADMITS` to be the
+# separately-handled marker FOUR times: its base case, its duplicate rule, its
+# distance axis, its framing cell. Assuming it covered by the branch beside it
+# is the inference all four rejected. Confirmed: `indented_admits` passed 50/50.
+#
+# The consequence is the suppression class one marker over from C3-21: a quoted
+# `ADMITS: any, all` NARROWS the admitted set of the level above it, so a
+# genuinely short row reads as complete and its finding is suppressed. A worked
+# example quoted in prose silences a real finding about the level above it.
+_INDENTED_ADMITS_SPEC = """\
+# Fixture Spec — an ADMITS line quoted at an indent inside prose
+
+LEVEL: quoted_admits_level
+
+A worked example, quoted at an indent so that it declares nothing:
+
+    ADMITS: any, all
+
+NON-UNIFORMITY: quoted_admits_level — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: flush_control
+ADMITS: any, all
+NON-UNIFORMITY: flush_control — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+# ── MAJOR-2: `[G24:3]`'s (different kind, same subject) cell ───────────────
+# `[G24:3]` pins "at most ONE finding per (kind, subject) PAIR". A pair is two
+# axes, and §5 recorded the clause as a single cell -- which §0.9(3a) says is
+# the claim under audit. The (different kind, same subject) cell was empty by
+# construction: level names in this file are bare identifiers and seam names are
+# dotted, so no name was ever both, and nothing distinguished collapse-by-pair
+# from collapse-by-subject. `dedup_by_subject_only` confirmed at 50/50.
+#
+# A collapse step MUST exist -- that is why the clause was minted, since
+# `per_missing_reduction` and `per_missing_property` are both plausible -- and
+# keying it on `subject` alone is one of exactly two natural spellings of it.
+# It silently drops one of two real findings, and WHICH one depends on emission
+# order, which §2.5 leaves unspecified across inputs.
+_SAME_SUBJECT_TWO_KINDS_SPEC = """\
+# Fixture Spec — one name declared as both a LEVEL and a SEAM
+
+LEVEL: cache
+
+SEAM: cache
+
+LEVEL: distinct_control
+NON-UNIFORMITY: distinct_control — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+SEAM: Distinct.Control
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
+# ── The four adversarial edges, closed rather than restated a third time ───
+# `[G24:11]` pins what the delimiters ARE, which is the same move `[G24:7]`
+# made for the operand's framing: the token separator is a comma with optional
+# surrounding whitespace, and a row's `<level>` operand is the text up to the
+# FIRST em dash, or the whole operand when there is none.
+#
+# `no_space_tokens` is conformant only if the separator is the comma and not
+# the two-character `", "` -- a `split(", ")` lint reads one token
+# `any,all,first,last`, unrecognised under `[G24:1]`, and flags a conformant
+# row. `no_dash_row` carries no em dash at all: a lint requiring one binds the
+# row to nothing and reports the level as row-less. `two_dash_row` has a second
+# em dash inside its description: a lint splitting on the LAST dash takes the
+# operand `two_dash_row — fixture set is non-uniform`, which matches no level,
+# so again the level is reported row-less. `delim_short` is the positive
+# discriminator.
+_REDUCTION_DELIMITER_SPEC = """\
+# Fixture Spec — token separators and row-operand delimiters
+
+LEVEL: no_space_tokens
+NON-UNIFORMITY: no_space_tokens — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any,all,first,last
+
+LEVEL: no_dash_row
+NON-UNIFORMITY: no_dash_row
+EXCLUDES: any, all, first, last
+
+LEVEL: two_dash_row
+NON-UNIFORMITY: two_dash_row — fixture set is non-uniform — in both orderings
+EXCLUDES: any, all, first, last
+
+LEVEL: delim_short
+NON-UNIFORMITY: delim_short — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound2:
+    """`[G24:8]`'s eighth marker, `[G24:3]`'s second axis, and `[G24:11]`."""
+
+    def test_ac_c5_indented_admits_line_is_prose(self):
+        """AC-C5(2). bd#39 gate round-2 MAJOR-1 (type (a)), spec C2-31.
+        v2's `[G24:8]` row declared "all eight markers" and enumerated seven --
+        no indented `ADMITS:` existed anywhere in the file, so a lint
+        recognising `ADMITS:` after a strip while requiring the other seven
+        flush-left passed 50/50.
+
+        `quoted_admits_level` has no `ADMITS` of its own once the indented one
+        is read as prose, so it takes the default four and its two-token
+        `EXCLUDES` is short: it MUST be flagged. Under the surviving lint the
+        quoted `ADMITS` narrows its admitted set to {any, all}, the row reads
+        as complete, and the finding is suppressed -- a worked example quoted
+        in prose silencing a real finding about the level above it, which is
+        C3-21's suppression class one marker over. `flush_control` declares
+        the same `ADMITS` flush-left and is genuinely conformant, so a lint
+        that ignores `ADMITS` everywhere is caught by the second assertion.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_INDENTED_ADMITS_SPEC)
+
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "quoted_admits_level"
+            for f in findings
+        )
+        assert not any(f.subject == "flush_control" for f in findings)
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+    def test_ac_c5_same_subject_different_kinds_are_not_collapsed(self):
+        """AC-C5(1) and AC-C5(3). bd#39 gate round-2 MAJOR-2, spec C-COLLAPSE.
+        `[G24:3]` pins one finding per `(kind, subject)` PAIR -- two axes -- and
+        the (different kind, same subject) cell was empty by construction:
+        every level name in the file is a bare identifier and every seam name
+        is dotted, so no name was ever both, and collapse-by-pair was
+        indistinguishable from collapse-by-`subject`.
+
+        `cache` is declared as a row-less `LEVEL` and as a bare `SEAM`, so the
+        correct output carries BOTH `("missing_non_uniformity_row", "cache")`
+        and `("seam_not_pinned", "cache")`. A lint keying its collapse on
+        `subject` alone emits one and silently drops the other -- and which one
+        it drops depends on emission order, which §2.5 leaves unspecified
+        across inputs, so the defect is non-deterministic in which real finding
+        it suppresses. The two controls are conformant, so a lint that flags
+        everything is caught as well.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_SAME_SUBJECT_TWO_KINDS_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "cache"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "cache"
+            for f in findings
+        )
+        assert not any(f.subject == "distinct_control" for f in findings)
+        assert not any(f.subject == "Distinct.Control" for f in findings)
+
+    def test_ac_c5_token_and_row_operand_delimiters(self):
+        """AC-C5(1) and AC-C5(2). Spec `[G24:11]` / C2-32, closing the four
+        adversarial edges the gate raised in bd#39 rounds 1 and 2 and declined
+        to restate a third time. `[G24:11]` pins what the delimiters ARE --
+        the same move `[G24:7]` made for the operand's framing: the token
+        separator is a **comma with optional surrounding whitespace**, and a
+        row's `<level>` operand is the text up to the **first** em dash, or the
+        whole operand when there is none.
+
+        `no_space_tokens` writes `any,all,first,last`: conformant only if the
+        separator is the comma, since a `split(", ")` lint reads one
+        unrecognised token and flags a conformant row -- and that is not a
+        contrived spelling, it is what this lot's own confirmed mutant
+        `fixed_offset_reduction_operand` used. `no_dash_row` carries no em dash
+        at all, so a lint requiring one binds the row to nothing and reports
+        the level as row-less. `two_dash_row` carries a second em dash inside
+        its description, so a lint splitting on the last dash takes an operand
+        matching no level, with the same consequence. `delim_short` is the
+        positive discriminator, and the final assertion catches all three
+        binding failures at once, since every level here carries a row.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_REDUCTION_DELIMITER_SPEC)
+
+        assert not any(f.subject == "no_space_tokens" for f in findings)
+        assert not any(f.subject == "no_dash_row" for f in findings)
+        assert not any(f.subject == "two_dash_row" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "delim_short"
+            for f in findings
+        )
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
