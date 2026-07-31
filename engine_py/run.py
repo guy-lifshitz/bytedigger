@@ -102,6 +102,105 @@ def parse_ctx(args) -> WorkflowContext:
     )
 
 
+def _oracle_refusal_result(code: str, message: str) -> StepResult:
+    """`[bd8:6a]`: a refusal is a StepResult, never a raise.
+
+    Raising past main()'s try block would be mapped to E_RUNNER (or
+    E_FILE_NOT_FOUND) and hide every oracle refusal from the restart governor,
+    `--status` and `derive_state`. `recoverable=False` matters too:
+    restart_governor exempts recoverable codes from its short-circuit.
+    """
+    return StepResult(
+        status="error", data=None, duration_ms=0, step_name="oracle_verify",
+        error=message, error_code=code, recoverable=False,
+    )
+
+
+def _oracle_scratchpad(ctx) -> str | None:
+    return (getattr(ctx, "org_config", None) or {}).get("scratchpad_dir")
+
+
+def _oracle_entry_verify(args, ctx, run_id: str) -> "StepResult | None":
+    """bd#8 `[bd8:6]` ENTRY verify. Returns a refusal StepResult, or None."""
+    from conformance import oracle  # noqa: PLC0415 — deferred; §1f keeps run.py thin
+
+    if not oracle.is_implementing_workflow(args.workflow):
+        return None  # `[bd8:7]`: a run in neither set is untouched
+    try:
+        events = oracle.read_log_events(args.event_log)
+        frozen = oracle.find_last_freeze(events, run_id)
+        if frozen is None:
+            # `[bd8:9]`/AC-15: absence of a freeze is not permission, and a
+            # logless implementing phase is the strongest case of absence.
+            return _oracle_refusal_result(
+                "E_ORACLE_UNFROZEN",
+                "no oracle freeze for this invocation in the event log"
+                + ("" if args.event_log else " (no --event-log was given)"),
+            )
+        oracle.verify_against(frozen["payload"], _oracle_scratchpad(ctx))
+    except oracle.OracleRefusal as e:
+        return _oracle_refusal_result(e.code, e.message)
+    return None
+
+
+def _oracle_after_execute(args, ctx, run_id: str, result) -> "StepResult | None":
+    """bd#8 `[bd8:6]` FREEZE (oracle phase) and EXIT verify (implementing phase).
+
+    The exit verify runs regardless of `result`'s own status; the freeze runs
+    only after a successful oracle-phase execute().
+    """
+    from conformance import oracle  # noqa: PLC0415 — deferred; §1f
+
+    scratchpad = _oracle_scratchpad(ctx)
+    try:
+        if oracle.is_implementing_workflow(args.workflow):
+            events = oracle.read_log_events(args.event_log)
+            frozen = oracle.find_last_freeze(events, run_id)
+            if frozen is None:
+                return _oracle_refusal_result(
+                    "E_ORACLE_UNFROZEN",
+                    "no oracle freeze for this invocation in the event log",
+                )
+            oracle.verify_against(frozen["payload"], scratchpad)
+            return None
+
+        if not oracle.is_oracle_workflow(args.workflow):
+            return None  # `[bd8:7]`
+        if not args.event_log:
+            return None  # `[bd8:6b]`: nowhere to record a digest; not a refusal
+        if result.status not in ("ok", "skip"):
+            return None  # `[bd8:6]`: freeze only after a SUCCESSFUL execute()
+
+        events = oracle.read_log_events(args.event_log)
+        if oracle.has_sentinel_resume(events, run_id):
+            return None  # `[bd8:10b]`: a resume is not a re-entry
+
+        if not scratchpad:
+            raise oracle.OracleRefusal(
+                "E_ORACLE_INDETERMINATE",
+                "oracle phase carries no org_config['scratchpad_dir']; there is no "
+                "document directory to freeze",
+            )
+        crosscheck = oracle.crosscheck_from_payload(
+            oracle.last_phase_artifacts(events, args.workflow, run_id))
+        previous = oracle.find_last_freeze(events, run_id)
+        if previous is None:
+            payload = oracle.build_freeze_payload(
+                args.workflow, run_id, scratchpad, crosscheck)
+            event_type = oracle.FROZEN_EVENT
+        else:
+            # `[bd8:10]`: re-entry AMENDS; it never emits a second freeze.
+            payload = oracle.build_amendment_payload(
+                args.workflow, run_id, scratchpad,
+                (getattr(ctx, "org_config", None) or {}).get(oracle.AMENDMENT_REASON_KEY),
+                previous["payload"].get("digest"), crosscheck)
+            event_type = oracle.AMENDED_EVENT
+        get_event_sink(args.event_log).append(event_type, payload, run_id)
+    except oracle.OracleRefusal as e:
+        return _oracle_refusal_result(e.code, e.message)
+    return None
+
+
 def main() -> int:
     if sys.argv[1:2] == ["doctor"]:
         from doctor import doctor_main
@@ -187,6 +286,14 @@ def main() -> int:
         if _denial is not None:
             print(json.dumps(_denial))
             return 1
+        # bd#8 `[bd8:6]` call site 1/3 — ENTRY verify, BEFORE the implementing
+        # phase's execute(). Fail-fast: it stops an implementation from being
+        # built over an oracle that was already mutated, and the fact that the
+        # phase's steps never ran is what distinguishes it from the exit verify.
+        _oracle_refusal = _oracle_entry_verify(args, ctx, _resolved_run_id)
+        if _oracle_refusal is not None:
+            print(json.dumps(asdict(_oracle_refusal), default=str))
+            return 1
         _ret = execute_durable_workflow(
             args.workflow,
             asdict(ctx),
@@ -204,6 +311,19 @@ def main() -> int:
             recoverable=_ret.get("recoverable", True),
             # metadata omitted — default_factory=dict gives {}; bun toHaveProperty("metadata") passes
         )
+        # bd#8 `[bd8:6]` call sites 2/3 and 3/3 — the FREEZE (after a successful
+        # oracle-phase execute()) and the EXIT verify (after the implementing
+        # phase's execute() returns, REGARDLESS of its own outcome: a phase that
+        # failed for an unrelated reason may still have mutated the oracle).
+        #
+        # PLACEMENT IS LOAD-BEARING: this sits ABOVE governor_record_result
+        # below, because `[bd8:6a]`'s whole purpose is that an oracle refusal
+        # reaches the restart governor, which reads result.error_code and
+        # result.recoverable. Verifying below it would record the phase's own
+        # code instead and repeated oracle refusals would never short-circuit.
+        _oracle_result = _oracle_after_execute(args, ctx, _resolved_run_id, result)
+        if _oracle_result is not None:
+            result = _oracle_result
         if args.event_log:
             # GH576 C474E073: PAUSED lane budget exemption — a spend-limit
             # pause refunds the start instead of recording a countable error.
