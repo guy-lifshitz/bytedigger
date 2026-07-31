@@ -1,6 +1,6 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v8, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v9, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
@@ -149,6 +149,39 @@ Self-caught in the same pass: §3.1's inventory was missing `_TRAILING_WHITESPAC
 `_OPERAND_SPACING_SPEC`, added in v6 and v7 with candidate rows but never listed. A table that claims to
 enumerate the fixture set and does not is the same defect one register down; both rows added.
 
+**v9 — gate round 6 returned REJECTED with one MAJOR, and with the answer to the question v8 asked.**
+
+The MAJOR: `[G24:5]` states **two** consequences for each of its **three** anchor rules — an unanchored line is
+not itself a finding, and is not credited forward. That is a **3 × 2 grid, and P2's not-a-finding cell was
+empty**. `levels.setdefault(cur_level or "", …)` registers a level named `""` from the orphaned `ADMITS`, which
+check 1 then reports as `Finding("missing_non_uniformity_row", "")` — a finding invented from an unanchored
+line, and an empty `subject`, the state §6 declines to pin *because* it would arise from an empty operand,
+reached here from a document containing none. Predicted 44/44; **run: 44/44.** Closed by one assertion.
+
+**And the instrument was wrong, in a way this lot has already diagnosed once — in its own subject matter.**
+v8 promoted "a clause naming N things is measured on N things". That rule counts **one axis**. The defect is a
+clause naming things along **two independent axes**, where the measurement is the **product** and counting
+either axis alone reads as complete: §5's table counted `[G24:5]`'s three anchor rules, reached three of three,
+and recorded the clause as fully measured with a cell of the second axis empty.
+
+This is **K13 — the two-axis lookup — applied to the falsifiability table itself.** K13 entered the candidate
+list as gate round-1's MAJOR-1, where `subject` was resolved from the row's operand and `ADMITS` by proximity,
+and no fixture crossed the axes. The method has now reproduced the defect it was built to catch, one level up.
+That is `[G22:13]`'s recursion arriving at the instrument, and it is recorded here rather than as a footnote:
+
+> **§0.9(3), the cell rule.** For any clause ranging over more than one axis, §5's table records the **cells of
+> the cross-product**, not the sides of either axis. **An empty cell is a finding.** Counting harder along one
+> axis cannot find an empty cell in the other.
+
+The cross-product was run over every multi-axis clause in v8 — `[G24:1]` (2×2), `[G24:4]` (3×2), `[G24:5]`
+(3×2), `[G24:7]` (3×2), §2.2 (8×1), `[G24:3]` (3×1) — and only `[G24:5]` had an empty cell. That bound is what
+makes this a closed finding rather than an open-ended one.
+
+Both of round 6's advisories are also closed rather than declared, in one fixture (`_ROW_OPERAND_SPACING_SPEC`,
+C-ROWOP): `[G24:7]` was measured on `LEVEL:` and `SEAM:` operands but never on a `NON-UNIFORMITY:` one, which
+has its own extraction path (the em-dash split), so a fixed offset applied to that marker alone passed 44/44;
+and `ADMITS:` was spelled in two cases where the other seven markers now appear in three.
+
 ---
 
 ## 0. What this lot inherits
@@ -212,6 +245,11 @@ requirement named. Round 4 rejected on exactly that.
 1. **Deletion/modification trigger.** Any round whose `git diff` removes or changes a fixture MUST list the
    candidates the *previous* fixture set killed and confirm each is still killed by the new set. Not complete
    until written down.
+3. **The cell rule (v9, gate round 6).** For a clause ranging over more than one axis, the measurement is the
+   **cross-product**, and §5's table records the **cells**. An **empty cell is a finding**. Counting along one
+   axis reads as complete while the other axis has a hole — which is K13, this lot's own candidate #13, applied
+   to the instrument instead of to the lint.
+
 2. **Addition trigger.** A purely additive round is checked too. An **added assertion that cannot fail** produces
    no deletions in the diff, does not move the pass/fail count, and is later classified as an inherited gap
    although it is this round's. Every added assertion is therefore accompanied, in §3, by the candidate it kills
@@ -452,6 +490,7 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ | 1 + 3 | the **same five** marker prefixes in **Title** case — corrected in v8 |
 | `_TRAILING_WHITESPACE_SPEC` ✝✝✝✝ | 1 + 3 | trailing whitespace after a `LEVEL` and a `SEAM` operand (v8: added to this inventory) |
 | `_OPERAND_SPACING_SPEC` ✝✝✝✝✝ | 1 + 3 | no space and three spaces after a marker's colon (v8: added to this inventory) |
+| `_ROW_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝ | 2 | a packed and a space-padded `NON-UNIFORMITY:` operand, plus a lower-case `admits:` |
 | `_ROW_MARKER_CASE_SPEC` ✝✝✝✝✝✝ | 2 | `Admits:`/`Non-Uniformity:`/`Excludes:` in Title and lower case, plus an **indented** `Excludes:` |
 | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | 2 | an `ADMITS` line before any `LEVEL`, and a duplicated `ADMITS` token |
 | `_CONFORMANT_SPEC` | control | every level covered, seam fully pinned; `EXCLUDES` tokens and property lines in **non-canonical order** |
@@ -508,6 +547,8 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | C-CASE2 | `ADMITS`/`NON-UNIFORMITY`/`EXCLUDES` matched against **ALL-CAPS only** while the other five are case-folded ✝✝✝✝✝✝ | `_ROW_MARKER_CASE_SPEC` ✝✝✝✝✝✝ | `title_row_level` is conformant only if `Admits:` and `Excludes:` are read; `lower_row_level` is flagged only if its lower-case row and short `excludes:` are. **Gate round-5 MAJOR-1**, confirmed at 42/42 |
 | C2-24 | an **unanchored `ADMITS`** raised on, or credited forward to the next `LEVEL` ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | the orphan would **complete** `fwd_admits_level`, which must be flagged. **Gate round-5 MAJOR-2** — `[G24:5]`'s third anchor rule; a raising lint also breaches §2.1 |
 | C2-25 | a **duplicated recognised token in `ADMITS`** treated as a defect ✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC` ✝✝✝✝✝✝ | `dup_admits_level` admits {any, all} with `any` twice and covers both: conformant. **Gate round-5 MAJOR-3**, the `ADMITS` mirror of round-2's MAJOR-2 |
+| C2-26 | an **unanchored `ADMITS`** registered under a **sentinel level** (`levels.setdefault(cur_level or "", …)`), reported by check 1 with an empty `subject` ✝✝✝✝✝✝✝ | `_ADMITS_BASE_CASE_SPEC`'s third assertion ✝✝✝✝✝✝✝ | both levels there carry rows, so **no** check-1 finding is correct in that document. **Gate round-6 MAJOR** — `[G24:5]`'s empty cell, confirmed at 44/44 |
+| C-ROWOP | a **fixed offset** on `NON-UNIFORMITY:` alone, whose operand has its own em-dash extraction path; and `admits:` unrecognised in lower case ✝✝✝✝✝✝✝ | `_ROW_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝ | `packed_row` is conformant only if the packed row operand AND the lower-case `admits:` are both read; `spaced_row` is flagged only if its leading spaces are stripped. **Gate round-6 advisories 1 and 2** |
 | C2-17 | check 1 fires on a level whose row is merely short | `_CHECK2_SPEC` | asserts **no** `missing_non_uniformity_row` anywhere in that fixture |
 
 ### 3.4 Check 3 — `seam_not_pinned`
@@ -676,17 +717,17 @@ findings of one shape between them (`[G24:5]`, `[G24:6]`, `[G24:3]`, `[G24:4]`):
 a fixture that *walks* it, and never given a fixture whose expected output would **differ** if the clause were
 read the other way. So the audit below is now run over every normative clause, not only over new assertions:
 
-| Clause | Sides it ranges over | Fixture whose expected output flips, per side |
+| Clause | Axes → cells (§0.9(3)) | Fixture whose expected output flips, per cell |
 |---|---|---|
 | P1 operands verbatim/case-sensitive | `_LEVEL_CASE_MISMATCH_SPEC`, `_SEAM_NAME_CASE_MISMATCH_SPEC` |
 | P2 `ADMITS` → preceding `LEVEL` | `_ADMITS_WRONG_NEIGHBOUR_SPEC` |
 | P3 property → preceding `SEAM` | `_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC` |
 | P4 row → level by operand | `_CHECK2_WRONG_LEVEL_BINDING_SPEC`, `_ROW_LEVEL_BINDING_SPEC` |
-| `[G24:1]` token casing/vocabulary | `_REDUCTION_TOKEN_VOCABULARY_SPEC` (`bogus_extra` is the falsifying row) |
+| `[G24:1]` token casing/vocabulary | {`ADMITS`, `EXCLUDES`} × {wrong-case, non-vocabulary} = **4 cells** | `upper_excludes`, `bogus_extra`/`frist`, `Upper_Admits`, `_ADMITS_INVALID_TOKEN_SPEC` |
 | `[G24:2]` `EXCLUDES` → preceding row | `_EXCLUDES_ROW_BINDING_SPEC` (inverts under both wrong directions) |
 | `[G24:3]` collapse to one per `(kind, subject)` | `_SEAM_NOT_PINNED_SPEC` (check 3) **and** `_EXCLUDES_SUPERSET_SPEC`'s `short_level` count (check 2, added round 3) |
-| `[G24:4]` repetition collapsed, not punished | property lines, `EXCLUDES`, **`ADMITS`** | `_BENIGN_DUPLICATE_SPEC` (first two; carriers **conformant**, so the clause can fail) + `_ADMITS_BASE_CASE_SPEC` (third, v8) |
-| `[G24:5]` unanchored lines | P3, `[G24:2]`, **P2** | `_ORPHAN_MARKER_LINES_SPEC` (F-8, not-a-finding) + `_FORWARD_CREDIT_SPEC` (forward-crediting) + `_ADMITS_BASE_CASE_SPEC` (P2, v8) |
+| `[G24:4]` repetition collapsed, not punished | {property lines, `EXCLUDES`, `ADMITS`} × {set-not-count, not-punished} = **6 cells** | `_BENIGN_DUPLICATE_SPEC` (first two; carriers **conformant**, so the clause can fail) + `_ADMITS_BASE_CASE_SPEC` (third, v8) |
+| `[G24:5]` unanchored lines | {P2, P3, `[G24:2]`} × {not-a-finding, not-credited-forward} = **6 cells** | not-a-finding: `_ORPHAN_MARKER_LINES_SPEC` assertions 3 and 4 (`[G24:2]`, P3) + `_ADMITS_BASE_CASE_SPEC` assertion 3 (P2, **v9 — the empty cell**). Not-credited-forward: `_FORWARD_CREDIT_SPEC` (`fwd_level`, `Fwd.Seam`) + `_ADMITS_BASE_CASE_SPEC` assertion 1 (P2) |
 | `[G24:6]` undeclared-level row still checked | `_UNDECLARED_LEVEL_ROW_SPEC` — the row is **short** |
 | `[G24:8]` markers at line start | declarations, reduction lines | `_INDENTED_MARKER_SPEC` (`LEVEL`/`SEAM`) + `_ROW_MARKER_CASE_SPEC`'s indented `Excludes:` (v8) |
 | `[G24:9]` order-independent row binding | `_ROW_BEFORE_LEVEL_SPEC` |
@@ -695,7 +736,7 @@ read the other way. So the audit below is now run over every normative clause, n
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
 | §2.1 must not raise; `Finding` shape | `_MALFORMED_SPEC`, `""`, `"LEVEL: phases"` (F-2/F-3/F-4) and the `is_dataclass`/`FrozenInstanceError`/field-set assertions (F-7, F-9) |
-| `[G24:7]` operand framing (terminator, trailing, leading) | `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC` **and** `_OPERAND_SPACING_SPEC` — one fixture per side, after gate round 4 found the clause two-sided and one side measured |
+| `[G24:7]` operand framing | {terminator, trailing, leading} × {check-1 subject, check-3 subject} = **6 cells**, plus the row operand's own extraction path (v9, C-ROWOP) | `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC` **and** `_OPERAND_SPACING_SPEC` — one fixture per side, after gate round 4 found the clause two-sided and one side measured |
 | §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
 
 ### Round 3 — EXECUTED candidate simulation, not reasoned
@@ -707,7 +748,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 44/44 and every one of the 33 mutants fails at least one test** (v8 figures;
+**Result: the reference passes 45/45 and every one of the 35 mutants fails at least one test** (v9 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 

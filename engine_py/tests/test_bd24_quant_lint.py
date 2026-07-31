@@ -2397,6 +2397,22 @@ class TestQuantifierCompletenessLintBd24GateRound5:
         conformant and a duplicate-punishing lint false-flags it. That is gate
         round-2's MAJOR-2 with `ADMITS` where `EXCLUDES` stood; the clause was
         extended to both in the revision that measured one.
+
+        The third assertion closes gate round-6's MAJOR (spec C2-26).
+        `[G24:5]` states TWO consequences for each of its three anchor rules --
+        an unanchored line is not itself a finding, and is not credited
+        forward -- so the clause is a 3x2 grid, and P2's not-a-finding cell was
+        the one empty square. `levels.setdefault(cur_level or "", ...)`
+        registers a level named `""` carrying the orphaned `ADMITS` and no row,
+        which check 1 then reports as `Finding("missing_non_uniformity_row",
+        "")`: a finding invented from an unanchored line, which `[G24:5]`
+        forbids in terms, and an empty `subject`, which §6 declines to pin
+        precisely because it would arise from an empty operand -- reached here
+        from a document that contains none. Verified: that mutant passes 44/44
+        without this assertion. Non-vacuous because both levels in this
+        fixture carry rows, so no check-1 finding is correct here at all --
+        the same reasoning that makes `_ORPHAN_MARKER_LINES_SPEC`'s third
+        assertion sound.
         """
         from conformance.quant_lint import lint_quantifier_completeness
 
@@ -2407,3 +2423,74 @@ class TestQuantifierCompletenessLintBd24GateRound5:
             for f in findings
         )
         assert not any(f.subject == "dup_admits_level" for f in findings)
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+
+# ── Gate round-6 advisories 1 and 2, closed rather than declared (C-ROWOP) ──
+# Advisory 1: `[G24:7]` is measured on `LEVEL:` and `SEAM:` operands and never
+# on a `NON-UNIFORMITY:` one -- and the row operand has its OWN extraction path,
+# the em-dash split. So `line[len("NON-UNIFORMITY: "):].split("—")[0].strip()`,
+# a fixed offset on that marker alone, passes 44/44. The gate declined to file
+# it because every existing row has a space before its em dash, which forces a
+# strip on that path; it costs one fixture to remove the argument entirely.
+# Advisory 2: `ADMITS:` was spelled in two cases where the other seven markers
+# are now spelled in three. `admits:` here makes the count uniform at eight
+# markers x three cases.
+#
+# `packed_row` is conformant ONLY if the packed row operand is read as
+# `packed_row` (a fixed offset yields `acked_row`, leaving the level row-less)
+# AND the lower-case `admits:` is recognised (otherwise the level defaults to
+# four and its two-token `EXCLUDES` is short). `spaced_row` is flagged ONLY if
+# the leading spaces are stripped from its row operand -- a lint keeping them
+# binds the row to nothing, which turns a check-2 finding into a check-1 one.
+# The third assertion catches that inversion directly: both levels here carry
+# rows, so no check-1 finding is correct in this document at all.
+_ROW_OPERAND_SPACING_SPEC = """\
+# Fixture Spec — the row marker's own operand-extraction path
+
+LEVEL: packed_row
+admits: any, all
+NON-UNIFORMITY:packed_row — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: spaced_row
+NON-UNIFORMITY:   spaced_row — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound6:
+    """Gate round-6's two advisories, closed. The MAJOR closed with a single
+    assertion on an existing test and needed no fixture.
+    """
+
+    def test_ac_c5_row_operand_extraction_path(self):
+        """Spec C-ROWOP, closing gate round-6's advisories 1 and 2.
+
+        `[G24:7]`'s framing pin is measured on `LEVEL:` and `SEAM:` operands
+        only, and the `NON-UNIFORMITY:` operand has a separate extraction path
+        -- the em-dash split -- so a fixed offset applied to that one marker
+        survives the whole file. Every existing row happens to put a space
+        before its em dash, which forces a strip on that path and hides the
+        difference; `packed_row` removes that accident.
+
+        `packed_row` is conformant only if BOTH hold: the packed row operand
+        reads as `packed_row` (a fixed offset yields `acked_row`, leaving the
+        level with no row), and the lower-case `admits:` is recognised
+        (otherwise the level takes the default four and its two-token
+        `EXCLUDES` is short). `spaced_row` is flagged only if the leading
+        spaces are stripped from its row operand; a lint that keeps them binds
+        the row to nothing, which converts a check-2 finding into a check-1
+        one -- caught directly by the third assertion, since both levels here
+        carry rows and no check-1 finding is correct in this document at all.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_ROW_OPERAND_SPACING_SPEC)
+
+        assert not any(f.subject == "packed_row" for f in findings)
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "spaced_row"
+            for f in findings
+        )
+        assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
