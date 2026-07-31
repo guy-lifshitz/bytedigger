@@ -1,7 +1,14 @@
 """RED tests for bd#8 — BD-L1, oracle freeze-and-verify (R1.1-R1.5).
 
-Frozen spec: engine_py/conformance/ORACLE_SPEC.md (FROZEN v5, base 2b6589f).
-v5 is the round-2 post-gate freeze.  This file is a re-cut against v5, not a
+Frozen spec: engine_py/conformance/ORACLE_SPEC.md (FROZEN v6, base 2b6589f).
+v6 is the round-3 post-gate freeze; all four round-3 findings were type (b)
+— defects in this lot's implementation of its own spec, not a failure of the
+v5 foundation, which the gate confirmed correctly and completely executed.
+v6 adds AC-1a (the cross-check must be a real copy), AC-17 (verify-side I/O
+faults are refusals, never `E_RUNNER`), and `recoverable is False` to every
+`assert_code` — `[bd8:6a]`'s third element, which matters because
+restart_governor.py:169-170 exempts recoverable codes from the short-circuit.
+v5 was the round-2 post-gate freeze.  This file is a re-cut against v5, not a
 patch of the v4 RED: the gate's R2-MAJOR-1 falsified `[bd8:1]`'s premise, so
 the SET SOURCE moved and every fixture built on the old source moved with it.
 
@@ -77,7 +84,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
@@ -237,6 +243,35 @@ def _writer_step(relpaths: list[str], unreadable: list[str] | None = None):
     return _exec
 
 
+GIT_TOUCHED = "impl-note.txt"    # AC-1a: written INSIDE git_cwd, so the git
+                                 # delta — and therefore phase_artifacts.written
+                                 # — is non-empty for that phase.
+
+
+def _writer_step_also_touching_git_cwd(relpaths: list[str]):
+    """AC-1a's writer.  Same as `_writer_step` PLUS one file inside `git_cwd`,
+    which is the only way to make `phase_artifacts.written` non-empty
+    (engine.py:493 — the git delta is its sole producer).
+
+    Deliberately a SEPARATE variant: `test_ac1`'s `written_crosscheck == []`
+    and AC-3c both depend on the shared writer's clean-repo topology, so
+    changing `_writer_step` would silently weaken them (gate E23).
+    """
+    from contracts import StepResult  # noqa: PLC0415 — deferred (§1q)
+
+    base = _writer_step(relpaths)
+
+    def _exec(context, prev):
+        result = base(context, prev)
+        cfg = getattr(context, "org_config", None) or {}
+        git_cwd = cfg.get("git_cwd")
+        if git_cwd:
+            (Path(git_cwd) / GIT_TOUCHED).write_text("observed by the git delta\n")
+        return result
+
+    return _exec
+
+
 def _impl_step(mutate: str | None = None, add: str | None = None,
                status: str = "ok"):
     """The implementing phase.  Always drops a WITNESS first (AC-2 reads its
@@ -269,7 +304,7 @@ def _impl_step(mutate: str | None = None, add: str | None = None,
 
 
 def install_fixture_workflows(monkeypatch, oracle_writes=None, unreadable=None,
-                              impl=None, extra=None) -> None:
+                              impl=None, extra=None, oracle_step=None) -> None:
     from contracts import StepContract, WorkflowDefinition  # noqa: PLC0415
     import workflows  # noqa: PLC0415 — deferred
 
@@ -279,8 +314,9 @@ def install_fixture_workflows(monkeypatch, oracle_writes=None, unreadable=None,
         for name in (ORACLE_WORKFLOW, ORACLE_WORKFLOW_LITE):
             engine.register(name, WorkflowDefinition(
                 name=name,
-                steps=[StepContract(name="bd8_write",
-                                    execute=_writer_step(writes, unreadable))]))
+                steps=[StepContract(
+                    name="bd8_write",
+                    execute=oracle_step or _writer_step(writes, unreadable))]))
         engine.register(IMPL_WORKFLOW, WorkflowDefinition(
             name=IMPL_WORKFLOW,
             steps=[StepContract(name="bd8_impl", execute=impl or _impl_step())]))
@@ -347,6 +383,14 @@ def assert_code(payload: dict, raw: str, expected: str, ctx: str) -> None:
            if got == "E_RUNNER" else "")
         + f"raw: {raw[:600]}"
     )
+    # `[bd8:6a]`'s third element, measured alongside the other two: an oracle
+    # refusal is NOT recoverable.  It matters — restart_governor.py:169-170
+    # exempts recoverable codes from the short-circuit, so a refusal marked
+    # recoverable would be retried instead of stopping the build.
+    assert payload.get("recoverable") is False, (
+        f"{ctx}: `[bd8:6a]` requires recoverable=false on an oracle refusal; got "
+        f"{payload.get('recoverable')!r}"
+    )
 
 
 def assert_token(payload: dict, expected: str, ctx: str) -> None:
@@ -362,7 +406,16 @@ def assert_token(payload: dict, expected: str, ctx: str) -> None:
 # ═════════════════════════════════════════════════════════════════════════
 # DECLARED PRE-PASSING (§0.6) — MEASURED on base b5df16e (v5), not predicted.
 #
-#   MEASURED: 41 collected, **28 failed, 13 passed**.  Every passing test is
+#   MEASURED: 44 collected, **31 failed, 13 passed**.
+#
+#   FULL-SUITE DELTA with this RED present (the ship gate per `[bd8:12]`/§1a —
+#   a scoped pass is NOT the gate): **4237 passed, 31 failed, 6 skipped**
+#   against the declared f175f10 baseline of **4224 passed, 6 skipped, 0
+#   failed**.  +13 passed and +31 failed are exactly this file's own split;
+#   skips unchanged; ZERO sibling regressions.  The three `[bd8:12]`
+#   load-bearing siblings re-run green with the RED present: 21 passed.
+#
+#   Every passing test is
 #   named here with its category.  A pre-passing test is legitimate ONLY as a
 #   control, a fence or a shield — never as a requirement-bearing forcing leg,
 #   and none of the 13 is one.
@@ -458,6 +511,59 @@ class TestFreeze:
             f"EMPTY while the members are not — that divergence IS the finding. "
             f"Got {p['written_crosscheck']!r}. If this ever becomes non-empty, "
             f"bd#36 landed and `[bd8:1]` should be revisited."
+        )
+
+    def test_ac1a_the_crosscheck_is_a_measurement_not_a_constant(
+        self, monkeypatch, world
+    ):
+        """AC-1a (`[bd8:1]`/`[bd8:1b]`).  The oracle step ALSO writes inside
+        `git_cwd`, so `phase_artifacts.written` is NON-empty for this phase.
+
+        Two GREENs die here and NOWHERE ELSE:
+          * one that emits a hard-coded / member-derived `written_crosscheck` —
+            every other test in this file sees an empty one, so a literal `[]`
+            satisfies them all and records nothing;
+          * one whose member set UNIONS or falls back to
+            `phase_artifacts.written` — which in any topology where the
+            scratchpad sits inside `git_cwd` absorbs the working tree,
+            including the event log, and gives `E_ORACLE_MUTATED` on every
+            implementing phase (`[bd8:2a]`).
+
+        The expected value is read from the phase's OWN `phase_artifacts` event
+        in the same log, never from a literal in this test."""
+        install_fixture_workflows(
+            monkeypatch, oracle_step=_writer_step_also_touching_git_cwd(ORACLE_FILES))
+        rc, payload, raw = freeze(world, "run-ac1a")
+        assert rc == 0, f"oracle phase must succeed; rc={rc} raw={raw}"
+
+        pa = [e for e in events_of(world.log, "phase_artifacts")
+              if e["payload"].get("phase") == ORACLE_WORKFLOW]
+        assert pa, "AC-1a precondition: no phase_artifacts for the oracle phase"
+        observed = pa[0]["payload"]["written"]
+        assert observed, (
+            "AC-1a precondition: the harness failed to make phase_artifacts.written "
+            f"non-empty — the git delta of git_cwd saw nothing. Payload: {pa[0]['payload']!r}"
+        )
+        assert GIT_TOUCHED in observed, (
+            f"AC-1a precondition: expected {GIT_TOUCHED!r} in the git-observed set; "
+            f"got {observed!r}"
+        )
+
+        p = events_of(world.log, FROZEN_EVENT)[0]["payload"]
+        assert member_paths(p) == sorted(ORACLE_FILES), (
+            f"AC-1a: the member set must remain exactly the {DOC_DIR}/ listing; got "
+            f"{member_paths(p)!r}.  A GREEN that unions or falls back to "
+            f"phase_artifacts.written absorbs the git worktree — and where the "
+            f"scratchpad sits inside git_cwd, the event log with it."
+        )
+        assert GIT_TOUCHED not in member_paths(p), (
+            f"AC-1a: {GIT_TOUCHED!r} was observed by the git delta but is NOT an oracle "
+            f"document; it must not be a member: {member_paths(p)!r}"
+        )
+        assert p["written_crosscheck"] == observed, (
+            f"AC-1a/`[bd8:1b]`: written_crosscheck must be a VERBATIM copy of this "
+            f"phase's own phase_artifacts.written. Expected {observed!r} (read from the "
+            f"log), got {p['written_crosscheck']!r}. A constant records nothing."
         )
 
     def test_ac1b_per_member_digests_are_bare_hex(self, monkeypatch, world):
@@ -1017,6 +1123,62 @@ class TestEmptyOracle:
         assert len(frozen) == 1
         assert frozen[0]["payload"]["digest"] == expected_digest(
             world.scratch, ORACLE_FILES)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# AC-17 — a verify-side I/O fault is a REFUSAL, never a crash
+# ─────────────────────────────────────────────────────────────────────────
+
+class TestVerifySideIoFaults:
+    """AC-17 (`[bd8:6a]`, §5).  The natural implementation of `[bd8:2b]` —
+    `iterdir()` over the scope, `read_bytes()` over the members — raises
+    `FileNotFoundError` / `PermissionError` / `IsADirectoryError`, which
+    `run.py:233-240` maps to `E_RUNNER` and rc 2, BELOW `governor_record_result`
+    (`run.py:207-223`) and invisible to the taxonomy.
+
+    An adversary who mutates a member AND makes it unreadable would otherwise
+    convert a BD-L1 refusal into a runner crash — which §9 may not claim ADV-1
+    over.  Both legs assert the parsed `error_code`.
+    """
+
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="chmod 000 does not deny root",
+    )
+    def test_ac17_leg_i_unreadable_member_at_verify_is_indeterminate(
+        self, monkeypatch, world
+    ):
+        """AC-17 (i).  §5 says "freeze OR verify"; AC-9 covers only the freeze."""
+        install_fixture_workflows(monkeypatch)
+        assert freeze(world, "run-ac17i")[0] == 0
+
+        victim = world.scratch / DOC_DIR / "notes.md"
+        os.chmod(victim, 0o000)
+        try:
+            rc, payload, raw = verify(world, "run-ac17i")
+            assert_code(payload, raw, E_ORACLE_INDETERMINATE, "AC-17(i) unreadable at verify")
+            assert rc != 0
+        finally:
+            os.chmod(victim, 0o644)
+
+    def test_ac17_leg_ii_missing_scope_directory_is_mutated_removed(
+        self, monkeypatch, world
+    ):
+        """AC-17 (ii) / `[bd8:2b]`.  The whole scope directory disappears — a
+        real shape (a cleanup step wiping `specs/`), and the one that makes an
+        unguarded `iterdir()` raise."""
+        install_fixture_workflows(monkeypatch)
+        assert freeze(world, "run-ac17ii")[0] == 0
+
+        for f in (world.scratch / DOC_DIR).iterdir():
+            f.unlink()
+        (world.scratch / DOC_DIR).rmdir()
+        assert not (world.scratch / DOC_DIR).exists(), "precondition: scope dir gone"
+
+        rc, payload, raw = verify(world, "run-ac17ii")
+        assert_code(payload, raw, E_ORACLE_MUTATED, "AC-17(ii) scope directory removed")
+        assert rc == 1
+        assert_token(payload, TOKEN_REMOVED, "AC-17(ii)")
 
 
 # ─────────────────────────────────────────────────────────────────────────
