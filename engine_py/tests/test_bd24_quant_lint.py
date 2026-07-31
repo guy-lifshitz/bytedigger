@@ -3507,3 +3507,97 @@ class TestQuantifierCompletenessLintBd39GateRound4:
         )
         assert not any(f.subject == "empty_control" for f in findings)
         assert not any(f.kind == "missing_non_uniformity_row" for f in findings)
+
+
+# ── bd#39 gate round 5 MAJOR: a property line with an EMPTY operand ────────
+# The empty-operand question was answered for four of the eight markers and for
+# none of the other four. `[G24:14]` (v5) covers `ADMITS:`/`EXCLUDES:`; §6
+# defers `LEVEL:`/`SEAM: ` with a stated reason; the three PROPERTY markers were
+# governed by two frozen sentences requiring opposite outputs:
+#
+#   §2.6's check-3 row and `[G24:4]` are worded over marker PRESENCE -- a bare
+#   `ATTRIBUTE-PATH:` is present, so the property is pinned, so no finding;
+#   §0.2 (inherited, and this lot's own subject matter) says naming a seam is
+#   not enough and the interception property MUST BE PINNED -- a bare
+#   `ATTRIBUTE-PATH:` pins nothing, so the seam is still missing it.
+#
+# Zero fixtures carried a property line with an empty operand, so neither
+# reading was falsifiable; both confirmed at 57/57.
+#
+# The permissive reading is not a harmless corner. On a seam with all three
+# markers laid out and none filled it returns NO FINDINGS: a seam declared,
+# nothing pinned, shipped conformant -- §0.2's founding case verbatim, the same
+# outcome `_SEAM_NOT_PINNED_SPEC` (C3-1) exists to prevent, reached by a route
+# that fixture does not cover because its bare seam has ZERO property lines
+# rather than three empty ones. A document written by hand as a TEMPLATE, with
+# the three markers laid out to be filled in, is exactly this input.
+#
+# §6 could not absorb it either: its empty-operand bullet defers
+# `LEVEL:`/`SEAM: ` because `Finding.subject` would become the empty string, and
+# a property-line operand never becomes a subject -- so the reason does not
+# transfer and the case was silently unpinned, which is the state §6's own
+# preamble exists to prevent.
+#
+# `[G24:15]` decides it where §0.2 and `[G24:14]` both point: a property line
+# whose operand is empty or whitespace-only DOES NOT PIN its property. §2.6's
+# check-3 row and `[G24:4]` are reworded from "markers present" to "properties
+# pinned", since the presence wording is what made the permissive reading
+# literal.
+_EMPTY_PROPERTY_OPERAND_SPEC = """\
+# Fixture Spec — property markers laid out as a template, with no values
+
+SEAM: tempfile.mkdtemp
+ATTRIBUTE-PATH:
+BINDING-TIME:
+NORMALISATION:
+
+SEAM: Partial.Pinned
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME:
+NORMALISATION: none
+
+SEAM: Fully.Pinned
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound5:
+    """`[G24:15]`: a property marker present but unfilled pins nothing."""
+
+    def test_ac_c5_property_line_with_an_empty_operand_pins_nothing(self):
+        """AC-C5(3). bd#39 gate round-5 MAJOR, spec `[G24:15]` / C3-22. Two
+        frozen sentences required opposite outputs on a bare
+        `ATTRIBUTE-PATH:` -- §2.6's check-3 row and `[G24:4]` are worded over
+        marker PRESENCE, while §0.2 requires the interception property to be
+        PINNED -- and no fixture carried a property line with an empty operand,
+        so neither reading was falsifiable. Both passed 57/57.
+
+        `tempfile.mkdtemp` is the case that makes this MAJOR rather than a §6
+        corner: all three markers laid out, none filled, which the presence
+        reading returns as fully conformant. That is §0.2's founding case
+        verbatim -- a seam declared and nothing pinned -- reached by a route
+        `_SEAM_NOT_PINNED_SPEC` does not cover, since its bare seam has zero
+        property lines rather than three empty ones. A hand-written TEMPLATE,
+        with the markers laid out to be filled in, is exactly this document.
+
+        `Partial.Pinned` carries one empty among two filled, which
+        discriminates the general rule from the all-three-empty special case:
+        a lint that only rejects wholly-empty blocks passes the first
+        assertion and fails the second. `Fully.Pinned` holds the negative, so
+        a lint that flags every seam is caught too.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_EMPTY_PROPERTY_OPERAND_SPEC)
+
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "tempfile.mkdtemp"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Partial.Pinned"
+            for f in findings
+        )
+        assert not any(f.subject == "Fully.Pinned" for f in findings)

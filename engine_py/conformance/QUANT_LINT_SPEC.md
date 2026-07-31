@@ -1,6 +1,6 @@
 # Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v5, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+**v6, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
 worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
 
 **AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
@@ -82,6 +82,14 @@ not about this artifact, and it is filed where it can be fixed.
   confirm it still holds; before v4 the empty string was a token outside the four and `[G24:1]` made it a
   finding, which is the safe answer, and the change was recorded nowhere. `[G24:14]` restores the safe reading
   and `_EMPTY_TOKEN_LIST_SPEC` measures it.
+
+  **v6 (bd#39 gate round 5): one MAJOR, and it is the founding case reached by a new route.** The
+  empty-operand question had been answered for four of the eight markers and for **none** of the other four:
+  §2.6 and `[G24:4]` said *presence*, §0.2 said *pinned*, and no fixture carried an empty property operand, so
+  both readings passed 57/57. Under the presence reading a seam with all three markers laid out and none
+  filled — a hand-written template — is conformant, which is §0.2's founding case verbatim by a route
+  `_SEAM_NOT_PINNED_SPEC` cannot reach. Decided by `[G24:15]`, with §2.6's check-3 row and `[G24:4]` reworded
+  from *present* to *pinned*, since the presence wording is what made the permissive reading literal.
 
 **The accepted correction, unchanged and unnarrowed.** Gate round 4's MAJOR is closed by **measuring the second
 side** (`_OPERAND_SPACING_SPEC`, C-SPACING), not by declaring the single space part of the marker. The
@@ -574,7 +582,7 @@ line, and inventing one would exceed the three pinned `kind` values).
   `missing_reductions`. Without this, `len(findings)` is not a defined quantity and the conformant control's
   `findings == []` is the only assertable shape in the whole AC. Asserted directly (§3, C2-9 / C3-9).
 - **`[G24:4]` Repetition is collapsed, never punished — for property lines AND for reduction tokens.** Check 3
-  is over the **set** of property markers present under a seam, not their count: `ATTRIBUTE-PATH` +
+  is over the **set** of properties **pinned** under a seam (v6: *pinned*, not merely *present* — `[G24:15]`), not the count of marker lines: `ATTRIBUTE-PATH` +
   `BINDING-TIME` + `BINDING-TIME` is a seam missing `NORMALISATION`, not a seam with three properties. **And a
   repeated line is not itself a finding**: a seam carrying all three properties with one written twice is
   conformant. The same holds for check 2, extended here (gate round-2 MAJOR-2, previously unpinned): `ADMITS`
@@ -624,7 +632,20 @@ line, and inventing one would exceed the three pinned `kind` values).
   to prevent. Decided in the safe direction: a marker line whose operand contributes **zero** tokens reads as
   **absent** for `ADMITS` (default four) and as **no coverage** for `EXCLUDES` (the row is short). The
   trailing-comma rule is untouched — it removes an empty token from a **non-empty** list. Exercised by
-  `_EMPTY_TOKEN_LIST_SPEC` (C2-36). A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
+  `_EMPTY_TOKEN_LIST_SPEC` (C2-36).
+  `[G24:15]` **A property line whose operand is empty or whitespace-only PINS NOTHING** (bd#39 gate round 5).
+  The empty-operand question was answered for `ADMITS`/`EXCLUDES` by `[G24:14]` and for `LEVEL`/`SEAM` by §6,
+  and for the three **property** markers by two frozen sentences requiring opposite outputs: §2.6's check-3 row
+  and `[G24:4]` are worded over marker **presence**, while §0.2 — inherited, and this lot's own subject matter —
+  requires the interception property to be **pinned**. Zero fixtures carried an empty property operand, so
+  neither reading was falsifiable and both passed 57/57. Decided where §0.2 and `[G24:14]` both point.
+  **This is not a corner:** a seam with all three markers laid out and none filled — a hand-written **template**
+  — returns no findings under the presence reading. That is §0.2's founding case verbatim, reached by a route
+  `_SEAM_NOT_PINNED_SPEC` does not cover, since its bare seam has *zero* property lines rather than three empty
+  ones. §6 could not absorb it either: its empty-operand bullet defers `LEVEL:`/`SEAM: ` because
+  `Finding.subject` would become the empty string, and a property operand never becomes a subject, so the
+  reason does not transfer and the case was **silently** unpinned. Exercised by `_EMPTY_PROPERTY_OPERAND_SPEC`
+  (C3-22). A row's `<level>` operand is the text up to the **first** em dash, or the **whole operand** when the
   row carries none, so `NON-UNIFORMITY: phases` discharges `phases` and a second em dash inside a description
   changes nothing. Exercised by `_REDUCTION_DELIMITER_SPEC` (C2-32). Raised as an adversarial edge in bd#39
   rounds 1 and 2 and closed rather than restated a third time; the `split(", ")` spelling is not contrived —
@@ -649,7 +670,7 @@ line, and inventing one would exceed the three pinned `kind` values).
 |---|---|---|
 | 1 | `missing_non_uniformity_row` | a `LEVEL` has no `NON-UNIFORMITY` row naming it (P4, verbatim) |
 | 2 | `missing_reductions` | a `NON-UNIFORMITY` row has no `EXCLUDES` line, **or** its `EXCLUDES` does not cover every reduction its level `ADMITS`, **or** either line carries a token outside the four (`[G24:1]`) — **and, independently of any row, a `LEVEL` whose own `ADMITS` carries such a token** (`[G24:12]`; bd#39 round-4 MINOR-A: v4 narrowed the independence sentence below and left this row's subject as a row) |
-| 3 | `seam_not_pinned` | a `SEAM` is missing any of `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION` — **including a `SEAM` with zero property lines** |
+| 3 | `seam_not_pinned` | a `SEAM` has not **pinned** each of `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION` — **including a `SEAM` with zero property lines**, and including a marker line **present but unfilled**, which pins nothing (`[G24:15]`; v6 rewords this row from marker *presence*, which is what made the permissive reading literal) |
 
 The coverage relation in check 2 is **superset, not equality**: `set(excludes) ⊇ set(admits)`. A row excluding
 **more** than its level admits is conformant — `ADMITS: any, all` with `EXCLUDES: any, all, first, last` is a
@@ -725,6 +746,7 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | `_SHARED_ANCHOR_SPEC` ✝✝✝✝✝✝✝✝✝ | 2 | a `LEVEL:` interposed between a row and its `EXCLUDES` |
 | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 + 3 | each anchor kind interposed inside another kind's block — the **reverse** cycle of `[G24:10]`'s ordered product |
 | `_REDUCTION_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 | `ADMITS:`/`EXCLUDES:` packed, padded and trailing-padded |
+| `_EMPTY_PROPERTY_OPERAND_SPEC` (bd#39 r6) | 3 | three property markers laid out unfilled; one empty among two filled; a fully pinned control |
 | `_ROW_ORDER_COVERAGE_SPEC` (bd#39 r5) | 2 | a row and its `EXCLUDES` above the `LEVEL` whose `ADMITS` governs them |
 | `_EMPTY_TOKEN_LIST_SPEC` (bd#39 r5) | 2 | a bare `ADMITS:` and a bare `EXCLUDES:` |
 | `_SEPARATOR_SIDES_SPEC` ✝ | 2 | whitespace before the comma, and a trailing comma |
@@ -846,6 +868,7 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | C-WS | trailing whitespace kept inside the operand ✝✝✝✝ | `_TRAILING_WHITESPACE_SPEC` ✝✝✝✝ — `LEVEL: phases␣␣␣` must still be discharged by its row, and `SEAM: Trailing.Seam␣␣` reported without the spaces |
 | C-COLLAPSE | the collapse step keyed on `subject` **alone** rather than on `(kind, subject)` ✝ | `_SAME_SUBJECT_TWO_KINDS_SPEC` ✝ | `cache` is a row-less `LEVEL` **and** a bare `SEAM`, so two findings of different `kind` share one `subject`; keying on `subject` drops one, and which one depends on emission order, unspecified across inputs. **bd#39 round-2 MAJOR-2**, confirmed at 50/50 |
 | C1-15 | `NON-UNIFORMITY:` recognised after a strip (the check-1 half of `_INDENTED_PROPERTY_SPEC`, split out per bd#39 round-2 MINOR-C) ✝ | `_INDENTED_PROPERTY_SPEC` assertion 2 ✝ | the indented row markers below `quoted_row_level` discharge nothing, so the level must still be flagged |
+| C3-22 | a property marker **present but unfilled** counted as pinning its property (bd#39 r6) | `_EMPTY_PROPERTY_OPERAND_SPEC` (bd#39 r6) | a template seam with all three markers laid out and none filled returns **no findings** under that reading — §0.2's founding case, by a route C3-1's fixture does not cover. **bd#39 round-5 MAJOR**, both readings confirmed at 57/57 |
 | C3-21 | the three **property** markers recognised after a strip while declarations and reduction lines require flush-left ✝✝✝✝✝✝✝✝✝✝ | `_INDENTED_PROPERTY_SPEC` ✝✝✝✝✝✝✝✝✝✝ | indented properties quoted below a bare `SEAM:` silently **complete** it and suppress the finding — a seam declared and not pinned, shipped conformant, this AC's founding case (§0.2). **bd#39 gate round-1 MAJOR-3**, confirmed at 48/48 |
 | C3-20 | an unanchored property line collected under a **sentinel seam** (`seams.setdefault(cur_seam or "<unnamed>", …)`) and reported as a finding ✝✝✝✝ | `_ORPHAN_MARKER_LINES_SPEC`'s fourth assertion ✝✝✝✝ — `[G24:5]`'s not-a-finding clause was measured for the `EXCLUDES` half only; the seam half needed a guard naming the one seam that legitimately appears. **Gate round-3 MAJOR**, predicted by the gate and confirmed by mutant #28 passing 40/40 without it |
 | C-CASE | marker recognition as **two literal spellings** (`startswith(("LEVEL:", "level:"))`) rather than case-insensitive ✝✝✝ | `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ — only ALL-CAPS and all-lowercase were walked; `Title.Conformant` additionally separates recognition of the three property markers from recognition of `Seam:` alone |
@@ -1005,7 +1028,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 57/57 and every one of the 54 mutants fails at least one test** (v11 figures;
+**Result: the reference passes 58/58 and every one of the 55 mutants fails at least one test** (v11 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 
@@ -1106,7 +1129,7 @@ measures — the defect `[G24:6]` was found to be):
   **number** of findings depend on this undecided question (bd#39 round-4 advisory);
 - an **empty or whitespace-only operand** (`LEVEL:`, `SEAM: `), which would make `Finding.subject` the empty
   string — **and, since `[G24:11]`, the second route to one**: a row whose em dash comes first
-  (`NON-UNIFORMITY: — description`), whose operand is empty by that clause (bd#39 round-3 advisory);
+  (`NON-UNIFORMITY: — description`), whose operand is empty by that clause, **and a third**: a wholly bare `NON-UNIFORMITY:`, which `[G24:11]`'s "the whole operand when the row carries none" also makes empty (bd#39 rounds 3 and 5 advisories — same state, three routes, all named here);
 - ~~an `EXCLUDES:` line with an **empty token list**~~ — **decided in v5 by `[G24:14]`** (no coverage, so the row is short) and removed from this list. It was declared undecided here while `[G24:11]` determined it, which is two frozen sentences about one input (bd#39 round-4 MAJOR-2);
 - **multiplicity of anchored lines under one anchor**: two `ADMITS` lines under one `LEVEL`, or two `EXCLUDES`
   lines under one row — union, last-wins, or a finding? Decided for property lines (`[G24:4]`: a set, repetition
