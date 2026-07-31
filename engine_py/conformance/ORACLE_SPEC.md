@@ -17,7 +17,15 @@ chokepoint: >
   a step runs inside the phase it is meant to bound, so an oracle phase could rewrite its own
   frozen set after the freeze.
 status: >
-  FROZEN v5 (post-gate round 2). v3 was REJECTED on 9 blocking findings and v4 applied gate edits
+  FROZEN v6 (post-gate round 3). Rounds 1-3 of the Opus gate rejected v3 (9 blocking), v4 (7) and
+  v5 (4). v6 applies E23-E29: `[bd8:1b]`'s cross-check must be a REAL copy and is now forced by
+  AC-1a; AC-17 covers the two verify-side I/O branches §2/§5 declared but nothing asserted, so
+  neither can surface as `E_RUNNER`; §7's G1 no longer states the rule v5 revoked; `[bd8:1a]`
+  states what was MEASURED about scratchpad scoping instead of claiming a guarantee no producer
+  gives, with the consequence declared in §9 (ic); the unreachable scope limit (ii) is struck; and
+  AC-3 no longer pins the word `scope_digest`. All four round-3 findings were type (b) —
+  defects in this lot's own implementation of its spec, not a failure of the v5 foundation, which
+  the gate confirmed correctly and completely executed. HISTORY: v5 (post-gate round 2). v3 was REJECTED on 9 blocking findings and v4 applied gate edits
   E1-E14 verbatim (exit verify, scope_digest, phase_45_spec_lite, sentinel carve-out, error_code
   surface, log-scoped lookup order, category tokens, AC-7 as adapter-observed). v4 was then
   REJECTED on 7 more, of which R2-MAJOR-1 is foundational: `[bd8:1]`'s premise was FALSE in
@@ -67,21 +75,38 @@ delta when absent) — while both spec workflows write their documents under
 drivers. A first source is not a second source, so §1g does not forbid this listing — it
 requires it.
 
-**`[bd8:1a]` The namespace is `scratchpad_dir` itself, which is already run-scoped.** The engine
-documents the layout: "scratchpad_dir lives at `<repo>/<foreign_state_dirname()>/scratchpad/<run>`"
-(lib/project_root.py:24-31). Run-scoping is therefore a property of the path the driver supplies,
-not something this lot re-derives, and no `<run_id>/` subdirectory is interposed — the phase adds
-no such component (`_resolve_scratchpad` returns `org_config["scratchpad_dir"]` verbatim). The
-freeze reads the directory it is given and never walks UP out of it: a sibling run's scratchpad is
-another namespace and is not this run's oracle. AC-10 forces exactly that boundary.
+**`[bd8:1a]` The namespace is the `scratchpad_dir` the caller supplied — and how tightly that is
+scoped is the CALLER's property, measured, not this lot's guarantee.** No `<run_id>/`
+subdirectory is interposed by the phase: `_resolve_scratchpad` takes `org_config["scratchpad_dir"]`
+and only expands and resolves it (`Path(raw).expanduser().resolve()`,
+phase_45_spec.py:372-377; phase_45_spec_lite.py:255-257). What the drivers put there was measured
+and they DISAGREE: `dogfood/run_oss_driver.py:185` supplies `<artifacts_dir>/scratchpad` with no
+run component; `SYSTEM/cli/build/build-cli.ts:30` passes the caller's `--scratchpad-dir` string
+through unchanged; `SYSTEM/cli/build/batch-build-regressions.test.sh:205` pins a repo-rooted
+`<repo>/.hal-build`. Only lib/project_root.py:24-31 — a REVERSE derivation helper, not a producer —
+documents a `<repo>/<foreign_state_dirname()>/scratchpad/<run>` convention. So `scratchpad_dir` is
+build-scoped at best and may be repo-scoped, and §9 records the consequence rather than assuming it
+away. What this lot DOES guarantee is the boundary: the freeze reads the directory it is given and
+never walks UP out of it, so whatever else lives beside it — a sibling run's scratchpad, the shared
+scratchpad root — is not this run's oracle. AC-10 forces exactly that boundary, and it is doing
+production work, not fixture work: where `scratchpad_dir` is `<repo>/.hal-build`, the event log
+itself (`run_oss_driver.py:187`) sits at the scratchpad root, and AC-10 leg 1 is what keeps it out
+of the frozen set.
 
 **`[bd8:1b]` `phase_artifacts.written` is retained as a recorded CROSS-CHECK, never as the
-source.** The freeze records `written_crosscheck: [...]` copied from the oracle phase's own
-`phase_artifacts` payload, so the divergence that produced G9 stays visible in the log instead of
-being silently designed around. A mismatch between it and the frozen members is NOT an error at
-this level — under every measured driver it is empty while the members are not (see `[bd8:2a]`) —
-and no AC turns it into one. It is evidence for the lot that fixes the root cause (bd#36:
-`worker_written_paths` as a source rather than a filter), not a gate here.
+source.** The freeze records `written_crosscheck: [...]` copied VERBATIM from the oracle phase's
+own `phase_artifacts` payload for this run and phase — the actual list, whatever it holds, never a
+constant and never a value derived from the member set — so the divergence that produced G9 stays
+visible in the log instead of being silently designed around. When that payload carries
+`written_truncated: true`, `written_crosscheck` is the truncation MARKER
+(`{"truncated": true, "count": <written_count>, "digest": <written_digest>}`) and never the
+binary-searched sample the payload also carries (engine.py:1329-1336), so the log never implies the
+engine saw a membership it did not. A mismatch between the cross-check and the frozen members is
+NOT an error at this level — under every measured driver it is empty while the members are not (see
+`[bd8:2a]`) — and no AC turns it into one. It is evidence for the lot that fixes the root cause
+(bd#36: `worker_written_paths` as a source rather than a filter), not a gate here. It is,
+however, ASSERTED to be a real copy (AC-1a): a cross-check that can be hard-coded records nothing,
+which is the `drift=0 / identical=0` non-measurement `[bd8:9]` exists to refuse.
 
 **`[bd8:2]` The frozen digest covers membership AND content.** For each path in the set, in
 the set's sorted order, the digest input is the line `<relpath>\0<sha256-of-bytes>`, UTF-8
@@ -120,9 +145,11 @@ discharged by a SECOND, separately-named digest, not by `digest`:
   * Declared limits, stated in §9: (i) a file added in a SUBdirectory of a scope directory is not
     detected — non-recursive is the measured-safe choice, since recursion over a real `specs/`
     tree makes the scope unbounded and turns every file the implementing phase writes beneath it
-    into a false `E_ORACLE_MUTATED`; (ii) a frozen member at the scratchpad ROOT makes the scope
-    `"."`, so the whole root listing becomes the addition surface. Both are published rather than
-    papered over, and both are ASSERTED (a limit no test measures is a claim, not a limit).
+    into a false `E_ORACLE_MUTATED`. This limit is published rather than papered over, and it is
+    ASSERTED in both directions (AC-9b) — a limit no test measures is a claim, not a limit. v4's
+    limit (ii), a frozen member at the scratchpad ROOT making the scope `"."`, is STRUCK: under
+    `[bd8:1]` every member is under `specs/`, so the scope is always `["specs"]` and that case
+    cannot arise.
 
 **`[bd8:2a]` What is actually in that set — MEASURED on this engine, and the measurement is
 pasted here rather than described.** `phase_45_spec` writes the spec document and the review
@@ -314,6 +341,15 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   EMPTY while the members are not — asserted, so the divergence that produced G9 is recorded by
   the test rather than remembered by a person. The freeze-then-verify pair leaves exactly ONE
   `oracle_frozen`: only the oracle phase freezes.
+- **AC-1a (`[bd8:1]`/`[bd8:1b]`, the cross-check is a measurement, not a constant).** An oracle
+  phase whose step ALSO writes a file inside `org_config["git_cwd"]` — so that
+  `phase_artifacts.written` is NON-empty — freezes with: `members` still exactly the
+  `<scratchpad_dir>/specs` listing, the git-observed path NOT among them, and
+  `written_crosscheck` equal to that phase's `phase_artifacts.written` verbatim. Two GREENs die
+  here and nowhere else: one that emits a hard-coded `written_crosscheck`, and one whose member set
+  unions or falls back to `phase_artifacts.written` — which in any topology where the scratchpad
+  sits inside `git_cwd` absorbs the working tree, including the event log, and gives
+  `E_ORACLE_MUTATED` on every implementing phase (`[bd8:2a]`).
 - **AC-2 (R1.4, ADV-1, entry).** Freeze, then rewrite one byte of one member, then run the
   implementing phase → `error_code == "E_ORACLE_MUTATED"`, exit 1, and the failure names the
   offending path. The implementing phase's steps MUST NOT have run: the ENTRY verify refuses
@@ -326,9 +362,10 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   is what ADV-1 is. The EXIT verify (`[bd8:6]`) → `E_ORACLE_MUTATED`, exit 1. Without this leg §9
   may not name ADV-1: an entry-only verify never observes it.
 - **AC-3 (R1.4, ADV-2, entry).** Freeze, then ADD a file to a scope directory without re-entering
-  the oracle phase, then run the implementing phase → `E_ORACLE_MUTATED`, and the message names
-  `scope_digest` as the mismatching half (`[bd8:2b]`). This is the AC that fails if the addition
-  case is left to the member digest alone.
+  the oracle phase, then run the implementing phase → `E_ORACLE_MUTATED` with the category token
+  `mutated:added` (`[bd8:2b]`). This is the AC that fails if the addition case is left to the
+  member digest alone. No clause pins the WORD `scope_digest` in the message: the category tokens
+  already carry the distinguishing work, and a vocabulary substring pins words, not behaviour.
 - **AC-3b (R1.4, ADV-2, AS DEFINED BY CL §4).** Freeze; then run an implementing phase whose OWN
   STEP adds a file to a scope directory. The EXIT verify → `E_ORACLE_MUTATED`, exit 1.
 - **AC-3c (scope containment, decoy fence).** Freeze; then add a file OUTSIDE every scope
@@ -447,16 +484,32 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   or `not-observed` — is STRUCK: `[bd8:2a]` measured that payload reporting exactly that on a
   healthy run, so the v4 form refused every real build.
 
+- **AC-17 (`[bd8:6a]`, §5 — a verify-side I/O fault is a refusal, never a crash).** Two legs, and
+  both assert the PARSED `error_code`, never a stdout substring:
+  * (i) A frozen member that still exists but cannot be read at verify time (mode 000, or replaced
+    by a directory) → `E_ORACLE_INDETERMINATE`, exit non-zero. §5 already says "freeze OR verify";
+    AC-9 covers only the freeze.
+  * (ii) A scope directory that no longer exists at verify time (the last member of `specs/`
+    removed together with the directory) → `E_ORACLE_MUTATED` with `mutated:removed`, exit 1, per
+    `[bd8:2b]`.
+  Neither may surface as `E_RUNNER`. The natural implementation of `[bd8:2b]` — `iterdir()` over
+  the scope and `read_bytes()` over the members — raises `FileNotFoundError` / `PermissionError` /
+  `IsADirectoryError`, which `run.py:233-240` maps to `E_RUNNER` and rc 2, below
+  `governor_record_result` (`run.py:207-223`). An adversary who mutates a member AND makes it
+  unreadable would otherwise convert a BD-L1 refusal into a runner crash, which §9 may not claim
+  ADV-1 over.
+
 ## 7. Spec gaps — resolved before freeze
 
-- **G1 — RESOLVED by rule, not by reachability.** `phase_artifacts` truncates its `written`
+- **G1 — RESOLVED in v3, then SUPERSEDED by G9 in v5.** `phase_artifacts` truncates its `written`
   list when the serialised line exceeds the log's per-line limit, replacing it with
-  `written_truncated: true` + `written_count` + `written_digest` (engine.py:1320-1334).
-  Whether a *spec* phase can reach that limit is unmeasured — and the answer does not change
-  the rule: a freeze over a sampled set would record a digest for a membership the engine never
-  saw whole, which is the vacuous-freeze shape `[bd8:9]` exists to forbid. **A freeze whose
-  source payload carries `written_truncated: true` fails `E_ORACLE_INDETERMINATE` and emits no
-  `oracle_frozen`.** (New AC-9a below.)
+  `written_truncated: true` + `written_count` + `written_digest` and a binary-searched sample
+  (engine.py:1319-1336). v3's rule — a freeze over such a payload fails
+  `E_ORACLE_INDETERMINATE` — was correct while `written` WAS the membership source. Under D1(a)
+  it is not, so `written_truncated` no longer gates the freeze at all (`[bd8:4a]`, third bullet)
+  and **AC-9a is STRUCK** (§6). What survives is a recording rule, not a gate: a truncated payload
+  is copied into `written_crosscheck` as the truncation MARKER and never as the sample
+  (`[bd8:1b]`), so the log never implies the engine saw a membership it did not.
 - **G2 — RESOLVED by measurement.** See `[bd8:8a]`: `run_id` stability is a driver property,
   not an engine guarantee, so the lookup is log-scoped with `run_id` as a fail-closed
   cross-check rather than as the key.
@@ -516,8 +569,12 @@ satisfiable by registering the codes early — which is the shape a GREEN natura
 **`[bd8:12]` Trap 2 — the sibling surface of `run.py` is wide and must be re-run, not assumed.**
 30 test files under `engine_py/tests/` reference `run.py`; two are load-bearing for this change
 and are named so the GREEN cannot claim a clean scoped pass without them:
-`test_engine_path_closure.py` (a new module in the import closure is exactly what it measures)
-and `test_bd22_contracts.py` (the package's no-I/O-at-import invariant, which `[bd8:5]` binds).
+`test_engine_path_closure.py` (a new module in the import closure is exactly what it measures),
+`test_bd22_contracts.py` (the package's no-I/O-at-import invariant, which `[bd8:5]` binds), and
+`test_gh1067_ignored_dir_exclusion.py` (its `test_ac5_real_error_codes_check_exits_0_ok` is the
+INDEPENDENT enforcement of `error_codes.py --check == 0` on the real tree, and therefore the
+corroboration for AC-11's `[bd8:11]` half — AC-11 cannot reach its own `--check` assertion
+pre-GREEN, because the membership half fails first).
 Seven files reference the conformance package. §1a applies: the sibling audit runs
 `--require-clean` before and after, and a scoped pass is not the ship gate — the full-suite
 delta against a declared baseline is (this is BD-L2's R2.6 applied to this lot's own delivery).
@@ -531,7 +588,7 @@ license neither, and saying so is the §8 discipline this document is bound by.
 
 Scoped, in the terms the levels require:
 
-- **R1.1, R1.3, R1.4 — enforced.** AC-1..AC-6, AC-9, AC-9b, AC-10, AC-16.
+- **R1.1, R1.3, R1.4 — enforced.** AC-1, AC-1a, AC-2..AC-6, AC-9, AC-9b, AC-10, AC-16, AC-17.
 - **R1.2 — `adapter-observed`, NOT enforced.** Per the governing document's own §8 deferral
   ("The attestation MUST therefore label R1.2 `adapter-observed`, not `enforced`"). AC-7 asserts
   two invocations each emitting their own `run_identity`; it does NOT assert distinct invocation
@@ -545,8 +602,7 @@ Scoped, in the terms the levels require:
   non-recursive listing of REGULAR FILES in the directories containing frozen members
   (`[bd8:2b]`); a file added in a subdirectory of a scope directory is NOT detected, and a
   subdirectory appearing beside the members is NOT an addition. Both directions are asserted
-  (AC-9b), so the limit is measured rather than declared. (ia) A frozen member at the scratchpad
-  root makes the scope the root listing. (ib) The oracle set is the scratchpad document
+  (AC-9b), so the limit is measured rather than declared. (ib) The oracle set is the scratchpad document
   directory, NOT the engine's recorded write set: `phase_artifacts.written` does not contain the
   spec documents on any measured driver (`[bd8:2a]`, G9), so BD-L1 here binds what the phase
   PRODUCED in its own namespace rather than what the engine OBSERVED. bd#36 is the lot that would
