@@ -201,6 +201,13 @@
 
 - `E_NOT_REGISTERED` — run.py: requested phase/workflow name not registered in the runner
 
+## E_ORACLE
+
+- `E_ORACLE_AMENDMENT_UNREASONED` — conformance/oracle: oracle-phase re-entry amended the frozen set with an absent/empty reason (bd#8 R1.5)
+- `E_ORACLE_INDETERMINATE` — conformance/oracle: freeze or verify could not read a declared member, the document directory, or the event log (bd#8)
+- `E_ORACLE_MUTATED` — conformance/oracle: recomputed oracle digest or scope digest differs from the frozen one (bd#8 R1.4)
+- `E_ORACLE_UNFROZEN` — conformance/oracle: implementing phase found no freeze event in its event log, or one whose run_id contradicts it (bd#8)
+
 ## E_ORCHESTRATOR
 
 - `E_ORCHESTRATOR_CHECKLIST_MALFORMED` — phase_05_inject: orchestrator checklist file could not be parsed
