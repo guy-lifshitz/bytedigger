@@ -16,7 +16,18 @@ chokepoint: >
   contents. Placing them in a per-workflow step is out of contract for the opposite reason:
   a step runs inside the phase it is meant to bound, so an oracle phase could rewrite its own
   frozen set after the freeze.
-status: FROZEN v4 (post-gate; Opus gate REJECTED v3 on 9 blocking findings — v4 applies gate edits E1-E14 verbatim: the exit verify (MAJOR-1), scope_digest for the addition case (MAJOR-2), phase_45_spec_lite in the mapping (MAJOR-3), the sentinel-vs-re-entry carve-out (MAJOR-4), the error_code surface (MAJOR-5), the empty/unobserved written set (MAJOR-6), the log-scoped lookup order (MAJOR-7), category tokens (MAJOR-8), AC-7 re-cut to adapter-observed (MAJOR-9). G3-G6 resolved; G7-G8 found and resolved at gate)
+status: >
+  FROZEN v5 (post-gate round 2). v3 was REJECTED on 9 blocking findings and v4 applied gate edits
+  E1-E14 verbatim (exit verify, scope_digest, phase_45_spec_lite, sentinel carve-out, error_code
+  surface, log-scoped lookup order, category tokens, AC-7 as adapter-observed). v4 was then
+  REJECTED on 7 more, of which R2-MAJOR-1 is foundational: `[bd8:1]`'s premise was FALSE in
+  production — the engine records no write set for the oracle documents. v5 applies D1(a) plus
+  E15-E22: the set is re-cut from `phase_artifacts.written` onto `<scratchpad_dir>/specs`
+  (`[bd8:1]`), `[bd8:2a]` now carries a MEASURED payload from this engine instead of an argument,
+  AC-10 changes subject from "not a directory listing" to "not outside the run's namespace",
+  AC-9a is STRUCK and AC-16/`[bd8:4a]` re-cut because their subject moved, and AC-9b asserts the
+  §9 limits. G9-G11 recorded in §7. The long-term fix (manifest as source, not filter) is bd#36;
+  this lot does not wait on it.
 base: origin/main @ 2b6589f
 governing: SHARED/memory/Decisions/2026-07-26_bytedigger_conformance_levels.md (HAL fd35e1304) §3 BD-L1, §9
 ---
@@ -26,9 +37,11 @@ governing: SHARED/memory/Decisions/2026-07-26_bytedigger_conformance_levels.md (
 BD-L1 is the level at which the acceptance criteria stop being editable by the actor they
 judge. The engine already produces the two halves separately — the oracle-authoring phase
 (`phase_45_spec` / `phase_45_spec_lite`) and the implementing phase (`phase_5_implement`) are distinct `run.py`
-invocations, and `phase_artifacts` (bd#18) already records which files each phase wrote. What
-is missing is the binding between them: nothing hashes the oracle at its phase exit, and
-nothing re-checks it before the implementation is accepted. This lot supplies exactly that
+invocations, and each phase writes its documents into its own run-scoped scratchpad. (v1-v4 said
+here that `phase_artifacts` "already records which files each phase wrote"; G9 measured that this
+is false for the oracle documents — see `[bd8:1]` and `[bd8:2a]`.) What is missing is the binding
+between the two halves: nothing hashes the oracle at its phase exit, and nothing re-checks it
+before the implementation is accepted. This lot supplies exactly that
 binding and the one error code that carries its refusal.
 
 **Not in this lot.** Whether the oracle is any *good* — that it rejects the pre-implementation
@@ -39,10 +52,36 @@ adversaries actually executed.
 
 ## 1. The oracle artifact set
 
-**`[bd8:1]` The set is the oracle-authoring phase's own written set**, taken from the
-`phase_artifacts` event that phase emits (`payload.written`, already sorted, engine.py:792).
-It is not a glob, not a naming convention, and not a hand-listed manifest — each of those
-would be a second source for a fact the engine already records (§1g).
+**`[bd8:1]` The set is the non-recursive listing of the oracle phase's document directory,
+`<scratchpad_dir>/specs`, files only** — taken at oracle-phase exit, recorded relative to
+`scratchpad_dir`.
+
+This is a REVERSAL of v1-v4, forced by measurement (G9). Those versions took the set from
+`phase_artifacts.written` and justified it by §1g: a glob would be "a second source for a fact
+the engine already records". **The engine does not record it.** `self._written` is fed from
+exactly one place — the git delta of `org_config["git_cwd"]` (engine.py:493; the
+`worker_written_paths` manifest below it at :497-508 only NARROWS that set, and DEFERs to the
+delta when absent) — while both spec workflows write their documents under
+`org_config["scratchpad_dir"]` (`_resolve_scratchpad`, phase_45_spec.py:372-376, used at
+:1005-1007; phase_45_spec_lite.py:373-374). Those are different trees under both measured
+drivers. A first source is not a second source, so §1g does not forbid this listing — it
+requires it.
+
+**`[bd8:1a]` The namespace is `scratchpad_dir` itself, which is already run-scoped.** The engine
+documents the layout: "scratchpad_dir lives at `<repo>/<foreign_state_dirname()>/scratchpad/<run>`"
+(lib/project_root.py:24-31). Run-scoping is therefore a property of the path the driver supplies,
+not something this lot re-derives, and no `<run_id>/` subdirectory is interposed — the phase adds
+no such component (`_resolve_scratchpad` returns `org_config["scratchpad_dir"]` verbatim). The
+freeze reads the directory it is given and never walks UP out of it: a sibling run's scratchpad is
+another namespace and is not this run's oracle. AC-10 forces exactly that boundary.
+
+**`[bd8:1b]` `phase_artifacts.written` is retained as a recorded CROSS-CHECK, never as the
+source.** The freeze records `written_crosscheck: [...]` copied from the oracle phase's own
+`phase_artifacts` payload, so the divergence that produced G9 stays visible in the log instead of
+being silently designed around. A mismatch between it and the frozen members is NOT an error at
+this level — under every measured driver it is empty while the members are not (see `[bd8:2a]`) —
+and no AC turns it into one. It is evidence for the lot that fixes the root cause (bd#36:
+`worker_written_paths` as a source rather than a filter), not a gate here.
 
 **`[bd8:2]` The frozen digest covers membership AND content.** For each path in the set, in
 the set's sorted order, the digest input is the line `<relpath>\0<sha256-of-bytes>`, UTF-8
@@ -59,47 +98,87 @@ additions mismatches (CL §4 ADV-2 adds a file to the oracle SET). The addition 
 discharged by a SECOND, separately-named digest, not by `digest`:
 
   * The **oracle scope** is the set of directories that contain at least one frozen member,
-    non-recursively. It is derived from the frozen member paths and from nothing else — never
-    from a naming convention, never from the whole worktree, never from a git delta (a worktree
-    scan would flag every uncommitted file left by an earlier phase as an oracle addition).
-  * The freeze records `scope: [<reldir>, …]` and
-    `scope_digest: "sha256:" + sha256(join("\n", ["<reldir>\0<sorted \n-joined basenames>"]))`
-    over that scope, computed at freeze time, so files already present but not written by the
-    phase (e.g. a file committed at HEAD) are inside the snapshot and do NOT read as additions.
+    non-recursively. Under `[bd8:1]` it collapses to the single document directory
+    `<scratchpad_dir>/specs`. It is derived from the frozen member paths and from nothing else —
+    never from a naming convention, never from the whole worktree, never from a git delta (a
+    worktree scan would flag every uncommitted file left by an earlier phase as an addition).
+  * The freeze records `scope: [<reldir>, …]` and a `scope_digest`, computed at freeze time, so
+    files already present but not written by the phase are inside the snapshot and do NOT read as
+    additions. The construction, stated exactly because a reviewer cannot check what is not
+    written down: for each `<reldir>` in `scope`, in sorted order, list the directory
+    NON-RECURSIVELY and keep only REGULAR FILES — subdirectories, symlinks to directories and
+    anything that is not a file are excluded, and a subdirectory appearing or disappearing
+    therefore does not move the digest; the line is `<reldir>` then a NUL byte then those file
+    names sorted and joined by `"\n"`; the lines are joined by `"\n"`, UTF-8 encoded;
+    `scope_digest = "sha256:" + sha256(that)`. The two joins deliberately share a separator: the
+    encoding is injective only because a NUL byte cannot occur in a path component, which is what
+    the `\0` is for.
   * The verify recomputes BOTH. `digest` mismatch or `scope_digest` mismatch is
-    `E_ORACLE_MUTATED`, and the message names which of the two and which path.
-  * Declared limit, stated in §9: a file added in a SUBdirectory of a scope directory is not
-    detected. Non-recursive is the measured-safe choice — recursion over a real `specs/` tree
-    makes the scope unbounded — and the limit is published rather than papered over.
+    `E_ORACLE_MUTATED`, and the message names which of the two and which path. A scope directory
+    that no longer exists at verify time is `E_ORACLE_MUTATED` with `mutated:removed` — never an
+    exception out of `main()` (`[bd8:6a]`).
+  * Declared limits, stated in §9: (i) a file added in a SUBdirectory of a scope directory is not
+    detected — non-recursive is the measured-safe choice, since recursion over a real `specs/`
+    tree makes the scope unbounded and turns every file the implementing phase writes beneath it
+    into a false `E_ORACLE_MUTATED`; (ii) a frozen member at the scratchpad ROOT makes the scope
+    `"."`, so the whole root listing becomes the addition surface. Both are published rather than
+    papered over, and both are ASSERTED (a limit no test measures is a claim, not a limit).
 
-**`[bd8:2a]` What is actually in that set — measured, not assumed.** `phase_45_spec` writes the
-spec document and the review document and gates on the review (`workflows/phase_45_spec.py`:
-`write_spec_doc`, `write_review_doc`, `gate_on_review`); it does **not** write RED tests. So the
-oracle frozen here is the *acceptance-criteria document*, which is exactly what CL R1.3 names
-("acceptance criteria … content-hashed at that phase's exit") — not a test suite. The review
-document is inside the set because the engine wrote it in that phase, and `[bd8:1]` takes the
-engine's own record rather than a second, curated list; the consequence is deliberate and must
-be stated in the level claim: editing the review during implementation is also
+**`[bd8:2a]` What is actually in that set — MEASURED on this engine, and the measurement is
+pasted here rather than described.** `phase_45_spec` writes the spec document and the review
+document and gates on the review (`write_spec_doc`, `write_review_doc`, `gate_on_review`); it
+does **not** write RED tests. So the oracle frozen here is the *acceptance-criteria document*,
+which is exactly what CL R1.3 names ("acceptance criteria … content-hashed at that phase's
+exit") — not a test suite. The review document is inside the set, and the consequence is
+deliberate and restated in the level claim: editing the review during implementation is also
 `E_ORACLE_MUTATED`.
 
-**`[bd8:3]` Paths are recorded relative to the run's repository root** and compared as such,
-so a run whose worktree is at a different absolute path still verifies. The engine already
-resolves that root (`_resolve_scan_cwd`, engine.py); this lot reads it, it does not re-derive it.
+What v1-v4 asserted without measuring is WHERE those documents land. Running this engine's own
+`run.py` on the production topology — the step writing into `org_config["scratchpad_dir"]` exactly
+as `_resolve_scratchpad` requires, `org_config["git_cwd"]` pointing at the git repo exactly as
+both drivers set it — the engine emitted:
+
+```json
+{ "phase": "phase_45_spec", "read": [], "read_tracking": "declared-only",
+  "write_tracking": "git-delta", "written": [] }
+```
+
+with `specs/build-spec.md` and `specs/build-plan-review.md` both present in the scratchpad and the
+repository working tree clean. **`written` is empty, and `write_tracking` is `"git-delta"`** — the
+payload does not merely omit the documents, it reports a successfully-observed empty set, so
+nothing downstream could distinguish it from a phase that wrote nothing. Freezing that payload
+would have produced `E_ORACLE_INDETERMINATE` on every real build under `[bd8:4a]` as v4 wrote it,
+and in a target repo that does not gitignore the engine's state directory it would instead have
+absorbed the event log — whose bytes change between freeze and verify — giving `E_ORACLE_MUTATED`
+on every implementing phase. This is why `[bd8:1]` is reversed and why `[bd8:4a]` is re-cut below.
+
+**`[bd8:3]` Paths are recorded relative to `scratchpad_dir`** and compared as such, so a run whose
+scratchpad is at a different absolute path still verifies. `scratchpad_dir` is supplied by the
+caller and read verbatim (`_resolve_scratchpad`); this lot reads it, it does not re-derive it, and
+it never resolves a member outside it.
 
 **`[bd8:4]` A path in the set that cannot be read at freeze time is not a zero-byte member.**
 It fails the freeze with `E_ORACLE_INDETERMINATE` — never a silent digest over a shorter set.
 (This is the fail-closed shape CL R2.4 generalises; stating it here costs nothing and closes
 the one way a freeze can lie.)
 
-**`[bd8:4a]` A written set the engine did not observe is not an empty oracle.** `phase_artifacts`
-carries `write_tracking: "not-observed"` and an empty `written` whenever no step's git delta
-resolved — which includes the common case of an absent or non-git `org_config["git_cwd"]`
-(engine.py:787-791 via `_resolve_scan_cwd`, engine.py:1146-1149), and that case is reachable
-through a real caller (`SYSTEM/cli/build/build-cli.ts:19-34,40` supplies no `git_cwd`). A freeze
-over such a payload fails `E_ORACLE_INDETERMINATE` and emits no `oracle_frozen`. An oracle-phase
-payload with `write_tracking: "git-delta"` but `written: []` fails the same way: a zero-member
-oracle makes every subsequent verify pass trivially, which is the vacuous-freeze shape `[bd8:9]`
-exists to forbid, and it is the same class G1 closed for `written_truncated`.
+**`[bd8:4a]` An EMPTY OR ABSENT document directory is not an empty oracle — RE-CUT under D1(a).**
+v4 attached this rule to `phase_artifacts.written`; `[bd8:2a]` measured that payload reporting
+`written: []` with `write_tracking: "git-delta"` on a healthy production run, so the v4 rule would
+have refused every real build. The rule was right and its subject was wrong. Re-cut onto the
+source `[bd8:1]` actually uses:
+
+  * `<scratchpad_dir>/specs` absent, unreadable, or containing no regular file → the freeze fails
+    `E_ORACLE_INDETERMINATE` and emits no `oracle_frozen`. A zero-member oracle makes every
+    subsequent verify pass trivially, which is the vacuous-freeze shape `[bd8:9]` forbids.
+  * `org_config["scratchpad_dir"]` absent or empty on an oracle-phase run → the same
+    `E_ORACLE_INDETERMINATE`. The engine's own spec workflows already treat it as REQUIRED and
+    raise without it (phase_45_spec.py:375-376), so this refuses nothing that works today.
+  * `written_truncated` and `write_tracking` no longer gate the freeze at all. They describe the
+    `[bd8:1b]` cross-check, which is evidence and not a gate. G1's rule survives only in the
+    weakened form that a truncated payload is copied into `written_crosscheck` as the truncation
+    marker rather than as a sampled list, so the log never implies the engine saw a membership it
+    did not.
 
 ## 2. Where the freeze and the verify live
 
@@ -110,7 +189,9 @@ registry, or the CLI.
 
 **`[bd8:6]` Wiring:** three call sites, all in `run.py main()`: freeze after a successful
 oracle-phase `execute()`; an ENTRY verify before an implementing-phase `execute()`; and an EXIT
-verify after that `execute()` returns and before `main()` reports success. Both verifies are
+verify after that `execute()` returns, run REGARDLESS of the phase's own outcome — a phase that
+failed for an unrelated reason may still have mutated the oracle, and a verify that runs only on
+the success path lets that mutation survive every restart-governor retry. Both verifies are
 required and they discharge different requirements. The ENTRY verify is fail-fast: it stops an
 implementation from being built over an oracle that was already mutated. The EXIT verify is the
 one that discharges CL R1.4 ("Before ACCEPTING the implementation phase the engine MUST
@@ -118,6 +199,15 @@ re-verify that hash") and the one that defeats ADV-1 and ADV-2 as CL §4 defines
 an oracle artifact DURING the implementation phase" / "adds a new file to the oracle set DURING
 implementation". An entry-only verify cannot observe either adversary, because both act after it
 has run. `run.py` stays thin (§1f) — it passes paths and payloads, it computes nothing.
+
+**`[bd8:6b]` An oracle phase given no `--event-log` freezes nothing and fails nothing.** The
+digest is carried by the log and nowhere else (`[bd8:8]`), so a logless oracle phase has no place
+to record one; it emits no `oracle_frozen` and returns its own result untouched. This is NOT a
+weakening: the implementing phase is fail-closed whether or not the oracle phase refused
+(AC-15), so a logless build cannot reach a BD-L1 pass by this route. The alternative — failing the
+oracle phase closed — was measured and rejected: it breaks `SYSTEM/cli/build/build-cli.ts:40` on
+every spec phase in addition to every implementing phase, buying nothing the implementing-phase
+rule does not already buy.
 
 **`[bd8:6a]` Where a refusal surfaces.** A freeze or verify refusal is reported through the
 StepResult that `run.py main()` prints: `status: "error"`, `error_code` set to the §5 code
@@ -215,13 +305,22 @@ raised but unregistered fails its own check):
 Requirement-bound. Each AC names the requirement it discharges; ACs marked **ADV** are the
 adversaries CL §8 requires to have actually run before the level may be claimed.
 
-- **AC-1 (R1.3).** After an oracle-phase run over a known 3-file written set, exactly one
-  `oracle_frozen` event exists for that `run_id`; its `member_count` is 3, its `members` are the
-  three relative paths in sorted order, and its `digest` equals the `[bd8:2]` construction
-  computed independently in the test (not by calling the module under test).
+- **AC-1 (R1.3).** After an oracle-phase run whose document directory holds a known 3 files,
+  exactly one `oracle_frozen` event exists for that `run_id`; its `member_count` is 3, its
+  `members` are the three paths relative to `scratchpad_dir` in sorted order, its `digest` equals
+  the `[bd8:2]` construction and its `scope_digest` the `[bd8:2b]` construction, both computed
+  independently in the test (not by calling the module under test). It also carries
+  `written_crosscheck` (`[bd8:1b]`), which on this engine's measured production topology is
+  EMPTY while the members are not — asserted, so the divergence that produced G9 is recorded by
+  the test rather than remembered by a person. The freeze-then-verify pair leaves exactly ONE
+  `oracle_frozen`: only the oracle phase freezes.
 - **AC-2 (R1.4, ADV-1, entry).** Freeze, then rewrite one byte of one member, then run the
   implementing phase → `error_code == "E_ORACLE_MUTATED"`, exit 1, and the failure names the
-  offending path.
+  offending path. The implementing phase's steps MUST NOT have run: the ENTRY verify refuses
+  before `execute()` is entered, and that — not the code, which the exit verify also produces —
+  is the whole of what distinguishes the two call sites. Asserted on a witness the implementing
+  step writes (absent ⇒ the phase never ran) and on the absence of a `step_started` event for it.
+  Without this assertion an EXIT-ONLY GREEN passes AC-2, AC-3, AC-4, AC-5 and AC-15 unchanged.
 - **AC-2b (R1.4, ADV-1, AS DEFINED BY CL §4).** Freeze; then run an implementing phase whose OWN
   STEP rewrites one byte of one member — the adversary acts DURING the implementation phase, which
   is what ADV-1 is. The EXIT verify (`[bd8:6]`) → `E_ORACLE_MUTATED`, exit 1. Without this leg §9
@@ -261,9 +360,15 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   out of scope per §8, therefore a different lot. RE-OPEN CRITERION: that lot.
 - **AC-8 (R1.5, reasoned leg — the false-free control for the whole amendment path).**
   Re-entering the oracle phase with `org_config["oracle_amendment_reason"]` set to a non-empty
-  string emits exactly one `oracle_amended` carrying `previous_digest` ≠ `digest` and no second
-  `oracle_frozen`; a subsequent implementing phase verifies against the NEW digest and PASSES
-  (exit 0). Without this leg, a GREEN that refuses every re-entry satisfies AC-8a.
+  string emits exactly one `oracle_amended` carrying the FULL `[bd8:10]` payload —
+  `previous_digest` ≠ `digest`, and `scope` and `scope_digest` RECOMPUTED at amendment time — and
+  no second `oracle_frozen`; a subsequent implementing phase verifies against the NEW digest AND
+  the NEW `scope_digest` and PASSES (exit 0). Second leg, non-optional: an addition to a scope
+  directory made AFTER the amendment is still `E_ORACLE_MUTATED`. Without it, a GREEN whose
+  amendment omits the scope half — and whose verify skips the scope check when the looked-up
+  event carries none — passes every other test while disabling ADV-2 for the remainder of any
+  build that amends, which is the normal multi-cycle spec path. Without the first leg, a GREEN
+  that refuses every re-entry satisfies AC-8a.
 - **AC-8a (R1.5, unreasoned leg).** A genuine second oracle-phase `execute()` — forced by a ctx
   that differs in some other `org_config` key so the phase key differs (`[bd8:10b]`) — carrying
   no `oracle_amendment_reason`, or an empty one, fails `E_ORACLE_AMENDMENT_UNREASONED` and emits
@@ -271,16 +376,44 @@ adversaries CL §8 requires to have actually run before the level may be claimed
 - **AC-8b (`[bd8:10b]`, resume control).** Re-invoking the oracle phase with an IDENTICAL ctx and
   run_id, so the phase sentinel serves the cached success (`phase_sentinel_resumed` present, no
   new `phase_artifacts`), leaves the log unchanged: exit 0, no second `oracle_frozen`, no
-  `oracle_amended`, no `E_ORACLE_AMENDMENT_UNREASONED`.
+  `oracle_amended`, no `E_ORACLE_AMENDMENT_UNREASONED`. TWO legs, because one confounds the
+  variables: (i) the tree unchanged, and (ii) a MEMBER MUTATED directly between the two identical
+  invocations — which does not touch `org_config` and so leaves the phase key identical. Leg (ii)
+  is what forces the rule: the resume is still a no-op (exit 0, no amendment, one freeze) and the
+  mutation surfaces at the IMPLEMENTING phase's verify as `E_ORACLE_MUTATED`, not at the resume as
+  `E_ORACLE_AMENDMENT_UNREASONED`. With leg (i) alone, "resume" and "nothing changed" coincide and
+  a GREEN that merely compares digests — never detecting a resume at all — satisfies AC-8, AC-8a
+  and AC-8b together.
 - **AC-9 (`[bd8:4]`).** A member unreadable at freeze time → `E_ORACLE_INDETERMINATE`, and NO
   `oracle_frozen` event is emitted (a freeze that half-happened is worse than none).
-- **AC-9a (G1).** A `phase_artifacts` payload carrying `written_truncated: true` →
-  `E_ORACLE_INDETERMINATE` and NO `oracle_frozen` event. Control leg: the same set under the
-  untruncated payload freezes normally, so the AC cannot be satisfied by refusing every freeze.
-- **AC-10 (§1g).** The oracle set used by the freeze is really taken from the phase's own
-  `phase_artifacts.written` and not re-derived: a run whose written set differs from a
-  same-named directory listing freezes the FORMER. Forcing form — a GREEN that globs the
-  directory fails this.
+- **AC-9a (G1) — STRUCK under D1(a), and the strike is deliberate.** It required a
+  `phase_artifacts` payload carrying `written_truncated: true` to fail the freeze. That payload is
+  no longer the set source (`[bd8:1]`), so the AC has no subject: a truncated cross-check cannot
+  make a freeze lie about a membership it never took from there. G1's concern survives in
+  `[bd8:4a]`'s third bullet — a truncated payload is copied into `written_crosscheck` as the
+  truncation MARKER, never as a sampled list, so the log never implies the engine saw a membership
+  it did not. Nothing else in G1 is reachable, and an AC kept for continuity's sake would be a
+  test that measures a rule the spec no longer has.
+- **AC-9b (`[bd8:2b]`, scope limits — the limits in §9 are asserted, not declared).** After a
+  freeze: (i) adding a file inside a SUBdirectory of a scope directory does NOT trip the verify,
+  and (ii) creating a new empty subdirectory in a scope directory does NOT trip it. Together they
+  pin non-recursion and files-only. A limit no test measures is a claim, not a limit.
+- **AC-10 (`[bd8:1]`/`[bd8:1a]`, RE-CUT under D1(a) — the namespace boundary).** v1-v4 forced
+  "the set is not a directory listing". Under `[bd8:1]` a directory listing is now the REQUIRED
+  behaviour, so that forcing target is dead and this AC changes subject rather than being struck:
+  the freeze must not reach OUTSIDE this run's namespace. The listing is bounded twice, and both
+  bounds are forced:
+  * **Forcing leg 1 — not outside the document directory.** A file placed in `scratchpad_dir`
+    but OUTSIDE `<scratchpad_dir>/specs` at freeze time is not a member and is not in the scope.
+    A GREEN that walks the scratchpad root fails here.
+  * **Forcing leg 2 — not outside the namespace.** A file placed in a SIBLING run's scratchpad
+    (`<scratchpad_root>/<other-run>/specs/...`) is not a member. A GREEN that walks UP out of the
+    given `scratchpad_dir` — or that globs the shared scratchpad root — fails here. This is the
+    leg that keeps "a glob" from meaning "an arbitrary glob": the listing is tied to the one
+    namespace the driver scoped to this run (`[bd8:1a]`, lib/project_root.py:24-31).
+  * **Control leg — the run's OWN document directory freezes normally**, with exactly the members
+    that are in it. Without this, "does not go outside the namespace" is satisfied by a freeze
+    that returns nothing at all.
 - **AC-11 (registry).** Every code in §5 is present in `error_codes.py` with a one-line
   condition, and `error_codes.py --check` reports no drift.
 - **AC-12 (bd#22 AC-C1).** Importing `conformance.oracle` performs no I/O, no subprocess, no
@@ -303,6 +436,16 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   in-tree callers (no `run.py` invocation of `phase_5_implement` exists in this repo), zero
   production build paths (`dogfood/driver-template.sh:143-148` always passes `--event-log`), one
   out-of-tree ad-hoc caller (`SYSTEM/cli/build/build-cli.ts:40`), which must add the flag.
+  Second control leg (`[bd8:6b]`): a logless ORACLE-phase invocation is likewise untouched — exit 0,
+  no `oracle_frozen`, no §5 code — so the fail-closed rule is scoped to the phase that consumes the
+  freeze, not to the phase that produces it.
+- **AC-16 (`[bd8:4a]`, RE-CUT under D1(a)).** An oracle phase whose `<scratchpad_dir>/specs` is
+  absent, unreadable, or contains no regular file fails `E_ORACLE_INDETERMINATE` and emits no
+  `oracle_frozen`; the same for an oracle-phase run carrying no `scratchpad_dir`. Control leg: a
+  directory holding at least one regular file freezes normally, so the AC is not satisfiable by
+  refusing every freeze. The v4 form of this AC — keyed on `phase_artifacts.written` being empty
+  or `not-observed` — is STRUCK: `[bd8:2a]` measured that payload reporting exactly that on a
+  healthy run, so the v4 form refused every real build.
 
 ## 7. Spec gaps — resolved before freeze
 
@@ -329,8 +472,27 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   existing `--ctx-json`; see `[bd8:10a]`. Both amendment legs are in scope.
 - **G7 (found at gate) — RESOLVED by `[bd8:2b]`.** The frozen member digest cannot detect an
   addition on its own; `scope_digest` carries that half, with its limit published in §9.
-- **G8 (found at gate) — RESOLVED by `[bd8:4a]`.** An unobserved or empty written set is
-  `E_ORACLE_INDETERMINATE`, never a zero-member oracle.
+- **G8 (found at gate) — SUPERSEDED by G9.** Its rule (an unobserved/empty written set is
+  `E_ORACLE_INDETERMINATE`) was correct in form and wrong in subject; see `[bd8:4a]` and AC-16.
+- **G9 (found at gate, round 2) — the set source. RESOLVED by D1(a): `[bd8:1]` re-cut onto the
+  tree.** `phase_artifacts.written` is the git delta of `org_config["git_cwd"]`
+  (engine.py:493 as the sole producer, with the `worker_written_paths` manifest at :497-508 only
+  NARROWING it and DEFERring when absent; engine.py:1146-1167 for the delta itself), while both
+  spec workflows write their documents under `org_config["scratchpad_dir"]`
+  (phase_45_spec.py:372-376,1005-1007; phase_45_spec_lite.py:373-374). Under both measured drivers
+  those are different trees (`run_oss_driver.py:113,185`) or a gitignored subtree
+  (`driver-template.sh` + `.gitignore`). MEASURED on this engine and pasted into `[bd8:2a]`:
+  `written: []` with `write_tracking: "git-delta"` while both documents exist in the scratchpad.
+  The `<run_id>/` sub-namespace initially proposed for the re-cut was REJECTED by measurement —
+  `_resolve_scratchpad` returns `scratchpad_dir` verbatim and `run_oss_driver.py:185` interposes
+  no run component — so the namespace is `scratchpad_dir` itself, which
+  lib/project_root.py:24-31 documents as already run-scoped (`[bd8:1a]`). The proper long-term
+  fix (the `worker_written_paths` manifest as a SOURCE rather than a filter, which would restore
+  the §1g argument honestly) is an `engine.py` change, out of scope per §8, and is tracked as
+  bd#36. This lot does not wait on it.
+- **G10 — the entry verify's observable effect.** RESOLVED by AC-2's witness assertion.
+- **G11 — the logless oracle phase.** RESOLVED by `[bd8:6b]`: skipped silently, because failing it
+  closed breaks `build-cli.ts:40` on every spec phase and buys nothing AC-15 does not already buy.
 
 ## 8. PREFLIGHT — scope, siblings, and the two traps measured before freeze
 
@@ -369,7 +531,7 @@ license neither, and saying so is the §8 discipline this document is bound by.
 
 Scoped, in the terms the levels require:
 
-- **R1.1, R1.3, R1.4 — enforced.** AC-1..AC-6, AC-9, AC-9a, AC-10.
+- **R1.1, R1.3, R1.4 — enforced.** AC-1..AC-6, AC-9, AC-9b, AC-10, AC-16.
 - **R1.2 — `adapter-observed`, NOT enforced.** Per the governing document's own §8 deferral
   ("The attestation MUST therefore label R1.2 `adapter-observed`, not `enforced`"). AC-7 asserts
   two invocations each emitting their own `run_identity`; it does NOT assert distinct invocation
@@ -380,8 +542,15 @@ Scoped, in the terms the levels require:
 - **R1.5 — enforced for the reasoned and unreasoned amendment (AC-8, AC-8a), with the declared
   carve-out that a sentinel-resumed phase is not a re-entry (`[bd8:10b]`, AC-8b).**
 - **Declared limits, published rather than papered over.** (i) The addition case is scoped to the
-  non-recursive listing of the directories containing frozen members (`[bd8:2b]`); a file added
-  in a subdirectory of a scope directory is NOT detected. (ii) Editing the review document during
+  non-recursive listing of REGULAR FILES in the directories containing frozen members
+  (`[bd8:2b]`); a file added in a subdirectory of a scope directory is NOT detected, and a
+  subdirectory appearing beside the members is NOT an addition. Both directions are asserted
+  (AC-9b), so the limit is measured rather than declared. (ia) A frozen member at the scratchpad
+  root makes the scope the root listing. (ib) The oracle set is the scratchpad document
+  directory, NOT the engine's recorded write set: `phase_artifacts.written` does not contain the
+  spec documents on any measured driver (`[bd8:2a]`, G9), so BD-L1 here binds what the phase
+  PRODUCED in its own namespace rather than what the engine OBSERVED. bd#36 is the lot that would
+  make those the same fact. (ii) Editing the review document during
   implementation is `E_ORACLE_MUTATED`, deliberately (`[bd8:2a]`). (iii) An implementing-phase
   invocation with no `--event-log` fails closed (AC-15); a caller that wants BD-L1 must supply a
   log.
