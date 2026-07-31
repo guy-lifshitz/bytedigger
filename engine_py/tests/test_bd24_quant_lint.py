@@ -2162,3 +2162,97 @@ class TestQuantifierCompletenessLintBd24GateRound3:
             f.kind == "seam_not_pinned" and f.subject == "Trailing.Seam"
             for f in findings
         )
+
+
+# ── Gate round-4 MAJOR: `[G24:7]`'s framing clause is TWO-sided (C-SPACING) ──
+# v6 pinned the operand as "the text after the marker's colon, with SURROUNDING
+# whitespace and the line terminator removed" -- and then measured the trailing
+# side only. No fixture carried anything but exactly one space after a colon, so
+# `operand = line[len("LEVEL: "):].rstrip()` -- marker plus one assumed space --
+# lands correctly on all 36 fixtures and passes 41/41. Verified as mutant #29:
+# it did.
+#
+# It is wrong on input the spec does not exclude, and silently: `LEVEL:phases`
+# yields the subject `"hases"`, a Finding naming a level that does not appear in
+# the document, which is exactly what P1's verbatim guarantee exists to prevent.
+#
+# The gate offered two closes and no preference: declare the single space part
+# of the marker in §6, or measure the other side. Measuring is the one taken --
+# narrowing the clause to what already happens to be covered is how a spec ends
+# up with semantics chosen by its fixtures rather than the reverse, and a real
+# document written by hand will contain both spellings.
+#
+# `packed` and `padded` are declared with NO row, so their subjects must be
+# reported verbatim: a fixed-offset lint reports `acked` for the first, and a
+# lint stripping only the trailing side reports `   padded` for the second.
+# `normal` (one space, discharged) and `Normal.Seam` (one space, fully pinned)
+# keep the fixture non-uniform, so a lint that flags everything fails too.
+_OPERAND_SPACING_SPEC = """\
+# Fixture Spec — marker-to-operand spacing other than exactly one space
+
+LEVEL:packed
+
+LEVEL:   padded
+
+LEVEL: normal
+NON-UNIFORMITY: normal — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+SEAM:Packed.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+
+SEAM:   Padded.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+
+SEAM: Normal.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
+
+class TestQuantifierCompletenessLintBd24GateRound4:
+    """Gate round-4's MAJOR: the leading side of `[G24:7]`'s framing clause."""
+
+    def test_ac_c5_operand_spacing_other_than_one_space(self):
+        """Spec `[G24:7]` / C-SPACING, closing gate round-4's MAJOR -- a
+        finding against v6's own new clause, which pinned "surrounding
+        whitespace" and then measured only the trailing side. Every fixture in
+        the file writes exactly `": "` after every marker, so
+        `line[len("LEVEL: "):].rstrip()` -- marker plus one assumed space --
+        is indistinguishable from parsing the operand, and passes 41/41
+        (verified as mutant #29). It is silently wrong on `LEVEL:phases`,
+        reporting a level named `hases` that appears nowhere in the document.
+
+        `packed` (no space) and `padded` (three) are declared without a row, so
+        check 1 must report both subjects VERBATIM: a fixed-offset lint reports
+        `acked`, and a lint stripping only the trailing side reports
+        `   padded`. `Packed.Seam` and `Padded.Seam` carry the same test on
+        check 3's subject. `normal` and `Normal.Seam` use the ordinary single
+        space and are conformant, so a lint that mangles every operand -- or
+        one that simply flags everything -- fails the negative assertions too.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_OPERAND_SPACING_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "packed"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "padded"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Packed.Seam"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Padded.Seam"
+            for f in findings
+        )
+        assert not any(f.subject == "normal" for f in findings)
+        assert not any(f.subject == "Normal.Seam" for f in findings)

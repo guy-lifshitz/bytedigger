@@ -1,6 +1,6 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v6, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v7, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
@@ -96,6 +96,24 @@ citation, two versions stale (MINOR-F); **the containment script now compares ca
 their names (MINOR-G) — with most candidates dying by exactly one test, a deleted assertion silently un-kills
 one, which is bd#22 round 4's hole in a different wall; two missing rows added to §5's clause table (MINOR-H);
 and "round 3" disambiguated between bd#22's and this lot's (MINOR-I).
+
+**v7 — gate round 4 returned REJECTED with one MAJOR, type (a), against v6's own new clause.** `[G24:7]`'s
+framing pin says "**surrounding** whitespace" — both sides — and `_TRAILING_WHITESPACE_SPEC` measured the
+trailing side only. Every fixture in the file writes exactly `": "` after every marker, so
+`operand = line[len("LEVEL: "):].rstrip()` — the marker plus one *assumed* space — is indistinguishable from
+parsing the operand. Predicted by the gate to pass 41/41; **run as mutant #29: it did.** It is silently wrong on
+input the spec does not exclude: `LEVEL:phases` yields the subject `hases`, a `Finding` naming a level that
+appears nowhere in the document, which is what P1's verbatim guarantee exists to prevent.
+
+The gate offered two closes with no preference: declare the single space part of the marker and narrow the
+clause to "trailing", or measure the other side. **Measured** (`_OPERAND_SPACING_SPEC`, C-SPACING). Narrowing
+would have let the fixture set choose the semantics instead of the reverse — and a fixture document written by
+hand will contain both spellings, so the narrower clause buys nothing but a smaller obligation.
+
+**Twice now the gate has named a surviving candidate by reading, predicted its exact score, and been right**
+(#28 sentinel seam, 40/40; #29 fixed offset, 41/41). Both were absent from my mutant enumeration. That is the
+`[G22:13]` asymmetry measured rather than argued, and it is the reason §5's simulation subsection is scoped as
+a floor rather than a proof.
 
 ---
 
@@ -482,12 +500,13 @@ artifact (`d39371f`, `engine_py/tests/test_bd22_contracts.py`) — see §5.
 | F-1 | over-fires on well-formed input (bd#7's keyword sweep, 11 of 13 mis-scored) | `_CONFORMANT_SPEC` (`findings == []`) |
 | F-2 | raises on an unstructured document | `_MALFORMED_SPEC` |
 | F-3 | raises on the empty string (`i+1` lookahead over `split("\n")`) | `""` inline |
-| F-4 | raises on a trailing bare marker (`.splitlines()` lookahead) | `"LEVEL: phases"`, `"SEAM: tempfile.mkdtemp"` ✝ inline |
+| F-4 | raises on a marker line that is the document's **last** line, with no following line to look ahead to | `"LEVEL: phases"`, `"SEAM: tempfile.mkdtemp"` ✝ inline |
 | F-5 | markers matched case-**sensitively** | `_LOWERCASE_MARKERS_SPEC` |
 | F-6 | accumulates findings in module-level state across calls | the idempotence test: snapshot-before-second-call, plus `second is not first` |
 | F-8 | dereferences a "current anchor" that was never set (raises on an unanchored marker line) ✝ | `_ORPHAN_MARKER_LINES_SPEC` ✝ |
 | F-9 | `Finding` **widened** with a third field (`message`, `line_number`) ✝✝ | a set-equality assertion on `dataclasses.fields` — §2.1 pins "exactly two attributes" and nothing measured the *exactly*. Gate round 1 MINOR-7 |
 | C-CRLF | an operand kept **verbatim after splitting on `"\n"`**, so `"\r"` stays inside `subject` ✝✝ | `_CRLF_SPEC` ✝✝ — every other fixture is LF-only (`[G24:7]`). Precise form, v6: an implementation that splits on `"\n"` and then **strips** is correct and is not the candidate |
+| C-SPACING | the operand taken at a **fixed offset** (marker + one assumed space), or leading whitespace kept ✝✝✝✝✝ | `_OPERAND_SPACING_SPEC` ✝✝✝✝✝ — `LEVEL:packed` and `LEVEL:   padded` are declared without a row, so both subjects must be reported verbatim. **Gate round-4 MAJOR**, confirmed by mutant #29 passing 41/41 without it |
 | C-WS | trailing whitespace kept inside the operand ✝✝✝✝ | `_TRAILING_WHITESPACE_SPEC` ✝✝✝✝ — `LEVEL: phases␣␣␣` must still be discharged by its row, and `SEAM: Trailing.Seam␣␣` reported without the spaces |
 | C3-20 | an unanchored property line collected under a **sentinel seam** (`seams.setdefault(cur_seam or "<unnamed>", …)`) and reported as a finding ✝✝✝✝ | `_ORPHAN_MARKER_LINES_SPEC`'s fourth assertion ✝✝✝✝ — `[G24:5]`'s not-a-finding clause was measured for the `EXCLUDES` half only; the seam half needed a guard naming the one seam that legitimately appears. **Gate round-3 MAJOR**, predicted by the gate and confirmed by mutant #28 passing 40/40 without it |
 | C-CASE | marker recognition as **two literal spellings** (`startswith(("LEVEL:", "level:"))`) rather than case-insensitive ✝✝✝ | `_MIXED_CASE_MARKERS_SPEC` ✝✝✝ — only ALL-CAPS and all-lowercase were walked; `Title.Conformant` additionally separates recognition of the three property markers from recognition of `Seam:` alone |
@@ -628,7 +647,6 @@ read the other way. So the audit below is now run over every normative clause, n
 | `[G24:4]` repetition collapsed, not punished | `_BENIGN_DUPLICATE_SPEC` — the carriers are **conformant**, so the clause can fail |
 | `[G24:5]` unanchored lines | `_ORPHAN_MARKER_LINES_SPEC` (F-8, not-a-finding) + `_FORWARD_CREDIT_SPEC` (forward-crediting) |
 | `[G24:6]` undeclared-level row still checked | `_UNDECLARED_LEVEL_ROW_SPEC` — the row is **short** |
-| `[G24:7]` line terminators | `_CRLF_SPEC` |
 | `[G24:8]` markers at line start | `_INDENTED_MARKER_SPEC` |
 | `[G24:9]` order-independent row binding | `_ROW_BEFORE_LEVEL_SPEC` |
 | `[G24:10]` anchors tracked independently | `_INTERLEAVED_ANCHORS_SPEC` |
@@ -636,7 +654,7 @@ read the other way. So the audit below is now run over every normative clause, n
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
 | §2.1 must not raise; `Finding` shape | `_MALFORMED_SPEC`, `""`, `"LEVEL: phases"` (F-2/F-3/F-4) and the `is_dataclass`/`FrozenInstanceError`/field-set assertions (F-7, F-9) |
-| `[G24:7]` operand framing | `_CRLF_SPEC` **and** `_TRAILING_WHITESPACE_SPEC` |
+| `[G24:7]` operand framing (terminator, trailing, leading) | `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC` **and** `_OPERAND_SPACING_SPEC` — one fixture per side, after gate round 4 found the clause two-sided and one side measured |
 | §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
 
 ### Round 3 — EXECUTED candidate simulation, not reasoned
@@ -648,9 +666,9 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 41/41 and every one of the 28 mutants fails at least one test** (v6 figures;
-v5 recorded 40/40 over 27 before gate round 3 added the sentinel-seam candidate and the trailing-whitespace
-fixture).
+**Result: the reference passes 42/42 and every one of the 29 mutants fails at least one test** (v7 figures;
+v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
+fixed-offset one — neither of which my own enumeration contained).
 
 **Scope of this evidence, and its limit** (gate round-3's weighing, adopted): mutation adequacy is measured
 against **the author's own enumeration of decisions**, and the reference and this spec have one author, so a
