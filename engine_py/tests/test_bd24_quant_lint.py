@@ -1781,6 +1781,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
             f.kind == "missing_reductions" and f.subject == "short_level"
             for f in findings
         )
+        assert len([f for f in findings if f.subject == "short_level"]) == 1
 
     def test_ac_c5_line_terminators_are_not_part_of_the_operand(self):
         """Spec `[G24:7]` / C-CRLF, raised by the gate as a live adversarial

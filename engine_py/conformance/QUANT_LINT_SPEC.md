@@ -1,6 +1,6 @@
 # Lot spec — bd#24 (L2b): the quantifier-completeness lint (`AC-C5`)
 
-**v4, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
+**v5, FROZEN.** Lot **L2b** of the 12-lot split of bd#7, split out of bd#22 under the dispatcher's round-4 exit
 criterion, clause 3. Base: `origin/main` @ `08b8413` (this worktree, branch `lot-24`). Carries **exactly 1 AC**:
 `AC-C5`. AC accounting stays convergent: 7 = 6 (bd#22, shipped in `dc6f0d0`) + 1 (here).
 
@@ -599,6 +599,64 @@ read the other way. So the audit below is now run over every normative clause, n
 | §2.2 markers case-insensitive | `_LOWERCASE_MARKERS_SPEC` + `_MIXED_CASE_MARKERS_SPEC` |
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
+
+### Round 3 — EXECUTED candidate simulation, not reasoned
+
+`[G22:13]` asks for the plausible implementations to be enumerated and each shown to die. Through gate round 2
+that was done **on paper**, by both me and the gate — neither gate round had a shell. Round 3 ran it as code: a
+reference implementation written strictly from this spec, plus 27 mutants each flipping exactly one decision,
+executed against the RED outside the worktree (the RED module is loaded by path with a scratch `conformance`
+package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
+committed** — GREEN must be written against the spec, not copied from a validation harness).
+
+**Result: the reference passes 40/40 and every one of the 27 mutants fails at least one test.**
+
+The reference passing is a result in its own right and one no gate round could produce: it shows the fixture set
+is **satisfiable** — no assertion contradicts another, and the spec as written is implementable. Five revisions
+of bd#22's spec shipped with an internal contradiction; this is the first mechanical evidence that this one has
+none.
+
+| Candidate | Clause it attacks | Tests failed |
+|---|---|---|
+| `needs_a_property_line` (B2) | `[G24:3]`/check 3 base case | 4 |
+| `cardinality` (B1) | K9, C2-6 | 1 |
+| `equality` | K12, C2-20 | 1 |
+| `per_missing_reduction` | `[G24:3]` check 2, C2-22 | 1 |
+| `per_missing_property` | `[G24:3]` check 3, C3-9 | 1 |
+| `props_exactly_once` | `[G24:4]`, C3-18 | 1 |
+| `dup_token_is_defect` | `[G24:4]` mirror, C2-23 | 1 |
+| `admits_by_proximity` | K13, C2-18 | 1 |
+| `skip_undeclared` | `[G24:6]`, C2-19 | 1 |
+| `excludes_by_level` | `[G24:2]`, C2-10 | 5 |
+| `forward_credit` | `[G24:5]`, C1-13/C3-17 | 1 |
+| `single_anchor` | `[G24:10]`, C3-19 | 1 |
+| `row_below_only` | `[G24:9]`, C1-14 | 1 |
+| `ignore_bad_tokens` | `[G24:1]`, C2-8 | 1 |
+| `default_drops_any` | K8, C2-3 | 1 |
+| `case_fold_operand` | K11, C1-9 | 1 |
+| `substring_a` / `substring_b` | K5 / K6, C1-5 / C1-6 | 1 / 1 |
+| `global_presence` | K4, C1-4 | 6 |
+| `first_only` / `last_only` | K2 / K3 | 7 / 11 |
+| `seam_first_only` | K2 on check 3 | 9 |
+| `seam_name_substring` | K5/K6 on check 3 | 2 |
+| `attribute_path_only` | C3-3 | 11 |
+| `verbatim_operand` | `[G24:7]`, C-CRLF | 1 |
+| `strip_start` | `[G24:8]`, C-INDENT | 1 |
+| `two_spellings` | C-CASE | 1 |
+
+**Two things the simulation found that reading did not**, and both are recorded rather than quietly fixed:
+
+1. **The assertion closing gate round-2 MAJOR-1 was not in the file.** The edit that added
+   `assert len([f for f in findings if f.subject == "short_level"]) == 1` was written but never landed (the
+   script that applied it aborted before writing), while the docstring describing it *did* land. So the round-3
+   commit claimed a closure it had not made, and `per_missing_reduction` passed 40/40. Added and re-measured.
+   This is the same defect class as C1-12 — a clause with prose but no assertion — arriving by a mechanical
+   route rather than an analytical one, which is exactly why the simulation is executed and not reasoned.
+2. **A `.split("\n")` implementation that `.strip()`s its operands is not a defect** — stripping removes the
+   `\r` and the behaviour is correct. C-CRLF's real target is the implementation that keeps the operand
+   verbatim after splitting on `"\n"` (`verbatim_operand`), which fails exactly one test: `_CRLF_SPEC`'s. The
+   candidate is genuine and uniquely killed, but §3's C-CRLF row overstated it as "`.split(\"\\n\")` leaves
+   `\r` inside `subject`"; the precise form is recorded here.
 
 **Provenance, stated because §0.9 direction 2 is about additions nobody asked for.** `_ORPHAN_MARKER_LINES_SPEC`
 comes from round 1's self-sweep, not from a gate finding. Of the three candidates it was admitted on, **two did not
