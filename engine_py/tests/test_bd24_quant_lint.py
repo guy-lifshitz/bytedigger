@@ -4,7 +4,7 @@ One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
 file keeps its name. Renaming it would break the containment script's path to
 bd#22's round-9 artifact and buy nothing.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v8**, FROZEN under this
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v9**, FROZEN under this
 lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
@@ -3839,3 +3839,99 @@ class TestQuantifierCompletenessLintBd39GateRound7:
         )
         assert not any(f.subject == "Packed.Properties" for f in findings)
         assert not any(f.subject == "Framing.Control" for f in findings)
+
+
+# ── bd#39 gate round 8 MAJOR: the operand's INTERIOR, not its framing ──────
+# `[G24:7]` pins the operand's FRAMING -- {terminator, trailing, leading} x 8
+# markers, 24 cells, all filled by v8. P1 pins the operand's CONTENTS:
+# "verbatim governs case and INTERIOR CHARACTERS, not the framing". Those are
+# two axes of one question -- what the operand IS -- and §5's row enumerated
+# only the first. §0.9(3a): the row's existing axis list is the claim under
+# audit, never an exemption.
+#
+# Verified exhaustively: NO `LEVEL`, `SEAM` or row `<level>` operand in any of
+# the 56 fixtures contains an interior space. `operand.split()[0]` -- take the
+# first whitespace token -- therefore satisfies every one of the 24 framing
+# cells BY ACCIDENT: tokenising discards leading and trailing whitespace, the
+# packed form, and the line terminator (`\r` is whitespace, so `_CRLF_SPEC`
+# passes). It passed 61/61 at ZERO divergence, the fourth consecutive round the
+# matrix is structurally blind to the finding.
+#
+# §2.2 constrains `LEVEL: <name>` not at all, and §0.1's own directions are
+# two-word phrases -- "element kind", "payload field" -- which this fixture set
+# renders with underscores by house convention only. That is the same
+# house-style argument §0.0 accepted for C-SPACING and the gate accepted for
+# ` — `.
+#
+# Two independent consequences, and the silent one is graver:
+#   `payload field` yields the subject `payload`, which appears nowhere in the
+#   document -- mutant #29's consequence on the axis #29's fixtures cannot test;
+#   `audit gate` and `audit step` collapse to one key, so `audit step` -- a
+#   declared level with NO row -- is silently CLEARED. A level quantified over
+#   and never discharged ships conformant: check 1's founding case.
+_INTERIOR_SPACE_SPEC = """\
+# Fixture Spec — interior spaces in level, seam and row operands
+
+LEVEL: payload field
+
+LEVEL: audit gate
+NON-UNIFORMITY: audit gate — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+
+LEVEL: audit step
+
+SEAM: Two Word.Seam
+ATTRIBUTE-PATH: pathlib.Path.read_text
+BINDING-TIME: call-time
+
+SEAM: Interior.Control
+ATTRIBUTE-PATH: subprocess.run
+BINDING-TIME: call-time
+NORMALISATION: none
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound8:
+    """P1's *interior characters* axis, which `[G24:7]`'s framing cells
+    satisfy by accident because every operand in the file is one token.
+    """
+
+    def test_ac_c5_operand_interior_whitespace_is_part_of_the_name(self):
+        """AC-C5(1) and AC-C5(3). bd#39 gate round-8 MAJOR, spec C1-17.
+        `[G24:7]` pins the operand's FRAMING and P1 its CONTENTS -- two axes of
+        one question, and §5 enumerated one. No `LEVEL`, `SEAM` or row operand
+        in the file carries an interior space, so `operand.split()[0]`
+        satisfies all 24 framing cells by accident and passed 61/61 at zero
+        divergence.
+
+        Three independent kills. `payload field` is row-less and must be
+        reported with that exact literal: a tokenising lint reports `payload`,
+        a subject appearing nowhere in the document -- mutant #29's
+        consequence on the axis #29 cannot reach. `audit gate` and
+        `audit step` share a first token and only the first has a row, so a
+        tokenising lint collapses both to one key and silently CLEARS
+        `audit step` -- a declared level, never discharged, shipped
+        conformant, which is check 1's founding case and the graver half
+        because it is invisible in the output rather than wrong in it.
+        `Two Word.Seam` carries the same test on check 3's subject.
+        `audit gate` and `Interior.Control` hold the negatives, so a lint that
+        flags everything fails too.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_INTERIOR_SPACE_SPEC)
+
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "payload field"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_non_uniformity_row" and f.subject == "audit step"
+            for f in findings
+        )
+        assert any(
+            f.kind == "seam_not_pinned" and f.subject == "Two Word.Seam"
+            for f in findings
+        )
+        assert not any(f.subject == "audit gate" for f in findings)
+        assert not any(f.subject == "Interior.Control" for f in findings)
