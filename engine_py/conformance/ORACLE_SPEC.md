@@ -17,7 +17,18 @@ chokepoint: >
   a step runs inside the phase it is meant to bound, so an oracle phase could rewrite its own
   frozen set after the freeze.
 status: >
-  FROZEN v6 (post-gate round 3). Rounds 1-3 of the Opus gate rejected v3 (9 blocking), v4 (7) and
+  FROZEN v7 (post-gate round 4). The gate rejected v6 on ONE finding, type (b): E26's `[bd8:1a]`
+  half was applied and its §9 half was not, so the frontmatter and `[bd8:1a]` both pointed at a
+  §9 limit (ic) that did not exist while §9 (ib) still carried the struck "in its own namespace"
+  clause. v7 applies E30-E35: (ic) is published with the measured producer disagreement and its
+  two consequences (a reused scratchpad freezes documents this run did not author; a concurrent
+  build writing the same specs/ is indistinguishable from ADV-2); AC-17's exception mapping is
+  corrected (FileNotFoundError lands on E_FILE_NOT_FOUND at run.py:230-232, not E_RUNNER); §3's
+  freeze payload enumeration completed; `[bd8:12]`'s numeral fixed; plus two optional
+  clarifications — §9 records that the lookup order and log integrity are host/availability
+  properties, not level properties, and `[bd8:1b]` states the truncation carve-out inline. The
+  gate's round-4 sweep found NO GREEN that passes the 31 failing tests while falsifying §9's
+  claim. HISTORY: v6 (post-gate round 3). Rounds 1-3 of the Opus gate rejected v3 (9 blocking), v4 (7) and
   v5 (4). v6 applies E23-E29: `[bd8:1b]`'s cross-check must be a REAL copy and is now forced by
   AC-1a; AC-17 covers the two verify-side I/O branches §2/§5 declared but nothing asserted, so
   neither can surface as `E_RUNNER`; §7's G1 no longer states the rule v5 revoked; `[bd8:1a]`
@@ -94,7 +105,8 @@ itself (`run_oss_driver.py:187`) sits at the scratchpad root, and AC-10 leg 1 is
 of the frozen set.
 
 **`[bd8:1b]` `phase_artifacts.written` is retained as a recorded CROSS-CHECK, never as the
-source.** The freeze records `written_crosscheck: [...]` copied VERBATIM from the oracle phase's
+source.** The freeze records `written_crosscheck: [...]` copied VERBATIM — except that a
+payload carrying `written_truncated: true` contributes its truncation MARKER — from the oracle phase's
 own `phase_artifacts` payload for this run and phase — the actual list, whatever it holds, never a
 constant and never a value derived from the member set — so the divergence that produced G9 stays
 visible in the log instead of being silently designed around. When that payload carries
@@ -259,8 +271,9 @@ an inference.
 ## 3. Persistence: the log is the store
 
 **`[bd8:8]` The frozen digest is carried by the append-only event log and nowhere else.**
-Freeze emits `oracle_frozen {phase, run_id, member_count, digest, members:[{path, digest}]}`;
-verify reads the LAST `oracle_frozen`-or-`oracle_amended` event **in the event log this
+Freeze emits `oracle_frozen {phase, run_id, member_count, digest, members:[{path, digest}],
+scope, scope_digest, written_crosscheck}` — the last three per `[bd8:2b]` and `[bd8:1b]`, and all
+of them asserted by AC-1; verify reads the LAST `oracle_frozen`-or-`oracle_amended` event **in the event log this
 invocation was given** and recomputes against the live tree. A sidecar file would be a second
 source and a mutable one — the exact property BD-L1 exists to remove.
 
@@ -492,10 +505,13 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   * (ii) A scope directory that no longer exists at verify time (the last member of `specs/`
     removed together with the directory) → `E_ORACLE_MUTATED` with `mutated:removed`, exit 1, per
     `[bd8:2b]`.
-  Neither may surface as `E_RUNNER`. The natural implementation of `[bd8:2b]` — `iterdir()` over
-  the scope and `read_bytes()` over the members — raises `FileNotFoundError` / `PermissionError` /
-  `IsADirectoryError`, which `run.py:233-240` maps to `E_RUNNER` and rc 2, below
-  `governor_record_result` (`run.py:207-223`). An adversary who mutates a member AND makes it
+  Neither may surface as a runner-level code. The natural implementation of `[bd8:2b]` —
+  `iterdir()` over the scope and `read_bytes()` over the members — raises `FileNotFoundError`,
+  which `run.py:230-232` maps to `E_FILE_NOT_FOUND` and rc 2, or `PermissionError` /
+  `IsADirectoryError`, which `run.py:233-240` maps to `E_RUNNER` and rc 2. Both land BELOW
+  `governor_record_result` (`run.py:207-223`), so the restart governor, `--status` and
+  `derive_state` see a runner failure and never an oracle refusal. An adversary who mutates a
+  member AND makes it
   unreadable would otherwise convert a BD-L1 refusal into a runner crash, which §9 may not claim
   ADV-1 over.
 
@@ -567,7 +583,7 @@ a code exercised only from the test file still counts as dead. AC-11 is therefor
 satisfiable by registering the codes early — which is the shape a GREEN naturally reaches for.
 
 **`[bd8:12]` Trap 2 — the sibling surface of `run.py` is wide and must be re-run, not assumed.**
-30 test files under `engine_py/tests/` reference `run.py`; two are load-bearing for this change
+30 test files under `engine_py/tests/` reference `run.py`; three are load-bearing for this change
 and are named so the GREEN cannot claim a clean scoped pass without them:
 `test_engine_path_closure.py` (a new module in the import closure is exactly what it measures),
 `test_bd22_contracts.py` (the package's no-I/O-at-import invariant, which `[bd8:5]` binds), and
@@ -605,11 +621,29 @@ Scoped, in the terms the levels require:
   (AC-9b), so the limit is measured rather than declared. (ib) The oracle set is the scratchpad document
   directory, NOT the engine's recorded write set: `phase_artifacts.written` does not contain the
   spec documents on any measured driver (`[bd8:2a]`, G9), so BD-L1 here binds what the phase
-  PRODUCED in its own namespace rather than what the engine OBSERVED. bd#36 is the lot that would
-  make those the same fact. (ii) Editing the review document during
+  PRODUCED in the namespace the caller scoped rather than what the engine OBSERVED. bd#36 is the
+  lot that would make those the same fact. (ic) That namespace is only as narrow as the CALLER made
+  it, and the producers were measured to DISAGREE: `dogfood/run_oss_driver.py:185` supplies one
+  `<artifacts_dir>/scratchpad` with no run component, `SYSTEM/cli/build/build-cli.ts:30` passes the
+  caller's `--scratchpad-dir` string through unchanged, and
+  `SYSTEM/cli/build/batch-build-regressions.test.sh:205` pins a repo-rooted `<repo>/.hal-build`
+  (`[bd8:1a]`). `scratchpad_dir` is therefore build-scoped at best and may be repo-scoped, and two
+  consequences are DECLARED rather than claimed away: a scratchpad reused across builds freezes
+  documents THIS run did not author, and a CONCURRENT build writing into the same
+  `<scratchpad_dir>/specs` during this build's implementing phase is byte-for-byte
+  indistinguishable from ADV-2 and will raise `E_ORACLE_MUTATED` on a legitimate build. "What this
+  phase produced" and "the contents of this namespace" are the same fact exactly when the caller
+  scoped the scratchpad per build; where it did not, this limit is what BD-L1 does not cover. (ii) Editing the review document during
   implementation is `E_ORACLE_MUTATED`, deliberately (`[bd8:2a]`). (iii) An implementing-phase
   invocation with no `--event-log` fails closed (AC-15); a caller that wants BD-L1 must supply a
   log.
+
+- **Not BD-L1 properties, stated so they are not read into the claim (CL §5).** `[bd8:9]`'s
+  lookup ORDER and the integrity of the event log itself are availability and host properties, not
+  level properties: a log shared by two builds can cost a legitimate build an
+  `E_ORACLE_UNFROZEN`, and an actor who can write the log can FORGE an `oracle_frozen` matching a
+  mutated tree — a strictly stronger capability than mutating the oracle, which `[bd8:8]`'s
+  single-store design does not defend against and this level does not claim to.
 
 It licenses nothing about oracle quality (BD-L2) and nothing about authorship attestation beyond
 what bd#10 already measured.
