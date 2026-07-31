@@ -1155,7 +1155,7 @@ count, and would misclassify as a pre-existing gap. Each is shown able to fail:
 | AC-E3 wall-clock bound | a joining implementation exceeds it (cand. 35) |
 | AC-E7 finite-`timeout_s` parameterisation | the split-path implementation swallows the interrupt (cand. 29) |
 | AC-E9 AST no-`signal` check | any `signal`-based implementation (cand. 32, 34) |
-| AC-E10 companion offender-helper test | it spawns a real non-daemon thread and requires the helper to report it |
+| AC-E10 companion offender-helper test | it spawns a real non-daemon thread and requires the predicate to report it — it fails if the predicate is ever narrowed to the recorded anchor alone (`[G8:2]` Class A) or to a thread count. It is **independent of `oracle.py`** and therefore a declared pre-passing shield (§5.1), not a test of the AC |
 
 This lot **modifies or removes no existing fixture** — `oracle.py` and its tests are new — so the
 deletion half of the coverage-diff rule has no subject here. Stated rather than omitted.
@@ -1164,10 +1164,41 @@ deletion half of the coverage-diff rule has no subject here. Stated rather than 
 
 ## 5. Pre-passing shields — declared
 
-**There are none.** All 15 ACs require `conformance.oracle`, which does not exist on this base;
-every test fails today, at `ModuleNotFoundError` or at a real assertion once the module resolves.
-This includes the absence-shaped assertions (AC-O3's `from_bool`, AC-E9's AST check), which still
-need the import and so cannot pre-pass.
+**Exactly one**, and its declaration is a correction to this spec's first frozen version.
+
+### 5.1 The shield
+
+`TestEvaluateGuardedAbandonedWorker::test_ac_e10_offender_helper_reports_a_non_daemon_thread`
+— **passes today, by design and necessarily.**
+
+It never touches the unit under test. It spawns a deliberate non-daemon thread and requires the RED's
+own predicate `_non_daemon_alive_non_main_threads()` to report it, then joins the thread. Its subject
+is *the fixture's ability to fail*, not `oracle.py`, so no implementation of `oracle.py` can change
+its verdict and it cannot fail for the reason the other 36 do.
+
+It is nonetheless required, not decorative: it is the **non-uniform member** discharging AC-E10's
+quantifier obligation (§3.2, §4.3 row `[G8:2]`). Without it, `offenders == []` is an added assertion
+with no demonstrated ability to fail — invisible in the pass/fail count, producing no diff deletion,
+and misclassifiable as an inherited gap.
+
+### 5.2 The correction, recorded rather than quietly fixed
+
+This spec's first frozen version (commit `e80b45d`) stated **"There are none."** That was **false**,
+and the RED run falsified it immediately: `36 failed, 1 passed`. The claim was written from the
+premise "every AC needs the import, therefore every test needs the import", which does not hold for a
+test whose subject is the fixture rather than the AC — precisely the meta-test the same spec had
+already mandated two sections earlier. The two sections were written from different premises and
+never reconciled.
+
+Recorded in full because *"pre-passing tests MUST be declared as shields; an undeclared one is a
+finding"* is a non-negotiable of this lot, and because the defect shape is this lot's own inherited
+one: **an audit artifact carrying the defect it audits** (carrier `[G7:2]`/`[G7:4]`, three consecutive
+rounds). The count was not measured before being asserted — the same class as the carrier's own
+"a property asserted without being measured" (carrier 155–159).
+
+The other **36** tests fail today, all at `ModuleNotFoundError: No module named 'conformance.oracle'`
+— verified uniform, not assumed. This includes the absence-shaped assertions (AC-O3's `from_bool`
+sweep, AC-E9's AST check), which still need the import and so cannot pre-pass.
 
 **Deferred-import discipline (§1q), inherited from L2's RED.** Every `conformance.*` symbol is
 imported **inside the test body**, never at module level, so **collection stays clean** and the
