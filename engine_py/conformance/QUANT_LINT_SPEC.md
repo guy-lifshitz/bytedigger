@@ -1,6 +1,6 @@
 # Lot spec — bd#39: the quantifier-completeness lint (`AC-C5`), child of bd#24
 
-**v10, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
+**v11, FROZEN under THIS lot's number.** Child of bd#24, which is itself L2b of the 12-lot split of bd#7. Same
 worktree, same branch `lot-24`. Base: `origin/main` @ `08b8413`.
 
 **AC accounting: 1 = 1.** bd#24 **remains the bearer of `AC-C5`**; this lot carries the same one AC forward and
@@ -474,6 +474,15 @@ requirement named. Round 4 rejected on exactly that.
      because its table row already shows one cell — the row having one cell is the claim under audit. Axes are
      re-derived from the clause's **text** each round, never inherited from its existing row. Gate round 7:
      `[G24:10]` said "the two anchors", had three, and its single-cell row meant the cell rule never engaged.
+   - **(3d) (bd#39 v11)** **Every "by construction" cell states the reason AND the input on which the reason
+     would fail.** A by-construction cell asserts that no fixture is needed, and it is the only place in this
+     method where a claim is recorded with nothing that could contradict it. Of the last four such claims
+     three were wrong or under-scoped. The discipline catches them at authoring time: for the **property**
+     operands' interior the sentence writes itself — *an interior character cannot change whether a string is
+     empty, and emptiness is all that is tested*, so **no input breaks it**, which is what makes the cell
+     genuinely closed. For the **reduction** operands the sentence cannot be written, and the attempt is what
+     exposes the gap (bd#39 round-10 MAJOR: the recorded reason was "they never become a `subject`" — true,
+     and irrelevant, because their interior feeds **recognition**).
    - **(3c) (v11, extended in bd#39 v2)** Distance is **two** axes, not one: *how far*, and **across what**.
      The members of "across what" are the other anchor kinds, so (3b) and `[G24:10]`'s cross-product are the
      same table and are filled together — **and that table is ORDERED**. Independence is not symmetric: "does
@@ -735,6 +744,15 @@ line, and inventing one would exceed the three pinned `kind` values).
   `_OPERAND_CHARACTER_SPEC` (C1-18), which carries an interior colon on each `subject`-bearing marker, a
   **doubled** interior space, and the collision pair `pkg.mod:read`/`pkg.mod:write` — where a prefix-keying
   lint sees the union of two blocks as complete and a seam **declared and not pinned** ships conformant.
+  **The comma as an interior character** (bd#39 gate round 10): for a *reduction* operand the interior feeds
+  **recognition**, not `subject` — `[G24:1]` makes a token outside `any|all|first|last` itself a finding, so a
+  token carrying an interior space decides whether a finding fires. No reduction token in any of the 58
+  fixtures carried one, so `operand.replace(" ", "").split(",")` passed 63/63 at zero divergence — **and the
+  fixture set steers toward it**: `_SEPARATOR_SIDES_SPEC` exists to kill `replace(", ", ",")`, and an
+  implementer who fails that fixture reaches for the more aggressive replace, which handles every spacing form
+  uniformly and passes. The RED's own corrective pressure pointed at the one spelling nothing measured.
+  Exercised by `_TOKEN_INTERIOR_SPEC` (C2-37), carrying the `ADMITS` half in the same document because an
+  `EXCLUDES`-only fixture would repeat gate round-5's MAJOR-3 exactly.
 
 - **`[G24:9]` A row discharges its level regardless of ORDER.** P4 binds a row to the level named by its
   operand; position is not part of the binding, so a `NON-UNIFORMITY` row textually **above** its own `LEVEL:`
@@ -832,6 +850,7 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | `_SHARED_ANCHOR_SPEC` ✝✝✝✝✝✝✝✝✝ | 2 | a `LEVEL:` interposed between a row and its `EXCLUDES` |
 | `_ANCHOR_CYCLE_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 + 3 | each anchor kind interposed inside another kind's block — the **reverse** cycle of `[G24:10]`'s ordered product |
 | `_REDUCTION_OPERAND_SPACING_SPEC` ✝✝✝✝✝✝✝✝✝✝ | 2 | `ADMITS:`/`EXCLUDES:` packed, padded and trailing-padded |
+| `_TOKEN_INTERIOR_SPEC` (bd#39 r11) | 2 | a reduction token with an interior space, in `EXCLUDES` and in `ADMITS` |
 | `_OPERAND_CHARACTER_SPEC` (bd#39 r10) | 1 + 3 | interior colons on level, row and seam operands; a doubled interior space; a colliding seam pair |
 | `_INTERIOR_SPACE_SPEC` (bd#39 r9) | 1 + 3 | interior spaces in a level name, a seam name and a row operand; two level names sharing a first token |
 | `_ROW_DASH_FRAMING_SPEC` (bd#39 r8) | 1 | an em dash set closed-up, and one padded with two spaces each side |
@@ -908,6 +927,7 @@ round is named in the row text where it matters, which is what §0.9's coverage 
 | C2-31 | `ADMITS:` recognised after a **strip** while the other seven markers require flush-left ✝ | `_INDENTED_ADMITS_SPEC` ✝ | a quoted `ADMITS: any, all` **narrows** the admitted set of the level above it, so a genuinely short row reads as complete and its finding is suppressed. **bd#39 round-2 MAJOR-1, type (a)**, confirmed at 50/50 |
 | C2-35 | coverage evaluated **in reading order**, against the admitted set as known when the `EXCLUDES` arrives (bd#39 r5) | `_ROW_ORDER_COVERAGE_SPEC` (bd#39 r5) | `late_admits`' row and `EXCLUDES` precede the `LEVEL` whose narrow `ADMITS` governs them, and cover it exactly: conformant. Inline evaluation sees the default four and flags it. **bd#39 round-4 MAJOR-1**, confirmed at 55/55 — `[G24:9]`'s second consequence, unmeasured because `_ROW_BEFORE_LEVEL_SPEC`'s level has no `ADMITS` |
 | C2-36 | a **bare `ADMITS:`** read as an empty admitted set, clearing every row on that level; a **bare `EXCLUDES:`** read as ignorable (bd#39 r5) | `_EMPTY_TOKEN_LIST_SPEC` (bd#39 r5) | both readings passed 55/55 — the spec decided the input via `[G24:11]` while §6 declared it undecided. **bd#39 round-4 MAJOR-2, type (a)**; closed by `[G24:14]` in the safe direction |
+| C2-37 | interior spaces stripped from reduction tokens (`operand.replace(" ", "")`) (bd#39 r11) | `_TOKEN_INTERIOR_SPEC` (bd#39 r11) | `fi rst` is outside the four, so the pinned reading flags the row twice over while the survivor reads `first` and returns nothing — §2.4's own rationale verbatim, *silent exactly when the row is otherwise complete*. **bd#39 round-10 MAJOR**, 63/63 at zero divergence |
 | C1-18 | the operand split on **every** colon (`line.split(":")[1]`), or runs of interior whitespace collapsed (bd#39 r10) | `_OPERAND_CHARACTER_SPEC` (bd#39 r10) | `pkg.mod:read`/`pkg.mod:write` collide on the prefix, the union of their blocks looks complete, and a seam declared and not pinned ships conformant — §0.2's founding case, silent. **bd#39 round-9 MAJOR**, both 62/62 at zero divergence |
 | C1-17 | the operand taken as its **first whitespace token** (`operand.split()[0]`) (bd#39 r9) | `_INTERIOR_SPACE_SPEC` (bd#39 r9) | satisfies all 24 framing cells by accident; `payload field` yields a `subject` absent from the document, and `audit gate`/`audit step` collapse so a declared, undischarged level is **silently** cleared. **bd#39 round-8 MAJOR**, 61/61 at zero divergence |
 | C1-16 | the row-operand delimiter read as `" — "` (dash **with** its spaces) rather than the dash itself (bd#39 r8) | `_ROW_DASH_FRAMING_SPEC` (bd#39 r8) | a closed-up dash makes the survivor take the whole operand, match no level, and report a conformant document. **bd#39 round-7 MAJOR-1**, 59/59 at **zero divergence** |
@@ -1112,7 +1132,7 @@ read the other way. So the audit below is now run over every normative clause, n
 | §2.6 coverage is ⊇, not = | `_EXCLUDES_SUPERSET_SPEC` |
 | §2.2 `ADMITS` absent means all four | `_CHECK2_SPEC` — no row carries `ADMITS`, so every finding there depends on the default |
 | §2.1 must not raise; `Finding` shape | `_MALFORMED_SPEC`, `""`, `"LEVEL: phases"` (F-2/F-3/F-4) and the `is_dataclass`/`FrozenInstanceError`/field-set assertions (F-7, F-9) |
-| `[G24:7]`/P1 what the operand IS — **{framing, interior}** (bd#39 v9; v8 enumerated framing only, §0.9(3a)). Framing: **19 of 24 cells by fixture, 5 by construction** (round-8 MINOR-A: v8 declared 24 and accounted for 15 — the three property markers share one dispatch branch, so `Whitespace.Only` collapses two trailing cells and all three terminator cells). Interior: **{space, repeated space, colon} × the three `subject`-bearing markers** (bd#39 v10 — one cell per marker was what let the space stand for every character, §0.9(3a) at the grain below the one it had been applied at), filled by `_INTERIOR_SPACE_SPEC` and `_OPERAND_CHARACTER_SPEC`; the reduction and property operands never become a `subject`, so their interior cells are empty **by construction** and are recorded that way` per marker collapses the three framing decisions into one, so no single-decision survivor exists for them; recorded rather than implied, bd#39 round-2 MINOR-D) | {terminator, trailing, leading} × the **eight operand-bearing markers** {`LEVEL`, `SEAM`, `NON-UNIFORMITY`, `ADMITS`, `EXCLUDES`, `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION`} = **24 cells** — five markers until `[G24:15]` made property operands matter (bd#39 round-7 MAJOR-2, §0.9(3a): the row saying five was the claim under audit) | `LEVEL`/`SEAM`: `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC`, `_OPERAND_SPACING_SPEC`. `NON-UNIFORMITY`: `_ROW_OPERAND_SPACING_SPEC` (v9). `ADMITS`/`EXCLUDES`: `_REDUCTION_OPERAND_SPACING_SPEC` (bd#39 v2, C2-30). The three **property** markers: `_PROPERTY_OPERAND_FRAMING_SPEC` (**bd#39 v8**, C3-24) — every reduction line in 43 fixtures wrote exactly one space after its colon, so a fixed offset on those lines alone passed 48/48 |
+| `[G24:7]`/P1 what the operand IS — **{framing, interior}** (bd#39 v9; v8 enumerated framing only, §0.9(3a)). Framing: **19 of 24 cells by fixture, 5 by construction** — the three property markers share one dispatch branch, so `Whitespace.Only` collapses two trailing cells and all three terminator cells (round-8 MINOR-A: v8 declared 24 and accounted for 15). Interior: **{space, repeated space, colon, comma} × the operand-bearing markers** (bd#39 v10: one cell per marker was what let the space stand for every character, §0.9(3a) one grain down). Filled by `_INTERIOR_SPACE_SPEC`, `_OPERAND_CHARACTER_SPEC` and `_TOKEN_INTERIOR_SPEC`. **BY CONSTRUCTION, with the input that would break the reason stated beside it** (bd#39 round-10 discipline): *property* operands — an interior character cannot change whether a string is empty, and emptiness is all that is tested, so **no input breaks it**; that is what makes the cell genuinely closed. The *reduction* operands were recorded closed in v10 on the reason that they never become a `subject` — **true and irrelevant**, since their interior feeds **recognition** (`[G24:1]`), not `subject`. The sentence could not be written for them, and the attempt is what exposed the gap (bd#39 round-10 MAJOR) | {terminator, trailing, leading} × the **eight operand-bearing markers** {`LEVEL`, `SEAM`, `NON-UNIFORMITY`, `ADMITS`, `EXCLUDES`, `ATTRIBUTE-PATH`, `BINDING-TIME`, `NORMALISATION`} = **24 cells** — five markers until `[G24:15]` made property operands matter (bd#39 round-7 MAJOR-2, §0.9(3a): the row saying five was the claim under audit) | `LEVEL`/`SEAM`: `_CRLF_SPEC`, `_TRAILING_WHITESPACE_SPEC`, `_OPERAND_SPACING_SPEC`. `NON-UNIFORMITY`: `_ROW_OPERAND_SPACING_SPEC` (v9). `ADMITS`/`EXCLUDES`: `_REDUCTION_OPERAND_SPACING_SPEC` (bd#39 v2, C2-30). The three **property** markers: `_PROPERTY_OPERAND_FRAMING_SPEC` (**bd#39 v8**, C3-24) — every reduction line in 43 fixtures wrote exactly one space after its colon, so a fixed offset on those lines alone passed 48/48 |
 | §2.6 checks 1 and 2 independent | `_CHECK2_WRONG_LEVEL_BINDING_SPEC` (2×2), `_CHECK2_SPEC` |
 
 ### Round 3 — EXECUTED candidate simulation, not reasoned
@@ -1124,7 +1144,7 @@ executed against the RED outside the worktree (the RED module is loaded by path 
 package ahead of it on `sys.path`; nothing in the repo is touched, and the reference is **deliberately not
 committed** — GREEN must be written against the spec, not copied from a validation harness).
 
-**Result: the reference passes 63/63 and every one of the 63 mutants fails at least one test** (v11 figures;
+**Result: the reference passes 64/64 and every one of the 64 mutants fails at least one test** (v11 figures;
 v5 recorded 40/40 over 27, before gate round 3 contributed the sentinel-seam candidate and gate round 4 the
 fixed-offset one — neither of which my own enumeration contained).
 

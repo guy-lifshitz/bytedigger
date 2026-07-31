@@ -4,7 +4,7 @@ One AC, `AC-C5`, of which **bd#24 remains the bearer** -- which is why this
 file keeps its name. Renaming it would break the containment script's path to
 bd#22's round-9 artifact and buy nothing.
 
-Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v10**, FROZEN under this
+Spec: engine_py/conformance/QUANT_LINT_SPEC.md (bd#39 **v11**, FROZEN under this
 lot's number, §0.0 for why the lot exists), which inherits
 CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.6
 (the fixture-document grammar) as its normative interface.
@@ -4049,3 +4049,93 @@ class TestQuantifierCompletenessLintBd39GateRound9:
         assert not any(f.subject == "c:d" for f in findings)
         assert not any(f.subject == "pkg.mod:read" for f in findings)
         assert not any(f.subject == "Char.Control" for f in findings)
+
+
+# ── bd#39 gate round 10 MAJOR: a reduction token's INTERIOR ────────────────
+# v10 recorded the reduction operands' interior cells "empty by construction",
+# on the reason that they never become a `subject`. The reason is TRUE AND
+# IRRELEVANT: for a reduction operand the interior determines RECOGNITION.
+# `[G24:1]` pins the vocabulary as exactly any|all|first|last and makes any
+# other token itself a finding, so whether a token's interior carries a space
+# decides whether a finding fires and whether coverage is complete.
+#
+# Verified exhaustively: every token in every one of the 100+ reduction lines
+# across all 58 fixtures is a contiguous run of non-space characters. Every
+# space is adjacent to a comma, or the one after the colon, or trailing. So
+# `operand.replace(" ", "").split(",")` passed 63/63 at ZERO divergence.
+#
+# THE FIXTURE SET STEERS TOWARD IT, which is what raises it above a curiosity.
+# `_SEPARATOR_SIDES_SPEC` exists to kill `replace(", ", ",")` -- round 3's
+# confirmed MAJOR. An implementer who fails that fixture reaches for the MORE
+# AGGRESSIVE replace, because it handles ` ,`, `, `, ` , ` and `,` uniformly
+# and passes everything. The RED's own corrective pressure points at the one
+# spelling nothing measures.
+#
+# Wrong silently, in `[G24:1]`'s founding direction: `fi rst` is outside the
+# four, so the pinned reading flags the row on two independent grounds -- an
+# unrecognised token AND `first` uncovered -- while the survivor reads `first`,
+# sees all four covered, and returns nothing. A mistyped reduction ships green,
+# which is §2.4's own rationale verbatim: "the asymmetric reading is silent
+# exactly when the row is otherwise complete." The input is the class this lot
+# already fixtures deliberately -- `frist` (transposition) and `sometimes`
+# (invented) -- with a different keystroke.
+#
+# The `ADMITS` half is carried in the same document because an `EXCLUDES`-only
+# fixture would repeat gate round-5's MAJOR-3 exactly ("`[G24:4]` says ADMITS
+# AND EXCLUDES and measured only EXCLUDES"), which this lot has now been bitten
+# by four times.
+_TOKEN_INTERIOR_SPEC = """\
+# Fixture Spec — a reduction token carrying an interior space
+
+LEVEL: excl_token_space
+NON-UNIFORMITY: excl_token_space — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, fi rst, last
+
+LEVEL: adm_token_space
+ADMITS: an y, all
+NON-UNIFORMITY: adm_token_space — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all
+
+LEVEL: token_control
+NON-UNIFORMITY: token_control — fixture set has >=2 members, one violating, plus control
+EXCLUDES: any, all, first, last
+"""
+
+
+class TestQuantifierCompletenessLintBd39GateRound10:
+    """The reduction operands' interior — recognition, not `subject`."""
+
+    def test_ac_c5_reduction_token_interior_space_is_not_removed(self):
+        """AC-C5(2). bd#39 gate round-10 MAJOR, spec C2-37. The reduction
+        operands' interior cells were recorded empty *by construction* on the
+        reason that they never become a `subject` -- true, and irrelevant:
+        their interior feeds RECOGNITION. `[G24:1]` makes a token outside the
+        four itself a finding, so an interior space decides whether a finding
+        fires. No reduction token in any of the 58 fixtures carried one, so
+        `operand.replace(" ", "").split(",")` passed 63/63 at zero divergence.
+
+        `excl_token_space` writes `fi rst`, which is outside the four: the
+        pinned reading flags it on two independent grounds -- unrecognised
+        token, and `first` uncovered -- while the survivor reads `first`, sees
+        all four covered, and returns nothing. A mistyped reduction ships
+        green, which is §2.4's own rationale for the symmetric rule verbatim.
+        `adm_token_space` carries the `ADMITS` half: `an y` makes the admitted
+        set uncomputable and fires with or without a row (`[G24:12]`), where
+        the survivor reads `{any, all}` and clears it -- and an
+        `EXCLUDES`-only fixture here would repeat gate round-5's MAJOR-3
+        exactly. `token_control` is the negative, so a lint that flags every
+        row fails too.
+        """
+        from conformance.quant_lint import lint_quantifier_completeness
+
+        findings = lint_quantifier_completeness(_TOKEN_INTERIOR_SPEC)
+
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "excl_token_space"
+            for f in findings
+        )
+        assert any(
+            f.kind == "missing_reductions" and f.subject == "adm_token_space"
+            for f in findings
+        )
+        assert not any(f.subject == "token_control" for f in findings)
