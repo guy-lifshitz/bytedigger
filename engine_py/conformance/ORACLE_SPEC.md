@@ -1495,5 +1495,56 @@ were both edges no mutant covered.
 
 ---
 
+## 9. Ship measurement (GREEN in place)
+
+Command, from `engine_py/`: `python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120`.
+
+**`4264 passed, 6 skipped, 0 failed`** in 289.81 s. `tests/test_bd27_oracle.py`: **37 passed**.
+
+`4264 = 4227` (§7.1 baseline) `+ 37` (this lot). No pre-existing test changed state, and the ship bar
+— **0 failed** — is met.
+
+### 9.1 Contention control, and it fired
+
+hal#1353 control **caught a real competing suite**: lot **bd#24** was running
+`python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120` from `wt-n24` on this host, matched on
+command **prefix**. That run was **discarded**, not reported. Two further attempts were also discarded
+— one whose wait-predicate matched its own shell wrapper and could never exit, and one that resolved
+`tests/` against the repo root instead of `engine_py/` and measured the 103-test root suite.
+
+The reported figure comes from a run with a **clean pre-check**. Honest limitation: bd#24 iterates on
+this host, and a competing run had reappeared by the post-check, so the run is not provably
+contention-free end to end. The number is nonetheless solid — **two fully independent runs, one
+entirely under contention and one starting clean, both produced exactly `4264 passed, 6 skipped,
+0 failed`.**
+
+### 9.2 The warning-count delta, measured rather than waved through
+
+The baseline recorded **6** warnings; every run since records **5**. The missing one is exactly the
+direct `SyntaxWarning` at `tests/test_phase_6_FEB64BA8_backtick_strip.py:282`; the three
+`PytestCollectionWarning`s and the two `<unknown>:282` runtime-`compile()` warnings are unchanged.
+
+Diagnosed by experiment, not by argument:
+
+| `__pycache__` state | `SyntaxWarning` count for that file |
+|---|---|
+| warm (as now) | 0 |
+| **cold** (`__pycache__` removed — the baseline's state) | **1** |
+| warm again | 0 |
+
+A module-level `SyntaxWarning` is emitted when CPython **compiles** the source; a warm `__pycache__`
+skips compilation and the warning with it. `-p no:cacheprovider` disables *pytest's* cache, not
+Python's. §7.1's baseline was the first pytest invocation in a freshly created worktree, so it alone
+ran cold.
+
+**The delta is a bytecode-cache artifact and not attributable to this lot's code.** Recorded because
+the standing rule that measurements are base- and host-relative has one more level to it that this
+lot found the hard way: they are also **cache-state-relative**, and a warning count is therefore not
+part of the drift invariant. The invariant remains the property *"identical to this host's own `main`
+at `extra_bd == 0`"* — `engine_py/conformance/` is bd-native and absent from `core_manifest.json`, so
+`extra_bd == 0` holds by construction, and this lot changed no packaging.
+
+---
+
 **FROZEN v2.** Re-frozen after gate round 1 (REJECTED, 2 MAJOR both type (a)) under child number
 bd#38. v1 was `e80b45d`. Any change after this point is a spec round and is reported as one.
