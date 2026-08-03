@@ -4,7 +4,7 @@ UUTs: _invoke_discovery_llm (phase_1_discovery), _invoke_explore_llm (phase_2_ex
 Collaborator under test: ensure_graph is PATCHED here (not a UUT in this file).
 
 Pre-GREEN predict: BOTH tests FAIL.
-  AC8: patch("phase_1_discovery.ensure_graph") raises AttributeError — ensure_graph not
+  AC8: patch("bytedigger_engine.workflows.phase_1_discovery.ensure_graph") raises AttributeError — ensure_graph not
        yet imported into phase_1_discovery namespace; extra_data["graph_source"] absent.
   AC9: same for phase_2_explore.
 
@@ -29,7 +29,7 @@ import pytest
 # conftest.py inserts ENGINE_ROOT + ENGINE_ROOT/workflows onto sys.path at import time.
 # No sys.path.insert here (§1q / 81F97F3D gate).
 
-from contracts import StepResult, WorkflowContext  # noqa: E402  # available via conftest path
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402  # available via conftest path
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ def _mock_invoke_ok() -> MagicMock:
 #            patch phase_1_discovery.invoke_llm_subprocess→capture kwargs,
 #            assert ensure_graph called once AND extra_data["graph_source"]==sentinel
 #
-# Pre-GREEN FAIL: patch("phase_1_discovery.ensure_graph") raises AttributeError
+# Pre-GREEN FAIL: patch("bytedigger_engine.workflows.phase_1_discovery.ensure_graph") raises AttributeError
 #   because ensure_graph is NOT yet imported/bound in phase_1_discovery namespace.
 #   Even if patch somehow succeeded, extra_data has no "graph_source" key today
 #   (current prod: extra_data={"doc_path":..., "complexity":...}).
@@ -119,7 +119,7 @@ def test_ac8_discovery_llm_calls_ensure_graph_and_threads_result_EEFC4611(tmp_pa
     Pre-GREEN FAIL: AttributeError on patch (ensure_graph not in phase_1_discovery namespace)
     OR assert on extra_data["graph_source"] fails (key absent in current prod code).
     """
-    phase_1 = importlib.import_module("phase_1_discovery")
+    phase_1 = importlib.import_module("bytedigger_engine.workflows.phase_1_discovery")
 
     ctx = _make_ctx(tmp_path)
     prev = _ok_prev_discovery(tmp_path)
@@ -133,8 +133,8 @@ def test_ac8_discovery_llm_calls_ensure_graph_and_threads_result_EEFC4611(tmp_pa
 
     # Patch ensure_graph as it will be imported in phase_1_discovery namespace.
     # Pre-GREEN: this patch raises AttributeError → test FAILs at assert time (patch target absent).
-    with patch("phase_1_discovery.ensure_graph", side_effect=fake_ensure_graph), \
-         patch("phase_1_discovery.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_1_discovery.ensure_graph", side_effect=fake_ensure_graph), \
+         patch("bytedigger_engine.workflows.phase_1_discovery.invoke_llm_subprocess", mock_invoke):
         phase_1._invoke_discovery_llm(ctx, prev)
 
     # Assert ensure_graph was called exactly once (any repo_root str is acceptable —
@@ -186,7 +186,7 @@ def test_ac9_explore_llm_calls_ensure_graph_and_threads_result_EEFC4611(tmp_path
     Pre-GREEN FAIL: AttributeError on patch (ensure_graph not in phase_2_explore namespace)
     OR assert on extra_data["graph_source"] fails (key absent in current prod code).
     """
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     ctx = _make_ctx(tmp_path)
     prev = _ok_prev_explore(tmp_path)
@@ -200,8 +200,8 @@ def test_ac9_explore_llm_calls_ensure_graph_and_threads_result_EEFC4611(tmp_path
 
     # Patch ensure_graph as it will be imported in phase_2_explore namespace.
     # Pre-GREEN: raises AttributeError → test FAILs at assert time.
-    with patch("phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
-         patch("phase_2_explore.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
+         patch("bytedigger_engine.workflows.phase_2_explore.invoke_llm_subprocess", mock_invoke):
         phase_2._invoke_explore_llm(ctx, prev)
 
     # Assert ensure_graph was called exactly once.

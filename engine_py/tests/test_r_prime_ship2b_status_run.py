@@ -14,13 +14,15 @@ import json
 import os
 import sqlite3
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
 import pytest
 
 # RUN_PY = engine_py/run.py (parent of tests/ dir, then up one more to engine_py/)
-RUN_PY = Path(__file__).resolve().parent.parent / "run.py"
+RUN_PY = Path(__file__).resolve().parent.parent / "bytedigger_engine" / "run.py"
 
 # Canonical fixture schema — 5 columns per spec §3
 _CREATE_SQL = """
@@ -57,7 +59,7 @@ def _run_status(run_id: str, tmp_db: Path, extra_args: list[str] | None = None) 
     cmd = [sys.executable, str(RUN_PY), "--status", run_id] + (extra_args or [])
     return subprocess.run(
         cmd,
-        env={"HAL_DBOS_DB_PATH": str(tmp_db), "PATH": os.environ["PATH"]},
+        env=engine_env({"HAL_DBOS_DB_PATH": str(tmp_db), "PATH": os.environ["PATH"]}),
         capture_output=True,
         text=True,
         timeout=30,
@@ -92,7 +94,7 @@ def test_ac1_argparse_status_flag_exists(tmp_path: Path) -> None:
     dummy_db = tmp_path / "dummy.sqlite"
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--status", "RUN", "--help"],
-        env={"HAL_DBOS_DB_PATH": str(dummy_db), "PATH": os.environ["PATH"]},
+        env=engine_env({"HAL_DBOS_DB_PATH": str(dummy_db), "PATH": os.environ["PATH"]}),
         capture_output=True,
         text=True,
         timeout=30,
@@ -248,7 +250,7 @@ def test_ac7_missing_db_file_exit2(tmp_path: Path) -> None:
     cmd = [sys.executable, str(RUN_PY), "--status", "any-run"]
     result = subprocess.run(
         cmd,
-        env={"HAL_DBOS_DB_PATH": str(missing_db), "PATH": os.environ["PATH"]},
+        env=engine_env({"HAL_DBOS_DB_PATH": str(missing_db), "PATH": os.environ["PATH"]}),
         capture_output=True,
         text=True,
         timeout=30,

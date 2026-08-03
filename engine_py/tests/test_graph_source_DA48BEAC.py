@@ -40,13 +40,13 @@ import pytest
 
 def _get_event_log_cls():
     """Return EventLog class; imported lazily to avoid collection-time ImportError."""
-    from event_log import EventLog  # type: ignore[import]
+    from bytedigger_engine.event_log import EventLog  # type: ignore[import]
     return EventLog
 
 
 def _get_telemetry_ctx():
     """Return telemetry_ctx module; imported lazily."""
-    import telemetry_ctx  # type: ignore[import]
+    from bytedigger_engine import telemetry_ctx  # type: ignore[import]
     return telemetry_ctx
 
 
@@ -81,7 +81,7 @@ def test_ac5_clean_path_returns_graph_DA48BEAC(tmp_path):
     Pre-GREEN FAIL: ImportError — graph_source module does not exist yet.
     """
     # Deferred import per §1q / D1CF5FDF — fails here (assert time), not at collection.
-    from graph_source import resolve_graph_or_grep  # type: ignore[import]
+    from bytedigger_engine.workflows.graph_source import resolve_graph_or_grep  # type: ignore[import]
 
     EventLog = _get_event_log_cls()
     tc = _get_telemetry_ctx()
@@ -133,7 +133,7 @@ def test_ac5_dirty_path_emits_graph_stale_DA48BEAC(tmp_path):
     Pre-GREEN FAIL: ImportError — graph_source module does not exist yet.
     """
     # Deferred import per §1q / D1CF5FDF.
-    from graph_source import resolve_graph_or_grep  # type: ignore[import]
+    from bytedigger_engine.workflows.graph_source import resolve_graph_or_grep  # type: ignore[import]
 
     EventLog = _get_event_log_cls()
     tc = _get_telemetry_ctx()

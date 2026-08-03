@@ -21,22 +21,21 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext, StepResult  # noqa: E402
-from derive_state import replay  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from phase_2_explore import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.derive_state import replay  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.workflows.phase_2_explore import (  # noqa: E402
     DEFAULT_EXPLORE_TIMEOUT_SEC,
     DEFAULT_LLM_COMMAND,
     EXPLORE_DOC_RELPATH,
     phase_2_explore_workflow,
 )
-import workflows  # noqa: E402
-import llm_subprocess  # noqa: E402
-from llm_subprocess import register_backend, reset_backends  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine import workflows  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine.llm_subprocess import register_backend, reset_backends  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ─── §1i autouse teardown: restore _BACKENDS singleton + clear telemetry ──────

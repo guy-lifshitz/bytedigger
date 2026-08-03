@@ -20,16 +20,14 @@ from unittest.mock import MagicMock
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # The last two imports do not exist yet — ImportError is the expected RED failure.
-from phase_5_implement import (  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import (  # noqa: E402
     _commit_red_tests,
     _parse_spec_files_allowlist,
     _path_matches_allowlist,
 )
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── repo helpers (copied from test_phase_5_step1_disk_truth.py) ──────────────
@@ -211,7 +209,7 @@ class TestCommitRedTestsScopeGate:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """AC8: out-of-scope + enforce=False → status ok + red_scope_check event violations_n=1."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo = _make_repo(tmp_path)
         spec_file = tmp_path / "spec.md"
@@ -253,7 +251,7 @@ class TestCommitRedTestsScopeGate:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """AC9: spec lacking ## Files + enforce=True → status ok; no_allowlist_found=True."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo = _make_repo(tmp_path)
         spec_file = tmp_path / "spec.md"
@@ -294,7 +292,7 @@ class TestCommitRedTestsScopeGate:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """AC10: violation + enforce=True → no git add/commit subprocess called."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         import subprocess as _subp
 
         repo = _make_repo(tmp_path)
@@ -368,7 +366,7 @@ class TestCommitRedTestsScopeGate:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """AC12: red_scope_check event has exact key set; extra no_allowlist_found when absent."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         # ── scenario A: violation, enforce=False (from AC8) ──────────────────
         repo_a = _make_repo(tmp_path / "repo_a")

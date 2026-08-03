@@ -26,12 +26,11 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "lib" / "plugins" / "anti_hallucination"))
 
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
-from lib.plugins.anti_hallucination import helper  # noqa: E402
-from lib.plugins.anti_hallucination.helper import (  # noqa: E402
+from bytedigger_engine.lib.plugins.anti_hallucination import helper  # noqa: E402
+from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     verify_findings,
     verify_validation_doc,
 )

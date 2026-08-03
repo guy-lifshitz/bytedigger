@@ -30,7 +30,7 @@ Pre-GREEN PASS/FAIL classification (§3):
 
 D1CF5FDF: not-yet-existing symbols accessed via getattr(gp, "name") INSIDE test
 bodies or via deferred import-inside-body, NEVER at module top level.
-Module-level `import lib.git_port as gp` is safe because the module already exists.
+Module-level `import bytedigger_engine.lib.git_port as gp` is safe because the module already exists.
 
 §1q: no spec_from_file_location / exec_module — normal import used.
 """
@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pytest
 
-import lib.git_port as gp  # module already exists; safe at module level
+from bytedigger_engine.lib import git_port as gp  # module already exists; safe at module level
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ def test_ac8_injection_reaches_module_attr_call_site(tmp_path: Path) -> None:
     try:
         set_factory(lambda: fake)
         # Access via module attribute (same form as 'git_port.git_read(...)' in prod)
-        import lib.git_port as gp2
+        from bytedigger_engine.lib import git_port as gp2
         result = gp2.git_read(["status"], cwd=str(tmp_path))
         assert result.returncode == 77, (
             f"Module-attr reach: expected returncode==77 (sentinel), got {result.returncode}"

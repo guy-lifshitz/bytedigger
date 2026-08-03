@@ -27,9 +27,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers (verbatim from test_phase_45_spec_D02C615D.py lines 36–93) ────────
@@ -105,7 +104,7 @@ def test_suffix_map_import():
     `_build_filename_map`, not `_build_suffix_map`.
     Do NOT import `_build_filename_map` — that symbol will be deleted by GREEN.
     """
-    from phase_45_spec import _build_suffix_map  # noqa: F401
+    from bytedigger_engine.workflows.phase_45_spec import _build_suffix_map  # noqa: F401
 
 
 # ─── AC2–AC11: git-based behavioural tests ───────────────────────────────────
@@ -122,7 +121,7 @@ def test_partial_path_unique_rewritten(tmp_path):
     RED today: _BARE_CITATION_RE excludes `/`, so engine_py/foo.py:5 is not
     captured, and `_build_suffix_map` doesn't exist.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/cli/build/engine_py/foo.py")
@@ -144,7 +143,7 @@ def test_partial_path_ambiguous_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "a/x/foo.py")
@@ -167,7 +166,7 @@ def test_partial_path_zero_match_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     # No matching files staged
@@ -190,7 +189,7 @@ def test_three_segment_unique_rewritten(tmp_path):
     RED today: _BARE_CITATION_RE excludes `/` so multi-seg citations not
     captured; also _build_suffix_map absent.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "demo/app1/renderers/agreement.py")
@@ -215,7 +214,7 @@ def test_bare_basename_unique_still_rewritten(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo.py")
@@ -237,7 +236,7 @@ def test_bare_basename_ambiguous_still_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "a/foo.py")
@@ -260,7 +259,7 @@ def test_already_rooted_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo/bar.py")
@@ -282,7 +281,7 @@ def test_repo_root_file_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "README.md")
@@ -309,7 +308,7 @@ def test_double_prefix_never_occurs(tmp_path):
 
     RED today: _BARE_CITATION_RE excludes `/`; _build_suffix_map absent.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/cli/build/engine_py/foo.py")
@@ -351,7 +350,7 @@ def test_function_app_monorepo_unique_2seg_rewritten(tmp_path):
 
     RED today: _BARE_CITATION_RE excludes `/`; _build_suffix_map absent.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "demo/app-a/function_app.py")
@@ -392,7 +391,7 @@ def test_existing_d02c615d_idempotent_holds(tmp_path):
     differently once GREEN lands; pre-GREEN the test fails transitively because
     the import itself fails within the _write_spec_doc execution path.
     """
-    from phase_45_spec import _write_spec_doc
+    from bytedigger_engine.workflows.phase_45_spec import _write_spec_doc
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo.py")
@@ -438,7 +437,7 @@ def test_anti_n_plus_1_holds(monkeypatch, tmp_path):
 
     RED today: _build_suffix_map absent → ImportError inside test.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     fake_stdout = "a/x.py\nb/y.py\nc/z.py\n"
     call_count = {"n": 0}
@@ -447,7 +446,7 @@ def test_anti_n_plus_1_holds(monkeypatch, tmp_path):
         call_count["n"] += 1
         return types.SimpleNamespace(stdout=fake_stdout, returncode=0, stderr="")
 
-    import phase_45_spec as _phase_mod
+    from bytedigger_engine.workflows import phase_45_spec as _phase_mod
     monkeypatch.setattr(_phase_mod.subprocess, "run", _fake_run)
 
     text = "a/x.py:1 and b/y.py:2 and c/z.py:3"

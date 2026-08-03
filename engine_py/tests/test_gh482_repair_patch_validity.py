@@ -26,15 +26,15 @@ from typing import Any
 
 import pytest
 
-import telemetry_ctx  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers (mirrors test_457DC7DC_directed_repair.py) ───────────────
 
 
 def _load_directed_repair():
-    return importlib.import_module("lib.directed_repair")
+    return importlib.import_module("bytedigger_engine.lib.directed_repair")
 
 
 def _get_validate_fn(dr_mod):
@@ -91,7 +91,7 @@ def _patch_invoke(monkeypatch, dr_mod, patched_text: str, calls: list) -> None:
         monkeypatch.setattr(dr_mod, "invoke_llm_subprocess", fake_invoke)
         patched = True
     try:
-        import llm_subprocess  # noqa: PLC0415
+        from bytedigger_engine import llm_subprocess  # noqa: PLC0415
         monkeypatch.setattr(llm_subprocess, "invoke_llm_subprocess", fake_invoke)
         patched = True
     except ImportError:

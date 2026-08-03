@@ -36,7 +36,7 @@ import pytest
 
 # conftest.py injects engine_py root into sys.path at collection time (§1q /
 # 81F97F3D gate) — safe to import at module level, no sys.path manipulation here.
-from spec_coverage import _extract_ops, scan_spec_coverage
+from bytedigger_engine.spec_coverage import _extract_ops, scan_spec_coverage
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────

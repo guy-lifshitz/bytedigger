@@ -27,9 +27,9 @@ import subprocess
 import time
 from pathlib import Path
 
-import phase_5_implement  # noqa: E402
-import lib.authored_boundary as boundary_mod  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.lib import authored_boundary as boundary_mod  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers (mirrors test_7C0FDE44_gh639_red_hash_freeze.py) ──────────

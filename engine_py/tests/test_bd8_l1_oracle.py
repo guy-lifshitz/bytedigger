@@ -218,7 +218,7 @@ def _writer_step(relpaths: list[str], unreadable: list[str] | None = None):
     phase-sentinel ctx hash, varying it is also what forces a real second
     `execute()` (`[bd8:10a]`/`[bd8:10b]`).
     """
-    from contracts import StepResult  # noqa: PLC0415 — deferred (§1q)
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415 — deferred (§1q)
 
     def _exec(context, prev):
         cfg = getattr(context, "org_config", None) or {}
@@ -257,7 +257,7 @@ def _writer_step_also_touching_git_cwd(relpaths: list[str]):
     and AC-3c both depend on the shared writer's clean-repo topology, so
     changing `_writer_step` would silently weaken them (gate E23).
     """
-    from contracts import StepResult  # noqa: PLC0415 — deferred (§1q)
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415 — deferred (§1q)
 
     base = _writer_step(relpaths)
 
@@ -282,7 +282,7 @@ def _impl_step(mutate: str | None = None, add: str | None = None,
     outcome": a phase that failed for an unrelated reason may still have
     mutated the oracle.
     """
-    from contracts import StepResult  # noqa: PLC0415 — deferred (§1q)
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415 — deferred (§1q)
 
     def _exec(context, prev):
         sp = _scratch_of(context)
@@ -305,8 +305,8 @@ def _impl_step(mutate: str | None = None, add: str | None = None,
 
 def install_fixture_workflows(monkeypatch, oracle_writes=None, unreadable=None,
                               impl=None, extra=None, oracle_step=None) -> None:
-    from contracts import StepContract, WorkflowDefinition  # noqa: PLC0415
-    import workflows  # noqa: PLC0415 — deferred
+    from bytedigger_engine.contracts import StepContract, WorkflowDefinition  # noqa: PLC0415
+    from bytedigger_engine import workflows  # noqa: PLC0415 — deferred
 
     writes = ORACLE_FILES if oracle_writes is None else oracle_writes
 
@@ -332,7 +332,7 @@ def install_fixture_workflows(monkeypatch, oracle_writes=None, unreadable=None,
 def run_phase(workflow: str, w, run_id: str, *, log=True, scratch=True,
               git_cwd=True, org_extra: dict | None = None):
     """Invoke run.main() for one phase → (rc, parsed_stdout_json, raw)."""
-    import run as run_module  # noqa: PLC0415 — deferred (§1q)
+    from bytedigger_engine import run as run_module  # noqa: PLC0415 — deferred (§1q)
 
     org: dict = {}
     if git_cwd:
@@ -1286,7 +1286,7 @@ class TestErrorCodeRegistry:
         from THIS file is still dead.  Registering the four without raising them
         in production turns the currently-green half RED.  Early registration
         does not satisfy this test."""
-        import error_codes  # noqa: PLC0415 — deferred (§1q)
+        from bytedigger_engine import error_codes  # noqa: PLC0415 — deferred (§1q)
 
         four = (E_ORACLE_MUTATED, E_ORACLE_UNFROZEN,
                 E_ORACLE_INDETERMINATE, E_ORACLE_AMENDMENT_UNREASONED)
@@ -1310,7 +1310,7 @@ class TestErrorCodeRegistry:
         )
 
     def test_ac11b_error_codes_md_is_regenerated_not_hand_edited(self):
-        import error_codes  # noqa: PLC0415 — deferred (§1q)
+        from bytedigger_engine import error_codes  # noqa: PLC0415 — deferred (§1q)
 
         doc = _ENGINE_ROOT / "ERROR_CODES.md"
         assert doc.exists(), "ERROR_CODES.md is missing"
@@ -1346,16 +1346,16 @@ class TestNoIoAtImport:
         monkeypatch.setattr(os, "listdir",
                             lambda *a, **k: (calls.append(f"listdir{a[:1]}"), real_listdir(*a, **k))[1])
 
-        for mod in [m for m in list(sys.modules) if m == "conformance.oracle"]:
+        for mod in [m for m in list(sys.modules) if m == "bytedigger_engine.conformance.oracle"]:
             del sys.modules[mod]
         importlib.invalidate_caches()
-        oracle = importlib.import_module("conformance.oracle")
+        oracle = importlib.import_module("bytedigger_engine.conformance.oracle")
 
         assert oracle is not None
         assert calls == [], f"AC-12: conformance.oracle did I/O at import time: {calls}"
 
     def test_ac12b_conformance_is_a_real_package(self):
-        import conformance  # noqa: PLC0415 — deferred (§1q)
+        from bytedigger_engine import conformance  # noqa: PLC0415 — deferred (§1q)
 
         assert conformance.__file__ is not None, (
             "conformance resolved as a NAMESPACE package — `[bd8:5]`/bd#22 AC-C1 "
@@ -1374,7 +1374,7 @@ class TestScopeFence:
     def test_ac14a_emit_phase_artifacts_finally_knows_nothing_about_the_oracle(self):
         import ast  # noqa: PLC0415 — deferred (§1q)
 
-        src = (_ENGINE_ROOT / "engine.py").read_text(encoding="utf-8")
+        src = (_ENGINE_ROOT / "bytedigger_engine" / "engine.py").read_text(encoding="utf-8")
         fn = next((n for n in ast.walk(ast.parse(src))
                    if isinstance(n, ast.FunctionDef)
                    and n.name == "_emit_phase_artifacts"), None)
@@ -1395,7 +1395,7 @@ class TestScopeFence:
         )
         offenders = [
             str(p.relative_to(_ENGINE_ROOT))
-            for p in (_ENGINE_ROOT / "workflows").rglob("*.py")
+            for p in (_ENGINE_ROOT / "bytedigger_engine" / "workflows").rglob("*.py")
             if seam.search(p.read_text(encoding="utf-8", errors="replace"))
         ]
         assert not offenders, (
@@ -1409,7 +1409,7 @@ class TestScopeFence:
             rel = p.relative_to(_ENGINE_ROOT)
             if rel.parts[0] in {"tests", "conformance", "__pycache__"} or str(rel) == "run.py":
                 continue
-            if "conformance.oracle" in p.read_text(encoding="utf-8", errors="replace"):
+            if "bytedigger_engine.conformance.oracle" in p.read_text(encoding="utf-8", errors="replace"):
                 offenders.append(str(rel))
         assert not offenders, (
             f"`[bd8:6]`/§8: modules other than run.py wire the oracle seam: {offenders}"

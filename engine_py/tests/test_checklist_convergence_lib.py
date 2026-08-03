@@ -11,10 +11,8 @@ from pathlib import Path
 HERE = Path(__file__).parent          # engine_py/tests/
 ENGINE_ROOT = HERE.parent             # engine_py/
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from plugins.checklist_convergence import (  # noqa: E402  — will ImportError in RED
+from bytedigger_engine.lib.plugins.checklist_convergence import (  # noqa: E402  — will ImportError in RED
     Finding,
     ReviewerVerdict,
     extract_findings_section,

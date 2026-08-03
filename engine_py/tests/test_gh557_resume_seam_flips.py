@@ -17,13 +17,11 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-from contracts import LoopStepContract, StepContract, StepResult, WorkflowContext  # noqa: E402
-from phase_45_spec import phase_45_spec_workflow  # noqa: E402
-from phase_5_implement import build_validation_loop_contract  # noqa: E402
-from phase_6_review import phase_6_review_workflow  # noqa: E402
+from bytedigger_engine.contracts import LoopStepContract, StepContract, StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec import phase_45_spec_workflow  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import build_validation_loop_contract  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import phase_6_review_workflow  # noqa: E402
 
 
 def make_ctx(scratchpad: Path, *, task_description: str = "t", **org_extra) -> WorkflowContext:
@@ -89,8 +87,8 @@ def test_ac3_phase6_invoke_satisfaction_llm_stays_unflagged():
 
 
 def test_ac4_phase45_invoke_review_llm_resumes_from_sentinel(tmp_path):
-    from step_sentinel import compute_ctx_hash, maybe_read_sentinel, write_step_sentinel
-    from resume_keying import resume_sentinel_name
+    from bytedigger_engine.lib.step_sentinel import compute_ctx_hash, maybe_read_sentinel, write_step_sentinel
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name
 
     ctx = make_ctx(tmp_path)
     run_id = "run-ac4"
@@ -120,7 +118,7 @@ def test_ac4_phase45_invoke_review_llm_resumes_from_sentinel(tmp_path):
 
 
 def test_ac5_phase6_invoke_satisfaction_llm_never_resumes_from_sentinel(tmp_path):
-    from step_sentinel import compute_ctx_hash, maybe_read_sentinel, write_step_sentinel
+    from bytedigger_engine.lib.step_sentinel import compute_ctx_hash, maybe_read_sentinel, write_step_sentinel
 
     ctx = make_ctx(tmp_path)
     run_id = "run-ac5"
@@ -161,10 +159,10 @@ def _make_unflagged_body(counts: dict) -> StepContract:
 
 
 def test_ac6_loop_runner_resumes_body_step_from_sentinel_no_call(tmp_path):
-    import telemetry_ctx
-    from engine import LoopRunner
-    from event_log import EventLog
-    from step_sentinel import compute_ctx_hash, write_step_sentinel
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.event_log import EventLog
+    from bytedigger_engine.lib.step_sentinel import compute_ctx_hash, write_step_sentinel
 
     ctx = make_ctx(tmp_path)
     log_path = tmp_path / "events.jsonl"
@@ -197,11 +195,11 @@ def test_ac6_loop_runner_resumes_body_step_from_sentinel_no_call(tmp_path):
 
 
 def test_ac7_loop_runner_writes_sentinel_for_body_step_ok_result(tmp_path):
-    import telemetry_ctx
-    from engine import LoopRunner
-    from event_log import EventLog
-    from step_sentinel import compute_ctx_hash
-    from resume_keying import resume_sentinel_name
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.event_log import EventLog
+    from bytedigger_engine.lib.step_sentinel import compute_ctx_hash
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name
 
     ctx = make_ctx(tmp_path)
     log_path = tmp_path / "events.jsonl"
@@ -232,9 +230,9 @@ def test_ac7_loop_runner_writes_sentinel_for_body_step_ok_result(tmp_path):
 
 
 def test_ac8_loop_runner_degrades_safely_with_no_run_ctx(tmp_path):
-    import telemetry_ctx
-    from engine import LoopRunner
-    from step_sentinel import compute_ctx_hash, write_step_sentinel
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.lib.step_sentinel import compute_ctx_hash, write_step_sentinel
 
     ctx = make_ctx(tmp_path)
     run_id = "runX"
@@ -263,11 +261,11 @@ def test_ac8_loop_runner_degrades_safely_with_no_run_ctx(tmp_path):
 
 
 def test_ac9_loop_runner_keys_sentinel_by_iteration_not_run_ctx_cycle(tmp_path):
-    import telemetry_ctx
-    from engine import LoopRunner
-    from event_log import EventLog
-    from step_sentinel import compute_ctx_hash, write_step_sentinel
-    from resume_keying import resume_sentinel_name
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.event_log import EventLog
+    from bytedigger_engine.lib.step_sentinel import compute_ctx_hash, write_step_sentinel
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name
 
     ctx = make_ctx(tmp_path)
     log_path = tmp_path / "events.jsonl"

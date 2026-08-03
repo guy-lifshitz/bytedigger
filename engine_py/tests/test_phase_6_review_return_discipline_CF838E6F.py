@@ -27,28 +27,26 @@ import sys
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-WORKFLOWS = ENGINE_ROOT / "workflows"
+WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
 # Top-level import of the module (already exists — collects fine).
 # NOT-YET-EXISTING symbols (review_writer_return_source emit) are exercised
 # inside test bodies; the module itself imports fine today.
-import phase_6_review as _p6  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402
 
 # Import existing symbols used in regression-guard tests (all exist today).
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     REVIEW_DOC_RELPATH,
     _build_review_prompt,
     _write_review_artifact,
     _invoke_review_llm,
 )
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -163,7 +161,7 @@ def test_ac1_invoke_review_llm_includes_write_in_allowed_tools(tmp_path):
     ctx = _make_ctx(scratchpad)
     mock_invoke = _mock_invoke_ok_raw("## Aggregated Findings\n\nVERDICT: PASS\n")
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         _invoke_review_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -220,7 +218,7 @@ def test_ac2_conformance_retry_includes_write_in_allowed_tools(tmp_path):
     conformant_raw = "## Aggregated Findings\n\nPASS — no issues found.\n"
     mock_invoke = _mock_invoke_ok_raw(conformant_raw)
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         _write_review_artifact(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -588,7 +586,7 @@ def test_ac9_disk_first_summary_no_retry_disk_intact(tmp_path, monkeypatch):
             step_name="mock_retry",
         )
 
-    with patch("phase_6_review.invoke_llm_subprocess", side_effect=_mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", side_effect=_mock_invoke):
         result = _write_review_artifact(ctx, prev)
 
     assert result.status == "ok", (

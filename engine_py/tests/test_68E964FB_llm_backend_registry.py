@@ -35,7 +35,7 @@ import pytest
 
 # conftest.py injects engine_py root into sys.path at import time (§1q singleton).
 # Import the stable module that already exists — no top-level access to not-yet-existing attrs.
-import llm_subprocess
+from bytedigger_engine import llm_subprocess
 
 
 @pytest.fixture(autouse=True)
@@ -351,7 +351,7 @@ def test_ac8_subprocess_hard_gate_triggers_assert_hard_gate_opus():
     )
 
     # Deferred import per §1q-ext / §1q (D1CF5FDF): contracts already importable.
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     with patch.object(llm_subprocess, "_assert_hard_gate_opus") as spy:
         # Make the gate short-circuit so no real Popen is attempted.
@@ -421,12 +421,12 @@ def test_ac9_flag_auto_injection_adds_output_format_stream_json_verbose():
         def __exit__(self, *args):
             pass
 
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     # Patch Popen to capture the effective command; also stub out the hard_gate
     # path so we never actually check for opus model.
     with patch.object(llm_subprocess, "_assert_hard_gate_opus", return_value=None), \
-         patch("llm_subprocess.subprocess.Popen", _FakePopen):
+         patch("bytedigger_engine.llm_subprocess.subprocess.Popen", _FakePopen):
         try:
             fn(**_minimal_invoke_subprocess_kwargs(
                 model="sonnet",

@@ -55,15 +55,15 @@ import pytest
 
 # conftest.py injects engine_py root + workflows dir into sys.path at import time
 # (§1q singleton — this file must NOT manipulate sys.path itself).
-import llm_subprocess
-from llm_subprocess import (
+from bytedigger_engine import llm_subprocess
+from bytedigger_engine.llm_subprocess import (
     invoke_llm_subprocess,
     LLMBackend,
     register_backend,
     reset_backends,
 )
-import telemetry_ctx
-from contracts import StepResult
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.contracts import StepResult
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ def test_ac4_subprocess_backend_builds_argv_from_model(monkeypatch):
     monkeypatch.setenv("HAL_RUNNER_BACKEND", "claude-subprocess")
     captured, side = _make_popen_side_effect()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="test prompt",
             model="sonnet",
@@ -280,7 +280,7 @@ def test_ac5_subprocess_backend_still_injects_output_format(monkeypatch):
     monkeypatch.setenv("HAL_RUNNER_BACKEND", "claude-subprocess")
     captured, side = _make_popen_side_effect()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="test prompt",
             model="claude-sonnet-4-5",
@@ -316,7 +316,7 @@ def test_ac6_allowed_tools_still_injected(monkeypatch):
     monkeypatch.setenv("HAL_RUNNER_BACKEND", "claude-subprocess")
     captured, side = _make_popen_side_effect()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="test prompt",
             model="claude-haiku-4",
@@ -354,7 +354,7 @@ def test_ac7_is_opus_class_model_takes_str():
       None -> False
     """
     import importlib
-    phase_45 = importlib.import_module("phase_45_spec")
+    phase_45 = importlib.import_module("bytedigger_engine.workflows.phase_45_spec")
     fn = getattr(phase_45, "_is_opus_class_model", None)
     assert fn is not None, (
         "_is_opus_class_model not found on phase_45_spec"
@@ -392,7 +392,7 @@ def test_ac8_resolve_model_returns_correct_str():
     """
     # Try phase_workflows_common first (the common module), then llm_subprocess
     import importlib
-    common = importlib.import_module("phase_workflows_common")
+    common = importlib.import_module("bytedigger_engine.workflows.phase_workflows_common")
     fn = getattr(common, "_resolve_model", None)
     if fn is None:
         # Fallback: check llm_subprocess if common doesn't have it
@@ -438,10 +438,10 @@ def test_ac9_default_model_builders_return_str():
     After GREEN: each returns a model string from its getter.
     """
     import importlib
-    from model_config import get_claude_discovery, get_claude_primary, get_claude_spec_writer
+    from bytedigger_engine.lib.model_config import get_claude_discovery, get_claude_primary, get_claude_spec_writer
 
     # -- phase_1_discovery._default_model()
-    p1 = importlib.import_module("phase_1_discovery")
+    p1 = importlib.import_module("bytedigger_engine.workflows.phase_1_discovery")
     fn_discovery = getattr(p1, "_default_model", None)
     assert fn_discovery is not None, (
         "phase_1_discovery._default_model not found — not yet renamed from "
@@ -458,7 +458,7 @@ def test_ac9_default_model_builders_return_str():
     )
 
     # -- phase_5_implement._default_green_model()
-    p5 = importlib.import_module("phase_5_implement")
+    p5 = importlib.import_module("bytedigger_engine.workflows.phase_5_implement")
     fn_green = getattr(p5, "_default_green_model", None)
     assert fn_green is not None, (
         "phase_5_implement._default_green_model not found — not yet renamed from "
@@ -474,7 +474,7 @@ def test_ac9_default_model_builders_return_str():
     )
 
     # -- phase_45_spec._default_spec_model()
-    p45 = importlib.import_module("phase_45_spec")
+    p45 = importlib.import_module("bytedigger_engine.workflows.phase_45_spec")
     fn_spec = getattr(p45, "_default_spec_model", None)
     assert fn_spec is not None, (
         "phase_45_spec._default_spec_model not found — not yet renamed from "
@@ -504,7 +504,7 @@ def test_ac10_no_residual_claude_argv_literal_in_workflows():
     Implementation: reads workflows/*.py files and asserts the substring count is 0.
     This is a deterministic gate over production source (spec §3 AC10 — §1l).
     """
-    workflows_dir = Path(__file__).parent.parent / "workflows"
+    workflows_dir = Path(__file__).parent.parent / "bytedigger_engine" / "workflows"
     assert workflows_dir.is_dir(), f"workflows dir not found at {workflows_dir}"
 
     target_literal = '"claude", "-p"'

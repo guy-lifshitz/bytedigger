@@ -22,7 +22,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +31,7 @@ sys.path.insert(0, str(HERE.parent / "workflows"))
 
 def test_ac1_phase45_spec_feature_returns_600() -> None:
     """AC1: phase_45_spec._resolve_review_timeout_sec({"complexity": "FEATURE"}) → 600."""
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result = _resolve_review_timeout_sec({"complexity": "FEATURE"})
     assert result == 600, f"Expected 600 for FEATURE complexity, got {result!r}"
@@ -45,7 +44,7 @@ def test_ac1_phase45_spec_feature_returns_600() -> None:
 
 def test_ac2_phase45_spec_feature_case_insensitive() -> None:
     """AC2: case-insensitive FEATURE matching — 'feature' and 'Feature' both → 600."""
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result_lower = _resolve_review_timeout_sec({"complexity": "feature"})
     assert result_lower == 600, f"Expected 600 for 'feature' (lowercase), got {result_lower!r}"
@@ -61,7 +60,7 @@ def test_ac2_phase45_spec_feature_case_insensitive() -> None:
 
 def test_ac3_phase45_spec_feature_constant_present_and_600() -> None:
     """AC3: DEFAULT_REVIEW_TIMEOUT_SEC_FEATURE exists in phase_45_spec and equals 600."""
-    from phase_45_spec import DEFAULT_REVIEW_TIMEOUT_SEC_FEATURE  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import DEFAULT_REVIEW_TIMEOUT_SEC_FEATURE  # noqa: PLC0415
 
     assert DEFAULT_REVIEW_TIMEOUT_SEC_FEATURE == 600, (
         f"DEFAULT_REVIEW_TIMEOUT_SEC_FEATURE should be 600, got {DEFAULT_REVIEW_TIMEOUT_SEC_FEATURE!r}"
@@ -79,7 +78,7 @@ def test_ac4_phase45_spec_regression_guard_existing_tiers() -> None:
     SIMPLE → 300, COMPLEX → 900, None → 300, {} → 300.
     This test PASSES today (forcing-function for non-regression on existing surface).
     """
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result_simple = _resolve_review_timeout_sec({"complexity": "SIMPLE"})
     assert result_simple == 300, f"SIMPLE should return 300, got {result_simple!r}"
@@ -104,7 +103,7 @@ def test_ac5_phase45_spec_opus_floor_preserved() -> None:
 
     PASSES today (correctness guard — Opus floor must not be disturbed by FEATURE insertion).
     """
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result = _resolve_review_timeout_sec(
         {"complexity": "SIMPLE", "review_llm_command": ["claude", "-p", "--model", "opus"]}
@@ -121,7 +120,7 @@ def test_ac5_phase45_spec_opus_floor_preserved() -> None:
 
 def test_ac6_phase45_spec_lite_feature_returns_600() -> None:
     """AC6: phase_45_spec_lite._resolve_review_timeout_sec({"complexity": "FEATURE"}) → 600."""
-    from phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result = _resolve_review_timeout_sec({"complexity": "FEATURE"})
     assert result == 600, f"Expected 600 for FEATURE complexity in lite, got {result!r}"
@@ -134,7 +133,7 @@ def test_ac6_phase45_spec_lite_feature_returns_600() -> None:
 
 def test_ac7_phase45_spec_lite_complex_returns_900() -> None:
     """AC7: phase_45_spec_lite._resolve_review_timeout_sec({"complexity": "COMPLEX"}) → 900."""
-    from phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result = _resolve_review_timeout_sec({"complexity": "COMPLEX"})
     assert result == 900, f"Expected 900 for COMPLEX complexity in lite, got {result!r}"
@@ -147,7 +146,7 @@ def test_ac7_phase45_spec_lite_complex_returns_900() -> None:
 
 def test_ac8_phase45_spec_lite_baseline_returns_300() -> None:
     """AC8: phase_45_spec_lite._resolve_review_timeout_sec for None, {}, SIMPLE → 300."""
-    from phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result_none = _resolve_review_timeout_sec(None)
     assert result_none == 300, f"None cfg should return 300 in lite, got {result_none!r}"
@@ -166,7 +165,7 @@ def test_ac8_phase45_spec_lite_baseline_returns_300() -> None:
 
 def test_ac9_phase45_spec_lite_explicit_override_wins() -> None:
     """AC9: explicit review_llm_timeout_sec beats complexity default → 777."""
-    from phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result = _resolve_review_timeout_sec({"complexity": "COMPLEX", "review_llm_timeout_sec": 777})
     assert result == 777, f"Expected explicit override 777 in lite, got {result!r}"
@@ -184,7 +183,7 @@ def test_ac10_phase45_spec_lite_invalid_override_and_clamp() -> None:
     - -5 override → 1 (clamp to max(1, ...))
     - 0 override + FEATURE complexity → 600 (0 is falsy, falls through to FEATURE)
     """
-    from phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _resolve_review_timeout_sec  # noqa: PLC0415
 
     result_abc = _resolve_review_timeout_sec({"review_llm_timeout_sec": "abc"})
     assert result_abc == 300, (
@@ -217,7 +216,7 @@ def test_ac11_phase45_spec_lite_constants_present_and_correct() -> None:
     DEFAULT_REVIEW_TIMEOUT_SEC_COMPLEX == 900
     DEFAULT_REVIEW_TIMEOUT_SEC == 300 (baseline unchanged)
     """
-    from phase_45_spec_lite import (  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import (  # noqa: PLC0415
         DEFAULT_REVIEW_TIMEOUT_SEC,
         DEFAULT_REVIEW_TIMEOUT_SEC_COMPLEX,
         DEFAULT_REVIEW_TIMEOUT_SEC_FEATURE,
@@ -245,7 +244,7 @@ def test_ac12_phase45_spec_lite_call_site_rewired() -> None:
     New pattern present:  _resolve_review_timeout_sec(cfg)
     Old pattern absent:   int(cfg.get("review_llm_timeout_sec") or DEFAULT_REVIEW_TIMEOUT_SEC)
     """
-    prod_path = Path(__file__).parent.parent / "workflows" / "phase_45_spec_lite.py"
+    prod_path = Path(__file__).parent.parent / "bytedigger_engine" / "workflows" / "phase_45_spec_lite.py"
     src = prod_path.read_text(encoding="utf-8")
 
     new_pattern = '_resolve_review_timeout_sec(cfg)'

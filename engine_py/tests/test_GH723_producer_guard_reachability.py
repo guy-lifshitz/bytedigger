@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── shared fixtures / helpers (mirrors test_gh729_cycle2_high_binding_parity.py) ──
@@ -46,7 +46,7 @@ def make_ctx(scratchpad: Path, *, question: str = "GH723 producer guard reachabi
 
 
 def _write_prev_spec(scratchpad: Path) -> Path:
-    from phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
 
     spec_path = scratchpad / SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +78,7 @@ STRUCTURED_FINDINGS_FENCE_TEXT = (
 
 
 def build_prompt(scratchpad: Path, *, cycle: int, findings=None):
-    from phase_45_spec import _build_spec_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: PLC0415
 
     ctx = make_ctx(scratchpad)
     prev = {"cycle": cycle}

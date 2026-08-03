@@ -36,14 +36,14 @@ from pathlib import Path
 # conftest-import-time singleton handles sys.path (§1q / 81F97F3D gate).
 # Do NOT add sys.path.insert here.
 
-import lib.git_port as git_port_mod
-from lib.git_port import (
+from bytedigger_engine.lib import git_port as git_port_mod
+from bytedigger_engine.lib.git_port import (
     GitResult,
     set_default_git_read_factory,
     reset_default_git_read_factory,
 )
 
-import phase_45_spec
+from bytedigger_engine.workflows import phase_45_spec
 
 
 # ─────────────────────────────────────────────────────────────────────────────

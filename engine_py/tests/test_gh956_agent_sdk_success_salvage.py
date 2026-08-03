@@ -31,7 +31,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from event_log import EventLog
+from bytedigger_engine.event_log import EventLog
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ from event_log import EventLog
 # ---------------------------------------------------------------------------
 
 def _import_agent_sdk_backend():
-    import lib.reference_backends.agent_sdk as mod  # noqa: PLC0415
+    import bytedigger_engine.lib.reference_backends.agent_sdk as mod  # noqa: PLC0415  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
     return mod
 
 
@@ -131,7 +131,7 @@ def _reset_state():
     two dynamically-loaded modules per test (sibling pattern).
     """
     yield
-    sys.modules.pop("lib.reference_backends.agent_sdk", None)
+    sys.modules.pop("bytedigger_engine.lib.reference_backends.agent_sdk", None)
     sys.modules.pop("claude_agent_sdk", None)
 
 

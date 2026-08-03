@@ -25,12 +25,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from phase_6_smoke import phase_6_smoke_workflow  # noqa: E402
-import phase_6_smoke as _p6s_mod  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows.phase_6_smoke import phase_6_smoke_workflow  # noqa: E402
+from bytedigger_engine.workflows import phase_6_smoke as _p6s_mod  # noqa: E402
 
 _SMOKE_REL = "USER/skills/HALForge/tests/phase-6-signal-smoke.sh"
 
@@ -179,7 +178,7 @@ def test_ac5_source_has_shutil_import_and_no_e_script_missing():
     Presence of 'import shutil' is the presence-gate; absence of 'E_SCRIPT_MISSING'
     is the absence assert. FAILS now on both counts.
     """
-    prod_path = HERE.parent / "workflows" / "phase_6_smoke.py"
+    prod_path = HERE.parent / "bytedigger_engine" / "workflows" / "phase_6_smoke.py"
     source = prod_path.read_text()
 
     # Presence gate — must pass before the absence assert is meaningful.

@@ -31,7 +31,7 @@ import pytest
 # `_commit_red_tests` and `_persist_pre_red_ref` already exist today (this is
 # a reorder bug, not a missing-symbol bug), so this import is safe at
 # collection time (D1CF5FDF).
-import phase_5_implement as mod
+from bytedigger_engine.workflows import phase_5_implement as mod
 
 
 # ─── shared git-repo helpers (copied verbatim from
@@ -82,7 +82,7 @@ def _make_scratchpad() -> Path:
 
 
 def _make_ctx(scratchpad: Path, git_cwd: str | None = None):
-    from contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
 
     org: dict = {"scratchpad_dir": str(scratchpad)}
     if git_cwd is not None:
@@ -102,7 +102,7 @@ def _make_ctx(scratchpad: Path, git_cwd: str | None = None):
 
 def _prev_for_commit(scratchpad: Path, cycle: int = 1, red_test_paths=None):
     """Minimal prev StepResult accepted by _commit_red_tests."""
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     return StepResult(
         status="ok",

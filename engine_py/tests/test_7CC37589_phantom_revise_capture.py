@@ -26,8 +26,6 @@ import pytest
 _ENGINE_ROOT = Path(__file__).resolve().parent.parent
 if str(_ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(_ENGINE_ROOT))
-if str(_ENGINE_ROOT / "workflows") not in sys.path:
-    sys.path.insert(0, str(_ENGINE_ROOT / "workflows"))
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +92,7 @@ def test_ac1_resolve_unresolved_count_structured() -> None:
     """AC1: _resolve_unresolved_count(raw_with_3_item_structured_block, None, None)
     returns (3, 'structured').
     """
-    from phase_45_spec import _resolve_unresolved_count  # deferred: symbol absent pre-GREEN
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_unresolved_count  # deferred: symbol absent pre-GREEN
 
     count, source = _resolve_unresolved_count(_RAW_STRUCTURED_3, None, None)
     assert count == 3, f"expected count=3 (structured), got {count}"
@@ -109,7 +107,7 @@ def test_ac2_resolve_unresolved_count_per_finding() -> None:
     """AC2: _resolve_unresolved_count(raw_no_structured, n_total=5, n_resolved=2)
     returns (3, 'per_finding').
     """
-    from phase_45_spec import _resolve_unresolved_count  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_unresolved_count  # deferred
 
     count, source = _resolve_unresolved_count(_RAW_FREETEXT_4, 5, 2)
     assert count == 3, f"expected count=3 (per_finding: 5-2), got {count}"
@@ -124,7 +122,7 @@ def test_ac3_resolve_unresolved_count_freetext() -> None:
     """AC3: _resolve_unresolved_count(raw_no_structured_4_freetext_items, None, None)
     returns (4, 'freetext').
     """
-    from phase_45_spec import _resolve_unresolved_count  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_unresolved_count  # deferred
 
     count, source = _resolve_unresolved_count(_RAW_FREETEXT_4, None, None)
     assert count == 4, f"expected count=4 (freetext numbered items), got {count}"
@@ -144,7 +142,7 @@ def test_ac4_phantom_killer_freetext_revise_nonzero() -> None:
     free-text reviews. Post-GREEN _resolve_unresolved_count falls back to
     per_finding (n_total=3-n_resolved=0 → 3).
     """
-    from phase_45_spec import _resolve_unresolved_count  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_unresolved_count  # deferred
 
     count, source = _resolve_unresolved_count(_RAW_REALISTIC_REVISE, 3, 0)
     assert count > 0, (
@@ -163,8 +161,8 @@ def test_ac5_record_plan_review_reject_with_findings_source(tmp_path: Path) -> N
     """AC5: record_plan_review_reject(raw, 2, 3, findings_source='freetext') writes
     one line with detail == {'cycle':2,'n_unresolved':3,'findings_source':'freetext'}.
     """
-    from reject_log import record_plan_review_reject  # deferred: kwarg absent pre-GREEN
-    import telemetry_ctx
+    from bytedigger_engine.reject_log import record_plan_review_reject  # deferred: kwarg absent pre-GREEN
+    from bytedigger_engine import telemetry_ctx
 
     p = tmp_path / "reject-reasons.jsonl"
     telemetry_ctx.set_current_run(event_log=None, run_id="ac5-run", step_name="test")
@@ -198,8 +196,8 @@ def test_ac6_record_plan_review_reject_default_findings_source(tmp_path: Path) -
     """AC6: record_plan_review_reject called without findings_source →
     detail['findings_source'] == 'unknown' (back-compat default).
     """
-    from reject_log import record_plan_review_reject  # deferred
-    import telemetry_ctx
+    from bytedigger_engine.reject_log import record_plan_review_reject  # deferred
+    from bytedigger_engine import telemetry_ctx
 
     p = tmp_path / "reject-reasons.jsonl"
     telemetry_ctx.set_current_run(event_log=None, run_id="ac6-run", step_name="test")
@@ -246,7 +244,7 @@ def test_ac7_axes_captured_over_untruncated_text() -> None:
     """
     import re
 
-    phase_45_path = _ENGINE_ROOT / "workflows" / "phase_45_spec.py"
+    phase_45_path = _ENGINE_ROOT / "bytedigger_engine" / "workflows" / "phase_45_spec.py"
     assert phase_45_path.exists(), f"phase_45_spec.py not found at {phase_45_path}"
 
     source = phase_45_path.read_text()
@@ -294,7 +292,7 @@ def test_ac8_phase_45_spec_revise_block_wired() -> None:
 
     Fails pre-GREEN (neither symbol is wired yet). Passes post-GREEN.
     """
-    phase_45_path = _ENGINE_ROOT / "workflows" / "phase_45_spec.py"
+    phase_45_path = _ENGINE_ROOT / "bytedigger_engine" / "workflows" / "phase_45_spec.py"
     assert phase_45_path.exists(), f"phase_45_spec.py not found at {phase_45_path}"
 
     source = phase_45_path.read_text()

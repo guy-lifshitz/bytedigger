@@ -22,9 +22,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-import telemetry_ctx
-import reject_log
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine import reject_log
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
 
 
 def make_ctx() -> WorkflowContext:
@@ -140,8 +140,7 @@ def test_ac4_engine_test_sees_reject_and_rework_log_env_under_tmp():
 def test_ac5_build_review_prompt_requires_rule_axes(tmp_path):
     """AC5: _build_review_prompt (phase_45) output prompt contains the
     literal RULE-AXES: forcing-function instruction."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "workflows"))
-    from phase_45_spec import _build_review_prompt, SPEC_DOC_RELPATH
+    from bytedigger_engine.workflows.phase_45_spec import _build_review_prompt, SPEC_DOC_RELPATH
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -171,8 +170,7 @@ def test_ac5_build_review_prompt_requires_rule_axes(tmp_path):
 def test_ac6_build_satisfaction_prompt_requires_rule_axes(tmp_path):
     """AC6: _build_satisfaction_prompt (phase_6) output prompt contains the
     literal RULE-AXES: forcing-function instruction."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "workflows"))
-    from phase_6_review import _build_satisfaction_prompt, DEFAULT_SATISFACTION_THRESHOLD
+    from bytedigger_engine.workflows.phase_6_review import _build_satisfaction_prompt, DEFAULT_SATISFACTION_THRESHOLD
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -247,7 +245,7 @@ def test_ac9_annotate_invocation_uses_slot_when_set_else_falls_back_to_rid():
     """AC9: annotate_invocation({}, "ridA") with set_invocation_run_id("ridB")
     -> {"invocation_run_id":"ridB","resumed":True}; with slot cleared ->
     {"invocation_run_id":"ridA","resumed":False}."""
-    from lib.cost_rollup import annotate_invocation
+    from bytedigger_engine.lib.cost_rollup import annotate_invocation
 
     telemetry_ctx.set_invocation_run_id("ridB")
     try:
@@ -282,8 +280,8 @@ def test_ac10_workflow_cost_rollup_and_rework_summary_carry_invocation_run_id(mo
     run_id="ridQ" -> emitted workflow_cost_rollup payload has
     invocation_run_id=="ridZ", resumed==True; rework-summary line (via
     HAL_REWORK_LOG -> tmp) has the same fields."""
-    from event_log import EventLog
-    from engine import WorkflowEngine
+    from bytedigger_engine.event_log import EventLog
+    from bytedigger_engine.engine import WorkflowEngine
 
     rework_path = tmp_path / "rework.jsonl"
     monkeypatch.setenv("HAL_REWORK_LOG", str(rework_path))
@@ -323,7 +321,7 @@ def test_ac10_workflow_cost_rollup_and_rework_summary_carry_invocation_run_id(mo
 def test_ac11_run_py_calls_set_invocation_run_id_after_resolved_run_id():
     """AC11: run.py source calls set_invocation_run_id( after the
     _resolved_run_id assignment (deterministic source-grep)."""
-    run_py = Path(__file__).parent.parent / "run.py"
+    run_py = Path(__file__).parent.parent / "bytedigger_engine" / "run.py"
     source = run_py.read_text(encoding="utf-8")
 
     resolved_idx = source.find("_resolved_run_id =")
@@ -338,7 +336,7 @@ def test_ac11_run_py_calls_set_invocation_run_id_after_resolved_run_id():
 
 def test_ac12_flags_catalog_includes_hal_reject_log():
     """AC12: flags_catalog includes a HAL_REJECT_LOG entry."""
-    import flags_catalog
+    from bytedigger_engine import flags_catalog
 
     assert "HAL_REJECT_LOG" in flags_catalog.FLAGS
 
@@ -351,7 +349,7 @@ def test_ac13_satisfaction_reject_call_sites_pass_axes_text():
     pass axes_text= — the call inside _write_satisfaction_doc uses
     axes_text=body, the call inside _write_satisfaction_doc_multi uses
     axes_text=composite_text (deterministic source-grep)."""
-    phase6_py = Path(__file__).parent.parent / "workflows" / "phase_6_review.py"
+    phase6_py = Path(__file__).parent.parent / "bytedigger_engine" / "workflows" / "phase_6_review.py"
     source = phase6_py.read_text(encoding="utf-8")
 
     single_start = source.find("def _write_satisfaction_doc(")

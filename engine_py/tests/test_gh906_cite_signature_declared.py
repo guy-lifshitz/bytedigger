@@ -5,8 +5,8 @@ Spec: SHARED/memory/Decisions/2026-07-16_GH906_cite_signature_declared_spec.md
 §3 AC1-AC8.
 
 conftest.py (engine_py/tests/conftest.py) already puts engine_py/ onto
-sys.path at collection time, so a plain top-level `import spec_cite` /
-`from spec_cite import declared_symbols, lint_spec` is safe (§1q) — both
+sys.path at collection time, so a plain top-level `import bytedigger_engine.spec_cite` /
+`from bytedigger_engine.spec_cite import declared_symbols, lint_spec` is safe (§1q) — both
 symbols already exist today; only the NEW quoted-signature extraction
 behavior inside declared_symbols is missing pre-GREEN.
 
@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from spec_cite import declared_symbols, lint_spec
+from bytedigger_engine.spec_cite import declared_symbols, lint_spec
 
 # Symbol name deliberately kept out of any fixture .py body under a tmp
 # repo_root in AC6/AC7 -- only ever appears inside spec.md fixture text.

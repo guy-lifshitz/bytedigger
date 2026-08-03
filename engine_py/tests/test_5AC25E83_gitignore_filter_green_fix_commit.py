@@ -22,7 +22,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # WorkflowContext is importable at collection time (symbol already exists).
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 # ─── shared fixtures ──────────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ def test_ac1_helper_importable_from_phase5() -> None:
     At RED time: ImportError → test FAILS (ERROR in pytest).
     After GREEN: import succeeds, callable assert passes.
     """
-    from phase_5_implement import _filter_gitignored_paths  # ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_5_implement import _filter_gitignored_paths  # ImportError at RED → FAIL
 
     assert callable(_filter_gitignored_paths), (
         "_filter_gitignored_paths must be callable"
@@ -111,7 +111,7 @@ def test_ac2_helper_importable_from_phase6() -> None:
     At RED time: ImportError → test FAILS (ERROR in pytest).
     After GREEN: import succeeds, callable assert passes.
     """
-    from phase_6_review import _filter_gitignored_paths  # ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_6_review import _filter_gitignored_paths  # ImportError at RED → FAIL
 
     assert callable(_filter_gitignored_paths), (
         "_filter_gitignored_paths must be callable"
@@ -125,14 +125,14 @@ def test_ac3_green_filters_gitignored_path_from_git_add(tmp_path: Path) -> None:
     """GREEN: manifest with a gitignored path → git add called with only non-ignored paths;
     commit_gitignored_paths_skipped event emitted.
 
-    At RED time: ImportError from 'from phase_5_implement import _filter_gitignored_paths'
+    At RED time: ImportError from 'from bytedigger_engine.workflows.phase_5_implement import _filter_gitignored_paths'
     → pytest ERROR → counts as FAIL.
     After GREEN: the function exists; patch.object succeeds; behavior asserted.
     """
     # Deferred import — raises ImportError at RED (D1CF5FDF rule)
-    from phase_5_implement import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_5_implement import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
 
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _make_prev_green(
@@ -200,13 +200,13 @@ def test_ac4_green_degrades_on_check_ignore_failure(tmp_path: Path) -> None:
     """GREEN: when git check-ignore returns rc=2 (unexpected error), _commit_green_code
     proceeds with ALL paths (degraded mode, no crash).
 
-    At RED time: ImportError from 'from phase_5_implement import _filter_gitignored_paths'
+    At RED time: ImportError from 'from bytedigger_engine.workflows.phase_5_implement import _filter_gitignored_paths'
     → pytest ERROR → counts as FAIL.
     After GREEN: degraded path verified — all paths reach git add.
     """
-    from phase_5_implement import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_5_implement import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
 
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _make_prev_green(
@@ -265,13 +265,13 @@ def test_ac5_fix_filters_gitignored_path_from_git_add(tmp_path: Path) -> None:
     """FIX: manifest with a gitignored path → git add called with only non-ignored paths;
     commit_gitignored_paths_skipped event emitted.
 
-    At RED time: ImportError from 'from phase_6_review import _filter_gitignored_paths'
+    At RED time: ImportError from 'from bytedigger_engine.workflows.phase_6_review import _filter_gitignored_paths'
     → pytest ERROR → counts as FAIL.
     After GREEN: behavior asserted.
     """
-    from phase_6_review import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_6_review import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     ctx = _make_ctx(tmp_path)
     prev = _make_prev_fix(
@@ -352,13 +352,13 @@ def test_ac6_fix_degrades_on_check_ignore_failure(tmp_path: Path) -> None:
     """FIX: when git check-ignore returns rc=2, _commit_fix_code proceeds with ALL
     paths (degraded mode, no crash).
 
-    At RED time: ImportError from 'from phase_6_review import _filter_gitignored_paths'
+    At RED time: ImportError from 'from bytedigger_engine.workflows.phase_6_review import _filter_gitignored_paths'
     → pytest ERROR → counts as FAIL.
     After GREEN: degraded path verified — all paths reach git add.
     """
-    from phase_6_review import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_6_review import _filter_gitignored_paths  # noqa: F401 — ImportError at RED → FAIL
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     ctx = _make_ctx(tmp_path)
     prev = _make_prev_fix(
@@ -436,9 +436,9 @@ def test_ac_integration_real_gitignore(tmp_path: Path) -> None:
     - trackable path (src/foo.py) retained
     - commit_gitignored_paths_skipped event emitted (captured via _emit_safe patch)
     """
-    import phase_5_implement
-    import phase_workflows_common  # noqa: PLC0415
-    from phase_5_implement import _filter_gitignored_paths
+    from bytedigger_engine.workflows import phase_5_implement
+    from bytedigger_engine.workflows import phase_workflows_common  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _filter_gitignored_paths
 
     repo = tmp_path / "repo"
     repo.mkdir()

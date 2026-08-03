@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 # ── path bootstrap (mirrors all sibling tests) ────────────────────────────────
 HERE = Path(__file__).parent
 ENGINE_PY = HERE.parent
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
@@ -27,8 +27,8 @@ if str(WORKFLOWS) not in sys.path:
 
 # ── module-level imports of EXISTING modules only ────────────────────────────
 # phase_5_implement and phase_6_review exist today — safe to import here.
-import phase_5_implement as p5  # noqa: E402
-import phase_6_review as p6  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as p6  # noqa: E402
 
 # ── canonical name lists ──────────────────────────────────────────────────────
 _HELPER_NAMES = [
@@ -104,7 +104,7 @@ def test_ac2_reexport_identity_both_modules():
     and phase_6_review resolves to the SAME object as in phase_workflows_common.
     Deferred import inside body so collection succeeds pre-GREEN."""
     # Deferred import — will raise ImportError pre-GREEN (FAIL, not hang).
-    import phase_workflows_common as pwc  # type: ignore  # noqa: F401
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # type: ignore  # noqa: F401
 
     failures = []
     for name in _ALL_NAMES:
@@ -149,7 +149,7 @@ def test_ac4_verify_no_cross_tree_edits_routes_via_git_port(tmp_path):
     """AC4: phase_6_review._verify_no_cross_tree_edits routes through
     git_port.git_read (not raw bounded_run).  Deferred import of
     phase_workflows_common inside body."""
-    import phase_workflows_common as pwc  # type: ignore
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # type: ignore
 
     # Fake git_port.git_read: returns rc=0, stdout with a worktree entry
     # pointing to tmp_path itself (so is_relative_to fires and returns early —
@@ -198,7 +198,7 @@ def test_ac5_filter_gitignored_paths_routes_via_git_port(tmp_path):
     """AC5: phase_6_review._filter_gitignored_paths routes through
     git_port.git_read (not raw bounded_run).  Deferred import of
     phase_workflows_common inside body."""
-    import phase_workflows_common as pwc  # type: ignore
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # type: ignore
 
     fake_result = MagicMock()
     fake_result.returncode = 1  # rc=1 means nothing was ignored → passthrough
@@ -266,7 +266,7 @@ def test_ac7_constants_are_common_objects():
     """AC7: _CROSS_TREE_PROMPT_TEMPLATE and _ENGINE_MODE_RE in both phase_5 and
     phase_6 namespaces are the SAME object as in phase_workflows_common.
     Deferred import inside body."""
-    import phase_workflows_common as pwc  # type: ignore
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # type: ignore
 
     for name in _CONST_NAMES:
         p5_val = getattr(p5, name, None)

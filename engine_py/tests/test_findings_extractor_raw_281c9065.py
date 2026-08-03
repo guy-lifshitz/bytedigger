@@ -26,18 +26,16 @@ from pathlib import Path
 HERE = Path(__file__).parent          # engine_py/tests/
 ENGINE_ROOT = HERE.parent             # engine_py/
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # AC1 signal: this import will raise ImportError in RED — that's correct.
-from plugins.checklist_convergence import (  # noqa: E402
+from bytedigger_engine.lib.plugins.checklist_convergence import (  # noqa: E402
     extract_structured_findings_raw,
     extract_structured_findings,
     extract_findings_for_writer,
     Finding,
 )
-import plugins.checklist_convergence as _cc_module  # noqa: E402
-import phase_6_review  # noqa: E402
+from bytedigger_engine.lib.plugins import checklist_convergence as _cc_module  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402
 
 
 # ── shared fixture builder ────────────────────────────────────────────────────

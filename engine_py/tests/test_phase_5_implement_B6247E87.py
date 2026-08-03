@@ -25,7 +25,6 @@ from unittest import mock
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 def _retry_backoff_sleeps(all_sleeps: "list[float]") -> "list[float]":
@@ -79,7 +78,7 @@ def _minimal_repo(tmp_path: Path) -> Path:
 
 
 def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra):
-    from contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
 
     org = {"scratchpad_dir": str(scratchpad), **org_extra}
     return WorkflowContext(
@@ -96,7 +95,7 @@ def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra
 
 
 def _prev_ok(scratchpad: Path, repo: Path, test_relpath: str = "tests/test_red.py"):
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     return StepResult(
         status="ok",
@@ -121,7 +120,7 @@ def test_commit_red_tests_retries_on_external_index_lock_then_succeeds(tmp_path)
     FAILS today because _commit_red_tests has no retry logic; it returns
     E_GIT_COMMIT_FAILED on the first git add failure.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -170,7 +169,7 @@ def test_commit_red_tests_returns_e_git_locked_when_lock_persists(tmp_path):
     FAILS today because _commit_red_tests has no retry logic and returns
     E_GIT_COMMIT_FAILED (not E_GIT_LOCKED).
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -229,7 +228,7 @@ def test_commit_red_tests_e_git_locked_distinct_from_e_git_commit_failed(tmp_pat
 
     FAILS today because E_GIT_LOCKED does not exist yet (no retry logic).
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     # ── scenario A: persistent lock → E_GIT_LOCKED ──
     repo_a = _minimal_repo(tmp_path / "a")
@@ -294,7 +293,7 @@ def test_commit_red_tests_does_not_retry_on_non_lock_git_failure(tmp_path):
     E_GIT_COMMIT_FAILED already, but git add call count is 1 only by accident;
     once retry is added the guard here must still hold for non-lock errors).
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -362,7 +361,7 @@ def test_commit_red_tests_retries_on_index_lock_during_git_commit(tmp_path):
     Asserts status="ok" — retry logic recovers from lock mid-sequence.
     FAILS today because _commit_red_tests has no retry logic.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"

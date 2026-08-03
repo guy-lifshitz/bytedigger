@@ -5,8 +5,8 @@ Spec: SHARED/memory/Decisions/2026-07-18_6E8A14A3_gh1005_spec_cite_new_marker_me
 §3 AC1-AC10 (AC11 is the orchestrator's regression net, out of scope here).
 
 conftest.py (engine_py/tests/conftest.py) already inserts engine_py/ onto
-sys.path at collection time, so plain top-level `import spec_cite` /
-`from spec_cite import lint_spec` are safe (§1q — spec_cite.py already
+sys.path at collection time, so plain top-level `import bytedigger_engine.spec_cite` /
+`from bytedigger_engine.spec_cite import lint_spec` are safe (§1q — spec_cite.py already
 exists today). The NEW symbols under test (`new_marked_symbols`,
 `_iter_scannable_lines`) do NOT exist yet, so they are imported LAZILY
 inside each test function body (never top-level) — the file COLLECTS
@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from spec_cite import lint_spec
+from bytedigger_engine.spec_cite import lint_spec
 
 _EXISTING_FN_SRC = "export function existingFn() {}\n"
 
@@ -181,7 +181,7 @@ def test_ac6_trailing_parens_normalization_both_sides(tmp_path: Path) -> None:
 
 
 def test_ac7_new_marked_symbols_extracts_bare_and_signature_forms(tmp_path: Path) -> None:
-    from spec_cite import new_marked_symbols, _iter_scannable_lines  # noqa: PLC0415
+    from bytedigger_engine.spec_cite import new_marked_symbols, _iter_scannable_lines  # noqa: PLC0415
 
     assert callable(new_marked_symbols), "AC7: new_marked_symbols must be callable"
     assert callable(_iter_scannable_lines), "AC7: _iter_scannable_lines must be callable"

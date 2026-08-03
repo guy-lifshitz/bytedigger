@@ -32,9 +32,9 @@ import re
 import subprocess
 from pathlib import Path
 
-import telemetry_ctx
-import phase_5_implement as p5  # conftest-import-time singleton puts workflows/ on sys.path
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.workflows import phase_5_implement as p5  # conftest-import-time singleton puts workflows/ on sys.path
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 
 # ─── shared helpers ────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ def test_ac1_cfg_git_cwd_verbatim():
 
     Pre-GREEN: FAIL — ImportError, lib.git_cwd does not exist yet.
     """
-    from lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
 
     result = resolve_git_cwd({"git_cwd": "/x/y"})
 
@@ -145,7 +145,7 @@ def test_ac2_prev_data_git_cwd_fallback():
 
     Pre-GREEN: FAIL — ImportError, lib.git_cwd does not exist yet.
     """
-    from lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
 
     result = resolve_git_cwd({}, {"git_cwd": "/p/q"})
 
@@ -162,7 +162,7 @@ def test_ac3_current_worktree_path_resolved(tmp_path):
 
     Pre-GREEN: FAIL — ImportError, lib.git_cwd does not exist yet.
     """
-    from lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
 
     tmp_wt = tmp_path / "worktree"
     tmp_wt.mkdir()
@@ -184,7 +184,7 @@ def test_ac4_scratchpad_climb_finds_git_root_not_cwd(tmp_path, monkeypatch):
 
     Pre-GREEN: FAIL — ImportError, lib.git_cwd does not exist yet.
     """
-    from lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
 
     tmp_repo, scratchpad = _build_repo_with_scratchpad(tmp_path)
     elsewhere = tmp_path / "elsewhere"
@@ -207,7 +207,7 @@ def test_ac5_empty_cfg_falls_back_to_cwd():
 
     Pre-GREEN: FAIL — ImportError, lib.git_cwd does not exist yet.
     """
-    from lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
 
     result = resolve_git_cwd({})
 
@@ -226,7 +226,7 @@ def test_ac6_scratchpad_climb_emits_resolver_event(tmp_path, monkeypatch):
 
     Pre-GREEN: FAIL — ImportError, lib.git_cwd does not exist yet.
     """
-    from lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: PLC0415
 
     captured: list[dict] = []
     monkeypatch.setattr(
@@ -338,7 +338,7 @@ def test_ac9_no_raw_git_cwd_or_cwd_fallback_sites_remain():
     (b) zero matches of the literal `if cfg.get("git_cwd") else None` in
         workflows/phase_6_fix_integrity.py (site 5's distinct shape).
     (c) each of the 6 MOD prod files contains the literal
-        `from lib.git_cwd import resolve_git_cwd` (positive-presence proof
+        `from bytedigger_engine.lib.git_cwd import resolve_git_cwd` (positive-presence proof
         that the file actually funnels through the shared resolver, not just
         that the old literal happens to be gone).
 
@@ -348,12 +348,12 @@ def test_ac9_no_raw_git_cwd_or_cwd_fallback_sites_remain():
     """
     engine_root = Path(__file__).resolve().parents[1]
     targets = [
-        engine_root / "workflows" / "phase_5_implement.py",
-        engine_root / "workflows" / "phase_5_integrity.py",
-        engine_root / "workflows" / "phase_45_spec.py",
-        engine_root / "workflows" / "phase_6_fix_integrity.py",
-        engine_root / "workflows" / "phase_6_review.py",
-        engine_root / "lib" / "run_allowlist.py",
+        engine_root / "bytedigger_engine" / "workflows" / "phase_5_implement.py",
+        engine_root / "bytedigger_engine" / "workflows" / "phase_5_integrity.py",
+        engine_root / "bytedigger_engine" / "workflows" / "phase_45_spec.py",
+        engine_root / "bytedigger_engine" / "workflows" / "phase_6_fix_integrity.py",
+        engine_root / "bytedigger_engine" / "workflows" / "phase_6_review.py",
+        engine_root / "bytedigger_engine" / "lib" / "run_allowlist.py",
     ]
 
     # (a) negative — the `... or Path.cwd()` shape (sites 2/3/4/6-10)
@@ -371,7 +371,7 @@ def test_ac9_no_raw_git_cwd_or_cwd_fallback_sites_remain():
     )
 
     # (b) negative — site 5's distinct `if cfg.get("git_cwd") else None` shape
-    fix_integrity = engine_root / "workflows" / "phase_6_fix_integrity.py"
+    fix_integrity = engine_root / "bytedigger_engine" / "workflows" / "phase_6_fix_integrity.py"
     fix_integrity_text = fix_integrity.read_text()
     assert 'if cfg.get("git_cwd") else None' not in fix_integrity_text, (
         f"GH381 AC9(b): expected zero occurrences of the literal "
@@ -380,7 +380,7 @@ def test_ac9_no_raw_git_cwd_or_cwd_fallback_sites_remain():
     )
 
     # (c) positive — every MOD file actually imports the shared resolver
-    import_literal = "from lib.git_cwd import resolve_git_cwd"
+    import_literal = "from bytedigger_engine.lib.git_cwd import resolve_git_cwd"
     missing_import: list[str] = []
     for f in targets:
         if import_literal not in f.read_text():

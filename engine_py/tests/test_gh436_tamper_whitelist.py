@@ -25,11 +25,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import telemetry_ctx  # noqa: E402
-import phase_5_implement  # noqa: E402
-import lib.run_allowlist as run_allowlist_mod  # noqa: E402
-import lib.authored_boundary as boundary_mod  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.lib import run_allowlist as run_allowlist_mod  # noqa: E402
+from bytedigger_engine.lib import authored_boundary as boundary_mod  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers (copied minimal skeleton from test_gh373_authored_boundary.py) ──

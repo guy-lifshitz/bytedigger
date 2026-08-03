@@ -8,7 +8,7 @@
       "name": "bytedigger",
       "source": "./",
       "description": "Phased, gate-enforced build pipeline for AI code generation. TDD mandatory, reviews scored, skipping blocked.",
-      "version": "0.1.2"
+      "version": "0.2.0"
     }
   ],
   "description": "Phased, gate-enforced build pipeline for AI code generation. TDD mandatory, reviews scored, skipping blocked."

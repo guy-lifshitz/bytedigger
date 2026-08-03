@@ -22,11 +22,11 @@ from pathlib import Path
 ENGINE_PY = Path(__file__).resolve().parent.parent
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-import phase_5_implement as p5  # type: ignore
+from bytedigger_engine.workflows import phase_5_implement as p5  # type: ignore
 
 
 class _BoomEventLog:
@@ -72,7 +72,7 @@ def test_check_green_token_budget_uses_severity_error_for_alert(monkeypatch, cap
     so the fallback log fires `logger.error` (not warning).
     """
     monkeypatch.setattr(p5.telemetry_ctx, "get_current_run", lambda: _StubRunCtx())
-    from contracts import StepResult  # type: ignore
+    from bytedigger_engine.contracts import StepResult  # type: ignore
 
     prev = StepResult(
         status="ok",

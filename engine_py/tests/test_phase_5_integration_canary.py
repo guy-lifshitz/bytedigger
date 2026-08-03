@@ -15,11 +15,10 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-import workflows  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine import workflows  # noqa: E402
 
 
 def _make_ctx(*, run_id_in_org: str | None = None, **org_extra) -> WorkflowContext:
@@ -53,7 +52,7 @@ def _write_events(path: Path, events: list[dict]) -> None:
 
 def _run_canary(ctx: WorkflowContext):
     """Execute the workflow's single step directly so we get the StepResult."""
-    from phase_5_integration_canary import phase_5_integration_canary_workflow  # noqa: E402
+    from bytedigger_engine.workflows.phase_5_integration_canary import phase_5_integration_canary_workflow  # noqa: E402
 
     wf = phase_5_integration_canary_workflow()
     assert wf.steps, "workflow must have at least one step"
@@ -225,7 +224,7 @@ def test_canary_errors_when_run_id_unresolvable(tmp_path):
     """No integration_canary_run_id in org_config AND no current run via
     telemetry_ctx → E_CANARY_BAD_CONFIG. WorkflowContext has no run_id field,
     so the only sources are org_config or the engine-scoped telemetry slot."""
-    import telemetry_ctx  # noqa: E402
+    from bytedigger_engine import telemetry_ctx  # noqa: E402
 
     telemetry_ctx.clear_current_run()  # ensure no ambient run leaks in
 

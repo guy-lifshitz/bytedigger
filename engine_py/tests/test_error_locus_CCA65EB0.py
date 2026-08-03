@@ -73,7 +73,7 @@ def _findings(run_id: str, aggregated: int, ts: str = "2026-06-16T10:00:00Z") ->
 def test_ac1_aggregate_empty_returns_empty_list():
     """AC1: aggregate([]) returns []."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     result = aggregate([])
     assert result == [], f"Expected [] for empty input, got {result!r}"
 
@@ -85,7 +85,7 @@ def test_ac2_one_build_two_files_both_present_touches_1_builds_1():
     """AC2: one build with files_touched paths=['a.py','b.py'] → both files in result,
     each with touches==1 and builds==1."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [_ft("b1", ["a.py", "b.py"])]
     result = aggregate(events)
     files = {row["file"]: row for row in result}
@@ -106,7 +106,7 @@ def test_ac2_one_build_two_files_both_present_touches_1_builds_1():
 def test_ac3_same_file_two_distinct_run_ids_builds_equals_2():
     """AC3: same file path touched in two distinct run_ids → builds==2."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         _ft("b1", ["shared.py"]),
         _ft("b2", ["shared.py"]),
@@ -128,7 +128,7 @@ def test_ac3_same_file_two_distinct_run_ids_builds_equals_2():
 def test_ac4_same_file_two_events_same_run_id_touches_2_builds_1():
     """AC4: same file in two files_touched events under the SAME run_id → touches==2, builds==1."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         _ft("b1", ["x.py"]),
         _ft("b1", ["x.py"]),
@@ -152,7 +152,7 @@ def test_ac5_retry_incidence_present_absent():
     """AC5: a build with phase_retry_triggered touching file X → X retry_incidence==1;
     a separate build with NO retry touching file Y → Y retry_incidence==0."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         _ft("b_retry", ["x.py"]),
         _retry("b_retry", "E_SPEC_COVERAGE"),
@@ -178,7 +178,7 @@ def test_ac6_finding_incidence_present_absent():
     """AC6: a build with review_findings_audit aggregated>0 touching file → finding_incidence==1;
     a build with aggregated==0 touching another file → finding_incidence==0."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         _ft("b_findings", ["hot.py"]),
         _findings("b_findings", 5),
@@ -206,7 +206,7 @@ def test_ac7_dominant_error_class_most_frequent():
     """AC7: file touched across builds whose retry error_codes are ['E_A','E_A','E_B']
     → that file's dominant_error_class=='E_A' (most frequent)."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         _ft("b1", ["shared.py"]),
         _retry("b1", "E_A"),
@@ -233,7 +233,7 @@ def test_ac8_ranking_more_touches_before_fewer():
     """AC8: file with more touches appears before file with fewer touches.
     hot.py has touches=3, cold.py has touches=1 → result[0]['file']=='hot.py'."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         _ft("b1", ["hot.py"]),
         _ft("b2", ["hot.py"]),
@@ -255,7 +255,7 @@ def test_ac9_window_days_drops_older_build_file():
     """AC9: window_days=1 with one recent build (2026-06-16) and one old build (2026-06-11,
     5 days earlier) → the older build's file is dropped; only the recent file remains."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     recent_ts = "2026-06-16T10:00:00Z"
     old_ts = "2026-06-11T10:00:00Z"
     events = [
@@ -281,7 +281,7 @@ def test_ac10_module_field_posix_dirname():
     """AC10: module field equals POSIX dirname.
     'bark/core/x.py' → module=='bark/core'; bare 'x.py' → module==''."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         _ft("b1", ["bark/core/x.py", "x.py"]),
     ]
@@ -309,7 +309,7 @@ def test_ac11_classify_error_lintable_needs_prompt_none():
     """AC11: classify_error('E_SPEC_COVERAGE')=='lintable';
     classify_error('E_FOO')=='needs-prompt'; classify_error(None)=='needs-prompt'."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import classify_error  # ImportError until GREEN
+    from bytedigger_engine.error_locus import classify_error  # ImportError until GREEN
     result_lintable = classify_error("E_SPEC_COVERAGE")
     assert result_lintable == "lintable", (
         f"Expected classify_error('E_SPEC_COVERAGE')=='lintable', got {result_lintable!r}"
@@ -331,7 +331,7 @@ def test_ac12_millisecond_ts_does_not_raise():
     """AC12: event with millisecond ts '2026-06-16T10:00:00.123Z' must not raise
     when aggregate(events, window_days=7) is called; assert it returns a list."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from error_locus import aggregate  # ImportError until GREEN
+    from bytedigger_engine.error_locus import aggregate  # ImportError until GREEN
     events = [
         {
             "ts": "2026-06-16T10:00:00.123Z",

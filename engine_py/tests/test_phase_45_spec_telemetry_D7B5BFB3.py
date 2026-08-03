@@ -24,12 +24,10 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_45_spec_lite  # noqa: E402
-import phase_45_spec  # noqa: E402
-from phase_45_spec_lite import (  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec_lite  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec_lite import (  # noqa: E402
     _write_review_doc as _write_review_doc_lite,
     _gate_on_review as _gate_on_review_lite,
     _truncate_findings,
@@ -38,11 +36,11 @@ from phase_45_spec_lite import (  # noqa: E402
     VERDICT_UNKNOWN,
     MAX_REVIEW_CYCLES,
 )
-from phase_45_spec import (  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
     _write_review_doc as _write_review_doc_full,
     _gate_on_review as _gate_on_review_full,
 )
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── Parametrize targets ──────────────────────────────────────────────────────
@@ -452,7 +450,7 @@ def test_ac11_revise_payload_exact_n_findings_unresolved(tmp_path, monkeypatch):
     truncated_text, _was_truncated = _truncate_findings(raw_review)
     # Attempt structured parse to mimic what GREEN will do
     try:
-        from plugins.checklist_convergence import extract_structured_findings
+        from bytedigger_engine.lib.plugins.checklist_convergence import extract_structured_findings
         parsed = extract_structured_findings(truncated_text)
         expected_n = len(parsed) if parsed is not None else 0
     except Exception:

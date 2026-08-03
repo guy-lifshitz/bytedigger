@@ -11,10 +11,8 @@ from pathlib import Path
 HERE = Path(__file__).parent          # engine_py/tests/
 ENGINE_ROOT = HERE.parent             # engine_py/
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from plugins.disk_truth import (  # noqa: E402  — will ImportError in RED
+from bytedigger_engine.lib.plugins.disk_truth import (  # noqa: E402  — will ImportError in RED
     # git_diff.py
     git_diff_files,
     git_status_porcelain,

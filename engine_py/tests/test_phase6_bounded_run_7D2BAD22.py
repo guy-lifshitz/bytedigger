@@ -22,11 +22,11 @@ import pytest
 # conftest-import-time singleton handles sys.path (§1q / 81F97F3D gate).
 # Do NOT add sys.path.insert here.
 
-import phase_6_review as _p6r
-import phase_6_fix_integrity as _p6fi
-from bounded_spawn import TIMEOUT_RETURNCODE
-from lib import git_port
-from lib.git_port import GitResult
+from bytedigger_engine.workflows import phase_6_review as _p6r
+from bytedigger_engine.workflows import phase_6_fix_integrity as _p6fi
+from bytedigger_engine.lib.bounded_spawn import TIMEOUT_RETURNCODE
+from bytedigger_engine.lib import git_port
+from bytedigger_engine.lib.git_port import GitResult
 
 # ─── paths to the production files under migration ───────────────────────────
 _PROD_FILE_P6R = Path(_p6r.__file__)
@@ -41,7 +41,7 @@ def _source_p6r() -> str:
 
 
 def _common_source() -> str:
-    import phase_workflows_common as _pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as _pwc  # noqa: PLC0415
     return Path(_pwc.__file__).read_text(encoding="utf-8")
 
 
@@ -93,7 +93,7 @@ class TestSourceGrep7D2BAD22:
         """AC1: _verify_no_cross_tree_edits body (now in phase_workflows_common) must call
         git_port.git_read at least twice AND must not contain subprocess.run(.
         Reconciliation #261: phase_6→git_port routing (intentional flip, §5.2)."""
-        import phase_workflows_common as _pwc  # noqa: PLC0415
+        from bytedigger_engine.workflows import phase_workflows_common as _pwc  # noqa: PLC0415
         body = _fn_body(_common_source(), "_verify_no_cross_tree_edits", Path(_pwc.__file__))
         count = body.count("git_port.git_read(")
         assert count >= 2, (
@@ -111,7 +111,7 @@ class TestSourceGrep7D2BAD22:
         not bounded_run directly nor raw subprocess.run — closing the last raw-git write
         bypass (GH295).
         Reconciliation #261: repointed to common source; assertion updated for 8B9CAB8C."""
-        import phase_workflows_common as _pwc  # noqa: PLC0415
+        from bytedigger_engine.workflows import phase_workflows_common as _pwc  # noqa: PLC0415
         body = _fn_body(_common_source(), "_revert_cross_tree_modifications", Path(_pwc.__file__))
         assert "op_capture(" in body, (
             "_revert_cross_tree_modifications has no op_capture( call — migration not done"
@@ -133,7 +133,7 @@ class TestSourceGrep7D2BAD22:
         lib/git_write_port.py; coverage is preserved at the new home.
         FAILS today: git_write_port.py does not exist yet (ImportError inside body).
         """
-        from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+        from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
         _gwp = Path(git_write_port.__file__).read_text(encoding="utf-8")
         assert "bounded_run(" in _gwp, (
             "git_write_port.py has no bounded_run( call — migration not done"
@@ -154,7 +154,7 @@ class TestSourceGrep7D2BAD22:
         """AC4: _filter_gitignored_paths body (now in phase_workflows_common) must call
         git_port.git_read AND must not contain subprocess.run(.
         Reconciliation #261: phase_6→git_port routing (intentional flip, §5.2)."""
-        import phase_workflows_common as _pwc  # noqa: PLC0415
+        from bytedigger_engine.workflows import phase_workflows_common as _pwc  # noqa: PLC0415
         body = _fn_body(_common_source(), "_filter_gitignored_paths", Path(_pwc.__file__))
         assert "git_port.git_read(" in body, (
             "_filter_gitignored_paths has no git_port.git_read( call — git_port routing not done"
@@ -269,22 +269,22 @@ class TestSourceGrep7D2BAD22:
     # ── AC9: both prod files have the import ─────────────────────────────────
 
     def test_phase6_review_has_bounded_run_import(self):
-        """AC9: phase_6_review.py must contain 'from bounded_spawn import bounded_run'."""
+        """AC9: phase_6_review.py must contain 'from bytedigger_engine.lib.bounded_spawn import bounded_run'."""
         src = _source_p6r()
-        assert "from bounded_spawn import bounded_run" in src, (
-            "phase_6_review.py is missing 'from bounded_spawn import bounded_run' import"
+        assert "from bytedigger_engine.lib.bounded_spawn import bounded_run" in src, (
+            "phase_6_review.py is missing 'from bytedigger_engine.lib.bounded_spawn import bounded_run' import"
         )
 
     def test_phase6_fix_integrity_has_git_port_import(self):
-        """AC9: phase_6_fix_integrity.py must contain 'from lib import git_port' and must NOT
-        contain the dead 'from bounded_spawn import bounded_run' import.
+        """AC9: phase_6_fix_integrity.py must contain 'from bytedigger_engine.lib import git_port' and must NOT
+        contain the dead 'from bytedigger_engine.lib.bounded_spawn import bounded_run' import.
         (Intentional flip 6E36AEB0 dead-import removal.)"""
         src = _source_p6fi()
-        assert "from lib import git_port" in src, (
-            "phase_6_fix_integrity.py is missing 'from lib import git_port' import"
+        assert "from bytedigger_engine.lib import git_port" in src, (
+            "phase_6_fix_integrity.py is missing 'from bytedigger_engine.lib import git_port' import"
         )
-        assert "from bounded_spawn import bounded_run" not in src, (
-            "phase_6_fix_integrity.py still has dead 'from bounded_spawn import bounded_run' import"
+        assert "from bytedigger_engine.lib.bounded_spawn import bounded_run" not in src, (
+            "phase_6_fix_integrity.py still has dead 'from bytedigger_engine.lib.bounded_spawn import bounded_run' import"
         )
 
 
@@ -367,7 +367,7 @@ class TestBehavior7D2BAD22:
         the port's bounded_run and the (None,'timeout') branch fires there.
         FAILS today: git_write_port.py does not exist yet (ImportError inside body).
         """
-        from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+        from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
         monkeypatch.setattr(git_write_port, "bounded_run", lambda *a, **k: _rc124())
         result_tuple = _p6r._git_op_with_lock_retry(
             ["git", "status"], cwd=str(tmp_path), timeout=5

@@ -52,13 +52,13 @@ from pathlib import Path
 
 import pytest
 
-import phase_8_post_deploy
-from lib.git_port import (
+from bytedigger_engine.workflows import phase_8_post_deploy
+from bytedigger_engine.lib.git_port import (
     GitResult,
     reset_default_git_read_factory,
     set_default_git_read_factory,
 )
-from lib.git_write_port import (
+from bytedigger_engine.lib.git_write_port import (
     reset_default_git_write_factory,
     set_default_git_write_factory,
 )
@@ -143,7 +143,7 @@ def _reset_factories():
 
 def _make_ctx(tmp_path: Path):
     """Build a minimal WorkflowContext (deferred import per §1q / D1CF5FDF)."""
-    from contracts import WorkflowContext  # noqa: PLC0415 — deferred to body per §1q
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415 — deferred to body per §1q
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)

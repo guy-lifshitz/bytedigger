@@ -32,12 +32,10 @@ from unittest.mock import MagicMock
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_6_review as _p6  # noqa: E402
-from phase_6_review import _commit_fix_code  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── helpers (mirrors tests/test_phase_6_commit_fix_tests_8FE3D757.py) ────────

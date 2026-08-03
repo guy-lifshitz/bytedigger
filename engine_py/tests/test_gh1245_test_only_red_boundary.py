@@ -59,7 +59,7 @@ from pathlib import Path
 
 import pytest
 
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 
 # ─── shared helpers ────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ def test_ac1_resolve_engine_mode_ignores_prose_intent(text):
     Fails today: the prose-autodetect branch in resolve_engine_mode still
     fires and returns 'test_only' for each of these phrases.
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     ctx = _make_ctx(question=text)
     result = pwc.resolve_engine_mode(None, ctx)
@@ -193,7 +193,7 @@ def test_ac2_prose_autodetect_symbols_removed():
 
     Fails today: all three symbols exist in phase_workflows_common.
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     for name in ("detect_test_only_intent", "_engine_mode_task_text", "_TEST_ONLY_INTENT_RE"):
         assert not hasattr(pwc, name), (
@@ -206,7 +206,7 @@ def test_ac2_prose_autodetect_symbols_removed():
 
 def test_ac3_declared_marker_line1_still_resolves(tmp_path):
     """AC3: explicit marker on line 1 still resolves to 'test_only'."""
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     spec = _spec_with_marker(tmp_path, "test_only")
     ctx = _make_ctx(question="benign")
@@ -218,7 +218,7 @@ def test_ac3_declared_marker_line1_still_resolves(tmp_path):
 
 def test_ac3_declared_marker_line2_still_resolves(tmp_path):
     """AC3: explicit marker on line 2 (line 1 blank) still resolves."""
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     spec = tmp_path / "spec2.md"
     spec.write_text("\n<!-- engine-mode: test_only -->\n# spec\n", encoding="utf-8")
@@ -236,7 +236,7 @@ def test_ac4_declared_non_test_only_marker_wins_verbatim(tmp_path):
     """AC4: an explicit non-test_only marker returns that mode verbatim,
     even when the task text carries test-only intent (manual override wins).
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     spec = _spec_with_marker(tmp_path, "standard")
     ctx = _make_ctx(question="this is a test-only change, no production code")
@@ -263,7 +263,7 @@ def test_ac5_no_autodetect_event_for_any_input(tmp_path, monkeypatch, spec_path_
     Fails today: prose-intent input still emits engine_mode_autodetected
     with source='task_intent'.
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     captured: list[str] = []
     ctx = _make_ctx(question=question)
@@ -289,7 +289,7 @@ def test_ac6_declared_test_only_returns_real_head_sha(tmp_path):
     Fails today: the test_only short-circuit returns red_commit_sha=None
     unconditionally.
     """
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     repo = _real(tmp_path / "repo")
     repo.mkdir()
@@ -322,7 +322,7 @@ def test_ac7_declared_test_only_preserves_sentinel_contract(tmp_path, monkeypatc
     """AC7: status == 'ok', commit_red_tests_skipped == 'test_only_mode',
     red_test_paths == [], and commit_red_tests_skipped event fires with
     reason == 'test_only_mode'."""
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     repo = _real(tmp_path / "repo")
     repo.mkdir()
@@ -372,7 +372,7 @@ def test_ac8_pre_red_ref_file_written_to_disk(tmp_path):
     scratchpad or persisting a ref (it returns red_commit_sha=None first),
     so the ref file is never created.
     """
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     repo = _real(tmp_path / "repo")
     repo.mkdir()
@@ -411,7 +411,7 @@ def test_ac9_fresh_entry_creates_ref_returns_head(tmp_path):
 
     Fails today: no ref is ever created and the returned SHA is None.
     """
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     repo = _real(tmp_path / "repo")
     repo.mkdir()
@@ -449,7 +449,7 @@ def test_ac10_retry_entry_returns_frozen_sha_write_once(tmp_path):
     Fails today: the test_only short-circuit never reads/writes the ref at
     all and always returns red_commit_sha=None, so it cannot equal X.
     """
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     repo = _real(tmp_path / "repo")
     repo.mkdir()
@@ -495,7 +495,7 @@ def test_ac11_head_rev_parse_failure_returns_git_commit_failed(tmp_path):
     always returns status='ok' with red_commit_sha=None, regardless of
     whether git_cwd is a valid repo.
     """
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     not_a_repo = _real(tmp_path / "not-a-repo")
     not_a_repo.mkdir()
@@ -535,7 +535,7 @@ def test_ac12_commit_green_code_no_longer_sees_missing_boundary(tmp_path):
     _commit_green_code deterministically returns E_MISSING_RED_BOUNDARY —
     this is the exact defect of issue #1245.
     """
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     repo = _real(tmp_path / "repo")
     repo.mkdir()
@@ -586,7 +586,7 @@ def test_ac13_gh595_ac12_regression_floor_lint_rules_unbroken(tmp_path, monkeypa
     red_verify_skipped_test_only. Preserved contract — this is expected to
     already hold today; it is a floor against regressing it while fixing
     GH1245."""
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     captured: list[dict] = []
     monkeypatch.setattr(
@@ -609,7 +609,7 @@ def test_ac13_gh595_ac12_regression_floor_lint_rules_unbroken(tmp_path, monkeypa
 def test_ac13_gh595_ac12_regression_floor_guard_prev_unbroken():
     """AC13: _verify_red_guard_prev_and_paths short-circuits ok when
     commit_red_tests_skipped == 'test_only_mode'. Preserved contract."""
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     prev = _make_prev(red_test_paths=[], commit_red_tests_skipped="test_only_mode")
 
@@ -629,7 +629,7 @@ def test_ac14_test_only_red_boundary_helper_exists_module_level():
 
     Fails today: phase_5_implement defines no such symbol.
     """
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     assert hasattr(p5, "_test_only_red_boundary"), (
         "AC14: phase_5_implement must define a module-level "

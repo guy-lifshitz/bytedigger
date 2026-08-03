@@ -29,8 +29,6 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 
 # ─── git repo helpers (mirrors test_4961254A_commit_manifest_inversion.py) ────
@@ -74,7 +72,7 @@ def _make_repo_with_base_commit(tmp_path: Path):
 
 
 def _make_ctx(scratchpad: Path, git_cwd: str, **org_extra):
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
 
     org = {"scratchpad_dir": str(scratchpad), "git_cwd": git_cwd, **org_extra}
     return WorkflowContext(
@@ -106,8 +104,8 @@ class TestCommitFixCodeDirtyTreeFallback:
     def test_ac1_empty_manifest_dirty_tree_fallback_commits_and_emits_event(
         self, tmp_path, monkeypatch
     ) -> None:
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, pre_sha = _make_repo_with_base_commit(tmp_path)
         # Dirty non-test prod file created after pre_fix_sha, never staged/committed.
@@ -179,8 +177,8 @@ class TestCommitFixCodeEmptyManifestCleanTreeSkip:
     behavior (ok, fix_commit_sha None, fix_commit_skipped/empty_manifest)."""
 
     def test_ac2_empty_manifest_clean_tree_still_skips(self, tmp_path, monkeypatch) -> None:
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, pre_sha = _make_repo_with_base_commit(tmp_path)
         # No dirty tree at all — repo is clean at pre_sha.
@@ -220,7 +218,7 @@ class TestCommitFixCodeEmptyManifestCleanTreeSkip:
 
 
 def _make_fi_ctx(git_cwd: str, pre_fix_sha: str, fix_commit_sha: str, scratchpad: Path):
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
 
     org = {
         "git_cwd": git_cwd,
@@ -249,7 +247,7 @@ class TestFixIntegrityEqualShasDirtyTree:
     E_FIX_UNCOMMITTED_CHANGES (NOT verdict_override=NO_CHANGES)."""
 
     def test_ac3_equal_shas_dirty_worktree_returns_error(self, tmp_path) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
 
         repo, sha = _make_repo_with_base_commit(tmp_path)
         # Dirty the tree AFTER the commit — uncommitted fix edits present.
@@ -288,7 +286,7 @@ class TestFixIntegrityEmptyCommittedDiffDirtyTree:
     -> error E_FIX_UNCOMMITTED_CHANGES."""
 
     def test_ac4_empty_committed_diff_dirty_worktree_returns_error(self, tmp_path) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "tests/test_foo.py", "def test_foo(): pass\n", "red")
@@ -329,7 +327,7 @@ class TestFixIntegrityEqualShasCleanTree:
     unchanged (ok)."""
 
     def test_ac5_equal_shas_clean_tree_still_no_changes(self, tmp_path) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
 
         repo, sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -354,7 +352,7 @@ class TestFixIntegrityEmptyCommittedDiffCleanTree:
     override unchanged."""
 
     def test_ac6_empty_committed_diff_clean_tree_still_no_changes(self, tmp_path) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "tests/test_foo.py", "def test_foo(): pass\n", "red")
@@ -382,9 +380,9 @@ class TestFixIntegrityGitStatusFailureTreatedDirty:
     (cautious default; never silently NO_CHANGES when tree state is unverifiable)."""
 
     def test_ac7_git_status_failure_at_guard_returns_error(self, tmp_path, monkeypatch) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
-        import phase_6_fix_integrity
-        import git_port  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_fix_integrity
+        from bytedigger_engine.lib import git_port  # type: ignore[import]
 
         repo, sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -427,8 +425,8 @@ class TestCommitFixCodeDirtyTreeFallbackGatedOnExplicitGitCwdSource:
     def test_ac8_cwd_default_source_keeps_skip_never_commits_ambient_cwd(
         self, tmp_path, monkeypatch
     ) -> None:
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         # Safe tmp git repo that Path.cwd() will resolve to (never the real checkout).
         repo, pre_sha = _make_repo_with_base_commit(tmp_path)
@@ -447,7 +445,7 @@ class TestCommitFixCodeDirtyTreeFallbackGatedOnExplicitGitCwdSource:
             lambda et, p, **kw: captured.append({"type": et, "payload": p}),
         )
 
-        from contracts import WorkflowContext
+        from bytedigger_engine.contracts import WorkflowContext
 
         ctx = WorkflowContext(
             tenant_id="hal",
@@ -518,7 +516,7 @@ class TestResolveGitCwdWithSource:
     def test_resolve_git_cwd_with_source_cfg_git_cwd_and_cwd_default(
         self, tmp_path, monkeypatch
     ) -> None:
-        from lib.git_cwd import resolve_git_cwd_with_source  # type: ignore[import]
+        from bytedigger_engine.lib.git_cwd import resolve_git_cwd_with_source  # type: ignore[import]
 
         # Case 1: explicit cfg["git_cwd"] -> source "cfg_git_cwd".
         explicit_path = str(tmp_path / "explicit_repo")

@@ -38,14 +38,13 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from llm_subprocess import register_backend, reset_backends  # noqa: E402
-import llm_subprocess as _llm_mod  # noqa: E402
-import telemetry_ctx  # noqa: E402
-from phase_7_synthesize import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.llm_subprocess import register_backend, reset_backends  # noqa: E402
+from bytedigger_engine import llm_subprocess as _llm_mod  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.workflows.phase_7_synthesize import (  # noqa: E402
     REPORT_DOC_RELPATH,
     STATUS_BLOCKED,
     STATUS_DONE,

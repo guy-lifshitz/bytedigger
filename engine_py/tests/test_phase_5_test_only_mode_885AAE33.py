@@ -25,13 +25,11 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from phase_5_implement import _commit_red_tests  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
-import phase_5_implement as _p5  # noqa: E402  — used for monkeypatching
+from bytedigger_engine.workflows import phase_5_implement as _p5  # noqa: E402  — used for monkeypatching
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -450,7 +448,7 @@ def test_default_path_unchanged_when_diff_nonempty(tmp_path, monkeypatch):
     _patch_git_diff(monkeypatch, fake_paths)
     # Stub git ops so we don't need a real repo
     monkeypatch.setattr(
-        "phase_5_implement.subprocess.run",
+        "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
         lambda *a, **kw: MagicMock(returncode=0, stdout="abc123\n", stderr=""),
     )
     _patch_emit(monkeypatch)
@@ -503,7 +501,7 @@ def test_read_engine_mode_reads_only_first_2_lines(tmp_path, monkeypatch):
     # even though _read_engine_mode doesn't exist yet (import fails at test time,
     # not at module collection time).
     try:
-        from phase_5_implement import _read_engine_mode  # noqa: PLC0415
+        from bytedigger_engine.workflows.phase_5_implement import _read_engine_mode  # noqa: PLC0415
     except ImportError:
         pytest.fail(
             "_read_engine_mode not found in phase_5_implement — "

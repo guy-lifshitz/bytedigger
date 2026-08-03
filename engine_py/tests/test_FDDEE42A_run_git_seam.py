@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-import lib.plugins.disk_truth.git_diff as git_diff
-from lib.git_port import (
+from bytedigger_engine.lib.plugins.disk_truth import git_diff as git_diff
+from bytedigger_engine.lib.git_port import (
     GitResult,
     reset_default_git_read_factory,
     set_default_git_read_factory,
@@ -154,7 +154,7 @@ def test_ac5_import_subprocess_removed():
     After GREEN: the import is removed (dead after return-annotation change).
     """
     git_diff_path = (
-        _engine_py_root() / "lib" / "plugins" / "disk_truth" / "git_diff.py"
+        _engine_py_root() / "bytedigger_engine" / "lib" / "plugins" / "disk_truth" / "git_diff.py"
     )
     source = git_diff_path.read_text(encoding="utf-8")
     match = re.search(r"^import subprocess$", source, re.MULTILINE)

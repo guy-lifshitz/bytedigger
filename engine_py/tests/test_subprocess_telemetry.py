@@ -23,13 +23,13 @@ import pytest
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     invoke_llm_subprocess,
     register_backend,
     reset_backends,
 )
-import llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ def test_no_current_run_no_telemetry():
     """When no current run is set, helper still works but emits nothing."""
     log = _FakeEventLog()
     telemetry_ctx.clear_current_run()
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
         r = invoke_llm_subprocess(
             prompt="hi",
             model="sonnet",
@@ -131,7 +131,7 @@ def test_subprocess_spawned_fires_with_pid_cmd_step_name():
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r1", step_name="my_step", phase="phase_1")
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
             invoke_llm_subprocess(
                 prompt="hi",
                 model="sonnet",
@@ -165,7 +165,7 @@ def test_subprocess_exited_paired_with_spawn_pid_and_duration():
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r1", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_HELLO)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_HELLO)):
             invoke_llm_subprocess(
                 prompt="hi",
                 model="sonnet",
@@ -194,7 +194,7 @@ def test_claude_p_cmd_kind_detected():
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc()):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc()):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -212,14 +212,14 @@ def test_claude_p_cmd_kind_detected():
     # Now test claude detection — use a path string that contains 'claude'.
     # We can't actually invoke it, but we test argv[0]-based classification
     # via an explicit test of the helper.
-    from llm_subprocess import _classify_cmd_kind  # noqa: E402
+    from bytedigger_engine.llm_subprocess import _classify_cmd_kind  # noqa: E402
     assert _classify_cmd_kind(["/usr/local/bin/claude", "-p"]) == "claude_p"
     assert _classify_cmd_kind(["claude", "-p"]) == "claude_p"
     assert _classify_cmd_kind(["python3", "-c", "x"]) == "shell"
 
 
 def test_model_extracted_from_argv():
-    from llm_subprocess import _extract_model  # noqa: E402
+    from bytedigger_engine.llm_subprocess import _extract_model  # noqa: E402
     assert _extract_model(["claude", "-p", "--model", "opus-4.7"]) == "opus-4.7"
     assert _extract_model(["claude", "--model=sonnet"]) == "sonnet"
     assert _extract_model(["claude", "-p"]) is None
@@ -246,7 +246,7 @@ def test_claude_json_output_populates_tokens_and_cost():
             "total_cost_usd": 0.0123,
             "duration_ms": 100,
         }) + "\n"
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stream_event)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stream_event)):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -273,7 +273,7 @@ def test_non_json_output_tokens_and_cost_null():
     try:
         # Result event with no usage fields → tokens=None, cost=None
         stream_event = '{"type":"result","subtype":"success","result":"plain text response","usage":{},"total_cost_usd":null,"duration_ms":10}\n'
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stream_event)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stream_event)):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -313,7 +313,7 @@ def test_stdout_stderr_tail_capped_at_2kb():
         proc.stdin = MagicMock()
         proc.wait = MagicMock(return_value=0)
         proc.communicate = MagicMock(return_value=(stream_event, "Y" * 5000))
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -344,7 +344,7 @@ def test_telemetry_emits_even_on_nonzero_exit():
         proc.stdin = MagicMock()
         proc.wait = MagicMock(return_value=2)
         proc.communicate = MagicMock(return_value=("", "fail"))
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -373,7 +373,7 @@ def test_telemetry_failure_does_not_break_subprocess():
 
     telemetry_ctx.set_current_run(event_log=Broken(), run_id="r", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
             r = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -392,7 +392,7 @@ def test_subprocess_spawned_includes_parent_skill_from_env(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
             invoke_llm_subprocess(
                 prompt="hi",
                 model="sonnet",
@@ -414,7 +414,7 @@ def test_subprocess_spawned_parent_skill_none_when_env_unset(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(_RESULT_EVENT_OK)):
             invoke_llm_subprocess(
                 prompt="hi",
                 model="sonnet",

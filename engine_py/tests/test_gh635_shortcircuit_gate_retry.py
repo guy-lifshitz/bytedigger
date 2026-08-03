@@ -24,10 +24,10 @@ from pathlib import Path
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
@@ -43,7 +43,7 @@ def test_ac1_recoverable_gate_code_exempt_from_short_circuit(tmp_path):
     `recoverable` kwarg at all -> TypeError; even papered over, today's
     behavior short-circuits on the 2nd identical code regardless of
     recoverability."""
-    from lib.restart_governor import governor_check, governor_record_result
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result
 
     run_id, workflow = "gh635-ac1", "echo"
     governor_record_result(tmp_path, run_id, workflow, error_code="E_SPEC_LINT", recoverable=True)
@@ -62,7 +62,7 @@ def test_ac1_recoverable_gate_code_exempt_from_short_circuit(tmp_path):
 def test_ac2_terminal_code_still_short_circuits(tmp_path):
     """AC2: two identical non-recoverable (terminal) codes must still trip
     the short-circuit."""
-    from lib.restart_governor import governor_check, governor_record_result
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result
 
     run_id, workflow = "gh635-ac2", "echo"
     governor_record_result(
@@ -86,7 +86,7 @@ def test_ac3_mixed_recoverable_then_terminal(tmp_path):
     """AC3: 3x recoverable gate-retry codes (interleaved start+result) must
     NOT short-circuit; a subsequent pair of identical terminal codes on the
     SAME run_id must then trip it."""
-    from lib.restart_governor import (
+    from bytedigger_engine.lib.restart_governor import (
         governor_check,
         governor_record_result,
         governor_record_start,
@@ -120,7 +120,7 @@ def test_ac3_mixed_recoverable_then_terminal(tmp_path):
 def test_ac4_state_shape_sc_codes_excludes_recoverable(tmp_path):
     """AC4: state file's new 'sc_codes' key excludes recoverable=True codes,
     while the legacy 'error_codes' key keeps ALL codes unchanged."""
-    from lib.restart_governor import governor_record_result
+    from bytedigger_engine.lib.restart_governor import governor_record_result
 
     run_id, workflow = "gh635-ac4", "echo"
     governor_record_result(tmp_path, run_id, workflow, error_code="E_SPEC_LINT", recoverable=True)
@@ -142,7 +142,7 @@ def test_ac5_reentry_no_double_no_inherit(tmp_path):
     """AC5 (§2.3 process-boundary invariant): a crash-closed start appends
     NOTHING to sc_codes (no phantom double); a replayed revise loop of pure
     recoverable results never accrues sc-pressure (no inherit)."""
-    from lib.restart_governor import (
+    from bytedigger_engine.lib.restart_governor import (
         governor_check,
         governor_record_result,
         governor_record_start,
@@ -183,7 +183,7 @@ def test_ac5_reentry_no_double_no_inherit(tmp_path):
 def test_ac6_run_py_threads_recoverable_flag():
     """AC6 (§1y Point->Host->Test-path, P6 sibling idiom): run.py's sole
     governor_record_result call site must thread `recoverable=result.recoverable`."""
-    run_py_path = Path(__file__).parent.parent / "run.py"
+    run_py_path = Path(__file__).parent.parent / "bytedigger_engine" / "run.py"
     source = run_py_path.read_text(encoding="utf-8")
 
     assert "governor_record_result(" in source, (
@@ -200,7 +200,7 @@ def test_ac7_legacy_default_still_short_circuits(tmp_path):
     """AC7 (backward-compat guard): calling record_result with NO recoverable
     kwarg (default False) must still short-circuit on two identical codes,
     preserving GH374 A3/A4 + GH625 pins unedited."""
-    from lib.restart_governor import governor_check, governor_record_result
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result
 
     run_id, workflow = "gh635-ac7", "echo"
     governor_record_result(tmp_path, run_id, workflow, error_code="E_BOUNDARY_SUPPRESSION")

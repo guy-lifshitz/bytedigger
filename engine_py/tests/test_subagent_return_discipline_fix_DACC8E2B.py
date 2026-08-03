@@ -33,16 +33,12 @@ ENGINE_ROOT = HERE.parent
 # at module level beyond what sibling tests already do (81F97F3D / §1q).
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-if str(ENGINE_ROOT / "workflows") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # Import the MODULE only — _resolve_fix_source doesn't exist yet;
 # accessing it at top-level would raise ImportError and hang the RED phase.
-import phase_6_review  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402
 
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     FIX_BLOCKED,
     FIX_COMPLETE,
     FIX_DOC_RELPATH,
@@ -52,7 +48,7 @@ from phase_6_review import (  # noqa: E402
     _invoke_fix_llm,
     _write_fix_artifact,
 )
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── fixture helpers ─────────────────────────────────────────────────────────

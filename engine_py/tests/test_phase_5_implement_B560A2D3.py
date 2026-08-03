@@ -26,7 +26,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -57,7 +56,7 @@ def _minimal_repo(tmp_path: Path) -> Path:
 
 
 def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra):
-    from contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
 
     org = {"scratchpad_dir": str(scratchpad), **org_extra}
     return WorkflowContext(
@@ -75,7 +74,7 @@ def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra
 
 def _prev_no_marker(scratchpad: Path, repo: Path):
     """Simulate write_red_artifact output where LLM omitted Files: marker."""
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     return StepResult(
         status="ok",
@@ -92,7 +91,7 @@ def _prev_no_marker(scratchpad: Path, repo: Path):
 
 def _prev_with_marker(scratchpad: Path, repo: Path, paths: list[str]):
     """Simulate write_red_artifact output where LLM included Files: marker."""
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     return StepResult(
         status="ok",
@@ -126,7 +125,7 @@ def test_commit_red_tests_returns_e_red_no_marker_when_fallback_empty(tmp_path):
     message only mentions the missing marker. Once GREEN enriches the message,
     this test locks that in. Also ensures error_code is NOT changed.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -169,7 +168,7 @@ def test_commit_red_tests_marker_present_skips_fallback(tmp_path, capsys):
     true since the fallback doesn't exist. Once GREEN adds fallback, the guard
     prevents accidental fallback invocation on the happy path.)
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"

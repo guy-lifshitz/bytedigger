@@ -25,12 +25,10 @@ import pytest
 # ── sys.path setup mirrors test_phase_6_review_return_discipline_CF838E6F.py ──
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-WORKFLOWS = ENGINE_ROOT / "workflows"
+WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
@@ -38,14 +36,14 @@ if str(WORKFLOWS) not in sys.path:
 # _normalize_to_aggregated_findings does NOT exist yet; referenced ONLY
 # inside test function bodies via p6._normalize_to_aggregated_findings(...)
 # so the file COLLECTS and tests FAIL at assert/attribute time (§1q/D1CF5FDF).
-import phase_6_review as p6  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as p6  # noqa: E402
 
 # Existing symbols — all exist today, safe to import at module level.
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _build_review_prompt,
     _write_review_artifact,
 )
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -184,7 +182,7 @@ def test_ac1_insession_first_attempt_no_retry(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(p6, "_emit_safe", lambda *a, **kw: None)
     monkeypatch.setattr(
-        "phase_6_review._resolve_backend",
+        "bytedigger_engine.workflows.phase_6_review._resolve_backend",
         lambda *a, **kw: ("claude-in-session", "env"),
     )
 
@@ -192,7 +190,7 @@ def test_ac1_insession_first_attempt_no_retry(tmp_path, monkeypatch):
     ctx = _make_ctx(tmp_path / "scratch")
     mock_invoke = _mock_invoke_ok_raw("## Aggregated Findings\n\nVERDICT: PASS\n")
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         result = _write_review_artifact(ctx, prev)
 
     assert result.status == "ok", (
@@ -230,7 +228,7 @@ def test_ac2_insession_body_preserved(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(p6, "_emit_safe", lambda *a, **kw: None)
     monkeypatch.setattr(
-        "phase_6_review._resolve_backend",
+        "bytedigger_engine.workflows.phase_6_review._resolve_backend",
         lambda *a, **kw: ("claude-in-session", "env"),
     )
 
@@ -239,7 +237,7 @@ def test_ac2_insession_body_preserved(tmp_path, monkeypatch):
     ctx = _make_ctx(tmp_path / "scratch")
     mock_invoke = _mock_invoke_ok_raw("## Aggregated Findings\n\nVERDICT: PASS\n")
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         result = _write_review_artifact(ctx, prev)
 
     assert result.status == "ok", (
@@ -358,7 +356,7 @@ def test_ac5_subprocess_retry_unchanged(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(p6, "_emit_safe", lambda *a, **kw: None)
     monkeypatch.setattr(
-        "phase_6_review._resolve_backend",
+        "bytedigger_engine.workflows.phase_6_review._resolve_backend",
         lambda *a, **kw: ("claude-subprocess", "env"),
     )
 
@@ -369,7 +367,7 @@ def test_ac5_subprocess_retry_unchanged(tmp_path, monkeypatch):
     still_bad = "<still non-conformant — no header>"
     mock_invoke = _mock_invoke_ok_raw(still_bad)
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         result = _write_review_artifact(ctx, prev)
 
     assert mock_invoke.call_count == 1, (
@@ -479,7 +477,7 @@ def test_ac8_normalize_event_emitted(tmp_path, monkeypatch):
     """
     captured = _patch_emit(monkeypatch)
     monkeypatch.setattr(
-        "phase_6_review._resolve_backend",
+        "bytedigger_engine.workflows.phase_6_review._resolve_backend",
         lambda *a, **kw: ("claude-in-session", "env"),
     )
 
@@ -487,7 +485,7 @@ def test_ac8_normalize_event_emitted(tmp_path, monkeypatch):
     ctx = _make_ctx(tmp_path / "scratch")
     mock_invoke = _mock_invoke_ok_raw("## Aggregated Findings\n\nVERDICT: PASS\n")
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         result = _write_review_artifact(ctx, prev)
 
     normalize_events = [

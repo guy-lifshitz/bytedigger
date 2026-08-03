@@ -20,11 +20,9 @@ from unittest.mock import MagicMock
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from phase_5_implement import _verify_red_fails_mechanically  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -98,7 +96,7 @@ def _write_passing_test(repo: Path, relpath: str) -> None:
 
 def _patch_emit(monkeypatch) -> list[dict]:
     """Monkeypatch _emit_safe and return captured events list."""
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
     captured: list[dict] = []
     monkeypatch.setattr(
         phase_5_implement,
@@ -230,7 +228,7 @@ class TestRedTestOutcomeTelemetry:
         """run_test_command raising RuntimeError → decision still works, function does not crash.
 
         GREEN IMPLEMENTATION CONTRACT NOTE: this test assumes GREEN imports run_test_command
-        at module level in phase_5_implement.py (e.g. `from plugins.disk_truth import run_test_command`).
+        at module level in phase_5_implement.py (e.g. `from bytedigger_engine.lib.plugins.disk_truth import run_test_command`).
         If GREEN imports inside the function body instead, this monkeypatch will not take effect
         and the test may need adjustment — flag this to GREEN agent.
         """
@@ -239,7 +237,7 @@ class TestRedTestOutcomeTelemetry:
 
         captured = _patch_emit(monkeypatch)
 
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         def _boom(*args, **kwargs):
             raise RuntimeError("boom — simulated disk_truth failure")

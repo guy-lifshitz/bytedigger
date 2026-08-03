@@ -22,7 +22,7 @@ Spec: SHARED/memory/Decisions/2026-07-19_C0B6D653_backend_default_flip_spec.md
 
 §1q: no exec_module/spec_from_file_location; conftest.py injects engine_py
 root into sys.path at import time (mirrors test_68E964FB pattern) — plain
-`import llm_subprocess` / `import telemetry_ctx`.
+`import bytedigger_engine.llm_subprocess` / `import bytedigger_engine.telemetry_ctx`.
 §1i: A3/A4 use reset_backends()/register_backend() teardown (existing
 fixture pattern shared with test_68E964FB) — no timing races, state is
 pre-staged deterministically before each UUT call.
@@ -38,8 +38,8 @@ import os
 import pytest
 
 # conftest.py injects engine_py root into sys.path at import time (§1q singleton).
-import llm_subprocess
-import telemetry_ctx
+from bytedigger_engine import llm_subprocess
+from bytedigger_engine import telemetry_ctx
 
 
 @pytest.fixture(autouse=True)
@@ -156,7 +156,7 @@ def test_a3_default_path_falls_back_to_subprocess_when_agent_sdk_absent(monkeypa
 
     from unittest.mock import patch
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
         result = llm_subprocess.invoke_llm_subprocess(**_minimal_invoke_kwargs(backend=None))
 
     assert result.error_code != "E_LLM_BACKEND_UNKNOWN", (
@@ -297,7 +297,7 @@ def test_a7_env_pin_claude_subprocess_still_dispatches(monkeypatch):
 
     from unittest.mock import patch
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
         result = llm_subprocess.invoke_llm_subprocess(**_minimal_invoke_kwargs(backend=None))
 
     assert result.status == "ok", (

@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import phase_6_review as p6
-from contracts import StepResult, WorkflowContext
-from verdict_verify import file_sha256
+from bytedigger_engine.workflows import phase_6_review as p6
+from bytedigger_engine.contracts import StepResult, WorkflowContext
+from bytedigger_engine.verdict_verify import file_sha256
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared builders (mirrors test_gh388_ac_checklist_satisfaction.py)

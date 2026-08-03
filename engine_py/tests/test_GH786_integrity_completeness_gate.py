@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -94,7 +94,7 @@ def _make_fake_invoke(monkeypatch, responses: list[str] | None = None, *, error:
     Records call count and the `prompt=`/`stable_prefix=` kwargs of every call.
     `responses` is consumed in order (last value repeats once exhausted).
     """
-    import phase_5_integrity  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_integrity  # noqa: PLC0415
 
     calls: list[dict] = []
 
@@ -134,7 +134,7 @@ def _make_fake_invoke(monkeypatch, responses: list[str] | None = None, *, error:
 
 
 def test_ac1_retry_on_incomplete_prose_only(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm, _parse_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm, _parse_verdict  # noqa: PLC0415
 
     calls = _make_fake_invoke(monkeypatch, [_PROSE_ONLY, _PROSE_ONLY])
     ctx = _make_ctx(tmp_path / "scratch", org_config_extra={"integrity_verdict_retry_max": 1})
@@ -153,7 +153,7 @@ def test_ac1_retry_on_incomplete_prose_only(tmp_path, monkeypatch):
 
 
 def test_ac2_failclosed_on_exhaustion(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
 
     _make_fake_invoke(monkeypatch, [_PROSE_ONLY, _PROSE_ONLY])
     ctx = _make_ctx(tmp_path / "scratch", org_config_extra={"integrity_verdict_retry_max": 1})
@@ -173,7 +173,7 @@ def test_ac2_failclosed_on_exhaustion(tmp_path, monkeypatch):
 
 
 def test_ac3_recovery_on_second_attempt(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
 
     calls = _make_fake_invoke(
         monkeypatch, [_PROSE_ONLY, _STANDALONE_LEGITIMATE_REFACTOR]
@@ -196,7 +196,7 @@ def test_ac3_recovery_on_second_attempt(tmp_path, monkeypatch):
 
 
 def test_ac4_no_wasted_retry_on_first_success(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm  # noqa: PLC0415
 
     calls = _make_fake_invoke(monkeypatch, [_STANDALONE_LEGITIMATE_REFACTOR])
     ctx = _make_ctx(tmp_path / "scratch", org_config_extra={"integrity_verdict_retry_max": 1})
@@ -216,7 +216,7 @@ def test_ac4_no_wasted_retry_on_first_success(tmp_path, monkeypatch):
 
 
 def test_ac5_out_of_enum_treated_as_incomplete_and_retried(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
 
     calls = _make_fake_invoke(monkeypatch, [_STANDALONE_BOGUS, _STANDALONE_BOGUS])
     ctx = _make_ctx(tmp_path / "scratch", org_config_extra={"integrity_verdict_retry_max": 1})
@@ -237,7 +237,7 @@ def test_ac5_out_of_enum_treated_as_incomplete_and_retried(tmp_path, monkeypatch
 
 
 def test_ac6_env_retry_max_zero_disables_retry(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm, _classify_diff_verdict  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_INTEGRITY_VERDICT_RETRY_MAX", "0")
     calls = _make_fake_invoke(monkeypatch, [_PROSE_ONLY, _PROSE_ONLY, _PROSE_ONLY])
@@ -259,7 +259,7 @@ def test_ac6_env_retry_max_zero_disables_retry(tmp_path, monkeypatch):
 
 
 def test_ac7_prompt_and_stable_prefix_identical_across_retries(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm  # noqa: PLC0415
 
     calls = _make_fake_invoke(monkeypatch, [_PROSE_ONLY, _PROSE_ONLY, _STANDALONE_LEGITIMATE_REFACTOR])
     ctx = _make_ctx(tmp_path / "scratch", org_config_extra={"integrity_verdict_retry_max": 2})
@@ -283,7 +283,7 @@ def test_ac7_prompt_and_stable_prefix_identical_across_retries(tmp_path, monkeyp
 
 
 def test_ac8_subprocess_error_not_completeness_retried(tmp_path, monkeypatch):
-    from phase_5_integrity import _invoke_integrity_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _invoke_integrity_llm  # noqa: PLC0415
 
     calls = _make_fake_invoke(monkeypatch, error=True)
     ctx = _make_ctx(tmp_path / "scratch", org_config_extra={"integrity_verdict_retry_max": 3})
@@ -303,6 +303,6 @@ def test_ac8_subprocess_error_not_completeness_retried(tmp_path, monkeypatch):
 
 
 def test_ac9_parser_unchanged_prose_with_embedded_mention_stays_unknown():
-    from phase_5_integrity import _parse_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _parse_verdict  # noqa: PLC0415
 
     assert _parse_verdict(_PROSE_WITH_EMBEDDED_MENTION) == "UNKNOWN"

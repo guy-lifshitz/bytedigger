@@ -25,9 +25,9 @@ from typing import Any
 
 import pytest
 
-import llm_subprocess
-from llm_subprocess import reset_backends
-from event_log import EventLog
+from bytedigger_engine import llm_subprocess
+from bytedigger_engine.llm_subprocess import reset_backends
+from bytedigger_engine.event_log import EventLog
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ from event_log import EventLog
 # ---------------------------------------------------------------------------
 
 def _import_agent_sdk_backend():
-    import lib.reference_backends.agent_sdk as mod  # noqa: PLC0415
+    import bytedigger_engine.lib.reference_backends.agent_sdk as mod  # noqa: PLC0415  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
     return mod
 
 
@@ -112,7 +112,7 @@ def _init_repo(root):
 def _reset_state():
     yield
     reset_backends()
-    sys.modules.pop("lib.reference_backends.agent_sdk", None)
+    sys.modules.pop("bytedigger_engine.lib.reference_backends.agent_sdk", None)
     sys.modules.pop("claude_agent_sdk", None)
 
 
@@ -237,7 +237,7 @@ def test_ac4_success_emits_one_runner_result_consumed_row(monkeypatch, tmp_path)
 # ---------------------------------------------------------------------------
 
 def test_ac5_compute_cost_rollup_reads_emitted_row(monkeypatch, tmp_path):
-    from lib.cost_rollup import compute_cost_rollup
+    from bytedigger_engine.lib.cost_rollup import compute_cost_rollup
 
     fake = _install_fake_agent_sdk(monkeypatch)
     fake.behavior_queue.append({
@@ -332,7 +332,7 @@ def test_ac7_run_ctx_none_no_exception(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_ac8_missing_total_cost_usd_none_but_rollup_counts_call(monkeypatch, tmp_path):
-    from lib.cost_rollup import compute_cost_rollup
+    from bytedigger_engine.lib.cost_rollup import compute_cost_rollup
 
     fake = _install_fake_agent_sdk(monkeypatch)
     fake.behavior_queue.append({
@@ -363,7 +363,7 @@ def test_ac8_missing_total_cost_usd_none_but_rollup_counts_call(monkeypatch, tmp
 # ---------------------------------------------------------------------------
 
 def test_ac9_two_sequential_calls_rollup_counts_both_cycles(monkeypatch, tmp_path):
-    from lib.cost_rollup import compute_cost_rollup
+    from bytedigger_engine.lib.cost_rollup import compute_cost_rollup
 
     fake = _install_fake_agent_sdk(monkeypatch)
     fake.behavior_queue.append({

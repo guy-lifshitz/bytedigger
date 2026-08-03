@@ -14,13 +14,13 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     LoopStepContract,
     StepContract,
     StepResult,
     WorkflowContext,
 )
-from engine import LoopRunner  # noqa: E402
+from bytedigger_engine.engine import LoopRunner  # noqa: E402
 
 
 def _ctx() -> WorkflowContext:

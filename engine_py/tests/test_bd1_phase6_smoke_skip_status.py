@@ -35,12 +35,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from phase_6_smoke import phase_6_smoke_workflow  # noqa: E402
-import phase_6_smoke as _p6s  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows.phase_6_smoke import phase_6_smoke_workflow  # noqa: E402
+from bytedigger_engine.workflows import phase_6_smoke as _p6s  # noqa: E402
 
 _SMOKE_REL = "USER/skills/HALForge/tests/phase-6-signal-smoke.sh"
 
@@ -228,7 +227,7 @@ def test_ac6_skip_is_a_legal_status_and_a_success_exit():
     with pytest.raises(ValueError):
         StepResult(status="nonsense", data=None, duration_ms=0, step_name="probe")
 
-    run_py = (HERE.parent / "run.py").read_text(encoding="utf-8")
+    run_py = (HERE.parent / "bytedigger_engine" / "run.py").read_text(encoding="utf-8")
     assert 'return 0 if result.status in ("ok", "skip") else 1' in run_py, (
         "expected run.py to exit 0 for a skip; if this mapping changed, the "
         "phase_6_smoke skip would start failing outside users' pipelines"

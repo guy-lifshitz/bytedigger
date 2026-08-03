@@ -80,12 +80,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import telemetry_ctx  # noqa: E402
-import phase_6_review  # noqa: E402
-from phase_6_review import _build_fix_prompt  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _build_fix_prompt  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -224,7 +223,7 @@ def test_ac3_test_file_sentinel_inlined_in_fix_prompt(tmp_path):
 
     ctx = make_ctx(scratchpad, current_worktree_path=str(tmp_path))
 
-    with patch("phase_6_review.git_diff_files", return_value=["test_foo.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["test_foo.py"]):
         result = _build_fix_prompt(ctx, prev)
 
     assert result.status == "ok", (
@@ -285,7 +284,7 @@ def test_ac4_non_test_file_not_inlined(tmp_path):
 
     ctx = make_ctx(scratchpad, current_worktree_path=str(tmp_path))
 
-    with patch("phase_6_review.git_diff_files", return_value=["mod.py", "test_companion.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["mod.py", "test_companion.py"]):
         result = _build_fix_prompt(ctx, prev)
 
     assert result.status == "ok", (
@@ -322,7 +321,7 @@ def test_ac5_excluded_prefix_test_file_not_inlined(tmp_path):
     # The only diff file is an excluded-prefix test file.
     ctx = make_ctx(scratchpad, current_worktree_path=str(tmp_path))
 
-    with patch("phase_6_review.git_diff_files", return_value=["SHARED/state/test_x.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["SHARED/state/test_x.py"]):
         result = _build_fix_prompt(ctx, prev)
 
     assert result.status == "ok", (
@@ -368,7 +367,7 @@ def test_ac6_telemetry_event_emitted_when_test_file_inlined(tmp_path):
         phase="phase_6_review",
     )
     try:
-        with patch("phase_6_review.git_diff_files", return_value=["test_bar.py"]):
+        with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["test_bar.py"]):
             result = _build_fix_prompt(ctx, prev)
     finally:
         telemetry_ctx.clear_current_run()
@@ -426,7 +425,7 @@ def test_ac7_oversized_test_file_truncated_at_cap(tmp_path):
 
     ctx = make_ctx(scratchpad, current_worktree_path=str(tmp_path))
 
-    with patch("phase_6_review.git_diff_files", return_value=["test_big.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["test_big.py"]):
         result = _build_fix_prompt(ctx, prev)
 
     assert result.status == "ok", (
@@ -486,7 +485,7 @@ def test_ac8_no_test_files_in_diff_no_block_and_no_event(tmp_path):
         phase="phase_6_review",
     )
     try:
-        with patch("phase_6_review.git_diff_files", return_value=["mod.py"]):
+        with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["mod.py"]):
             result = _build_fix_prompt(ctx, prev)
     finally:
         telemetry_ctx.clear_current_run()
@@ -551,7 +550,7 @@ def test_ac9_no_pre_red_ref_txt_no_crash_no_block_no_event(tmp_path):
         phase="phase_6_review",
     )
     try:
-        with patch("phase_6_review.git_diff_files", return_value=["test_baz.py"]):
+        with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["test_baz.py"]):
             result = _build_fix_prompt(ctx, prev)
     finally:
         telemetry_ctx.clear_current_run()
@@ -601,7 +600,7 @@ def test_ac10_existing_fix_prompt_parts_intact(tmp_path):
 
     ctx = make_ctx(scratchpad, current_worktree_path=str(tmp_path))
 
-    with patch("phase_6_review.git_diff_files", return_value=["mod.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["mod.py"]):
         result = _build_fix_prompt(ctx, prev)
 
     assert result.status == "ok", (

@@ -22,7 +22,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from contracts import StepResult  # already exists — safe top-level import
+from bytedigger_engine.contracts import StepResult  # already exists — safe top-level import
 
 
 # ─── event-log capture helpers (mirror test_gh290_gate_disabled_telemetry.py) ─
@@ -49,7 +49,7 @@ def _payloads(log: _CaptureEventLog, event_type: str) -> list[dict]:
 
 
 def _patch_telemetry(monkeypatch, log: _CaptureEventLog | None):
-    import telemetry_ctx  # deferred — reached via workflows/ on sys.path
+    from bytedigger_engine import telemetry_ctx  # deferred — reached via workflows/ on sys.path
 
     stub = _StubRunCtx(log) if log is not None else None
     monkeypatch.setattr(telemetry_ctx, "get_current_run", lambda: stub)
@@ -142,7 +142,7 @@ def test_ac1_verify_spec_ac_dsl_in_step_list_between_lint_batch_and_review() -> 
     """AC1: phase_45_spec_workflow().steps has 'verify_spec_ac_dsl', positioned
     after 'verify_spec_lint_batch' and before 'build_review_prompt'.
     FAILS pre-GREEN: step absent from workflow list."""
-    from phase_45_spec import phase_45_spec_workflow  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import phase_45_spec_workflow  # deferred
 
     names = [s.name for s in phase_45_spec_workflow().steps]
 
@@ -170,7 +170,7 @@ def test_ac1_verify_spec_ac_dsl_in_step_list_between_lint_batch_and_review() -> 
 def test_ac2_prev_none_returns_error_missing_prev_data() -> None:
     """AC2: prev=None -> status='error', error_code=='E_MISSING_PREV_DATA'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     r = _verify_spec_ac_dsl(_ctx(), None)
 
@@ -186,7 +186,7 @@ def test_ac2_prev_none_returns_error_missing_prev_data() -> None:
 def test_ac3_gate_disabled_env_kill_switch_emits_event(tmp_path, monkeypatch) -> None:
     """AC3: HAL_AC_DSL_GATE=0 -> status='ok' AND a 'gate_disabled' event with
     gate=='HAL_AC_DSL_GATE'. FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     monkeypatch.setenv("HAL_AC_DSL_GATE", "0")
     log = _CaptureEventLog()
@@ -210,7 +210,7 @@ def test_ac4_valid_spec_emits_spec_ac_dsl_ok_with_ac_count(tmp_path, monkeypatch
     """AC4: spec with 2 compilable AC-checks -> status='ok' AND a
     'spec_ac_dsl_ok' event with ac_count==2. FAILS pre-GREEN: function
     does not exist."""
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     log = _CaptureEventLog()
     _patch_telemetry(monkeypatch, log)
@@ -235,7 +235,7 @@ def test_ac5_uncompilable_spec_warn_only_passthrough_with_reasons(
     """AC5: uncompilable spec, defaults (enforce off) -> status='ok' AND a
     'spec_ac_dsl_warn' event with non-empty 'reasons'. FAILS pre-GREEN:
     function does not exist."""
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     log = _CaptureEventLog()
     _patch_telemetry(monkeypatch, log)
@@ -261,7 +261,7 @@ def test_ac6_uncompilable_spec_enforce_on_returns_error(tmp_path, monkeypatch) -
     """AC6: uncompilable spec with HAL_AC_DSL_GATE_ENFORCE=1 -> status='error',
     error_code=='E_SPEC_AC_UNCOMPILABLE'. FAILS pre-GREEN: function does not
     exist (and enforce path unimplemented)."""
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     monkeypatch.setenv("HAL_AC_DSL_GATE_ENFORCE", "1")
     log = _CaptureEventLog()
@@ -285,7 +285,7 @@ def test_ac7_enforce_fail_forwarded_data_has_findings_structured(
     """AC7: same enforce-FAIL as AC6, StepResult.data['findings_structured']
     is a non-empty list whose entries carry 'line'/'rule_id'/'evidence' keys.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     monkeypatch.setenv("HAL_AC_DSL_GATE_ENFORCE", "1")
     log = _CaptureEventLog()
@@ -312,8 +312,8 @@ def test_ac8_admit_exception_warn_only_passthrough_driver_error(
     """AC8: admit() raises (monkeypatched), defaults (enforce off) ->
     status='ok' AND a 'spec_ac_dsl_driver_error' event with 'error'.
     FAILS pre-GREEN: function does not exist (never reaches the monkeypatch)."""
-    import ac_dsl  # deferred, dependency of the UUT — allowed to monkeypatch
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine import ac_dsl  # deferred, dependency of the UUT — allowed to monkeypatch
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     log = _CaptureEventLog()
     _patch_telemetry(monkeypatch, log)
@@ -339,8 +339,8 @@ def test_ac9_admit_exception_enforce_on_fails_closed(tmp_path, monkeypatch) -> N
     """AC9: admit() raises (monkeypatched) with HAL_AC_DSL_GATE_ENFORCE=1 ->
     status='error', error_code=='E_SPEC_AC_UNCOMPILABLE' (fail-closed, lesson
     #221). FAILS pre-GREEN: function does not exist."""
-    import ac_dsl  # deferred
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine import ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     monkeypatch.setenv("HAL_AC_DSL_GATE_ENFORCE", "1")
     log = _CaptureEventLog()
@@ -367,7 +367,7 @@ def test_ac10_flags_catalog_has_gate_and_enforce_flags() -> None:
     """AC10: flags_catalog.FLAGS contains HAL_AC_DSL_GATE (kind='gate',
     default='1') and HAL_AC_DSL_GATE_ENFORCE (kind='flag', default='0').
     FAILS pre-GREEN: keys absent."""
-    import flags_catalog  # deferred
+    from bytedigger_engine import flags_catalog  # deferred
 
     flags = flags_catalog.FLAGS
 
@@ -393,7 +393,7 @@ def test_ac10_flags_catalog_has_gate_and_enforce_flags() -> None:
 def test_ac11_error_codes_has_e_spec_ac_uncompilable() -> None:
     """AC11: error_codes.ERROR_CODES contains 'E_SPEC_AC_UNCOMPILABLE'.
     FAILS pre-GREEN: key absent."""
-    import error_codes  # deferred
+    from bytedigger_engine import error_codes  # deferred
 
     assert "E_SPEC_AC_UNCOMPILABLE" in error_codes.ERROR_CODES, (
         f"E_SPEC_AC_UNCOMPILABLE missing from ERROR_CODES; got keys: "
@@ -411,7 +411,7 @@ def test_ac12_no_ac_checks_section_warn_passthrough_with_reason(
     pass-through, rollout signal not a break) AND a 'spec_ac_dsl_warn' event
     whose reasons mention 'AC-checks section not found'. FAILS pre-GREEN:
     function does not exist."""
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     log = _CaptureEventLog()
     _patch_telemetry(monkeypatch, log)

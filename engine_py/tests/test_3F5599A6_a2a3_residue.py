@@ -34,15 +34,15 @@ from pathlib import Path
 
 import pytest
 
-from contracts import (
+from bytedigger_engine.contracts import (
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
-import phase_6_review as _p6
-from phase_6_review import _aggregate_review_findings, _verify_finding_quote
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.workflows import phase_6_review as _p6
+from bytedigger_engine.workflows.phase_6_review import _aggregate_review_findings, _verify_finding_quote
 
 
 # ─── AC1-AC4: _verify_finding_quote fallback_dir kwarg ────────────────────────
@@ -303,7 +303,7 @@ def test_ac6_manifest_paths_from_result(data, expected):
     §1q-ext (D1CF5FDF): imported INSIDE the test body — the symbol does not
     exist pre-GREEN, so this raises ImportError at assert-time, not collect-time.
     """
-    from engine import _manifest_paths_from_result  # noqa: PLC0415
+    from bytedigger_engine.engine import _manifest_paths_from_result  # noqa: PLC0415
 
     result = StepResult(status="ok", data=data, duration_ms=0, step_name="x")
 

@@ -9,8 +9,8 @@ bodies via getattr, so this file always COLLECTS even pre-GREEN.
 
 from pathlib import Path
 
-import spec_cite
-from spec_cite import Citation, _iter_code_files, _repo_symbol_index, check_citation
+from bytedigger_engine import spec_cite
+from bytedigger_engine.spec_cite import Citation, _iter_code_files, _repo_symbol_index, check_citation
 
 
 def test_ac1_linked_worktree_git_file_excluded_gh895(tmp_path: Path) -> None:

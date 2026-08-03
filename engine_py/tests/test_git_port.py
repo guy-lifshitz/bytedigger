@@ -61,7 +61,7 @@ def git_repo(tmp_path: Path) -> Path:
 
 def test_ac1_importable_surface() -> None:
     """AC1: GitResult, git_read and the 4 convenience fns are importable."""
-    from lib.git_port import (  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import (  # noqa: PLC0415
         GitResult,
         git_read,
         ls_files_others,
@@ -82,7 +82,7 @@ def test_ac1_importable_surface() -> None:
 
 def test_ac1b_diff_name_only_absent() -> None:
     """AC1b: diff_name_only is DROPPED — must not be exported."""
-    import lib.git_port as m  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as m  # noqa: PLC0415
     assert not hasattr(m, "diff_name_only"), (
         "diff_name_only should have been dropped (no in-scope consumer); "
         "it is still present — GREEN did not remove it"
@@ -93,7 +93,7 @@ def test_ac1b_diff_name_only_absent() -> None:
 
 def test_ac2_git_read_rc0_head(git_repo: Path) -> None:
     """AC2: git_read(['rev-parse','HEAD'], cwd=repo) → rc==0, sha matches, timed_out==False."""
-    from lib.git_port import git_read  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import git_read  # noqa: PLC0415
 
     expected_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -110,7 +110,7 @@ def test_ac2_git_read_rc0_head(git_repo: Path) -> None:
 
 def test_ac2_git_read_rc1_does_not_raise(git_repo: Path) -> None:
     """AC2: git_read returns rc==1 on staged diff --cached --quiet; never raises."""
-    from lib.git_port import git_read  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import git_read  # noqa: PLC0415
 
     (git_repo / "staged.txt").write_text("new content\n")
     subprocess.run(["git", "add", "staged.txt"], cwd=git_repo, check=True)
@@ -127,7 +127,7 @@ def test_ac2_git_read_rc1_does_not_raise(git_repo: Path) -> None:
 
 def test_ac2_timed_out_flag_matches_rc124(git_repo: Path) -> None:
     """AC2: calling with timeout=10 succeeds; rc==0 and timed_out==False."""
-    from lib.git_port import git_read  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import git_read  # noqa: PLC0415
 
     result = git_read(["rev-parse", "HEAD"], cwd=str(git_repo), timeout=10)
     assert result.returncode == 0
@@ -138,7 +138,7 @@ def test_ac2_timed_out_flag_matches_rc124(git_repo: Path) -> None:
 
 def test_ac2b_dir_arg_vector_form(git_repo: Path) -> None:
     """AC2b: git_read with dir_=repo_str uses 'git -C <dir_> ...' form; succeeds."""
-    from lib.git_port import git_read  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import git_read  # noqa: PLC0415
 
     # Behavioral: -C form resolves the repo even without cwd
     result = git_read(
@@ -156,7 +156,7 @@ def test_ac2b_dir_arg_vector_form(git_repo: Path) -> None:
 
 def test_ac3_rev_parse_cwd_matches_head(git_repo: Path) -> None:
     """AC3: rev_parse(cwd=repo) returns the known HEAD sha."""
-    from lib.git_port import rev_parse  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import rev_parse  # noqa: PLC0415
 
     expected = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -168,7 +168,7 @@ def test_ac3_rev_parse_cwd_matches_head(git_repo: Path) -> None:
 
 def test_ac3_rev_parse_parity_with_git_read(git_repo: Path) -> None:
     """AC3: rev_parse(cwd=r) == git_read(['rev-parse','HEAD'], cwd=r).stdout.strip()."""
-    from lib.git_port import git_read, rev_parse  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import git_read, rev_parse  # noqa: PLC0415
 
     via_convenience = rev_parse(cwd=str(git_repo))
     via_primitive = git_read(["rev-parse", "HEAD"], cwd=str(git_repo)).stdout.strip()
@@ -179,7 +179,7 @@ def test_ac3_rev_parse_parity_with_git_read(git_repo: Path) -> None:
 
 def test_ac3_rev_parse_flag_show_toplevel(git_repo: Path) -> None:
     """AC3: rev_parse(flag='--show-toplevel', cwd=repo) returns repo root."""
-    from lib.git_port import rev_parse  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import rev_parse  # noqa: PLC0415
 
     expected = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
@@ -191,7 +191,7 @@ def test_ac3_rev_parse_flag_show_toplevel(git_repo: Path) -> None:
 
 def test_ac4_status_porcelain_dirty(git_repo: Path) -> None:
     """AC4: status_porcelain returns str containing untracked file."""
-    from lib.git_port import status_porcelain  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import status_porcelain  # noqa: PLC0415
 
     (git_repo / "new.txt").write_text("untracked\n")
     result = status_porcelain(cwd=str(git_repo))
@@ -201,7 +201,7 @@ def test_ac4_status_porcelain_dirty(git_repo: Path) -> None:
 
 def test_ac4_status_porcelain_clean(git_repo: Path) -> None:
     """AC4: status_porcelain returns empty string on clean repo."""
-    from lib.git_port import status_porcelain  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import status_porcelain  # noqa: PLC0415
 
     result = status_porcelain(cwd=str(git_repo))
     assert result == "", f"Expected empty string on clean repo, got {result!r}"
@@ -209,7 +209,7 @@ def test_ac4_status_porcelain_clean(git_repo: Path) -> None:
 
 def test_ac4_ls_files_others_untracked(git_repo: Path) -> None:
     """AC4: ls_files_others returns list containing untracked file."""
-    from lib.git_port import ls_files_others  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import ls_files_others  # noqa: PLC0415
 
     (git_repo / "untracked.txt").write_text("data\n")
     result = ls_files_others(cwd=str(git_repo))
@@ -219,7 +219,7 @@ def test_ac4_ls_files_others_untracked(git_repo: Path) -> None:
 
 def test_ac4_ls_files_others_empty_clean(git_repo: Path) -> None:
     """AC4: ls_files_others returns [] when no untracked files."""
-    from lib.git_port import ls_files_others  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import ls_files_others  # noqa: PLC0415
 
     result = ls_files_others(cwd=str(git_repo))
     assert isinstance(result, list)
@@ -228,7 +228,7 @@ def test_ac4_ls_files_others_empty_clean(git_repo: Path) -> None:
 
 def test_ac4_worktree_list_porcelain_nonempty(git_repo: Path) -> None:
     """AC4: worktree_list_porcelain returns non-empty str for any git repo."""
-    from lib.git_port import worktree_list_porcelain  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import worktree_list_porcelain  # noqa: PLC0415
 
     result = worktree_list_porcelain(cwd=str(git_repo))
     assert isinstance(result, str)
@@ -241,7 +241,7 @@ def test_ac8_git_port_no_raw_subprocess() -> None:
     """AC8: git_port.py routes through bounded_run only — no import subprocess."""
     import importlib.util  # noqa: PLC0415
 
-    spec = importlib.util.find_spec("lib.git_port")
+    spec = importlib.util.find_spec("bytedigger_engine.lib.git_port")
     if spec is None or spec.origin is None:
         pytest.fail("lib.git_port not found — module does not exist yet (expected RED failure)")
 
@@ -278,7 +278,7 @@ def test_ac8_git_port_no_raw_subprocess() -> None:
 
 def _make_git_result(returncode: int, stdout: str = "", stderr: str = "") -> object:
     """Build a GitResult inside the test body (deferred import, D1CF5FDF)."""
-    from lib.git_port import GitResult  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import GitResult  # noqa: PLC0415
     return GitResult(
         returncode=returncode,
         stdout=stdout,
@@ -291,8 +291,8 @@ def _make_git_result(returncode: int, stdout: str = "", stderr: str = "") -> obj
 
 def test_g1_paths_have_staged_changes_rc1_true(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """G1: rc==1 (staged changes present) → _paths_have_staged_changes returns True."""
-    import lib.git_port as gp  # noqa: PLC0415
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as gp  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.setattr(
         p5, "bounded_run",
@@ -312,8 +312,8 @@ def test_g1_paths_have_staged_changes_rc1_true(git_repo: Path, monkeypatch: pyte
 
 def test_g1_paths_have_staged_changes_rc0_false(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """G1: rc==0 (no staged changes) → _paths_have_staged_changes returns False."""
-    import lib.git_port as gp  # noqa: PLC0415
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as gp  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.setattr(
         p5, "bounded_run",
@@ -330,8 +330,8 @@ def test_g1_paths_have_staged_changes_rc0_false(git_repo: Path, monkeypatch: pyt
 
 def test_g1_paths_have_staged_changes_ambiguous_rc_true(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """G1: ambiguous rc (e.g. 2) → _paths_have_staged_changes returns True (fail-toward-commit)."""
-    import lib.git_port as gp  # noqa: PLC0415
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as gp  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.setattr(
         p5, "bounded_run",
@@ -350,8 +350,8 @@ def test_g1_paths_have_staged_changes_ambiguous_rc_true(git_repo: Path, monkeypa
 
 def test_g2_filter_gitignored_rc128_keeps_all(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """G2: rc==128 (git error) → _filter_gitignored_paths returns ALL input paths (degraded keep-all)."""
-    import lib.git_port as gp  # noqa: PLC0415
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as gp  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.setattr(
         p5, "bounded_run",
@@ -373,8 +373,8 @@ def test_g2_filter_gitignored_rc128_keeps_all(git_repo: Path, monkeypatch: pytes
 
 def test_g4_main_checkout_root_rc124_returns_none(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """G4: rc==124 (timeout) → _main_checkout_root returns None."""
-    import lib.git_port as gp  # noqa: PLC0415
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as gp  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.setattr(
         p5, "bounded_run",
@@ -395,8 +395,8 @@ def test_g4_main_checkout_root_main_repo_returns_none(git_repo: Path) -> None:
     real-repo path remains correct (rc==0, common-dir == repo/.git → parent == repo
     == realpath(git_cwd) → returns None).
     """
-    import lib.git_port as _gp  # noqa: PLC0415 — triggers ImportError today
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as _gp  # noqa: PLC0415 — triggers ImportError today
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     result = p5._main_checkout_root(git_cwd=str(git_repo))
     assert result is None, (
@@ -408,8 +408,8 @@ def test_g4_main_checkout_root_main_repo_returns_none(git_repo: Path) -> None:
 
 def test_g5_finding_in_diff_hunks_rc1_conservative_true(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """G5: rc==1 → _finding_in_diff_hunks returns True (conservative hard-fail)."""
-    import lib.git_port as gp  # noqa: PLC0415
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port as gp  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     head_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -439,8 +439,9 @@ def test_g5_finding_in_diff_hunks_none_finding_line(git_repo: Path) -> None:
     import of lib.git_port must succeed for the deferred import in the group
     to work.
     """
-    import lib.git_port  # noqa: PLC0415 — triggers ImportError today (RED forcing)
-    from workflows import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine import lib
+    import bytedigger_engine.lib.git_port  # noqa: PLC0415 — triggers ImportError today (RED forcing)
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     head_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"],

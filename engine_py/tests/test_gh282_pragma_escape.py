@@ -30,15 +30,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from phase_5_implement import _commit_red_tests  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 def _get_pragma_fn():
     """§1q-ext presence gate: resolve the not-yet-existing helper at call
     time so the module COLLECTS cleanly before GREEN. Fails the calling
     assertion (not collection) when the helper is absent."""
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     fn = getattr(phase_5_implement, "_has_mass_deletion_allow_pragma", None)
     if fn is None:
@@ -216,7 +216,7 @@ class TestCommitRedTestsPragmaEscape:
         """AC C: enforce ON + over-threshold deletion + pragma present ->
         _commit_red_tests does NOT return E_RED_MASS_DELETION; emitted
         red_mass_deletion_check has exempted_n==1, violations_n==0."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, spec_file = self._setup_mass_deletion_repo(tmp_path, pragma=True)
 
@@ -249,7 +249,7 @@ class TestCommitRedTestsPragmaEscape:
         """AC D (negative-guard): same over-threshold deletion, NO pragma ->
         still returns E_RED_MASS_DELETION, recoverable=False. Proves the
         escape did not weaken the gate for non-pragma'd deletions."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, spec_file = self._setup_mass_deletion_repo(tmp_path, pragma=False)
 
@@ -278,7 +278,7 @@ class TestCommitRedTestsPragmaEscape:
     ) -> None:
         """AC F: red_mass_deletion_check payload contains the keys `exempted`
         and `exempted_n` (telemetry-shape, consumed by TW-GH282-CHECK)."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, spec_file = self._setup_mass_deletion_repo(tmp_path, pragma=True)
 

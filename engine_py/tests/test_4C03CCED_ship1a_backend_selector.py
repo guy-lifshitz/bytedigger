@@ -33,8 +33,8 @@ ENGINE_ROOT = HERE.parent
 # the same grandfathered pattern present in every sibling test.
 sys.path.insert(0, str(ENGINE_ROOT))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ─── Fake event log (tuple-based, mirrors test_subprocess_telemetry.py) ───────
@@ -120,7 +120,7 @@ def test_ac1_default_backend_no_kwarg_no_env(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="ac1-run", step_name="s", phase="p")
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
         result = invoke_llm_subprocess(
             prompt="x",
             model="claude-opus-4-5",
@@ -202,7 +202,7 @@ def test_ac2_explicit_kwarg_claude_subprocess(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="ac2-run", step_name="s", phase="p")
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
         result = invoke_llm_subprocess(
             prompt="x",
             model="claude-opus-4-5",
@@ -260,7 +260,7 @@ def test_ac3_env_backend_claude_subprocess(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="ac3-run", step_name="s", phase="p")
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
         result = invoke_llm_subprocess(
             prompt="x",
             model="claude-opus-4-5",
@@ -314,7 +314,7 @@ def test_ac4_kwarg_wins_over_env_precedence(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="ac4-run", step_name="s", phase="p")
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_make_success_proc()):
         result = invoke_llm_subprocess(
             prompt="x",
             model="claude-opus-4-5",
@@ -379,7 +379,7 @@ def test_ac5_unknown_backend_kwarg_e_llm_backend_unknown(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="ac5-run", step_name="s", phase="p")
 
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         result = invoke_llm_subprocess(
             prompt="x",
             model="claude-opus-4-5",
@@ -453,7 +453,7 @@ def test_ac6_unknown_env_backend_e_llm_backend_unknown(monkeypatch):
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="ac6-run", step_name="s", phase="p")
 
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         result = invoke_llm_subprocess(
             prompt="x",
             model="claude-opus-4-5",

@@ -20,9 +20,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -70,7 +69,7 @@ def test_default_multiplier_is_5x():
 
     Regression guard — preserves current behavior for non-COMPLEX builds.
     """
-    from phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
 
     assert _resolve_green_watchdog_token_multiplier(None) == 5
     assert _resolve_green_watchdog_token_multiplier({}) == 5
@@ -81,7 +80,7 @@ def test_default_multiplier_is_5x():
 
 def test_complex_complexity_returns_10x():
     """cfg["complexity"] == "COMPLEX" → 10x multiplier (RED today)."""
-    from phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
 
     assert _resolve_green_watchdog_token_multiplier({"complexity": "COMPLEX"}) == 10
 
@@ -91,7 +90,7 @@ def test_complex_complexity_returns_10x():
 
 def test_complex_lowercase_also_returns_10x():
     """Case-insensitive — "complex" / "Complex" / "cOmPlEx" all → 10x (RED today)."""
-    from phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
 
     assert _resolve_green_watchdog_token_multiplier({"complexity": "complex"}) == 10
     assert _resolve_green_watchdog_token_multiplier({"complexity": "Complex"}) == 10
@@ -103,7 +102,7 @@ def test_complex_lowercase_also_returns_10x():
 
 def test_simple_complexity_returns_5x():
     """SIMPLE / FEATURE / unknown / missing → 5x (preserves baseline)."""
-    from phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
 
     assert _resolve_green_watchdog_token_multiplier({"complexity": "SIMPLE"}) == 5
     assert _resolve_green_watchdog_token_multiplier({"complexity": "FEATURE"}) == 5
@@ -122,7 +121,7 @@ def test_explicit_override_wins_over_complexity():
 
     Orchestrator escape hatch: even on COMPLEX, explicit override is authoritative.
     """
-    from phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
 
     cfg = {"complexity": "COMPLEX", "green_watchdog_token_multiplier": 7}
     assert _resolve_green_watchdog_token_multiplier(cfg) == 7
@@ -140,7 +139,7 @@ def test_explicit_override_clamps_to_minimum_1():
 
     Otherwise watchdog would fire immediately on any token output.
     """
-    from phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
 
     assert _resolve_green_watchdog_token_multiplier({"green_watchdog_token_multiplier": 0}) == 1
     assert _resolve_green_watchdog_token_multiplier({"green_watchdog_token_multiplier": -5}) == 1
@@ -152,7 +151,7 @@ def test_explicit_override_clamps_to_minimum_1():
 
 def test_explicit_override_invalid_falls_back_to_default():
     """Non-numeric / unparseable override → fall through to complexity-aware default (RED today)."""
-    from phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_green_watchdog_token_multiplier  # noqa: PLC0415
 
     # No complexity → 5x baseline
     assert _resolve_green_watchdog_token_multiplier(
@@ -179,7 +178,7 @@ def test_green_watchdog_uses_resolved_multiplier(tmp_path: Path):
 
     Mirrors W1 batch-build forge-1778009357-5D4ED78F failure mode (RED today).
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
@@ -208,7 +207,7 @@ def test_green_watchdog_simple_token_overrun_is_nonfatal(tmp_path: Path):
     Post-32C49788: _green_watchdog must return status="ok", error_code=None.
     Token volume is a verbosity metric, not a correctness signal.
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)

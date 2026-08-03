@@ -36,7 +36,7 @@ from unittest.mock import MagicMock, patch
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
 
 
 def _stream_proc(stdout="response", returncode=0):
@@ -87,7 +87,7 @@ def test_e6f86b73_raw_response_is_extracted_result_when_output_format_auto_injec
     """
     # R1: command=["claude","-p","--model","sonnet"] -> model="sonnet"
     stdout = '{"type":"result","subtype":"success","result":"## Hello\\nworld","usage":{}}\n'
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _stream_proc(stdout=stdout)
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
@@ -128,7 +128,7 @@ def test_e6f86b73_raw_response_is_extracted_not_envelope_multiline_stream():
         '"cache_read_input_tokens":0,"cache_creation_input_tokens":0},'
         '"total_cost_usd":0.001}\n'
     )
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _stream_proc(stdout=stdout)
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
@@ -160,7 +160,7 @@ def test_e6f86b73_raw_response_errors_when_parse_fails():
     """
     # R1: command=["claude","-p"] -> model="sonnet"
     stdout = "not valid json on the last line\n"
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _stream_proc(stdout=stdout)
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
@@ -190,7 +190,7 @@ def test_e6f86b73_raw_response_errors_when_no_result_event():
     # Valid JSON line but type="error", not "result" — stream-json walker
     # never finds a result event.
     stdout = '{"type":"error","error":"oops"}\n'
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _stream_proc(stdout=stdout)
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"

@@ -19,12 +19,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-import derive_state as ds  # noqa: E402
-import phase_7_synthesize as p7  # noqa: E402
-from phase_7_synthesize import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine import derive_state as ds  # noqa: E402
+from bytedigger_engine.workflows import phase_7_synthesize as p7  # noqa: E402
+from bytedigger_engine.workflows.phase_7_synthesize import (  # noqa: E402
     FIX_DOC_RELPATH,
     REVIEW_DOC_RELPATH,
     SATISFACTION_DOC_RELPATH,

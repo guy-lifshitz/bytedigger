@@ -24,10 +24,10 @@ from pathlib import Path
 
 import pytest
 
-import engine
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
-from engine import WorkflowEngine
-from lib.git_port import (
+from bytedigger_engine import engine
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.lib.git_port import (
     GitResult,
     reset_default_git_read_factory,
     set_default_git_read_factory,
@@ -101,7 +101,7 @@ def test_ac10_git_changes_vs_head_forwards_cwd_to_both_calls():
 def test_ac11_resolve_scan_cwd_exists_and_returns_str_for_explicit_tier():
     """AC11: _resolve_scan_cwd(context) — single argument, no `prev` — exists
     as a module-level symbol and returns a str for org_config={"git_cwd": T}."""
-    from engine import _resolve_scan_cwd  # deferred: doesn't exist pre-GREEN
+    from bytedigger_engine.engine import _resolve_scan_cwd  # deferred: doesn't exist pre-GREEN
 
     ctx = _make_ctx(org_config={"git_cwd": "/some/tree"})
     result = _resolve_scan_cwd(ctx)
@@ -116,7 +116,7 @@ def test_ac12_resolve_scan_cwd_returns_none_when_no_explicit_tree():
     """AC12: _resolve_scan_cwd(context) returns None when org_config is None,
     empty, or lacks "git_cwd" — no "source label" concept in v2; single
     source is cfg["git_cwd"] and nothing else."""
-    from engine import _resolve_scan_cwd  # deferred: doesn't exist pre-GREEN
+    from bytedigger_engine.engine import _resolve_scan_cwd  # deferred: doesn't exist pre-GREEN
 
     assert _resolve_scan_cwd(_make_ctx(org_config=None)) is None
     assert _resolve_scan_cwd(_make_ctx(org_config={})) is None
@@ -295,11 +295,11 @@ def test_ac24_no_resolver_git_cwd_resolved_event_leaks_into_log(tmp_path, monkey
         forbidden_imports = [
             line for line in module_src.splitlines()
             if "import" in line and (
-                "lib.git_cwd" in line or "lib import git_cwd" in line
+                "bytedigger_engine.lib.git_cwd" in line or "lib import bytedigger_engine.lib.git_cwd" in line
             )
         ]
         assert not forbidden_imports, (
-            f"engine.py must not import lib.git_cwd's emitting resolver; found: {forbidden_imports!r}"
+            f"engine.py must not import bytedigger_engine.lib.git_cwd's emitting resolver; found: {forbidden_imports!r}"
         )
 
 

@@ -15,17 +15,16 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from phase_1_discovery import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.workflows.phase_1_discovery import (  # noqa: E402
     FEATURE_DOC_RELPATH,
     SIMPLE_DOC_RELPATH,
     phase_1_discovery_workflow,
 )
-from skip_logic import should_skip_phase  # noqa: E402
+from bytedigger_engine.skip_logic import should_skip_phase  # noqa: E402
 
 
 FROZEN_TEXT = (
@@ -49,7 +48,7 @@ class _TextBackend:
         self._text = response_text
 
     def __call__(self, **kw):
-        from contracts import StepResult
+        from bytedigger_engine.contracts import StepResult
 
         data: dict = {
             "raw_response": self._text,
@@ -69,7 +68,7 @@ class _TextBackend:
 
 
 def _register_text_stub(text: str) -> None:
-    from llm_subprocess import register_backend
+    from bytedigger_engine.llm_subprocess import register_backend
 
     register_backend(
         "claude-subprocess",
@@ -206,7 +205,7 @@ def test_ac5_should_skip_phase_simple_frozen_flag_on_skips_no_drift(tmp_path, mo
     doc = tmp_path / "decision.md"
     doc.write_text(FROZEN_TEXT)
 
-    import telemetry_ctx
+    from bytedigger_engine import telemetry_ctx
 
     class _FakeLog:
         def __init__(self):
@@ -245,7 +244,7 @@ def test_ac6_should_skip_phase_simple_frozen_flag_off_drifts(tmp_path, monkeypat
     doc = tmp_path / "decision.md"
     doc.write_text(FROZEN_TEXT)
 
-    import telemetry_ctx
+    from bytedigger_engine import telemetry_ctx
 
     class _FakeLog:
         def __init__(self):
@@ -279,7 +278,7 @@ def test_ac6_should_skip_phase_simple_frozen_flag_off_drifts(tmp_path, monkeypat
 
 
 def test_ac7_flags_catalog_discovers_kill_switch_in_skip_logic():
-    import flags_catalog
+    from bytedigger_engine import flags_catalog
 
     engine_py_root = HERE.parent
     results = flags_catalog.discover_flag_reads(engine_py_root)
@@ -292,8 +291,8 @@ def test_ac7_flags_catalog_discovers_kill_switch_in_skip_logic():
 
 
 def test_ac8_skip_active_llm_never_invoked(tmp_path, monkeypatch):
-    from llm_subprocess import reset_backends, register_backend
-    from contracts import StepResult
+    from bytedigger_engine.llm_subprocess import reset_backends, register_backend
+    from bytedigger_engine.contracts import StepResult
 
     monkeypatch.delenv("HAL_FROZEN_SHORT_CIRCUIT", raising=False)
 
@@ -325,7 +324,7 @@ def test_ac9_unknown_complexity_frozen_flag_on_no_skip_drifts(tmp_path, monkeypa
     doc = tmp_path / "decision.md"
     doc.write_text(FROZEN_TEXT)
 
-    import telemetry_ctx
+    from bytedigger_engine import telemetry_ctx
 
     class _FakeLog:
         def __init__(self):
@@ -360,7 +359,7 @@ def test_ac9_unknown_complexity_frozen_flag_on_no_skip_drifts(tmp_path, monkeypa
 
 @pytest.fixture(autouse=True)
 def _reset_backends_gh531():
-    from llm_subprocess import reset_backends
+    from bytedigger_engine.llm_subprocess import reset_backends
 
     yield
     reset_backends()

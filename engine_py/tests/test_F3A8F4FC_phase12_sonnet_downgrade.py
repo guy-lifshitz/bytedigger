@@ -37,10 +37,9 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-import model_config  # noqa: E402
-from tree_root import resolve_tree_root  # noqa: E402
+from bytedigger_engine.lib import model_config  # noqa: E402
+from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: E402
 
 # bd#97: resolved from tree content, not an ancestor count. A fixed parents[5]
 # is correct only in the upstream HAL layout and IndexErrors at import time on a
@@ -48,7 +47,7 @@ from tree_root import resolve_tree_root  # noqa: E402
 REAL_CONFIG_PATH = (
     resolve_tree_root(Path(__file__).resolve()) / "SHARED" / "config" / "models.json"
 )
-WORKFLOWS_DIR = HERE.parent / "workflows"
+WORKFLOWS_DIR = HERE.parent / "bytedigger_engine" / "workflows"
 
 
 @pytest.fixture(autouse=True)
@@ -258,9 +257,9 @@ def test_ac7_phase1_discovery_uses_get_claude_discovery(monkeypatch, tmp_path):
     # Import phase_1_discovery lazily inside the test to avoid module-level side-effects
     # contaminating other tests (per §1q / FBB5EB25).
     if "phase_1_discovery" in sys.modules:
-        del sys.modules["phase_1_discovery"]
+        del sys.modules["bytedigger_engine.workflows.phase_1_discovery"]
     sys.path.insert(0, str(WORKFLOWS_DIR))
-    import phase_1_discovery  # noqa: E402
+    import bytedigger_engine.workflows.phase_1_discovery as phase_1_discovery  # noqa: E402  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
 
     result = phase_1_discovery._default_llm_command()
     assert result == ["claude", "-p", "--model", "sonnet"], (
@@ -315,9 +314,9 @@ def test_ac8_phase2_explore_uses_get_claude_explore(monkeypatch, tmp_path):
 
     # Import lazily to avoid module-level side-effects (§1q / FBB5EB25).
     if "phase_2_explore" in sys.modules:
-        del sys.modules["phase_2_explore"]
+        del sys.modules["bytedigger_engine.workflows.phase_2_explore"]
     sys.path.insert(0, str(WORKFLOWS_DIR))
-    import phase_2_explore  # noqa: E402
+    import bytedigger_engine.workflows.phase_2_explore as phase_2_explore  # noqa: E402  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
 
     result = phase_2_explore._default_llm_command()
     assert result == ["claude", "-p", "--model", "sonnet"], (
@@ -361,9 +360,9 @@ def test_ac9_critical_phases_still_use_opus():
 
     for fpath in critical_files:
         source = fpath.read_text()
-        assert "from model_config import get_claude_critical" in source, (
+        assert "from bytedigger_engine.lib.model_config import get_claude_critical" in source, (
             f"{fpath.name} must still contain "
-            f"'from model_config import get_claude_critical' (F3A8F4FC out-of-scope guard)"
+            f"'from bytedigger_engine.lib.model_config import get_claude_critical' (F3A8F4FC out-of-scope guard)"
         )
 
 

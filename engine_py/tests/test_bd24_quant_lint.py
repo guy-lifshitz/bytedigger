@@ -11,7 +11,7 @@ CONTRACTS_SPEC.md §0.1-§0.7, §1.5 (the public surface and `Finding`) and §1.
 
 `conformance.quant_lint` exists on this base as an import-only PLACEHOLDER
 that defines no public names (`[G22:18]`), so every test here fails today at
-`ImportError` on `from conformance.quant_lint import
+`ImportError` on `from bytedigger_engine.conformance.quant_lint import
 lint_quantifier_completeness`. There are **no** declared pre-passing tests in
 this lot (spec §4): every test calls the lint, and a passing test at RED time
 is a defect rather than a shield.
@@ -508,7 +508,7 @@ class TestQuantifierCompletenessLint:
         """
         import dataclasses
 
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_MISSING_ROW_SPEC)
 
@@ -541,7 +541,7 @@ class TestQuantifierCompletenessLint:
         contains rows for other levels and one of those other levels'
         names contains the un-named level's name as a substring.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ROW_LEVEL_BINDING_SPEC)
 
@@ -566,7 +566,7 @@ class TestQuantifierCompletenessLint:
         `<level>` operands; `Audit_Case` must still be flagged as missing
         its own row.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_LEVEL_CASE_MISMATCH_SPEC)
 
@@ -588,7 +588,7 @@ class TestQuantifierCompletenessLint:
         `ADMITS` onto it and wrongly clear it. A wrong-neighbour-binding
         lint gets both backwards simultaneously.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ADMITS_WRONG_NEIGHBOUR_SPEC)
 
@@ -610,7 +610,7 @@ class TestQuantifierCompletenessLint:
         fixture (all of which had rows immediately following their own
         level).
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CHECK2_WRONG_LEVEL_BINDING_SPEC)
 
@@ -649,7 +649,7 @@ class TestQuantifierCompletenessLint:
         `ADMITS:` line is present. Also confirms check (1) does not
         spuriously fire, since every row here is present.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CHECK2_SPEC)
 
@@ -691,7 +691,7 @@ class TestQuantifierCompletenessLint:
         or only the last row cannot pass — it would catch one offender and
         silently miss the other.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CHECK2_EXPLICIT_ADMITS_SPEC)
 
@@ -713,7 +713,7 @@ class TestQuantifierCompletenessLint:
         lint that silently ignores an unrecognised token instead of flagging
         it, or that mis-attributes an `ADMITS` line to the wrong level.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ADMITS_INVALID_TOKEN_SPEC)
 
@@ -734,7 +734,7 @@ class TestQuantifierCompletenessLint:
         three fixtures, so a lint evaluating only the final `SEAM:` block —
         a loop-variable escape — passed everything; this fixture kills that).
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_MISSING_ATTRIBUTE_PATH_SPEC)
 
@@ -761,7 +761,7 @@ class TestQuantifierCompletenessLint:
         also now discriminates, since a case-folding GREEN could never
         reproduce the mixed-case `Path.read_text` literal either.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_MISSING_BINDING_TIME_SPEC)
 
@@ -782,7 +782,7 @@ class TestQuantifierCompletenessLint:
         offender-then-conformant shape, so neither a first-only nor a
         last-only evaluator passes this fixture on its own.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_MISSING_NORMALISATION_SPEC)
 
@@ -803,7 +803,7 @@ class TestQuantifierCompletenessLint:
         `Seam.Alpha` with nothing (making it look entirely unpinned) — the
         reverse of correct output. Kills that lint on both halves at once.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_PROPERTY_WRONG_NEIGHBOUR_SPEC)
 
@@ -823,7 +823,7 @@ class TestQuantifierCompletenessLint:
         treat `Path.read_text` as fully pinned via `Path.read`'s complete
         block.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_NAME_SUBSTRING_SPEC)
 
@@ -846,7 +846,7 @@ class TestQuantifierCompletenessLint:
         treats them as one seam sees the union of both blocks' properties as
         complete and wrongly clears `Path.Read_Text`.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_NAME_CASE_MISMATCH_SPEC)
 
@@ -870,7 +870,7 @@ class TestQuantifierCompletenessLint:
         order every other fixture in this file happens to use (proactive,
         self-sweep addition).
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CONFORMANT_SPEC)
 
@@ -885,7 +885,7 @@ class TestQuantifierCompletenessLint:
         parsing a document with none of the §1.6 markers instead of
         returning a (here, empty) findings list.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_MALFORMED_SPEC)
 
@@ -900,7 +900,7 @@ class TestQuantifierCompletenessLint:
         one starts nonempty (`"".splitlines() == []`, so an empty string
         alone cannot force a `.splitlines()`-based lookahead to run at all).
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness("")
 
@@ -912,7 +912,7 @@ class TestQuantifierCompletenessLint:
         — the lookahead has no next line to read. Must still report the
         missing-row finding for that level rather than raising.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness("LEVEL: phases")
 
@@ -929,7 +929,7 @@ class TestQuantifierCompletenessLint:
         lowercase `level:` line) and no recognition of `seam:` as a seam
         declaration at all.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_LOWERCASE_MARKERS_SPEC)
 
@@ -958,7 +958,7 @@ class TestQuantifierCompletenessLint:
         (`second is first` — caught by the identity assertion) or returns a
         growing copy each time (caught by the snapshot-equality assertion).
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         first = lint_quantifier_completeness(_MISSING_ROW_SPEC)
         assert first != []
@@ -1205,7 +1205,7 @@ class TestQuantifierCompletenessLintBd24:
         control's `findings == []` becomes the only assertable shape in the
         whole AC.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_NOT_PINNED_SPEC)
 
@@ -1231,7 +1231,7 @@ class TestQuantifierCompletenessLintBd24:
         `IndexError`. Distinct from the fixture above, where the bare seam
         at least has a preceding conformant block to have opened the loop.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness("SEAM: tempfile.mkdtemp")
 
@@ -1255,7 +1255,7 @@ class TestQuantifierCompletenessLintBd24:
         The final assertion pins `[G24:3]` on check 2: one finding per
         (kind, subject), not one per missing reduction.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CHECK2_CARDINALITY_SPEC)
 
@@ -1288,7 +1288,7 @@ class TestQuantifierCompletenessLintBd24:
         `lower_control` is second of four, so neither a first-only nor a
         last-only evaluator passes.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_REDUCTION_TOKEN_VOCABULARY_SPEC)
 
@@ -1323,7 +1323,7 @@ class TestQuantifierCompletenessLintBd24:
         the two assertions below independently catches it. A lint binding
         `EXCLUDES` to the FOLLOWING row inverts identically.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_EXCLUDES_ROW_BINDING_SPEC)
 
@@ -1345,7 +1345,7 @@ class TestQuantifierCompletenessLintBd24:
         does have its own row -- must not be. The two offenders bracket the
         conformant level, so first-only and last-only evaluators die too.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ROW_LEVEL_SUBSTRING_REVERSE_SPEC)
 
@@ -1369,7 +1369,7 @@ class TestQuantifierCompletenessLintBd24:
         is first and `subprocess.ru` last, so neither a first-only nor a
         last-only evaluator passes either.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_NAME_SUBSTRING_REVERSE_SPEC)
 
@@ -1402,7 +1402,7 @@ class TestQuantifierCompletenessLintBd24:
         bracket a conformant seam, and their mixed-case names carry the
         verbatim-`subject` obligation.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEAM_PROPERTY_CARDINALITY_SPEC)
 
@@ -1505,7 +1505,7 @@ class TestQuantifierCompletenessLintBd24Orphans:
         finding about a seam that does not exist. Verified: that mutant
         passes 40/40 without this assertion, and fails with it.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ORPHAN_MARKER_LINES_SPEC)
 
@@ -1708,7 +1708,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         correct binding flags it, proximity lookup clears it. One assertion
         catches each direction.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ADMITS_CROSS_AXIS_SPEC)
 
@@ -1743,7 +1743,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         additionally produce a check-1 finding: it is not a declared level,
         so there is no level to report as row-less.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_UNDECLARED_LEVEL_ROW_SPEC)
 
@@ -1771,7 +1771,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         it. Both assertions are positive, so a forward-crediting lint fails
         both rather than one.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_FORWARD_CREDIT_SPEC)
 
@@ -1810,7 +1810,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         "without this, `len(findings)` is not a defined quantity" finally
         measures something for check 2.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_EXCLUDES_SUPERSET_SPEC)
 
@@ -1833,7 +1833,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         `.splitlines()`. The seam half makes the same point on check 3's
         subject.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CRLF_SPEC)
 
@@ -1858,7 +1858,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         keeps this from being satisfiable by a lint that returns `[]`
         unconditionally -- that one is killed by every other fixture here.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_INDENTED_MARKER_SPEC)
 
@@ -1881,7 +1881,7 @@ class TestQuantifierCompletenessLintBd24GateRound1:
         """
         import dataclasses
 
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_MISSING_ROW_SPEC)
 
@@ -2033,7 +2033,7 @@ class TestQuantifierCompletenessLintBd24GateRound2:
         `NORMALISATION`, so it is still a finding: de-duplicating is required,
         skipping a seam that carries a duplicate is not.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_BENIGN_DUPLICATE_SPEC)
 
@@ -2061,7 +2061,7 @@ class TestQuantifierCompletenessLintBd24GateRound2:
         and flags it. `Mixed.Offender` keeps the fixture non-uniform, so a
         lint that clears everything here is caught by the third assertion.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_INTERLEAVED_ANCHORS_SPEC)
 
@@ -2082,7 +2082,7 @@ class TestQuantifierCompletenessLintBd24GateRound2:
         has no row anywhere, so a lint that answers by reporting nothing at
         all fails the second assertion.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ROW_BEFORE_LEVEL_SPEC)
 
@@ -2108,7 +2108,7 @@ class TestQuantifierCompletenessLintBd24GateRound2:
         markers from recognition of `Seam:` alone -- a lint reading `Seam:`
         but not `Attribute-Path:` sees a bare seam and false-flags it.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_MIXED_CASE_MARKERS_SPEC)
 
@@ -2173,7 +2173,7 @@ class TestQuantifierCompletenessLintBd24GateRound3:
         row), and `SEAM: Trailing.Seam  ` must be reported with its name
         exactly, not with the spaces attached.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_TRAILING_WHITESPACE_SPEC)
 
@@ -2254,7 +2254,7 @@ class TestQuantifierCompletenessLintBd24GateRound4:
         space and are conformant, so a lint that mangles every operand -- or
         one that simply flags everything -- fails the negative assertions too.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_OPERAND_SPACING_SPEC)
 
@@ -2387,7 +2387,7 @@ class TestQuantifierCompletenessLintBd24GateRound5:
         as `lower_row_level`'s coverage -- it is the nearest preceding row --
         completing the row and clearing a level that must be flagged.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ROW_MARKER_CASE_SPEC)
 
@@ -2434,7 +2434,7 @@ class TestQuantifierCompletenessLintBd24GateRound5:
         the same reasoning that makes `_ORPHAN_MARKER_LINES_SPEC`'s third
         assertion sound.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ADMITS_BASE_CASE_SPEC)
 
@@ -2504,7 +2504,7 @@ class TestQuantifierCompletenessLintBd24GateRound6:
         one -- caught directly by the third assertion, since both levels here
         carry rows and no check-1 finding is correct in this document at all.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ROW_OPERAND_SPACING_SPEC)
 
@@ -2638,7 +2638,7 @@ class TestQuantifierCompletenessLintBd24GateRound7:
         `single_anchor_level_seam` through assertion 1; the new form kills both
         through both. Strictly more, nothing traded.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_DISTANT_ADMITS_SPEC)
 
@@ -2726,7 +2726,7 @@ class TestQuantifierCompletenessLintBd24GateRound8:
         the last assertion catches the check-2 to check-1 inversion, since all
         three levels carry rows.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SHARED_ANCHOR_SPEC)
 
@@ -2826,7 +2826,7 @@ class TestQuantifierCompletenessLintBd24GateRound9:
         and the last assertion catches the check-2 to check-1 inversion, since
         every level here carries a row.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ANCHOR_CYCLE_SPEC)
 
@@ -2961,7 +2961,7 @@ class TestQuantifierCompletenessLintBd39GateRound1:
         nothing at all fails the last assertion rather than passing by
         silence.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_REDUCTION_OPERAND_SPACING_SPEC)
 
@@ -2994,7 +2994,7 @@ class TestQuantifierCompletenessLintBd39GateRound1:
         and must not be flagged, so a lint that flags every seam is caught
         too.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_INDENTED_PROPERTY_SPEC)
 
@@ -3139,7 +3139,7 @@ class TestQuantifierCompletenessLintBd39GateRound2:
         the same `ADMITS` flush-left and is genuinely conformant, so a lint
         that ignores `ADMITS` everywhere is caught by the second assertion.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_INDENTED_ADMITS_SPEC)
 
@@ -3167,7 +3167,7 @@ class TestQuantifierCompletenessLintBd39GateRound2:
         it suppresses. The two controls are conformant, so a lint that flags
         everything is caught as well.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SAME_SUBJECT_TWO_KINDS_SPEC)
 
@@ -3203,7 +3203,7 @@ class TestQuantifierCompletenessLintBd39GateRound2:
         positive discriminator, and the final assertion catches all three
         binding failures at once, since every level here carries a row.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_REDUCTION_DELIMITER_SPEC)
 
@@ -3322,7 +3322,7 @@ class TestQuantifierCompletenessLintBd39GateRound3:
         `sep_short` is the positive discriminator and the last assertion
         catches the check-2 to check-1 inversion.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_SEPARATOR_SIDES_SPEC)
 
@@ -3360,7 +3360,7 @@ class TestQuantifierCompletenessLintBd39GateRound3:
         `admits_token_needs_row` drops a required finding, `eager_token_validation`
         adds forbidden ones with an empty or borrowed `subject`.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_TOKEN_VALIDATION_SPEC)
 
@@ -3469,7 +3469,7 @@ class TestQuantifierCompletenessLintBd39GateRound4:
         positive discriminator and the last assertion catches the check-2 to
         check-1 inversion.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ROW_ORDER_COVERAGE_SPEC)
 
@@ -3500,7 +3500,7 @@ class TestQuantifierCompletenessLintBd39GateRound4:
         `bare_excludes` is short too. Both must be flagged; `empty_control`
         must not, so a lint that flags every row fails as well.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_EMPTY_TOKEN_LIST_SPEC)
 
@@ -3595,7 +3595,7 @@ class TestQuantifierCompletenessLintBd39GateRound5:
         assertion and fails the second. `Fully.Pinned` holds the negative, so
         a lint that flags every seam is caught too.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_EMPTY_PROPERTY_OPERAND_SPEC)
 
@@ -3678,7 +3678,7 @@ class TestQuantifierCompletenessLintBd39GateRound6:
         `Never.Filled` is the positive discriminator: its `NORMALISATION` is
         never filled at all, so it must be flagged under every reading.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_PROPERTY_WRITE_POLICY_SPEC)
 
@@ -3796,7 +3796,7 @@ class TestQuantifierCompletenessLintBd39GateRound7:
         `dash_rowless` is the positive discriminator: it has no row at all, so
         a lint that reports nothing fails too.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_ROW_DASH_FRAMING_SPEC)
 
@@ -3829,7 +3829,7 @@ class TestQuantifierCompletenessLintBd39GateRound7:
         became operand-bearing, which #29's own fixtures cannot reach.
         `Framing.Control` holds the ordinary spelling.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_PROPERTY_OPERAND_FRAMING_SPEC)
 
@@ -3917,7 +3917,7 @@ class TestQuantifierCompletenessLintBd39GateRound8:
         `audit gate` and `Interior.Control` hold the negatives, so a lint that
         flags everything fails too.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_INTERIOR_SPACE_SPEC)
 
@@ -4026,7 +4026,7 @@ class TestQuantifierCompletenessLintBd39GateRound9:
         negative on `pkg.mod:read` alone would not catch that; the positive on
         `pkg.mod:write` is what does.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_OPERAND_CHARACTER_SPEC)
 
@@ -4126,7 +4126,7 @@ class TestQuantifierCompletenessLintBd39GateRound10:
         exactly. `token_control` is the negative, so a lint that flags every
         row fails too.
         """
-        from conformance.quant_lint import lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_TOKEN_INTERIOR_SPEC)
 
@@ -4225,7 +4225,7 @@ class TestQuantifierCompletenessLintBd42CrossGroundCollapse:
         one is what licenses reading `cross_ground`'s one as a COLLAPSE
         rather than as a ground that was never live.
         """
-        from conformance.quant_lint import Finding, lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import Finding, lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CROSS_GROUND_SPEC)
 
@@ -4256,7 +4256,7 @@ class TestQuantifierCompletenessLintBd42CrossGroundCollapse:
         The sibling test above establishes both grounds fire on their own, so
         one finding here is the collapse and cannot be a dead ground.
         """
-        from conformance.quant_lint import Finding, lint_quantifier_completeness
+        from bytedigger_engine.conformance.quant_lint import Finding, lint_quantifier_completeness
 
         findings = lint_quantifier_completeness(_CROSS_GROUND_SPEC)
 

@@ -21,10 +21,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "lib"))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-import model_config  # noqa: E402
+from bytedigger_engine.lib import model_config  # noqa: E402
 
 
 FIXTURE_WITH_ROLES = {
@@ -79,7 +77,7 @@ def _ctx(**cfg):
 
 
 def _prev():
-    from contracts import StepResult
+    from bytedigger_engine.contracts import StepResult
     return StepResult(
         status="ok",
         data={
@@ -105,12 +103,12 @@ def test_ac1_get_role_model_and_get_claude_spec_reviewer_delegate(with_roles_cfg
 # ---- AC2 / AC3 ----
 
 def test_ac2_resolve_review_model_cfg_override_wins(with_roles_cfg):
-    from lib.spec_retry_cycle import resolve_review_model
+    from bytedigger_engine.lib.spec_retry_cycle import resolve_review_model
     assert resolve_review_model({"review_model": "X"}) == "X"
 
 
 def test_ac3_resolve_review_model_cfg_model_wins_over_role(with_roles_cfg):
-    from lib.spec_retry_cycle import resolve_review_model
+    from bytedigger_engine.lib.spec_retry_cycle import resolve_review_model
     assert resolve_review_model({"model": "Y"}) == "Y"
 
 
@@ -118,8 +116,8 @@ def test_ac3_resolve_review_model_cfg_model_wins_over_role(with_roles_cfg):
 
 def test_ac4_resolve_review_model_falls_back_to_role_and_emits(with_roles_cfg, monkeypatch):
     monkeypatch.setenv("HAL_GATE_MODEL_FLOOR", "sonnet")
-    from lib.spec_retry_cycle import resolve_review_model
-    with patch("lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
+    from bytedigger_engine.lib.spec_retry_cycle import resolve_review_model
+    with patch("bytedigger_engine.lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
         result = resolve_review_model(None)
     assert result == "sonnet"
     assert mock_emit.called, "GH597: resolve_review_model must emit resolver_review_model_resolved"
@@ -132,7 +130,7 @@ def test_ac4_resolve_review_model_falls_back_to_role_and_emits(with_roles_cfg, m
 # ---- AC5 ----
 
 def test_ac5_resolve_review_model_legacy_falls_back_to_critical(without_roles_cfg):
-    from lib.spec_retry_cycle import resolve_review_model
+    from bytedigger_engine.lib.spec_retry_cycle import resolve_review_model
     expected_critical = model_config.get_claude_critical()
     result = resolve_review_model(None)
     assert result == expected_critical
@@ -141,12 +139,12 @@ def test_ac5_resolve_review_model_legacy_falls_back_to_critical(without_roles_cf
 # ---- AC6 ----
 
 def test_ac6_phase_45_spec_default_review_model_uses_role(with_roles_cfg):
-    import workflows.phase_45_spec as p45
+    from bytedigger_engine.workflows import phase_45_spec as p45
     assert p45._default_review_model() == "sonnet"
 
 
 def test_ac6b_phase_45_spec_default_review_model_legacy(without_roles_cfg):
-    import workflows.phase_45_spec as p45
+    from bytedigger_engine.workflows import phase_45_spec as p45
     expected_critical = model_config.get_claude_critical()
     assert p45._default_review_model() == expected_critical
 
@@ -154,12 +152,12 @@ def test_ac6b_phase_45_spec_default_review_model_legacy(without_roles_cfg):
 # ---- AC7 ----
 
 def test_ac7_phase_45_spec_lite_default_review_model_uses_role(with_roles_cfg):
-    import workflows.phase_45_spec_lite as p45_lite
+    from bytedigger_engine.workflows import phase_45_spec_lite as p45_lite
     assert p45_lite._default_review_model() == "sonnet"
 
 
 def test_ac7b_phase_45_spec_lite_default_review_model_legacy(without_roles_cfg):
-    import workflows.phase_45_spec_lite as p45_lite
+    from bytedigger_engine.workflows import phase_45_spec_lite as p45_lite
     expected_critical = model_config.get_claude_critical()
     assert p45_lite._default_review_model() == expected_critical
 
@@ -168,12 +166,12 @@ def test_ac7b_phase_45_spec_lite_default_review_model_legacy(without_roles_cfg):
 
 def test_ac8_invoke_review_llm_passes_role_model(with_roles_cfg, monkeypatch):
     monkeypatch.setenv("HAL_GATE_MODEL_FLOOR", "sonnet")
-    import workflows.phase_45_spec as p45
+    from bytedigger_engine.workflows import phase_45_spec as p45
     captured = {}
 
     def _fake_invoke(**kwargs):
         captured.update(kwargs)
-        from contracts import StepResult
+        from bytedigger_engine.contracts import StepResult
         return StepResult(status="ok", data={"raw_response": "## Verdict\nSHIP\n"},
                            duration_ms=0, step_name="invoke_review_llm")
 
@@ -188,13 +186,13 @@ def test_ac8_invoke_review_llm_passes_role_model(with_roles_cfg, monkeypatch):
 # ---- AC9 ----
 
 def test_ac9a_directed_repair_cfg_override_wins(with_roles_cfg):
-    from directed_repair import _resolve_directed_repair_model
+    from bytedigger_engine.lib.directed_repair import _resolve_directed_repair_model
     assert _resolve_directed_repair_model({"directed_repair_model": "Z"}) == "Z"
 
 
 def test_ac9b_directed_repair_uses_role_and_emits(with_roles_cfg):
-    from directed_repair import _resolve_directed_repair_model
-    with patch("lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
+    from bytedigger_engine.lib.directed_repair import _resolve_directed_repair_model
+    with patch("bytedigger_engine.lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
         result = _resolve_directed_repair_model(None)
     assert result == "sonnet", (
         f"GH597: expected directed_repair model 'sonnet' from role, got {result!r}"
@@ -208,8 +206,8 @@ def test_ac9b_directed_repair_uses_role_and_emits(with_roles_cfg):
 
 def test_ac9c_directed_repair_legacy_default(without_roles_cfg):
     """GH386: no directed_repair key in models.json -> FALLBACK_CONFIG chain resolves 'sonnet'."""
-    from directed_repair import _resolve_directed_repair_model
-    with patch("lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
+    from bytedigger_engine.lib.directed_repair import _resolve_directed_repair_model
+    with patch("bytedigger_engine.lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
         result = _resolve_directed_repair_model(None)
     assert result == "sonnet"
     assert mock_emit.called
@@ -220,5 +218,5 @@ def test_ac9c_directed_repair_legacy_default(without_roles_cfg):
 # ---- AC10 ----
 
 def test_ac10_default_spec_model_unaffected(with_roles_cfg):
-    import workflows.phase_45_spec as p45
+    from bytedigger_engine.workflows import phase_45_spec as p45
     assert p45._default_spec_model() == "writefix"

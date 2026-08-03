@@ -40,24 +40,24 @@ from typing import Any
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 # ─── telemetry_ctx — must be importable before production imports ──────────────
-import telemetry_ctx as _telemetry_ctx  # noqa: E402
+from bytedigger_engine import telemetry_ctx as _telemetry_ctx  # noqa: E402
 
 # ─── Production module import (exists today — collectable) ────────────────────
 # _collect_probe_argv does NOT exist yet. We import the MODULE (not the symbol)
 # so the file is collectable. Each AC1-3 test body accesses the attribute via
 # getattr() — AttributeError surfaces as a test FAIL at assert time, not at
 # collect time. §1q / D1CF5FDF discipline.
-import phase_5_implement as p5mod  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_5_implement import _check_red_executable  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement as p5mod  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _check_red_executable  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────

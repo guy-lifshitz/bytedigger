@@ -29,18 +29,20 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
 import pytest
 
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
-from engine import WorkflowEngine
-from event_log import EventLog
-from lib.restart_governor import governor_gate, governor_record_result
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.event_log import EventLog
+from bytedigger_engine.lib.restart_governor import governor_gate, governor_record_result
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
-RUN_PY = ENGINE_ROOT / "run.py"
+RUN_PY = ENGINE_ROOT / "bytedigger_engine" / "run.py"
 
 
 def _make_ctx(scratch: Path) -> WorkflowContext:
@@ -59,7 +61,7 @@ def _make_ctx(scratch: Path) -> WorkflowContext:
 
 def _run_subprocess(args, timeout=60):
     return subprocess.run(
-        [sys.executable, str(RUN_PY), *args],
+        [sys.executable, str(RUN_PY), *args], env=engine_env(),
         cwd=str(ENGINE_ROOT),
         capture_output=True,
         text=True,
@@ -239,7 +241,7 @@ def test_ac6_build_stuck_report_is_pure_with_frozen_breaker_next_step_table(tmp_
     """AC6: build_stuck_report is pure — same inputs -> identical dict modulo
     'ts'; all 4 breaker->next_step mappings exact; no file I/O.
     """
-    from lib.stuck_report import build_stuck_report  # noqa: PLC0415 — deferred, §1q
+    from bytedigger_engine.lib.stuck_report import build_stuck_report  # noqa: PLC0415 — deferred, §1q
 
     before = set(tmp_path.iterdir())
     kwargs = dict(
@@ -280,7 +282,7 @@ def test_ac6_build_stuck_report_is_pure_with_frozen_breaker_next_step_table(tmp_
 def test_ac7_emit_stuck_report_byte_cap_truncates_last_error_never_silent_skip(tmp_path):
     """AC7: a 10KB last_error -> emitted file <= 4096 bytes, still valid
     JSON, last_error truncated (never silent-skip the write)."""
-    from lib.stuck_report import build_stuck_report, emit_stuck_report  # noqa: PLC0415
+    from bytedigger_engine.lib.stuck_report import build_stuck_report, emit_stuck_report  # noqa: PLC0415
 
     report = build_stuck_report(
         run_id="r7", workflow="echo", step_name="s", breaker="terminal_failure",
@@ -302,7 +304,7 @@ def test_ac7_emit_stuck_report_byte_cap_truncates_last_error_never_silent_skip(t
 def test_ac8_emit_stuck_report_double_emit_overwrites_atomically_not_accumulates(tmp_path):
     """AC8: double emit (retry-after-deny replay) overwrites atomically;
     retry_count reflects the LATEST governor counters, not emit count."""
-    from lib.stuck_report import build_stuck_report, emit_stuck_report  # noqa: PLC0415
+    from bytedigger_engine.lib.stuck_report import build_stuck_report, emit_stuck_report  # noqa: PLC0415
 
     report1 = build_stuck_report(
         run_id="r8", workflow="echo", step_name="s", breaker="restart_cap",
@@ -335,7 +337,7 @@ def test_ac9_engine_same_cycle_cap_emits_stuck_report_zombie_guard_suppresses(tm
     to return False (guard helper patched, NOT the UUT), NO report is written
     (D2 zombie-replay guard).
     """
-    import engine as engine_mod  # noqa: PLC0415 — module exists; patched attr only
+    from bytedigger_engine import engine as engine_mod  # noqa: PLC0415 — module exists; patched attr only
 
     def _make_always_same_cycle_workflow(name, step_name):
         calls = []
@@ -443,7 +445,7 @@ def test_ac10_engine_terminal_nonrecoverable_emits_report_recoverable_does_not(t
 def test_ac11_emit_stuck_report_never_raises_on_unwritable_target_dir(tmp_path):
     """AC11: fail-safety — an unwritable target dir must never raise into the
     caller. Real permission denial (§1l anchor), no mocking."""
-    from lib.stuck_report import build_stuck_report, emit_stuck_report  # noqa: PLC0415
+    from bytedigger_engine.lib.stuck_report import build_stuck_report, emit_stuck_report  # noqa: PLC0415
 
     bad_dir = tmp_path / "unwritable"
     bad_dir.mkdir()

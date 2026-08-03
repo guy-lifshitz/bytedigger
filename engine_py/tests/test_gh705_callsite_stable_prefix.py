@@ -39,7 +39,7 @@ from unittest.mock import patch
 
 import pytest
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -105,7 +105,7 @@ def _isolate_fn_body(module, fn_name: str) -> str:
 
 
 def _build_validation(tmp_path: Path, *, question: str, cycle: int = 1):
-    from phase_5_implement import _build_validation_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _build_validation_prompt  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     _seed_injection(scratchpad)
@@ -141,7 +141,7 @@ def test_AC2v_validation_prompt_stays_full_and_callsite_wired(tmp_path):
     r = _build_validation(tmp_path, question="Add foo to bar")
     sp = _get_sp(r)
     assert sp in r.data["prompt"], "AC2v: builder must not subtract stable_prefix from prompt"
-    import phase_5_implement as _p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as _p5  # noqa: PLC0415
     body = _isolate_fn_body(_p5, "_invoke_validation_llm")
     assert 'stable_prefix=prev.data.get("stable_prefix"' in body, (
         "AC2v: _invoke_validation_llm must pass "
@@ -163,7 +163,7 @@ def test_AC3v_validation_retry_idempotent(tmp_path):
 
 
 def _build_synthesizer(tmp_path: Path, *, question: str):
-    from phase_7_synthesize import _build_synthesizer_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_7_synthesize import _build_synthesizer_prompt  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     _seed_injection(scratchpad)
@@ -188,7 +188,7 @@ def test_AC2s_synthesizer_prompt_stays_full_and_callsite_wired(tmp_path):
     r = _build_synthesizer(tmp_path, question="Add foo to bar")
     sp = _get_sp(r)
     assert sp in r.data["prompt"], "AC2s: builder must not subtract stable_prefix from prompt"
-    import phase_7_synthesize as _p7  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_7_synthesize as _p7  # noqa: PLC0415
     body = _isolate_fn_body(_p7, "_invoke_synthesizer_llm")
     assert 'stable_prefix=prev.data.get("stable_prefix"' in body, (
         "AC2s: _invoke_synthesizer_llm must pass "
@@ -218,7 +218,7 @@ def _seed_last_findings(scratchpad: Path) -> None:
 
 
 def _build_review(tmp_path: Path, *, question: str, with_prior_findings: bool = False):
-    from phase_6_review import _build_review_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _build_review_prompt  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     _seed_injection(scratchpad)
@@ -245,7 +245,7 @@ def test_AC2r_review_prompt_stays_full_and_callsite_wired(tmp_path):
     r = _build_review(tmp_path, question="Add foo to bar")
     sp = _get_sp(r)
     assert sp in r.data["prompt"], "AC2r: builder must not subtract stable_prefix from prompt"
-    import phase_6_review as _p6  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: PLC0415
     body = _isolate_fn_body(_p6, "_invoke_review_llm")
     assert 'stable_prefix=prev.data.get("stable_prefix"' in body, (
         "AC2r: _invoke_review_llm must pass "
@@ -270,7 +270,7 @@ def test_AC3r_review_retry_idempotent_with_prior_findings(tmp_path):
 
 
 def _write_prev_spec(scratchpad: Path) -> None:
-    from phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
 
     spec_path = scratchpad / SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -278,7 +278,7 @@ def _write_prev_spec(scratchpad: Path) -> None:
 
 
 def _build_spec_cycle1(tmp_path: Path, *, question: str, monkeypatch):
-    from phase_45_spec import _build_spec_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: PLC0415
 
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     scratchpad = tmp_path / "scratch"
@@ -304,7 +304,7 @@ def test_AC2p_spec_writer_prompt_stays_full_and_callsite_wired(tmp_path, monkeyp
     r = _build_spec_cycle1(tmp_path, question="Add foo to bar", monkeypatch=monkeypatch)
     sp = _get_sp(r)
     assert sp in r.data["prompt"], "AC2p: builder must not subtract stable_prefix from prompt"
-    import phase_45_spec as _p45  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_45_spec as _p45  # noqa: PLC0415
     body = _isolate_fn_body(_p45, "_invoke_spec_llm")
     assert 'stable_prefix=prev.data.get("stable_prefix"' in body, (
         "AC2p: _invoke_spec_llm must pass "
@@ -315,7 +315,7 @@ def test_AC2p_spec_writer_prompt_stays_full_and_callsite_wired(tmp_path, monkeyp
 def test_AC3p_spec_writer_delta_branches_leave_stable_prefix_unset(tmp_path, monkeypatch):
     """Both cycle>=2 early-return branches (surgical-revise, delta-retry) must
     leave stable_prefix UNSET (inert / back-compat)."""
-    from phase_45_spec import _build_spec_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: PLC0415
 
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
@@ -369,15 +369,15 @@ def test_AC3p_spec_writer_delta_branches_leave_stable_prefix_unset(tmp_path, mon
 
 
 def _build_integrity(tmp_path: Path, *, question: str, diff_text: str):
-    from phase_5_integrity import _build_integrity_prompt  # noqa: PLC0415
-    from lib.git_port import GitResult  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _build_integrity_prompt  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import GitResult  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     _seed_injection(scratchpad)
     ctx = _make_ctx(scratchpad, question=question)
     fake_result = GitResult(returncode=0, stdout=diff_text, stderr="", timed_out=False)
     # Mock the DEPENDENCY (git_port.git_read), never the builder UUT.
-    with patch("phase_5_integrity.git_port.git_read", return_value=fake_result):
+    with patch("bytedigger_engine.workflows.phase_5_integrity.git_port.git_read", return_value=fake_result):
         return _build_integrity_prompt(ctx, None)
 
 
@@ -413,7 +413,7 @@ def test_AC1i_integrity_helper_call_invariant_long_and_unique_substring(tmp_path
         f"AC1i: stable_prefix must occur exactly once in prev.data['prompt']; "
         f"got count={r1.data['prompt'].count(sp1)}"
     )
-    import phase_5_integrity as _p5i  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_integrity as _p5i  # noqa: PLC0415
     assert callable(getattr(_p5i, "_integrity_stable_prefix", None)), (
         "AC1i: phase_5_integrity._integrity_stable_prefix must be a callable, zero-arg helper"
     )
@@ -426,7 +426,7 @@ def test_AC2i_integrity_prompt_stays_full_and_callsite_wired(tmp_path):
     r = _build_integrity(tmp_path, question="Add foo to bar", diff_text=_FAKE_DIFF_1)
     sp = _get_sp(r)
     assert sp in r.data["prompt"], "AC2i: builder must not subtract stable_prefix from prompt"
-    import phase_5_integrity as _p5i  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_integrity as _p5i  # noqa: PLC0415
     body = _isolate_fn_body(_p5i, "_invoke_integrity_llm")
     assert 'stable_prefix=prev.data.get("stable_prefix"' in body, (
         "AC2i: _invoke_integrity_llm must pass "
@@ -435,7 +435,7 @@ def test_AC2i_integrity_prompt_stays_full_and_callsite_wired(tmp_path):
 
 
 def test_AC4i_integrity_no_changes_leaves_stable_prefix_unset(tmp_path):
-    from phase_5_integrity import VERDICT_NO_CHANGES  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import VERDICT_NO_CHANGES  # noqa: PLC0415
 
     r = _build_integrity(tmp_path, question="Add foo to bar", diff_text="")
     assert r.data.get("verdict_override") == VERDICT_NO_CHANGES, (

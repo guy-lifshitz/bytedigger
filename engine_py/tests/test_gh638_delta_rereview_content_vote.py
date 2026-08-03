@@ -23,7 +23,7 @@ import pytest
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from lib.plugins.checklist_convergence.delta_reviewer_prompt import (  # noqa: E402
+from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import (  # noqa: E402
     build_delta_reviewer_prompt,
     extract_affected_sections,
 )
@@ -49,7 +49,7 @@ FINDINGS_TWO = [
 
 
 def test_ac1_map_findings_to_patches_keys_every_finding_unkeyed_is_empty_list():
-    from lib.plugins.checklist_convergence.delta_reviewer_prompt import (
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import (
         map_findings_to_patches,
     )
 
@@ -69,7 +69,7 @@ def test_ac1_map_findings_to_patches_keys_every_finding_unkeyed_is_empty_list():
 
 
 def test_ac2_bundled_patch_grouped_under_keyed_finding_and_appears_in_prompt():
-    from lib.plugins.checklist_convergence.delta_reviewer_prompt import (
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import (
         map_findings_to_patches,
     )
 
@@ -90,7 +90,7 @@ def test_ac2_bundled_patch_grouped_under_keyed_finding_and_appears_in_prompt():
 
 
 def test_ac3_int_str_id_mismatch_still_matches_string_normalized():
-    from lib.plugins.checklist_convergence.delta_reviewer_prompt import (
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import (
         map_findings_to_patches,
     )
 
@@ -197,7 +197,7 @@ def test_ac10_bundling_end_to_end_no_hardcoded_unresolved_for_unkeyed_finding():
 
 
 def test_ac11_entry_path_agnostic_idempotent_output():
-    from lib.plugins.checklist_convergence.delta_reviewer_prompt import (
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import (
         map_findings_to_patches,
     )
 

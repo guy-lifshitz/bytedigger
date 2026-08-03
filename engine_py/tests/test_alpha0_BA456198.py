@@ -18,11 +18,10 @@ from unittest.mock import MagicMock, patch
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult  # noqa: E402
-from phase_45_spec_lite import _review_output_schema as lite_schema, _write_review_doc as lite_write  # noqa: E402
-from phase_45_spec import _review_output_schema as feature_schema  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec_lite import _review_output_schema as lite_schema, _write_review_doc as lite_write  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec import _review_output_schema as feature_schema  # noqa: E402
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -197,7 +196,7 @@ def test_lite_emits_findings_block_compliance_when_json_present(tmp_path):
     mock_run.run_id = "test-run"
 
     prev = _make_review_prev(tmp_path, _REVIEW_WITH_JSON, cycle=1)
-    with patch("phase_45_spec_lite.telemetry_ctx") as mock_ctx:
+    with patch("bytedigger_engine.workflows.phase_45_spec_lite.telemetry_ctx") as mock_ctx:
         mock_ctx.get_current_run.return_value = mock_run
         lite_write(None, prev)
 
@@ -221,7 +220,7 @@ def test_lite_emits_findings_block_compliance_when_json_absent(tmp_path):
     mock_run.run_id = "test-run"
 
     prev = _make_review_prev(tmp_path, _REVIEW_WITHOUT_JSON, cycle=1)
-    with patch("phase_45_spec_lite.telemetry_ctx") as mock_ctx:
+    with patch("bytedigger_engine.workflows.phase_45_spec_lite.telemetry_ctx") as mock_ctx:
         mock_ctx.get_current_run.return_value = mock_run
         lite_write(None, prev)
 
@@ -237,7 +236,7 @@ def test_lite_emits_findings_block_compliance_when_json_absent(tmp_path):
 
 def test_feature_emits_findings_block_compliance(tmp_path):
     """FAILS today: phase_45_spec._write_review_doc has no telemetry_ctx import or emit."""
-    from phase_45_spec import _write_review_doc as feature_write  # noqa: E402
+    from bytedigger_engine.workflows.phase_45_spec import _write_review_doc as feature_write  # noqa: E402
     captured = []
 
     mock_run = MagicMock()
@@ -247,7 +246,7 @@ def test_feature_emits_findings_block_compliance(tmp_path):
     mock_run.run_id = "test-run"
 
     prev = _make_review_prev(tmp_path, _REVIEW_WITH_JSON, cycle=1)
-    with patch("phase_45_spec.telemetry_ctx") as mock_ctx:
+    with patch("bytedigger_engine.workflows.phase_45_spec.telemetry_ctx") as mock_ctx:
         mock_ctx.get_current_run.return_value = mock_run
         feature_write(None, prev)
 

@@ -18,11 +18,10 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_5_implement  # noqa: E402
-from phase_5_implement import _verify_red_fails_mechanically  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically  # noqa: E402
 
 
 def _make_ctx(tmp_path: Path) -> WorkflowContext:

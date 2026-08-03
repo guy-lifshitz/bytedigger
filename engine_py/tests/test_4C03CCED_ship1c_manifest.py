@@ -23,7 +23,7 @@ Agreement: 4C03CCED (parent SYSTEMATIC — Runner contract, sub-ship 1C of 4)
   force per-element type checking beyond isinstance(_, list).
 
 Pre-GREEN FAIL reasons per test (isolation-forcing):
-  - AC1: ImportError on 'from llm_subprocess import _validate_manifest_or_raise'
+  - AC1: ImportError on 'from bytedigger_engine.llm_subprocess import _validate_manifest_or_raise'
   - AC2: same ImportError
   - AC3: ImportError on manifest_from_result; also grep assertion on accessor count
   - AC4: ImportError on manifest_from_result at consumer site; or if import is
@@ -52,13 +52,11 @@ ENGINE_ROOT = HERE.parent
 
 # engine_py/ on sys.path — grandfathered pattern shared by all sibling tests
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # These imports will trigger ImportError pre-GREEN (symbols not defined yet).
 # That ImportError IS the RED signal — correct behavior.
-import llm_subprocess as _llm_module  # noqa: E402
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine import llm_subprocess as _llm_module  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     _validate_manifest_or_raise,
     _ManifestMissingError,
     _ManifestMalformedError,
@@ -69,8 +67,8 @@ from llm_subprocess import (  # noqa: E402
     manifest_from_result,
     invoke_llm_subprocess,
 )
-from contracts import StepResult  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +134,7 @@ def _init_git_repo(repo: Path) -> str:
 
 def _make_ctx_from_repo(repo: Path, scratchpad: Path) -> "WorkflowContext":
     """Build a minimal WorkflowContext pointing at the real repo."""
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
     return WorkflowContext(
         tenant_id="hal",
         scope=None,
@@ -231,7 +229,7 @@ def test_AC3_manifest_from_result_replaces_legacy_pattern_in_workflows() -> None
     §1l AC4 + AC3 paired: AC3 gates the accessor INVOCATION; AC4 gates the
     git mutation. Both must PASS for the swap to be complete.
     """
-    workflows_dir = ENGINE_ROOT / "workflows"
+    workflows_dir = ENGINE_ROOT / "bytedigger_engine" / "workflows"
     assert workflows_dir.is_dir(), f"AC3: workflows dir not found at {workflows_dir}"
 
     workflow_files = list(workflows_dir.glob("*.py"))
@@ -295,8 +293,8 @@ def test_AC4_F9F7E4FD_canary_commit_gates_exactly_AB_from_manifest(
     §1m compliance: real files written via Path.write_text().
     §1j compliance: os.path.realpath() applied to tmp_path for macOS symlink resolution.
     """
-    from phase_5_implement import _commit_green_code
-    import phase_5_implement
+    from bytedigger_engine.workflows.phase_5_implement import _commit_green_code
+    from bytedigger_engine.workflows import phase_5_implement
 
     # §1j — macOS /var/folders symlink resolution
     repo = Path(os.path.realpath(str(tmp_path / "repo")))
@@ -422,7 +420,7 @@ def test_AC5_capability_probe_returns_E_LLM_BACKEND_NO_MANIFEST(
     # Mock Popen to catch any accidental subprocess spawn
     popen_mock = MagicMock()
 
-    with patch("llm_subprocess.subprocess.Popen", popen_mock):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", popen_mock):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",

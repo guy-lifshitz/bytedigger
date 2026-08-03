@@ -25,7 +25,7 @@ import pytest
 # sys.path is managed by conftest.py (conftest-import-time singleton, §1q/81F97F3D).
 # Do NOT add sys.path manipulation here.
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ def test_validation_prompt_contains_graph_first_protocol_and_query(tmp_path):
 
     FAILS RED: the directive is not yet present in _build_validation_prompt.
     """
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _prev_for_build_validation_prompt(tmp_path)
@@ -137,7 +137,7 @@ def test_validation_prompt_contains_graphify_path_and_affected(tmp_path):
 
     FAILS RED: these verbs are absent in the current prompt.
     """
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _prev_for_build_validation_prompt(tmp_path)
@@ -164,7 +164,7 @@ def test_validation_prompt_contains_graph_first_evidence(tmp_path):
 
     FAILS RED: the evidence reporting sub-line is absent.
     """
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _prev_for_build_validation_prompt(tmp_path)
@@ -191,13 +191,13 @@ def test_invoke_validation_llm_allowed_tools_contains_bash_graphify_shim(tmp_pat
     FAILS RED: current prod passes allowed_tools=["Read"] only.
     Patch target: phase_5_implement.invoke_llm_subprocess (import boundary).
     """
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _prev_for_invoke_validation_llm(tmp_path)
     mock_invoke = _mock_invoke_ok()
 
-    with patch("phase_5_implement.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", mock_invoke):
         phase_5_implement._invoke_validation_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -227,13 +227,13 @@ def test_invoke_validation_llm_allowed_tools_contains_read(tmp_path):
     NOTE: This test is expected to PASS today (pre-GREEN). It protects the
     'Read' tool from being accidentally dropped during GREEN.
     """
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _prev_for_invoke_validation_llm(tmp_path)
     mock_invoke = _mock_invoke_ok()
 
-    with patch("phase_5_implement.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", mock_invoke):
         phase_5_implement._invoke_validation_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -261,13 +261,13 @@ def test_invoke_validation_llm_allowed_tools_does_not_contain_write(tmp_path):
     NOTE: This test is expected to PASS today (pre-GREEN). It guards against
     'Write' being inadvertently added during GREEN.
     """
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _prev_for_invoke_validation_llm(tmp_path)
     mock_invoke = _mock_invoke_ok()
 
-    with patch("phase_5_implement.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", mock_invoke):
         phase_5_implement._invoke_validation_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -295,13 +295,13 @@ def test_invoke_validation_llm_hard_gate_is_true(tmp_path):
     NOTE: This test is expected to PASS today (pre-GREEN). It anchors the
     Opus gate invariant.
     """
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     ctx = _make_ctx(tmp_path)
     prev = _prev_for_invoke_validation_llm(tmp_path)
     mock_invoke = _mock_invoke_ok()
 
-    with patch("phase_5_implement.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", mock_invoke):
         phase_5_implement._invoke_validation_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (

@@ -40,8 +40,6 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 
 # ─── git repo helpers (mirrors test_4961254A_commit_manifest_inversion.py) ────
@@ -87,7 +85,7 @@ def _make_repo_with_base_commit(tmp_path: Path) -> tuple[Path, str]:
 
 
 def _make_ctx(scratchpad: Path, git_cwd: str, **org_extra):
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
     org = {"scratchpad_dir": str(scratchpad), "git_cwd": git_cwd, **org_extra}
     return WorkflowContext(
         tenant_id="hal",
@@ -117,7 +115,7 @@ class TestPathsHaveStagedChangesCentralized:
     def test_ac1_paths_have_staged_changes_centralized(self, tmp_path) -> None:
         """AC1: deferred import from phase_workflows_common; staged->True, clean->False."""
         try:
-            from phase_workflows_common import _paths_have_staged_changes  # type: ignore[import]
+            from bytedigger_engine.workflows.phase_workflows_common import _paths_have_staged_changes  # type: ignore[import]
         except ImportError as exc:
             pytest.fail(
                 f"_paths_have_staged_changes not yet centralized in "
@@ -147,14 +145,14 @@ class TestPathsHaveStagedChangesClosure:
 
     def test_ac2_phase5_local_def_removed_attr_still_resolves(self) -> None:
         """AC2: phase_5_implement.py source has NO local def; import binding still works."""
-        src_path = ENGINE_ROOT / "workflows" / "phase_5_implement.py"
+        src_path = ENGINE_ROOT / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
         src_text = src_path.read_text()
         assert "def _paths_have_staged_changes" not in src_text, (
             "phase_5_implement.py must not define _paths_have_staged_changes "
             "locally after §2.1 centralization (3F5599A6)"
         )
 
-        import phase_5_implement  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_5_implement  # type: ignore[import]
 
         assert hasattr(phase_5_implement, "_paths_have_staged_changes"), (
             "phase_5_implement must still expose _paths_have_staged_changes "
@@ -172,8 +170,8 @@ class TestCommitFixCodeNoopGuard:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC3: manifest=['src/f.py'] committed & unchanged -> ok, sha==pre-call HEAD, 1 noop event."""
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "src/f.py", "# f\n", "add f")
@@ -228,8 +226,8 @@ class TestCommitFixCodeNoopGuard:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC4: noop + 1 extra untracked off-manifest file -> n_working_tree_changes >= 1."""
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "src/f.py", "# f\n", "add f")
@@ -276,8 +274,8 @@ class TestCommitFixTestsNoopGuard:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC5: manifest=['tests/test_f.py'] unchanged -> ok, sha==HEAD, step=='commit_fix_tests'."""
-        from phase_6_review import _commit_fix_tests  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_tests  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "tests/test_f.py", "def test_f(): pass\n", "add test_f")
@@ -329,8 +327,8 @@ class TestCommitFixCodeNonNoopPin:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC6: modified manifest prod path -> HEAD advances, fix_commit emitted, no noop, sidecar==HEAD."""
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "src/f.py", "# f\n", "add f")
@@ -389,7 +387,7 @@ class TestAssertCleanTreeClean:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC7: deferred presence gate; clean repo -> True, no fix_commit_dirty_residue."""
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         if not hasattr(phase_6_review, "_assert_clean_tree"):
             pytest.fail(
@@ -425,7 +423,7 @@ class TestAssertCleanTreeDirty:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC8: tracked src/f.py modified uncommitted -> False + 1 fix_commit_dirty_residue."""
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         if not hasattr(phase_6_review, "_assert_clean_tree"):
             pytest.fail(
@@ -468,7 +466,7 @@ class TestAssertCleanTreeNonexistentDir:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC9: nonexistent dir -> degrades to True (fail-open observability), never raises."""
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         if not hasattr(phase_6_review, "_assert_clean_tree"):
             pytest.fail(
@@ -506,8 +504,8 @@ class TestAssertCleanTreeWiringFixCode:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC10: success path calls _assert_clean_tree(prod_paths, git_cwd, step_name='commit_fix_code')."""
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "src/f.py", "# f\n", "add f")
@@ -564,8 +562,8 @@ class TestAssertCleanTreeWiringFixTests:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC11: success path calls _assert_clean_tree(test_paths, git_cwd, step_name='commit_fix_tests')."""
-        from phase_6_review import _commit_fix_tests  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_tests  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         pre_sha = _commit_file(repo, "tests/test_f.py", "def test_f(): pass\n", "add test_f")
@@ -618,8 +616,8 @@ class TestDeletionCommitClosureEvidence:
     ) -> None:
         """AC12: base commit has src/gone.py; os.remove; manifest=['src/gone.py'] ->
         ok, HEAD advances, git show HEAD:src/gone.py fails (deletion committed)."""
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         gone_sha = _commit_file(repo, "src/gone.py", "# gone\n", "add gone")
@@ -668,7 +666,7 @@ class TestPathsHaveStagedChangesReturncodeGuardPin:
     def test_ac13_returncode_guard_pinned_at_new_home(self) -> None:
         """AC13: def _paths_have_staged_changes exists in phase_workflows_common.py
         and its body still references returncode (9EDB7588 guard preserved verbatim)."""
-        import phase_workflows_common
+        from bytedigger_engine.workflows import phase_workflows_common
 
         source = Path(phase_workflows_common.__file__).read_text(encoding="utf-8")
 

@@ -27,7 +27,7 @@ Pre-GREEN PASS/FAIL classification (§3):
 
 D1CF5FDF: not-yet-existing symbols accessed via getattr(git_diff, "name") INSIDE
 test bodies, NEVER at module top level.  Module-level
-`import lib.plugins.disk_truth.git_diff as git_diff` is safe because the module
+`import bytedigger_engine.lib.plugins.disk_truth.git_diff as git_diff` is safe because the module
 already exists.
 
 §1i (workflows.md §1i — Singleton-resource tests pre-stage state, never race):
@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import lib.plugins.disk_truth.git_diff as git_diff  # module already exists; safe at top level
+from bytedigger_engine.lib.plugins.disk_truth import git_diff as git_diff  # module already exists; safe at top level
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -423,7 +423,7 @@ def test_ac9_private_helpers_remain_module_level_callables() -> None:
 def test_ac10_init_py_reexports_new_seam_symbols() -> None:
     """AC10: GitDiffPort, get_git_diff, set_default_git_diff_factory, reset_default_git_diff_factory are importable from the package."""
     # Import from the package (not the submodule directly)
-    import lib.plugins.disk_truth as disk_truth_pkg
+    from bytedigger_engine.lib.plugins import disk_truth as disk_truth_pkg
 
     GitDiffPort = getattr(disk_truth_pkg, "GitDiffPort", None)
     assert GitDiffPort is not None, (

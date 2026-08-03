@@ -17,11 +17,10 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from phase_8_post_deploy import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows.phase_8_post_deploy import (  # noqa: E402
     CLEANUP_REPORT_RELPATH,
     phase_8_post_deploy_workflow,
 )
@@ -128,7 +127,7 @@ def test_preserve_events_log_copy_failure_graceful(tmp_path):
     eng = WorkflowEngine()
     eng.register("p8", phase_8_post_deploy_workflow())
 
-    with patch("phase_8_post_deploy.shutil.copy2", side_effect=OSError("simulated")):
+    with patch("bytedigger_engine.workflows.phase_8_post_deploy.shutil.copy2", side_effect=OSError("simulated")):
         result, _ = eng.execute("p8", make_ctx(scratchpad, working_dir=working_dir))
 
     report = scratchpad / CLEANUP_REPORT_RELPATH

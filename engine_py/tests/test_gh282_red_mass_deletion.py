@@ -27,19 +27,17 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # These already exist — safe to import at module top level.
-from phase_5_implement import _commit_red_tests  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 def _get_violations_fn():
     """§1q-ext presence gate: resolve the not-yet-existing helper at call
     time so the module COLLECTS cleanly before GREEN. Fails the calling
     assertion (not collection) when the helper is absent."""
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
 
     fn = getattr(phase_5_implement, "_red_mass_deletion_violations", None)
     if fn is None:
@@ -263,7 +261,7 @@ class TestCommitRedTestsMassDeletionGate:
     ) -> None:
         """AC6: enforce unset (warn-only default) -> status ok, commit created,
         red_mass_deletion_check event violations_n=1 enforced=False."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, spec_file = self._setup_mass_deletion_repo(tmp_path)
         pre_head = _head_sha(repo)
@@ -296,7 +294,7 @@ class TestCommitRedTestsMassDeletionGate:
     ) -> None:
         """AC7: HAL_RED_MASS_DELETION_ENFORCE=1 -> status error,
         error_code E_RED_MASS_DELETION, recoverable False, HEAD unchanged."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, spec_file = self._setup_mass_deletion_repo(tmp_path)
         pre_head = _head_sha(repo)
@@ -327,7 +325,7 @@ class TestCommitRedTestsMassDeletionGate:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """AC8: enforced violation also emits red_mass_deletion_blocked."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, spec_file = self._setup_mass_deletion_repo(tmp_path)
 
@@ -355,7 +353,7 @@ class TestCommitRedTestsMassDeletionGate:
     ) -> None:
         """AC9: HAL_RED_MASS_DELETION_GATE=0 -> no red_mass_deletion_check event,
         commit proceeds ok even though enforce=1 (gate short-circuits entirely)."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         assert getattr(phase_5_implement, "_red_mass_deletion_violations", None) is not None, (
             "GH282 helper not implemented yet"
@@ -388,7 +386,7 @@ class TestCommitRedTestsMassDeletionGate:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """AC10: new test file only, no deletions -> ok, check event violations_n=0."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo = _make_repo(tmp_path)
         _add_untracked(repo, "tests/newclean.py", "def test_ok(): assert True\n")
@@ -425,7 +423,7 @@ class TestFlagsCatalogRegistration:
     def test_all_three_flags_registered_with_correct_kind(self) -> None:
         """AC11: flags_catalog.FLAGS has all 3 HAL_RED_MASS_DELETION_* tokens
         with kind gate/flag/int respectively."""
-        import flags_catalog
+        from bytedigger_engine import flags_catalog
 
         expected = {
             "HAL_RED_MASS_DELETION_GATE": "gate",

@@ -42,14 +42,10 @@ ENGINE_ROOT = HERE.parent
 # Grandfathered sys.path pattern — matches all sibling tests in this directory.
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "workflows") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
 
 # Top-level imports of already-existing symbols only.
-from llm_subprocess import _invoke_in_session, _is_opus_model  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import _invoke_in_session, _is_opus_model  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +111,7 @@ def test_ac2_hard_gate_forwarded_through_invoke_in_session(
     Pre-GREEN FAIL: _invoke_in_session doesn't accept hard_gate → TypeError,
     OR (if somehow piped through) wouldn't gate on in-session path.
     """
-    import llm_subprocess as _llm_mod
+    from bytedigger_engine import llm_subprocess as _llm_mod
 
     # Set up request dir + RunContext.
     request_dir = tmp_path / "requests"
@@ -214,7 +210,7 @@ def test_ac3_helper_sonnet_dispatched_returns_downgrade_error() -> None:
     Pre-GREEN FAIL: ImportError — _assert_in_session_model_or_downgrade does not exist.
     """
     # Deferred import per §1q (D1CF5FDF): symbol does not exist yet.
-    from llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
 
     result_obj = {
         "subtype": "success",
@@ -257,7 +253,7 @@ def test_ac4_helper_missing_dispatched_model_returns_downgrade_error() -> None:
 
     Pre-GREEN FAIL: ImportError — helper does not exist.
     """
-    from llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
 
     result_obj = {
         "subtype": "success",
@@ -294,7 +290,7 @@ def test_ac5_helper_opus_dispatched_returns_none() -> None:
 
     Pre-GREEN FAIL: ImportError — helper does not exist.
     """
-    from llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
 
     result_obj = {
         "subtype": "success",
@@ -328,7 +324,7 @@ def test_ac6_helper_hard_gate_false_returns_none() -> None:
 
     Pre-GREEN FAIL: ImportError — helper does not exist.
     """
-    from llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
 
     result_obj = {
         "subtype": "success",
@@ -362,7 +358,7 @@ def test_ac7_error_stepresult_data_fields_ac3_sonnet() -> None:
 
     Pre-GREEN FAIL: ImportError — helper does not exist.
     """
-    from llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
 
     pinned = "opus"
     result_obj = {
@@ -400,7 +396,7 @@ def test_ac7_error_stepresult_data_fields_ac4_none_model() -> None:
 
     Pre-GREEN FAIL: ImportError — helper does not exist.
     """
-    from llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _assert_in_session_model_or_downgrade  # type: ignore[attr-defined]
 
     pinned = "opus"
     result_obj = {

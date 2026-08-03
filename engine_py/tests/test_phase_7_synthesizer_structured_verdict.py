@@ -12,12 +12,10 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_7_synthesize  # noqa: E402
-from phase_7_synthesize import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_7_synthesize  # noqa: E402
+from bytedigger_engine.workflows.phase_7_synthesize import (  # noqa: E402
     REPORT_DOC_RELPATH,
     SPEC_DOC_RELPATH,
     REVIEW_DOC_RELPATH,
@@ -117,12 +115,12 @@ def _no_op_disk_truth(monkeypatch) -> None:
 def test_ac1_synthesizer_verdict_importable_and_has_correct_fields():
     """AC1: SynthesizerVerdict exists as a dataclass with synthesized: bool,
     needs_context: bool, concerns: List[dict]; importable via
-    `from plugins.disk_truth import SynthesizerVerdict`.
+    `from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict`.
 
     FAILS today: SynthesizerVerdict does not exist in schema.py / __init__.py.
     """
     import dataclasses
-    from plugins.disk_truth import SynthesizerVerdict  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict  # type: ignore[attr-defined]
 
     assert dataclasses.is_dataclass(SynthesizerVerdict), "SynthesizerVerdict must be a dataclass"
     fields = {f.name: f for f in dataclasses.fields(SynthesizerVerdict)}
@@ -145,7 +143,7 @@ def test_ac2_enforce_synthesizer_verdict_happy_path():
 
     FAILS today: SynthesizerVerdict not yet defined.
     """
-    from plugins.disk_truth import SynthesizerVerdict, enforce  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict, enforce  # type: ignore[attr-defined]
 
     result = enforce({"synthesized": True, "needs_context": False, "concerns": []}, SynthesizerVerdict)
     assert isinstance(result, SynthesizerVerdict)
@@ -160,7 +158,7 @@ def test_ac2_enforce_synthesizer_verdict_strict_bool_rejects_int():
 
     FAILS today: SynthesizerVerdict not yet defined.
     """
-    from plugins.disk_truth import SynthesizerVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
 
     with pytest.raises(SchemaViolation):
         enforce({"synthesized": 1, "needs_context": False, "concerns": []}, SynthesizerVerdict)
@@ -172,7 +170,7 @@ def test_ac2_enforce_synthesizer_verdict_missing_concerns_raises():
 
     FAILS today: SynthesizerVerdict not yet defined.
     """
-    from plugins.disk_truth import SynthesizerVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
 
     with pytest.raises(SchemaViolation):
         enforce({"synthesized": True, "needs_context": False}, SynthesizerVerdict)
@@ -184,7 +182,7 @@ def test_ac2_enforce_synthesizer_verdict_unknown_field_raises():
 
     FAILS today: SynthesizerVerdict not yet defined.
     """
-    from plugins.disk_truth import SynthesizerVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
 
     with pytest.raises(SchemaViolation):
         enforce(
@@ -201,8 +199,8 @@ def test_ac3_parse_synthesizer_structured_happy_path():
 
     FAILS today: _parse_synthesizer_structured does not exist in phase_7_synthesize.
     """
-    from phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
-    from plugins.disk_truth import SynthesizerVerdict  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict  # type: ignore[attr-defined]
 
     raw = (
         "STATUS: DONE\n"
@@ -228,7 +226,7 @@ def test_ac4_parse_synthesizer_structured_no_block_returns_absent():
 
     FAILS today: _parse_synthesizer_structured does not exist.
     """
-    from phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
 
     verdict, reason = _parse_synthesizer_structured("STATUS: DONE")
     assert verdict is None
@@ -240,7 +238,7 @@ def test_ac4_parse_synthesizer_structured_empty_returns_absent():
 
     FAILS today: _parse_synthesizer_structured does not exist.
     """
-    from phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
 
     verdict, reason = _parse_synthesizer_structured("")
     assert verdict is None
@@ -252,7 +250,7 @@ def test_ac4_parse_synthesizer_structured_malformed_json_returns_malformed():
 
     FAILS today: _parse_synthesizer_structured does not exist.
     """
-    from phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
 
     raw = "## synthesizer-output (structured)\n```json\n{not json}\n```\n"
     verdict, reason = _parse_synthesizer_structured(raw)
@@ -266,7 +264,7 @@ def test_ac4_parse_synthesizer_structured_schema_violation_returns_schema_violat
 
     FAILS today: _parse_synthesizer_structured does not exist.
     """
-    from phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_structured  # type: ignore[attr-defined]
 
     raw = (
         "## synthesizer-output (structured)\n"
@@ -294,7 +292,7 @@ def test_ac5_structured_synthesized_true_returns_ok_with_event(tmp_path, monkeyp
     FAILS today: structured parsing not implemented; 'structured_verdict' key absent;
     no 'synth_structured_ok' event emitted.
     """
-    from plugins.disk_truth import SynthesizerVerdict  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import SynthesizerVerdict  # type: ignore[attr-defined]
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()

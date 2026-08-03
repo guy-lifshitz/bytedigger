@@ -22,7 +22,7 @@ _ENGINE_PY = _HERE.parent                 # engine_py/
 def _import_lib():
     """Import scan_forbidden_dynamic_import; deferred so collection never fails."""
     sys.path.insert(0, str(_ENGINE_PY))
-    from forbidden_import import scan_forbidden_dynamic_import
+    from bytedigger_engine.forbidden_import import scan_forbidden_dynamic_import
     return scan_forbidden_dynamic_import
 
 

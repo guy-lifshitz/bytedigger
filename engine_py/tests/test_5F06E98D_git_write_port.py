@@ -22,7 +22,7 @@ All tests FAIL today: git_write_port module does not yet exist (AC1–AC7 raise
 ImportError inside the test body); AC8 fails because the literals still live in
 phase_5/6 and git_write_port.py is absent.
 
-§1q / D1CF5FDF: "from lib import git_write_port" is deferred to INSIDE each test
+§1q / D1CF5FDF: "from bytedigger_engine.lib import git_write_port" is deferred to INSIDE each test
 function body — never at module top — so the file is COLLECTABLE before GREEN
 ships the module.  Phase_5/phase_6 imports (existing modules) happen at module top
 via sys.path, mirroring test_phase_5_implement_53BB3810.py.
@@ -37,11 +37,10 @@ from unittest import mock
 # ── sys.path bootstrap (mirrors 53BB3810 pattern) ─────────────────────────────
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 # Phase_5 / phase_6 import at module top (they already exist — no collection risk)
-import phase_5_implement  # noqa: E402
-import phase_6_review     # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review     # noqa: E402
 
 
 # ─── AC1 — GitWritePort is @runtime_checkable ─────────────────────────────────
@@ -53,7 +52,7 @@ def test_5f06e98d_ac1_git_write_port_is_runtime_checkable(tmp_path):
 
     FAILS today: lib/git_write_port.py does not exist → ImportError inside body.
     """
-    from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
 
     port_cls = git_write_port.GitWritePort
     concrete = git_write_port._GitWriteSubprocess()
@@ -74,7 +73,7 @@ def test_5f06e98d_ac2_set_factory_routes_delegator_to_fake(tmp_path):
 
     FAILS today: module absent → ImportError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     class _FakeWriter:
         def op_with_lock_retry(self, cmd, *, cwd, timeout=30):
@@ -102,7 +101,7 @@ def test_5f06e98d_ac3_reset_factory_restores_original(tmp_path):
 
     FAILS today: module absent → ImportError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     class _FakeWriter:
         def op_with_lock_retry(self, cmd, *, cwd, timeout=30):
@@ -129,7 +128,7 @@ def test_5f06e98d_ac4_timeout_rc124_returns_none_timeout(tmp_path):
 
     FAILS today: module absent → ImportError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     class _Rc124:
         returncode = 124
@@ -153,7 +152,7 @@ def test_5f06e98d_ac4_oserror_returns_none_os_error(tmp_path):
 
     FAILS today: module absent → ImportError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     with mock.patch.object(
         phase_5_implement.subprocess, "run", side_effect=OSError("git not found")
@@ -171,7 +170,7 @@ def test_5f06e98d_ac4_rc0_returns_result_ok(tmp_path):
 
     FAILS today: module absent → ImportError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     class _Rc0:
         returncode = 0
@@ -193,7 +192,7 @@ def test_5f06e98d_ac4_non_lock_error_returns_result_non_lock_error(tmp_path):
 
     FAILS today: module absent → ImportError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     class _RcNonLock:
         returncode = 1
@@ -227,7 +226,7 @@ def test_5f06e98d_ac5_persistent_lock_returns_lock_persisted_with_backoff(tmp_pa
 
     FAILS today: module absent → ImportError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     LOCK_STDERR = "fatal: Unable to create '.git/index.lock': File exists"
 
@@ -314,7 +313,7 @@ def test_5f06e98d_ac7_phase5_delegator_forwards_to_git_write_port(tmp_path):
     After GREEN: phase_5's body is a thin delegator; this assertion verifies
     round-trip equality with a Fake factory injected into both.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     class _FakeWriter:
         def op_with_lock_retry(self, cmd, *, cwd, timeout=30):
@@ -393,7 +392,7 @@ def test_5f06e98d_ac8_literals_present_in_git_write_port():
 
     FAILS today: git_write_port.py does not exist → FileNotFoundError.
     """
-    from lib import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     port_path = Path(git_write_port.__file__)
     port_src = port_path.read_text()

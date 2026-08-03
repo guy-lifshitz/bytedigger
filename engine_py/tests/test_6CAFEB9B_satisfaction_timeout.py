@@ -13,7 +13,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 # ---------------------------------------------------------------------------
 # AC1 — None cfg → 600 (regression guard / baseline)
@@ -22,7 +21,7 @@ sys.path.insert(0, str(HERE.parent / "workflows"))
 
 def test_ac1_none_cfg_returns_600() -> None:
     """AC1: _resolve_satisfaction_timeout_sec(None) → 600 == DEFAULT_SATISFACTION_TIMEOUT_SEC."""
-    from phase_6_review import _resolve_satisfaction_timeout_sec, DEFAULT_SATISFACTION_TIMEOUT_SEC  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _resolve_satisfaction_timeout_sec, DEFAULT_SATISFACTION_TIMEOUT_SEC  # noqa: PLC0415
 
     result = _resolve_satisfaction_timeout_sec(None)
     assert result == 600, f"Expected 600 for None cfg, got {result!r}"
@@ -36,7 +35,7 @@ def test_ac1_none_cfg_returns_600() -> None:
 
 def test_ac2_non_scaling_complexities_return_600() -> None:
     """AC2: {}, SIMPLE, UNKNOWN, empty string, None complexity → 600."""
-    from phase_6_review import _resolve_satisfaction_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _resolve_satisfaction_timeout_sec  # noqa: PLC0415
 
     for cfg in [
         {},
@@ -58,7 +57,7 @@ def test_ac2_non_scaling_complexities_return_600() -> None:
 
 def test_ac3_feature_complexity_returns_1000() -> None:
     """AC3: FEATURE → 1000 == DEFAULT_SATISFACTION_TIMEOUT_SEC_FEATURE; 'Feature' also → 1000."""
-    from phase_6_review import (  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import (  # noqa: PLC0415
         _resolve_satisfaction_timeout_sec,
         DEFAULT_SATISFACTION_TIMEOUT_SEC_FEATURE,
     )
@@ -80,7 +79,7 @@ def test_ac3_feature_complexity_returns_1000() -> None:
 
 def test_ac4_complex_complexity_returns_1500() -> None:
     """AC4: COMPLEX → 1500 == DEFAULT_SATISFACTION_TIMEOUT_SEC_COMPLEX; 'complex' also → 1500."""
-    from phase_6_review import (  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import (  # noqa: PLC0415
         _resolve_satisfaction_timeout_sec,
         DEFAULT_SATISFACTION_TIMEOUT_SEC_COMPLEX,
     )
@@ -102,7 +101,7 @@ def test_ac4_complex_complexity_returns_1500() -> None:
 
 def test_ac5_explicit_override_wins() -> None:
     """AC5: satisfaction_llm_timeout_sec override beats complexity default."""
-    from phase_6_review import _resolve_satisfaction_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _resolve_satisfaction_timeout_sec  # noqa: PLC0415
 
     result = _resolve_satisfaction_timeout_sec(
         {"complexity": "COMPLEX", "satisfaction_llm_timeout_sec": 777}
@@ -117,7 +116,7 @@ def test_ac5_explicit_override_wins() -> None:
 
 def test_ac6_invalid_override_edge_cases() -> None:
     """AC6: non-numeric override falls through; negative clamped to 1; zero is falsy → default."""
-    from phase_6_review import _resolve_satisfaction_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _resolve_satisfaction_timeout_sec  # noqa: PLC0415
 
     # Non-numeric string with COMPLEX complexity → falls through to 1500
     result_complex_invalid = _resolve_satisfaction_timeout_sec(
@@ -161,7 +160,7 @@ def test_ac6_invalid_override_edge_cases() -> None:
 
 def test_ac7_new_constants_present_and_correct() -> None:
     """AC7: DEFAULT_SATISFACTION_TIMEOUT_SEC==600, _FEATURE==1000, _COMPLEX==1500."""
-    from phase_6_review import (  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import (  # noqa: PLC0415
         DEFAULT_SATISFACTION_TIMEOUT_SEC,
         DEFAULT_SATISFACTION_TIMEOUT_SEC_FEATURE,
         DEFAULT_SATISFACTION_TIMEOUT_SEC_COMPLEX,
@@ -190,7 +189,7 @@ def test_ac8_call_site_wiring_in_phase_6_review() -> None:
     """AC8: call-site must be rewired to _resolve_satisfaction_timeout_sec(cfg);
     old int(cfg.get('satisfaction_llm_timeout_sec') or DEFAULT_SATISFACTION_TIMEOUT_SEC)
     must not appear anywhere in phase_6_review.py."""
-    prod_path = HERE.parent / "workflows" / "phase_6_review.py"
+    prod_path = HERE.parent / "bytedigger_engine" / "workflows" / "phase_6_review.py"
     source = prod_path.read_text(encoding="utf-8")
 
     # Call-site must carry the new helper

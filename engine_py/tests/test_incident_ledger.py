@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
-from engine import WorkflowEngine
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine.engine import WorkflowEngine
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ def _make_ctx(scratchpad_dir: "str | None" = None) -> WorkflowContext:
 # ─── AC1: full schema, single-record append ──────────────────────────────────
 
 def test_ac1_emit_incident_writes_one_valid_record_all_keys(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     emit_incident(
@@ -85,7 +85,7 @@ def test_ac1_emit_incident_writes_one_valid_record_all_keys(tmp_path):
 # ─── AC2: run_id falsy → suppress write entirely ─────────────────────────────
 
 def test_ac2_run_id_none_suppresses_write(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     emit_incident(
@@ -96,7 +96,7 @@ def test_ac2_run_id_none_suppresses_write(tmp_path):
 
 
 def test_ac2_run_id_empty_string_suppresses_write(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     emit_incident(
@@ -109,7 +109,7 @@ def test_ac2_run_id_empty_string_suppresses_write(tmp_path):
 # ─── AC3: non-writable parent → swallow, no raise ────────────────────────────
 
 def test_ac3_non_writable_parent_swallows_no_raise(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     blocker_file = Path(tmp_path).resolve() / "not_a_dir"
     blocker_file.write_text("i am a file, not a directory", encoding="utf-8")
@@ -126,7 +126,7 @@ def test_ac3_non_writable_parent_swallows_no_raise(tmp_path):
 # ─── AC4: byte-cap + error truncation ────────────────────────────────────────
 
 def test_ac4_long_error_truncated_record_still_written(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     long_error = "x" * 100_000
@@ -146,7 +146,7 @@ def test_ac4_long_error_truncated_record_still_written(tmp_path):
 
 
 def test_ac4_oversized_record_skipped_file_unchanged(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     huge_phase = "p" * 20_000  # forces total record > 4096 bytes even after error truncation
@@ -163,7 +163,7 @@ def test_ac4_oversized_record_skipped_file_unchanged(tmp_path):
 # ─── AC13: None error must not be dropped (null-guarded truncation) ─────────
 
 def test_ac13_error_none_still_writes_record(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     emit_incident(
@@ -180,7 +180,7 @@ def test_ac13_error_none_still_writes_record(tmp_path):
 # ─── AC5: env call-time seam (BD_INCIDENT_LOG) ───────────────────────────────
 
 def test_ac5_resolve_incident_log_path_honors_env_at_call_time(tmp_path, monkeypatch):
-    from lib.incident_ledger import resolve_incident_log_path  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import resolve_incident_log_path  # noqa: PLC0415
 
     seam_path = Path(tmp_path).resolve() / "seam" / "incidents.jsonl"
     # Set env AFTER import (call-time resolution, GH497-D1 parity).
@@ -195,8 +195,8 @@ def test_ac5_resolve_incident_log_path_honors_env_at_call_time(tmp_path, monkeyp
 # ─── AC6: default_incident_log_path foreign-root vs HAL-root split ──────────
 
 def test_ac6_default_path_foreign_cwd(tmp_path, monkeypatch):
-    from lib.incident_ledger import default_incident_log_path  # noqa: PLC0415
-    from config_provider import foreign_state_dirname  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import default_incident_log_path  # noqa: PLC0415
+    from bytedigger_engine.config_provider import foreign_state_dirname  # noqa: PLC0415
 
     monkeypatch.chdir(Path(tmp_path).resolve())
     result = default_incident_log_path()
@@ -207,8 +207,8 @@ def test_ac6_default_path_foreign_cwd(tmp_path, monkeypatch):
 
 
 def test_ac6_default_path_hal_root_uses_incident_log_relpath(monkeypatch):
-    from lib.incident_ledger import default_incident_log_path  # noqa: PLC0415
-    from config_provider import hal_root, incident_log_relpath  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import default_incident_log_path  # noqa: PLC0415
+    from bytedigger_engine.config_provider import hal_root, incident_log_relpath  # noqa: PLC0415
 
     try:
         root = hal_root()
@@ -226,7 +226,7 @@ def test_ac6_default_path_hal_root_uses_incident_log_relpath(monkeypatch):
 # ─── AC7: token rollup via events_path ───────────────────────────────────────
 
 def test_ac7_tokens_rollup_from_events_path(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     rows = [
@@ -259,7 +259,7 @@ def test_ac7_tokens_rollup_from_events_path(tmp_path):
 
 
 def test_ac7_malformed_events_path_tokens_none_record_still_written(tmp_path):
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     events_path.write_text("{ not valid json at all", encoding="utf-8")
@@ -420,7 +420,7 @@ def test_ac11_sentinel_replay_of_prior_ok_step_emits_zero_records(tmp_path, monk
 # ─── AC12: config_provider accessor default (neutral, .bytedigger seam) ──────
 
 def test_ac12_config_provider_default_incident_log_relpath():
-    import config_provider  # noqa: PLC0415
+    from bytedigger_engine import config_provider  # noqa: PLC0415
 
     # §1i: the default factory may already have been overridden by an
     # earlier test in this module — reset to the neutral factory BEFORE

@@ -14,10 +14,10 @@ from pathlib import Path
 
 # sys.path management is handled by conftest.py (conftest-import-time singleton,
 # §1q / 81F97F3D gate) — do NOT add sys.path.insert here.
-from contracts import WorkflowContext
-from engine import WorkflowEngine
-from event_log import EventLog
-from phase_05_inject import (
+from bytedigger_engine.contracts import WorkflowContext
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.event_log import EventLog
+from bytedigger_engine.workflows.phase_05_inject import (
     _detect_integration_triggers,
     phase_05_inject_workflow,
 )

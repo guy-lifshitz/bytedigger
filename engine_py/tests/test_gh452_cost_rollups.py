@@ -16,12 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-import telemetry_ctx
-from telemetry_ctx import _RunCtx
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
-from engine import WorkflowEngine
-from event_log import EventLog
-import llm_subprocess
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.telemetry_ctx import _RunCtx
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.event_log import EventLog
+from bytedigger_engine import llm_subprocess
 
 
 def make_ctx() -> WorkflowContext:
@@ -158,7 +158,7 @@ def test_ac5_compute_cost_rollup_aggregates_calls_phase_and_cycle(tmp_path):
     +other-run+malformed fixture -> calls=4, cost_usd=0.65,
     by_phase.p1.cost_usd=0.3, by_cycle."2".cost_usd=0.2, and the
     runner_result_consumed row is included in the aggregate."""
-    from lib.cost_rollup import compute_cost_rollup
+    from bytedigger_engine.lib.cost_rollup import compute_cost_rollup
 
     events_path = _write_ac5_fixture(tmp_path)
     rollup = compute_cost_rollup(events_path, "R")
@@ -177,7 +177,7 @@ def test_ac6_rows_without_cycle_bucket_unattributed_and_missing_file_returns_zer
     """AC6: rows lacking `cycle` bucket under by_cycle."unattributed"; a row
     with missing/None token fields counts as 0, does not raise, and IS
     counted in `calls`; missing file -> {calls:0, cost_usd:0.0, ...} no raise."""
-    from lib.cost_rollup import compute_cost_rollup
+    from bytedigger_engine.lib.cost_rollup import compute_cost_rollup
 
     events_path = tmp_path / "no_cycle_events.jsonl"
     row = {"run_id": "R2", "event_type": "subprocess_exited",
@@ -266,8 +266,8 @@ def test_ac8_workflow_finished_payload_keys_unchanged(tmp_path):
 def test_ac9_rollup_emit_failure_cannot_fail_the_run(monkeypatch, tmp_path):
     """AC9: monkeypatch compute_cost_rollup to raise -> engine.execute still
     returns and workflow_finished is still emitted."""
-    import lib.cost_rollup as cost_rollup_mod
-    import engine as engine_mod
+    from bytedigger_engine.lib import cost_rollup as cost_rollup_mod
+    from bytedigger_engine import engine as engine_mod
 
     def _boom(*_a, **_k):
         raise RuntimeError("boom")

@@ -6,7 +6,7 @@ Agreement: EECA708D  Date: 2026-06-14
 All 8 tests MUST FAIL until GREEN ships reject_log.py + two one-line wirings.
 
 DEFERRED-IMPORT RATIONALE (D1CF5FDF / §1q-ext):
-reject_log.py does NOT exist yet. A top-level `import reject_log` would make
+reject_log.py does NOT exist yet. A top-level `import bytedigger_engine.reject_log` would make
 this file non-collectable, causing a ~30-min engine hang. All imports of the
 UUT (reject_log) and the phase workflow modules are therefore placed INSIDE
 the test function body so collection succeeds and tests fail at runtime.
@@ -25,8 +25,6 @@ import pytest
 _ENGINE_ROOT = Path(__file__).resolve().parent.parent
 if str(_ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(_ENGINE_ROOT))
-if str(_ENGINE_ROOT / "workflows") not in sys.path:
-    sys.path.insert(0, str(_ENGINE_ROOT / "workflows"))
 
 
 # ---------------------------------------------------------------------------
@@ -38,8 +36,8 @@ def test_ac1_record_plan_review_reject_writes_correct_line(tmp_path: Path) -> No
     with phase=='phase_45_spec', reason_code=='PLAN_REVIEW_REVISE',
     axes==['§1w'], detail=={'cycle':2,'n_unresolved':3}.
     """
-    from reject_log import record_plan_review_reject  # deferred: module absent pre-GREEN
-    import telemetry_ctx
+    from bytedigger_engine.reject_log import record_plan_review_reject  # deferred: module absent pre-GREEN
+    from bytedigger_engine import telemetry_ctx
 
     p = tmp_path / "reject-reasons.jsonl"
     telemetry_ctx.set_current_run(event_log=None, run_id="ac1-run", step_name="test")
@@ -72,8 +70,8 @@ def test_ac2_record_satisfaction_reject_writes_correct_line(tmp_path: Path) -> N
     """AC2: record_satisfaction_reject appends one line with phase=='phase_6_review',
     reason_code passed through, axes==['§1o'], detail score/threshold correct.
     """
-    from reject_log import record_satisfaction_reject  # deferred
-    import telemetry_ctx
+    from bytedigger_engine.reject_log import record_satisfaction_reject  # deferred
+    from bytedigger_engine import telemetry_ctx
 
     p = tmp_path / "reject-reasons.jsonl"
     telemetry_ctx.set_current_run(event_log=None, run_id="ac2-run", step_name="test")
@@ -108,7 +106,7 @@ def test_ac3_extract_axes_dedup_and_edge_cases() -> None:
     """AC3: _extract_axes deduplicates preserving first-seen order; returns []
     for empty string and None.
     """
-    from reject_log import _extract_axes  # deferred
+    from bytedigger_engine.reject_log import _extract_axes  # deferred
 
     result = _extract_axes("must satisfy §1w and §1o and §1w again; §2.3 too")
     assert result == ["§1w", "§1o", "§2.3"], (
@@ -126,7 +124,7 @@ def test_ac4_emit_reject_reason_failsafe_on_unwritable_path(tmp_path: Path) -> N
     """AC4: emit_reject_reason returns None and raises NOTHING when the target
     path is unwritable (parent is a regular file, not a directory).
     """
-    from reject_log import emit_reject_reason  # deferred
+    from bytedigger_engine.reject_log import emit_reject_reason  # deferred
 
     # Make a regular FILE at the "parent directory" location so any attempt
     # to create the log file at that path (or create parent dirs) will fail.
@@ -156,7 +154,7 @@ def test_ac5_written_line_schema_keys_ts_format_byte_cap(tmp_path: Path) -> None
     """AC5: every written line has keys exactly {ts,build_id,phase,reason_code,axes,detail};
     ts matches ^\\d{4}-\\d{2}-\\d{2}T.*Z$; line <= 4096 bytes.
     """
-    from reject_log import emit_reject_reason  # deferred
+    from bytedigger_engine.reject_log import emit_reject_reason  # deferred
 
     p = tmp_path / "reject-reasons.jsonl"
     emit_reject_reason(
@@ -195,7 +193,7 @@ def test_ac5_written_line_schema_keys_ts_format_byte_cap(tmp_path: Path) -> None
 
 def test_ac6_run_id_explicit_overrides_ctx(tmp_path: Path) -> None:
     """AC6a: emit_reject_reason(..., run_id='r123') → build_id=='r123'."""
-    from reject_log import emit_reject_reason  # deferred
+    from bytedigger_engine.reject_log import emit_reject_reason  # deferred
 
     p = tmp_path / "reject-reasons.jsonl"
     emit_reject_reason(
@@ -219,11 +217,11 @@ def test_ac6_no_run_id_no_ctx_build_id_is_none(tmp_path: Path, monkeypatch) -> N
     returns None → build_id resolves to None and the write is SUPPRESSED
     entirely (no file/row created) — no more build_id=null prod-log rows.
     """
-    import telemetry_ctx  # exists pre-GREEN — safe to import at top of fn
+    from bytedigger_engine import telemetry_ctx  # exists pre-GREEN — safe to import at top of fn
     # Monkeypatch infra (not UUT) to return None
     monkeypatch.setattr(telemetry_ctx, "get_current_run", lambda: None)
 
-    from reject_log import emit_reject_reason  # deferred
+    from bytedigger_engine.reject_log import emit_reject_reason  # deferred
 
     p = tmp_path / "reject-reasons.jsonl"
     emit_reject_reason(
@@ -252,7 +250,7 @@ def test_ac7_phase_45_spec_wired_with_record_plan_review_reject() -> None:
     production source and asserts structural properties. Fails pre-GREEN (not
     wired yet). Passes post-GREEN.
     """
-    phase_45_path = _ENGINE_ROOT / "workflows" / "phase_45_spec.py"
+    phase_45_path = _ENGINE_ROOT / "bytedigger_engine" / "workflows" / "phase_45_spec.py"
     assert phase_45_path.exists(), f"phase_45_spec.py not found at {phase_45_path}"
 
     source = phase_45_path.read_text()
@@ -293,7 +291,7 @@ def test_ac8_phase_6_review_wired_with_record_satisfaction_reject() -> None:
 
     Deterministic source-grep forcing function (§1y §1aa). Fails pre-GREEN.
     """
-    phase6_path = _ENGINE_ROOT / "workflows" / "phase_6_review.py"
+    phase6_path = _ENGINE_ROOT / "bytedigger_engine" / "workflows" / "phase_6_review.py"
     assert phase6_path.exists(), f"phase_6_review.py not found at {phase6_path}"
 
     source = phase6_path.read_text()

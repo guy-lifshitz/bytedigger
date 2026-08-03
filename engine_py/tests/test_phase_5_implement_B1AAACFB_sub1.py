@@ -21,11 +21,11 @@ import pytest
 ENGINE_PY = Path(__file__).resolve().parent.parent
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-from contracts import StepResult, WorkflowContext  # type: ignore
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # type: ignore
 
 
 def _make_ctx(scratchpad: Path, *, git_cwd: str) -> WorkflowContext:
@@ -61,7 +61,7 @@ def _last_commit_msg(repo: Path) -> str:
 
 
 def test_commit_message_includes_branch_name(tmp_path):
-    from phase_5_implement import _commit_red_tests  # type: ignore
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # type: ignore
 
     repo = tmp_path / "repo"
     _init_repo(repo, branch="feat-xyz")
@@ -88,7 +88,7 @@ def test_commit_message_includes_branch_name(tmp_path):
 
 
 def test_commit_message_lists_test_basenames(tmp_path):
-    from phase_5_implement import _commit_red_tests  # type: ignore
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # type: ignore
 
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -118,7 +118,7 @@ def test_commit_message_lists_test_basenames(tmp_path):
 
 def test_commit_message_truncates_long_path_lists(tmp_path):
     """6+ paths → keep first 3 basenames + '...+N more'. Operators scan, not read."""
-    from phase_5_implement import _commit_red_tests  # type: ignore
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # type: ignore
 
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -155,7 +155,7 @@ def test_commit_message_canonical_subject_unchanged_5_or_fewer_paths(tmp_path):
     still match. Subject line = first line. Must start with
     'build: red cycle N tests'.
     """
-    from phase_5_implement import _commit_red_tests  # type: ignore
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # type: ignore
 
     repo = tmp_path / "repo"
     _init_repo(repo)

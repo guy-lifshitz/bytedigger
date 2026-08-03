@@ -33,7 +33,7 @@ import ast
 from pathlib import Path
 
 PHASE_6_REVIEW = (
-    Path(__file__).parent.parent / "workflows" / "phase_6_review.py"
+    Path(__file__).parent.parent / "bytedigger_engine" / "workflows" / "phase_6_review.py"
 )
 
 # Function names whose call sites we audit. Both flavours are listed for

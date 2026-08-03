@@ -35,8 +35,8 @@ _ENGINE_PY_ROOT = HERE.parent
 # sys.path (engine_py root + workflows/) is already set by conftest.py's
 # conftest-import-time singleton. Do NOT add sys.path.insert here.
 
-import config_provider  # noqa: E402
-from config_provider import (  # noqa: E402
+from bytedigger_engine import config_provider  # noqa: E402
+from bytedigger_engine.config_provider import (  # noqa: E402
     get_config,
     reset_default_config_provider_factory,
     set_default_config_provider_factory,
@@ -90,7 +90,7 @@ def test_ac1_neutral_provider_relpaths_derive_from_seam(_restore_provider):
 
 
 def test_ac3_event_log_default_path_uses_seam(tmp_path, monkeypatch, _restore_provider):
-    import event_log  # noqa: PLC0415
+    from bytedigger_engine import event_log  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.chdir(tmp_path)
@@ -100,7 +100,7 @@ def test_ac3_event_log_default_path_uses_seam(tmp_path, monkeypatch, _restore_pr
 
 
 def test_ac3_reject_log_default_path_uses_seam(tmp_path, monkeypatch, _restore_provider):
-    import reject_log  # noqa: PLC0415
+    from bytedigger_engine import reject_log  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.chdir(tmp_path)
@@ -110,7 +110,7 @@ def test_ac3_reject_log_default_path_uses_seam(tmp_path, monkeypatch, _restore_p
 
 
 def test_ac3_engine_default_rework_log_path_uses_seam(tmp_path, monkeypatch, _restore_provider):
-    import engine  # noqa: PLC0415
+    from bytedigger_engine import engine  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.chdir(tmp_path)
@@ -123,9 +123,9 @@ def test_ac3_stub_provider_relocates_all_three_fallbacks(tmp_path, monkeypatch, 
     """Stub-unpassable proof: a provider whose foreign_state_dirname() returns
     '.customdir' must relocate event_log/reject_log/engine fallbacks — this
     fails if the seam is re-hardcoded instead of called."""
-    import event_log  # noqa: PLC0415
-    import reject_log  # noqa: PLC0415
-    import engine  # noqa: PLC0415
+    from bytedigger_engine import event_log  # noqa: PLC0415
+    from bytedigger_engine import reject_log  # noqa: PLC0415
+    from bytedigger_engine import engine  # noqa: PLC0415
 
     set_default_config_provider_factory(_StubForeignDirProvider)
     monkeypatch.chdir(tmp_path)
@@ -139,7 +139,7 @@ def test_ac3_stub_provider_relocates_all_three_fallbacks(tmp_path, monkeypatch, 
 
 
 def test_ac4_resolve_scratchpad_neutral_uses_seam(tmp_path, monkeypatch, _restore_provider):
-    import phase_0_research  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_0_research  # noqa: PLC0415
 
     class _Ctx:
         org_config = {}
@@ -152,7 +152,7 @@ def test_ac4_resolve_scratchpad_neutral_uses_seam(tmp_path, monkeypatch, _restor
 
 
 def test_ac4_resolve_scratchpad_stub_provider_uses_seam(tmp_path, monkeypatch, _restore_provider):
-    import phase_0_research  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_0_research  # noqa: PLC0415
 
     class _Ctx:
         org_config = {}
@@ -170,9 +170,9 @@ def test_ac4_resolve_scratchpad_stub_provider_uses_seam(tmp_path, monkeypatch, _
 def test_ac5_preserve_events_log_reads_seam_dirname(tmp_path, monkeypatch, _restore_provider):
     """Real event-log content under <working_dir>/.bytedigger/events.jsonl is
     found via the seam and copied to the post-deploy scratchpad."""
-    from contracts import WorkflowContext  # noqa: PLC0415
-    from engine import WorkflowEngine  # noqa: PLC0415
-    from phase_8_post_deploy import phase_8_post_deploy_workflow  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.engine import WorkflowEngine  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_8_post_deploy import phase_8_post_deploy_workflow  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     working_dir = tmp_path / "repo"
@@ -209,7 +209,7 @@ def test_ac5_persist_artifacts_working_dir_entry_dirname_agnostic(_restore_provi
     """AC5 PERSIST_ARTIFACTS: the working_dir entry's relpath must not embed a
     state-dir literal (the dirname is resolved via foreign_state_dirname() at
     call time)."""
-    from phase_8_post_deploy import PERSIST_ARTIFACTS  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_8_post_deploy import PERSIST_ARTIFACTS  # noqa: PLC0415
 
     working_dir_entries = [relpath for kind, relpath in PERSIST_ARTIFACTS if kind == "working_dir"]
     assert working_dir_entries == ["events.jsonl"], (
@@ -362,7 +362,7 @@ def test_ac7_env_mapping_hal_set_wins_in_dict_view(monkeypatch, _restore_provide
 
 
 def test_ac8_resolve_backend_sees_bd_alias(monkeypatch, _restore_provider):
-    import llm_subprocess  # noqa: PLC0415
+    from bytedigger_engine import llm_subprocess  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.delenv("HAL_RUNNER_BACKEND", raising=False)
@@ -379,7 +379,7 @@ def test_ac8_resolve_backend_sees_bd_alias(monkeypatch, _restore_provider):
 
 
 def test_ac8_resolve_request_dir_sees_bd_alias(tmp_path, monkeypatch, _restore_provider):
-    import llm_subprocess  # noqa: PLC0415
+    from bytedigger_engine import llm_subprocess  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.delenv("HAL_RUNNER_REQUEST_DIR", raising=False)
@@ -396,7 +396,7 @@ def test_ac8_resolve_request_dir_sees_bd_alias(tmp_path, monkeypatch, _restore_p
 
 
 def test_ac8_resolve_gate_floor_sees_bd_alias(monkeypatch, _restore_provider):
-    import llm_subprocess  # noqa: PLC0415
+    from bytedigger_engine import llm_subprocess  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.delenv("HAL_GATE_MODEL_FLOOR", raising=False)
@@ -410,7 +410,7 @@ def test_ac8_resolve_gate_floor_sees_bd_alias(monkeypatch, _restore_provider):
 
 
 def test_ac8_audit_gate_default_env_sees_bd_kill_switch(tmp_path, monkeypatch, _restore_provider):
-    from audit_gate import scan_audit_violation  # noqa: PLC0415
+    from bytedigger_engine.audit_gate import scan_audit_violation  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.delenv("HAL_ENGINE_PY_AUDIT_GATE", raising=False)
@@ -433,7 +433,7 @@ def test_ac8_audit_gate_default_env_sees_bd_kill_switch(tmp_path, monkeypatch, _
 
 
 def test_ac8_test_subprocess_env_synthesizes_bd_alias(tmp_path, monkeypatch, _restore_provider):
-    from lib.plugins.disk_truth.test_runner import test_subprocess_env  # noqa: PLC0415
+    from bytedigger_engine.lib.plugins.disk_truth.test_runner import test_subprocess_env  # noqa: PLC0415
 
     reset_default_config_provider_factory()
     monkeypatch.delenv("HAL_FOO", raising=False)
@@ -451,7 +451,9 @@ def test_ac8_test_subprocess_env_synthesizes_bd_alias(tmp_path, monkeypatch, _re
 
 
 def _read_module_source(relpath: str) -> str:
-    return (_ENGINE_PY_ROOT / relpath).read_text(encoding="utf-8")
+    # bd#44: relpaths below are package-relative — the engine's modules live
+    # under engine_py/bytedigger_engine/ now.
+    return (_ENGINE_PY_ROOT / "bytedigger_engine" / relpath).read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

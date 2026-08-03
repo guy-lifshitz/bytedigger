@@ -56,10 +56,8 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_PY = HERE.parent
 sys.path.insert(0, str(ENGINE_PY))
-sys.path.insert(0, str(ENGINE_PY / "workflows"))
-sys.path.insert(0, str(ENGINE_PY / "lib"))
 
-_P6S_SRC = ENGINE_PY / "workflows" / "phase_6_smoke.py"
+_P6S_SRC = ENGINE_PY / "bytedigger_engine" / "workflows" / "phase_6_smoke.py"
 _SITE2_SRC = HERE / "test_F3A8F4FC_phase12_sonnet_downgrade.py"
 _SITE3_SRC = HERE / "test_GH375_tier_model_dispatch.py"
 
@@ -180,7 +178,7 @@ def _called_func_names(node: ast.AST) -> set[str]:
 def _load_phase_6_smoke():
     """Import the module, converting the bd#97 crash into an assertion failure."""
     try:
-        return importlib.import_module("phase_6_smoke")
+        return importlib.import_module("bytedigger_engine.workflows.phase_6_smoke")
     except IndexError as exc:  # the bd#97 symptom itself
         pytest.fail(
             "bd#97: importing phase_6_smoke raised "
@@ -400,7 +398,7 @@ def test_ac4_hal_dir_and_smoke_script_contract_preserved():
     """AC4 REGRESSION GUARD: HAL_DIR/SMOKE_SCRIPT stay module attributes and
     HAL_DIR stays a real directory. Upstream
     `tests/test_phase_6_smoke.py::test_smoke_script_path_resolves_to_existing_file`
-    does `from phase_6_smoke import HAL_DIR, SMOKE_SCRIPT` and asserts
+    does `from bytedigger_engine.workflows.phase_6_smoke import HAL_DIR, SMOKE_SCRIPT` and asserts
     `HAL_DIR.is_dir()`.
 
     The `.exists()` half of that contract cannot be asserted here — bytedigger
@@ -473,25 +471,37 @@ _IMPORT_CLOSURE = (
 
 
 def _materialise(engine_root: Path) -> None:
-    """Copy phase_6_smoke's import closure into a fresh engine_py root."""
+    """Copy phase_6_smoke's import closure into a fresh engine_py root.
+
+    bd#44: the closure lands under `<engine_root>/bytedigger_engine/`, mirroring
+    the real layout. Package `__init__.py` files are planted EMPTY on purpose —
+    the real `workflows/__init__.py` registers all 21 phases and would drag in
+    the whole engine, defeating the point of a four-file closure.
+    """
     members = list(_IMPORT_CLOSURE)
     # tree_root.py only exists post-GREEN; copy it when present so the same
     # helper works either side of the fix.
-    if (ENGINE_PY / "lib" / "tree_root.py").is_file():
+    if (ENGINE_PY / "bytedigger_engine" / "lib" / "tree_root.py").is_file():
         members.append("lib/tree_root.py")
+    pkg = engine_root / "bytedigger_engine"
     for rel in members:
-        src = ENGINE_PY / rel
-        dst = engine_root / rel
+        src = ENGINE_PY / "bytedigger_engine" / rel
+        dst = pkg / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(src.read_bytes())
+    for init in (pkg, pkg / "lib", pkg / "workflows"):
+        init.mkdir(parents=True, exist_ok=True)
+        (init / "__init__.py").write_text("")
 
 
 def _import_hal_dir(engine_root: Path) -> subprocess.CompletedProcess:
+    # bd#44: only the package's PARENT goes on the path. Adding the moved
+    # subdirs back would make `workflows`/`lib` resolve as top-level names —
+    # the very layout this release removes.
     code = (
         "import json, sys\n"
-        f"sys.path[:0] = [{str(engine_root)!r}, {str(engine_root / 'workflows')!r},"
-        f" {str(engine_root / 'lib')!r}]\n"
-        "import phase_6_smoke as m\n"
+        f"sys.path[:0] = [{str(engine_root)!r}]\n"
+        "import bytedigger_engine.workflows.phase_6_smoke as m\n"
         "print(json.dumps({'hal_dir': str(m.HAL_DIR)}))\n"
     )
     return subprocess.run(
@@ -528,9 +538,13 @@ def test_ac7_import_is_depth_invariant_in_a_real_subprocess(tmp_path):
             f"{proc.returncode}\nSTDERR:\n{proc.stderr[-2000:]}"
         )
         got = Path(json.loads(proc.stdout.strip())["hal_dir"])
-        assert got == engine_root, (
+        # bd#44: "the copy's own package root" is now the package directory
+        # itself. The AC is depth-INVARIANCE, and it is still exactly that:
+        # both depths must answer with their own root, whatever the depth.
+        expected = engine_root / "bytedigger_engine"
+        assert got == expected, (
             f"[{label}] HAL_DIR resolved to {got}, expected the copy's own "
-            f"package root {engine_root}. The value still depends on how deep "
+            f"package root {expected}. The value still depends on how deep "
             "the tree happens to sit."
         )
 
@@ -582,7 +596,7 @@ def test_ac8_site2_resolves_repo_root_without_depth_arithmetic(tmp_path):
     )
 
     # The resolution itself, on a synthetic checkout root.
-    from tree_root import resolve_tree_root  # noqa: PLC0415 — post-GREEN module
+    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415 — post-GREEN module
 
     root = tmp_path / "repo"
     (root / "engine_py" / "tests").mkdir(parents=True)
@@ -642,7 +656,7 @@ def test_ac9_site3_guarded_test_no_longer_raises_before_its_skip(tmp_path):
     )
 
     # The resolution itself, on a synthetic checkout root.
-    from tree_root import resolve_tree_root  # noqa: PLC0415 — post-GREEN module
+    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415 — post-GREEN module
 
     root = tmp_path / "repo"
     (root / "engine_py" / "tests").mkdir(parents=True)

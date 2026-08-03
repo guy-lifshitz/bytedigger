@@ -29,8 +29,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import phase_45_spec
-from contracts import StepResult
+from bytedigger_engine.workflows import phase_45_spec
+from bytedigger_engine.contracts import StepResult
 
 
 # ─── fixture helpers (mirrors test_phase_45_spec_cite_fallback_3F5599A6.py) ──

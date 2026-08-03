@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 
 # ─── shared helpers (mirror test_gh595_red_lint_preflight_batch.py) ─────────
@@ -168,7 +170,7 @@ def test_ac1_parse_reference_ddl_extracts_columns_excludes_extra() -> None:
     """AC1: parse_reference_ddl on a spec with Ground-Truth header + ```sql fence
     -> dict has 'behavioral_facts' key; column set equals DDL columns;
     'source_doc_id' NOT in that set."""
-    from fixture_schema import parse_reference_ddl  # ImportError at RED -> FAIL
+    from bytedigger_engine.fixture_schema import parse_reference_ddl  # ImportError at RED -> FAIL
 
     result = parse_reference_ddl(_GROUND_TRUTH_SPEC_TEXT)
     assert "behavioral_facts" in result, f"expected table key, got {result!r}"
@@ -181,7 +183,7 @@ def test_ac1_parse_reference_ddl_extracts_columns_excludes_extra() -> None:
 
 def test_ac2_parse_reference_ddl_no_header_returns_empty_dict() -> None:
     """AC2: spec-text without Ground-Truth header -> parse_reference_ddl == {}."""
-    from fixture_schema import parse_reference_ddl  # ImportError at RED -> FAIL
+    from bytedigger_engine.fixture_schema import parse_reference_ddl  # ImportError at RED -> FAIL
 
     result = parse_reference_ddl(_NO_HEADER_SPEC_TEXT)
     assert result == {}, f"expected empty dict, got {result!r}"
@@ -192,7 +194,7 @@ def test_ac2_parse_reference_ddl_no_header_returns_empty_dict() -> None:
 def test_ac3_scan_fixture_schema_detects_battle818_drift() -> None:
     """AC3: battle-818 repro — RED source with invented source_doc_id column
     vs the AC1 reference -> exactly 1 drift finding naming the invented column."""
-    from fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
+    from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
 
     reference = parse_reference_ddl(_GROUND_TRUTH_SPEC_TEXT)
     findings = scan_fixture_schema(_DRIFT_RED_SOURCE, reference)
@@ -212,7 +214,7 @@ def test_ac3_scan_fixture_schema_detects_battle818_drift() -> None:
 
 def test_ac4_scan_fixture_schema_honest_fixture_is_clean() -> None:
     """AC4: fixture whose columns are a strict subset of reference -> []."""
-    from fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
+    from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
 
     reference = parse_reference_ddl(_GROUND_TRUTH_SPEC_TEXT)
     findings = scan_fixture_schema(_HONEST_RED_SOURCE, reference)
@@ -224,7 +226,7 @@ def test_ac4_scan_fixture_schema_honest_fixture_is_clean() -> None:
 def test_ac5_pragma_allow_suppresses_finding() -> None:
     """AC5: `# fixture-schema: allow` on the CREATE TABLE line suppresses
     the AC3 finding."""
-    from fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
+    from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
 
     reference = parse_reference_ddl(_GROUND_TRUTH_SPEC_TEXT)
     findings = scan_fixture_schema(_PRAGMA_RED_SOURCE, reference)
@@ -236,7 +238,7 @@ def test_ac5_pragma_allow_suppresses_finding() -> None:
 def test_ac6_unparseable_column_list_is_loud_not_silent() -> None:
     """AC6: referenced table with unbalanced/unparseable column list ->
     1 loud finding kind=='unparseable' (GH882 lesson: never silent-pass)."""
-    from fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
+    from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema  # FAIL
 
     reference = parse_reference_ddl(_GROUND_TRUTH_SPEC_TEXT)
     findings = scan_fixture_schema(_UNPARSEABLE_RED_SOURCE, reference)
@@ -252,7 +254,7 @@ def test_ac7_collect_red_lint_findings_batch_entry_and_event(
     """AC7: violating RED file + spec with ground truth -> batch entry with
     error_code=='E_RED_FIXTURE_SCHEMA_DRIFT', rule=='fixture-schema',
     recoverable is False; 'red_fixture_schema_violation' emitted."""
-    import phase_5_implement as p5  # symbol exists; new block-5 absent -> assertion FAIL
+    from bytedigger_engine.workflows import phase_5_implement as p5  # symbol exists; new block-5 absent -> assertion FAIL
 
     spec_path = tmp_path / "spec.md"
     spec_path.write_text(_GROUND_TRUTH_SPEC_TEXT)
@@ -281,7 +283,7 @@ def test_ac7_collect_red_lint_findings_batch_entry_and_event(
 def test_ac8_kill_switch_disables_gate_no_entries(tmp_path, monkeypatch) -> None:
     """AC8: HAL_FIXTURE_SCHEMA_GATE=0 -> no fixture-schema entries + gate_disabled
     event with gate=='HAL_FIXTURE_SCHEMA_GATE'."""
-    import phase_5_implement as p5  # FAIL: no such gate block yet
+    from bytedigger_engine.workflows import phase_5_implement as p5  # FAIL: no such gate block yet
 
     monkeypatch.setenv("HAL_FIXTURE_SCHEMA_GATE", "0")
     spec_path = tmp_path / "spec.md"
@@ -310,7 +312,7 @@ def test_ac8_kill_switch_disables_gate_no_entries(tmp_path, monkeypatch) -> None
 def test_ac9_spec_path_none_skip_event_no_entries_no_exception(tmp_path) -> None:
     """AC9: spec_path=None -> fixture_schema_lint_skipped event reason=='no_spec_path',
     no entries, no exception raised."""
-    import phase_5_implement as p5  # FAIL: kwarg / block absent
+    from bytedigger_engine.workflows import phase_5_implement as p5  # FAIL: kwarg / block absent
 
     relpath = _write(tmp_path, "tests/test_drift.py", _DRIFT_RED_SOURCE)
     resolved = str((tmp_path / relpath).resolve())
@@ -335,7 +337,7 @@ def test_ac9_spec_path_none_skip_event_no_entries_no_exception(tmp_path) -> None
 
 def test_ac10_no_ground_truth_block_skip_event(tmp_path) -> None:
     """AC10: spec without ground-truth block -> skip event reason=='no_ground_truth_block'."""
-    import phase_5_implement as p5  # FAIL: block absent
+    from bytedigger_engine.workflows import phase_5_implement as p5  # FAIL: block absent
 
     spec_path = tmp_path / "spec.md"
     spec_path.write_text(_NO_HEADER_SPEC_TEXT)
@@ -362,7 +364,7 @@ def test_ac10_no_ground_truth_block_skip_event(tmp_path) -> None:
 def test_ac11_data_model_ground_truth_axis_registered() -> None:
     """AC11: new axis 'DATA-MODEL GROUND TRUTH (§1ae)' is in SPEC_HIGH_BINDING_AXES
     AND a verbatim substring of _SPEC_STABLE_PREFIX (GH729 parity-by-construction)."""
-    from phase_45_spec import SPEC_HIGH_BINDING_AXES, _SPEC_STABLE_PREFIX
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_HIGH_BINDING_AXES, _SPEC_STABLE_PREFIX
 
     axis = "DATA-MODEL GROUND TRUTH (§1ae)"
     assert axis in SPEC_HIGH_BINDING_AXES, f"got axes={SPEC_HIGH_BINDING_AXES!r}"
@@ -375,10 +377,10 @@ def test_ac12_find_missing_ground_truth_three_cases() -> None:
     """AC12: find_missing_ground_truth — .db mention w/o header -> missing-ground-truth-ddl;
     header+fence -> []; header w/o fence & w/o opt-out -> empty-ground-truth-ddl."""
     engine_root = Path(__file__).resolve().parent.parent
-    lib_dir = str(engine_root / "scripts" / "lib")
+    lib_dir = str(engine_root / "bytedigger_engine" / "scripts" / "lib")
     if lib_dir not in sys.path:
         sys.path.insert(0, lib_dir)
-    from ground_truth_verifier import find_missing_ground_truth  # ImportError -> FAIL
+    from bytedigger_engine.scripts.lib.ground_truth_verifier import find_missing_ground_truth  # ImportError -> FAIL
 
     missing = find_missing_ground_truth(_NO_HEADER_SPEC_TEXT, "/dummy")
     assert len(missing) == 1, f"got {missing!r}"
@@ -401,13 +403,13 @@ def test_ac13_lint_spec_subprocess_flags_missing_ground_truth(tmp_path) -> None:
     -> exit 1, stdout contains 'missing-ground-truth-ddl'; a clean spec
     (header+fence, no other trigger tokens) does not contain that token."""
     engine_root = Path(__file__).resolve().parent.parent
-    lint_spec = engine_root / "scripts" / "spec_lint" / "lint_spec.py"
+    lint_spec = engine_root / "bytedigger_engine" / "scripts" / "spec_lint" / "lint_spec.py"
     assert lint_spec.exists(), f"lint_spec.py driver not found at {lint_spec}"
 
     bad_spec = tmp_path / "bad_spec.md"
     bad_spec.write_text(_NO_HEADER_SPEC_TEXT)
     proc_bad = subprocess.run(
-        [sys.executable, str(lint_spec), str(bad_spec), "--hal-root", str(tmp_path)],
+        [sys.executable, str(lint_spec), str(bad_spec), "--hal-root", str(tmp_path)], env=engine_env(),
         capture_output=True, text=True,
     )
     assert proc_bad.returncode == 1, (
@@ -420,7 +422,7 @@ def test_ac13_lint_spec_subprocess_flags_missing_ground_truth(tmp_path) -> None:
     clean_spec = tmp_path / "clean_spec.md"
     clean_spec.write_text(_GROUND_TRUTH_SPEC_TEXT)
     proc_clean = subprocess.run(
-        [sys.executable, str(lint_spec), str(clean_spec), "--hal-root", str(tmp_path)],
+        [sys.executable, str(lint_spec), str(clean_spec), "--hal-root", str(tmp_path)], env=engine_env(),
         capture_output=True, text=True,
     )
     assert "missing-ground-truth-ddl" not in proc_clean.stdout, (
@@ -433,8 +435,8 @@ def test_ac13_lint_spec_subprocess_flags_missing_ground_truth(tmp_path) -> None:
 def test_ac14_registries_carry_new_entries() -> None:
     """AC14: error_codes.ERROR_CODES has E_RED_FIXTURE_SCHEMA_DRIFT;
     flags_catalog carries HAL_FIXTURE_SCHEMA_GATE with kind=='gate', default=='1'."""
-    import error_codes
-    import flags_catalog
+    from bytedigger_engine import error_codes
+    from bytedigger_engine import flags_catalog
 
     assert "E_RED_FIXTURE_SCHEMA_DRIFT" in error_codes.ERROR_CODES, (
         f"got keys sample: {list(error_codes.ERROR_CODES)[:5]!r}..."
@@ -468,7 +470,7 @@ def test_ac15_cli_fixture_schema_lint_exit_codes(tmp_path) -> None:
     clean_file = _write(tmp_path, "clean.py", _HONEST_RED_SOURCE)
 
     proc_bad = subprocess.run(
-        [sys.executable, str(cli), "--spec", str(spec_path), str(tmp_path / bad_file)],
+        [sys.executable, str(cli), "--spec", str(spec_path), str(tmp_path / bad_file)], env=engine_env(),
         capture_output=True, text=True,
     )
     assert proc_bad.returncode == 1, (
@@ -478,7 +480,7 @@ def test_ac15_cli_fixture_schema_lint_exit_codes(tmp_path) -> None:
     assert "source_doc_id" in proc_bad.stdout, f"got {proc_bad.stdout!r}"
 
     proc_clean = subprocess.run(
-        [sys.executable, str(cli), "--spec", str(spec_path), str(tmp_path / clean_file)],
+        [sys.executable, str(cli), "--spec", str(spec_path), str(tmp_path / clean_file)], env=engine_env(),
         capture_output=True, text=True,
     )
     assert proc_clean.returncode == 0, (
@@ -486,7 +488,7 @@ def test_ac15_cli_fixture_schema_lint_exit_codes(tmp_path) -> None:
     )
 
     proc_missing_spec = subprocess.run(
-        [sys.executable, str(cli), "--spec", str(tmp_path / "nope.md"), str(tmp_path / bad_file)],
+        [sys.executable, str(cli), "--spec", str(tmp_path / "nope.md"), str(tmp_path / bad_file)], env=engine_env(),
         capture_output=True, text=True,
     )
     assert proc_missing_spec.returncode == 2, (

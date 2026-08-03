@@ -25,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -72,15 +72,15 @@ _FAKE_DIFF = (
 
 
 def _build_integrity(tmp_path: Path, *, question: str, diff_text: str):
-    from phase_5_integrity import _build_integrity_prompt  # noqa: PLC0415
-    from lib.git_port import GitResult  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _build_integrity_prompt  # noqa: PLC0415
+    from bytedigger_engine.lib.git_port import GitResult  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     _seed_injection(scratchpad)
     ctx = _make_ctx(scratchpad, question=question)
     fake_result = GitResult(returncode=0, stdout=diff_text, stderr="", timed_out=False)
     # Mock the DEPENDENCY (git_port.git_read), never the builder UUT.
-    with patch("phase_5_integrity.git_port.git_read", return_value=fake_result):
+    with patch("bytedigger_engine.workflows.phase_5_integrity.git_port.git_read", return_value=fake_result):
         return _build_integrity_prompt(ctx, None)
 
 
@@ -90,13 +90,13 @@ def _build_integrity(tmp_path: Path, *, question: str, diff_text: str):
 
 
 def test_ac1_checklist_present():
-    from phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
 
     assert "PRE-SUBMISSION CHECKLIST" in _integrity_output_schema()
 
 
 def test_ac2_standalone_verdict_item():
-    from phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
 
     schema = _integrity_output_schema()
     assert "ENDS with a standalone line that STARTS with `VERDICT: `" in schema
@@ -104,13 +104,13 @@ def test_ac2_standalone_verdict_item():
 
 
 def test_ac3_failclosed_mnemonic():
-    from phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
 
     assert "no standalone VERDICT line is REJECTED by the gate" in _integrity_output_schema()
 
 
 def test_ac4_no_nochanges_in_menu():
-    from phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
 
     assert "NO_CHANGES" not in _integrity_output_schema()
 
@@ -122,7 +122,7 @@ def test_ac4_no_nochanges_in_menu():
 
 
 def test_ac5_wired_and_stable_prefix(tmp_path):
-    from phase_5_integrity import _integrity_stable_prefix  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_stable_prefix  # noqa: PLC0415
 
     r = _build_integrity(tmp_path, question="Add foo to bar", diff_text=_FAKE_DIFF)
     assert r.status == "ok", f"builder failed: {r.error!r}"
@@ -145,7 +145,7 @@ def test_ac5_wired_and_stable_prefix(tmp_path):
 
 
 def test_ac6_prose_only_still_blocks(tmp_path):
-    from phase_5_integrity import _classify_diff_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _classify_diff_verdict  # noqa: PLC0415
 
     doc_path = tmp_path / "reviews" / "build-integrity-review.md"
     diff_path = str(tmp_path / "integrity" / "test-diff.patch")
@@ -186,6 +186,6 @@ def test_ac6_prose_only_still_blocks(tmp_path):
 
 
 def test_ac7_terminal_placement():
-    from phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_output_schema  # noqa: PLC0415
 
     assert _integrity_output_schema().rstrip().endswith("the omission itself blocks.")

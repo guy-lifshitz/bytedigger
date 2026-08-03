@@ -21,12 +21,12 @@ from typing import Any
 
 import pytest
 
-import derive_state
-import package_meta
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
-from engine import WorkflowEngine
-from event_log import EventLog
-from lib import git_port
+from bytedigger_engine import derive_state
+from bytedigger_engine import package_meta
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.event_log import EventLog
+from bytedigger_engine.lib import git_port
 
 
 # ─── shared fixtures / helpers ────────────────────────────────────────────────

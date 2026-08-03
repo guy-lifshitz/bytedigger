@@ -30,7 +30,7 @@ import types
 from pathlib import Path
 from unittest.mock import patch
 
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 
 # ─── shared helpers (mirror test_7AD3D393_stub_passability.py) ──────────────
@@ -137,7 +137,7 @@ def test_ac1_batched_terminal_result_has_both_codes_and_and_semantics(
     ["E_RED_STUB_PASSABLE", "E_RED_1Q_EXEC_IMPORT"] (list, canonical order,
     NOT set), error mentions both codes, recoverable is False.
     """
-    from phase_5_implement import _verify_red_lint_rules
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     # GH602: delta-retry pinned off — this test asserts the terminal AND-semantics path
@@ -171,7 +171,7 @@ def test_ac2_directed_repair_invoked_exactly_once_with_combined_findings(
     mocked non-convergent -> called EXACTLY once with gate=="red_lint_preflight"
     and findings covering both rules {"stub-passability", "1q-exec-import"}.
     """
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "1")
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
@@ -204,7 +204,7 @@ def test_ac3_clean_fixture_happy_path_preserves_prev_data(tmp_path, monkeypatch)
     passed through in the returned StepResult.data."""
     from helpers.host_tools import skip_without
     skip_without("semgrep")
-    from phase_5_implement import _verify_red_lint_rules
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     relpath = _write_test_file(tmp_path, "tests/test_clean.py", _CLEAN_CONTENT)
@@ -227,7 +227,7 @@ def test_ac4_master_kill_switch_off_reverts_to_legacy_first_fail(
     legacy first-fail: error_code==E_RED_STUB_PASSABLE, data WITHOUT
     preflight_error_codes, and gate_disabled(gate='HAL_RED_LINT_PREFLIGHT_BATCH')
     emitted."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     monkeypatch.setenv("HAL_RED_LINT_PREFLIGHT_BATCH", "0")
@@ -256,7 +256,7 @@ def test_ac5_per_lint_kill_switch_inside_batch(tmp_path, monkeypatch) -> None:
     -> error_code==E_RED_1Q_EXEC_IMPORT, preflight_error_codes==
     ["E_RED_1Q_EXEC_IMPORT"], and gate_disabled(HAL_STUB_PASSABILITY_GATE)
     emitted."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     monkeypatch.setenv("HAL_STUB_PASSABILITY_GATE", "0")
@@ -284,7 +284,7 @@ def test_ac6_single_violation_and_semantics_all_recoverable(tmp_path, monkeypatc
     """AC6: suite-unsafe-only fixture (single finding, recoverable=True),
     batch ON, repair off -> error_code==E_RED_SUITE_UNSAFE, recoverable is True
     (AND-semantics: True only when ALL findings recoverable)."""
-    from phase_5_implement import _verify_red_lint_rules
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     relpath = _write_test_file(tmp_path, "tests/test_suite_unsafe.py", _SUITE_UNSAFE_ONLY_CONTENT)
@@ -304,7 +304,7 @@ def test_ac7_semgrep_infra_priority_batch_over_missing(tmp_path, monkeypatch) ->
     batch reported (E_RED_STUB_PASSABLE primary), NOT E_RED_LINT_SEMGREP_MISSING,
     data["semgrep_skipped"]=="missing". Clean fixture + semgrep missing ->
     E_RED_LINT_SEMGREP_MISSING as today (empty-batch branch unaffected)."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
 
@@ -343,7 +343,7 @@ def test_ac8_batch_summary_event_emitted_with_canonical_codes(tmp_path, monkeypa
     and findings_n>=2; the per-lint violation events
     (red_stub_passability_violation, red_1q_exec_import_violation) are also
     present (real event-counter side effect, §1l)."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
@@ -377,7 +377,7 @@ def test_ac9_directed_repair_convergence_returns_final_for_batched_gate(
     'red_lint_preflight', findings covering both rules) -- proves the
     convergence path is wired through the new batch dispatcher, not the
     legacy single-gate call site."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "1")
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
@@ -410,7 +410,7 @@ def test_ac9_directed_repair_convergence_returns_final_for_batched_gate(
 def test_ac10_path_escape_infra_precheck_unaffected_no_preflight_keys(tmp_path) -> None:
     """AC10: red_test_paths escapes git_cwd -> immediate E_RED_LINT_PATH_ESCAPE,
     data has NO preflight-batch keys (infra pre-check DEFER, untouched)."""
-    from phase_5_implement import _verify_red_lint_rules
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules
 
     ctx = _make_ctx(tmp_path)
     prev = _make_prev(["../escape.py"])
@@ -431,8 +431,8 @@ def test_ac11_collect_red_lint_findings_named_helper_returns_normalized_batch(
     as a standalone named helper (not inlined) and, called directly on the
     double-violation fixture, returns a list of >=2 normalized finding dicts
     with keys path/line/rule/evidence/error_code/recoverable."""
-    from phase_5_implement import _collect_red_lint_findings  # ImportError pre-GREEN -> FAIL
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows.phase_5_implement import _collect_red_lint_findings  # ImportError pre-GREEN -> FAIL
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
     resolved = str((tmp_path / relpath).resolve())
@@ -458,7 +458,7 @@ def test_ac12_test_only_mode_regression_floor_unbroken(tmp_path) -> None:
     """AC12: commit_red_tests_skipped=='test_only_mode' -> status=='ok' and
     'red_verify_skipped_test_only' event emitted (pre-existing L1838-ish path
     must survive the batch dispatcher untouched)."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     ctx = _make_ctx(tmp_path)
     prev = StepResult(

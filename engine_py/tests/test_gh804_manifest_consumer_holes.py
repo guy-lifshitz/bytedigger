@@ -20,12 +20,10 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 import pytest
 
-from contracts import WorkflowContext
+from bytedigger_engine.contracts import WorkflowContext
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -89,7 +87,7 @@ class _FakePrev:
 
 
 def test_ac1_prev_data_corruption_reason_flags_non_dict_ok_for_dict_and_none():
-    from llm_subprocess import prev_data_corruption_reason
+    from bytedigger_engine.llm_subprocess import prev_data_corruption_reason
 
     for bad in ("s", ["l"], 3, 3.0, True):
         reason = prev_data_corruption_reason(_FakePrev(bad))
@@ -105,7 +103,7 @@ def test_ac1_prev_data_corruption_reason_flags_non_dict_ok_for_dict_and_none():
 
 
 def test_ac2_manifest_error_is_common_ancestor_and_all_subtypes_are_valueerror():
-    from llm_subprocess import (
+    from bytedigger_engine.llm_subprocess import (
         _ManifestError,
         _ManifestMissingError,
         _ManifestMalformedError,
@@ -125,7 +123,7 @@ def test_ac2_manifest_error_is_common_ancestor_and_all_subtypes_are_valueerror()
 
 
 def test_ac3_commit_green_code_nondict_data_returns_terminal_error_no_crash():
-    from phase_5_implement import _commit_green_code
+    from bytedigger_engine.workflows.phase_5_implement import _commit_green_code
 
     ctx = _make_ctx()
     prev = _FakePrev("corrupt")
@@ -144,7 +142,7 @@ def test_ac3_commit_green_code_nondict_data_returns_terminal_error_no_crash():
 
 
 def test_ac4_commit_fix_code_nondict_data_returns_terminal_error_no_crash():
-    from phase_6_review import _commit_fix_code
+    from bytedigger_engine.workflows.phase_6_review import _commit_fix_code
 
     ctx = _make_ctx()
     prev = _FakePrev("corrupt")
@@ -163,7 +161,7 @@ def test_ac4_commit_fix_code_nondict_data_returns_terminal_error_no_crash():
 
 
 def test_ac5_commit_fix_tests_nondict_data_returns_terminal_error_no_crash():
-    from phase_6_review import _commit_fix_tests
+    from bytedigger_engine.workflows.phase_6_review import _commit_fix_tests
 
     ctx = _make_ctx()
     prev = _FakePrev("corrupt")
@@ -182,7 +180,7 @@ def test_ac5_commit_fix_tests_nondict_data_returns_terminal_error_no_crash():
 
 
 def test_ac6_run_pytest_post_fix_nondict_data_returns_terminal_error_no_crash():
-    from phase_6_review import _run_pytest_post_fix
+    from bytedigger_engine.workflows.phase_6_review import _run_pytest_post_fix
 
     ctx = _make_ctx()
     prev = _FakePrev("corrupt")
@@ -201,7 +199,7 @@ def test_ac6_run_pytest_post_fix_nondict_data_returns_terminal_error_no_crash():
 
 
 def test_ac7_commit_green_code_malformed_manifest_returns_terminal_error(tmp_path):
-    from phase_5_implement import _commit_green_code
+    from bytedigger_engine.workflows.phase_5_implement import _commit_green_code
 
     repo, red_sha = _make_repo_with_red_commit(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -215,7 +213,7 @@ def test_ac7_commit_green_code_malformed_manifest_returns_terminal_error(tmp_pat
         "manifest_source": "harness_tool_record",
     })
 
-    from llm_subprocess import _ManifestMalformedError
+    from bytedigger_engine.llm_subprocess import _ManifestMalformedError
 
     try:
         result = _commit_green_code(ctx, prev)
@@ -227,7 +225,7 @@ def test_ac7_commit_green_code_malformed_manifest_returns_terminal_error(tmp_pat
 
 
 def test_ac7_commit_fix_code_malformed_manifest_returns_terminal_error(tmp_path):
-    from phase_6_review import _commit_fix_code
+    from bytedigger_engine.workflows.phase_6_review import _commit_fix_code
 
     repo, red_sha = _make_repo_with_red_commit(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -241,7 +239,7 @@ def test_ac7_commit_fix_code_malformed_manifest_returns_terminal_error(tmp_path)
         "manifest_source": "harness_tool_record",
     })
 
-    from llm_subprocess import _ManifestMalformedError
+    from bytedigger_engine.llm_subprocess import _ManifestMalformedError
 
     try:
         result = _commit_fix_code(ctx, prev)
@@ -256,7 +254,7 @@ def test_ac7_commit_fix_code_malformed_manifest_returns_terminal_error(tmp_path)
 
 
 def test_ac8_commit_green_code_invalid_source_returns_terminal_error(tmp_path):
-    from phase_5_implement import _commit_green_code
+    from bytedigger_engine.workflows.phase_5_implement import _commit_green_code
 
     repo, red_sha = _make_repo_with_red_commit(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -270,7 +268,7 @@ def test_ac8_commit_green_code_invalid_source_returns_terminal_error(tmp_path):
         "manifest_source": "bogus_enum_value",  # invalid → _ManifestInvalidSourceError
     })
 
-    from llm_subprocess import _ManifestInvalidSourceError
+    from bytedigger_engine.llm_subprocess import _ManifestInvalidSourceError
 
     try:
         result = _commit_green_code(ctx, prev)
@@ -282,7 +280,7 @@ def test_ac8_commit_green_code_invalid_source_returns_terminal_error(tmp_path):
 
 
 def test_ac8_commit_fix_code_invalid_source_returns_terminal_error(tmp_path):
-    from phase_6_review import _commit_fix_code
+    from bytedigger_engine.workflows.phase_6_review import _commit_fix_code
 
     repo, red_sha = _make_repo_with_red_commit(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -296,7 +294,7 @@ def test_ac8_commit_fix_code_invalid_source_returns_terminal_error(tmp_path):
         "manifest_source": "bogus_enum_value",  # invalid → _ManifestInvalidSourceError
     })
 
-    from llm_subprocess import _ManifestInvalidSourceError
+    from bytedigger_engine.llm_subprocess import _ManifestInvalidSourceError
 
     try:
         result = _commit_fix_code(ctx, prev)
@@ -313,8 +311,8 @@ def test_ac8_commit_fix_code_invalid_source_returns_terminal_error(tmp_path):
 def test_ac9_commit_green_code_resume_path_valid_dict_does_not_call_manifest_from_result(
     tmp_path, monkeypatch
 ):
-    from phase_5_implement import _commit_green_code
-    import phase_5_implement
+    from bytedigger_engine.workflows.phase_5_implement import _commit_green_code
+    from bytedigger_engine.workflows import phase_5_implement
 
     repo, red_sha = _make_repo_with_red_commit(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -346,7 +344,7 @@ def test_ac9_commit_green_code_resume_path_valid_dict_does_not_call_manifest_fro
 
 
 def test_ac10_commit_green_code_resume_path_nondict_data_guard_fires_first():
-    from phase_5_implement import _commit_green_code
+    from bytedigger_engine.workflows.phase_5_implement import _commit_green_code
 
     ctx = _make_ctx()
     prev = _FakePrev("corrupt")
@@ -364,7 +362,7 @@ def test_ac10_commit_green_code_resume_path_nondict_data_guard_fires_first():
 
 
 def test_ac10_prev_data_corruption_reason_is_pure_and_replay_idempotent():
-    from llm_subprocess import prev_data_corruption_reason
+    from bytedigger_engine.llm_subprocess import prev_data_corruption_reason
 
     prev = _FakePrev("corrupt")
     first = prev_data_corruption_reason(prev)

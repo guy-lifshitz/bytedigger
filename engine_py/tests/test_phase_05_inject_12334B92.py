@@ -23,12 +23,12 @@ from pathlib import Path
 ENGINE_PY = Path(__file__).resolve().parent.parent
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-from contracts import StepResult, WorkflowContext  # type: ignore
-from phase_05_inject import (  # type: ignore
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # type: ignore
+from bytedigger_engine.workflows.phase_05_inject import (  # type: ignore
     _validate_org_config_required,
     _write_injection_files,
 )
@@ -103,7 +103,7 @@ def test_resolve_scratchpad_still_raises_value_error_as_safety_net():
     invokes _resolve_scratchpad with missing field, ValueError still fires.
     Keeps existing test_resolve_scratchpad_raises... contract intact.
     """
-    from phase_05_inject import _resolve_scratchpad  # type: ignore
+    from bytedigger_engine.workflows.phase_05_inject import _resolve_scratchpad  # type: ignore
 
     ctx = _ctx({"working_dir": "/tmp"})
     with pytest.raises(ValueError, match="scratchpad_dir"):

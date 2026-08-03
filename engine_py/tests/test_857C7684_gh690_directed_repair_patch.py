@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import pytest
 
-import telemetry_ctx  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers ───────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ from contracts import StepResult, WorkflowContext  # noqa: E402
 def _dr():
     """Import lib.directed_repair lazily inside test bodies (§1q convention;
     the module itself exists today, but new-symbol access must stay deferred)."""
-    import lib.directed_repair as dr
+    from bytedigger_engine.lib import directed_repair as dr
     return dr
 
 

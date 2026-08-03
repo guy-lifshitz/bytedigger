@@ -24,9 +24,9 @@ from pathlib import Path
 import pytest
 
 # Imports rely on conftest-import-time sys.path setup (§1q / 81F97F3D).
-from contracts import WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from phase_8_post_deploy import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows.phase_8_post_deploy import (  # noqa: E402
     _gh,
     _parse_pr_url,
     _resolve_working_dir,
@@ -267,25 +267,25 @@ def test_ac4_no_commits_ahead_skips(tmp_path, monkeypatch):
 
 def test_strip_untracked_ac2_untracked_dropped():
     """AC2: _strip_untracked('?? dirty.txt') returns '' (untracked line dropped)."""
-    from phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
+    from bytedigger_engine.workflows.phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
     assert _strip_untracked("?? dirty.txt") == ""
 
 
 def test_strip_untracked_ac3_tracked_kept():
     """AC3: _strip_untracked(' M tracked.py') returns ' M tracked.py' (tracked line kept)."""
-    from phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
+    from bytedigger_engine.workflows.phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
     assert _strip_untracked(" M tracked.py") == " M tracked.py"
 
 
 def test_strip_untracked_ac4_mixed_keep_tracked_drop_untracked():
     """AC4: mixed input — tracked kept, untracked dropped."""
-    from phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
+    from bytedigger_engine.workflows.phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
     assert _strip_untracked("M  staged.py\n?? new.txt") == "M  staged.py"
 
 
 def test_strip_untracked_ac5_empty_and_whitespace():
     """AC5: empty string and whitespace-only input both return ''."""
-    from phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
+    from bytedigger_engine.workflows.phase_8_post_deploy import _strip_untracked  # deferred: symbol absent pre-GREEN
     assert _strip_untracked("") == ""
     assert _strip_untracked("\n  \n") == ""
 

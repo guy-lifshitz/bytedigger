@@ -7,7 +7,7 @@ import logging
 
 import pytest
 
-from lib import model_config
+from bytedigger_engine.lib import model_config
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +21,7 @@ def test_ac1_absent_config_no_warning_but_debug_absent_record(monkeypatch, tmp_p
     missing = tmp_path / "does_not_exist" / "models.json"
     monkeypatch.setattr(model_config, "_CONFIG_PATH", missing)
 
-    with caplog.at_level(logging.DEBUG, logger="lib.model_config"):
+    with caplog.at_level(logging.DEBUG, logger="bytedigger_engine.lib.model_config"):
         result = model_config._load()
 
     assert result == {}
@@ -38,7 +38,7 @@ def test_ac2_corrupt_json_emits_warning_unreadable(monkeypatch, tmp_path, caplog
     bad.write_text("{ not valid json ", encoding="utf-8")
     monkeypatch.setattr(model_config, "_CONFIG_PATH", bad)
 
-    with caplog.at_level(logging.DEBUG, logger="lib.model_config"):
+    with caplog.at_level(logging.DEBUG, logger="bytedigger_engine.lib.model_config"):
         result = model_config._load()
 
     assert result == {}
@@ -53,7 +53,7 @@ def test_ac3_valid_json_parsed_no_warning(monkeypatch, tmp_path, caplog):
     good.write_text(json.dumps({"claude": {"primary": "sonnet"}}), encoding="utf-8")
     monkeypatch.setattr(model_config, "_CONFIG_PATH", good)
 
-    with caplog.at_level(logging.DEBUG, logger="lib.model_config"):
+    with caplog.at_level(logging.DEBUG, logger="bytedigger_engine.lib.model_config"):
         result = model_config._load()
 
     assert result == {"claude": {"primary": "sonnet"}}
@@ -65,7 +65,7 @@ def test_ac4_second_load_call_emits_no_new_records(monkeypatch, tmp_path, caplog
     missing = tmp_path / "still_missing" / "models.json"
     monkeypatch.setattr(model_config, "_CONFIG_PATH", missing)
 
-    with caplog.at_level(logging.DEBUG, logger="lib.model_config"):
+    with caplog.at_level(logging.DEBUG, logger="bytedigger_engine.lib.model_config"):
         model_config._load()
         caplog.clear()
         result = model_config._load()

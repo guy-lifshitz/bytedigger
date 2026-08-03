@@ -34,14 +34,14 @@ from __future__ import annotations
 
 import threading
 
-from contracts import (
+from bytedigger_engine.contracts import (
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
-import derive_state
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine import derive_state
 
 
 # ─── Shared helpers ──────────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ def _run_on_thread(fn) -> None:
 # ─── AC1: foreground path byte-identical to pre-fix (regression guard; PASSES today) ──
 
 def test_ac1_foreground_execute_unaffected_single_workflow_finished(tmp_path):
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
@@ -118,7 +118,7 @@ def test_ac1_foreground_execute_unaffected_single_workflow_finished(tmp_path):
 # ─── AC2: zombie (spawned thread) → 0 real terminal events, 1 shadow event ──
 
 def test_ac2_zombie_execute_emits_zero_terminal_events_and_one_shadow(tmp_path):
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
@@ -148,7 +148,7 @@ def test_ac2_zombie_execute_emits_zero_terminal_events_and_one_shadow(tmp_path):
 # ─── AC3: foreground + zombie, same run_id → exactly 1 workflow_finished total ──
 
 def test_ac3_foreground_and_zombie_same_run_id_yields_one_workflow_finished(tmp_path):
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
@@ -171,7 +171,7 @@ def test_ac3_foreground_and_zombie_same_run_id_yields_one_workflow_finished(tmp_
 # ─── AC4: zombie run 3x sequential → 0 workflow_finished, 3 shadow events ──
 
 def test_ac4_repeated_zombie_recovery_stays_idempotent_never_terminal(tmp_path):
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
@@ -203,7 +203,7 @@ def test_ac5_internal_validation_retry_still_single_workflow_finished(tmp_path):
     on its first call, which the engine recurses on internally before the
     step succeeds on its second call. Guards the existing invariant that
     in-phase retry cycles never multiply the terminal emit."""
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
@@ -242,7 +242,7 @@ def test_ac6_derive_state_shadow_event_stays_non_terminal(tmp_path):
     """This is the #700 bug expressed as an assertion (spec §3 AC6): a
     foreground run still "running" (only workflow_started seen) must not be
     flipped to status="error" by a zombie's shadow completion event."""
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     rid = "rid-ac6"
@@ -270,7 +270,7 @@ def test_ac6_derive_state_shadow_event_stays_non_terminal(tmp_path):
 # ─── AC7: grep-safety -- shadow lines never carry the quoted terminal literals ──
 
 def test_ac7_shadow_lines_never_contain_quoted_terminal_literals(tmp_path):
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
@@ -293,7 +293,7 @@ def test_ac7_shadow_lines_never_contain_quoted_terminal_literals(tmp_path):
 def test_ac8_zombie_execute_appends_zero_rework_records_foreground_appends_one(tmp_path):
     """conftest.py's autouse _telemetry_log_isolation fixture already points
     HAL_REWORK_LOG at tmp_path / "build-rework-log.jsonl" for this test."""
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)
@@ -317,7 +317,7 @@ def test_ac8_zombie_execute_appends_zero_rework_records_foreground_appends_one(t
 # ─── AC9: kill-switch is reversible in one env flip ──
 
 def test_ac9_kill_switch_disables_shadowing_reversibly(tmp_path, monkeypatch):
-    from event_log import EventLog
+    from bytedigger_engine.event_log import EventLog
 
     ctx = make_ctx()
 
@@ -349,7 +349,7 @@ def test_ac9_kill_switch_disables_shadowing_reversibly(tmp_path, monkeypatch):
 def test_ac10_execution_provenance_and_shadow_event_name():
     """execution_provenance module does not exist yet -- import deferred
     inside the test body (§1q / D1CF5FDF collect-safety)."""
-    import execution_provenance as ep
+    from bytedigger_engine import execution_provenance as ep
 
     assert ep.execution_provenance() == "foreground"
     assert ep.is_authoritative_execution() is True

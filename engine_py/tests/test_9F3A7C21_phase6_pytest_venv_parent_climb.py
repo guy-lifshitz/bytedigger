@@ -24,7 +24,7 @@ COLLECTABILITY NOTE (D1CF5FDF / §1q):
   - NO top-level import of phase_6_review / _venv_pytest / _main_checkout_root
     — the two new helpers don't exist yet.
   - sys.path is set by conftest.py (conftest-import-time singleton, §1q / 81F97F3D).
-  - 'import phase_6_review' is deferred to inside each test body so missing
+  - 'import bytedigger_engine.workflows.phase_6_review' is deferred to inside each test body so missing
     attrs raise AssertionError at ASSERT time (via explicit hasattr guards),
     never at collection time.
 
@@ -68,7 +68,7 @@ def _git_result(returncode: int = 0, stdout: str = "") -> MagicMock:
 
 def test_ac1_venv_pytest_returns_dot_venv_path(tmp_path):
     """AC1: _venv_pytest(base) -> '<base>/.venv/bin/pytest' when that file exists and is executable."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_venv_pytest"), (
         "phase_6_review._venv_pytest does not exist — GREEN must add this helper"
@@ -91,7 +91,7 @@ def test_ac1_venv_pytest_returns_dot_venv_path(tmp_path):
 
 def test_ac2_venv_pytest_prefers_dot_venv_over_venv(tmp_path):
     """AC2: when both .venv/bin/pytest and venv/bin/pytest exist, .venv wins."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_venv_pytest"), (
         "phase_6_review._venv_pytest does not exist — GREEN must add this helper"
@@ -115,7 +115,7 @@ def test_ac2_venv_pytest_prefers_dot_venv_over_venv(tmp_path):
 
 def test_ac3_venv_pytest_returns_none_when_no_venv(tmp_path):
     """AC3: _venv_pytest(empty_dir) -> None (no venv)."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_venv_pytest"), (
         "phase_6_review._venv_pytest does not exist — GREEN must add this helper"
@@ -137,7 +137,7 @@ def test_ac4_main_checkout_root_returns_parent_for_worktree(tmp_path):
     """AC4: _main_checkout_root(worktree) -> realpath(<tmp>/main) when git_read
     stdout points --git-common-dir at a DIFFERENT checkout (mocked git_port.git_read,
     real fs dirs)."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_main_checkout_root"), (
         "phase_6_review._main_checkout_root does not exist — GREEN must add this helper"
@@ -170,7 +170,7 @@ def test_ac4_main_checkout_root_returns_parent_for_worktree(tmp_path):
 def test_ac5_main_checkout_root_returns_none_for_main_repo(tmp_path):
     """AC5: _main_checkout_root(git_cwd) -> None when --git-common-dir resolves
     back to git_cwd itself (main checkout, not a worktree)."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_main_checkout_root"), (
         "phase_6_review._main_checkout_root does not exist — GREEN must add this helper"
@@ -195,7 +195,7 @@ def test_ac5_main_checkout_root_returns_none_for_main_repo(tmp_path):
 
 def test_ac6_main_checkout_root_returns_none_on_timeout(tmp_path):
     """AC6a: returncode==124 (bounded-run timeout) -> None."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_main_checkout_root"), (
         "phase_6_review._main_checkout_root does not exist — GREEN must add this helper"
@@ -210,7 +210,7 @@ def test_ac6_main_checkout_root_returns_none_on_timeout(tmp_path):
 
 def test_ac6_main_checkout_root_returns_none_on_nonzero_rc(tmp_path):
     """AC6b: returncode==1 (git failure, e.g. not a git repo) -> None."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_main_checkout_root"), (
         "phase_6_review._main_checkout_root does not exist — GREEN must add this helper"
@@ -225,7 +225,7 @@ def test_ac6_main_checkout_root_returns_none_on_nonzero_rc(tmp_path):
 
 def test_ac6_main_checkout_root_returns_none_on_oserror(tmp_path):
     """AC6c: git_port.git_read raising OSError -> None, no exception propagates (fail-soft)."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     assert hasattr(phase_6_review, "_main_checkout_root"), (
         "phase_6_review._main_checkout_root does not exist — GREEN must add this helper"
@@ -255,7 +255,7 @@ def test_ac7_resolve_pytest_argv_climbs_to_parent_checkout_venv(tmp_path):
 
     MUST FAIL on current code (returns bare python3 -m pytest fallback,
     no parent-checkout climb implemented yet)."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     worktree = tmp_path / "worktree"
     worktree.mkdir()
@@ -287,7 +287,7 @@ def test_ac7_resolve_pytest_argv_climbs_to_parent_checkout_venv(tmp_path):
 def test_ac8_resolve_pytest_argv_uses_local_venv_no_climb(tmp_path):
     """AC8: git_cwd has its own .venv/bin/pytest -> argv[0] is that path AND
     git_port.git_read is NOT called (no parent-checkout probe needed)."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     git_cwd = tmp_path / "my_repo"
     own_pytest = _make_executable_pytest(git_cwd, ".venv")
@@ -310,7 +310,7 @@ def test_ac8_resolve_pytest_argv_uses_local_venv_no_climb(tmp_path):
 
 def test_ac9_resolve_pytest_argv_falls_back_when_no_venv_anywhere(tmp_path):
     """AC9: neither local nor parent-checkout venv exists -> bare python3 fallback."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     worktree = tmp_path / "worktree2"
     worktree.mkdir()
@@ -332,7 +332,7 @@ def test_ac9_resolve_pytest_argv_falls_back_when_no_venv_anywhere(tmp_path):
 def test_ac10_resolve_pytest_argv_none_short_circuits(tmp_path):
     """AC10: git_cwd=None -> bare python3 fallback, no fs/subprocess touch
     (git_port.git_read is never called)."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     with patch.object(phase_6_review.git_port, "git_read") as mock_git_read:
         result = phase_6_review._resolve_pytest_argv(None)
@@ -352,7 +352,7 @@ def test_ac11_resolve_pytest_argv_returns_list_consumer_contract(tmp_path):
     """AC11: consumer at phase_6_review.py:4128 does
     `argv = _resolve_pytest_argv(git_cwd) + py_test_paths` — return must be a
     list so list-concatenation with py_test_paths works without error."""
-    import phase_6_review  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review  # noqa: PLC0415
 
     result = phase_6_review._resolve_pytest_argv(None)
     assert isinstance(result, list), f"expected list, got {type(result).__name__}: {result!r}"

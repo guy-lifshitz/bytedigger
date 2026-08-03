@@ -33,20 +33,20 @@ from pathlib import Path
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 # ─── telemetry_ctx — must be importable before production imports ──────────────
-import telemetry_ctx as _telemetry_ctx  # noqa: E402
+from bytedigger_engine import telemetry_ctx as _telemetry_ctx  # noqa: E402
 
 # ─── Production module import (exists today — collectable). Access the symbol
 # via the module attribute (not a direct `from ... import`) so this file stays
 # collectable even if the function signature ever changes shape. §1q discipline. ──
-import phase_5_implement as p5mod  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement as p5mod  # noqa: E402
 
 
 # ─── AC1 (CORE): absolute path → --rootdir immediately followed by its parent ──

@@ -31,16 +31,15 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     invoke_llm_subprocess,
     register_backend,
     reset_backends,
 )
-import llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +107,7 @@ def test_allowed_tools_single_tool_injects_flag():
     """AC 1: allowed_tools=["Read"] → argv contains --allowed-tools "Read"."""
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -139,7 +138,7 @@ def test_allowed_tools_multiple_tools_space_separated():
     """AC 2: allowed_tools=["Read","Write","Bash"] → --allowed-tools "Read Write Bash"."""
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -173,7 +172,7 @@ def test_allowed_tools_none_omits_flag():
     captured, side = _capture_popen_from_argv()
 
     try:
-        with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
             invoke_llm_subprocess(
                 prompt="hi",
                 model="claude-3-haiku-20240307",
@@ -208,7 +207,7 @@ def test_allowed_tools_empty_list_injects_empty_string():
     """
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -249,7 +248,7 @@ def test_allowed_tools_kwarg_value_injected():
     """
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -289,7 +288,7 @@ def test_allowed_tools_multiple_kwarg_injected():
     """
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -328,7 +327,7 @@ def test_allowed_tools_none_default_no_flag():
     """
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         result = invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -731,7 +730,7 @@ def test_phase_5_implement_red_retry_passes_allowed_tools(tmp_path):
     The profile expected is the phase_5 GREEN/RED profile (same for both).
     """
     import importlib
-    module = importlib.import_module("phase_5_implement")
+    module = importlib.import_module("bytedigger_engine.workflows.phase_5_implement")
     write_green = getattr(module, "_write_green_artifact")
 
     # Build a prev StepResult whose raw_response has NO green marker → triggers retry
@@ -769,7 +768,7 @@ def test_phase_5_implement_red_retry_passes_allowed_tools(tmp_path):
 
     expected_profile = ["Read", "Write", "Edit", "Grep", "Glob"]
 
-    with patch("phase_5_implement.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", mock_invoke):
         write_green(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -801,7 +800,7 @@ def test_phase_6_review_review_retry_passes_allowed_tools(tmp_path):
     Assert: that call carries allowed_tools=["Read","Grep","Glob"].
     """
     import importlib
-    module = importlib.import_module("phase_6_review")
+    module = importlib.import_module("bytedigger_engine.workflows.phase_6_review")
     write_review = getattr(module, "_write_review_artifact")
 
     # A raw_response WITHOUT '## Aggregated Findings' → _is_review_conformant returns False
@@ -834,7 +833,7 @@ def test_phase_6_review_review_retry_passes_allowed_tools(tmp_path):
 
     expected_profile = ["Read", "Grep", "Glob", "Write"]
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         write_review(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -866,7 +865,7 @@ def test_phase_6_review_fix_retry_passes_allowed_tools(tmp_path):
     Assert: that call carries allowed_tools=["Read","Write","Edit","Grep","Glob"].
     """
     import importlib
-    module = importlib.import_module("phase_6_review")
+    module = importlib.import_module("bytedigger_engine.workflows.phase_6_review")
     write_fix = getattr(module, "_write_fix_artifact")
 
     # Raw response with NO fix marker → _parse_fix_status returns FIX_NO_MARKER
@@ -897,7 +896,7 @@ def test_phase_6_review_fix_retry_passes_allowed_tools(tmp_path):
 
     expected_profile = ["Read", "Write", "Edit", "Grep", "Glob"]
 
-    with patch("phase_6_review.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
         write_fix(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (

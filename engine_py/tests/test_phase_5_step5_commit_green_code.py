@@ -25,12 +25,10 @@ from unittest.mock import MagicMock, patch
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # This import will fail with ImportError until GREEN implements _commit_green_code.
-from phase_5_implement import _commit_green_code  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _commit_green_code  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -121,7 +119,7 @@ class TestCommitGreenCode:
         scratchpad.mkdir()
 
         captured: list[dict] = []
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -165,7 +163,7 @@ class TestCommitGreenCode:
         _write_file(repo, "src/module.py", "def foo(): return 42\n")
 
         captured: list[dict] = []
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -249,7 +247,7 @@ class TestCommitGreenCode:
         _write_file(repo, "tests/test_x.py", "def test_new(): assert True\n")
 
         captured: list[dict] = []
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -294,7 +292,7 @@ class TestCommitGreenCode:
         scratchpad = tmp_path / "scratch"
         scratchpad.mkdir()
 
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -321,7 +319,7 @@ class TestCommitGreenCode:
         8FFC0E05 moved green_watchdog to the last position so a verified-good GREEN
         is committed before the watchdog observes budget breach.
         """
-        from phase_5_implement import phase_5_implement_workflow
+        from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow
 
         workflow = phase_5_implement_workflow()
         second_to_last = workflow.steps[-2]
@@ -346,7 +344,7 @@ class TestCommitGreenCode:
         scratchpad = tmp_path / "scratch"
         scratchpad.mkdir()
 
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -379,7 +377,7 @@ class TestCommitGreenCode:
         # Write a production file so the step reaches the git-add path
         _write_file(repo, "src/impl.py", "def impl(): pass\n")
 
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",

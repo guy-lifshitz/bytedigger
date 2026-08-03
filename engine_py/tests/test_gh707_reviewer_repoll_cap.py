@@ -20,10 +20,9 @@ from unittest.mock import patch
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-import workflows.phase_45_spec as p45  # noqa: E402
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec as p45  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 def _ctx(**cfg):

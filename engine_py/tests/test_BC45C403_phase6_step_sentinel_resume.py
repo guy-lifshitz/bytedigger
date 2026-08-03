@@ -14,15 +14,13 @@ from unittest.mock import MagicMock, patch
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import WorkflowContext, StepResult  # these exist
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # these exist
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
-_LIB_PATH = str(ENGINE_ROOT / "lib")
+_LIB_PATH = str(ENGINE_ROOT / "bytedigger_engine" / "lib")
 
 
 def _ensure_lib_path() -> None:
@@ -88,7 +86,7 @@ def _make_fix_prev(tmp_path: Path) -> StepResult:
 
 def test_ac1_write_step_sentinel_importable():
     """AC1: write_step_sentinel must be importable from lib step_sentinel."""
-    from step_sentinel import write_step_sentinel  # noqa: F401
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel  # noqa: F401
     assert callable(write_step_sentinel), "write_step_sentinel must be callable"
 
 
@@ -97,7 +95,7 @@ def test_ac1_write_step_sentinel_importable():
 
 def test_ac2_read_step_sentinel_importable():
     """AC2: read_step_sentinel must be importable from lib step_sentinel."""
-    from step_sentinel import read_step_sentinel  # noqa: F401
+    from bytedigger_engine.lib.step_sentinel import read_step_sentinel  # noqa: F401
     assert callable(read_step_sentinel), "read_step_sentinel must be callable"
 
 
@@ -106,8 +104,8 @@ def test_ac2_read_step_sentinel_importable():
 
 def test_ac7_sentinel_path_is_resume_subdir(tmp_path):
     """AC7: sentinel file path is {scratchpad}/resume/<resume_sentinel_name(...)> (run_id-keyed)."""
-    from step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     write_step_sentinel(tmp_path, "invoke_review_llm", 1, {"x": 1}, "runZ")
     sentinel_file = tmp_path / "resume" / resume_sentinel_name("invoke_review_llm", 1, "runZ")
@@ -121,8 +119,8 @@ def test_ac7_sentinel_path_is_resume_subdir(tmp_path):
 
 def test_ac8_read_step_sentinel_returns_none_on_missing_and_corrupt(tmp_path):
     """AC8: read_step_sentinel returns None when file is missing or JSON corrupt."""
-    from step_sentinel import read_step_sentinel  # noqa: PLC0415
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib.step_sentinel import read_step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     # Missing file
     result = read_step_sentinel(tmp_path, "invoke_review_llm", 99, "runZ")
@@ -143,11 +141,11 @@ def test_7e274b85_sentinel_name_differs_across_run_ids():
     """AC1: sentinel names for 'aaaa' vs 'bbbb' differ; each contains its run_id.
 
     Pre-fix forcing reason: lib/resume_keying.py does not exist.
-    ImportError raised at the `from resume_keying import …` call inside this
+    ImportError raised at the `from bytedigger_engine.lib.resume_keying import …` call inside this
     function → test FAILS (not at collection — §1q-ext).
     """
     _ensure_lib_path()
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name_a = resume_sentinel_name("invoke_review_llm", 1, "aaaa")
     name_b = resume_sentinel_name("invoke_review_llm", 1, "bbbb")
@@ -177,7 +175,7 @@ def test_7e274b85_cross_run_replay_returns_none(tmp_path: Path):
     §1i (singleton-resource): no singleton contention — tmp_path is unique per
     test; pre-staged empty (pytest guarantees it). No timing dependency.
     """
-    from step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
 
     scratchpad = tmp_path  # helpers write under scratchpad/"resume"/ internally
 
@@ -205,7 +203,7 @@ def test_7e274b85_same_run_id_round_trips(tmp_path: Path):
 
     §1i: no singleton contention — tmp_path unique and pre-staged empty.
     """
-    from step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
 
     scratchpad = tmp_path
 
@@ -229,7 +227,7 @@ def test_7e274b85_none_run_id_contains_norun():
     Post-fix: returns a filename containing 'norun'.
     """
     _ensure_lib_path()
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name = resume_sentinel_name("s", 2, None)
     assert "norun" in name, (
@@ -249,7 +247,7 @@ def test_gh752_ac1_key_builder_namespaces_by_workflow_name():
     kwarg → TypeError at the call below → FAIL.
     """
     _ensure_lib_path()
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name_spec = resume_sentinel_name(
         "invoke_review_llm", 1, "r1", workflow_name="phase_45_spec"
@@ -275,7 +273,7 @@ def test_gh752_ac2_no_workflow_name_preserves_legacy_filename():
     both pre- and post-fix.
     """
     _ensure_lib_path()
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name = resume_sentinel_name("invoke_review_llm", 1, "r1")
     assert name == "invoke_review_llm_done_c1_rr1.json", (
@@ -290,7 +288,7 @@ def test_gh752_ac3_namespaced_round_trip_and_cross_workflow_no_replay(tmp_path: 
     Pre-fix forcing reason: write_step_sentinel/read_step_sentinel have no
     workflow_name kwarg → TypeError at the first call below → FAIL.
     """
-    from step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel, read_step_sentinel  # noqa: PLC0415
 
     write_step_sentinel(
         tmp_path, "invoke_review_llm", 1, {"x": 1}, "r1", workflow_name="phase_6_review"
@@ -324,9 +322,9 @@ def test_gh752_ac4_execute_steps_threads_workflow_name_into_sentinel(tmp_path: P
     not called with workflow_name → the written filename has no
     'phase_6_review_stub__' prefix → the startswith assertion FAILS.
     """
-    from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition  # noqa: PLC0415
-    from engine import WorkflowEngine  # noqa: PLC0415
-    from event_log import EventLog  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition  # noqa: PLC0415
+    from bytedigger_engine.engine import WorkflowEngine  # noqa: PLC0415
+    from bytedigger_engine.event_log import EventLog  # noqa: PLC0415
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True)
@@ -375,10 +373,10 @@ def test_gh752_ac5_loop_runner_threads_loop_contract_name_into_sentinel(tmp_path
     Pre-fix forcing reason: the written filename has no 'rev_loop__' prefix
     → the startswith assertion FAILS.
     """
-    import telemetry_ctx  # noqa: PLC0415
-    from contracts import LoopStepContract, StepContract, StepResult, WorkflowContext  # noqa: PLC0415
-    from engine import LoopRunner  # noqa: PLC0415
-    from event_log import EventLog  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.contracts import LoopStepContract, StepContract, StepResult, WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.engine import LoopRunner  # noqa: PLC0415
+    from bytedigger_engine.event_log import EventLog  # noqa: PLC0415
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True)
@@ -434,8 +432,8 @@ def test_gh752_ac6_invalidate_removes_namespaced_sentinel(tmp_path):
     sentinel survives a same-cycle retry (§1ac recursion-cap nullified).
     """
     _ensure_lib_path()
-    from step_sentinel import write_step_sentinel, invalidate_cycle_sentinels
-    from contracts import StepContract
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel, invalidate_cycle_sentinels
+    from bytedigger_engine.contracts import StepContract
 
     ctx = _make_ctx(tmp_path)
     scratch = Path(ctx.org_config["scratchpad_dir"])
@@ -471,8 +469,8 @@ def test_gh752_ac7_invalidate_no_workflow_name_is_legacy(tmp_path):
     GH750 helper-layer callers that pass legacy-written sentinels are unaffected.
     """
     _ensure_lib_path()
-    from step_sentinel import write_step_sentinel, invalidate_cycle_sentinels
-    from contracts import StepContract
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel, invalidate_cycle_sentinels
+    from bytedigger_engine.contracts import StepContract
 
     ctx = _make_ctx(tmp_path)
     scratch = Path(ctx.org_config["scratchpad_dir"])

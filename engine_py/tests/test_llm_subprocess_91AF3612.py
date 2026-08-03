@@ -30,7 +30,7 @@ import pytest
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     _assert_hard_gate_opus,
     _classify_cmd_kind,
     _is_opus_model,
@@ -39,8 +39,8 @@ from llm_subprocess import (  # noqa: E402
     register_backend,
     reset_backends,
 )
-import llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -89,7 +89,7 @@ def test_ac1_popen_argv_gets_output_format_injected():
     """AC1 (updated 23680DDA + 25e75663): Popen must be called with
     --output-format stream-json --verbose appended for claude commands.
     25e75663: command= replaced by model=; argv built via _build_claude_argv."""
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _stream_proc()
         invoke_llm_subprocess(
             prompt="x",
@@ -117,7 +117,7 @@ def test_ac1_step_result_command_uses_augmented_argv():
     """Behavior: StepResult.data['command'] must reflect the augmented argv.
     Updated 23680DDA: the augmented value is --output-format stream-json --verbose.
     25e75663: command= replaced by model=."""
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _stream_proc(stdout=(
             '{"type":"result","subtype":"success","result":"ok","usage":{},"total_cost_usd":0}\n'
         ))
@@ -151,7 +151,7 @@ def test_ac1_spawned_event_cmd_uses_augmented_argv():
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r1", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
             mock_popen.return_value = _stream_proc()
             invoke_llm_subprocess(
                 prompt="x",

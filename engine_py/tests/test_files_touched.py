@@ -16,13 +16,13 @@ sys.path.insert(0, str(HERE.parent))
 
 import pytest
 
-from contracts import (
+from bytedigger_engine.contracts import (
     WorkflowContext,
     StepResult,
     StepContract,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
+from bytedigger_engine.engine import WorkflowEngine
 
 
 class _FakeEventLog:

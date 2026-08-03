@@ -19,8 +19,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import phase_45_spec
-from contracts import StepResult
+from bytedigger_engine.workflows import phase_45_spec
+from bytedigger_engine.contracts import StepResult
 
 
 def _ctx(org_config: dict | None = None) -> SimpleNamespace:

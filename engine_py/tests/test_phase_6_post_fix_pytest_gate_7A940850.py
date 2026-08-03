@@ -32,12 +32,10 @@ from unittest.mock import MagicMock, call, patch
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_6_review  # noqa: E402  — imported as module so getattr works cleanly
-from phase_6_review import phase_6_review_workflow  # noqa: E402
-from contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402  — imported as module so getattr works cleanly
+from bytedigger_engine.workflows.phase_6_review import phase_6_review_workflow  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────

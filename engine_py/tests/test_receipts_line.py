@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
@@ -79,7 +81,7 @@ def _rich_fixture(tmp_path):
 # ─── AC1: load_incidents — filter, missing file, garbage-tolerant ───────────
 
 def test_ac1_load_incidents_filters_run_id_in_file_order(tmp_path):
-    from lib.receipts_line import load_incidents  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import load_incidents  # noqa: PLC0415
 
     ledger_path = Path(tmp_path).resolve() / "incidents.jsonl"
     r1a = _incident_rec("r1", "p1", "s1")
@@ -95,14 +97,14 @@ def test_ac1_load_incidents_filters_run_id_in_file_order(tmp_path):
 
 
 def test_ac1_load_incidents_missing_file_returns_empty_list():
-    from lib.receipts_line import load_incidents  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import load_incidents  # noqa: PLC0415
 
     result = load_incidents(Path("/nonexistent/dir/incidents.jsonl"), "r1")
     assert result == [], f"AC1 FAIL: missing file must yield [], got {result!r}"
 
 
 def test_ac1_load_incidents_binary_garbage_file_no_raise(tmp_path):
-    from lib.receipts_line import load_incidents  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import load_incidents  # noqa: PLC0415
 
     ledger_path = Path(tmp_path).resolve() / "incidents.jsonl"
     ledger_path.write_bytes(b"\x00\x01\xff\xfe garbage not utf8 at all \x00")
@@ -114,7 +116,7 @@ def test_ac1_load_incidents_binary_garbage_file_no_raise(tmp_path):
 # ─── AC2: collect_terminal — last workflow_finished, None cases ─────────────
 
 def test_ac2_collect_terminal_returns_last_workflow_finished(tmp_path):
-    from lib.receipts_line import collect_terminal  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import collect_terminal  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     rows = [
@@ -131,7 +133,7 @@ def test_ac2_collect_terminal_returns_last_workflow_finished(tmp_path):
 
 
 def test_ac2_collect_terminal_no_matching_run_returns_none(tmp_path):
-    from lib.receipts_line import collect_terminal  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import collect_terminal  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     rows = [_ev("r2", "workflow_finished", {"workflow_name": "wf", "status": "ok", "wall_ms": 1})]
@@ -142,7 +144,7 @@ def test_ac2_collect_terminal_no_matching_run_returns_none(tmp_path):
 
 
 def test_ac2_collect_terminal_missing_file_returns_none_no_raise():
-    from lib.receipts_line import collect_terminal  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import collect_terminal  # noqa: PLC0415
 
     result = collect_terminal(Path("/nonexistent/dir/events.jsonl"), "r1")  # must not raise
     assert result is None, f"AC2 FAIL: missing file must yield None, got {result!r}"
@@ -151,7 +153,7 @@ def test_ac2_collect_terminal_missing_file_returns_none_no_raise():
 # ─── AC3: generate_receipts on rich fixture — exact-format assertions ───────
 
 def test_ac3_generate_receipts_rich_fixture_exact_format(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path, ledger_path = _rich_fixture(tmp_path)
 
@@ -183,7 +185,7 @@ def test_ac3_generate_receipts_rich_fixture_exact_format(tmp_path):
 # ─── AC4: all-ok run, no incidents ───────────────────────────────────────────
 
 def test_ac4_all_ok_run_no_incidents(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     ledger_path = Path(tmp_path).resolve() / "incidents.jsonl"
@@ -205,7 +207,7 @@ def test_ac4_all_ok_run_no_incidents(tmp_path):
 # ─── AC5: escalate status, falsy error_code → bare status + no-code ─────────
 
 def test_ac5_escalate_falsy_error_code_bare_status_and_no_code(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     ledger_path = Path(tmp_path).resolve() / "incidents.jsonl"
@@ -229,7 +231,7 @@ def test_ac5_escalate_falsy_error_code_bare_status_and_no_code(tmp_path):
 # ─── AC6: no terminal workflow_finished → exit 4, target not created ────────
 
 def test_ac6_no_terminal_exits_4_empty_stdout_stderr_mentions_run_id(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     _write_jsonl(events_path, [_ev("r2", "step_finished", {"step_name": "s1", "status": "ok"})])
@@ -241,7 +243,7 @@ def test_ac6_no_terminal_exits_4_empty_stdout_stderr_mentions_run_id(tmp_path):
 
 
 def test_ac6_no_terminal_with_append_path_target_not_created(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     _write_jsonl(events_path, [_ev("r2", "step_finished", {"step_name": "s1", "status": "ok"})])
@@ -257,7 +259,7 @@ def test_ac6_no_terminal_with_append_path_target_not_created(tmp_path):
 # ─── AC7: append writer-behavior enumeration ─────────────────────────────────
 
 def test_ac7_append_to_absent_file_creates_with_block_content(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path, ledger_path = _rich_fixture(tmp_path)
     append_path = Path(tmp_path).resolve() / "receipts.md"
@@ -273,7 +275,7 @@ def test_ac7_append_to_absent_file_creates_with_block_content(tmp_path):
 
 
 def test_ac7_append_to_single_newline_terminated_existing_file(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path, ledger_path = _rich_fixture(tmp_path)
     append_path = Path(tmp_path).resolve() / "receipts.md"
@@ -291,7 +293,7 @@ def test_ac7_append_to_single_newline_terminated_existing_file(tmp_path):
 
 
 def test_ac7_append_to_no_trailing_newline_existing_file(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path, ledger_path = _rich_fixture(tmp_path)
     append_path = Path(tmp_path).resolve() / "receipts.md"
@@ -311,7 +313,7 @@ def test_ac7_append_to_no_trailing_newline_existing_file(tmp_path):
 # ─── AC8: idempotent re-entry — same run appended twice ─────────────────────
 
 def test_ac8_repeat_append_same_run_exits_6_file_unchanged(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path, ledger_path = _rich_fixture(tmp_path)
     append_path = Path(tmp_path).resolve() / "receipts.md"
@@ -336,7 +338,7 @@ def test_ac8_repeat_append_same_run_exits_6_file_unchanged(tmp_path):
 
 
 def test_ac8_different_run_id_appends_fine(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path, ledger_path = _rich_fixture(tmp_path)
     _write_jsonl(events_path, [
@@ -369,7 +371,7 @@ def test_ac8_different_run_id_appends_fine(tmp_path):
 # ─── AC9: unwritable append target → exit 5, no raise ───────────────────────
 
 def test_ac9_readonly_parent_exits_5_no_raise(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("AC9: chmod read-only has no effect when running as root")
@@ -392,7 +394,7 @@ def test_ac9_readonly_parent_exits_5_no_raise(tmp_path):
 
 
 def test_ac9_stdout_mode_unaffected_by_failed_append_fixture(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path, ledger_path = _rich_fixture(tmp_path)
 
@@ -407,10 +409,10 @@ def test_ac9_stdout_mode_unaffected_by_failed_append_fixture(tmp_path):
 # ─── AC10: §1f entry point shape + subprocess smoke + argparse ──────────────
 
 def test_ac10_entry_point_imports_main_no_local_defs():
-    entry_path = HERE.parent / "generate_receipts.py"
+    entry_path = HERE.parent / "bytedigger_engine" / "generate_receipts.py"
     assert entry_path.exists(), f"AC10 FAIL: entry point does not exist yet: {entry_path}"
     source = entry_path.read_text(encoding="utf-8")
-    assert "from lib.receipts_line import main" in source, (
+    assert "from bytedigger_engine.lib.receipts_line import main" in source, (
         "AC10 FAIL: generate_receipts.py must import main from lib.receipts_line"
     )
     assert "def " not in source, (
@@ -419,12 +421,12 @@ def test_ac10_entry_point_imports_main_no_local_defs():
 
 
 def test_ac10_entry_point_subprocess_smoke(tmp_path):
-    entry_path = HERE.parent / "generate_receipts.py"
+    entry_path = HERE.parent / "bytedigger_engine" / "generate_receipts.py"
     events_path, ledger_path = _rich_fixture(tmp_path)
 
     result = subprocess.run(
         [sys.executable, str(entry_path), "--run", "r1",
-         "--events", str(events_path), "--ledger", str(ledger_path)],
+         "--events", str(events_path), "--ledger", str(ledger_path)], env=engine_env(),
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, (
@@ -436,7 +438,7 @@ def test_ac10_entry_point_subprocess_smoke(tmp_path):
 
 
 def test_ac10_main_missing_required_args_exits_2():
-    from lib.receipts_line import main  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import main  # noqa: PLC0415
 
     with pytest.raises(SystemExit) as excinfo:
         main([])
@@ -446,7 +448,7 @@ def test_ac10_main_missing_required_args_exits_2():
 # ─── AC11: env seam — BD_INCIDENT_LOG honored when --ledger omitted ────────
 
 def test_ac11_main_honors_env_seam_when_ledger_omitted(tmp_path, monkeypatch):
-    from lib.receipts_line import main  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import main  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     _write_jsonl(events_path, [
@@ -466,7 +468,7 @@ def test_ac11_main_honors_env_seam_when_ledger_omitted(tmp_path, monkeypatch):
 
 
 def test_ac11_env_seam_incident_visible_in_stdout(tmp_path, monkeypatch, capsys):
-    from lib.receipts_line import main  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import main  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     _write_jsonl(events_path, [
@@ -493,7 +495,7 @@ def test_ac11_env_seam_incident_visible_in_stdout(tmp_path, monkeypatch, capsys)
 # ─── AC12: rollup absent → n/a economics; non-numeric wall_ms → no wall segment ──
 
 def test_ac12_rollup_absent_renders_na_economics(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     ledger_path = Path(tmp_path).resolve() / "incidents.jsonl"
@@ -511,7 +513,7 @@ def test_ac12_rollup_absent_renders_na_economics(tmp_path):
 
 
 def test_ac12_non_numeric_wall_ms_omits_wall_segment_no_raise(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     ledger_path = Path(tmp_path).resolve() / "incidents.jsonl"
@@ -534,7 +536,7 @@ def test_ac12_non_numeric_wall_ms_omits_wall_segment_no_raise(tmp_path):
 # ─── AC13: null error_code/workaround, sub-1000 tokens_out, missing by_cycle ──
 
 def test_ac13_null_error_code_and_workaround_render_unknown_no_workaround_text(tmp_path):
-    from lib.receipts_line import generate_receipts  # noqa: PLC0415
+    from bytedigger_engine.lib.receipts_line import generate_receipts  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     ledger_path = Path(tmp_path).resolve() / "incidents.jsonl"

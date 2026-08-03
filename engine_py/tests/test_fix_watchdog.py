@@ -35,11 +35,9 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -101,7 +99,7 @@ def test_fix_watchdog_trips_on_zero_tokens_after_60s(tmp_path):
     Unlike _green_watchdog (recoverable=False), _fix_watchdog is
     recoverable=True because hangs are transient model hiccups.
     """
-    from phase_6_review import _fix_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _fix_watchdog  # noqa: PLC0415
 
     ctx = make_ctx(tmp_path)
     prev = make_prev_fix_result(tokens_out=0, duration_ms=60_001)
@@ -136,7 +134,7 @@ def test_fix_watchdog_trips_on_None_tokens_after_60s(tmp_path):
     (llm_subprocess.py:163). Zero happens on stream-json with empty result.
     Both are the hang signature — _fix_watchdog must not distinguish.
     """
-    from phase_6_review import _fix_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _fix_watchdog  # noqa: PLC0415
 
     ctx = make_ctx(tmp_path)
     prev = make_prev_fix_result(tokens_out=None, duration_ms=90_000)
@@ -168,7 +166,7 @@ def test_fix_watchdog_passthrough_when_tokens_present(tmp_path):
     took 120s, that's the timeout ceiling's problem — not the hang watchdog.
     _fix_watchdog only catches the ZERO-token case.
     """
-    from phase_6_review import _fix_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _fix_watchdog  # noqa: PLC0415
 
     ctx = make_ctx(tmp_path)
     prev = make_prev_fix_result(tokens_out=42, duration_ms=120_000)
@@ -198,7 +196,7 @@ def test_fix_watchdog_passthrough_when_duration_under_60s(tmp_path):
     parser. Only prolonged silence (>= 60s) with zero tokens is the hang
     signature.
     """
-    from phase_6_review import _fix_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _fix_watchdog  # noqa: PLC0415
 
     ctx = make_ctx(tmp_path)
     prev = make_prev_fix_result(tokens_out=0, duration_ms=59_999)
@@ -227,7 +225,7 @@ def test_fix_watchdog_at_threshold_exactly(tmp_path):
     strict > by mistake (which would let the exact-threshold case slip
     through as a pass-through).
     """
-    from phase_6_review import _fix_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _fix_watchdog  # noqa: PLC0415
 
     ctx = make_ctx(tmp_path)
     prev = make_prev_fix_result(tokens_out=0, duration_ms=60_000)
@@ -255,7 +253,7 @@ def test_fix_watchdog_constant_exported():
     (phase_5_implement.py). Allows callers / tests to reference the threshold
     symbolically and makes future tuning a 1-line edit.
     """
-    from phase_6_review import FIX_WATCHDOG_NO_PROGRESS_MS  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import FIX_WATCHDOG_NO_PROGRESS_MS  # noqa: PLC0415
 
     assert FIX_WATCHDOG_NO_PROGRESS_MS == 60_000, (
         "775D6752: FIX_WATCHDOG_NO_PROGRESS_MS must equal 60_000 (60s, "
@@ -277,7 +275,7 @@ def test_fix_watchdog_step_registered_in_workflow():
     Mirror of test_phase_5_implement.py's step-name list assertion for
     _green_watchdog (phase_5_implement.py:154 — assert [s.name for s in wf.steps]).
     """
-    from phase_6_review import phase_6_review_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import phase_6_review_workflow  # noqa: PLC0415
 
     wf = phase_6_review_workflow()
     step_names = [s.name for s in wf.steps]
@@ -321,7 +319,7 @@ def test_fix_watchdog_emits_telemetry_event(tmp_path):
     (same pattern as test_phase_6_review_W2.py:160-186 and
     test_llm_subprocess_775D6752.py:436-466).
     """
-    from phase_6_review import _fix_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _fix_watchdog  # noqa: PLC0415
 
     ctx = make_ctx(tmp_path)
     prev = make_prev_fix_result(tokens_out=0, duration_ms=60_001)
@@ -376,7 +374,7 @@ def test_fix_watchdog_missing_prev_data_returns_error(tmp_path):
     before populating data (e.g. hard error upstream that skip_on_error
     doesn't catch, or engine routing bug).
     """
-    from phase_6_review import _fix_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _fix_watchdog  # noqa: PLC0415
 
     ctx = make_ctx(tmp_path)
 

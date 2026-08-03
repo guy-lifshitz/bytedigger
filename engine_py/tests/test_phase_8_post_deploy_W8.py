@@ -42,11 +42,10 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from phase_8_post_deploy import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows.phase_8_post_deploy import (  # noqa: E402
     _cleanup_eval_rotation,
     _cleanup_gone_branches,
     _cleanup_worktrees,
@@ -252,7 +251,7 @@ def _run_with_simulated_sibling_main(
     fall through to the real implementation if reached — so a stray remove
     surfaces as a real failure rather than being silently swallowed.
     """
-    import phase_8_post_deploy as p8mod
+    from bytedigger_engine.workflows import phase_8_post_deploy as p8mod
 
     real_git_read = p8mod._git_read
     remove_attempts: list[list[str]] = []
@@ -303,7 +302,7 @@ def test_cleanup_gone_branches_strips_plus_prefix(tmp_path, monkeypatch):
     `+` (mirroring `_cleanup_worktrees` line 290 `lstrip("*+")`), runs
     `git branch -d gone-feature`, and includes the clean name in `deleted`.
     """
-    import phase_8_post_deploy as p8mod
+    from bytedigger_engine.workflows import phase_8_post_deploy as p8mod
 
     branch_calls: list[list[str]] = []
     delete_calls: list[list[str]] = []
@@ -361,7 +360,7 @@ def test_cleanup_gone_branches_strips_star_prefix(tmp_path, monkeypatch):
     Locks the existing `*` strip path so the GREEN fix is additive
     (`lstrip('*')` → `lstrip('*+')`), not a regression.
     """
-    import phase_8_post_deploy as p8mod
+    from bytedigger_engine.workflows import phase_8_post_deploy as p8mod
 
     delete_calls: list[list[str]] = []
 

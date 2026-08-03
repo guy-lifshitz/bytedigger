@@ -30,9 +30,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -83,7 +82,7 @@ def test_cwd_preflight_aborts_when_git_cwd_missing(tmp_path: Path):
 
     RED PHASE: This test FAILs because cwd_preflight step doesn't exist yet.
     """
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
@@ -120,7 +119,7 @@ def test_green_watchdog_aborts_on_2x_wall_clock(tmp_path: Path):
 
     RED PHASE: This test FAILs because green_watchdog step doesn't exist yet.
     """
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
@@ -155,7 +154,7 @@ def test_green_watchdog_token_overrun_is_nonfatal_alert(tmp_path: Path):
     Token volume is a verbosity metric, not a correctness signal — the wall-clock
     branch already covers genuine runaway.
     """
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
@@ -192,7 +191,7 @@ def test_green_watchdog_passes_when_under_thresholds(tmp_path: Path):
 
     RED PHASE: This test FAILs because green_watchdog step doesn't exist yet.
     """
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)

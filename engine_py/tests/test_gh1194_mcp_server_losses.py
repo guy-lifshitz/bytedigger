@@ -63,7 +63,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import llm_subprocess  # noqa: E402  (engine_py root on sys.path via conftest)
+from bytedigger_engine import llm_subprocess  # noqa: E402  (engine_py root on sys.path via conftest)
 
 
 @pytest.fixture(autouse=True)
@@ -233,7 +233,7 @@ def _capture_module_warnings():
 def _run_stream(stdout_text: str, returncode: int = 0):
     """Drive one full stream-json run through the real invoke_llm_subprocess."""
     with patch(
-        "llm_subprocess.subprocess.Popen",
+        "bytedigger_engine.llm_subprocess.subprocess.Popen",
         return_value=_stream_proc(stdout_text, returncode=returncode),
     ):
         return llm_subprocess.invoke_llm_subprocess(
@@ -773,7 +773,7 @@ def test_ac14_warning_fires_on_timeout_branch(request):
     proc.communicate = MagicMock(return_value=("CORRUPTED_NEVER_SEE_THIS", ""))
 
     with _capture_module_warnings() as cap:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = llm_subprocess.invoke_llm_subprocess(
                 prompt="x", model="sonnet", timeout_sec=2, step_name="s"
             )
@@ -924,7 +924,7 @@ def test_ac17_data_key_is_full_list_and_cannot_be_shadowed():
 
     with _capture_module_warnings() as second:
         with patch(
-            "llm_subprocess.subprocess.Popen",
+            "bytedigger_engine.llm_subprocess.subprocess.Popen",
             return_value=_stream_proc(stdout),
         ):
             result = llm_subprocess.invoke_llm_subprocess(

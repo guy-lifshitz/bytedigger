@@ -21,11 +21,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_5_implement import _verify_red_lint_rules  # noqa: E402
-from suite_safety import scan_suite_safety  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # noqa: E402
+from bytedigger_engine.suite_safety import scan_suite_safety  # noqa: E402
 
 
 # ─── shared helpers ───────────────────────────────────────────────────────────
@@ -209,7 +208,7 @@ def test_ac09_suite_unsafe_blocks_even_when_semgrep_absent(tmp_path, monkeypatch
     """AC9: semgrep absent (shutil.which → None) + suite-unsafe red file
     → STILL status=='error' E_RED_SUITE_UNSAFE (NOT ok/skipped).
     Pins that suite-safety check runs BEFORE the :1452 semgrep early-return."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setattr(p5.shutil, "which", lambda _: None)
 
@@ -235,7 +234,7 @@ def test_ac09_suite_unsafe_blocks_even_when_semgrep_absent(tmp_path, monkeypatch
 
 def test_ac10_semgrep_absent_clean_files_fails_loud(tmp_path, monkeypatch):
     """AC10: semgrep absent + all red files clean → status=='error', E_RED_LINT_SEMGREP_MISSING (112CB15B fail-loud; semgrep is build-critical)."""
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setattr(p5.shutil, "which", lambda _: None)
 
@@ -300,13 +299,13 @@ def test_ac12_scan_suite_safety_imported_from_suite_safety():
     """AC12: scan_suite_safety is imported into phase_5_implement.py from suite_safety
     (helper body NOT inlined in the entry-point file).
 
-    Verified by: the import at the top of this test file (`from suite_safety import
+    Verified by: the import at the top of this test file (`from bytedigger_engine.suite_safety import
     scan_suite_safety`) succeeds — if the module doesn't exist, the whole test file fails to
     import. Additionally, we confirm that phase_5_implement exposes the name via its own import
     (not just that the suite_safety module exists independently).
     """
     import importlib
-    import suite_safety as safety_module
+    from bytedigger_engine import suite_safety as safety_module
 
     # The function must exist in the dedicated suite_safety module
     assert hasattr(safety_module, "scan_suite_safety"), (
@@ -318,11 +317,11 @@ def test_ac12_scan_suite_safety_imported_from_suite_safety():
 
     # Confirm phase_5_implement imports from suite_safety (not inline)
     # by checking that phase_5_implement uses the same object reference
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
     p5_fn = getattr(p5, "scan_suite_safety", None)
     assert p5_fn is not None, (
         "scan_suite_safety not found as a name in phase_5_implement; "
-        "GREEN must `from suite_safety import scan_suite_safety` there"
+        "GREEN must `from bytedigger_engine.suite_safety import scan_suite_safety` there"
     )
     assert p5_fn is safety_module.scan_suite_safety, (
         "phase_5_implement.scan_suite_safety is not the same object as "

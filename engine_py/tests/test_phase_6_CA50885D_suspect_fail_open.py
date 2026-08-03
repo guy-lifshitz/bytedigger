@@ -32,21 +32,19 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-WORKFLOWS = ENGINE_ROOT / "workflows"
+WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 
 # Match sibling test import pattern exactly
 # (test_phase_6_verified_only_gate_65695203.py, test_phase_6_1F39FB1A_soft_tag.py)
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
 # Top-level import — module already exists → collects fine.
 # NOT-YET-EXISTING behavior (3rd param, suspect_findings key) accessed inside test
 # bodies only, per §1q / D1CF5FDF.
-import phase_6_review as _p6  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402
 
 
 # ─── fixture helpers ────────────────────────────────────────────────────────────

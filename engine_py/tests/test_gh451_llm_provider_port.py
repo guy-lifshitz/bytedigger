@@ -17,7 +17,7 @@ import pytest
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     _MODEL_RANK,
     _assert_hard_gate_opus,
     _build_claude_argv,
@@ -25,13 +25,13 @@ from llm_subprocess import (  # noqa: E402
     _model_family,
 )
 
-import lib.model_config as model_config  # noqa: E402
+from bytedigger_engine.lib import model_config as model_config  # noqa: E402
 
 
 # AC1 -------------------------------------------------------------------------
 
 def test_ac1_get_provider_default_is_claude():
-    from lib.llm_provider import get_provider
+    from bytedigger_engine.lib.llm_provider import get_provider
 
     spec = get_provider()
     assert spec.name == "claude"
@@ -40,7 +40,7 @@ def test_ac1_get_provider_default_is_claude():
 # AC2 -------------------------------------------------------------------------
 
 def test_ac2_get_provider_honors_env_override_and_unknown_raises_keyerror(monkeypatch):
-    from lib.llm_provider import ProviderSpec, get_provider, register_provider, reset_providers
+    from bytedigger_engine.lib.llm_provider import ProviderSpec, get_provider, register_provider, reset_providers
 
     stub = ProviderSpec(
         name="stub",
@@ -66,7 +66,7 @@ def test_ac2_get_provider_honors_env_override_and_unknown_raises_keyerror(monkey
 # AC3 -------------------------------------------------------------------------
 
 def test_ac3_claude_provider_build_argv_and_stream_flags():
-    from lib.llm_provider import CLAUDE_PROVIDER
+    from bytedigger_engine.lib.llm_provider import CLAUDE_PROVIDER
 
     assert CLAUDE_PROVIDER.build_argv("opus") == ["claude", "-p", "--model", "opus"]
     assert CLAUDE_PROVIDER.stream_flags == ("--output-format", "stream-json", "--verbose")
@@ -75,7 +75,7 @@ def test_ac3_claude_provider_build_argv_and_stream_flags():
 # AC4 -------------------------------------------------------------------------
 
 def test_ac4_build_claude_argv_delegates_to_registered_provider(monkeypatch):
-    from lib.llm_provider import ProviderSpec, register_provider, reset_providers
+    from bytedigger_engine.lib.llm_provider import ProviderSpec, register_provider, reset_providers
 
     stub = ProviderSpec(
         name="stub",
@@ -97,7 +97,7 @@ def test_ac4_build_claude_argv_delegates_to_registered_provider(monkeypatch):
 # AC5 -------------------------------------------------------------------------
 
 def test_ac5_find_last_result_event_delegates_to_provider(monkeypatch):
-    from lib.llm_provider import ProviderSpec, register_provider, reset_providers
+    from bytedigger_engine.lib.llm_provider import ProviderSpec, register_provider, reset_providers
 
     stub = ProviderSpec(
         name="stub",
@@ -125,7 +125,7 @@ def test_ac5_find_last_result_event_claude_behavior_unchanged():
 # AC6 -------------------------------------------------------------------------
 
 def test_ac6_taxonomy_names_importable_and_regression_pin():
-    from llm_subprocess import _is_fable_model, _is_opus_model, _meets_opus_floor
+    from bytedigger_engine.llm_subprocess import _is_fable_model, _is_opus_model, _meets_opus_floor
 
     assert _MODEL_RANK["fable"] == 3
     assert _model_family("claude-fable-5") == "fable"
@@ -138,7 +138,7 @@ def test_ac6_taxonomy_names_importable_and_regression_pin():
 # AC7 -------------------------------------------------------------------------
 
 def test_ac7_resolve_gate_floor_precedence_matrix(tmp_path, monkeypatch):
-    from llm_subprocess import _resolve_gate_floor
+    from bytedigger_engine.llm_subprocess import _resolve_gate_floor
 
     monkeypatch.delenv("HAL_GATE_MODEL_FLOOR", raising=False)
     cfg_path = tmp_path / "models.json"
@@ -167,7 +167,7 @@ def test_ac7_resolve_gate_floor_precedence_matrix(tmp_path, monkeypatch):
 # AC8 -------------------------------------------------------------------------
 
 def test_ac8_gate_floor_resolution_emits_resolver_resolved_env_source(monkeypatch):
-    import llm_subprocess as llm_subprocess_mod
+    from bytedigger_engine import llm_subprocess as llm_subprocess_mod
 
     captured = []
 
@@ -190,7 +190,7 @@ def test_ac8_gate_floor_resolution_emits_resolver_resolved_env_source(monkeypatc
 
 
 def test_ac8_gate_floor_resolution_emits_resolver_resolved_provider_default_source(monkeypatch):
-    import llm_subprocess as llm_subprocess_mod
+    from bytedigger_engine import llm_subprocess as llm_subprocess_mod
 
     captured = []
 
@@ -234,7 +234,7 @@ def test_ac10_hard_gate_still_rejects_sonnet_at_default_floor(monkeypatch):
 # AC11 ------------------------------------------------------------------------
 
 def test_ac11_get_role_model_matches_getters_and_get_gate_floor_none_without_key():
-    from lib.model_config import get_gate_floor, get_role_model
+    from bytedigger_engine.lib.model_config import get_gate_floor, get_role_model
 
     role_map = {
         "primary": model_config.get_claude_primary,
@@ -254,7 +254,7 @@ def test_ac11_get_role_model_matches_getters_and_get_gate_floor_none_without_key
 # AC12 ------------------------------------------------------------------------
 
 def test_ac12_invalid_env_floor_token_falls_through_to_default(monkeypatch):
-    from llm_subprocess import _resolve_gate_floor
+    from bytedigger_engine.llm_subprocess import _resolve_gate_floor
 
     monkeypatch.setenv("HAL_GATE_MODEL_FLOOR", "bogus")
     old_path = model_config._CONFIG_PATH

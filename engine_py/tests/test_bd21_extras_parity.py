@@ -28,7 +28,7 @@ ENGINE_PY_ROOT = Path(__file__).resolve().parent.parent
 
 def _package_meta_extras():
     """name -> value for every EXTRA_* string constant package_meta.py defines."""
-    import package_meta
+    from bytedigger_engine import package_meta
 
     return {
         name: value

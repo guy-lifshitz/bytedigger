@@ -22,11 +22,9 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib" / "plugins"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_5_implement  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 
 
 # ─── ctx builders ────────────────────────────────────────────────────────────

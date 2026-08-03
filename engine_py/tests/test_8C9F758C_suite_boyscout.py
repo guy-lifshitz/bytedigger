@@ -36,13 +36,13 @@ import pytest
 # conftest.py (§1q singleton) already added engine_py root + workflows/ to
 # sys.path at import time — do NOT add sys.path.insert here (81F97F3D gate).
 
-import phase_8_post_deploy as _p8mod  # noqa: E402 — always importable (pre-GREEN)
+from bytedigger_engine.workflows import phase_8_post_deploy as _p8mod  # noqa: E402 — always importable (pre-GREEN)
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 def _make_ctx(scratchpad: Path, *, working_dir: Path | None = None, **org_extra):
-    from contracts import WorkflowContext  # deferred OK; contracts always exist
+    from bytedigger_engine.contracts import WorkflowContext  # deferred OK; contracts always exist
     org: dict = {"scratchpad_dir": str(scratchpad), **org_extra}
     if working_dir is not None:
         org["working_dir"] = str(working_dir)
@@ -64,7 +64,7 @@ def _make_ctx(scratchpad: Path, *, working_dir: Path | None = None, **org_extra)
 
 def test_ac1_parse_failing_nodeids_pytest_two_failed_lines():
     """AC1: parse pytest stdout with two FAILED lines + green noise → exact list."""
-    from lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
 
     stdout = (
         "collected 5 items\n"
@@ -89,7 +89,7 @@ def test_ac1_parse_failing_nodeids_pytest_two_failed_lines():
 
 def test_ac1b_parse_failing_nodeids_unknown_framework_returns_empty():
     """AC1b: unknown framework → [] (gate degrades to no-op per spec §2.1)."""
-    from lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
 
     result = parse_failing_nodeids("some stdout", "java")
     assert result == [], (
@@ -102,7 +102,7 @@ def test_ac1b_parse_failing_nodeids_unknown_framework_returns_empty():
 
 def test_ac2_parse_failing_nodeids_ignores_mid_traceback_failed_word():
     """AC2: 'FAILED' mid-traceback/message is NOT captured (only line-start ^FAILED)."""
-    from lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
 
     stdout = (
         "collected 1 item\n"
@@ -132,7 +132,7 @@ def test_ac2_parse_failing_nodeids_ignores_mid_traceback_failed_word():
 
 def test_ac3_parse_failing_nodeids_captures_pytest_error_collection():
     """AC3: ERROR <nodeid> (collection error) is captured alongside FAILED."""
-    from lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
 
     stdout = (
         "ERROR tests/t.py::test_c - ImportError: cannot import name 'foo'\n"
@@ -151,7 +151,7 @@ def test_ac3_parse_failing_nodeids_captures_pytest_error_collection():
 
 def test_ac4_parse_failing_nodeids_bun_fail_labels():
     """AC4: bun framework extracts (fail) label."""
-    from lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import parse_failing_nodeids  # type: ignore[import-not-found]
 
     stdout = (
         "bun test v1.0.0\n"
@@ -174,7 +174,7 @@ def test_ac4_parse_failing_nodeids_bun_fail_labels():
 
 def test_ac5_parse_allowlist_valid_entry_fields():
     """AC5: parse_allowlist parses a valid 3-field line into AllowEntry with correct fields."""
-    from lib.plugins.disk_truth.suite_boyscout import parse_allowlist, AllowEntry  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import parse_allowlist, AllowEntry  # type: ignore[import-not-found]
 
     text = (
         "# Suite boyscout allowlist\n"
@@ -205,7 +205,7 @@ def test_ac5_parse_allowlist_valid_entry_fields():
 
 def test_ac6_parse_allowlist_raises_on_malformed_lines():
     """AC6: parse_allowlist raises ValueError naming the bad line for 3 malformed cases."""
-    from lib.plugins.disk_truth.suite_boyscout import parse_allowlist  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import parse_allowlist  # type: ignore[import-not-found]
 
     # Sub-case 1: 2-field line (missing kill-by field)
     two_field = "tests/test_x.py::test_a :: AABBCCDD\n"
@@ -237,7 +237,7 @@ def test_ac6_parse_allowlist_raises_on_malformed_lines():
 
 def test_ac7_evaluate_uncovered_id_would_block_true():
     """AC7: failing id NOT matched by any pattern → uncovered, would_block=True (enforce=True)."""
-    from lib.plugins.disk_truth.suite_boyscout import evaluate  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import evaluate  # type: ignore[import-not-found]
 
     failing = ["tests/test_orphan.py::test_z"]
     allowlist = {}  # no entries
@@ -258,7 +258,7 @@ def test_ac7_evaluate_uncovered_id_would_block_true():
 
 def test_ac8_evaluate_covered_id_not_expired_would_block_false():
     """AC8: failing id matched by a non-expired pattern → covered, would_block=False."""
-    from lib.plugins.disk_truth.suite_boyscout import evaluate, AllowEntry  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import evaluate, AllowEntry  # type: ignore[import-not-found]
 
     failing = ["tests/test_known.py::test_flaky"]
     today = date(2026, 6, 5)
@@ -287,7 +287,7 @@ def test_ac8_evaluate_covered_id_not_expired_would_block_false():
 
 def test_ac9_evaluate_expired_entry_would_block_true():
     """AC9: failing id matched by an expired pattern (kill_by < today) → expired, would_block=True."""
-    from lib.plugins.disk_truth.suite_boyscout import evaluate, AllowEntry  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import evaluate, AllowEntry  # type: ignore[import-not-found]
 
     failing = ["tests/test_old_debt.py::test_stale"]
     today = date(2026, 6, 5)
@@ -316,7 +316,7 @@ def test_ac9_evaluate_expired_entry_would_block_true():
 
 def test_ac10_evaluate_green_suite_never_blocks():
     """AC10: failing=[] → would_block=False, all buckets empty, regardless of enforce."""
-    from lib.plugins.disk_truth.suite_boyscout import evaluate  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import evaluate  # type: ignore[import-not-found]
 
     today = date(2026, 6, 5)
 
@@ -337,7 +337,7 @@ def test_ac10_evaluate_green_suite_never_blocks():
 
 def test_ac11_evaluate_enforce_false_no_block_but_uncovered_populated():
     """AC11: enforce=False + uncovered red → would_block=False, but uncovered still populated."""
-    from lib.plugins.disk_truth.suite_boyscout import evaluate  # type: ignore[import-not-found]
+    from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import evaluate  # type: ignore[import-not-found]
 
     failing = ["tests/test_orphan.py::test_z"]
     allowlist = {}
@@ -424,7 +424,7 @@ def test_ac13_suite_boyscout_gate_step_order_after_delta_before_ship():
     (1DA29C33: cleanup_run_allowlist inserted before full_suite_delta_gate shifted
     all indexes here by +1.)
     """
-    from phase_8_post_deploy import phase_8_post_deploy_workflow  # always importable
+    from bytedigger_engine.workflows.phase_8_post_deploy import phase_8_post_deploy_workflow  # always importable
 
     wf = phase_8_post_deploy_workflow()
     names = [s.name for s in wf.steps]

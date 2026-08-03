@@ -16,14 +16,14 @@ import pytest  # noqa: F401
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-import llm_subprocess  # noqa: E402
-from llm_subprocess import _StragglerWatchdog, invoke_llm_subprocess  # noqa: E402
-from contracts import StepResult  # noqa: E402
-from phase_6_review import _invoke_review_llm, _select_reviewers  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine.llm_subprocess import _StragglerWatchdog, invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _invoke_review_llm, _select_reviewers  # noqa: E402
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -371,7 +371,7 @@ def test_ac7_invoke_review_llm_passes_straggler_cfg_when_enabled(tmp_path, monke
             step_name="invoke_review_llm",
         )
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", _fake_invoke)
 
     scratchpad = tmp_path / "scratch"
@@ -444,7 +444,7 @@ def test_ac8_invoke_review_llm_no_straggler_cfg_when_disabled(tmp_path, monkeypa
             step_name="invoke_review_llm",
         )
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", _fake_invoke)
 
     scratchpad = tmp_path / "scratch"
@@ -520,7 +520,7 @@ def test_ac9b_invoke_review_llm_honours_patience_override(tmp_path, monkeypatch)
             step_name="invoke_review_llm",
         )
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", _fake_invoke)
 
     scratchpad = tmp_path / "scratch"

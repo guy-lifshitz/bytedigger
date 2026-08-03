@@ -35,7 +35,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── W7-FOLLOWUP: prose-quoted markers must NOT match ───────────────────────
@@ -48,7 +47,7 @@ def test_W11_parse_verdict_prose_quoted_pass_does_not_match():
     no genuine line-start VERDICT marker, the prose quote wins. Fix: line-
     anchor markers (regex ``^\\s*VERDICT: PASS`` with re.MULTILINE).
     """
-    from phase_5_implement import _parse_verdict, VERDICT_UNKNOWN  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_UNKNOWN  # noqa: PLC0415
 
     raw = 'We were told: "NEVER REPORT VERDICT: PASS unless tests pass"\n'
     result = _parse_verdict(raw)
@@ -61,7 +60,7 @@ def test_W11_parse_verdict_prose_quoted_pass_does_not_match():
 
 def test_W11_parse_green_status_prose_quoted_blocked_does_not_match():
     """Prose-quoted GREEN BLOCKED inside instructions must not be picked up."""
-    from phase_5_implement import _parse_green_status, GREEN_NO_MARKER  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_green_status, GREEN_NO_MARKER  # noqa: PLC0415
 
     raw = "Avoid GREEN BLOCKED in your output\n"
     result = _parse_green_status(raw)
@@ -76,7 +75,7 @@ def test_W11_parse_green_status_prose_quoted_blocked_does_not_match():
 
 def test_W11_parse_verdict_line_start_pass_matches_regression():
     """VERDICT: PASS at line start (legit LLM output) must still match."""
-    from phase_5_implement import _parse_verdict, VERDICT_PASS  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_PASS  # noqa: PLC0415
 
     raw = "VERDICT: PASS\n"
     assert _parse_verdict(raw) == VERDICT_PASS
@@ -84,7 +83,7 @@ def test_W11_parse_verdict_line_start_pass_matches_regression():
 
 def test_W11_parse_verdict_indented_pass_matches_regression():
     """Indented VERDICT: PASS (whitespace before marker) must still match."""
-    from phase_5_implement import _parse_verdict, VERDICT_PASS  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_PASS  # noqa: PLC0415
 
     raw = "  VERDICT: PASS\n"
     assert _parse_verdict(raw) == VERDICT_PASS, (
@@ -99,7 +98,7 @@ def test_W11_parse_verdict_last_line_anchored_wins_regression():
     Existing contract preserved: when multiple legitimate markers appear,
     the last one wins (LLM revising its verdict).
     """
-    from phase_5_implement import _parse_verdict, VERDICT_PASS  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_PASS  # noqa: PLC0415
 
     raw = "VERDICT: FAIL\nVERDICT: PASS\n"
     assert _parse_verdict(raw) == VERDICT_PASS
@@ -107,7 +106,7 @@ def test_W11_parse_verdict_last_line_anchored_wins_regression():
 
 def test_W11_parse_green_status_line_start_blocked_matches_regression():
     """GREEN BLOCKED at line start (legit LLM output) must still match."""
-    from phase_5_implement import _parse_green_status, GREEN_BLOCKED  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_green_status, GREEN_BLOCKED  # noqa: PLC0415
 
     raw = "GREEN BLOCKED\n"
     assert _parse_green_status(raw) == GREEN_BLOCKED

@@ -8,7 +8,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from derive_state import replay, query_run_events  # noqa: E402
+from bytedigger_engine.derive_state import replay, query_run_events  # noqa: E402
 
 
 def evt(event_type: str, payload: dict, run_id: str = "r1", ts: str = "2026-04-25T08:00:00.000Z") -> dict:
@@ -271,7 +271,7 @@ def test_query_run_events_default_source_when_none(tmp_path, monkeypatch):
     path = tmp_path / "default.jsonl"
     e1 = evt("workflow_started", {"workflow_name": "phase_5_implement"})
     path.write_text(json.dumps(e1) + "\n")
-    import derive_state as ds
+    from bytedigger_engine import derive_state as ds
 
     monkeypatch.setattr(ds, "default_log_path", lambda: path, raising=False)
     out = query_run_events(None)

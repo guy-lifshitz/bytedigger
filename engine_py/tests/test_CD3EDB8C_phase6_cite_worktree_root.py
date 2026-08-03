@@ -29,16 +29,16 @@ import pytest  # noqa: F401
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-from contracts import StepResult  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _aggregate_review_findings,
     _verify_finding_quote,
 )
-import phase_6_review as _p6  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402
 
 
 # ─── AC1: base_dir kwarg routes resolution to worktree root ───────────────────

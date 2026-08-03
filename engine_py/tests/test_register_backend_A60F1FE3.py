@@ -41,7 +41,7 @@ import pytest
 # conftest.py injects engine_py root into sys.path at import time (§1q singleton).
 # Import the stable module that already exists — no top-level access to
 # not-yet-existing symbols (register_backend / reset_backends / _DEFAULT_BACKENDS).
-import llm_subprocess
+from bytedigger_engine import llm_subprocess
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ class _SpyBackend:
         self.calls.append(dict(kwargs))
         # Deferred import so the file collects even before contracts exists
         # (contracts already shipped; this is belt-and-suspenders).
-        from contracts import StepResult  # noqa: PLC0415
+        from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
         return StepResult(
             status="ok",
             data={"spy": self._name},

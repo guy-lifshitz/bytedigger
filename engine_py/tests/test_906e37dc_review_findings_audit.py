@@ -20,13 +20,13 @@ import pytest  # noqa: F401  — pytest discovery convention
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-from contracts import StepResult  # noqa: E402
-from phase_6_review import _aggregate_review_findings, _build_review_prompt  # noqa: E402
-import workflows.phase_6_review as _p6  # noqa: E402  — for monkeypatching _emit_safe
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _aggregate_review_findings, _build_review_prompt  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402  — for monkeypatching _emit_safe
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -367,9 +367,9 @@ def test_ac6_telemetry_review_findings_audit_emitted(tmp_path, monkeypatch):
 
     # _emit_safe is defined in phase_6_review module; called as module-level function.
     # Must patch the SAME module object _aggregate_review_findings is bound to.
-    # `from phase_6_review import ...` loads it as the top-level "phase_6_review" module,
+    # `from bytedigger_engine.workflows.phase_6_review import ...` loads it as the top-level "phase_6_review" module,
     # NOT "workflows.phase_6_review" — patching _p6 (the latter) leaves the spy invisible.
-    import phase_6_review as _p6mod
+    from bytedigger_engine.workflows import phase_6_review as _p6mod
     monkeypatch.setattr(_p6mod, "_emit_safe", _fake_emit_safe)
 
     scratchpad = tmp_path / "scratch"

@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import phase_45_spec as p45  # type: ignore
-import telemetry_ctx  # type: ignore
-from contracts import StepResult  # type: ignore
+from bytedigger_engine.workflows import phase_45_spec as p45  # type: ignore
+from bytedigger_engine import telemetry_ctx  # type: ignore
+from bytedigger_engine.contracts import StepResult  # type: ignore
 
 
 class _CaptureEventLog:

@@ -30,15 +30,15 @@ import pytest
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     _parse_claude_json,
     _extract_result_text,
     invoke_llm_subprocess,
     register_backend,
     reset_backends,
 )
-import llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ def test_ac1_spawned_event_has_cmd_tail_not_cmd():
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r1", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
             mock_popen.return_value = _mock_proc()
             invoke_llm_subprocess(
                 prompt="x",
@@ -156,7 +156,7 @@ def test_ac2_spawned_event_has_output_format_json_when_auto_injected():
     # Case A: auto-injected via model= → output_format = "stream-json"
     telemetry_ctx.set_current_run(event_log=log, run_id="r1", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
             mock_popen.return_value = _stream_proc()
             invoke_llm_subprocess(
                 prompt="x",
@@ -199,7 +199,7 @@ def test_ac3_exited_event_has_flat_tokens_in_tokens_out():
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r1", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
             mock_popen.return_value = _stream_proc(stdout=_USAGE_STDOUT)
             invoke_llm_subprocess(
                 prompt="x",
@@ -248,7 +248,7 @@ def test_ac4_exited_event_cost_usd_present_and_matches_parse():
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(event_log=log, run_id="r1", step_name="s", phase="p")
     try:
-        with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
             mock_popen.return_value = _stream_proc(stdout=_USAGE_STDOUT)
             invoke_llm_subprocess(
                 prompt="x",

@@ -25,7 +25,7 @@ All AC1–AC9 FAIL today:
              recorded cmd-vectors don't match expected seam calls
   AC9 — phase_5_implement.py still contains the raw bounded_run(["git","stash"…) calls
 
-§1q / D1CF5FDF anti-hang rule: `from lib import git_write_port` at module top is safe
+§1q / D1CF5FDF anti-hang rule: `from bytedigger_engine.lib import git_write_port` at module top is safe
 (module exists).  `git_write_port.git_op_capture` is referenced INSIDE test bodies only
 so the file COLLECTS even though git_op_capture is absent; tests FAIL at assert/call time.
 
@@ -43,9 +43,9 @@ import pytest
 
 # Module-level imports of EXISTING modules — safe at collect time (§1q / D1CF5FDF).
 # conftest.py already wired engine_py root + workflows/ into sys.path at import time.
-from lib import git_write_port
-from lib.git_port import GitResult
-import workflows.phase_5_implement as p5
+from bytedigger_engine.lib import git_write_port
+from bytedigger_engine.lib.git_port import GitResult
+from bytedigger_engine.workflows import phase_5_implement as p5
 
 
 # ─── Shared real-git-repo fixture (AC1, AC2) ─────────────────────────────────
@@ -140,7 +140,7 @@ def test_9ecbf1f5_ac3_default_git_write_is_protocol_and_has_op_capture():
 
     FAILS today: GitWritePort does not declare op_capture → hasattr returns False.
     """
-    from lib.git_write_port import GitWritePort, default_git_write
+    from bytedigger_engine.lib.git_write_port import GitWritePort, default_git_write
 
     instance = default_git_write()
 

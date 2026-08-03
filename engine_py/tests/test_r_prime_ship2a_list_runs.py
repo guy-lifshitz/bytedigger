@@ -6,7 +6,7 @@ code 2 (unknown argument). AC2-AC8 fail because the CLI produces no TSV/JSON
 output.
 
 All tests invoke the CLI as a subprocess via sys.executable + run.py — never
-import lib.dbos_list_runs directly (per spec §5 / §5.1 anti-fabrication rule).
+import bytedigger_engine.lib.dbos_list_runs directly (per spec §5 / §5.1 anti-fabrication rule).
 
 Forcing-function ACs (spec §3 §1l):
   - AC4 and AC6 anchor on orchestrator-frozen SHA-256 literals.
@@ -20,6 +20,8 @@ import json
 import os
 import sqlite3
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
@@ -28,7 +30,7 @@ import pytest
 # ── Path constants ──────────────────────────────────────────────────────────
 HERE = Path(__file__).resolve().parent      # engine_py/tests/
 ENGINE_ROOT = HERE.parent                   # engine_py/
-RUN_PY = ENGINE_ROOT / "run.py"
+RUN_PY = ENGINE_ROOT / "bytedigger_engine" / "run.py"
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -83,7 +85,7 @@ def test_ac1_argparse_plumbing(tmp_path: Path) -> None:
     _seed_db(tmp_db, [])
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs", "--help"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -117,7 +119,7 @@ def test_ac2_single_run_tsv(tmp_path: Path) -> None:
     ])
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -155,7 +157,7 @@ def test_ac3_multi_status_aggregation(tmp_path: Path) -> None:
     ])
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -185,7 +187,7 @@ def test_ac4_n2_sort_by_max_updated_desc(tmp_path: Path) -> None:
     _seed_db(tmp_db, _FULL_FIXTURE_ROWS)
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -218,7 +220,7 @@ def test_ac5_legacy_row_exclusion(tmp_path: Path) -> None:
     _seed_db(tmp_db, _FULL_FIXTURE_ROWS)
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -252,7 +254,7 @@ def test_ac6_json_mode(tmp_path: Path) -> None:
     _seed_db(tmp_db, _FULL_FIXTURE_ROWS)
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs", "--json"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -295,7 +297,7 @@ def test_ac7_independent_sqlite_layer5(tmp_path: Path) -> None:
     # Step 1: run CLI, parse run_ids from TSV output
     result = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -345,7 +347,7 @@ def test_ac8_empty_db_graceful_exit(tmp_path: Path) -> None:
     # TSV mode
     result_tsv = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )
@@ -363,7 +365,7 @@ def test_ac8_empty_db_graceful_exit(tmp_path: Path) -> None:
     # JSON mode
     result_json = subprocess.run(
         [sys.executable, str(RUN_PY), "--list-runs", "--json"],
-        env=_make_env(tmp_db),
+        env=engine_env(_make_env(tmp_db)),
         capture_output=True,
         timeout=30,
     )

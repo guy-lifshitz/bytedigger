@@ -65,27 +65,27 @@ import pytest
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 # ─── telemetry_ctx — must be importable before production imports ──────────────
-import telemetry_ctx as _telemetry_ctx  # noqa: E402
+from bytedigger_engine import telemetry_ctx as _telemetry_ctx  # noqa: E402
 
 # ─── Production imports — all symbols exist today; no ImportError risk ────────
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from phase_5_implement import _check_red_executable  # noqa: E402
-from _recoverable_policy import resolve_policy, RecoverablePolicy  # noqa: E402
-from recoverable_gate import RecoverableGateMixin  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _check_red_executable  # noqa: E402
+from bytedigger_engine.workflows._recoverable_policy import resolve_policy, RecoverablePolicy  # noqa: E402
+from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
 
 
 # ─── helpers (mirrors test_7C4D70ED_red_executability_check.py:60-85) ─────────
@@ -135,7 +135,7 @@ def _mock_collect_failure(monkeypatch) -> None:
     synthetic SyntaxError stderr, mirroring test_7C4D70ED AC2/AC5.
     """
     monkeypatch.setattr(
-        "phase_5_implement.subprocess.run",
+        "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args[0], returncode=1, stdout="", stderr="SyntaxError: invalid syntax"
         ),

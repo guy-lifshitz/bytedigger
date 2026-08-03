@@ -22,9 +22,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import phase_5_implement
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_5_implement import _build_red_prompt  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _build_red_prompt  # noqa: E402
 
 
 # ─── shared helpers (mirrors test_prompt_parity_gh596_gh601.py) ────────────

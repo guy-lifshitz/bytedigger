@@ -8,13 +8,13 @@ import dataclasses
 import sys
 from pathlib import Path
 
-# Allow tests to import contracts.py from parent dir without pip install.
+# Allow tests to import bytedigger_engine.contracts.py from parent dir without pip install.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from typing import Any, Callable
 
-from contracts import (
+from bytedigger_engine.contracts import (
     WorkflowContext,
     StepResult,
     StepContract,
@@ -25,7 +25,7 @@ from contracts import (
 # Imported lazily inside each test so existing tests still collect/pass while
 # the new dataclasses are unimplemented (canonical RED).
 try:
-    from contracts import BudgetPolicy, WorkerExitResult  # type: ignore[attr-defined]
+    from bytedigger_engine.contracts import BudgetPolicy, WorkerExitResult  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover - RED phase
     BudgetPolicy = None  # type: ignore[assignment,misc]
     WorkerExitResult = None  # type: ignore[assignment,misc]
@@ -468,12 +468,12 @@ class TestFormatBoundaryError:
 
     def test_format_boundary_error_basic_field_presence(self):
         """Test that format_boundary_error includes all 5 required fields in output."""
-        from contracts import format_boundary_error
+        from bytedigger_engine.contracts import format_boundary_error
 
         result = format_boundary_error(
             phase="phase_45_spec_lite",
             field="review_path",
-            producer="phase_45_spec.write_review_doc",
+            producer="bytedigger_engine.workflows.phase_45_spec.write_review_doc",
             where="phase_45_spec_lite.py:611",
             schema="StepResult.data.review_path",
         )
@@ -481,13 +481,13 @@ class TestFormatBoundaryError:
         # Verify all 5 values appear as substrings in the result
         assert "phase_45_spec_lite" in result
         assert "review_path" in result
-        assert "phase_45_spec.write_review_doc" in result
+        assert "bytedigger_engine.workflows.phase_45_spec.write_review_doc" in result
         assert "phase_45_spec_lite.py:611" in result
         assert "StepResult.data.review_path" in result
 
     def test_format_boundary_error_labeled_fields(self):
         """Test that format_boundary_error includes recognizable field labels (phase:, field:, etc)."""
-        from contracts import format_boundary_error
+        from bytedigger_engine.contracts import format_boundary_error
 
         result = format_boundary_error(
             phase="phase_1_validate_context",

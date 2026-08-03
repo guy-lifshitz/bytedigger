@@ -20,14 +20,14 @@ sys.path manipulation needed here.
 """
 from __future__ import annotations
 
-from llm_subprocess import invoke_llm_subprocess, reset_backends
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, reset_backends
 
 
 class TestReferenceBackendInstallHints:
     """AC1: registry exists with exactly the four known reference-backend keys."""
 
     def test_registry_keys_match_known_reference_backends(self):
-        from llm_subprocess import _REFERENCE_BACKEND_INSTALL_HINTS
+        from bytedigger_engine.llm_subprocess import _REFERENCE_BACKEND_INSTALL_HINTS
 
         assert set(_REFERENCE_BACKEND_INSTALL_HINTS.keys()) == {
             "agent-sdk",
@@ -41,8 +41,8 @@ class TestReferenceBackendHintContents:
     """AC2: hint strings carry the expected pip/extras install commands."""
 
     def test_hint_contents_carry_expected_install_commands(self):
-        from llm_subprocess import _REFERENCE_BACKEND_INSTALL_HINTS
-        from package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
+        from bytedigger_engine.llm_subprocess import _REFERENCE_BACKEND_INSTALL_HINTS
+        from bytedigger_engine.package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
 
         assert "pip install claude-agent-sdk" in _REFERENCE_BACKEND_INSTALL_HINTS["agent-sdk"]
         # D52228C3 / GH1112: dist name single-sourced via package_meta.install_hint()
@@ -55,7 +55,7 @@ class TestUnknownBackendErrorMessageHelper:
     """AC3: helper callable, message carries unknown-backend text + hint + HAL_BUILD_PYTHON."""
 
     def test_helper_message_contains_backend_hint_and_venv_pointer(self):
-        from llm_subprocess import _unknown_backend_error_message
+        from bytedigger_engine.llm_subprocess import _unknown_backend_error_message
 
         msg = _unknown_backend_error_message("agent-sdk")
         assert "unknown runner backend: 'agent-sdk'" in msg
@@ -67,7 +67,7 @@ class TestUnknownBackendErrorMessageLegacyFallback:
     """AC4: unregistered/unmapped name gets the bare legacy message, no hint tail."""
 
     def test_unmapped_backend_name_gets_bare_legacy_message(self):
-        from llm_subprocess import _unknown_backend_error_message
+        from bytedigger_engine.llm_subprocess import _unknown_backend_error_message
 
         assert _unknown_backend_error_message("totally-bogus") == (
             "unknown runner backend: 'totally-bogus'"
@@ -118,7 +118,7 @@ class TestReferenceBackendsDocstringMentionsHalBuildPython:
     HAL_BUILD_PYTHON venv nuance."""
 
     def test_reference_backends_docstring_mentions_hal_build_python(self):
-        import lib.reference_backends as reference_backends
+        from bytedigger_engine.lib import reference_backends as reference_backends
 
         assert reference_backends.__doc__ is not None
         assert "HAL_BUILD_PYTHON" in reference_backends.__doc__

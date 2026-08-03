@@ -33,18 +33,18 @@ from pathlib import Path
 _ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "workflows"
+_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(_WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(_WORKFLOWS))
-_LIB = _ENGINE_PY / "lib"
+_LIB = _ENGINE_PY / "bytedigger_engine" / "lib"
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
 # ─── Module-level import (the MODULE always exists today) ─────────────────────
 # We import the module object; new symbols are accessed via getattr() or deferred
 # inside each test body to avoid ImportError at collect time (D1CF5FDF).
-from plugins.disk_truth import test_runner  # noqa: E402
-from plugins.disk_truth import run_test_command, TestRunResult  # noqa: E402
+from bytedigger_engine.lib.plugins.disk_truth import test_runner  # noqa: E402
+from bytedigger_engine.lib.plugins.disk_truth import run_test_command, TestRunResult  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -176,7 +176,7 @@ class TestTestRunnerSeam:
 
     # ── AC6 ──────────────────────────────────────────────────────────────────
     def test_ac6_cross_call_site_reach_via_package_import(self, tmp_path: Path) -> None:
-        """With sentinel injected, the delegator imported via 'from plugins.disk_truth import run_test_command' also routes to sentinel.
+        """With sentinel injected, the delegator imported via 'from bytedigger_engine.lib.plugins.disk_truth import run_test_command' also routes to sentinel.
 
         §1i: global state restored in finally block.
         """
@@ -205,7 +205,7 @@ class TestTestRunnerSeam:
         try:
             set_factory(sentinel_factory)
             # Simulate how phase callers import and call it:
-            # "from plugins.disk_truth import run_test_command" — already imported at module level
+            # "from bytedigger_engine.lib.plugins.disk_truth import run_test_command" — already imported at module level
             result = run_test_command(["echo", "hi"], str(tmp_path), timeout=5)
             assert len(calls) == 1, (
                 f"cross-call-site: sentinel hit {len(calls)} times, expected 1"

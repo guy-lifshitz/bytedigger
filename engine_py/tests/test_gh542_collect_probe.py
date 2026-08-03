@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers (mirror test_gh501_red_prompt_rules.py) ──────────────────
@@ -77,7 +77,7 @@ def test_x():
 
 
 def test_ac1_non_collectable_fixture_returns_violation(tmp_path):
-    from phase_5_implement import _red_collect_probe  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _red_collect_probe  # noqa: PLC0415
 
     relpath = _write_test_file(tmp_path, "tests/test_1q_noncollect.py", _NON_COLLECTABLE)
     full_path = str(tmp_path / relpath)
@@ -94,7 +94,7 @@ def test_ac1_non_collectable_fixture_returns_violation(tmp_path):
 
 
 def test_ac2_collectable_fixture_returns_no_violations(tmp_path):
-    from phase_5_implement import _red_collect_probe  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _red_collect_probe  # noqa: PLC0415
 
     relpath = _write_test_file(tmp_path, "tests/test_1q_collect.py", _COLLECTABLE)
     full_path = str(tmp_path / relpath)
@@ -109,7 +109,7 @@ def test_ac2_collectable_fixture_returns_no_violations(tmp_path):
 
 
 def test_ac3_non_python_paths_skip_with_reason(tmp_path):
-    from phase_5_implement import _red_collect_probe  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _red_collect_probe  # noqa: PLC0415
 
     non_py = _write_test_file(tmp_path, "tests/notes.txt", "not python\n")
     full_path = str(tmp_path / non_py)
@@ -126,7 +126,7 @@ def test_ac3_non_python_paths_skip_with_reason(tmp_path):
 
 
 def test_ac4_enforce_on_non_collectable_fixture_returns_error(tmp_path, monkeypatch):
-    from phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "1")
 
@@ -150,7 +150,7 @@ def test_ac4_enforce_on_non_collectable_fixture_returns_error(tmp_path, monkeypa
 
 
 def test_ac5_warn_only_emits_event_without_reject(tmp_path, monkeypatch):
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.delenv("HAL_RED_COLLECT_PROBE_ENFORCE", raising=False)
 
@@ -188,7 +188,7 @@ def test_ac5_warn_only_emits_event_without_reject(tmp_path, monkeypatch):
 
 
 def test_ac6_kill_switch_disabled_emits_gate_disabled_event(tmp_path, monkeypatch):
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RED_COLLECT_PROBE_GATE", "0")
 

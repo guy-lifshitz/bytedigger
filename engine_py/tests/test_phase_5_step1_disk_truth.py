@@ -19,15 +19,13 @@ from unittest.mock import MagicMock
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # This import will fail until GREEN implements _derive_red_paths_via_git_diff.
-from phase_5_implement import (  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import (  # noqa: E402
     _derive_red_paths_via_git_diff,
     _commit_red_tests,
 )
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -152,7 +150,7 @@ class TestCommitRedTestsGitFirst:
         scratchpad.mkdir()
 
         captured: list[dict] = []
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -185,7 +183,7 @@ class TestCommitRedTestsGitFirst:
         scratchpad.mkdir()
 
         captured: list[dict] = []
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -216,7 +214,7 @@ class TestCommitRedTestsGitFirst:
         scratchpad = tmp_path / "scratch"
         scratchpad.mkdir()
 
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -245,7 +243,7 @@ class TestCommitRedTestsGitFirst:
         scratchpad.mkdir()
 
         captured: list[dict] = []
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -275,7 +273,7 @@ class TestCommitRedTestsGitFirst:
         scratchpad = tmp_path / "scratch"
         scratchpad.mkdir()
 
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",
@@ -298,7 +296,7 @@ class TestCommitRedTestsGitFirst:
         scratchpad.mkdir()
 
         captured: list[dict] = []
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
         monkeypatch.setattr(
             phase_5_implement,
             "_emit_safe",

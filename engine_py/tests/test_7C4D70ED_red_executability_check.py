@@ -34,21 +34,21 @@ from typing import Any
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 # ─── telemetry_ctx — must be importable before production imports ──────────────
-import telemetry_ctx as _telemetry_ctx  # noqa: E402
+from bytedigger_engine import telemetry_ctx as _telemetry_ctx  # noqa: E402
 
 # ─── Production imports — AC1-AC6 fail pre-GREEN with ImportError ─────────────
 # _check_red_executable does not exist until GREEN ships. Do NOT guard with
 # try/except — the hard ImportError IS the desired RED state for AC1-AC5.
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_5_implement import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import (  # noqa: E402
     _check_red_executable,
     build_validation_loop_contract,
 )
@@ -99,7 +99,7 @@ def test_clean_collect_returns_ok_pass_through(monkeypatch, tmp_path):
     ctx = make_ctx("SIMPLE")
 
     monkeypatch.setattr(
-        "phase_5_implement.subprocess.run",
+        "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args[0], returncode=0, stdout="1 test collected", stderr=""
         ),
@@ -130,7 +130,7 @@ def test_collect_failure_simple_cycle_1_recoverable(monkeypatch, tmp_path):
     ctx = make_ctx("SIMPLE")
 
     monkeypatch.setattr(
-        "phase_5_implement.subprocess.run",
+        "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args[0], returncode=1, stdout="", stderr="ImportError: foo"
         ),
@@ -177,7 +177,7 @@ def test_collect_failure_complex_terminal(monkeypatch, tmp_path):
     ctx = make_ctx("COMPLEX")
 
     monkeypatch.setattr(
-        "phase_5_implement.subprocess.run",
+        "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args[0], returncode=1, stdout="", stderr="ImportError: foo"
         ),
@@ -216,7 +216,7 @@ def test_collect_timeout_routes_through_mixin(monkeypatch, tmp_path):
     def _raise_timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["pytest", "--collect-only"], timeout=30)
 
-    monkeypatch.setattr("phase_5_implement.subprocess.run", _raise_timeout)
+    monkeypatch.setattr("bytedigger_engine.workflows.phase_5_implement.subprocess.run", _raise_timeout)
 
     def _fake_emit(name: str, payload: dict, *args: Any, **kwargs: Any) -> None:
         pass
@@ -257,7 +257,7 @@ def test_failure_emits_telemetry_event(monkeypatch, tmp_path):
     ctx = make_ctx("SIMPLE")
 
     monkeypatch.setattr(
-        "phase_5_implement.subprocess.run",
+        "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args[0], returncode=1, stdout="", stderr="SyntaxError: invalid syntax"
         ),

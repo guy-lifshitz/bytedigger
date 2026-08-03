@@ -37,7 +37,7 @@ import pytest
 # conftest.py inserts ENGINE_ROOT + ENGINE_ROOT/workflows at import time.
 # No sys.path.insert here (§1q / 81F97F3D gate).
 
-from contracts import StepResult, WorkflowContext  # noqa: E402  # available via conftest path
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402  # available via conftest path
 
 # ---------------------------------------------------------------------------
 # Shared sentinel
@@ -115,7 +115,7 @@ def test_ac1_ensure_graph_receives_cfg_hal_root_F53A7F50(tmp_path):
 
     Pre-GREEN FAIL: arg equals str(HAL_DIR) (hardcoded), not cfg["hal_root"].
     """
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     target_dir = tmp_path / "A"
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -135,8 +135,8 @@ def test_ac1_ensure_graph_receives_cfg_hal_root_F53A7F50(tmp_path):
         ensure_graph_calls.append(repo_root)
         return _SENTINEL
 
-    with patch("phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
-         patch("phase_2_explore.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
+         patch("bytedigger_engine.workflows.phase_2_explore.invoke_llm_subprocess", mock_invoke):
         phase_2._invoke_explore_llm(ctx, prev)
 
     assert len(ensure_graph_calls) == 1, (
@@ -169,7 +169,7 @@ def test_ac2_hal_byte_identical_via_cfg_hal_root_F53A7F50(tmp_path):
 
     Pre-GREEN FAIL: captured arg is str(HAL_DIR) ≠ str(tmp_path/"hal").resolve().
     """
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     hal_sim = tmp_path / "hal"
     hal_sim.mkdir(parents=True, exist_ok=True)
@@ -189,8 +189,8 @@ def test_ac2_hal_byte_identical_via_cfg_hal_root_F53A7F50(tmp_path):
         ensure_graph_calls.append(repo_root)
         return _SENTINEL
 
-    with patch("phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
-         patch("phase_2_explore.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
+         patch("bytedigger_engine.workflows.phase_2_explore.invoke_llm_subprocess", mock_invoke):
         phase_2._invoke_explore_llm(ctx, prev)
 
     assert len(ensure_graph_calls) == 1, (
@@ -210,7 +210,7 @@ def test_ac2_hal_byte_identical_via_cfg_hal_root_F53A7F50(tmp_path):
 #
 # §1i: singleton-resource: resolve_project_root calls emit_resolver_resolved (disk write).
 #      patch project_root.emit_resolver_resolved to no-op.
-# D1CF5FDF: import project_root inside test body (deferred) so missing-module is
+# D1CF5FDF: import bytedigger_engine.lib.project_root inside test body (deferred) so missing-module is
 #      assert-time, not collect-time.
 #
 # Pre-GREEN FAIL: AttributeError — phase_2_explore has no attribute 'resolve_project_root'
@@ -227,10 +227,10 @@ def test_ac3_decouple_proof_git_cwd_not_hal_dir_F53A7F50(tmp_path):
     Pre-GREEN FAIL: AttributeError (resolve_project_root not yet in phase_2_explore)
     OR arg equals str(HAL_DIR) which contains '/.claude'.
     """
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     # Import project_root inside test body (D1CF5FDF: deferred import, not collect-time).
-    import project_root as _project_root_mod  # noqa: PLC0415
+    from bytedigger_engine.lib import project_root as _project_root_mod  # noqa: PLC0415
 
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir(parents=True, exist_ok=True)
@@ -253,8 +253,8 @@ def test_ac3_decouple_proof_git_cwd_not_hal_dir_F53A7F50(tmp_path):
 
     # Neutralize emit_resolver_resolved from project_root's namespace (§1i/emit-note).
     with patch.object(_project_root_mod, "emit_resolver_resolved", lambda *a, **k: None), \
-         patch("phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
-         patch("phase_2_explore.invoke_llm_subprocess", mock_invoke):
+         patch("bytedigger_engine.workflows.phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
+         patch("bytedigger_engine.workflows.phase_2_explore.invoke_llm_subprocess", mock_invoke):
         phase_2._invoke_explore_llm(ctx, prev)
 
     assert len(ensure_graph_calls) == 1, (
@@ -287,13 +287,13 @@ def test_ac4_hal_dir_removed_from_source_F53A7F50():
 
     Pre-GREEN FAIL: 'HAL_DIR' present at L69 (import) + L346 (ensure_graph call).
     """
-    import phase_2_explore  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_2_explore  # noqa: PLC0415
     source_path = Path(phase_2_explore.__file__)
     source_text = source_path.read_text(encoding="utf-8")
     occurrences = source_text.count("HAL_DIR")
     assert occurrences == 0, (
         f"AC4 FAIL: 'HAL_DIR' found {occurrences} time(s) in {source_path}.\n"
-        "GREEN must remove the `from event_log import HAL_DIR` import (L69) "
+        "GREEN must remove the `from bytedigger_engine.event_log import HAL_DIR` import (L69) "
         "and the `ensure_graph(str(HAL_DIR))` call (L346)."
     )
 
@@ -317,7 +317,7 @@ def test_ac5_graph_source_threaded_into_extra_data_F53A7F50(tmp_path):
 
     Expected to PASS today (threading already present in prod). Guard for post-GREEN.
     """
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     org_config = {"scratchpad_dir": str(tmp_path)}
     ctx = _make_ctx(tmp_path, org_config=org_config)
@@ -328,8 +328,8 @@ def test_ac5_graph_source_threaded_into_extra_data_F53A7F50(tmp_path):
     def fake_ensure_graph(repo_root: str) -> str:
         return _SENTINEL
 
-    with patch("phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
-         patch("phase_2_explore.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_2_explore.ensure_graph", side_effect=fake_ensure_graph), \
+         patch("bytedigger_engine.workflows.phase_2_explore.invoke_llm_subprocess", mock_invoke):
         phase_2._invoke_explore_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -357,11 +357,11 @@ def test_ac6_resolve_project_root_in_namespace_F53A7F50():
     """AC6: phase_2_explore.resolve_project_root exists (imported, patchable).
 
     Pre-GREEN FAIL: hasattr returns False — symbol not yet bound in module namespace.
-    GREEN must add `from project_root import resolve_project_root` to phase_2_explore.py.
+    GREEN must add `from bytedigger_engine.lib.project_root import resolve_project_root` to phase_2_explore.py.
     """
-    import phase_2_explore  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_2_explore  # noqa: PLC0415
     assert hasattr(phase_2_explore, "resolve_project_root"), (
         "AC6 FAIL: phase_2_explore.resolve_project_root does not exist.\n"
-        "GREEN must replace `from event_log import HAL_DIR` with "
-        "`from project_root import resolve_project_root` (L69)."
+        "GREEN must replace `from bytedigger_engine.event_log import HAL_DIR` with "
+        "`from bytedigger_engine.lib.project_root import resolve_project_root` (L69)."
     )

@@ -51,12 +51,12 @@ from pathlib import Path
 
 import pytest
 
-import config_provider
-import llm_subprocess
-import telemetry_ctx
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
-from engine import WorkflowEngine
-from tree_root import resolve_tree_root
+from bytedigger_engine import config_provider
+from bytedigger_engine import llm_subprocess
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.lib.tree_root import resolve_tree_root
 
 
 # ─── shared helpers ─────────────────────────────────────────────────────────
@@ -555,8 +555,8 @@ def test_ac11_phase5_and_phase6_retry_sites_use_set_current_run_from():
           file).
     """
     engine_root = Path(__file__).resolve().parents[1]
-    phase5 = engine_root / "workflows" / "phase_5_implement.py"
-    phase6 = engine_root / "workflows" / "phase_6_review.py"
+    phase5 = engine_root / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
+    phase6 = engine_root / "bytedigger_engine" / "workflows" / "phase_6_review.py"
     assert phase5.is_file(), f"expected {phase5} to exist"
     assert phase6.is_file(), f"expected {phase6} to exist"
 

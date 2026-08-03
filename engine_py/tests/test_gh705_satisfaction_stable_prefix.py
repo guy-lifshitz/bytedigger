@@ -37,7 +37,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import phase_6_review as _p6
+from bytedigger_engine.workflows import phase_6_review as _p6
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -71,7 +71,7 @@ GOLDEN = (
 
 
 def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", is_complex: bool = False):
-    from contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
 
     scratchpad.mkdir(parents=True, exist_ok=True)
     fake_worktree = scratchpad.parent / "fake_worktree"
@@ -103,7 +103,7 @@ def _seed_injection(scratchpad: Path) -> None:
 
 
 def _build_satisfaction(tmp_path: Path, *, question: str, is_complex: bool = False):
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     _seed_injection(scratchpad)
@@ -213,8 +213,8 @@ def test_AC1_AC2_stable_prefix_build_independent_across_different_inputs(tmp_pat
 
 
 def test_AC6_run_satisfaction_evaluators_parallel_threads_stable_prefix_to_all_calls():
-    with patch("phase_6_review.invoke_llm_subprocess") as mock_invoke:
-        from contracts import StepResult  # noqa: PLC0415
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess") as mock_invoke:
+        from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
         mock_invoke.return_value = StepResult(
             status="ok", data={}, duration_ms=0, step_name="invoke_satisfaction_llm",
@@ -252,8 +252,8 @@ def test_AC6_run_satisfaction_evaluators_parallel_threads_stable_prefix_to_all_c
 
 
 def test_AC8_run_satisfaction_evaluators_parallel_fallback_empty_stable_prefix():
-    with patch("phase_6_review.invoke_llm_subprocess") as mock_invoke:
-        from contracts import StepResult  # noqa: PLC0415
+    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess") as mock_invoke:
+        from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
         mock_invoke.return_value = StepResult(
             status="ok", data={}, duration_ms=0, step_name="invoke_satisfaction_llm",

@@ -8,7 +8,7 @@ Pre-GREEN predict:
   AC3: FAILS — same reason
   AC4: FAILS — same reason
   AC5: FAILS — same reason (OSError not triggered via spy)
-  AC6: FAILS — prod file still contains 'bounded_run' and lacks 'from lib.git_port import git_read'
+  AC6: FAILS — prod file still contains 'bounded_run' and lacks 'from bytedigger_engine.lib.git_port import git_read'
   AC7: PASSES — uses real subprocess through existing bounded_run path (regression still works)
 
 §1i (singleton/time): set_default_git_read_factory/reset_default_git_read_factory used in
@@ -31,12 +31,12 @@ from pathlib import Path
 import pytest
 
 # All imported symbols exist in the current production code — safe at module level.
-from lib.git_port import (  # type: ignore[import]
+from bytedigger_engine.lib.git_port import (  # type: ignore[import]
     GitResult,
     set_default_git_read_factory,
     reset_default_git_read_factory,
 )
-from lib.project_root import _git_toplevel, resolve_project_root  # type: ignore[import]
+from bytedigger_engine.lib.project_root import _git_toplevel, resolve_project_root  # type: ignore[import]
 
 
 # ─── Shared helpers ────────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ def test_ac5_oserror_caught_returns_none_4B50D02B(reset_git_read_factory):
 # ─── AC6: source-grep — prod file contains git_read, zero bounded_run etc. ────
 
 def test_ac6_source_grep_4B50D02B():
-    """AC6: lib/project_root.py source must contain 'from lib.git_port import git_read'
+    """AC6: lib/project_root.py source must contain 'from bytedigger_engine.lib.git_port import git_read'
     and must NOT contain 'bounded_run', 'import subprocess', or raw '["git"' literal.
 
     Pre-GREEN FAILS: prod file still contains 'bounded_run' (L20, L41) and lacks git_read import.
@@ -196,13 +196,13 @@ def test_ac6_source_grep_4B50D02B():
     """
     import importlib.util
 
-    spec = importlib.util.find_spec("lib.project_root")
+    spec = importlib.util.find_spec("bytedigger_engine.lib.project_root")
     assert spec is not None and spec.origin is not None, "lib.project_root not found"
 
     source = Path(spec.origin).read_text(encoding="utf-8")
 
-    assert "from lib.git_port import git_read" in source, (
-        "FAIL: 'from lib.git_port import git_read' not found in lib/project_root.py. "
+    assert "from bytedigger_engine.lib.git_port import git_read" in source, (
+        "FAIL: 'from bytedigger_engine.lib.git_port import git_read' not found in lib/project_root.py. "
         "Pre-GREEN expected: import not yet added."
     )
     assert "bounded_run" not in source, (

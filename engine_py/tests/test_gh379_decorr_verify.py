@@ -17,11 +17,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_6_review import phase_6_review_workflow  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import phase_6_review_workflow  # noqa: E402
 
 
 def make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra) -> WorkflowContext:
@@ -74,9 +72,9 @@ def test_ac2_only_invoke_decorr_llm_has_resume_sentinel():
 
 
 def test_ac3_simple_complexity_skips_all_three_decorr_steps(tmp_path):
-    from phase_6_review import _build_decorr_prompt, _invoke_decorr_llm, _write_decorr_artifact
-    import telemetry_ctx
-    from event_log import EventLog
+    from bytedigger_engine.workflows.phase_6_review import _build_decorr_prompt, _invoke_decorr_llm, _write_decorr_artifact
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.event_log import EventLog
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()
@@ -112,7 +110,7 @@ def test_ac3_simple_complexity_skips_all_three_decorr_steps(tmp_path):
 
 
 def test_ac4_feature_prompt_references_artifact_paths_not_full_bodies(tmp_path):
-    from phase_6_review import _build_decorr_prompt
+    from bytedigger_engine.workflows.phase_6_review import _build_decorr_prompt
 
     scratchpad = tmp_path / "scratch"
     (scratchpad / "reviews").mkdir(parents=True)
@@ -141,8 +139,8 @@ def test_ac4_feature_prompt_references_artifact_paths_not_full_bodies(tmp_path):
 
 
 def test_ac5_get_claude_decorrelated_verifier_config_driven_with_fallback(tmp_path, monkeypatch):
-    import model_config
-    from model_config import get_claude_decorrelated_verifier
+    from bytedigger_engine.lib import model_config
+    from bytedigger_engine.lib.model_config import get_claude_decorrelated_verifier
 
     cfg_path = tmp_path / "models.json"
     cfg_path.write_text(json.dumps({"claude": {"decorrelated_verifier": "test-decorr-m"}}))
@@ -162,9 +160,9 @@ def test_ac5_get_claude_decorrelated_verifier_config_driven_with_fallback(tmp_pa
 
 
 def test_ac6_invoke_decorr_llm_dispatches_config_model_and_hard_gate_false(tmp_path, monkeypatch):
-    import phase_6_review
-    from phase_6_review import _invoke_decorr_llm
-    from model_config import get_claude_decorrelated_verifier
+    from bytedigger_engine.workflows import phase_6_review
+    from bytedigger_engine.workflows.phase_6_review import _invoke_decorr_llm
+    from bytedigger_engine.lib.model_config import get_claude_decorrelated_verifier
 
     calls: list[dict] = []
 
@@ -201,9 +199,9 @@ def test_ac6_invoke_decorr_llm_dispatches_config_model_and_hard_gate_false(tmp_p
 
 
 def test_ac7_verdict_parser_last_match_wins(tmp_path):
-    from phase_6_review import _write_decorr_artifact
-    import telemetry_ctx
-    from event_log import EventLog
+    from bytedigger_engine.workflows.phase_6_review import _write_decorr_artifact
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.event_log import EventLog
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()
@@ -232,9 +230,9 @@ def test_ac7_verdict_parser_last_match_wins(tmp_path):
 
 
 def test_ac8_absent_unparseable_or_invoke_error_defaults_to_conservative_suspect(tmp_path):
-    from phase_6_review import _write_decorr_artifact
-    import telemetry_ctx
-    from event_log import EventLog
+    from bytedigger_engine.workflows.phase_6_review import _write_decorr_artifact
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.event_log import EventLog
 
     def _run(prev_data: dict, run_id: str):
         scratchpad = tmp_path / f"scratch-{run_id}"
@@ -268,9 +266,9 @@ def test_ac8_absent_unparseable_or_invoke_error_defaults_to_conservative_suspect
 
 
 def test_ac9_advisory_suspect_ok_with_exactly_one_verdict_event(tmp_path):
-    from phase_6_review import _write_decorr_artifact
-    import telemetry_ctx
-    from event_log import EventLog
+    from bytedigger_engine.workflows.phase_6_review import _write_decorr_artifact
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.event_log import EventLog
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()
@@ -296,9 +294,9 @@ def test_ac9_advisory_suspect_ok_with_exactly_one_verdict_event(tmp_path):
 
 
 def test_ac10_enforce_suspect_returns_error(tmp_path):
-    from phase_6_review import _write_decorr_artifact
-    import telemetry_ctx
-    from event_log import EventLog
+    from bytedigger_engine.workflows.phase_6_review import _write_decorr_artifact
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.event_log import EventLog
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()
@@ -330,7 +328,7 @@ def test_ac10_enforce_suspect_returns_error(tmp_path):
 def test_ac11_enforce_clear_returns_ok():
     import tempfile
 
-    from phase_6_review import _write_decorr_artifact
+    from bytedigger_engine.workflows.phase_6_review import _write_decorr_artifact
 
     with tempfile.TemporaryDirectory() as tmp:
         scratchpad = Path(tmp) / "scratch"
@@ -347,7 +345,7 @@ def test_ac11_enforce_clear_returns_ok():
 
 
 def test_ac12_artifact_written_verbatim_at_scratchpad_configured_path(tmp_path):
-    from phase_6_review import _write_decorr_artifact
+    from bytedigger_engine.workflows.phase_6_review import _write_decorr_artifact
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()
@@ -367,10 +365,10 @@ def test_ac12_artifact_written_verbatim_at_scratchpad_configured_path(tmp_path):
 
 
 def test_ac13_invoke_failure_own_path(tmp_path, monkeypatch):
-    import phase_6_review
-    from phase_6_review import _invoke_decorr_llm, _write_decorr_artifact
-    import telemetry_ctx
-    from event_log import EventLog
+    from bytedigger_engine.workflows import phase_6_review
+    from bytedigger_engine.workflows.phase_6_review import _invoke_decorr_llm, _write_decorr_artifact
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.event_log import EventLog
 
     def _fake_invoke_failure(**kw):
         return StepResult(

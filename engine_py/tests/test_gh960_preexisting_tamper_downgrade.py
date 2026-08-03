@@ -20,9 +20,9 @@ import inspect
 import subprocess
 from pathlib import Path
 
-import phase_5_implement  # noqa: E402
-import lib.authored_boundary as boundary_mod  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.lib import authored_boundary as boundary_mod  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ─── shared helpers (mirrors test_gh436_tamper_whitelist.py) ───────────────

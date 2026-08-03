@@ -16,11 +16,10 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 import pytest  # noqa: E402
 
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── local fixtures/helpers (deliberately NOT imported from sibling test) ────
@@ -140,7 +139,7 @@ def _py_argv(script: Path, *extra: str) -> list[str]:
 
 def test_ac1_schema_smoke_module_importable_with_expected_symbols():
     try:
-        mod = __import__("lib.schema_smoke", fromlist=["_"])
+        mod = __import__("bytedigger_engine.lib.schema_smoke", fromlist=["_"])
     except ImportError as e:
         pytest.fail(f"lib.schema_smoke not importable yet: {e}")
     assert callable(getattr(mod, "restore_schema_to_tempdb", None))
@@ -153,7 +152,7 @@ def test_ac1_schema_smoke_module_importable_with_expected_symbols():
 
 def test_ac2_restore_schema_to_tempdb_creates_empty_real_table(tmp_path):
     import sqlite3
-    from lib.schema_smoke import restore_schema_to_tempdb
+    from bytedigger_engine.lib.schema_smoke import restore_schema_to_tempdb
 
     dest = Path(os.path.realpath(tmp_path)) / "restored.db"
     restore_schema_to_tempdb(V2_DDL, dest)
@@ -171,7 +170,7 @@ def test_ac2_restore_schema_to_tempdb_creates_empty_real_table(tmp_path):
 
 
 def test_ac3_honest_artifact_passes_against_v2_snapshot(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     schema = write_schema(tmp_path, "v2.sql", V2_DDL)
     artifact = write_artifact(tmp_path, "honest.py", HONEST_ARTIFACT)
@@ -189,8 +188,8 @@ def test_ac3_honest_artifact_passes_against_v2_snapshot(tmp_path):
 
 
 def test_ac3_step_writes_report_file_via_workflow(tmp_path, monkeypatch):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -223,7 +222,7 @@ def test_ac3_step_writes_report_file_via_workflow(tmp_path, monkeypatch):
 
 
 def test_ac4_battle_818_silent_mismatch_stdout_exit0_is_caught(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     schema = write_schema(tmp_path, "v2.sql", V2_DDL)
     artifact = write_artifact(tmp_path, "violator.py", FAKE_SILENT_MISMATCH_ARTIFACT)
@@ -241,8 +240,8 @@ def test_ac4_battle_818_silent_mismatch_stdout_exit0_is_caught(tmp_path):
 
 
 def test_ac4_step_returns_e_schema_smoke_mismatch(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -277,7 +276,7 @@ def test_ac4_step_returns_e_schema_smoke_mismatch(tmp_path):
 
 
 def test_ac5_battle_818_violator_against_v4_snapshot_no_such_table(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     schema = write_schema(tmp_path, "v4.sql", V4_DDL)
     artifact = write_artifact(tmp_path, "real_query.py", REAL_QUERY_ARTIFACT)
@@ -299,7 +298,7 @@ def test_ac5_battle_818_violator_against_v4_snapshot_no_such_table(tmp_path):
 
 
 def test_ac6_missing_schema_path_is_unavailable_not_ok(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     missing = tmp_path / "does_not_exist.sql"
     artifact = write_artifact(tmp_path, "honest.py", HONEST_ARTIFACT)
@@ -317,8 +316,8 @@ def test_ac6_missing_schema_path_is_unavailable_not_ok(tmp_path):
 
 
 def test_ac6_step_returns_e_schema_smoke_unavailable(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -350,7 +349,7 @@ def test_ac6_step_returns_e_schema_smoke_unavailable(tmp_path):
 
 
 def test_ac7_dryrun_nonzero_exit_without_signature_is_dryrun_error(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     schema = write_schema(tmp_path, "v2.sql", V2_DDL)
     artifact = write_artifact(tmp_path, "boom.py", DRYRUN_ERROR_ARTIFACT)
@@ -366,8 +365,8 @@ def test_ac7_dryrun_nonzero_exit_without_signature_is_dryrun_error(tmp_path):
 
 
 def test_ac7_step_returns_e_schema_smoke_dryrun_error(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -399,8 +398,8 @@ def test_ac7_step_returns_e_schema_smoke_dryrun_error(tmp_path):
 
 
 def test_ac8_not_configured_is_explicit_skip_ok(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -423,8 +422,8 @@ def test_ac8_not_configured_is_explicit_skip_ok(tmp_path):
 
 
 def test_ac9_gate_disabled_skips_dryrun_and_no_canary_file(tmp_path, monkeypatch):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -460,7 +459,7 @@ def test_ac9_gate_disabled_skips_dryrun_and_no_canary_file(tmp_path, monkeypatch
 
 
 def test_ac10_workflow_definition_has_four_steps_ending_schema_smoke():
-    from phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
 
     wf = phase_5_integrity_workflow()
     assert len(wf.steps) == 4
@@ -468,8 +467,8 @@ def test_ac10_workflow_definition_has_four_steps_ending_schema_smoke():
 
 
 def test_ac10_full_engine_execute_reaches_schema_smoke_on_no_changes(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -501,7 +500,7 @@ def test_ac10_full_engine_execute_reaches_schema_smoke_on_no_changes(tmp_path):
 
 
 def test_ac11_reentry_is_idempotent_and_does_not_accumulate_tempdirs(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     schema = write_schema(tmp_path, "v2.sql", V2_DDL)
     artifact = write_artifact(tmp_path, "honest.py", HONEST_ARTIFACT)
@@ -536,8 +535,8 @@ def tempfile_gettempdir() -> str:
 
 
 def test_ac11_step_reentry_rewrites_report_same_status(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -574,7 +573,7 @@ def test_ac11_step_reentry_rewrites_report_same_status(tmp_path):
 
 
 def test_ac12_timeout_is_unavailable_not_pass(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     schema = write_schema(tmp_path, "v2.sql", V2_DDL)
     sleeper = write_artifact(
@@ -598,8 +597,8 @@ def test_ac12_step_plumbs_schema_smoke_timeout_sec_from_org_config(tmp_path):
     """Pins config plumbing: org_config['schema_smoke_timeout_sec'] must
     actually reach run_schema_smoke via the _schema_smoke step, not just the
     lib function called directly."""
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
@@ -640,7 +639,7 @@ def test_ac12_step_plumbs_schema_smoke_timeout_sec_from_org_config(tmp_path):
 
 
 def test_ac13_error_codes_registry_has_schema_smoke_entries():
-    from error_codes import ERROR_CODES
+    from bytedigger_engine.error_codes import ERROR_CODES
 
     for code in (
         "E_SCHEMA_SMOKE_MISMATCH",
@@ -674,7 +673,7 @@ def _multi_targets(tmp_path: Path, *, violator_first: bool) -> list[dict]:
 
 
 def test_ac14_mismatch_wins_over_pass_violator_first(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     targets = _multi_targets(tmp_path, violator_first=True)
     report = run_schema_smoke(targets, cwd=tmp_path, timeout_sec=10)
@@ -682,7 +681,7 @@ def test_ac14_mismatch_wins_over_pass_violator_first(tmp_path):
 
 
 def test_ac14_mismatch_wins_over_pass_violator_last(tmp_path):
-    from lib.schema_smoke import run_schema_smoke
+    from bytedigger_engine.lib.schema_smoke import run_schema_smoke
 
     targets = _multi_targets(tmp_path, violator_first=False)
     report = run_schema_smoke(targets, cwd=tmp_path, timeout_sec=10)
@@ -690,8 +689,8 @@ def test_ac14_mismatch_wins_over_pass_violator_last(tmp_path):
 
 
 def test_ac14_step_returns_mismatch_regardless_of_target_order(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     for violator_first in (True, False):
         repo = tmp_path / f"repo_{violator_first}"
@@ -717,8 +716,8 @@ def test_ac14_step_returns_mismatch_regardless_of_target_order(tmp_path):
 
 
 def test_ac15_empty_targets_list_is_not_configured_skip(tmp_path):
-    from phase_5_integrity import phase_5_integrity_workflow
-    from engine import WorkflowEngine
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow
+    from bytedigger_engine.engine import WorkflowEngine
 
     repo = tmp_path / "repo"
     seed_repo_no_test_diff(repo)
