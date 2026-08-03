@@ -55,16 +55,19 @@ def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
 def wheel(tmp_path_factory) -> Path:
     """Build the real wheel from the repository."""
     out = tmp_path_factory.mktemp("wheel")
-    # `pip wheel .` builds IN-TREE by default, leaving `engine_py/build/` behind with
-    # the pre-move layout. A stale copy makes later builds — and AC3 — disagree with
-    # the source, so it is cleared first and the build directory is pinned outside.
-    for junk in (ENGINE / "build",):
-        if junk.is_dir():
-            import shutil as _sh
-            _sh.rmtree(junk, ignore_errors=True)
-    proc = _run([sys.executable, "-m", "pip", "wheel", ".", "--no-deps", "-q",
-                 "-w", str(out), "--no-build-isolation" if os.environ.get("BD44_OFFLINE") else "-q"],
-                cwd=str(ENGINE))
+    # `pip wheel .` builds IN-TREE and leaves `engine_py/build/` behind — a second,
+    # stale copy of every module. Other tests walk the tree and then see each site
+    # twice (that is what turned `gh1220::ac37` and `gh795::ac10` red in CI, and it
+    # was this test that put the residue there). So the build happens on a COPY,
+    # outside the repository, and the working tree is never written to.
+    import shutil as _sh
+    src = tmp_path_factory.mktemp("src") / "engine_py"
+    _sh.copytree(
+        ENGINE, src,
+        ignore=_sh.ignore_patterns("build", "__pycache__", "*.egg-info", ".venv", "tests"),
+    )
+    proc = _run([sys.executable, "-m", "pip", "wheel", ".", "--no-deps", "-q", "-w", str(out)],
+                cwd=str(src))
     assert proc.returncode == 0, f"wheel build failed:\n{proc.stderr[-2000:]}"
     wheels = list(out.glob("*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, got {wheels}"
