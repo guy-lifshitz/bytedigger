@@ -133,12 +133,12 @@ def _adv_3() -> bool:
         result = _stub.lint_red_file(str(path))
         if result.has_violation():
             return True
-        # Fall back to the checker's own adjudication over the same finding
-        # shape, so the probe still exercises a real rejection path.
+        # Fall back to the checker's own adjudication over the REAL event the
+        # phase-5 gate emits (bd#61), so the probe exercises a rejection path
+        # that a production log can actually produce.
         return _verdict_failed(_bd_l2.check_bd_l2, [_ev(
-            "oracle_vacuity_scan",
-            findings=[{"symbol": "compute_digest", "import_line": 2,
-                       "patch_line": 5, "kind": "mock_uut"}])], "R2.2")
+            "red_stub_passability_violation", phase=5,
+            hits=["tests/test_vacuous.py:5 'compute_digest'"])], "R2.2")
 
 
 def _adv_4() -> bool:

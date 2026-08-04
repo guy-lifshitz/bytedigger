@@ -32,9 +32,14 @@ def _red_outcome(*, n_passed: int, n_failed: int, exit_code: int = 1,
                counted_as=counted_as)
 
 
-def _vacuity(*, findings):
-    """Наблюдение R2.2/ADV-3 в форме `stub_passability`."""
-    return _ev("oracle_vacuity_scan", findings=findings)
+def _vacuity(*, hits=()):
+    """Наблюдение R2.2/ADV-3 в РЕАЛЬНОЙ форме `red_stub_passability_violation`.
+
+    bd#61: прежняя версия строила придуманное событие `oracle_vacuity_scan` с
+    ключом `findings`. Прод эмитит `red_stub_passability_violation` с `hits`,
+    и с bd#61 — на ОБА исхода, что и делает вердикт `passed` достижимым.
+    """
+    return _ev("red_stub_passability_violation", phase=5, hits=list(hits))
 
 
 def _gate(*, name: str, raised, outcome: str):
@@ -70,7 +75,7 @@ def _clean_log():
     """Полностью конформный лог — общая точка отсчёта для всех ног."""
     return [
         _red_outcome(n_passed=0, n_failed=1),
-        _vacuity(findings=[]),
+        _vacuity(),
         _acs(binds_observable_effect=True),
         _gate(name="baseline_delta", raised=None, outcome="failed"),
         _suppression(rows=[{"issue": "#123", "kill_by": "2099-01-01",
@@ -124,10 +129,7 @@ def test_ac2_r21_zero_collected_counted_as_rejection_is_a_violation():
 
 def test_ac3_r22_oracle_mocking_its_own_uut_is_a_violation():
     """ОТРИЦАТЕЛЬНАЯ НОГА, ADV-3. Форма findings — `stub_passability`."""
-    events = _swap(_clean_log(), "oracle_vacuity_scan", _vacuity(findings=[
-        {"symbol": "compute_digest", "import_line": 12, "patch_line": 30,
-         "kind": "mock_uut"},
-    ]))
+    events = _swap(_clean_log(), "red_stub_passability_violation", _vacuity(hits=["tests/t.py:30 'compute_digest'"]))
     report = _check(events)
 
     assert report.labels["verdict:R2.2"] == _t().REQUIREMENT_FAILED
@@ -220,8 +222,7 @@ def test_ac9_empty_log_is_not_checked_and_not_passed():
 
 def test_ac10_violation_in_a_foreign_event_type_is_ignored():
     """Реальный лог гетерогенен, корпус фикстур однороден."""
-    poisoned = dict(_vacuity(findings=[{"symbol": "x", "import_line": 1,
-                                        "patch_line": 2, "kind": "mock_uut"}]))
+    poisoned = dict(_vacuity(hits=["tests/t.py:2 'x'"]))
     poisoned["type"] = "some_unrelated_event"
     report = _check([*_clean_log(), poisoned])
 
@@ -231,10 +232,9 @@ def test_ac10_violation_in_a_foreign_event_type_is_ignored():
 
 def test_ac11_recorded_verdict_flag_does_not_override_recomputation():
     """Доверие записанному флагу = эмиттер оценивает себя."""
-    lying = _vacuity(findings=[{"symbol": "x", "import_line": 1,
-                                "patch_line": 2, "kind": "mock_uut"}])
+    lying = _vacuity(hits=["tests/t.py:2 'x'"])
     lying["payload"]["verdict"] = "passed"
-    report = _check(_swap(_clean_log(), "oracle_vacuity_scan", lying))
+    report = _check(_swap(_clean_log(), "red_stub_passability_violation", lying))
 
     assert report.labels["verdict:R2.2"] == _t().REQUIREMENT_FAILED
     assert report.passed is False
@@ -269,9 +269,7 @@ def test_ac13_validate_report_judges_both_ways():
 
     assert validate_report(_check(_clean_log())) == ()
 
-    broken = _check(_swap(_clean_log(), "oracle_vacuity_scan", _vacuity(
-        findings=[{"symbol": "x", "import_line": 1, "patch_line": 2,
-                   "kind": "mock_uut"}])))
+    broken = _check(_swap(_clean_log(), "red_stub_passability_violation", _vacuity(hits=["tests/t.py:2 'x'"])))
     assert validate_report(broken) == (), (
         "честный отчёт о нарушении самосогласован — судья не обязан жаловаться"
     )
