@@ -1,0 +1,66 @@
+# engine_py mypy strict-module list  (GH292 — mypy strict-ramp, boy-scout)
+#
+# Modules listed here are enforced at `mypy --strict` by canary Group G-strict:
+#   mypy --config-file mypy.ini --strict --follow-imports=silent <these files>
+# `--follow-imports=silent` scopes strict enforcement to exactly these files
+# (imported lenient siblings are analyzed for types but their own errors are
+# NOT reported). Regress (any strict error in a listed module) fails the canary.
+#
+# The set grows MONOTONICALLY. Every ship that opens/touches a .py should
+# promote+fix it and append it here ("open, fixed") — that boy-scout
+# forcing-function (diff-vs-list deterministic gate) lands as GH292 Step 2.
+# NEVER remove a module: removal == strict regression.
+#
+# NB: per-module `[mypy-<mod>] strict=True` sections in mypy.ini were rejected —
+# mypy 2.2.0 applies the global-only strict sub-flags across the WHOLE run, so
+# a single strict section leaks strict onto all 139 modules (866 errors). This
+# scoped list + CLI form is the leak-free equivalent.
+#
+# Lines starting with '#' and blank lines are ignored. Paths are relative to
+# SYSTEM/cli/build/engine_py/. Seeded 2026-07-12, strict-clean under mypy 2.2.0.
+#
+corpus_extract.py
+error_codes.py
+event_log.py
+io_utils.py
+lib/__init__.py
+lib/dbos_list_runs.py
+lib/dbos_status_run.py
+lib/env_limit.py
+lib/observability/__init__.py
+lib/plugins/__init__.py
+lib/plugins/anti_hallucination/__init__.py
+lib/plugins/checklist_convergence/__init__.py
+lib/plugins/checklist_convergence/delta_retry_prompt.py
+lib/plugins/checklist_convergence/impl_delta_retry_prompt.py
+lib/plugins/checklist_convergence/restricted_reviewer_prompt.py
+lib/plugins/checklist_convergence/restricted_writer_prompt.py
+lib/plugins/disk_truth/__init__.py
+lib/plugins/disk_truth/suite_boyscout.py
+lib/plugins/review_schema/__init__.py
+lib/plugins/review_schema/canonical.py
+lib/recoverable_gate.py
+lib/reference_backends/__init__.py
+lib/resume_keying.py
+lib/spec_defect_ledger.py
+lib/util/__init__.py
+lib/util/path_classifier.py
+lib/verdict_resolution.py
+model_flip_lint.py
+net_new_delta.py
+reject_log.py
+scripts/checklist_convergence/driver.py
+scripts/flag_routing_lint.py
+scripts/gen_flag_catalog.py
+scripts/lib/citation_verifier.py
+scripts/lib/consumer_dispatch_verifier.py
+scripts/lib/helper_extraction_verifier.py
+scripts/lib/sibling_test_verifier.py
+scripts/spec_lint/lint_spec.py
+spec_cite.py
+stub_passability.py
+suite_safety.py
+workflows/_recoverable_policy.py
+workflows/_task_description.py
+workflows/phase_45_spec.py
+mypy_strict_boyscout.py
