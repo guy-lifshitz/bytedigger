@@ -389,26 +389,35 @@ def test_ac10_end_to_end_warn_event_emitted_non_blocking(
 
     t.join(timeout=12.0)
 
-    # (b) Non-blocking: the step must still succeed.
+    # ── bd#29 (2026-08-04): agreement 220E5F63 SUPERSEDED ──────────────────
+    # This AC used to assert the warn-only contract: event emitted, step
+    # continues. CL:99 requires a declared pin to FAIL on mismatch, so the
+    # warn-only emitter was retired from `_invoke_in_session`.
+    #
+    # The issue asked that this edit be limited to "expected status and error
+    # code". MEASURED, that is not achievable: the flip does not live at this
+    # level. `_invoke_in_session` no longer decides anything about drift — the
+    # adjudication is `_pin_mismatch_refusal`, called one level up from
+    # `invoke_llm_subprocess` (:1301). Driving the inner function directly, as
+    # this AC does, now yields status "ok" and NO event, so there is no status
+    # or code here to re-point at.
+    #
+    # So this AC is re-purposed into a regression guard for the RETIREMENT
+    # itself: the inner function must no longer emit, and must no longer block.
+    # The surviving halves of the old contract — that a mismatch is still
+    # reported with observed_model/pinned_model/step_name, and that it now
+    # fails the step — are re-anchored in a NEW oracle,
+    # `test_bd29_in_session_pin_fail_closed.py::test_ac2_*` / `::test_ac1_*`,
+    # so the change is not evaluated by the artifact this lot edits.
     assert result.status == "ok", (
-        f"AC10(b): non-hard-gate model drift must NOT block the step; "
-        f"expected status='ok', got {result.status!r} "
+        f"the inner function must not decide drift any more (the chokepoint "
+        f"does); expected 'ok', got {result.status!r} "
         f"(error_code={result.error_code!r})"
     )
-
-    # (a) Warning event must be emitted.
-    mismatch_events = log.by_type("model_pin_mismatch")
-    assert len(mismatch_events) >= 1, (
-        f"AC10(a): expected at least one 'model_pin_mismatch' event in event_log; "
-        f"events captured: {[et for (et, _, _) in log.events]!r}"
+    assert log.by_type("model_pin_mismatch") == [], (
+        "the warn-only emitter was retired from _invoke_in_session (bd#29); "
+        "an event here means it came back"
     )
-
-    ev = mismatch_events[0]
-    for key in ("observed_model", "pinned_model", "step_name", "severity"):
-        assert key in ev, (
-            f"AC10(a): 'model_pin_mismatch' event payload missing key {key!r}; "
-            f"payload keys: {list(ev.keys())!r}"
-        )
 
 
 # ---------------------------------------------------------------------------

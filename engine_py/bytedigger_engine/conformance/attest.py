@@ -108,9 +108,11 @@ REQUIREMENT_LABELS: "MappingProxyType[str, str]" = MappingProxyType({
     # `[bd10:19]` — the channel is enforced; one of eight role-template
     # inlining sites is migrated (AC-I5).
     "R3.2": "injections-channel-only",
-    # `[bd10:2]` — enforced at the chokepoint for reporting adapters; the
-    # in-session path still warns. bd#29 owns the flip.
-    "R3.3": "in-session-warn-only",
+    # `[bd10:2]` + bd#29 (2026-08-04) — enforced at the chokepoint for EVERY
+    # backend. The in-session path now populates `observed_model`, so it reaches
+    # the same adjudication as any other adapter; agreement 220E5F63 (warn-only)
+    # is superseded because it contradicted CL:99.
+    "R3.3": "chokepoint-enforced",
     # `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a
     # mechanism outside the actor's reach.
     "R3.5": "adapter-declared",

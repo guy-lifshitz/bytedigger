@@ -197,7 +197,10 @@ REQUIREMENT_IDS = ("R3.1", "R3.2", "R3.3", "R3.4", "R3.5", "R3.6")
 REQUIREMENT_LABELS = {
     "R3.1": "host-attested-within-run-context",
     "R3.2": "injections-channel-only",
-    "R3.3": "in-session-warn-only",
+    # bd#29 (2026-08-04): flipped from "in-session-warn-only". The in-session
+    # path now populates `observed_model`, so it reaches the same chokepoint
+    # adjudication as every other backend; agreement 220E5F63 is superseded.
+    "R3.3": "chokepoint-enforced",
     "R3.5": "adapter-declared",
     "R3.6": "tool-head-only",
 }
