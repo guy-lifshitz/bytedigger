@@ -203,19 +203,18 @@ def test_ac16_scan_and_summarize_agree_one_walker_not_two():
 def test_ac17_identity_holds_across_the_whole_live_corpus():
     """A scanner whose buckets do not add up is reporting about a population it did
     not fully walk. This is the only test here that reads the real corpus."""
-    import subprocess
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2]
-    listed = subprocess.run(
-        ["git", "ls-files", "engine_py/tests/test_*.py"],
-        cwd=root, capture_output=True, text=True, check=True,
-    ).stdout.split()
+    # NOT `git ls-files`: the clean-room job runs from a tree that is not a git
+    # repository, and the subprocess died with exit 128 there while passing in the
+    # git-backed job. The corpus is a directory, so read it as one.
+    here = Path(__file__).resolve().parent
+    listed = sorted(p for p in here.glob("test_*.py"))
     assert len(listed) > 100, f"fixture premise: corpus not taken, got {len(listed)} files"
 
     broken = []
     for rel in listed:
-        s = _sum((root / rel).read_text(encoding="utf-8"))
+        s = _sum(rel.read_text(encoding="utf-8"))
         if not identity_ok(s["candidates"], s["controlled"], s["escaped"], len(s["findings"])):
             broken.append(rel)
     assert broken == [], broken
