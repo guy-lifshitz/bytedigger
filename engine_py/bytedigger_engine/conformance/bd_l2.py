@@ -42,11 +42,19 @@ from .report import L0Report as _L0Report
 if _TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["REQUIREMENTS", "check_bd_l2", "validate_report"]
+__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l2", "validate_report"]
 
 REQUIREMENTS: "tuple[str, ...]" = ("R2.1", "R2.2", "R2.3", "R2.4", "R2.5", "R2.6")
 
 _VERDICT_KEY = "verdict:{}"
+
+#: bd#59: requirements whose observation event has NO production emitter yet.
+#: Declared rather than silent — a checker that adjudicates a shape nothing
+#: emits stays green forever while observing nothing, which is how bd#9 shipped
+#: a contract written from its own fixtures. `test_bd59_*::test_ac1` keeps this
+#: registry honest in BOTH directions: an undeclared gap fails, and so does a
+#: stale entry once a producer appears.
+AWAITING_PRODUCER: "tuple[str, ...]" = ("R2.2", "R2.3", "R2.4", "R2.5")
 
 # Bound as bare quoted literals on purpose: `error_codes.CODE_RE` harvests
 # `["']E_[A-Z0-9_]+["']`, so a code embedded inside a longer message string is
@@ -89,13 +97,15 @@ def _r21(p: "Mapping[str, object]") -> "str | None":
     n_failed = p.get("n_failed")
     if not isinstance(n_passed, int) or not isinstance(n_failed, int):
         return None
-    collected = n_passed + n_failed
-    counted_as = p.get("counted_as")
-    if collected == 0 and counted_as == "rejected":
+    # bd#59: keyed on what `phase_5_implement.py:2635` ACTUALLY emits — group,
+    # exit_code, n_passed, n_failed, phase. The previous version required a
+    # `counted_as` key that no producer writes, so this predicate could never
+    # fire on a real log.
+    if n_passed + n_failed == 0:
         return (
             f"R2.1: {_CODE_INDETERMINATE} — run collected zero tests "
-            f"(exit_code={p.get('exit_code')!r}) yet was counted as a rejection; "
-            "failure-to-execute is not rejection"
+            f"(exit_code={p.get('exit_code')!r}); a run that executed nothing "
+            "has rejected nothing, and failure-to-execute is not rejection"
         )
     return None
 
@@ -180,13 +190,18 @@ def _r26(p: "Mapping[str, object]") -> "str | None":
     This one is about the gate, not the oracle: a scoped result alone says
     nothing about what the change did to everything else.
     """
-    full = p.get("full_suite_delta")
-    if isinstance(full, str) and full.strip():
+    # bd#59: keyed on what `_baseline_delta.py:92` ACTUALLY emits. `verdict`
+    # is the full-suite delta's outcome; `baseline_source` names the baseline
+    # it was measured against. A verdict without a declared baseline is a
+    # number with nothing to compare it to.
+    source = p.get("baseline_source")
+    verdict = p.get("verdict")
+    if isinstance(source, str) and source.strip() and verdict is not None:
         return None
     return (
-        "R2.6: only a scoped result was recorded "
-        f"({p.get('scoped_result')!r}); the full-suite delta against a declared "
-        "baseline is missing"
+        f"R2.6: delta verdict {verdict!r} carries no declared baseline "
+        f"(baseline_source={source!r}); a scoped number alone says nothing "
+        "about what the change did to everything else"
     )
 
 
