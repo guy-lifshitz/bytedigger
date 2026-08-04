@@ -21,6 +21,7 @@
 
 ## E_CAPABILITY
 
+- `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED` — conformance/bd_l3: a backend declared runtime capability enforcement and the SAME invocation recorded a capability escape — the claim is refuted by its own evidence (bd#63 R3.5)
 - `E_CAPABILITY_ESCAPE` — llm_subprocess: an adapter reported a tool head outside the step's declared capability set (bd#10 R3.6)
 
 ## E_CLARIFY

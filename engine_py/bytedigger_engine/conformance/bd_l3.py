@@ -44,10 +44,17 @@ if _TYPE_CHECKING:
 __all__ = ["REQUIREMENTS", "check_bd_l3", "validate_report"]
 
 #: The requirements this checker adjudicates. R3.1/R3.2/R3.5 are out of scope.
-REQUIREMENTS: "tuple[str, ...]" = ("R3.3", "R3.6")
+REQUIREMENTS: "tuple[str, ...]" = ("R3.3", "R3.5", "R3.6")
 
 _VERDICT_KEY = "verdict:{}"
 _ADV_9 = "ADV-9"
+
+# Bound as a bare quoted literal: `error_codes.CODE_RE` harvests
+# `["']E_[A-Z0-9_]+["']`, so a code embedded in a longer message reads as DEAD
+# to the drift gate (measured on bd#9).
+_CODE_ENFORCEMENT_UNSUBSTANTIATED = "E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED"
+
+_ENFORCEMENT_CLAIM = "runtime-allowlist"
 
 
 def _family(model: "str | None") -> "str | None":
@@ -81,6 +88,40 @@ def _r33(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
     ))
 
 
+def _r35(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
+    """(observed?, violation-or-None) for R3.5 — a claim checked against its own evidence.
+
+    `capability_enforcement` is written by the backend's own registry entry
+    (`register_backend(..., capabilities=...)`), so on its own it is the actor
+    grading itself. It becomes falsifiable the moment it is read together with
+    the escape evidence recorded in the SAME invocation: a backend that claimed
+    `runtime-allowlist` and simultaneously let a tool outside the declared set
+    through has been refuted by its own record.
+
+    A backend that claimed NOTHING is not in scope here — it promised nothing,
+    and its escape is R3.6's business. Punishing it under R3.5 would make an
+    honest declaration costlier than a false one, which is worse than the
+    defect this predicate exists to close.
+    """
+    claim = payload.get("capability_enforcement")
+    if claim != _ENFORCEMENT_CLAIM:
+        return (False, None)
+    observed_tools = payload.get("observed_tools")
+    declared = payload.get("declared_capabilities")
+    if not isinstance(observed_tools, (list, tuple)):
+        return (False, None)
+    if not isinstance(declared, (list, tuple)):
+        return (False, None)
+    escapes = _attest.capability_escapes(list(observed_tools), list(declared))
+    if not escapes:
+        return (True, None)
+    return (True, (
+        f"R3.5: {_CODE_ENFORCEMENT_UNSUBSTANTIATED} — step "
+        f"{payload.get('step_name')!r} declared {claim!r} yet the same "
+        f"invocation let {list(escapes)!r} through"
+    ))
+
+
 def _r36(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
     """(observed?, violation-or-None) for R3.6 — capability escape.
 
@@ -103,7 +144,7 @@ def _r36(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
     ))
 
 
-_CHECKS = {"R3.3": _r33, "R3.6": _r36}
+_CHECKS = {"R3.3": _r33, "R3.5": _r35, "R3.6": _r36}
 
 
 def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:

@@ -147,6 +147,7 @@ ERROR_CODES: dict[str, str] = {
     "E_ORACLE_VACUOUS": "conformance/bd_l2: the oracle substitutes the subject of its own assertions (mocks its UUT) and so constrains nothing (bd#9 R2.2 / ADV-3)",
     "E_GATE_INDETERMINATE": "conformance/bd_l2: a gate raised and was recorded as absent rather than failed; a gate that cannot reach a verdict fails closed (bd#9 R2.4 / ADV-5)",
     "E_SUPPRESSION_UNBOUNDED": "conformance/bd_l2: a tolerated known failure lacks an owner reference or a live expiry date (bd#9 R2.5 / ADV-6)",
+    "E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED": "conformance/bd_l3: a backend declared runtime capability enforcement and the SAME invocation recorded a capability escape — the claim is refuted by its own evidence (bd#63 R3.5)",
     "E_ORACLE_UNFROZEN": "conformance/oracle: implementing phase found no freeze event in its event log, or one whose run_id contradicts it (bd#8)",
     "E_ORCHESTRATOR_CHECKLIST_MALFORMED": "phase_05_inject: orchestrator checklist file could not be parsed",
     "E_ORCHESTRATOR_CHECKLIST_MISSING": "phase_05_inject: orchestrator checklist file not found",

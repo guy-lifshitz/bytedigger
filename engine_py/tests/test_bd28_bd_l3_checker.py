@@ -33,6 +33,7 @@ def _attested(
     observed_model: "str | None" = None,
     declared_capabilities: "list[str] | None" = None,
     observed_tools: "list[str] | None" = None,
+    capability_enforcement: str = "runtime-allowlist",
     event_type: "str | None" = None,
     extra: "dict[str, Any] | None" = None,
 ) -> "dict[str, Any]":
@@ -56,6 +57,10 @@ def _attested(
         "capability_enforcement": "declared",
         "observed_model": observed_model,
         "observed_tools": observed_tools,
+        # bd#63: R3.5 читает заявление вместе со свидетельством побега. Полностью
+        # конформная инвокация ЗАЯВЛЯЕТ принуждение и его не нарушает; бэкенд,
+        # ничего не заявивший, оставляет R3.5 в not-checked — проверять нечего.
+        "capability_enforcement": capability_enforcement,
     }
     if extra:
         payload.update(extra)
@@ -193,6 +198,7 @@ def test_ac8_public_surface_equals_dunder_all():
     from bytedigger_engine.conformance import bd_l3  # noqa: PLC0415
 
     assert hasattr(bd_l3, "__all__"), "модуль обязан объявлять __all__ (B-2)"
+    # bd#63 не менял поверхность — REQUIREMENTS выросли, имена те же.
     assert set(bd_l3.__all__) == {"REQUIREMENTS", "check_bd_l3", "validate_report"}
     for name in bd_l3.__all__:
         assert hasattr(bd_l3, name), f"__all__ называет отсутствующее имя {name!r}"
@@ -243,4 +249,5 @@ def test_ac11_l0report_contract_not_extended():
     report = _check([])
     names = {f.name for f in dataclasses.fields(report)}
     assert names == {"passed", "requirements", "violations", "labels"}
-    assert tuple(report.requirements) == ("R3.3", "R3.6")
+    # bd#63 добавил R3.5: заявление о принуждении стало опровержимым.
+    assert tuple(report.requirements) == ("R3.3", "R3.5", "R3.6")
