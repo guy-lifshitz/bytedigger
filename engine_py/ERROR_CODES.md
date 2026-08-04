@@ -37,6 +37,11 @@
 
 - `E_CONFIG_INVALID` — dbos_setup: engine or phase config value is invalid/out of range
 
+## E_CORPUS
+
+- `E_CORPUS_DIVERGENCE` — lib/corpus_parity: current test corpus diverges from the baseline snapshot beyond the declared removal allowance (GH1338)
+- `E_CORPUS_UNKNOWN` — lib/corpus_parity: corpus-parity precondition could not be evaluated — baseline or current corpus data unavailable (GH1338)
+
 ## E_CTX
 
 - `E_CTX_MALFORMED` — dbos_setup: ctx JSON payload could not be parsed or is shape-invalid
@@ -61,6 +66,10 @@
 ## E_DURABLE
 
 - `E_DURABLE_BACKEND_UNKNOWN` — lib/phase_sentinel: HAL_ENGINE_DURABLE_BACKEND names an unknown durable backend (legal: dbos | native)
+
+## E_EMPTY
+
+- `E_EMPTY_RUN` — lib/corpus_parity: --results log had a parseable summary reporting zero tests — a zero-test run is not proof of comparability (GH1338 §10 MAJOR-3)
 
 ## E_EXPLORE
 
@@ -88,6 +97,10 @@
 
 - `E_FLAG_UNREGISTERED` — phase_5_implement: GREEN diff reads a HAL_* flag with no flags_catalog entry (GH529)
 - `E_FLAG_UNREGISTERED_CAP2` — phase_5_implement: flag-registration gate retry cap exhausted (GH529)
+
+## E_FRESHNESS
+
+- `E_FRESHNESS_UNKNOWN` — lib/corpus_parity: base freshness could not be determined — merge-base/ancestry check failed or is unavailable (GH1338)
 
 ## E_GIT
 
@@ -252,6 +265,10 @@
 - `E_RED_WORKTREE_DIRTY` — phase_5_implement: uncommitted production changes at RED-gate/validation entry — tree must be clean before RED certification
 - `E_RED_WROTE_OUTSIDE_WORKTREE` — phase_5_implement: RED subagent wrote a test-shaped file into the MAIN checkout instead of the build worktree (GH1179 write-boundary gate)
 
+## E_REMOTE
+
+- `E_REMOTE_UNREACHABLE` — lib/corpus_parity: could not reach the remote to verify a remote-tracking base_ref (git ls-remote failed/timed out) — fail-closed, never treated as fresh (GH1338 §10 MAJOR-1)
+
 ## E_REQUIRED
 
 - `E_REQUIRED_CTX_MISSING` — engine.py: a required ctx field was not present for this phase
@@ -260,6 +277,10 @@
 
 - `E_RESTART_CAP` — restart_governor: restart attempt cap for this workflow was exceeded
 - `E_RESTART_SHORT_CIRCUIT` — restart_governor: restart short-circuited due to repeated identical failure
+
+## E_RESULTS
+
+- `E_RESULTS_UNPARSEABLE` — lib/corpus_parity: --results log carried no recognizable run summary (empty/truncated/collector crash) — 'nothing to check' is never certified as a match (GH1338 §10 MAJOR-3)
 
 ## E_RETRY
 
@@ -355,6 +376,11 @@
 - `E_SPEC_SCOPE_INVERSE` — phase_45_spec: spec scope-inverse (files-not-in-scope) check found a gap
 - `E_SPEC_SCOPE_INVERSE_FATAL` — phase_45_spec: spec scope-inverse check failed fatally after retries exhausted
 - `E_SPEC_UPSTREAM_REVISE` — phase_45_spec: an upstream phase requested a spec revise cycle
+
+## E_STALE
+
+- `E_STALE_BASE` — lib/corpus_parity: base_ref is not an ancestor of head_ref (git merge-base --is-ancestor failed) — corpus-parity precondition fails closed (GH1338)
+- `E_STALE_REMOTE_REF` — lib/corpus_parity: local remote-tracking base_ref sha does not match the TRUE remote (git ls-remote) — locally-fresh ancestry is insufficient when the tracking ref itself was never fetched (GH1338 §10 MAJOR-1)
 
 ## E_STEP
 

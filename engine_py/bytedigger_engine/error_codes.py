@@ -26,6 +26,14 @@ CODE_RE = re.compile(r"[\"']E_[A-Z0-9_]+[\"']")
 
 ERROR_CODES: dict[str, str] = {
     "E_BAD_CTX": "run.py: ctx payload malformed or missing required fields",
+    "E_FRESHNESS_UNKNOWN": "lib/corpus_parity: base freshness could not be determined — merge-base/ancestry check failed or is unavailable (GH1338)",
+    "E_CORPUS_DIVERGENCE": "lib/corpus_parity: current test corpus diverges from the baseline snapshot beyond the declared removal allowance (GH1338)",
+    "E_CORPUS_UNKNOWN": "lib/corpus_parity: corpus-parity precondition could not be evaluated — baseline or current corpus data unavailable (GH1338)",
+    "E_STALE_REMOTE_REF": "lib/corpus_parity: local remote-tracking base_ref sha does not match the TRUE remote (git ls-remote) — locally-fresh ancestry is insufficient when the tracking ref itself was never fetched (GH1338 §10 MAJOR-1)",
+    "E_REMOTE_UNREACHABLE": "lib/corpus_parity: could not reach the remote to verify a remote-tracking base_ref (git ls-remote failed/timed out) — fail-closed, never treated as fresh (GH1338 §10 MAJOR-1)",
+    "E_RESULTS_UNPARSEABLE": "lib/corpus_parity: --results log carried no recognizable run summary (empty/truncated/collector crash) — 'nothing to check' is never certified as a match (GH1338 §10 MAJOR-3)",
+    "E_EMPTY_RUN": "lib/corpus_parity: --results log had a parseable summary reporting zero tests — a zero-test run is not proof of comparability (GH1338 §10 MAJOR-3)",
+    "E_STALE_BASE": "lib/corpus_parity: base_ref is not an ancestor of head_ref (git merge-base --is-ancestor failed) — corpus-parity precondition fails closed (GH1338)",
     "E_BASELINE_DELTA": "phase_5_implement: §1r baseline-delta gate — new test fails outside baseline+ledger (GH561)",
     "E_BOUNDARY_SCAN_FAILED": "phase_5/6: authored-boundary scan tooling itself failed to run",
     "E_BOUNDARY_SUPPRESSION": "phase_5/6: RED/GREEN suppresses or disables the boundary scan",
