@@ -120,7 +120,9 @@ def main() -> int:
         "--root",
         metavar="PATH",
         default=_DEFAULT_ROOT,
-        help="Root directory for resolving module paths (default: engine_py/).",
+        help="Root directory for resolving module paths "
+             "(default: engine_py/bytedigger_engine/ — manifest paths are "
+             "package-relative per bd#44).",
     )
     parser.add_argument(
         "--json",
