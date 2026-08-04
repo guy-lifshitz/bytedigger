@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date
 
 _SEPARATOR_CELL_RE = re.compile(r"-+")
@@ -291,3 +293,176 @@ def red_shape_enforced() -> bool:
     rollout: CB74189B-6A03-49DF-A65D-7520D528C45D flip-by:2026-08-08
     """
     return os.environ.get("HAL_KNOWN_REDS_RED_SHAPE_ENFORCE") == "1"
+
+
+# ─── GH1470 (agreement 92237C8D-8B77-4294-8DC6-5B81020A86D7) ────────────────
+# The ledger's `Scope` column starts being READ: the declared narrowing of a
+# tolerated red becomes ENFORCED. Fourth deactivation axis of this file, built
+# exactly like kill-by (GH1199), owner (GH1230) and red-shape (GH1231): ONE
+# canonical classifier here, both consumers delegate to it (§1g).
+
+SCOPE_APPLIES = "scope-applies"
+SCOPE_OUT_OF_SCOPE = "scope-out-of-scope"
+SCOPE_UNKNOWN = "scope-unknown"
+SCOPE_MALFORMED = "scope-malformed"
+
+_SCOPE_INDEX = 2
+_SCOPE_FLIP_BY = "flip-by:2026-08-16"
+
+
+@dataclass(frozen=True)
+class RunContext:
+    """The run context a Scope cell is compared against (§1.4).
+
+    Everything false / lane empty is the NARROWEST context and the
+    fail-closed default: an undeclared run must not silently be treated as
+    the widest one — that is precisely the defect this axis fixes.
+    """
+
+    ci: bool = False
+    full_run: bool = False
+    xdist: bool = False
+    standalone: bool = False
+    lane: str = ""
+
+
+def resolve_run_context() -> RunContext:
+    """Read the five HAL_KNOWN_REDS_RUN_* seams (§1.4).
+
+    `"1"` is the ONLY true value, exactly as for `kill_by_enforced()`; the
+    lane is normalized with `strip().casefold()`.
+    """
+    return RunContext(
+        ci=os.environ.get("HAL_KNOWN_REDS_RUN_CI") == "1",
+        full_run=os.environ.get("HAL_KNOWN_REDS_RUN_FULL") == "1",
+        xdist=os.environ.get("HAL_KNOWN_REDS_RUN_XDIST") == "1",
+        standalone=os.environ.get("HAL_KNOWN_REDS_RUN_STANDALONE") == "1",
+        lane=(os.environ.get("HAL_KNOWN_REDS_RUN_LANE") or "").strip().casefold(),
+    )
+
+
+def normalize_scope(cell: str) -> str:
+    """§1.5 lookup key: strip + collapse inner whitespace + casefold."""
+    return " ".join(cell.split()).casefold()
+
+
+# §1.5 — the CLOSED enumeration. Every predicate is the LITERAL translation of
+# its cell's wording, not one condition more. Extending the ledger's Scope
+# vocabulary means editing THIS dict (and §1.5 of the spec) and nothing else.
+SCOPE_VOCAB: dict[str, Callable[[RunContext], bool]] = {
+    "any": lambda ctx: True,
+    "full-run only": lambda ctx: ctx.full_run,
+    "standalone sibling suite": lambda ctx: ctx.standalone,
+    "ci engine-py xdist only":
+        lambda ctx: ctx.ci and ctx.xdist and ctx.lane == "engine-py",
+    "oss-engine xdist only":
+        lambda ctx: ctx.xdist and ctx.lane == "oss-engine",
+    "ci runners, full-run only": lambda ctx: ctx.ci and ctx.full_run,
+    "ci full-run xdist only":
+        lambda ctx: ctx.ci and ctx.full_run and ctx.xdist,
+}
+
+
+def classify_scope(cells: list[str], ctx: RunContext) -> tuple[str, str]:
+    """Classify a ledger row's Scope cell against the declared run context.
+
+    Branch order is fixed (§1.6), the same order `classify_kill_by` uses:
+    shape -> normalization -> closed enumeration -> predicate.
+
+    A >LEDGER_COLUMNS row is NOT malformed-by-shape: index 2 is authoritative,
+    exactly as KILL_BY_INDEX is for `classify_kill_by`. An unrecognised value
+    — the EMPTY cell included — is SCOPE_UNKNOWN and fails closed: there is no
+    silent "treat it as any" fallback (§1.6, a direct requirement of the issue).
+    """
+    if len(cells) < LEDGER_COLUMNS:
+        return SCOPE_MALFORMED, "?"
+
+    raw = cells[_SCOPE_INDEX]
+    predicate = SCOPE_VOCAB.get(normalize_scope(raw))
+    if predicate is None:
+        return SCOPE_UNKNOWN, raw.strip()
+    if predicate(ctx):
+        return SCOPE_APPLIES, raw.strip()
+    return SCOPE_OUT_OF_SCOPE, raw.strip()
+
+
+def partition_by_scope(
+    rows: list[tuple[int, list[str]]], ctx: RunContext
+) -> tuple[list[tuple[int, list[str]]], list[dict[str, object]]]:
+    """Split `[(lineno, cells)]` into in-scope rows (input order preserved) and
+    reports `{"line", "scope", "status"}` for everything that does NOT apply."""
+    active_rows: list[tuple[int, list[str]]] = []
+    reports: list[dict[str, object]] = []
+    for lineno, cells in rows:
+        status, detail = classify_scope(cells, ctx)
+        if status == SCOPE_APPLIES:
+            active_rows.append((lineno, cells))
+            continue
+        reports.append({"line": lineno, "scope": detail, "status": status})
+    return active_rows, reports
+
+
+def format_out_of_scope(report: dict[str, object], enforced: bool) -> str:
+    """Single formatter for both consumers' stderr lines (§1aa).
+
+    Deliberately NOT a copy of `format_inactive`: this axis owns its OWN line
+    prefix `ledger scope line ` (rev 5). The bare `ledger`+`line` prefix
+    belongs to the kill-by axis (`format_inactive`) and the red-shape axis
+    (`known-reds-owner-audit.py`), and a third consumer greps that prefix
+    deliberately (`__tests__/known-reds-flip-noop-23DA6B27.test.ts:127` requires
+    ZERO such lines at the flip date), so the prefixes must not be shared.
+    The flip-by token is printed in the warn-only variant ONLY: under
+    enforcement the row is gone, there is nothing left to flip.
+    """
+    suffix = "DROPPED" if enforced else f"WARN-ONLY, {_SCOPE_FLIP_BY}"
+    return (
+        f"ledger scope line {report['line']}: scope {report['scope']} "
+        f"{report['status']} — {suffix}"
+    )
+
+
+def format_scope_summary(
+    parsed: int,
+    suite_rows: int,
+    active_rows: list[tuple[int, list[str]]],
+    reports: list[dict[str, object]],
+    enforced: bool,
+    ctx: RunContext,
+) -> str:
+    """§1.7 one-line denominator, printed once per run that reads the ledger.
+
+    `parsed` counts EVERY data row of the ledger; `suite_rows` counts the rows
+    of this Suite that REACHED scope partitioning (i.e. already past kill-by).
+    Invariant: applies + out-of-scope + unknown + malformed == suite_rows.
+    """
+    def _bit(value: bool) -> str:
+        return "1" if value else "0"
+
+    out_of_scope = sum(1 for r in reports if r["status"] == SCOPE_OUT_OF_SCOPE)
+    unknown = sum(1 for r in reports if r["status"] == SCOPE_UNKNOWN)
+    malformed = sum(1 for r in reports if r["status"] == SCOPE_MALFORMED)
+    return (
+        f"scope: parsed={parsed} suite_rows={suite_rows} "
+        f"applies={len(active_rows)} out-of-scope={out_of_scope} "
+        f"unknown={unknown} malformed={malformed} "
+        f"enforced={_bit(enforced)} "
+        f"ctx=ci={_bit(ctx.ci)},full={_bit(ctx.full_run)},"
+        f"xdist={_bit(ctx.xdist)},standalone={_bit(ctx.standalone)},"
+        f"lane={ctx.lane}"
+    )
+
+
+def format_disarmed_scope_warning(suite: str, suite_rows: int) -> str:
+    """§1.6: «фильтр обезоружен» must be distinguishable from «всё зелено»."""
+    return (
+        f"scope: WARNING suite={suite} had {suite_rows} ledger row(s) but "
+        f"0 mute tokens survived scope"
+    )
+
+
+def scope_enforced() -> bool:
+    """The ONE read site of HAL_KNOWN_REDS_SCOPE_ENFORCE.
+
+    rollout: 92237C8D-8B77-4294-8DC6-5B81020A86D7 flip-by:2026-08-16
+    """
+    return os.environ.get("HAL_KNOWN_REDS_SCOPE_ENFORCE") == "1"

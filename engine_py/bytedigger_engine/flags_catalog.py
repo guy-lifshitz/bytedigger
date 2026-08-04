@@ -283,6 +283,12 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: HAL_STUB_PASSABILITY_GATE=0 disables the stub-passability RED lint.",
     },
+    "HAL_ONE_SIDED_PREDICATE_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Kill-switch: HAL_ONE_SIDED_PREDICATE_GATE=0 disables the GH1373 Rule P one-sided negative code-exit predicate RED lint.",
+    },
     "HAL_SCHEMA_SMOKE_GATE": {
         "kind": "gate",
         "default": "1",
@@ -354,6 +360,12 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Default-ON gate: pre-RED-gate and pre-validation dirty-tree guard; uncommitted production changes → E_RED_WORKTREE_DIRTY hard-stop. =0 disables (legacy behavior).",
+    },
+    "HAL_RED_SKELETON_COMMIT": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Default-ON gate: commit_red_skeleton commits RED-authored in-allowlist stub production files so the dirty-tree guard cannot kill a behaviourally-failing RED (GH1406). =0 disables (legacy behavior).",
     },
     "HAL_RED_MASS_DELETION_GATE": {
         "kind": "gate",
@@ -524,6 +536,12 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_05_inject.py",
         "description": "Override binary name/path for the bun executable.",
     },
+    "HAL_INJECT_TIMEOUT_S": {
+        "kind": "int",
+        "default": "30",
+        "module": "workflows/phase_05_inject.py",
+        "description": "Timeout in seconds for the inject-learnings.ts subprocess (GH1468 §1h; tests drive it down so the timeout branch is asserted in ~1s instead of 31s).",
+    },
     "HAL_CHECKLIST_POLL_TIMEOUT_MS": {
         "kind": "int",
         "default": None,
@@ -608,6 +626,18 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/_baseline_delta.py",
         "description": "Env seam: HAL_BASELINE_DELTA_BIN overrides the baseline_delta_gate.py script path (GH561).",
     },
+    "HAL_CORPUS_PARITY_ENFORCE": {
+        "kind": "flag",
+        "default": "0",
+        "module": "workflows/_baseline_delta.py",
+        "description": "GH1338 warn-only rollout: =1 makes a corpus-parity BLOCKED verdict a recoverable E_CORPUS_PARITY gate failure in phase_5. flip-by:2026-08-13 Refs #1338.",
+    },
+    "HAL_CORPUS_ALLOW_REMOVED": {
+        "kind": "flag",
+        "default": None,
+        "module": "lib/corpus_parity.py",
+        "description": "GH1338 engine-lane declaration channel: comma-separated basenames of test files legitimately removed, defeating the corpus-parity block.",
+    },
     "HAL_PAUSE_LANE": {
         "kind": "gate",
         "default": "1",
@@ -649,6 +679,42 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "known_reds_ledger.py",
         "description": "Falsy-default rollout flag for GH1199 kill-by enforcement in known-reds.md, agreement CD666B9B-D319-403D-8EF2-8B8870E0F834, flip-by:2026-08-08.",
+    },
+    "HAL_KNOWN_REDS_SCOPE_ENFORCE": {
+        "kind": "gate",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "Falsy-default rollout flag for GH1470 Scope-column enforcement in known-reds.md (a row whose declared Scope does not match the declared run context stops muting), agreement 92237C8D-8B77-4294-8DC6-5B81020A86D7, flip-by:2026-08-16.",
+    },
+    "HAL_KNOWN_REDS_RUN_CI": {
+        "kind": "flag",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "GH1470 run-context declaration: '1' means this run happens on a CI runner. Absent/any other value = false (fail-closed, narrowest context).",
+    },
+    "HAL_KNOWN_REDS_RUN_FULL": {
+        "kind": "flag",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "GH1470 run-context declaration: '1' means this is a FULL suite run, not a scoped/pointed one. Absent/any other value = false (fail-closed).",
+    },
+    "HAL_KNOWN_REDS_RUN_XDIST": {
+        "kind": "flag",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "GH1470 run-context declaration: '1' means the suite runs in parallel (pytest-xdist `-n auto`). Absent/any other value = false (fail-closed).",
+    },
+    "HAL_KNOWN_REDS_RUN_STANDALONE": {
+        "kind": "flag",
+        "default": "0",
+        "module": "known_reds_ledger.py",
+        "description": "GH1470 run-context declaration: '1' means the suite is run standalone, by itself. Absent/any other value = false (fail-closed).",
+    },
+    "HAL_KNOWN_REDS_RUN_LANE": {
+        "kind": "str",
+        "default": None,
+        "module": "known_reds_ledger.py",
+        "description": "GH1470 run-context declaration: the lane this run belongs to (e.g. engine-py, oss-engine), normalized with strip().casefold(); unset resolves to the empty lane, which matches no lane-scoped ledger row.",
     },
     "HAL_KNOWN_REDS_TODAY": {
         "kind": "str",

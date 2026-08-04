@@ -4,7 +4,7 @@ Public API:
     extract_affected_sections(spec_text, patches) -> list[str]
     build_delta_reviewer_prompt(findings, patches, sections) -> str
 
-Spec: SHARED/memory/Decisions/2026-07-11_GH605_delta_rereview_spec.md §2.1
+Spec: 2026-07-11_GH605_delta_rereview_spec.md §2.1 (upstream Decisions dir)
 """
 from __future__ import annotations
 

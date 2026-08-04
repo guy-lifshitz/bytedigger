@@ -24,11 +24,11 @@ from pathlib import Path
 
 # Local imports — sys.path setup so workflows/ + contracts.py + engine.py resolve
 
-try:  # host-side config provider is optional in the OSS distribution
-    import hal_config_provider  # noqa: E402
-except ImportError:  # noqa: E402
-    hal_config_provider = None  # noqa: E402
-if hal_config_provider is not None:
+try:
+    from bytedigger_engine import hal_config_provider  # noqa: E402
+except ImportError:  # OSS wheel: host-side provider deliberately not packaged (GH1125)
+    pass
+else:
     hal_config_provider.maybe_register_hal_config_provider(argv=sys.argv[1:])  # noqa: E402 — GH834 project-mode: conditionally register HAL config provider BEFORE event_log import (event_log.HAL_DIR consumed by reject_log/phase_1/phase_2)
 
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
@@ -220,11 +220,18 @@ def main() -> int:
         dest="restart_reason",
         help="reset restart-governor state with a logged reason (operator escape; requires --workflow)",
     )
-    p.add_argument("--no-hal", action="store_true", help="project-mode: do not register the HAL config provider (neutral defaults)")
+    p.add_argument("--neutral", "--no-hal", action="store_true", dest="neutral", help="project-mode: do not register the host (HAL) config provider (neutral defaults)")
     args = p.parse_args()
 
     if args.restart_reason is not None and not args.restart_reason.strip():
         sys.stderr.write("--restart-reason requires a non-empty reason\n")
+        return 2
+
+    if args.restart_reason and (args.derive_state or args.list_runs or args.status_run_id or args.list):
+        sys.stderr.write(
+            "--restart-reason requires an execution invocation (--workflow); "
+            "not compatible with --derive-state/--list-runs/--status/--list\n"
+        )
         return 2
 
     if args.derive_state:

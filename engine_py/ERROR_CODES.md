@@ -269,7 +269,7 @@
 
 - `E_REVIEW_DEGRADED` — phase_6_review: review ran in a degraded mode (reduced fan-out/evaluators)
 - `E_REVIEW_FAILED` — phase_45_spec/phase_6_review: review subagent returned a FAILED verdict
-- `E_REVIEW_FORMAT_DRIFT` — phase_6_review: reviewer output format drifted from the expected schema
+- `E_REVIEW_FIX_FEED_DIVERGENCE` — phase_6_review: fix feed does not cover the review's aggregated findings
 - `E_REVIEW_UNPARSEABLE` — phase_45_spec/phase_45_spec_lite: review verdict output could not be parsed
 - `E_REVIEW_WRITE_FAILED` — phase_6_review: writing the review artifact to disk failed
 

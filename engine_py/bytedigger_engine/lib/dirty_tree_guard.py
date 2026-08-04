@@ -28,6 +28,33 @@ def _normalize(path: str) -> str:
     return p
 
 
+def parse_porcelain_lines(text: str) -> "list[tuple[str, str]]":
+    """`git status --porcelain` text -> sorted (XY code, normalized path) pairs.
+
+    GH1406 §1g: the PURE parse is the only thing shared with `red_skeleton`.
+    The `git_port.git_read` CALL deliberately stays in `dirty_prod_paths` below
+    — 18 sibling monkeypatch points bind `dirty_tree_guard.git_port.git_read`,
+    and routing the call through a shared module would kill that seam silently.
+
+    The XY column is preserved verbatim: the guard does not care WHAT a path is
+    dirty with, but the GH1406 provenance classifier does (` D` is a deletion,
+    not a skeleton).
+    """
+    entries: list[tuple[str, str]] = []
+    for line in (text or "").splitlines():
+        if len(line) < 4:
+            continue
+        xy = line[:2]
+        raw_path = line[3:].strip()
+        if " -> " in raw_path:
+            raw_path = raw_path.split(" -> ", 1)[1].strip()
+        norm = _normalize(raw_path)
+        if not norm:
+            continue
+        entries.append((xy, norm))
+    return sorted(set(entries), key=lambda e: (e[1], e[0]))
+
+
 def dirty_prod_paths(
     git_cwd: str, red_test_paths: list[str], allowlist: list[str], timeout: int = 30
 ) -> tuple[list[str], str | None]:
@@ -53,15 +80,7 @@ def dirty_prod_paths(
         return [], f"dirty_prod_paths: git status failed (rc={result.returncode}, stderr={result.stderr[:200]})"
 
     violations: list[str] = []
-    for line in result.stdout.splitlines():
-        if len(line) < 4:
-            continue
-        raw_path = line[3:].strip()
-        if " -> " in raw_path:
-            raw_path = raw_path.split(" -> ", 1)[1].strip()
-        norm = _normalize(raw_path)
-        if not norm:
-            continue
+    for _xy, norm in parse_porcelain_lines(result.stdout):
         if _is_test_segment(norm):
             continue
         if norm in excluded:

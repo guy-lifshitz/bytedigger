@@ -68,6 +68,7 @@ GIT_CWD_MARKER_FRAGMENT = "git_cwd"  # heuristic substring for path-rooting
 # Call, not merely a comment mentioning the name).
 GUARDED_WRITE_SITES: "dict[str, str]" = {
     "_commit_red_tests": "phase_5_implement.py B1 — refuses ambient before `git add`",
+    "_commit_red_skeleton": "phase_5_implement.py — refuses ambient before `git add` (GH1406)",
     "_commit_green_code": "phase_5_implement.py B2 — refuses ambient before `git add`",
     "_commit_fix_code": "phase_6_review.py B3 — refuses ambient before Path.unlink()",
     "_commit_fix_tests": "phase_6_review.py B4 — refuses ambient before `git add`",

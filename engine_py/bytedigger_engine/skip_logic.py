@@ -127,7 +127,7 @@ def _resolve_decision_doc_path(decision_doc: str) -> Path | None:
     if candidate.is_file() and candidate.stat().st_size > 0 and _is_contained(candidate):
         return candidate
 
-    # ~/.claude-relative (matches orchestrator's HOME/.claude root)
+    # relative to the configured HAL root (the orchestrator's install directory)
     candidate = _hal_root_fn() / raw
     if candidate.is_file() and candidate.stat().st_size > 0 and _is_contained(candidate):
         return candidate
@@ -137,7 +137,7 @@ def _resolve_decision_doc_path(decision_doc: str) -> Path | None:
 
 def frozen_short_circuit_enabled() -> bool:
     """Kill-switch for the GH531 frozen-spec SIMPLE-gate relax. Default ON."""
-    return os.environ.get("HAL_FROZEN_SHORT_CIRCUIT", "1") != "0"
+    return os.environ.get("HAL_FROZEN_SHORT_CIRCUIT", "1") != "0"  # core-boundary: allow + # flag-routing: allow — kill-switch env read pending config_provider gate_enabled seam migration (GH877 promotion; OFI filed)
 
 
 def should_skip_phase(cfg: dict) -> tuple[bool, str | None]:

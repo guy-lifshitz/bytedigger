@@ -69,6 +69,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -1808,15 +1809,82 @@ def _sibling_vocab_hint(findings: list[str]) -> str:
     )
 
 
-def _spec_lint_fail_message(findings: list[str], spec_path: str) -> str:
+SPEC_LINT_FINDINGS_DIRNAME = "hal-spec-lint-findings"
+
+
+def _spec_lint_findings_artifact_path(spec_path: str) -> Path:
+    """E2EE1A36 §3.1(a) GH1403 (r2 §5.2) — single source of the on-disk
+    findings-artifact path.
+
+    Written under the OS temp root, NEVER beside the spec: a spec_path may be
+    a tracked file (the spec_lint fixture corpus is one), and a prod write into
+    the tracked tree is exactly what `test_gh789_fixture_tree_hygiene.py`
+    guards. The reader is not harmed — the message names the ABSOLUTE path.
+    The spec_path digest keeps two specs with the same basename apart."""
+    spec = Path(str(spec_path))
+    digest = hashlib.sha256(str(spec).encode("utf-8")).hexdigest()[:12]
+    root = Path(tempfile.gettempdir()) / SPEC_LINT_FINDINGS_DIRNAME
+    return root / f"{spec.name}.{digest}.spec-lint-findings.txt"
+
+
+def _write_spec_lint_findings_artifact(findings: list[str], spec_path: str) -> str | None:
+    """E2EE1A36 §3.1(b) GH1403 — persist EVERY spec_lint finding, one per line,
+    so the reader named in `_spec_lint_fail_message` can see findings the
+    message text itself omits. Fail-soft: an OSError must not prevent the
+    fail message from rendering (half (1) of the §2 invariant still holds)."""
+    path = _spec_lint_findings_artifact_path(spec_path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(findings) + ("\n" if findings else ""), encoding="utf-8")
+        return str(path)
+    except OSError as e:
+        _emit_safe("spec_lint_findings_artifact_write_failed", {
+            "error": str(e), "spec_path": str(spec_path),
+        })
+        return None
+
+
+def _spec_lint_findings_tail(
+    findings: list[str], spec_path: str, findings_artifact: str | None,
+) -> str:
+    """E2EE1A36 §3.1(c) GH1403 — extracted from `_spec_lint_fail_message` to
+    keep that composer at its frozen CC 2, per the neighbouring guard test
+    `test_gh1272_write_review_doc_complexity.py` (AC3 clause 2). Builds the
+    per-rule "; also: ..." segments (one per distinct rule_id, first
+    appearance order, excluding findings[0]'s own rule_id) plus the
+    on-disk-artifact pointer clause. Returns "" when there is nothing to add."""
+    tail = ""
+    if findings:
+        normalized = _normalize_spec_lint_findings(findings, spec_path)
+        first_rule = normalized[0]["rule"]
+        seen_rules = {first_rule}
+        for finding, norm in zip(findings[1:], normalized[1:]):
+            rule = norm["rule"]
+            if rule not in seen_rules:
+                seen_rules.add(rule)
+                tail += f"; also: {finding}"
+    if findings_artifact:
+        tail += f"; all {len(findings)} finding(s): {findings_artifact}"
+    return tail
+
+
+def _spec_lint_fail_message(
+    findings: list[str], spec_path: str, findings_artifact: str | None = None,
+) -> str:
     """4197B484 §1.5/§1aa — named sourceable composer for the E_SPEC_LINT_FAIL
     terminal message. Preserves today's exact text verbatim and appends the
-    sibling marker-vocabulary hint when it applies."""
+    sibling marker-vocabulary hint when it applies.
+
+    E2EE1A36 §3.1(c) GH1403 — also names one finding per distinct rule_id
+    (first appearance order, excluding findings[0]'s own rule_id) so every
+    rule_id influencing the tail hint is visible in the message itself, and
+    points at the on-disk artifact (if written) that carries every finding
+    verbatim."""
     first = findings[0] if findings else "(no findings text)"
     return (
         f"spec_lint detected {len(findings)} unverified citation(s) in "
         f"{spec_path}; first: {first}"
-    ) + _sibling_vocab_hint(findings)
+    ) + _spec_lint_findings_tail(findings, spec_path, findings_artifact) + _sibling_vocab_hint(findings)
 
 
 def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
@@ -1959,11 +2027,19 @@ def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
             )
             if rr.converged and rr.final is not None:
                 return rr.final
+        # E2EE1A36 §3.1(d) GH1403 — terminal-only artifact write: every
+        # finding, so the reader named in the message can see what the
+        # message text itself omits.
+        findings_artifact = _write_spec_lint_findings_artifact(findings, str(spec_path))
         return StepResult(
             status="error",
-            data={**prev.data, "spec_lint_findings": findings},
+            data={
+                **prev.data,
+                "spec_lint_findings": findings,
+                "spec_lint_findings_artifact": findings_artifact,
+            },
             duration_ms=0, step_name=step,
-            error=_spec_lint_fail_message(findings, str(spec_path)),
+            error=_spec_lint_fail_message(findings, str(spec_path), findings_artifact),
             error_code="E_SPEC_LINT_FAIL",
             recoverable=False,
         )

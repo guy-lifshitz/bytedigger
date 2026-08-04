@@ -1085,6 +1085,99 @@ def _parse_role_findings(content: str) -> list[dict]:
     return findings
 
 
+# GH1354: tail tags APPENDED to a finding header AFTER the producer wrote it
+# (verify_findings' ' [UNCITED]' suffix, a second phase-6 cycle's doubled tag).
+# Literal duplicate of the two strings in
+# anti_hallucination.semantic_verifier._LOW_TRUST_TAGS — tied by an
+# executable set-equality assertion in test_gh1354 (AC14); importing the
+# plugin's private tuple here would make that drift test a tautology.
+POST_PRODUCER_HEADER_TAGS = ("[UNCITED]", "[UNVERIFIED CITATION]")
+VERIFY_TAG_RE = re.compile(r"\s*\[verify:[^\]]*\]\s*$", re.IGNORECASE)
+
+
+def _strip_header_tags(title: str) -> str:
+    """Iteratively strip trailing post-producer tags: ' [verify: ...]' and each
+    of POST_PRODUCER_HEADER_TAGS, until the tail stops changing (a second
+    phase-6 cycle can leave '... [UNCITED] [UNCITED]'). Bracket tails outside
+    the set (e.g. '... [legacy]') are left untouched."""
+    changed = True
+    while changed:
+        changed = False
+        new_title = VERIFY_TAG_RE.sub("", title)
+        if new_title != title:
+            title = new_title
+            changed = True
+            continue
+        for tag in POST_PRODUCER_HEADER_TAGS:
+            suffix = " " + tag
+            if title.endswith(suffix):
+                title = title[: -len(suffix)]
+                changed = True
+                break
+    return title
+
+
+def _read_or_empty(path) -> str:
+    """Read a text file; any OSError (including IsADirectoryError) or
+    UnicodeDecodeError degrades to '' rather than raising (house idiom,
+    cf. _resolve_review_content)."""
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def _doc_section_body(doc: str, header: str) -> str:
+    """Body of the section headed by the LAST line exactly equal to `header`,
+    up to (not including) the next line starting with '## ', or EOF. Last
+    match — the aggregator writes canonical sections AFTER raw role sections,
+    so a role that quoted the header verbatim in its own body must not
+    hijack the locator (AC11). No matching header ⇒ ''."""
+    lines = doc.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line == header:
+            start = i
+    if start is None:
+        return ""
+    body_lines: list[str] = []
+    for line in lines[start + 1:]:
+        if line.startswith("## "):
+            break
+        body_lines.append(line)
+    return "\n".join(body_lines)
+
+
+def _finding_keys(section_text: str) -> list[tuple[str, str]]:
+    """(severity.upper(), normalized+tag-stripped title) per header line that
+    parses under the canonical SEVERITY_HDR_LINE_RE. Tag-stripping is
+    mandatory: without it the same finding gets different keys in the
+    review doc (' [verify: ...]' from the aggregator) and the fix doc
+    (' [UNCITED]' from verify_findings), and the consumer-guard would
+    fail-closed a healthy build."""
+    keys: list[tuple[str, str]] = []
+    for line in section_text.splitlines():
+        m = SEVERITY_HDR_LINE_RE.match(line.rstrip())
+        if m:
+            severity = m.group(1).upper()
+            title = _normalize_finding_title(_strip_header_tags(m.group(2).strip()))
+            keys.append((severity, title))
+    return keys
+
+
+def _parse_finding_blocks(section_text: str) -> list[dict]:
+    """Inverse-parse a section into [{'block': <header line through the next
+    header line, rstripped>}, ...] — the shape _render_fix_doc already
+    consumes."""
+    lines = section_text.splitlines()
+    header_idxs = [i for i, line in enumerate(lines) if SEVERITY_HDR_LINE_RE.match(line.rstrip())]
+    blocks: list[dict] = []
+    for j, idx in enumerate(header_idxs):
+        end = header_idxs[j + 1] if j + 1 < len(header_idxs) else len(lines)
+        blocks.append({"block": "\n".join(lines[idx:end]).rstrip()})
+    return blocks
+
+
 # 21792EE7 fix-1 (Option C): capture everything after the lineno colon verbatim,
 # then normalise the optional single separator-space during comparison.
 # `\s?` (the old pattern) ate one leading space, causing indented Python lines
@@ -1806,6 +1899,38 @@ def _resolve_review_content(raw: str, doc_path: Path) -> str:
     return raw
 
 
+def _persist_fix_feed(
+    doc_path: Path,
+    review_content: str,
+    verified: list,
+    suspect: list,
+    verdict: str,
+) -> "Path | StepResult":
+    """GH1354 producer chokepoint: the ONLY place that builds the fix-doc
+    name, renders its content, and writes it. Path on success,
+    StepResult(status='error') on failure."""
+    fix_path = doc_path.parent / Path(REVIEW_FIX_DOC_RELPATH).name
+    if not verified and not suspect:
+        # No structured lists (stdout-fallback) ⇒ derive from the SAME bytes
+        # persisted to the review document (and read by satisfaction), not a
+        # second independent parse.
+        verified = _parse_finding_blocks(_doc_section_body(review_content, "## Aggregated Findings"))
+        suspect = _parse_finding_blocks(_doc_section_body(review_content, SUSPECT_FINDINGS_SECTION_HEADER))
+        # This derivation path is already observable via the existing
+        # 'stdout_fallback_used' event emitted on the same branch upstream —
+        # no new event is introduced here (GH402 orphan-emit gate).
+    try:
+        fix_path.write_text(_render_fix_doc(verified, verdict, suspect), encoding="utf-8")
+    except OSError as exc:
+        return StepResult(
+            status="error", data=None, duration_ms=0,
+            step_name="write_review_artifact",
+            error=str(exc),
+            error_code="E_REVIEW_WRITE_FAILED",
+        )
+    return fix_path
+
+
 def _write_review_artifact(ctx, prev) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -1838,17 +1963,10 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         # CA50885D: fail-OPEN fix doc — verified first, then suspect (LOW CONFIDENCE) if any.
         verified_findings = prev.data.get("verified_findings") or []
         suspect_findings = prev.data.get("suspect_findings") or []
-        fix_doc_content = _render_fix_doc(verified_findings, verdict, suspect_findings)
-        fix_doc_path_obj = doc_path.parent / Path(REVIEW_FIX_DOC_RELPATH).name
-        try:
-            fix_doc_path_obj.write_text(fix_doc_content, encoding="utf-8")
-        except OSError as exc:
-            return StepResult(
-                status="error", data=None, duration_ms=0,
-                step_name="write_review_artifact",
-                error=str(exc),
-                error_code="E_REVIEW_WRITE_FAILED",
-            )
+        fix_result = _persist_fix_feed(doc_path, aggregated_content, verified_findings, suspect_findings, verdict)
+        if isinstance(fix_result, StepResult):
+            return fix_result
+        fix_doc_path_obj = fix_result
         _emit_safe("review_writer_return_source", {
             "phase": "phase_6_review",
             "source": "aggregated_content",
@@ -1891,8 +2009,8 @@ def _write_review_artifact(ctx, prev) -> StepResult:
 
     # ── Format-conformance check (sub-finding 1) ──────────────────────────────
     # Enforce unconditionally: any reviewer response missing '## Aggregated
-    # Findings' is non-conformant and triggers a single retry (cap-2: at most 2
-    # LLM calls total).
+    # Findings' is non-conformant and is recovered DETERMINISTICALLY, whatever
+    # backend produced it (GH1399).
     # A134BBD0: check disk-first — real LLMs write the review via Write tool;
     # stdout is only a summary.  Test stubs that don't write disk fall back to
     # stdout via _resolve_review_content.
@@ -1906,60 +2024,17 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         else "stdout"
     )
     if not _is_review_conformant(content):
-        _backend = _resolve_backend(None, os.environ)[0]
-        if _backend == "claude-in-session":
-            content = _normalize_to_aggregated_findings(content)
-            _emit_safe("review_stdout_normalized_deterministic",
-                       {"phase": 6, "backend": _backend,
-                        "bytes": len(content.encode("utf-8"))})
-            # fall through to persist — NO retry, NO E_REVIEW_FORMAT_DRIFT
-        else:
-            prompt = prev.data.get("prompt")
-            if not prompt:
-                return StepResult(
-                    status="error", data=None, duration_ms=0,
-                    step_name="write_review_artifact",
-                    error="review response is non-conformant and prompt is missing for retry",
-                    error_code="E_REVIEW_FORMAT_DRIFT",
-                )
-            cfg = ctx.org_config or {}
-            # A266E5A1: retry uses `review_model_retry` if set (e.g. Opus to
-            # break Sonnet drift loop); else falls back to `review_model`.
-            retry_model = cfg.get("review_model_retry") or _resolve_model(cfg, "review_model", _default_review_model())
-            retry_result = invoke_llm_subprocess(
-                prompt=prompt,
-                model=retry_model,
-                timeout_sec=_resolve_review_timeout_sec(cfg),
-                step_name="invoke_review_llm_retry",
-                extra_data={
-                    "doc_path": prev.data["doc_path"],
-                    "spec_path": prev.data["spec_path"],
-                    "red_log_path": prev.data["red_log_path"],
-                    "green_log_path": prev.data["green_log_path"],
-                    "prompt": prompt,
-                },
-                allowed_tools=["Read", "Grep", "Glob", "Write"],
-            )
-            if retry_result.status == "ok" and isinstance(retry_result.data, dict):
-                retry_raw = retry_result.data["raw_response"]
-            elif retry_result.status != "ok":
-                return retry_result  # propagate E_LLM_* errors
-            else:
-                # status == ok but data is not dict — impossible per invoke_llm_subprocess
-                # contract; documents the invariant and fails loudly under -O too.
-                raise AssertionError(
-                    f"unexpected retry shape: status={retry_result.status} data={type(retry_result.data)}"
-                )
-            retry_content = _resolve_review_content(retry_raw, doc_path)
-            if not _is_review_conformant(retry_content):
-                return StepResult(
-                    status="error", data=None, duration_ms=0,
-                    step_name="write_review_artifact",
-                    error="review response non-conformant after retry (missing '## Aggregated Findings')",
-                    error_code="E_REVIEW_FORMAT_DRIFT",
-                    recoverable=False,
-                )
-            content = retry_content
+        # GH1399: the rescue is selected by the RESPONSE's own property — its
+        # non-conformance — and never by the identity of the backend that
+        # produced it. `_normalize_to_aggregated_findings` is total (its
+        # postcondition is `_is_review_conformant(result)` for ALL inputs, body
+        # preserved verbatim), so no paid retry can add anything: the retry
+        # branch, its E_REVIEW_FORMAT_DRIFT outcomes and the retry-model choice
+        # are removed with it (§1c-ОТМЕНА). Backend is reported, not consulted.
+        content = _normalize_to_aggregated_findings(content)
+        _emit_safe("review_stdout_normalized_deterministic",
+                   {"phase": 6, "backend": _resolve_backend(None, os.environ)[0],
+                    "bytes": len(content.encode("utf-8"))})
     # ─────────────────────────────────────────────────────────────────────────
 
     # Persist canonical content; skip rewrite if disk already holds it.
@@ -1981,14 +2056,16 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         "had_structured_block": extract_structured_findings(content) is not None,
     })
     # CA50885D: fail-OPEN fix doc on stdout-fallback path too — suspect forwarded.
+    # GH1354: derived from the SAME `content` just persisted to doc_path, and
+    # OSError here now fails closed like the aggregated branch (no more
+    # swallowed 'pass' — a broken fix-doc write is the exact failure mode
+    # the loop in the issue was invisible against).
     _fallback_verified = prev.data.get("verified_findings") or []
     _fallback_suspect = prev.data.get("suspect_findings") or []
-    _fix_doc_content_fb = _render_fix_doc(_fallback_verified, verdict, _fallback_suspect)
-    _fix_doc_path_fb = doc_path.parent / Path(REVIEW_FIX_DOC_RELPATH).name
-    try:
-        _fix_doc_path_fb.write_text(_fix_doc_content_fb, encoding="utf-8")
-    except OSError:
-        pass  # best-effort; full doc already written; don't fail the step on fix-doc write error
+    _fix_result_fb = _persist_fix_feed(doc_path, content, _fallback_verified, _fallback_suspect, verdict)
+    if isinstance(_fix_result_fb, StepResult):
+        return _fix_result_fb
+    _fix_doc_path_fb = _fix_result_fb
     _emit_safe("review_writer_return_source", {
         "phase": "phase_6_review",
         "source": _src,
@@ -2058,6 +2135,26 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
     review_fix_doc_path = Path(
         prev.data.get("review_fix_doc_path") or prev.data["review_doc_path"]
     )
+
+    # GH1354 consumer-guard: the fix feed on disk must cover the review's
+    # '## Aggregated Findings' section on disk before the fix-worker gets a
+    # prompt. Catches a stale fix doc left from a previous cycle (real input,
+    # AC7) fail-closed, before the fix-LLM is invoked.
+    required = set(_finding_keys(_doc_section_body(_read_or_empty(review_doc), "## Aggregated Findings")))
+    present = set(_finding_keys(_read_or_empty(review_fix_doc_path)))
+    if not required <= present:
+        missing = required - present
+        return StepResult(
+            status="error", data=None, duration_ms=0,
+            step_name="build_fix_prompt",
+            error=(
+                "fix feed does not cover the review's aggregated findings: missing "
+                + ", ".join(f"{s}:{t}" for s, t in sorted(missing))
+            ),
+            error_code="E_REVIEW_FIX_FEED_DIVERGENCE",
+            recoverable=False,
+        )
+
     fix_doc_path = scratchpad / FIX_DOC_RELPATH
     verdict = prev.data["verdict"]
 
