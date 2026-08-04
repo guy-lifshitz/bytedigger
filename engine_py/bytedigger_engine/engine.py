@@ -65,6 +65,43 @@ logger = logging.getLogger(__name__)
 # 3F5599A6 A3: manifest-sourced files_touched (17E43F91). DEFER-to-scan-source
 # on ANY ValueError (missing/malformed manifest, missing StepResult.data) — a
 # non-LLM step landing here by design owns no new error code (§1n).
+def _normalise_written_path(path: str, scan_cwd: "str | None") -> str:
+    """bd#36 D3: map a path into ONE namespace for `phase_artifacts.written`.
+
+    Repo-relative POSIX when the path lands inside `scan_cwd`; absolute POSIX
+    otherwise. Total (every input yields exactly one form) and idempotent.
+
+    Why this is needed at all: the two contributing sources speak different
+    alphabets. The git delta is repo-relative by construction. The manifest is
+    declared repo-relative (`llm_subprocess.py:392`) but nothing enforces it —
+    `_validate_manifest_or_raise` checks only `list[str]` — and the production
+    producer (`_written_paths_from_events`) passes the harness transcript's
+    `file_path` through VERBATIM. Unioning without normalising would put two
+    spellings of one file into `written` and nothing downstream would notice.
+
+    Absolute paths do leak out for genuinely out-of-repo artifacts, so `written`
+    is no longer uniformly repo-relative. That is the deliberate price: the
+    alternative — dropping everything outside the repo — is exactly today's
+    blindness, which is the defect.
+    """
+    p = Path(path)
+    if scan_cwd is None:
+        return p.as_posix()
+    try:
+        root = Path(scan_cwd).resolve()
+        if not p.is_absolute():
+            p = root / p
+        resolved = p.resolve()
+    except OSError:
+        # Never let a path oddity break the emission — phase_artifacts runs on
+        # every exit path, including the crash path ([G18r3:EDGE-1]).
+        return p.as_posix()
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
 def _manifest_paths_from_result(result: "StepResult") -> "set[str] | None":
     """Return set(worker_written_paths) for a valid manifest StepResult, else
     None (data is None, field missing/malformed, or any ValueError from the
@@ -222,6 +259,10 @@ class WorkflowEngine:
         # _execute_steps() call on a fresh engine); execute() resets these
         # per-run at :252-254 below.
         self._written: set[str] = set()
+        # bd#36: paths seen by a git delta, kept alongside `_written` (which is
+        # now a UNION of delta + manifest). The difference of the two is what
+        # `write_tracking: "git-delta+manifest"` announces.
+        self._delta_paths: set[str] = set()
         self._phase_steps_run = 0
         self._phase_steps_delta_ok = 0
 
@@ -256,6 +297,10 @@ class WorkflowEngine:
         # engine instance does not leak a prior run's written paths or
         # write-tracking counts into this run.
         self._written: set[str] = set()
+        # bd#36: paths seen by a git delta, kept alongside `_written` (which is
+        # now a UNION of delta + manifest). The difference of the two is what
+        # `write_tracking: "git-delta+manifest"` announces.
+        self._delta_paths: set[str] = set()
         self._phase_steps_run = 0
         self._phase_steps_delta_ok = 0
 
@@ -490,7 +535,28 @@ class WorkflowEngine:
                     # phase-level `written` accumulator, regardless of
                     # whether the delta happened to be empty.
                     self._phase_steps_delta_ok += 1
-                    self._written |= {p for ps in delta.values() for p in ps}
+                    # bd#36: `written` is the UNION of the git delta and the
+                    # worker manifest, both normalised into one namespace.
+                    # Before, it was the raw delta only — so an artifact the
+                    # phase genuinely wrote OUTSIDE git_cwd was invisible while
+                    # write_tracking still said "git-delta", i.e. "the phase
+                    # wrote nothing" rather than "my window did not cover it"
+                    # (EMISSIONS_SPEC [G18r3:EDGE-4] calls that the overclaim
+                    # shape). The manifest union sits OUTSIDE the
+                    # `any(delta.values())` guard below on purpose: the
+                    # out-of-repo case has an EMPTY delta, which is exactly
+                    # when the old code stopped looking.
+                    delta_norm = {
+                        _normalise_written_path(p, _scan_cwd)
+                        for ps in delta.values() for p in ps
+                    }
+                    self._delta_paths |= delta_norm
+                    self._written |= delta_norm
+                    manifest = _manifest_paths_from_result(result)
+                    if manifest is not None:
+                        self._written |= {
+                            _normalise_written_path(p, _scan_cwd) for p in manifest
+                        }
                     if any(delta.values()):
                         paths_flat = sorted({p for ps in delta.values() for p in ps})
                         by_status = {k: v for k, v in delta.items() if v}
@@ -503,7 +569,9 @@ class WorkflowEngine:
                             "phase": workflow.name,
                             "step_name": step.name,
                         }
-                        manifest = _manifest_paths_from_result(result)
+                        # bd#36: reuses the manifest hoisted above (same
+                        # StepResult, same call) — files_touched keeps the
+                        # 3F5599A6 A3 INTERSECTION semantics unchanged (D7).
                         if manifest is not None:
                             kept = [p for p in paths_flat if p in manifest]
                             by_status = {
@@ -784,11 +852,18 @@ class WorkflowEngine:
         crash path, `[G18r3:EDGE-4]`, where the post-snapshot is never
         reached) all fall through to "not-observed" (AC-E3b).
         """
-        write_tracking = (
-            "git-delta"
-            if self._phase_steps_run >= 1 and self._phase_steps_delta_ok == self._phase_steps_run
-            else "not-observed"
-        )
+        # bd#36 D5/D6: three values now. "not-observed" is NOT softened by a
+        # non-empty manifest — if no delta was computed the engine did not look,
+        # and letting the manifest publish observation there would be the same
+        # overclaim in the other direction (issue bd#36, [G18r3:EDGE-4]).
+        # "git-delta+manifest" appears ONLY when the manifest contributed a path
+        # no delta ever saw; otherwise the source change would dissolve silently
+        # into "git-delta", which the issue explicitly forbids.
+        if self._phase_steps_run >= 1 and self._phase_steps_delta_ok == self._phase_steps_run:
+            manifest_only = self._written - self._delta_paths
+            write_tracking = "git-delta+manifest" if manifest_only else "git-delta"
+        else:
+            write_tracking = "not-observed"
         payload = _build_phase_artifacts_payload(
             workflow_name, sorted(self._written), write_tracking, run_id,
         )
