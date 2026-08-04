@@ -43,7 +43,7 @@ import pytest
 # ─── Absolute anchors (no hardcoded host paths; resolved from __file__) ───────
 
 _ENGINE_PY_ROOT = Path(__file__).resolve().parent.parent   # engine_py/
-_BUILD_DIR = _ENGINE_PY_ROOT.parent                        # SYSTEM/cli/build/
+_BUILD_DIR = _ENGINE_PY_ROOT.parent                        # bytedigger repo root
 _LINT_CLI = _BUILD_DIR / "core-boundary-lint.py"
 
 
@@ -306,7 +306,6 @@ def _write_closure_fixture(tmp_path: Path) -> Path:
 
 # ─── AC9: --list-closure text mode ───────────────────────────────────────────
 
-@pytest.mark.skip(reason="HAL-side CLI entry-point (core-boundary-lint.py) lives under SYSTEM/cli/build/, outside engine_py — not part of the bytedigger package. Ported as a declared gap rather than dropped silently; re-enable if the CLI is ever ported.")
 def test_ac9_list_closure_text_mode(tmp_path):
     """AC9: `--list-closure` prints one module path per line, includes every
     core_modules entry, excludes host_modules, exit 0.
@@ -332,7 +331,6 @@ def test_ac9_list_closure_text_mode(tmp_path):
 
 # ─── AC10: --list-closure --json ─────────────────────────────────────────────
 
-@pytest.mark.skip(reason="HAL-side CLI entry-point (core-boundary-lint.py) lives under SYSTEM/cli/build/, outside engine_py — not part of the bytedigger package. Ported as a declared gap rather than dropped silently; re-enable if the CLI is ever ported.")
 def test_ac10_list_closure_json_mode(tmp_path):
     """AC10: `--list-closure --json` emits {"modules": [...]}, same set as AC9.
     Fails today: the flag does not exist.
@@ -361,7 +359,6 @@ def test_ac10_list_closure_json_mode(tmp_path):
 
 # ─── AC11: --list-closure + missing manifest → exit 2, fail CLOSED ───────────
 
-@pytest.mark.skip(reason="HAL-side CLI entry-point (core-boundary-lint.py) lives under SYSTEM/cli/build/, outside engine_py — not part of the bytedigger package. Ported as a declared gap rather than dropped silently; re-enable if the CLI is ever ported.")
 def test_ac11_list_closure_missing_manifest_exits_2(tmp_path):
     """AC11: `--list-closure` against a missing manifest exits 2, emits no module
     lines, and reports the manifest error on stderr (§3 fail-CLOSED mapping).
@@ -393,7 +390,6 @@ def test_ac11_list_closure_missing_manifest_exits_2(tmp_path):
 
 # ─── AC12: --list-closure + schema failure → exit 2 ──────────────────────────
 
-@pytest.mark.skip(reason="HAL-side CLI entry-point (core-boundary-lint.py) lives under SYSTEM/cli/build/, outside engine_py — not part of the bytedigger package. Ported as a declared gap rather than dropped silently; re-enable if the CLI is ever ported.")
 def test_ac12_list_closure_schema_failure_exits_2(tmp_path):
     """AC12: `--list-closure` against a schema-invalid manifest exits 2 with one
     ERROR line per schema error and no module lines.
