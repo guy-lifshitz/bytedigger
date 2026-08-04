@@ -926,11 +926,23 @@ def _invoke_in_session(
     if gate_res is not None:
         return gate_res
 
-    # GH#222 (220E5F63): warn-only model-pin drift for non-hard-gate in-session steps.
-    drift = _detect_nonhardgate_model_drift(result_obj, model, hard_gate, step_name)
-    if drift is not None and run_ctx is not None and run_ctx.event_log is not None:
-        _emit_safe(run_ctx.event_log, "model_pin_mismatch",
-                   {**drift, "phase": run_ctx.phase, "severity": "warning"}, run_ctx.run_id)
+    # bd#29 (2026-08-04): agreement 220E5F63 / GH#222 (warn-only drift for
+    # non-hard-gate in-session steps) is SUPERSEDED — it contradicted CL:99,
+    # which requires a declared pin to FAIL on mismatch, and two live rules
+    # cannot both hold. The warn-only emitter that stood here is removed.
+    #
+    # No replacement check is written here on purpose. `_pin_mismatch_refusal`
+    # (:1088) already runs for EVERY backend from `invoke_llm_subprocess`
+    # (:1301); it was inert on this path only because the dict below never
+    # carried `observed_model`, the channel it reads. Populating that channel
+    # (see `data` below) makes the flip a CONSEQUENCE of the chokepoint rather
+    # than a second implementation of it — which is what let the old gap hide:
+    # a check declared at the chokepoint stayed green while this path escaped.
+    #
+    # `_detect_nonhardgate_model_drift` itself is deliberately KEPT: it is a
+    # pure predicate with its own unit coverage (AC5-AC9 of
+    # test_2FDA949D_model_pin_warn.py). Only its call from the production path
+    # is retired.
 
     # F5787804: derive metered-equivalent cost (best-effort; None when tokens absent).
     cost_usd = _derive_cost_usd(
@@ -948,6 +960,10 @@ def _invoke_in_session(
         "cost_usd": cost_usd,
         "worker_written_paths": manifest_paths,
         "manifest_source": manifest_source,
+        # bd#29: the channel `_pin_mismatch_refusal` (:1088) reads. Absent here
+        # until now, which is exactly why the in-session path never reached the
+        # chokepoint's adjudication and kept warning instead of failing.
+        "observed_model": result_obj.get("dispatched_model"),
     }
     if extra_data:
         data.update(extra_data)
