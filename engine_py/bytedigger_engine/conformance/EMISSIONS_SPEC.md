@@ -260,8 +260,18 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   2. **Same-cycle-retry-cap exit** at `engine.py:575`, which returns from within the retry block after
      `same_cycle_retry_capped`. It is the only exit that leaves mid-retry state.
   Both MUST yield exactly one `phase_artifacts` for the phase.
-- **AC-E3b** **`write_tracking` never overclaims.** `"git-delta"` requires **≥1 step AND a computed delta for
-  every step of the phase**; anything else is `"not-observed"`.
+- **AC-E3b** **`write_tracking` never overclaims.** Observation at all requires **≥1 step AND a computed delta
+  for every step of the phase**; anything else is `"not-observed"`.
+  - **bd#36 amendment — the value set is THREE, not two:** `"git-delta"`, `"git-delta+manifest"`,
+    `"not-observed"`. `written` is the union of the git delta and the worker manifest (`worker_written_paths`),
+    normalised into one namespace (`engine._normalise_written_path`); `"git-delta+manifest"` is published when
+    and only when the manifest contributed a path no delta ever saw. Rationale: an artifact the phase genuinely
+    wrote OUTSIDE `git_cwd` used to be invisible while this field still read `"git-delta"` — `written: []` beside
+    `"git-delta"`, which `[G18r3:EDGE-4]` below already names as the overclaim shape. The old rule forbade that
+    shape but bound itself to *"was a delta computed"* rather than *"did the observation window cover the
+    writes"*, so the out-of-repo case satisfied the letter and broke the intent.
+  - **`"not-observed"` is NOT softened by a non-empty manifest.** If no delta was computed the engine did not
+    look, and letting the manifest publish observation there is the same overclaim in the other direction.
   - Differential: `org_config["git_cwd"]` on a real repo → `"git-delta"`; **absent** → `"not-observed"`
     (`engine.py:1062-1065` — `_resolve_scan_cwd` never falls back to ambient cwd, so `git_pre is None` at `:384`);
     a `git_cwd` pointing at a **non-git** directory → `"not-observed"`.
