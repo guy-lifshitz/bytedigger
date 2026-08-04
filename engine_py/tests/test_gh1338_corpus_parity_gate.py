@@ -2454,14 +2454,13 @@ def test_ac40_delta_and_parity_block_both_reported_not_elif_masked(tmp_path) -> 
 # ─── AC41: E_STALE_BASE description drops the false 'freshness window' claim ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: requires E_CORPUS_PARITY registered in error_codes.py, an existing product file outside Ф1's scope. Re-enable in Ф B.")
 def test_ac41_stale_base_error_description_drops_false_freshness_window_claim() -> None:
     """§10 'Взято в этот шип из MINOR': `error_codes.ERROR_CODES['E_STALE_BASE']`
     currently reads '...older than the configured freshness window...' — there
     is no freshness WINDOW; the real mechanism is git ancestry / merge-base.
     A correct fix does not resurrect a false rationale for a correct behavior.
     """
-    import error_codes as _error_codes_mod
+    from bytedigger_engine import error_codes as _error_codes_mod
 
     description = _error_codes_mod.ERROR_CODES.get("E_STALE_BASE", "")
     assert "freshness window" not in description, (
