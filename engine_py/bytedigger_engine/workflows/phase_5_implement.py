@@ -3075,9 +3075,17 @@ def _collect_red_lint_findings(
                     })
             except SyntaxError:
                 continue
-        if stub_hits:
-            _emit_safe("red_stub_passability_violation",
-                       {"phase": 5, "hits": stub_hits}, severity="error")
+        # bd#61: emitted on BOTH outcomes. It used to fire only when
+        # `stub_hits` was non-empty, so a clean scan wrote nothing and was
+        # indistinguishable from a scan that never ran — which made the BD-L2
+        # R2.2 verdict `passed` unreachable by construction. The decision the
+        # gate makes is unchanged; only its outcome became observable.
+        # NOTE: this block exists TWICE (batch path + legacy sequential path).
+        # Both emit, or the observation would depend on which path ran — see
+        # the lot's spec §2a for why the duplication is named and not fixed here.
+        _emit_safe("red_stub_passability_violation",
+                   {"phase": 5, "hits": stub_hits},
+                   severity="error" if stub_hits else "info")
     else:
         _emit_safe("gate_disabled", {
             "gate": "HAL_STUB_PASSABILITY_GATE", "step": step, "reason": "env_kill_switch",
@@ -3186,9 +3194,18 @@ def _verify_red_lint_rules_legacy(ctx, prev, step, cfg, git_cwd, resolved_paths)
                     })
             except SyntaxError:
                 continue       # collectability is _check_red_executable's job, not this lint's
+        # bd#61: emitted on BOTH outcomes. It used to fire only when
+        # `stub_hits` was non-empty, so a clean scan wrote nothing and was
+        # indistinguishable from a scan that never ran — which made the BD-L2
+        # R2.2 verdict `passed` unreachable by construction. The decision the
+        # gate makes is unchanged; only its outcome became observable.
+        # NOTE: this block exists TWICE (batch path + legacy sequential path).
+        # Both emit, or the observation would depend on which path ran — see
+        # the lot's spec §2a for why the duplication is named and not fixed here.
+        _emit_safe("red_stub_passability_violation",
+                   {"phase": 5, "hits": stub_hits},
+                   severity="error" if stub_hits else "info")
         if stub_hits:
-            _emit_safe("red_stub_passability_violation",
-                       {"phase": 5, "hits": stub_hits}, severity="error")
             # 457DC7DC GH371 §2.2: cheap directed-repair pre-stage IN FRONT OF
             # the unchanged terminal E_RED_STUB_PASSABLE return (recoverable=False
             # preserved on non-convergence, AC6).

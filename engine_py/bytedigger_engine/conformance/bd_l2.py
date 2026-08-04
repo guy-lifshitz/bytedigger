@@ -54,7 +54,7 @@ _VERDICT_KEY = "verdict:{}"
 #: a contract written from its own fixtures. `test_bd59_*::test_ac1` keeps this
 #: registry honest in BOTH directions: an undeclared gap fails, and so does a
 #: stale entry once a producer appears.
-AWAITING_PRODUCER: "tuple[str, ...]" = ("R2.2", "R2.3", "R2.4", "R2.5")
+AWAITING_PRODUCER: "tuple[str, ...]" = ("R2.3", "R2.4", "R2.5")
 
 # Bound as bare quoted literals on purpose: `error_codes.CODE_RE` harvests
 # `["']E_[A-Z0-9_]+["']`, so a code embedded inside a longer message string is
@@ -70,7 +70,7 @@ _CODE_SUPPRESSION_UNBOUNDED = "E_SUPPRESSION_UNBOUNDED"
 #: uniform fixture corpus and wrong on a real, heterogeneous log.
 _EVENT_FOR = {
     "R2.1": "red_test_outcome",
-    "R2.2": "oracle_vacuity_scan",
+    "R2.2": "red_stub_passability_violation",
     "R2.3": "acceptance_criteria_declared",
     "R2.4": "gate_decision",
     "R2.5": "known_reds_ledger_scan",
@@ -79,7 +79,7 @@ _EVENT_FOR = {
 
 #: adversary -> the event whose presence proves it was actually executed (§8).
 _ADVERSARY_EVENT = {
-    "ADV-3": "oracle_vacuity_scan",
+    "ADV-3": "red_stub_passability_violation",
     "ADV-4": "red_test_outcome",
     "ADV-5": "gate_decision",
     "ADV-6": "known_reds_ledger_scan",
@@ -112,15 +112,17 @@ def _r21(p: "Mapping[str, object]") -> "str | None":
 
 def _r22(p: "Mapping[str, object]") -> "str | None":
     """R2.2 / ADV-3 — an oracle that mocks its own UUT constrains nothing."""
-    findings = p.get("findings")
-    if not isinstance(findings, (list, tuple)):
+    # bd#61: keyed on `red_stub_passability_violation`, which
+    # `phase_5_implement` actually emits — and, since bd#61, emits on BOTH
+    # outcomes, which is what makes `passed` reachable at all.
+    hits = p.get("hits")
+    if not isinstance(hits, (list, tuple)):
         return None
-    if not findings:
+    if not hits:
         return None
-    symbols = [f.get("symbol") for f in findings if isinstance(f, dict)]
     return (
         f"R2.2: {_CODE_VACUOUS} — oracle substitutes the subject of its own "
-        f"assertions for {symbols!r}"
+        f"assertions: {list(hits)!r}"
     )
 
 
