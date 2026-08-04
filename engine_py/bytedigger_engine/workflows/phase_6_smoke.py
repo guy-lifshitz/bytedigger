@@ -60,6 +60,12 @@ def parse_smoke_output(stdout: str) -> dict:
 def _run_smoke(_ctx, _prev) -> StepResult:
     root = resolve_worktree_root(_ctx, Path(__file__))
     smoke_script = root / _SMOKE_REL
+    # #1308 (port of bd#1): the smoke did not run here, so it did not pass —
+    # reporting a pass for a check that never ran hid a missing script from
+    # the chain. `skip` is already a legal StepResult status and already a
+    # success everywhere downstream: run.py exits 0 on it, no error code is
+    # recorded, phase_sentinel caches it, the engine does not interrupt the
+    # chain. The run still passes; it just no longer claims the phase did.
     if not smoke_script.exists():
         # bd#1: "skip", not "ok". The script ships in the upstream HALForge
         # tree, not this one, so this branch is taken by every outside user on
@@ -76,6 +82,8 @@ def _run_smoke(_ctx, _prev) -> StepResult:
             step_name="phase_6_smoke",
         )
 
+    # Same reasoning as above (#1308 / bd#1): no zsh means the smoke check
+    # itself never ran, so it cannot claim to have passed.
     if shutil.which("zsh") is None:
         # bd#1: same argument verbatim — the smoke did not run, so it did not
         # pass. docs/host-requirements.md keeps `zsh` deliberately out of

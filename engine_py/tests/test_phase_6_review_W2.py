@@ -11,6 +11,7 @@ AC mapping:
 from __future__ import annotations
 
 import inspect
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -204,6 +205,12 @@ def test_write_review_artifact_retry_uses_raise_not_assert():
     through instead of failing loudly. Fix: 'raise AssertionError(...)'.
 
     Verified via source inspection — robust regardless of test runner flags.
+
+    GH1399 (§1a строка 14, §1c-ОТМЕНА п.6): вторая половина утверждения —
+    «в функции ОБЯЗАН присутствовать `raise AssertionError`» — была про
+    retry-shape ветку, а её GH1399 удаляет целиком. Отменяется только это
+    требование присутствия; несущее «в проде нет голого `assert`, съедаемого
+    `python -O`» сохраняется и продолжает проверяться.
     """
     from bytedigger_engine.workflows import phase_6_review as m
 
@@ -215,10 +222,10 @@ def test_write_review_artifact_retry_uses_raise_not_assert():
         "must be replaced with 'raise AssertionError(...)' (survives python -O)"
     )
 
-    # Must use 'raise AssertionError' for the unexpected-retry-shape branch
-    assert "raise AssertionError" in source, (
-        "_write_review_artifact retry-shape branch does not use 'raise AssertionError' — "
-        "the 'assert False' replacement is missing"
+    # Несущее в СИЛЬНОЙ форме: ни одного голого `assert` в проде функции.
+    assert not re.search(r"^\s*assert\s", source, re.MULTILINE), (
+        "_write_review_artifact contains a bare `assert` statement — "
+        "stripped under `python -O`; use `raise AssertionError(...)`"
     )
 
 

@@ -39,6 +39,7 @@ from pathlib import Path
 
 from bytedigger_engine import telemetry_ctx
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition
+from bytedigger_engine.event_log import EventLogLineTooLarge  # noqa: E402 — GH1468 S2 byte-budget shrink loop
 try:
     from ._task_description import normalize_task_description  # noqa: E402
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
@@ -83,6 +84,107 @@ def _emit_safe(event_type: str, payload: dict) -> None:
         run_ctx.event_log.append(event_type, payload, run_ctx.run_id)
     except Exception as e:  # noqa: BLE001
         logger.warning("telemetry append failed for %s: %s", event_type, e)
+
+# GH1468 S2: fixed first-pass cap for argv elements. Capping argv BEFORE
+# touching stderr_tail (rather than emptying stderr_tail to zero first)
+# preserves budget for the stderr TAIL — the whole point of the byte-budget
+# requirement is that the tail (the most diagnostically useful part) must
+# survive truncation, not vanish first while an oversized single argv
+# element (long FTS expression / long --session-id) eats the whole budget.
+_ARGV_ELEM_CAP_BYTES = 200
+
+
+def _utf8_safe_tail(text: str, max_bytes: int) -> str:
+    """Return the TAIL of `text` truncated to at most `max_bytes` UTF-8 bytes,
+    cut on a character boundary (never emits U+FFFD replacement chars)."""
+    if max_bytes <= 0:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    # errors="ignore" drops any partial multi-byte sequence left at the cut —
+    # cheaper and simpler than hand-rolled boundary detection, same result.
+    return encoded[-max_bytes:].decode("utf-8", errors="ignore")
+
+
+def _emit_callout_failed(reason: str, exit_code: int, stderr: str | None, argv: list[str]) -> None:
+    """Emit `learning_inject_callout_failed` with stderr_tail/stderr_bytes/
+    stderr_truncated/argv/argv_truncated (GH1468 S2), byte-budgeted against
+    event_log._LINE_LIMIT_BYTES. Fail-closed: shrinks argv elements (fixed
+    cap, first pass) then stderr_tail (iterative halving) until the real
+    EventLog.append() accepts the line, so the diagnostic event is never
+    silently dropped for an oversized stderr/argv — the exact defect this
+    fixes.
+    """
+    run_ctx = telemetry_ctx.get_current_run()
+    if run_ctx is None or run_ctx.event_log is None:
+        return
+
+    stderr_bytes = len(stderr.encode("utf-8")) if stderr is not None else None
+
+    argv_out: list[str] = []
+    argv_truncated = False
+    for a in argv:
+        if len(a.encode("utf-8")) > _ARGV_ELEM_CAP_BYTES:
+            argv_out.append(_utf8_safe_tail(a, _ARGV_ELEM_CAP_BYTES))
+            argv_truncated = True
+        else:
+            argv_out.append(a)
+
+    stderr_cap = stderr_bytes or 0
+    stderr_tail = stderr
+    stderr_truncated = False
+
+    for attempt in range(40):
+        payload = {
+            "reason": reason,
+            "exit_code": exit_code,
+            "stderr_tail": stderr_tail,
+            "stderr_bytes": stderr_bytes,
+            "stderr_truncated": stderr_truncated,
+            "argv": argv_out,
+            "argv_truncated": argv_truncated,
+        }
+        try:
+            run_ctx.event_log.append("learning_inject_callout_failed", payload, run_ctx.run_id)
+            return
+        except EventLogLineTooLarge:
+            if stderr_cap > 0:
+                stderr_cap = stderr_cap // 2
+                stderr_tail = _utf8_safe_tail(stderr, stderr_cap) if stderr is not None else None
+                stderr_truncated = True
+                continue
+            # stderr_tail already emptied — even the capped argv is still too
+            # large (pathological many-element argv). Shrink argv further.
+            new_cap = max(1, _ARGV_ELEM_CAP_BYTES // (2 ** (attempt + 1)))
+            shrunk = []
+            for a in argv_out:
+                if len(a.encode("utf-8")) > new_cap:
+                    shrunk.append(_utf8_safe_tail(a, new_cap))
+                    argv_truncated = True
+                else:
+                    shrunk.append(a)
+            argv_out = shrunk
+        except Exception as e:  # noqa: BLE001
+            logger.warning("telemetry append failed for learning_inject_callout_failed: %s", e)
+            return
+
+    # Unreachable in practice given the shrink loop above; kept as an absolute
+    # fail-closed backstop so the event is never lost.
+    minimal = {
+        "reason": reason,
+        "exit_code": exit_code,
+        "stderr_tail": None,
+        "stderr_bytes": stderr_bytes,
+        "stderr_truncated": stderr is not None,
+        "argv": None,
+        "argv_truncated": bool(argv),
+    }
+    try:
+        run_ctx.event_log.append("learning_inject_callout_failed", minimal, run_ctx.run_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("telemetry append failed for learning_inject_callout_failed: %s", e)
+
 
 INJECTION_FILES = ("hal-memory", "constitution", "quality-gate", "producer-rules", "active-work", "security-rules")
 
@@ -304,6 +406,8 @@ def _query_memory_learnings(
         "[fts_hits=N, build_hits=0, type_filter=learning|decision|integration|integration_test]"
                                                                            — case (c)
         "[memory_db_unavailable]"                                          — case (e): default path missing in foreign cwd, graceful skip
+        "[inject_cli_failed:<reason>]"                                     — case (f, GH1468 S4): callout subprocess ran but failed;
+                                                                              reason is the last _run_inject failure's diagnosability text
     """
     # Resolve bm25 floor from cfg. Default 0.0 (admits any real FTS5 bm25 match,
     # which is always ≤ 0). Override via cfg to TIGHTEN (negative floor rejects
@@ -358,7 +462,7 @@ def _query_memory_learnings(
     #   ("rows", total_hits, rows)          — success
     #   ("retry",)                          — learning_entries_absent → caller retries with --absent
     #   ("hard", error_code, message)       — schema_missing / db_unreadable → caller hard-fails
-    #   ("sentinel",)                       — any other failure → graceful [memory_db_unavailable]
+    #   ("sentinel", reason)                — any other failure → graceful [inject_cli_failed:<reason>]
     _TS_ERROR_TO_PY: dict[str, tuple] = {
         "schema_missing": ("hard", "E_MEMORY_DB_SCHEMA", "memory.db exists but has no memories schema"),
         "db_unreadable": ("hard", "E_MEMORY_DB_UNREADABLE", "memory.db file is not a valid SQLite database"),
@@ -373,53 +477,80 @@ def _query_memory_learnings(
             ("rows", total_hits, rows_list) — success; caller uses the data
             ("retry",)                      — learning_entries absent; caller should retry --absent
             ("hard", error_code, message)   — hard failure; caller must surface immediately
-            ("sentinel",)                   — soft failure; caller emits graceful sentinel
+            ("sentinel", reason)            — soft failure; caller emits graceful sentinel.
+                                               `reason` feeds S4's
+                                               "[inject_cli_failed:<reason>]" suffix.
         """
+        argv = [
+            bun_bin,
+            str(inject_ts),
+            "--match", match_expr,
+            "--bm25-floor", str(bm25_floor),
+            "--limit", "5",
+            "--db", memory_db_path,
+            mode_flag,
+        ]
+        if session_id:
+            argv.extend(["--session-id", session_id])
+
+        # S2b (§1h): hardcoded timeout=30 becomes env-overridable so AC8's
+        # timeout test doesn't have to eat a real 31s wait.
+        timeout_s = get_config().int_value("HAL_INJECT_TIMEOUT_S", 30)  # type: ignore[attr-defined]
+
         try:
-            argv = [
-                bun_bin,
-                str(inject_ts),
-                "--match", match_expr,
-                "--bm25-floor", str(bm25_floor),
-                "--limit", "5",
-                "--db", memory_db_path,
-                mode_flag,
-            ]
-            if session_id:
-                argv.extend(["--session-id", session_id])
             proc = subprocess.run(
                 argv,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=timeout_s,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            _emit_safe("learning_inject_callout_failed", {
-                "reason": f"subprocess error: {exc}",
-                "exit_code": -1,
-            })
-            return ("sentinel",)
+        except subprocess.TimeoutExpired as exc:
+            # S2b: distinct reason from OSError; partial stderr comes from
+            # exc.stderr (captured before the process was killed) — a
+            # different attribute than proc.stderr, which doesn't exist here.
+            # CPython asymmetry: despite text=True, TimeoutExpired.stderr is
+            # raw bytes (only the success path decodes) — decode defensively,
+            # tolerating a multi-byte char cut mid-sequence at the raw end.
+            if isinstance(exc.stderr, str):
+                partial_stderr = exc.stderr
+            elif isinstance(exc.stderr, (bytes, bytearray)):
+                partial_stderr = exc.stderr.decode("utf-8", errors="ignore")
+            else:
+                partial_stderr = None
+            reason = "subprocess timeout"
+            _emit_callout_failed(reason, -1, partial_stderr, argv)
+            return ("sentinel", reason)
+        except OSError as exc:
+            reason = f"subprocess error: {exc}"
+            _emit_callout_failed(reason, -1, None, argv)
+            return ("sentinel", reason)
 
         # Defense-in-depth (BUG 1): parse the LAST non-empty stdout line so that any
         # stray console.log lines before the JSON result do not break JSON parsing.
         stdout_lines = [line for line in proc.stdout.splitlines() if line.strip()]
         last_line = stdout_lines[-1] if stdout_lines else ""
 
+        # S3: empty stdout is checked BEFORE parsing, independent of exit
+        # code — after S1, every in-script exit prints a JSON error, so empty
+        # stdout means bun died before the script ran at all (module not
+        # found, syntax error, etc). Must not fall through to the SUCCESS
+        # path just because exit code happens to be 0 (AC9).
+        if not last_line:
+            reason = "cli_no_output"
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            return ("sentinel", reason)
+
         try:
-            data = json.loads(last_line) if last_line else {}
+            data = json.loads(last_line)
         except (json.JSONDecodeError, ValueError) as exc:
-            _emit_safe("learning_inject_callout_failed", {
-                "reason": f"unparseable stdout: {exc}",
-                "exit_code": proc.returncode,
-            })
-            return ("sentinel",)
+            reason = f"unparseable stdout: {exc}"
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            return ("sentinel", reason)
 
         if not isinstance(data, dict):
-            _emit_safe("learning_inject_callout_failed", {
-                "reason": "stdout JSON was not an object",
-                "exit_code": proc.returncode,
-            })
-            return ("sentinel",)
+            reason = "stdout JSON was not an object"
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            return ("sentinel", reason)
 
         # §2.4: check for discriminated error kinds BEFORE checking returncode,
         # so that hard-fail codes are surfaced even when TS exits non-zero.
@@ -432,18 +563,14 @@ def _query_memory_learnings(
                 if mapped[0] == "retry":
                     return mapped
             # Includes "memory_db_unavailable" and any unknown error kind
-            _emit_safe("learning_inject_callout_failed", {
-                "reason": error_kind,
-                "exit_code": proc.returncode,
-            })
-            return ("sentinel",)
+            reason = error_kind
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            return ("sentinel", reason)
 
         if proc.returncode != 0:
-            _emit_safe("learning_inject_callout_failed", {
-                "reason": "non-zero exit",
-                "exit_code": proc.returncode,
-            })
-            return ("sentinel",)
+            reason = "non-zero exit"
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            return ("sentinel", reason)
 
         # Parse rows into (content, confidence, score) tuples to match
         # the shape _execute_fts_query previously returned.
@@ -486,8 +613,14 @@ def _query_memory_learnings(
             ), ""
 
     if inject_result[0] == "sentinel":
-        # Both branches failed → DB unavailable (case e)
-        return None, None, "[memory_db_unavailable]"
+        # S4: soft callout failure (distinct from the DA8D22E0 DB-missing
+        # preflight, which returns "[memory_db_unavailable]" directly at the
+        # path-existence check above). Suffix carries the LAST failure's
+        # reason — `_run_inject` up to twice (present -> absent retry) and
+        # `inject_result` here is whichever call's failure actually reached
+        # this branch (the AND->OR fallback below never re-enters "sentinel").
+        _, sentinel_reason = inject_result
+        return None, None, f"[inject_cli_failed:{sentinel_reason}]"
 
     # inject_result[0] == "rows"
     _, total_fts_hits, rows = inject_result

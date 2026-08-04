@@ -21,12 +21,20 @@ CitationKind = Literal["function", "line", "case_vs_function", "snippet"]
 _FILE_TOKEN = r"[\w./-]+\.(?:sh|py|ts|tsx|js)"
 _FN_NAME = r"[A-Za-z_]\w*"
 # source <file> && <fn>  or  source <file>; <fn>
-_SOURCE_CALL_RE = re.compile(r"source\s+(" + _FILE_TOKEN + r")\s*(?:&&|;)\s*(" + _FN_NAME + r")\b")
+# 4197B484 (GH1121) §1.2: the `(?!\s*=[^=])` lookahead rejects an ASSIGNMENT
+# shape -- `source f.sh; out=$(db_sha256 ...)` captured `out`, the assignment
+# target, as if it were the callee. `[^=]` leaves `fn ==` (a comparison)
+# behaving exactly as before.
+_SOURCE_CALL_RE = re.compile(
+    r"source\s+(" + _FILE_TOKEN + r")\s*(?:&&|;)\s*(" + _FN_NAME + r")\b(?!\s*=[^=])"
+)
 # <file>:L<N>  or  <file>:<digits>
 _LINE_CITE_RE = re.compile(r"(" + _FILE_TOKEN + r"):L?(\d+)")
 _SNIPPET_CITE_RE = re.compile(r'(' + _FILE_TOKEN + r'):"((?:[^"\\\n]|\\.){3,200})"')
 # Escaped-quote-aware: (?:[^"\\\n]|\\.) consumes \" as a unit so the capture
 # terminates only on an unescaped ".  Pairs with phase_45_spec.py rule 5 (anti-drift).
+_OVERRUN_TAIL_RE = re.compile("(" + _FILE_TOKEN + r"):$")
+_SNIPPET_BODY_RE = re.compile(r'((?:[^"\\\n]|\\.){3,200})"')
 _FILE_SIZE_LIMIT = 2 * 1024 * 1024  # 2 MB
 _AMBIG_RESOLVE_MAX = 20  # candidate cap above which auto-resolve is skipped (GH853)
 
@@ -40,6 +48,22 @@ def _unescape_snippet(s: str) -> str:
     """Reverse the contract's inner-quote escaping (\\" -> ") before content-grep.
     Pairs with phase_45_spec.py rule 5 (canonical snippet-citation syntax)."""
     return s.replace('\\"', '"')
+
+
+def split_overrun_snippet(identifier: str) -> tuple[str, str] | None:
+    """GH953: detect a greedy-overrun snippet capture — one that swallowed the
+    NEXT citation's `file:` opener because the intended closing quote was
+    consumed as an `\\"` escape-pair. Returns (head_snippet, swallowed_file)
+    when identifier contains `\\"` AND ends with `<file-token>:`; else None.
+    head_snippet = text before the FIRST `\\"` (the true snippet); must be
+    >= 3 chars after strip, else None (malformed, keep legacy behavior)."""
+    tail = _OVERRUN_TAIL_RE.search(identifier)
+    if tail is None or '\\"' not in identifier:
+        return None
+    head = identifier.split('\\"', 1)[0]
+    if len(head.strip()) < 3:
+        return None
+    return (head, tail.group(1))
 
 
 def _decode_ws_escapes(s: str) -> str:
@@ -98,6 +122,26 @@ def extract_citations(text: str) -> list[Citation]:
         ))
     for m in _SNIPPET_CITE_RE.finditer(text):
         start = m.start()
+        split = split_overrun_snippet(m.group(2))
+        if split is not None:
+            head, swallowed_file = split
+            results.append(Citation(
+                kind="snippet",
+                identifier=head,
+                file_path=m.group(1),
+                text_offset=start,
+                text_snippet=text[max(0, start - 10): start + 70][:80],
+            ))
+            m2 = _SNIPPET_BODY_RE.match(text, m.end())
+            if m2:
+                results.append(Citation(
+                    kind="snippet",
+                    identifier=m2.group(1),
+                    file_path=swallowed_file,
+                    text_offset=m.start(2) + len(head),
+                    text_snippet=text[max(0, m.end() - 10): m.end() + 70][:80],
+                ))
+            continue
         results.append(Citation(
             kind="snippet",
             identifier=m.group(2),

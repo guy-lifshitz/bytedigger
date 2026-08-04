@@ -137,6 +137,14 @@ class _DefaultConfigProvider:
         """Neutral reject-log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/reject-reasons.jsonl"
 
+    def incident_log_relpath(self) -> str:
+        """Neutral incident-ledger relpath — relative to cwd hal_root."""
+        return f"{self.foreign_state_dirname()}/incidents.jsonl"
+
+    def dispatcher_reports_relpath(self) -> str:
+        """Neutral dispatcher-report index relpath — relative to cwd hal_root."""
+        return f"{self.foreign_state_dirname()}/dispatcher-reports.jsonl"
+
     def rework_log_relpath(self) -> str:
         """Neutral rework-log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/build-rework-log.jsonl"
@@ -244,6 +252,14 @@ def event_log_path_override() -> str:
 def reject_log_relpath() -> str:
     """Host-relative path of the reject-reasons log (single source, §1g)."""
     return get_config().reject_log_relpath()  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol
+
+def incident_log_relpath() -> str:
+    """Host-relative path of the incident ledger (single source, §1g)."""
+    return get_config().incident_log_relpath()  # type: ignore[attr-defined, no-any-return]  # provider-concrete, off minimal Protocol
+
+def dispatcher_reports_relpath() -> str:
+    """Host-relative path of the dispatcher-report index (single source, §1g)."""
+    return get_config().dispatcher_reports_relpath()  # type: ignore[attr-defined, no-any-return]  # provider-concrete, off minimal Protocol
 
 def rework_log_relpath() -> str:
     """Host-relative path of the rework-rate log (single source, §1g)."""

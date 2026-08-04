@@ -103,6 +103,119 @@ def _claude_md_surfaces(root: Path, budget: int) -> list[dict[str, Any]]:
     return surfaces
 
 
+def _resolve_single_profile_dir(profile_glob: str, env: Mapping[str, str]) -> tuple[Path | None, str | None]:
+    """Deterministic single-profile resolution for `floor_total` (one
+    session's floor, never a machine-wide fan-out over every profile the
+    glob happens to match). Returns (profile_dir, None) on success, or
+    (None, reason) when no profile — or more than one — can be picked
+    without guessing."""
+    cfg_dir = env.get("CLAUDE_CONFIG_DIR") if env else None
+    if cfg_dir:
+        p = Path(os.path.expanduser(cfg_dir))
+        return (p, None) if p.is_dir() else (None, "missing")
+
+    expanded = os.path.expanduser(profile_glob)
+    matches = sorted(Path(p) for p in _glob.glob(expanded) if Path(p).is_dir())
+    if len(matches) == 1:
+        return matches[0], None
+    if not matches:
+        return None, "missing"
+    return None, "ambiguous"
+
+
+def _single_profile_memory_md(profile_dir: Path) -> list[dict[str, Any]]:
+    """MEMORY.md files under exactly ONE resolved profile dir (never
+    fan-out across every profile a glob matches)."""
+    surfaces: list[dict[str, Any]] = []
+    projects_dir = profile_dir / "projects"
+    if not projects_dir.is_dir():
+        return surfaces
+    for project_dir in sorted(p for p in projects_dir.iterdir() if p.is_dir()):
+        mem_path = project_dir / "memory" / "MEMORY.md"
+        if mem_path.is_file():
+            surfaces.append({"path": str(mem_path), "bytes": mem_path.stat().st_size})
+    return surfaces
+
+
+def _floor_total(
+    surfaces: list[dict[str, Any]],
+    repo_only: bool,
+    profile_glob: str,
+    budgets: dict[str, int],
+    env: Mapping[str, str],
+) -> dict[str, Any]:
+    """GH1438 §1B: the summed bytes of the actually-injected set for ONE
+    session — never a machine-wide aggregate over every profile a glob
+    happens to match. Additive to the existing per-surface budgets —
+    expresses the issue's "floor <= 8KB" target, which today is not
+    expressible because no surface aggregates.
+
+    Sums rules_core + repo CLAUDE.md (always, from `surfaces` — those two
+    never fan out) plus, in non-repo-only mode, exactly one profile's
+    CLAUDE.md and MEMORY.md, resolved deterministically (§ below). Anything
+    that cannot be resolved to exactly one profile is left OUT of the sum
+    and NAMED in `excluded_surfaces`, so a partial total is never read as
+    the whole floor (same no-silent-caps rule `--repo-only` already
+    follows).
+    """
+    aggregated_bytes = sum(s["bytes"] for s in surfaces if s["name"] in ("rules_core", "claude_md"))
+    excluded_surfaces: list[str] = []
+    if repo_only:
+        excluded_surfaces.append("memory_md")
+        excluded_surfaces.append("profile_claude_md")
+    else:
+        profile_dir, reason = _resolve_single_profile_dir(profile_glob, env)
+        if profile_dir is None:
+            excluded_surfaces.append(f"profile_claude_md:{reason}")
+            excluded_surfaces.append(f"memory_md:{reason}")
+        else:
+            claude_md = profile_dir / "CLAUDE.md"
+            if claude_md.is_file():
+                aggregated_bytes += claude_md.stat().st_size
+            else:
+                excluded_surfaces.append("profile_claude_md:absent")
+
+            mem_surfaces = _single_profile_memory_md(profile_dir)
+            if len(mem_surfaces) == 1:
+                aggregated_bytes += mem_surfaces[0]["bytes"]
+            elif not mem_surfaces:
+                excluded_surfaces.append("memory_md:absent")
+            else:
+                excluded_surfaces.append("memory_md:ambiguous")
+
+    # R7-MAJOR-3 follow-up: floor_total_bytes_max is deliberately NOT in
+    # REQUIRED_BUDGET_KEYS (a config may omit it), so an omitted key must
+    # not silently become budget=0 and flip every nonzero floor to "over"
+    # once floor_total participates in verdict/any_over. It participates
+    # ONLY when a budget was actually configured — explicitly in the
+    # config, or via the env override — same no-silent-caps rule the rest
+    # of this function already follows for excluded surfaces.
+    budget_configured = "floor_total_bytes_max" in budgets
+    budget = budgets.get("floor_total_bytes_max", 0)
+    raw_env = env.get("HAL_CTX_FLOOR_TOTAL_MAX") if env else None
+    if raw_env is not None:
+        try:
+            budget = int(raw_env)
+        except ValueError as exc:
+            # A malformed override must never be swallowed and silently
+            # fall back to the config budget (§2.4 exit-3 contract) — the
+            # operator believes they set a threshold; a silent fallback
+            # would use a different one and say nothing.
+            raise ConfigError(
+                f"HAL_CTX_FLOOR_TOTAL_MAX={raw_env!r} is not a valid integer"
+            ) from exc
+        budget_configured = True
+
+    return {
+        "name": "floor_total",
+        "bytes": aggregated_bytes,
+        "budget": budget,
+        "budget_configured": budget_configured,
+        "over": budget_configured and aggregated_bytes > budget,
+        "excluded_surfaces": excluded_surfaces,
+    }
+
+
 def _memory_md_surfaces(profile_glob: str, budget: int) -> list[dict[str, Any]]:
     surfaces: list[dict[str, Any]] = []
     expanded = os.path.expanduser(profile_glob)
@@ -148,8 +261,18 @@ def evaluate_budgets(
     if not repo_only:
         surfaces.extend(_memory_md_surfaces(profile_glob, budgets["memory_md_bytes_max"]))
 
-    verdict = "over" if any(s["over"] for s in surfaces) else "ok"
-    return {"surfaces": surfaces, "enforce": effective_enforce, "verdict": verdict}
+    floor_total = _floor_total(surfaces, repo_only, profile_glob, budgets, resolved_env)
+    # R7-MAJOR-3: floor_total is a SIBLING key, not one of `surfaces` — a
+    # verdict/exit-code computation that only walks `surfaces` silently
+    # drops it, so `enforce: true` stops being enforcement for exactly the
+    # aggregate GH1438 added. It must count the same as any other surface.
+    verdict = "over" if any(s["over"] for s in surfaces) or floor_total["over"] else "ok"
+    return {
+        "surfaces": surfaces,
+        "enforce": effective_enforce,
+        "verdict": verdict,
+        "floor_total": floor_total,
+    }
 
 
 def render_text(result: dict[str, Any]) -> str:
@@ -158,6 +281,11 @@ def render_text(result: dict[str, Any]) -> str:
         lines.append(
             f"  {s['name']:<10} {s['path']} bytes={s['bytes']} budget={s['budget']} "
             f"over={s['over']} present={s['present']}"
+        )
+    ft = result.get("floor_total")
+    if ft is not None:
+        lines.append(
+            f"  {'floor_total':<10} bytes={ft['bytes']} budget={ft['budget']} over={ft['over']}"
         )
     return "\n".join(lines)
 

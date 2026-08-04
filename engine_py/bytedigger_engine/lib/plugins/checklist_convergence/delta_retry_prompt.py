@@ -9,7 +9,7 @@ Public API:
     build_delta_retry_prompt(spec_path, spec, findings,
                               verbatim_reviewer_context=None) -> str
 
-No host paths, no HAL_* env reads, no SHARED/ refs in this file
+No host paths, env reads, or host-tree string refs in this file
 (core-boundary clean).
 """
 from __future__ import annotations
