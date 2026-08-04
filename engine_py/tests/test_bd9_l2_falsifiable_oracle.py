@@ -284,8 +284,11 @@ def test_ac14_public_surface_equals_dunder_all():
 
     # bd#59 добавил AWAITING_PRODUCER — объявленный реестр требований без
     # производителя. Это часть публичного контракта: пробел обязан быть виден.
+    # bd#59 добавил ENFORCEMENT — объявленную связь «требование -> прод-отказ».
+    # Без неё «отказа нет» и «отказ есть, но выключен» неразличимы.
     assert set(bd_l2.__all__) == {
-        "REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l2", "validate_report"}
+        "REQUIREMENTS", "AWAITING_PRODUCER", "ENFORCEMENT", "check_bd_l2",
+        "validate_report"}
     public = {n for n in vars(bd_l2) if not n.startswith("_")}
     assert public == set(bd_l2.__all__), (
         f"поверхность разошлась с __all__: лишние "
