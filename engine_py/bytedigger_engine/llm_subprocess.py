@@ -2246,6 +2246,12 @@ def _invoke_subprocess(
     # run, independent of the §2.2a log de-duplication — telemetry must not
     # inherit a logging concern.  Absent on every error branch.
     data["mcp_server_losses"] = _mcp_losses_from_events(events or [])
+    # bd#68: the observation channel BD-L3 reads. Set here, beside its
+    # siblings and AFTER the extra_data merge (name reserved, same discipline),
+    # and absent on every error branch. Until this line existed, `observed_tools`
+    # had no producer anywhere in the tree and R3.5/R3.6 could only ever say
+    # "not-checked" on a real log.
+    data["observed_tools"] = _observed_tools_from_events(events or [])
     # 4C03CCED Ship 1C G1: harness-tool-record manifest (stream-json transcript).
     data["manifest_source"] = "harness_tool_record"
 
@@ -2885,6 +2891,49 @@ def _written_paths_from_events(events: list[dict]) -> list[str]:
                 if isinstance(nb, str) and nb:
                     paths.add(nb)
     return sorted(paths)
+
+
+def _observed_tools_from_events(events: list[dict]) -> list[str]:
+    """bd#68 R3.5/R3.6: names of every tool the worker invoked, per the harness.
+
+    Same traversal and same events as `_written_paths_from_events` — root +
+    depth-1 `assistant` blocks with `type == "tool_use"` — but it collects
+    `block["name"]` for ALL tools instead of the four write tools' file paths.
+
+    Deliberately a SEPARATE function rather than a widened
+    `_written_paths_from_events`: that one's contract is "paths written", it
+    has its own tests, and folding two meanings into one traversal is the kind
+    of thing a future reader has to excavate.
+
+    This is what makes R3.5/R3.6 observable at all. They were adjudicating a
+    field NOTHING wrote — the checkers were correct as functions and inert in
+    production, which is the defect bd#59 named for BD-L2 and that survived
+    three lots under BD-L3.
+
+    Defensive like its sibling: tolerates every missing key, never raises.
+    Returns a sorted, deduplicated list; `[]` when no tool block is found.
+    """
+    names: set[str] = set()
+    for ev in _manifest_eligible_events(events):
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") != "assistant":
+            continue
+        message = ev.get("message")
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_use":
+                continue
+            name = block.get("name")
+            if isinstance(name, str) and name:
+                names.add(name)
+    return sorted(names)
 
 
 # GH1193 §2.2a: 41.9 KB observed for a 2-subagent step; 2 MiB gives ~50x

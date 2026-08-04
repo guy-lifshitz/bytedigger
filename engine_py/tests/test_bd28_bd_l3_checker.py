@@ -199,7 +199,10 @@ def test_ac8_public_surface_equals_dunder_all():
 
     assert hasattr(bd_l3, "__all__"), "модуль обязан объявлять __all__ (B-2)"
     # bd#63 не менял поверхность — REQUIREMENTS выросли, имена те же.
-    assert set(bd_l3.__all__) == {"REQUIREMENTS", "check_bd_l3", "validate_report"}
+    # bd#68 добавил AWAITING_PRODUCER — объявленный реестр требований, чьё поле
+    # наблюдения пишется не на всех прод-путях. Пробел обязан быть виден.
+    assert set(bd_l3.__all__) == {
+        "REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l3", "validate_report"}
     for name in bd_l3.__all__:
         assert hasattr(bd_l3, name), f"__all__ называет отсутствующее имя {name!r}"
     public = {n for n in vars(bd_l3) if not n.startswith("_")}

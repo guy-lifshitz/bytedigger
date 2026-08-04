@@ -41,10 +41,17 @@ from ..lib.llm_provider import get_provider as _get_provider
 if _TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["REQUIREMENTS", "check_bd_l3", "validate_report"]
+__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l3", "validate_report"]
 
 #: The requirements this checker adjudicates. R3.1/R3.2/R3.5 are out of scope.
 REQUIREMENTS: "tuple[str, ...]" = ("R3.3", "R3.5", "R3.6")
+
+#: bd#68: requirements whose observation field is not yet written on every
+#: production path. Declared rather than silent — a checker adjudicating a
+#: field nothing writes stays green while observing nothing, which is how
+#: R3.5/R3.6 shipped inert under bd#28 and bd#63. `observed_model` is written
+#: only by `_invoke_in_session`, so R3.3 is observable for that backend alone.
+AWAITING_PRODUCER: "tuple[str, ...]" = ("R3.3",)
 
 _VERDICT_KEY = "verdict:{}"
 _ADV_9 = "ADV-9"
