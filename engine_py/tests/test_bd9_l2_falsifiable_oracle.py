@@ -47,10 +47,17 @@ def _suppression(*, rows):
     return _ev("known_reds_ledger_scan", rows=rows)
 
 
-def _delta(*, scoped, full_suite):
-    """Наблюдение R2.6."""
-    return _ev("baseline_delta_gate_verdict", scoped_result=scoped,
-               full_suite_delta=full_suite)
+def _delta(*, verdict="PASS", baseline_source="declared"):
+    """Наблюдение R2.6 в РЕАЛЬНОЙ форме `_baseline_delta.py:92`.
+
+    bd#59: прежняя версия строила придуманные ключи `scoped_result` /
+    `full_suite_delta`, которых ни один производитель не пишет — из-за чего
+    предикат не мог сработать на живом логе. Ключи приведены к тем, что
+    действительно эмитятся.
+    """
+    return _ev("baseline_delta_gate_verdict", suite="py", verdict=verdict,
+               new_fails=[], n_new_fails=0, ledgered=[],
+               baseline_source=baseline_source, enforced=True, phase=5)
 
 
 def _acs(*, binds_observable_effect: bool):
@@ -68,7 +75,7 @@ def _clean_log():
         _gate(name="baseline_delta", raised=None, outcome="failed"),
         _suppression(rows=[{"issue": "#123", "kill_by": "2099-01-01",
                             "status": "active"}]),
-        _delta(scoped="4/0", full_suite="+8/-0 против объявленного базлайна"),
+        _delta(),
     ]
 
 
@@ -179,7 +186,7 @@ def test_ac6_r25_unbounded_suppression_is_a_violation_both_halves():
 def test_ac7_r26_scoped_only_result_is_not_passed():
     """ОТРИЦАТЕЛЬНАЯ НОГА. Прямое напоминание issue: R2.6 не про оракул."""
     events = _swap(_clean_log(), "baseline_delta_gate_verdict",
-                   _delta(scoped="4/0", full_suite=None))
+                   _delta(baseline_source=None))
     report = _check(events)
 
     assert report.labels["verdict:R2.6"] != _t().REQUIREMENT_PASSED
@@ -277,7 +284,10 @@ def test_ac14_public_surface_equals_dunder_all():
     `Any`, `TYPE_CHECKING`) — здесь форма закладывается с первой строки."""
     from bytedigger_engine.conformance import bd_l2  # noqa: PLC0415
 
-    assert set(bd_l2.__all__) == {"REQUIREMENTS", "check_bd_l2", "validate_report"}
+    # bd#59 добавил AWAITING_PRODUCER — объявленный реестр требований без
+    # производителя. Это часть публичного контракта: пробел обязан быть виден.
+    assert set(bd_l2.__all__) == {
+        "REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l2", "validate_report"}
     public = {n for n in vars(bd_l2) if not n.startswith("_")}
     assert public == set(bd_l2.__all__), (
         f"поверхность разошлась с __all__: лишние "
