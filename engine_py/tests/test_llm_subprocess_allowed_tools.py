@@ -791,69 +791,9 @@ def test_phase_5_implement_red_retry_passes_allowed_tools(tmp_path):
     )
 
 
-def test_phase_6_review_review_retry_passes_allowed_tools(tmp_path):
-    """Retry callsite at phase_6_review._write_review_artifact:1235 must pass allowed_tools=.
-
-    Trigger: prev.data["raw_response"] does NOT contain '## Aggregated Findings'
-    (non-conformant review format) AND prev.data["prompt"] is present.
-    The function calls invoke_llm_subprocess once (the retry call, call_args_list[0]).
-    Assert: that call carries allowed_tools=["Read","Grep","Glob"].
-    """
-    import importlib
-    module = importlib.import_module("bytedigger_engine.workflows.phase_6_review")
-    write_review = getattr(module, "_write_review_artifact")
-
-    # A raw_response WITHOUT '## Aggregated Findings' → _is_review_conformant returns False
-    non_conformant_raw = "Review output without the required aggregated findings section."
-
-    doc_path = tmp_path / "review.md"
-    spec_path = tmp_path / "spec.md"
-    red_log_path = tmp_path / "red.log"
-    green_log_path = tmp_path / "green.log"
-
-    prev = StepResult(
-        status="ok",
-        data={
-            "raw_response": non_conformant_raw,
-            "doc_path": str(doc_path),
-            "spec_path": str(spec_path),
-            "red_log_path": str(red_log_path),
-            "green_log_path": str(green_log_path),
-            "prompt": "review the implementation",
-        },
-        duration_ms=0,
-        step_name="invoke_review_llm",
-    )
-
-    ctx = _make_ctx(tmp_path)
-
-    # Retry mock returns a conformant raw_response so the retry succeeds
-    conformant_raw = "## Aggregated Findings\n\nPASS — no issues found.\n"
-    mock_invoke = _mock_invoke_ok_raw(conformant_raw)
-
-    expected_profile = ["Read", "Grep", "Glob", "Write"]
-
-    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
-        write_review(ctx, prev)
-
-    assert mock_invoke.call_count >= 1, (
-        "phase_6_review._write_review_artifact: invoke_llm_subprocess was never "
-        "called on the retry path. Did the non-conformant trigger not fire?\n"
-        f"prev.data['raw_response']={non_conformant_raw!r}"
-    )
-
-    _, kwargs = mock_invoke.call_args_list[0]
-    actual = kwargs.get("allowed_tools", "__MISSING__")
-
-    assert actual != "__MISSING__", (
-        "phase_6_review._write_review_artifact retry: invoke_llm_subprocess "
-        "called but allowed_tools kwarg was NOT passed. "
-        f"Expected: {expected_profile!r}. kwargs seen: {list(kwargs.keys())}"
-    )
-    assert actual == expected_profile, (
-        "phase_6_review._write_review_artifact retry: wrong allowed_tools. "
-        f"Expected: {expected_profile!r}, got: {actual!r}"
-    )
+# СНЯТО GH1399 (§1c-ОТМЕНА): test_phase_6_review_review_retry_passes_allowed_tools
+# Контракт allowed_tools ретрай-вызова phase_6_review: вызов удалён GH1399.
+# Остальные строки call-path-матрицы не затронуты.
 
 
 def test_phase_6_review_fix_retry_passes_allowed_tools(tmp_path):

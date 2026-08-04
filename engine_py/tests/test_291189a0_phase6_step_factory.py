@@ -53,52 +53,10 @@ def test_write_fix_artifact_registered_via_step_factory_with_retry_policy_1():
     )
 
 
-def test_write_review_artifact_terminal_drift_is_recoverable_false(tmp_path, monkeypatch):
-    """Post-inline-retry E_REVIEW_FORMAT_DRIFT must return recoverable=False so step()'s outer
-    retry loop short-circuits (behavioral no-op for type-level pilot).
-
-    Setup: stub the inline retry path so both first attempt and retry produce non-conformant content.
-    Expect: result.recoverable is False, error_code='E_REVIEW_FORMAT_DRIFT'.
-    """
-    from bytedigger_engine.workflows import phase_6_review as p6r
-
-    # Force conformance check to fail
-    monkeypatch.setattr(p6r, "_is_review_conformant", lambda content: False)
-    # Stub invoke_llm_subprocess so the retry call returns ok with a non-conformant payload
-    def fake_invoke(**kwargs):
-        return StepResult(
-            status="ok",
-            data={"raw_response": "still drifted, no marker"},
-            duration_ms=0,
-            step_name=kwargs.get("step_name", "invoke_review_llm_retry"),
-        )
-    monkeypatch.setattr(p6r, "invoke_llm_subprocess", fake_invoke)
-
-    doc_path = tmp_path / "build-review.md"
-    prev = StepResult(
-        status="ok",
-        data={
-            "raw_response": "first drifted",
-            "doc_path": str(doc_path),
-            "spec_path": str(tmp_path / "spec.md"),
-            "red_log_path": str(tmp_path / "red.log"),
-            "green_log_path": str(tmp_path / "green.log"),
-            "prompt": "review prompt",
-        },
-        duration_ms=0,
-        step_name="invoke_review_llm",
-    )
-
-    class FakeCtx:
-        org_config = {"review_llm_command": ["echo"], "review_llm_command_retry": ["echo"]}
-
-    result = p6r._write_review_artifact(FakeCtx(), prev)
-    assert result.status == "error"
-    assert result.error_code == "E_REVIEW_FORMAT_DRIFT"
-    assert result.recoverable is False, (
-        "post-inline-retry E_REVIEW_FORMAT_DRIFT must be terminal (recoverable=False) "
-        "to prevent step()+RetryPolicy outer-loop double-retry"
-    )
+# СНЯТО GH1399 (§1c-ОТМЕНА): test_write_review_artifact_terminal_drift_is_recoverable_false
+# 291189A0 — терминальность пост-ретрайного дрейфа: ретрай-ветка удалена GH1399,
+# у решения исчез предмет. Свойство «двойного ретрая нет» сохраняется в СИЛЬНОЙ форме
+# и ассертится GH1399 AC8 (отсутствие retry_from_step).
 
 
 def test_write_fix_artifact_terminal_no_marker_is_recoverable_false(tmp_path, monkeypatch):

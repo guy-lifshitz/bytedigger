@@ -183,61 +183,9 @@ def test_ac1_invoke_review_llm_includes_write_in_allowed_tools(tmp_path):
 # ── AC2: conformance-retry callsite passes allowed_tools containing "Write" ────
 
 
-def test_ac2_conformance_retry_includes_write_in_allowed_tools(tmp_path):
-    """AC2: retry callsite inside _write_review_artifact must pass allowed_tools containing 'Write'.
-
-    Trigger: prev.data["raw_response"] is non-conformant (no '## Aggregated Findings')
-    AND prev.data["aggregated_content"] is absent.
-    The retry call is call_args_list[0].
-
-    FAILS today: retry allowed_tools=["Read", "Grep", "Glob"] — "Write" absent.
-    """
-    doc_path = tmp_path / "review.md"
-    spec_path = tmp_path / "spec.md"
-    red_log_path = tmp_path / "red.log"
-    green_log_path = tmp_path / "green.log"
-
-    non_conformant_raw = "Review output without the required aggregated findings section."
-
-    prev = StepResult(
-        status="ok",
-        data={
-            "raw_response": non_conformant_raw,
-            "doc_path": str(doc_path),
-            "spec_path": str(spec_path),
-            "red_log_path": str(red_log_path),
-            "green_log_path": str(green_log_path),
-            "prompt": "review the implementation",
-            # No aggregated_content → falls through to fallback path
-        },
-        duration_ms=0,
-        step_name="invoke_review_llm",
-    )
-
-    ctx = _make_ctx(tmp_path)
-    conformant_raw = "## Aggregated Findings\n\nPASS — no issues found.\n"
-    mock_invoke = _mock_invoke_ok_raw(conformant_raw)
-
-    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
-        _write_review_artifact(ctx, prev)
-
-    assert mock_invoke.call_count >= 1, (
-        "phase_6_review._write_review_artifact: invoke_llm_subprocess was never "
-        "called on the retry path. Did the non-conformant trigger not fire?\n"
-        f"prev.data['raw_response']={non_conformant_raw!r}"
-    )
-    _, kwargs = mock_invoke.call_args_list[0]
-    actual = kwargs.get("allowed_tools", "__MISSING__")
-
-    assert actual != "__MISSING__", (
-        "phase_6_review._write_review_artifact retry: invoke_llm_subprocess "
-        "called but allowed_tools kwarg was NOT passed. "
-        f"kwargs seen: {list(kwargs.keys())}"
-    )
-    assert "Write" in actual, (
-        f"AC2: retry callsite must pass allowed_tools containing 'Write'. "
-        f"Got: {actual!r}. FAILS today: current retry list is ['Read', 'Grep', 'Glob']."
-    )
+# СНЯТО GH1399 (§1c-ОТМЕНА): test_ac2_conformance_retry_includes_write_in_allowed_tools
+# CF838E6F AC2 — allowed_tools ретрай-вызова: сам вызов удалён GH1399.
+# Остальные AC CF838E6F ретрая не касаются и остаются в силе.
 
 
 # ── AC3: built prompt contains "OUTPUT —" and "Do NOT echo" ────────────────────

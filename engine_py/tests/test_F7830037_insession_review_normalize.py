@@ -339,51 +339,21 @@ def test_ac4_normalize_empty_placeholder(tmp_path):
 # ── AC5: subprocess backend → retry unchanged ────────────────────────────────
 
 
-def test_ac5_subprocess_retry_unchanged(tmp_path, monkeypatch):
-    """AC5: backend=claude-subprocess; non-conformant → retry IS called; result is E_REVIEW_FORMAT_DRIFT.
-
-    ASSERT:
-      - mock.call_count == 1  (retry attempted)
-      - result.status == 'error'
-      - result.error_code == 'E_REVIEW_FORMAT_DRIFT'
-
-    This confirms the fix is backend-scoped; subprocess path is unchanged.
-
-    FAILS today: in-session branch absent, so subprocess path already behaves this way.
-    Actually passes today BUT verifies GREEN doesn't regress subprocess path.
-    We assert current subprocess behavior; if the in-session branch accidentally breaks
-    subprocess, this will fail.
-    """
-    monkeypatch.setattr(p6, "_emit_safe", lambda *a, **kw: None)
-    monkeypatch.setattr(
-        "bytedigger_engine.workflows.phase_6_review._resolve_backend",
-        lambda *a, **kw: ("claude-subprocess", "env"),
-    )
-
-    prev, _doc_path = _prev_nonconformant(tmp_path)
-    ctx = _make_ctx(tmp_path / "scratch")
-
-    # Retry returns a still-non-conformant raw_response → triggers E_REVIEW_FORMAT_DRIFT
-    still_bad = "<still non-conformant — no header>"
-    mock_invoke = _mock_invoke_ok_raw(still_bad)
-
-    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess", mock_invoke):
-        result = _write_review_artifact(ctx, prev)
-
-    assert mock_invoke.call_count == 1, (
-        f"AC5: subprocess backend must call invoke_llm_subprocess once (retry). "
-        f"Got call_count={mock_invoke.call_count}. "
-        "FAILS if GREEN accidentally bypasses retry for subprocess backend."
-    )
-    assert result.status == "error", (
-        f"AC5: expected status='error' after failed retry on subprocess backend. "
-        f"Got {result.status!r}."
-    )
-    assert getattr(result, "error_code", None) == "E_REVIEW_FORMAT_DRIFT", (
-        f"AC5: expected error_code='E_REVIEW_FORMAT_DRIFT'. "
-        f"Got {getattr(result, 'error_code', None)!r}."
-    )
-
+# ─── AC5 (backend-scoped retry preserved for subprocess) — REMOVED by GH1399 ─
+# GH1399 spec rev2 §1c-ОТМЕНА п.1 cancels this decision explicitly.
+# test_ac5_subprocess_retry_unchanged asserted that with
+# backend="claude-subprocess" a non-conformant response still costs exactly one
+# invoke_llm_subprocess call and dies with E_REVIEW_FORMAT_DRIFT — the
+# "the fix is backend-scoped" half of F7830037. On byte-identical fixtures
+# GH1399 AC2a demands zero calls and status="ok", so the two are mutually
+# exclusive with nothing to discriminate on.
+# F7830037 was not wrong when frozen: in-session WAS the default backend then,
+# so "backend-scoped" still covered the default lane. The 2026-07-18 pin flip
+# to agent-sdk falsified its premise and nobody was enumerating what had been
+# conditional on the old default (same class as GH1400).
+# The rest of F7830037 — deterministic normalization for in-session — stands
+# and still passes; GH1399 WIDENS it to every backend rather than undoing it.
+# Removed by the GH1399 RED commit, not by GREEN (§1s).
 
 # ── AC6: _build_review_prompt OUTPUT directive ────────────────────────────────
 
