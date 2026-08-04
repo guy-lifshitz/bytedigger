@@ -15,13 +15,14 @@ exist. GREEN phase implements it.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 import types
 from pathlib import Path
 
 import pytest
+
+from helpers.host_tools import skip_without
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
@@ -30,10 +31,6 @@ from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E40
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
-
-
-def _has_git() -> bool:
-    return shutil.which("git") is not None
 
 
 def _git_init_repo(root: Path) -> None:
@@ -103,13 +100,13 @@ def test_import_autoprefix():
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations  # noqa: F401
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_unique_match_is_rewritten(tmp_path):
     """Unique basename → bare citation rewritten to repo-rooted path.
 
     stage a repo with SYSTEM/foo/bar.py; input "see bar.py:42 for details";
     expect "see SYSTEM/foo/bar.py:42 for details".
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -122,12 +119,12 @@ def test_unique_match_is_rewritten(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_multiple_matches_left_alone(tmp_path):
     """Ambiguous basename (2+ files with same name) → citation unchanged.
 
     stage a/foo.py AND b/foo.py; "foo.py:1" must stay "foo.py:1".
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -141,12 +138,12 @@ def test_multiple_matches_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_zero_matches_left_alone(tmp_path):
     """Basename not in repo → citation unchanged (do not guess).
 
     stage repo with no unknown.py; "unknown.py:5" → unchanged.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -159,13 +156,13 @@ def test_zero_matches_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_already_prefixed_left_alone(tmp_path):
     """Already-rooted citation must not be double-prefixed.
 
     stage SYSTEM/foo/bar.py; input "see SYSTEM/foo/bar.py:10";
     expect unchanged (no SYSTEM/SYSTEM/... churn).
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -178,9 +175,9 @@ def test_already_prefixed_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_mixed_paragraph_only_bare_rewritten(tmp_path):
     """Mixed text: bare citation gets prefixed, already-prefixed citation untouched."""
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -196,12 +193,12 @@ def test_mixed_paragraph_only_bare_rewritten(tmp_path):
     assert "SYSTEM/SYSTEM/" not in result, f"double-prefix must not occur; got {result!r}"
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_non_target_extension_left_alone(tmp_path):
     """Extension not in the citation set (ts/py/md/sh/tsx/js/yml) → unchanged.
 
     "foo.txt:5" is not a citation target; leave it alone even if foo.txt exists.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -214,7 +211,6 @@ def test_non_target_extension_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_inside_code_fence_still_rewritten(tmp_path):
     """Citations inside code fences are still rewritten.
 
@@ -222,6 +218,7 @@ def test_inside_code_fence_still_rewritten(tmp_path):
     documents that choice: lint behaviour stays consistent regardless of
     markdown context. Change this test if context-aware exclusion is added.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -257,13 +254,13 @@ def test_git_ls_files_fails_graceful_degradation(tmp_path):
 # ─── integration tests on _write_spec_doc call site ───────────────────────────
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_write_spec_doc_prefixes_before_atomic_write(tmp_path):
     """End-to-end: _write_spec_doc must run autoprefix before writing to disk.
 
     Stage a repo with SYSTEM/foo.py; raw_response contains "foo.py:1";
     file on disk must contain "SYSTEM/foo.py:1".
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _write_spec_doc
 
     _git_init_repo(tmp_path)
@@ -290,12 +287,12 @@ def test_write_spec_doc_prefixes_before_atomic_write(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_write_spec_doc_idempotent(tmp_path):
     """Running _write_spec_doc twice with same input produces byte-identical output.
 
     No churn from re-rewriting an already-prefixed citation.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _write_spec_doc
 
     _git_init_repo(tmp_path)
@@ -329,11 +326,11 @@ def test_write_spec_doc_idempotent(tmp_path):
 # ─── Opus gate additional edge-case tests (RED, D02C615D) ─────────────────────
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_partial_path_unique_is_rewritten_no_double_prefix(tmp_path):
     """Partial-path citation with UNIQUE suffix MUST be rewritten (post-DA5330E9 contract).
     Defends against double-prefix bug: SYSTEM/cli/build/engine_py/cli/build/engine_py/foo.py:5.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -352,7 +349,6 @@ def test_partial_path_unique_is_rewritten_no_double_prefix(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 @pytest.mark.parametrize("rel_path,citation,expected", [
     ("SYSTEM/specs/build-spec.md", "build-spec.md:10", "SYSTEM/specs/build-spec.md:10"),
     ("SYSTEM/x/foo.bar.py",        "foo.bar.py:3",     "SYSTEM/x/foo.bar.py:3"),
@@ -363,6 +359,7 @@ def test_multi_dot_filename_rewritten(tmp_path, rel_path, citation, expected):
     Ensures the regex handles filenames like `build-spec.md` and `foo.bar.py`
     whose basename contains more than one dot.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -396,7 +393,6 @@ def test_git_subprocess_timeout_graceful(monkeypatch):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_git_ls_files_called_once_per_call(monkeypatch, tmp_path):
     """subprocess.run is called exactly once per _autoprefix_bare_citations call.
 
@@ -404,6 +400,7 @@ def test_git_ls_files_called_once_per_call(monkeypatch, tmp_path):
     single git ls-files invocation, not once per citation.
     Input has 3 distinct bare citations; subprocess.run must fire only once.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations  # RED: ImportError today
 
     # Provide a fake git ls-files response covering all 3 basenames

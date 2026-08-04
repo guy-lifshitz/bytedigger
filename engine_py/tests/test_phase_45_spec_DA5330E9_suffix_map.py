@@ -17,13 +17,14 @@ independently (rather than a module-level ImportError blocking all collection).
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 import types
 from pathlib import Path
 
 import pytest
+
+from helpers.host_tools import skip_without
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
@@ -32,10 +33,6 @@ from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E40
 
 
 # ─── helpers (verbatim from test_phase_45_spec_D02C615D.py lines 36–93) ────────
-
-
-def _has_git() -> bool:
-    return shutil.which("git") is not None
 
 
 def _git_init_repo(root: Path) -> None:
@@ -110,7 +107,6 @@ def test_suffix_map_import():
 # ─── AC2–AC11: git-based behavioural tests ───────────────────────────────────
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_partial_path_unique_rewritten(tmp_path):
     """2-segment suffix unique in repo → citation rewritten to full path.
 
@@ -121,6 +117,7 @@ def test_partial_path_unique_rewritten(tmp_path):
     RED today: _BARE_CITATION_RE excludes `/`, so engine_py/foo.py:5 is not
     captured, and `_build_suffix_map` doesn't exist.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -133,7 +130,6 @@ def test_partial_path_unique_rewritten(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_partial_path_ambiguous_left_alone(tmp_path):
     """2-segment suffix resolving to 2+ paths → citation left unchanged.
 
@@ -143,6 +139,7 @@ def test_partial_path_ambiguous_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -156,7 +153,6 @@ def test_partial_path_ambiguous_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_partial_path_zero_match_left_alone(tmp_path):
     """Suffix not in repo → citation unchanged (do not guess).
 
@@ -166,6 +162,7 @@ def test_partial_path_zero_match_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -178,7 +175,6 @@ def test_partial_path_zero_match_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_three_segment_unique_rewritten(tmp_path):
     """3-segment suffix unique in repo → rewritten to full path.
 
@@ -189,6 +185,7 @@ def test_three_segment_unique_rewritten(tmp_path):
     RED today: _BARE_CITATION_RE excludes `/` so multi-seg citations not
     captured; also _build_suffix_map absent.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -201,7 +198,6 @@ def test_three_segment_unique_rewritten(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_bare_basename_unique_still_rewritten(tmp_path):
     """Regression guard: unique bare basename still rewrites after suffix-map switch.
 
@@ -214,6 +210,7 @@ def test_bare_basename_unique_still_rewritten(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -226,7 +223,6 @@ def test_bare_basename_unique_still_rewritten(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_bare_basename_ambiguous_still_left_alone(tmp_path):
     """Regression guard: ambiguous bare basename still left alone after suffix-map switch.
 
@@ -236,6 +232,7 @@ def test_bare_basename_ambiguous_still_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -249,7 +246,6 @@ def test_bare_basename_ambiguous_still_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_already_rooted_left_alone(tmp_path):
     """Already-rooted citation must not be rewritten (lookbehind + full==key guard).
 
@@ -259,6 +255,7 @@ def test_already_rooted_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -271,7 +268,6 @@ def test_already_rooted_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_repo_root_file_left_alone(tmp_path):
     """Repo-root file (no parent dir) → citation unchanged (full == key guard).
 
@@ -281,6 +277,7 @@ def test_repo_root_file_left_alone(tmp_path):
 
     RED today: import fails (_build_suffix_map absent).
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -293,7 +290,6 @@ def test_repo_root_file_left_alone(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_double_prefix_never_occurs(tmp_path):
     """No double-prefix bug regardless of which suffix form appears in text.
 
@@ -308,6 +304,7 @@ def test_double_prefix_never_occurs(tmp_path):
 
     RED today: _BARE_CITATION_RE excludes `/`; _build_suffix_map absent.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -330,7 +327,6 @@ def test_double_prefix_never_occurs(tmp_path):
     )
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_function_app_monorepo_unique_2seg_rewritten(tmp_path):
     """BARK monorepo reproducer: non-unique basename + unique 2-seg suffix.
 
@@ -350,6 +346,7 @@ def test_function_app_monorepo_unique_2seg_rewritten(tmp_path):
 
     RED today: _BARE_CITATION_RE excludes `/`; _build_suffix_map absent.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
@@ -381,7 +378,6 @@ def test_function_app_monorepo_unique_2seg_rewritten(tmp_path):
 # ─── AC12: idempotency via _write_spec_doc ────────────────────────────────────
 
 
-@pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_existing_d02c615d_idempotent_holds(tmp_path):
     """Running _write_spec_doc twice with same input produces byte-identical output.
 
@@ -391,6 +387,7 @@ def test_existing_d02c615d_idempotent_holds(tmp_path):
     differently once GREEN lands; pre-GREEN the test fails transitively because
     the import itself fails within the _write_spec_doc execution path.
     """
+    skip_without("git")
     from bytedigger_engine.workflows.phase_45_spec import _write_spec_doc
 
     _git_init_repo(tmp_path)

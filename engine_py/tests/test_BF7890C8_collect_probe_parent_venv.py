@@ -57,10 +57,17 @@ def _git_init_repo(repo: Path) -> None:
 
 
 def _skip_if_no_git() -> None:
-    """Skip the test at runtime if git binary is unavailable."""
-    import pytest  # noqa: PLC0415
-    if shutil.which("git") is None:
-        pytest.skip("git binary not available")
+    """Skip the test when git is unavailable, per the FROZEN availability map.
+
+    bd#49: this used to call `shutil.which("git")` live. That contradicted the
+    invariant `helpers/host_tools.py` documents for itself — two tests
+    monkeypatch `shutil.which` process-wide, so a live lookup can report a tool
+    absent on a machine that has it. Delegating to `skip_without` reads the map
+    frozen once at `pytest_configure`, which no monkeypatch can spoof.
+    """
+    from helpers.host_tools import skip_without  # noqa: PLC0415
+
+    skip_without("git")
 
 
 # ---------------------------------------------------------------------------
