@@ -49,6 +49,53 @@ which the three tests above call as their first statement. There is no
 automatic conversion for this axis: absence of a checkout surfaces as a plain
 `assert`, not as an exception a report hook could recognise.
 
+## Two declarations, and why only one set of tests must make one (bd#49)
+
+The hookwrapper above is **total** over the ordinary path: a test that simply
+spawns a host tool and dies with `FileNotFoundError` becomes an honest `skip`
+no matter how it spawned it. Measured on `10ca0fc`: **610** test bodies reach a
+host tool by argv literal (`subprocess.run(["git", …])`) without ever calling
+`shutil.which`, and every one of them is covered by that conversion with zero
+lines of declaration.
+
+There is exactly one way out from under it — **probe availability yourself** and
+decide before the `FileNotFoundError` can fire. A body that does so is invisible
+to the mechanism. Measured: **37** such bodies, which is the *complete* set of
+escapes, not a sample.
+
+So the rule applies to those, and only those:
+
+> A test body that probes host-tool availability itself must declare what it
+> does with the answer — either `helpers.host_tools.skip_without(tool)`, or an
+> explicit `# host-tool-hard-fail: <reason>` comment in its own body.
+
+Enforced by `tests/test_bd49_host_tool_declaration_gate.py` (scanner:
+`tests/helpers/host_tool_probes.py`), which **derives** the set by AST rather
+than enumerating files — a new probing call site cannot be exempted by being
+absent from a list, only by declaring a form.
+
+Both declarations are legitimate. `test_gh1338_corpus_parity_gate.py` hard-fails
+on purpose across eight ACs: a silent skip there would certify corpus parity
+without ever having run the corpus. What bd#49 changed is that the choice is now
+*stated* rather than incidental.
+
+Three hand-rolled variants were converted to `skip_without` in the process
+(`test_GH294_…`, `test_BF7890C8_…`, `test_phase_45_spec_D02C615D.py`,
+`test_phase_45_spec_DA5330E9_suffix_map.py`, and `test_bd102_host_tool_contract.py`
+itself). All of them called `shutil.which` **live**, which the mechanism above
+forbids for a documented reason — two tests monkeypatch `shutil.which`
+process-wide, so a live lookup can report a tool absent on a machine that has
+it. The `@pytest.mark.skipif(not _has_git(), …)` form was worse still: a
+decorator is evaluated at import time, before `pytest_configure` freezes the
+map, so it could not consult the frozen map even in principle.
+
+**Declared limit of the gate.** It recognises pre-emption performed via
+`shutil.which` (under any alias, and via `from shutil import which`). It does
+*not* recognise `os.path.exists("/usr/bin/git")` or a hand-written
+`except FileNotFoundError: pytest.skip(...)`. Measured at zero occurrences of
+both; the first one to appear must move this boundary, and the gate's own
+docstring is where that is recorded.
+
 ## Canonical source (§1g)
 
 Once bd#104 lands, `scripts/clean-room/bd102-tools.manifest` becomes a

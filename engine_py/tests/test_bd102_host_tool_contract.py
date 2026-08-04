@@ -398,10 +398,20 @@ def test_ac5b_m2_call_sites_wired_per_test_function_body() -> None:
 # a test's per-invocation config, only repo-local config written by init_repo.
 
 
-@pytest.mark.skipif(not shutil.which("git"), reason="requires git")
 def test_ac6_init_repo_commit_by_separate_no_dash_c_process_succeeds_isolated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # bd#49: this file — the one that enforces the sanctioned form on eight
+    # OTHER call sites — carried the unsanctioned form itself, as a
+    # `@pytest.mark.skipif(not shutil.which("git"), ...)`. That decorator is
+    # evaluated at IMPORT time, before `pytest_configure` freezes availability,
+    # so it could not consult the frozen map even in principle.
+    # Deferred import, never module-top: D1CF5FDF collectability (see module
+    # docstring) requires this file to collect cleanly and fail at assert time.
+    from helpers.host_tools import skip_without  # noqa: PLC0415
+
+    skip_without("git")
+
     from helpers.git_repo import init_repo  # noqa: PLC0415 — does not exist yet
 
     empty_home = tmp_path / "empty_home"

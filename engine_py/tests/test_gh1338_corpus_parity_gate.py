@@ -432,6 +432,9 @@ def test_ac10_precondition_codes_closure_and_blocked_by_fixed_order(tmp_path) ->
 
 
 def test_ac11_real_bun_fixture_delta_zero_but_corpus_blocked(tmp_path) -> None:
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
 
     env = _clean_env(HAL_CORPUS_PARITY_ENFORCE="1")
@@ -465,6 +468,9 @@ def test_ac11_real_bun_fixture_delta_zero_but_corpus_blocked(tmp_path) -> None:
 
 
 def test_ac12_allow_removed_test_file_defeats_block_under_enforce(tmp_path) -> None:
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
 
     env = _clean_env(HAL_CORPUS_PARITY_ENFORCE="1")
@@ -504,6 +510,9 @@ def test_ac13_blocked_verdict_always_exits_5_stderr_enumerates(tmp_path) -> None
     stderr enumeration requirement from the old AC13 is UNCHANGED and still
     asserted here.
     """
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
 
     env = _clean_env()  # HAL_CORPUS_PARITY_ENFORCE unset — must NOT matter for exit code now
@@ -1028,6 +1037,9 @@ def test_ac22_all_four_functions_returned_statuses_in_precondition_codes(tmp_pat
 
 
 def test_ac23_env_declaration_channel_and_pytest_patterns_and_source(tmp_path) -> None:
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     import fnmatch
 
     from bytedigger_engine.lib.corpus_parity import SUITE_TEST_PATTERNS, collect_corpus  # ImportError pre-GREEN → FAIL
@@ -1285,6 +1297,9 @@ def test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence(tmp_path) -> N
     CLEAN, separate real-git+real-bun fixture (no divergence, no delta fail)
     to pin the one case that legitimately still exits 0.
     """
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     bun = shutil.which("bun")
     assert bun is not None, (
         "bun binary not found on PATH — AC26 requires REAL `bun test` runs, "
@@ -2190,6 +2205,9 @@ def test_ac36_summary_present_but_zero_tests_blocks_as_e_empty_run(tmp_path) -> 
 
 
 def test_ac37_run_evidence_and_corpus_scope_present_on_real_bun_run(tmp_path) -> None:
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
 
     env = _clean_env()
@@ -2262,6 +2280,9 @@ def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) 
     4; (2) else BLOCKED -> 5 REGARDLESS of HAL_CORPUS_PARITY_ENFORCE; (3) else
     -> 0. 'BLOCKED and exit 0' must be impossible under ANY flag combination.
     """
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     bun = shutil.which("bun")
     assert bun is not None, "bun binary not found on PATH — AC38 requires REAL bun test runs"
 
@@ -2334,6 +2355,9 @@ def test_ac39_corpus_parity_enforce_flag_no_longer_affects_exit_code(tmp_path) -
     parity_block/E_CORPUS_PARITY branch (§2.3), not the CLI exit code. The
     SAME divergent input must give exit 5 whether the flag is unset OR '1'.
     """
+    # host-tool-hard-fail: requires a REAL `bun test` run per spec §4 — a silent
+    # skip here would certify corpus parity without ever having run the corpus,
+    # which is the one failure this AC exists to make impossible.
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
     base_args = [
         "--results", str(head_out), "--suite", "bun", "--ledger", str(ledger),

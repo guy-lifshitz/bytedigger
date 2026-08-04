@@ -38,6 +38,8 @@ from pathlib import Path
 
 import pytest
 
+from helpers.host_tools import skip_without
+
 from bytedigger_engine.workflows import phase_05_inject
 from bytedigger_engine import telemetry_ctx
 from bytedigger_engine.contracts import WorkflowContext
@@ -88,8 +90,10 @@ def test_ac1_git_worktree_outside_home_resolves_inside_via_git_common_dir(monkey
     Pre-GREEN FAILS: fallback does not exist yet — physical check alone
     returns False for a path outside home_root().
     """
-    if shutil.which("git") is None:
-        pytest.skip("git not on PATH")
+    # bd#49: was a live `shutil.which("git")` probe, which the process-wide
+    # `shutil.which` monkeypatches elsewhere in the suite can spoof.
+    # `skip_without` reads the map frozen at pytest_configure instead.
+    skip_without("git")
 
     fake_hal = _monkeypatch_home(monkeypatch, tmp_path)
 
