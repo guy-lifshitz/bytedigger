@@ -72,9 +72,12 @@ def test_unescape_snippet_helper_reverses_backslash_quote() -> None:
     # Deferred import — MUST stay inside the function body.
     from bytedigger_engine.scripts.lib.citation_verifier import _unescape_snippet  # type: ignore  # noqa: F401
 
-    assert _unescape_snippet('a\\"b\\"c') == 'a"b"c', (
-        f"_unescape_snippet should reverse backslash-quote escaping; "
-        f"got {_unescape_snippet('a\\\"b\\\"c')!r}"
+    # The call is hoisted out of the f-string: a backslash inside an f-string EXPRESSION is
+    # a SyntaxError before Python 3.12 (PEP 701), and bytedigger's clean-room jobs run 3.11.
+    # Upstream HAL runs 3.14, where the same line parses — hence the port edit.
+    got = _unescape_snippet('a\\"b\\"c')
+    assert got == 'a"b"c', (
+        f"_unescape_snippet should reverse backslash-quote escaping; got {got!r}"
     )
     # Also verify no-op on input without escapes.
     assert _unescape_snippet("no quotes here") == "no quotes here"
