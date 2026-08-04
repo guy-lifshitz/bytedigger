@@ -19,12 +19,12 @@ _ENGINE = Path(__file__).resolve().parents[2] / "engine_py"
 if _ENGINE.is_dir():
     sys.path.insert(0, str(_ENGINE))
 
-from contracts import WorkflowContext          # noqa: E402
-from engine import WorkflowEngine              # noqa: E402
-from event_sink import get_event_sink          # noqa: E402
-from event_log import EventLog                 # noqa: E402
-from derive_state import replay                # noqa: E402
-import workflows                               # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext          # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine              # noqa: E402
+from bytedigger_engine.event_sink import get_event_sink          # noqa: E402
+from bytedigger_engine.event_log import EventLog                 # noqa: E402
+from bytedigger_engine.derive_state import replay                # noqa: E402
+from bytedigger_engine import workflows                               # noqa: E402
 
 
 def main() -> int:

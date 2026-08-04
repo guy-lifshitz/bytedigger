@@ -26,9 +26,8 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from phase_5_implement import _runner_for_path, _infer_test_command_for_paths  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _runner_for_path, _infer_test_command_for_paths  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

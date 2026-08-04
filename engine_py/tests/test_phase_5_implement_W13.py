@@ -26,10 +26,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult  # noqa: E402
-from phase_5_implement import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import (  # noqa: E402
     FINDINGS_MAX_CHARS,
     _gate_on_validation,
 )

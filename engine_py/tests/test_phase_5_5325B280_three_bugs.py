@@ -33,8 +33,8 @@ import pytest
 
 # conftest-import-time singleton (§1q / 81F97F3D) inserts engine_py root
 # and engine_py/workflows into sys.path — no sys.path mutation here.
-import phase_5_implement
-from derive_state import replay
+from bytedigger_engine.workflows import phase_5_implement
+from bytedigger_engine.derive_state import replay
 
 
 # ─── shared repo helpers (mirror test_phase_5_step1_disk_truth + step5 idioms) ──
@@ -97,7 +97,7 @@ def _write_file(repo: Path, relpath: str, body: str = "# impl\n") -> None:
 
 
 def _make_ctx(scratchpad: Path, git_cwd: str, **org_extra):
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
     org = {"scratchpad_dir": str(scratchpad), "git_cwd": git_cwd, **org_extra}
     return WorkflowContext(
         tenant_id="hal",
@@ -179,7 +179,7 @@ class TestBug1RcFiveGuard:
 
         # Monkeypatch subprocess.run on the module (mirrors test_7C4D70ED idiom).
         monkeypatch.setattr(
-            "phase_5_implement.subprocess.run",
+            "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
             lambda *args, **kwargs: subprocess.CompletedProcess(
                 args=args[0], returncode=5, stdout="", stderr=""
             ),
@@ -216,7 +216,7 @@ class TestBug1RcFiveGuard:
         prev = _make_prev_for_red_check(red_test_paths=["tests/test_bad.py"], cycle=1)
 
         monkeypatch.setattr(
-            "phase_5_implement.subprocess.run",
+            "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
             lambda *args, **kwargs: subprocess.CompletedProcess(
                 args=args[0], returncode=2, stdout="", stderr="ImportError: x"
             ),

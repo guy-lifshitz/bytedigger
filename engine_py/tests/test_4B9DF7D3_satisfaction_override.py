@@ -49,7 +49,7 @@ HERE = Path(__file__).parent
 
 def _make_ctx(tmp_path: Path, satisfaction_threshold: int = 70, complexity: str = "SIMPLE"):
     """Build a minimal WorkflowContext — mirrors the 9702B73F sibling pattern."""
-    from contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     cfg: dict = {
@@ -85,7 +85,7 @@ def _make_sat_prev(
       - pass a string containing '## Suspect Findings' to simulate the aggregation path
       - pass a string without that section to simulate the degraded-fallback path (AC13)
     """
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
     scratch = tmp_path / "scratch"
     reviews_dir = scratch / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
@@ -134,7 +134,7 @@ def _make_prompt_prev(
     fix_commit_sha=None,
 ) -> "object":
     """Construct a prev StepResult for _build_satisfaction_prompt and _invoke_satisfaction_llm."""
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
     scratch = tmp_path / "scratch"
     reviews_dir = scratch / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +188,7 @@ def _canonical_clean_raw_fail_verdict(score: int = 35) -> str:
 
 def _suppress_emit(monkeypatch) -> list:
     """Suppress _emit_safe calls and capture (event_type, payload) tuples."""
-    import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
     captured: list = []
     monkeypatch.setattr(
         _p6r,
@@ -200,7 +200,7 @@ def _suppress_emit(monkeypatch) -> list:
 
 def _make_clean_structured():
     """Build a SatisfactionVerdict for the canonical clean state (satisfied=False, fixes_required=[])."""
-    from phase_6_review import SatisfactionVerdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import SatisfactionVerdict  # noqa: PLC0415
     return SatisfactionVerdict(satisfied=False, fixes_required=[])
 
 
@@ -214,7 +214,7 @@ def test_ac1_override_fires_on_canonical_clean_state() -> None:
     New signature takes all_findings_suspect=True (boolean, not review_verdict string).
     FAILS today: current helper takes `review_verdict` not `all_findings_suspect` → TypeError.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
     _override = getattr(_p6r, "_deterministic_satisfaction_override", None)
     assert _override is not None, (
         "AC1 FAIL: _deterministic_satisfaction_override not found in phase_6_review — "
@@ -246,7 +246,7 @@ def test_ac2_override_not_fired_when_all_findings_suspect_false() -> None:
     Covers: verified findings present OR degraded-fallback review.
     FAILS today: current helper takes `review_verdict` not `all_findings_suspect` → TypeError.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
     _override = getattr(_p6r, "_deterministic_satisfaction_override", None)
     assert _override is not None, (
         "AC2 FAIL: _deterministic_satisfaction_override not found in phase_6_review"
@@ -277,7 +277,7 @@ def test_ac3_override_not_fired_when_fix_commit_sha_present() -> None:
 
     FAILS today: current helper takes `review_verdict` not `all_findings_suspect` → TypeError.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
     _override = getattr(_p6r, "_deterministic_satisfaction_override", None)
     assert _override is not None, (
         "AC3 FAIL: _deterministic_satisfaction_override not found"
@@ -307,8 +307,8 @@ def test_ac4_override_not_fired_when_fixes_required_nonempty() -> None:
 
     FAILS today: current helper takes `review_verdict` not `all_findings_suspect` → TypeError.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
-    from phase_6_review import SatisfactionVerdict  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import SatisfactionVerdict  # noqa: PLC0415
     _override = getattr(_p6r, "_deterministic_satisfaction_override", None)
     assert _override is not None, (
         "AC4 FAIL: _deterministic_satisfaction_override not found"
@@ -341,7 +341,7 @@ def test_ac5_override_not_fired_when_already_passed() -> None:
 
     FAILS today: current helper takes `review_verdict` not `all_findings_suspect` → TypeError.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
     _override = getattr(_p6r, "_deterministic_satisfaction_override", None)
     assert _override is not None, (
         "AC5 FAIL: _deterministic_satisfaction_override not found"
@@ -377,7 +377,7 @@ def test_ac6_override_not_fired_on_none_score_or_above_threshold() -> None:
 
     FAILS today: current helper takes `review_verdict` not `all_findings_suspect` → TypeError.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
     _override = getattr(_p6r, "_deterministic_satisfaction_override", None)
     assert _override is not None, (
         "AC6 FAIL: _deterministic_satisfaction_override not found"
@@ -427,7 +427,7 @@ def test_ac7_emit_on_fire_absent_on_no_fire(monkeypatch) -> None:
 
     FAILS today: current helper takes `review_verdict` not `all_findings_suspect` → TypeError.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
     _override = getattr(_p6r, "_deterministic_satisfaction_override", None)
     assert _override is not None, (
         "AC7 FAIL: _deterministic_satisfaction_override not found"
@@ -492,7 +492,7 @@ def test_ac8_write_satisfaction_doc_ok_on_canonical_clean_state(
     Against OLD code: may return ok (verdict alone fires) but with the new wiring it asserts the
     stricter path. The test is RED because the new helper signature + wiring don't exist yet.
     """
-    from phase_6_review import _write_satisfaction_doc  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc  # noqa: PLC0415
     _suppress_emit(monkeypatch)
     ctx = _make_ctx(tmp_path, satisfaction_threshold=70, complexity="SIMPLE")
     raw = _canonical_clean_raw(score=35)
@@ -537,7 +537,7 @@ def test_ac9_write_satisfaction_doc_still_fails_when_verdict_fail(
     gives it RED teeth: today the override doesn't exist so the emit definitely won't happen;
     after GREEN, the no-fire branch must also not emit.
     """
-    from phase_6_review import _write_satisfaction_doc  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc  # noqa: PLC0415
     captured = _suppress_emit(monkeypatch)
     ctx = _make_ctx(tmp_path, satisfaction_threshold=70, complexity="SIMPLE")
     raw = _canonical_clean_raw_fail_verdict(score=35)
@@ -570,7 +570,7 @@ def test_ac10_build_satisfaction_prompt_forwards_verdict_and_sha(
 
     FAILS today: return data dict (L2498-2505) does not include these keys.
     """
-    from phase_6_review import _build_satisfaction_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _build_satisfaction_prompt  # noqa: PLC0415
     _suppress_emit(monkeypatch)
     ctx = _make_ctx(tmp_path, satisfaction_threshold=70, complexity="SIMPLE")
     prev = _make_prompt_prev(tmp_path, review_verdict="SUSPECT", fix_commit_sha=None)
@@ -609,8 +609,8 @@ def test_ac11_invoke_satisfaction_llm_simple_extra_data_has_verdict_and_sha(
 
     FAILS today: extra_data dict (L2676-2681) does not include these keys.
     """
-    import phase_6_review as _p6r  # noqa: PLC0415
-    from phase_6_review import _invoke_satisfaction_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_review as _p6r  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _invoke_satisfaction_llm  # noqa: PLC0415
     _suppress_emit(monkeypatch)
 
     captured_extra: list[dict] = []
@@ -619,7 +619,7 @@ def test_ac11_invoke_satisfaction_llm_simple_extra_data_has_verdict_and_sha(
         prompt, model, timeout_sec, step_name, extra_data=None,
         hard_gate=False, gate_label=None, allowed_tools=None, **kw
     ):
-        from contracts import StepResult  # noqa: PLC0415
+        from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
         captured_extra.append(dict(extra_data or {}))
         return StepResult(
             status="ok",
@@ -667,7 +667,7 @@ def test_ac12_build_satisfaction_prompt_contains_suspect_notice(
 
     FAILS today: disclaimer not yet appended in _build_satisfaction_prompt (spec §2.A).
     """
-    from phase_6_review import _build_satisfaction_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _build_satisfaction_prompt  # noqa: PLC0415
     _suppress_emit(monkeypatch)
     ctx = _make_ctx(tmp_path, satisfaction_threshold=70, complexity="SIMPLE")
     prev = _make_prompt_prev(tmp_path, review_verdict="SUSPECT", fix_commit_sha=None)
@@ -703,7 +703,7 @@ def test_ac13_fallback_suspect_without_section_still_blocks(
     TRUE RED: old code returns ok → asserting error_code==E_SATISFACTION_BELOW_THRESHOLD FAILS today.
     Also asserts NO 'satisfaction_relaxed_corroborated' emit (the override must be silent).
     """
-    from phase_6_review import _write_satisfaction_doc  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc  # noqa: PLC0415
     captured = _suppress_emit(monkeypatch)
     ctx = _make_ctx(tmp_path, satisfaction_threshold=70, complexity="SIMPLE")
     raw = _canonical_clean_raw(score=35)

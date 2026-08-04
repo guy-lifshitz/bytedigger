@@ -47,14 +47,10 @@ ENGINE_ROOT = HERE.parent
 # Grandfathered sys.path pattern — matches all sibling tests in this directory.
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "workflows") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
 
 # Top-level imports of already-existing symbols only.
-from llm_subprocess import _invoke_in_session, _is_opus_model, _assert_in_session_model_or_downgrade  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import _invoke_in_session, _is_opus_model, _assert_in_session_model_or_downgrade  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +88,7 @@ def test_ac1_model_family_opus() -> None:
     Pre-GREEN FAIL: ImportError — _model_family does not exist yet.
     """
     # Deferred import per §1q (D1CF5FDF): symbol does not exist yet.
-    from llm_subprocess import _model_family  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _model_family  # type: ignore[attr-defined]
 
     result = _model_family("opus")
     assert result == "opus", (
@@ -109,7 +105,7 @@ def test_ac2_model_family_sonnet_alias() -> None:
 
     Pre-GREEN FAIL: ImportError — _model_family does not exist yet.
     """
-    from llm_subprocess import _model_family  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _model_family  # type: ignore[attr-defined]
 
     result = _model_family("claude-sonnet-4-6")
     assert result == "sonnet", (
@@ -126,7 +122,7 @@ def test_ac3_model_family_haiku_full_id() -> None:
 
     Pre-GREEN FAIL: ImportError — _model_family does not exist yet.
     """
-    from llm_subprocess import _model_family  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _model_family  # type: ignore[attr-defined]
 
     result = _model_family("claude-haiku-4-5-20251001")
     assert result == "haiku", (
@@ -145,7 +141,7 @@ def test_ac4_model_family_unknown_and_none() -> None:
 
     Pre-GREEN FAIL: ImportError — _model_family does not exist yet.
     """
-    from llm_subprocess import _model_family  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _model_family  # type: ignore[attr-defined]
 
     result_unknown = _model_family("octopus-3")
     assert result_unknown is None, (
@@ -170,7 +166,7 @@ def test_ac5_detect_drift_haiku_vs_sonnet() -> None:
 
     Pre-GREEN FAIL: ImportError — _detect_nonhardgate_model_drift does not exist yet.
     """
-    from llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
 
     result = _detect_nonhardgate_model_drift(
         {"dispatched_model": "haiku"},
@@ -205,7 +201,7 @@ def test_ac6_no_drift_on_family_match() -> None:
 
     Pre-GREEN FAIL: ImportError — _detect_nonhardgate_model_drift does not exist yet.
     """
-    from llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
 
     result = _detect_nonhardgate_model_drift(
         {"dispatched_model": "claude-sonnet-4-6"},
@@ -230,7 +226,7 @@ def test_ac7_hard_gate_true_returns_none() -> None:
 
     Pre-GREEN FAIL: ImportError — _detect_nonhardgate_model_drift does not exist yet.
     """
-    from llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
 
     result = _detect_nonhardgate_model_drift(
         {"dispatched_model": "haiku"},
@@ -255,7 +251,7 @@ def test_ac8_no_dispatched_model_returns_none() -> None:
 
     Pre-GREEN FAIL: ImportError — _detect_nonhardgate_model_drift does not exist yet.
     """
-    from llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
 
     result = _detect_nonhardgate_model_drift(
         {},
@@ -280,7 +276,7 @@ def test_ac9_no_pinned_model_returns_none() -> None:
 
     Pre-GREEN FAIL: ImportError — _detect_nonhardgate_model_drift does not exist yet.
     """
-    from llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
+    from bytedigger_engine.llm_subprocess import _detect_nonhardgate_model_drift  # type: ignore[attr-defined]
 
     result = _detect_nonhardgate_model_drift(
         {"dispatched_model": "haiku"},
@@ -319,7 +315,7 @@ def test_ac10_end_to_end_warn_event_emitted_non_blocking(
     or emit 'model_pin_mismatch' — so either the event is absent (assertion a) or
     status is wrong (assertion b will still fail if step erroneously blocks).
     """
-    import llm_subprocess as _llm_mod
+    from bytedigger_engine import llm_subprocess as _llm_mod
 
     # Set up request dir + RunContext.
     request_dir = tmp_path / "requests"

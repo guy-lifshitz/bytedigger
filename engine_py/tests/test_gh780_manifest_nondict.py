@@ -6,7 +6,7 @@ Covers AC1-AC7 (§3). AC8 lives in tests/test_engine.py per spec §5.
 Do NOT mock the units under test (manifest_from_result, WorkflowEngine,
 _manifest_paths_from_result). Only ambient-git infra (_git_changes_vs_head)
 and the sentinel-cache read (maybe_read_sentinel) are patched, both via
-module-attribute form (import engine; monkeypatch.setattr(engine, ...)).
+module-attribute form (import bytedigger_engine.engine; monkeypatch.setattr(engine, ...)).
 """
 
 import sys
@@ -16,15 +16,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from contracts import (
+from bytedigger_engine.contracts import (
     WorkflowContext,
     StepResult,
     StepContract,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
-import engine
-from llm_subprocess import manifest_from_result, _ManifestMissingError
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine import engine
+from bytedigger_engine.llm_subprocess import manifest_from_result, _ManifestMissingError
 
 
 # ─── helpers (copied from test_engine.py per instructions — no cross-import) ─
@@ -162,8 +162,8 @@ def test_ac5_execute_with_valid_manifest_dict_and_git_delta_emits_manifest_sourc
 def test_ac6_all_manifest_from_result_call_sites_catch_manifest_missing():
     engine_py_dir = Path(__file__).parent.parent
     files = [
-        engine_py_dir / "workflows" / "phase_5_implement.py",
-        engine_py_dir / "workflows" / "phase_6_review.py",
+        engine_py_dir / "bytedigger_engine" / "workflows" / "phase_5_implement.py",
+        engine_py_dir / "bytedigger_engine" / "workflows" / "phase_6_review.py",
     ]
     call_sites = 0
     for f in files:

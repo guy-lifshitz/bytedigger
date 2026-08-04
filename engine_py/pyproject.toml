@@ -1,13 +1,16 @@
-# OSS packaging (manifest-driven). Published on PyPI as bytedigger-engine;
-# py-modules is generated 1:1 from core_manifest.json
-# core_modules (root entries) — host modules are deliberately NOT packaged.
+# OSS packaging. Published on PyPI as bytedigger-engine, and since 0.2.0 the
+# distribution owns exactly ONE top-level name: the `bytedigger_engine` package.
+# Nothing is enumerated module-by-module any more, so `core_manifest.json` no
+# longer has a `py-modules` list to mirror — it stays the engine's own
+# core-module registry, addressed in package-relative paths.
+# Host modules (hal_config_provider, model_flip_lint) are deliberately NOT packaged.
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "bytedigger-engine"
-version = "0.1.2"
+version = "0.2.0"
 description = "Verified agentic TDD engine: a frozen, event-sourced RED->validate->GREEN state machine with deterministic anti-reward-hacking gates."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -37,73 +40,17 @@ agentic-pydantic = ["pydantic-ai>=2.0,<3"]
 security = ["semgrep>=1.60"]
 
 [project.scripts]
-bytedigger-engine = "run:main"
-
-[tool.setuptools]
-# Root-level core_modules from core_manifest.json, plus the in-repo import
-# closure of those modules (second block) — the manifest is not yet
-# import-closed; closure deps are tracked for promotion into core_modules
-# upstream. Host modules (hal_config_provider, model_flip_lint) are
-# deliberately NOT packaged.
-py-modules = [
-    "audit_gate",
-    "classify_incident",
-    "config_provider",
-    "contracts",
-    "corpus_extract",
-    "ctx_floor",
-    "ctx_floor_budget",
-    "derive_state",
-    "doctor",
-    "engine",
-    "error_locus",
-    "event_log",
-    "event_sink",
-    "execution_provenance",
-    "fixture_schema",
-    "forbidden_import",
-    "generate_receipts",
-    "helper_extraction",
-    "io_utils",
-    "known_reds_ledger",
-    "llm_subprocess",
-    "net_new_delta",
-    "package_meta",
-    "precommit_lints",
-    "red_lint_checks",
-    "reject_log",
-    "reject_stats",
-    "reproducibility",
-    "resume_key_lint",
-    "run",
-    "scope_inverse",
-    "spec_cite",
-    "spec_class",
-    "spec_coverage",
-    "stub_passability",
-    "suite_safety",
-    "telemetry_ctx",
-    "tier_gate",
-    "verdict_anchor",
-    "verdict_verify",
-    # --- import-closure deps (not yet in core_manifest core_modules) ---
-    "ac_dsl",
-    "error_codes",
-    "findings_sidecar",
-    "flags_catalog",
-    "format_conversion_cases",
-    "presence_triad",
-    "reentry_ac",
-    "silent_success",
-    "skip_logic",
-    "token_consistency",
-    "verdict_gate",
-]
+bytedigger-engine = "bytedigger_engine.run:main"
 
 [tool.setuptools.packages.find]
-include = ["lib*", "workflows*", "security*", "scripts*", "conformance*"]
+# ONE distribution-owned top-level name. Before 0.2.0 this block published
+# `lib*`, `workflows*`, `security*`, `scripts*`, `conformance*` as five
+# top-level packages alongside 51 flat `py-modules`; all of it now lives under
+# `bytedigger_engine`, so nothing but that name may be found. Host modules
+# (hal_config_provider, model_flip_lint) remain deliberately unpackaged.
+include = ["bytedigger_engine*"]
 
 [tool.setuptools.package-data]
-"lib.plugins.anti_hallucination" = ["*.yaml", "*.md"]
-security = ["*.yml", "*.md", "*.toml", "*.txt"]
-"scripts.red_lint" = ["*.yml"]
+"bytedigger_engine.lib.plugins.anti_hallucination" = ["*.yaml", "*.md"]
+"bytedigger_engine.security" = ["*.yml", "*.md", "*.toml", "*.txt"]
+"bytedigger_engine.scripts.red_lint" = ["*.yml"]

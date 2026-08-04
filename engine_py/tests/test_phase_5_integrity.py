@@ -15,16 +15,15 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 import pytest  # noqa: E402
 
-from contracts import WorkflowContext  # noqa: E402
-from derive_state import replay  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from llm_subprocess import register_backend, reset_backends, StepResult as _StepResult  # noqa: E402
-from phase_5_integrity import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.derive_state import replay  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.llm_subprocess import register_backend, reset_backends, StepResult as _StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_5_integrity import (  # noqa: E402
     DEFAULT_INTEGRITY_TIMEOUT_SEC,
     DEFAULT_LLM_COMMAND,
     DIFF_PATCH_RELPATH,
@@ -32,7 +31,7 @@ from phase_5_integrity import (  # noqa: E402
     SPEC_DOC_RELPATH,
     phase_5_integrity_workflow,
 )
-import workflows  # noqa: E402
+from bytedigger_engine import workflows  # noqa: E402
 
 
 # ─── autouse fixture: reset _BACKENDS singleton (§1i) ─────────────────────────
@@ -848,7 +847,7 @@ def test_integrity_gate_fires_after_red_commit(tmp_path):
     """AC1: When commit_red_tests writes the RED SHA and GREEN modifies test files
     in the working tree (uncommitted), phase_5_integrity must produce a non-empty
     diff and call classify_diff_verdict — not short-circuit to NO_CHANGES."""
-    from phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
 
     repo = tmp_path / "repo"
     init_repo(repo)
@@ -899,7 +898,7 @@ def test_scratchpad_file_overrides_default_pre_red_ref(tmp_path):
     """AC4: When scratchpad/integrity/pre-red-ref.txt is present and
     org_config does NOT set pre_red_ref, _resolve_diff_command uses the
     scratchpad SHA — not DEFAULT_PRE_RED_REF ('HEAD~1')."""
-    from phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
 
     repo = tmp_path / "repo"
     init_repo(repo)
@@ -948,7 +947,7 @@ def test_scratchpad_file_overrides_default_pre_red_ref(tmp_path):
 def test_explicit_pre_red_ref_wins_over_scratchpad(tmp_path):
     """AC5: When org_config.pre_red_ref is set AND scratchpad file is present,
     the explicit org_config value takes precedence."""
-    from phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
 
     repo = tmp_path / "repo"
     init_repo(repo)
@@ -992,7 +991,7 @@ def test_working_tree_diff_form_produces_non_empty_patch(tmp_path):
     With the old two-SHA form 'git diff {sha}..HEAD', HEAD==red_sha, so
     the diff is empty — the original bug. The working-tree form catches it.
     """
-    from phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import PRE_RED_REF_RELPATH  # noqa: PLC0415
 
     repo = tmp_path / "repo"
     init_repo(repo)
@@ -1043,7 +1042,7 @@ def test_working_tree_diff_form_produces_non_empty_patch(tmp_path):
 def test_empty_scratchpad_file_raises(tmp_path):
     """A pre-red-ref.txt that exists but is empty after strip must raise ValueError,
     not silently fall through to DEFAULT_PRE_RED_REF ('HEAD~1')."""
-    from phase_5_integrity import PRE_RED_REF_RELPATH, _resolve_diff_command  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import PRE_RED_REF_RELPATH, _resolve_diff_command  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ref_file = scratchpad / PRE_RED_REF_RELPATH
@@ -1059,7 +1058,7 @@ def test_empty_scratchpad_file_raises(tmp_path):
 
 def test_whitespace_only_scratchpad_file_raises(tmp_path):
     """A pre-red-ref.txt containing only whitespace is treated the same as empty."""
-    from phase_5_integrity import PRE_RED_REF_RELPATH, _resolve_diff_command  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import PRE_RED_REF_RELPATH, _resolve_diff_command  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ref_file = scratchpad / PRE_RED_REF_RELPATH

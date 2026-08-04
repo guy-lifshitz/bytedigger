@@ -25,14 +25,13 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── autouse fixture: reset _BACKENDS singleton between tests (§1i) ───────────
 
-import llm_subprocess as _llm_subprocess_mod
-from llm_subprocess import register_backend, reset_backends
-from contracts import StepResult as _StepResult
+from bytedigger_engine import llm_subprocess as _llm_subprocess_mod
+from bytedigger_engine.llm_subprocess import register_backend, reset_backends
+from bytedigger_engine.contracts import StepResult as _StepResult
 
 
 @pytest.fixture(autouse=True)
@@ -52,7 +51,7 @@ def test_b7442146_invoke_llm_subprocess_data_includes_tokens_out():
     with a register_backend stub returning canned token data. Contract unchanged:
     data['tokens_out'] == 1234, data['tokens_in'] == 42.
     """
-    from llm_subprocess import invoke_llm_subprocess  # noqa: PLC0415
+    from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: PLC0415
 
     class _TokenBackend:
         def __call__(self, **kw) -> _StepResult:
@@ -105,7 +104,7 @@ def test_b7442146_invoke_llm_subprocess_data_tokens_out_none_when_no_json():
     25e75663 migration (R2): plain-text subprocess stub replaced with a
     register_backend stub returning tokens_out=None. Contract unchanged.
     """
-    from llm_subprocess import invoke_llm_subprocess  # noqa: PLC0415
+    from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: PLC0415
 
     class _PlainBackend:
         def __call__(self, **kw) -> _StepResult:
@@ -155,8 +154,8 @@ def test_b7442146_check_green_token_budget_passes_when_under_5000():
 
     FAILS today: function does not exist.
     """
-    import phase_5_implement  # noqa: PLC0415
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     prev_data = {
         "tokens_out": 4999,
@@ -207,8 +206,8 @@ def test_b7442146_check_green_token_budget_passes_when_tokens_out_none():
 
     FAILS today: function does not exist.
     """
-    import phase_5_implement  # noqa: PLC0415
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     prev = StepResult(
         status="ok",
@@ -244,8 +243,8 @@ def test_b7442146_check_green_token_budget_passes_when_exactly_5000():
 
     FAILS today: function does not exist.
     """
-    import phase_5_implement  # noqa: PLC0415
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     prev = StepResult(
         status="ok",
@@ -283,7 +282,7 @@ def test_b7442146_workflow_includes_check_green_token_budget_between_invoke_and_
 
     FAILS today: step missing entirely.
     """
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
 
     wf = phase_5_implement_workflow()
     names = [s.name for s in wf.steps]
@@ -332,9 +331,9 @@ def test_check_green_token_budget_emits_alert_event_when_exceeded():
     FAILS today: current code returns status='error' / error_code=E_GREEN_VERBOSE
     and emits no alert event.
     """
-    import phase_5_implement  # noqa: PLC0415
-    import telemetry_ctx  # noqa: PLC0415
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     prev = StepResult(
         status="ok",

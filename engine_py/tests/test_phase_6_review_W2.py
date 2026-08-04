@@ -18,11 +18,10 @@ from unittest.mock import MagicMock, patch
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     FIX_DOC_RELPATH,
     GREEN_LOG_RELPATH,
     RED_LOG_RELPATH,
@@ -33,7 +32,7 @@ from phase_6_review import (  # noqa: E402
     _read_first_block,
     _resolve_complexity,
 )
-from engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -117,7 +116,7 @@ def test_resolve_complexity_no_stale_todo_comment():
     SIMPLE 3-reviewer path is dormant...'. Fix: remove TODO, add docstring
     documenting the None→FEATURE default as an explicit contract.
     """
-    import phase_6_review as m
+    from bytedigger_engine.workflows import phase_6_review as m
 
     source = inspect.getsource(m._resolve_complexity)
 
@@ -150,8 +149,8 @@ def test_resolve_complexity_none_emits_event(tmp_path):
     Currently: returns 'FEATURE' silently, no event emitted.
     Fix: emit _emit_safe(..., 'complexity_default_used', {...}) before return.
     """
-    import phase_6_review as m
-    import telemetry_ctx  # same pattern as phase_05_inject
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx  # same pattern as phase_05_inject
 
     # Set up a real EventLog backed by a temp file so we can inspect events
     log_path = tmp_path / "events.jsonl"
@@ -206,7 +205,7 @@ def test_write_review_artifact_retry_uses_raise_not_assert():
 
     Verified via source inspection — robust regardless of test runner flags.
     """
-    import phase_6_review as m
+    from bytedigger_engine.workflows import phase_6_review as m
 
     source = inspect.getsource(m._write_review_artifact)
 
@@ -235,7 +234,7 @@ def test_write_fix_artifact_retry_uses_raise_not_assert():
 
     Verified via source inspection.
     """
-    import phase_6_review as m
+    from bytedigger_engine.workflows import phase_6_review as m
 
     source = inspect.getsource(m._write_fix_artifact)
 
@@ -328,7 +327,7 @@ def test_write_fix_artifact_retry_preserves_extra_data(tmp_path):
             step_name=step_name,
         )
 
-    import phase_6_review as m
+    from bytedigger_engine.workflows import phase_6_review as m
     with patch.object(m, "invoke_llm_subprocess", side_effect=fake_invoke):
         # Directly call _write_fix_artifact with a prev that has no-marker output
         # (simulating the state after invoke_fix_llm returned FIX_NO_MARKER response)

@@ -19,9 +19,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared fixtures / helpers ─────────────────────────────────────────────
@@ -81,7 +80,7 @@ VALID_PATCH_SINGLE = [
 
 
 def test_ac1_extract_valid_fenced_array_returns_list():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = _fenced_patches_json(VALID_PATCH_SINGLE)
     result = extract_surgical_patches(raw)
@@ -89,20 +88,20 @@ def test_ac1_extract_valid_fenced_array_returns_list():
 
 
 def test_ac1_extract_no_fenced_block_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     assert extract_surgical_patches("no json fence here at all") is None
 
 
 def test_ac1_extract_not_an_array_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```json\n" + json.dumps({"finding_id": "F1", "old": "x", "new": "y"}) + "\n```\n"
     assert extract_surgical_patches(raw) is None
 
 
 def test_ac1_extract_bad_item_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     # Missing required "old" key.
     raw = "```json\n" + json.dumps([{"finding_id": "F1", "new": "y"}]) + "\n```\n"
@@ -110,7 +109,7 @@ def test_ac1_extract_bad_item_returns_none():
 
 
 def test_ac1_extract_last_fenced_block_wins():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     first = _fenced_patches_json([{"finding_id": "F1", "old": "a", "new": "b"}])
     second = _fenced_patches_json(VALID_PATCH_SINGLE)
@@ -119,7 +118,7 @@ def test_ac1_extract_last_fenced_block_wins():
 
 
 def test_ac1_apply_multi_patch_sequential_success():
-    from lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
 
     base = "AAA one\nBBB two\nCCC three\n"
     patches = [
@@ -132,7 +131,7 @@ def test_ac1_apply_multi_patch_sequential_success():
 
 
 def test_ac1_apply_empty_patches_reason_no_patches():
-    from lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
 
     patched, meta = apply_surgical_patches("some text\n", [])
     assert patched is None
@@ -141,7 +140,7 @@ def test_ac1_apply_empty_patches_reason_no_patches():
 
 
 def test_ac1_apply_empty_old_reason_empty_old():
-    from lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
 
     patched, meta = apply_surgical_patches(
         "some text\n", [{"finding_id": "F9", "old": "", "new": "x"}]
@@ -152,7 +151,7 @@ def test_ac1_apply_empty_old_reason_empty_old():
 
 
 def test_ac1_apply_old_not_found_reason():
-    from lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
 
     patched, meta = apply_surgical_patches(
         "some text\n", [{"finding_id": "F3", "old": "NOT_PRESENT_ANYWHERE", "new": "x"}]
@@ -163,7 +162,7 @@ def test_ac1_apply_old_not_found_reason():
 
 
 def test_ac1_apply_old_ambiguous_reason():
-    from lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
 
     patched, meta = apply_surgical_patches(
         "DUP DUP\n", [{"finding_id": "F4", "old": "DUP", "new": "x"}]
@@ -177,7 +176,7 @@ def test_ac1_apply_old_ambiguous_reason():
 
 
 def test_ac2_byte_stability_untouched_prefix_and_suffix():
-    from lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
 
     patches = [
         {"finding_id": "F1", "old": "OLD_FRAGMENT_TO_REPLACE_F1", "new": "NEW_FRAGMENT_REPLACED_F1"}
@@ -200,7 +199,7 @@ def test_ac2_byte_stability_untouched_prefix_and_suffix():
 
 
 def test_ac3_prompt_contains_fenced_json_instruction_findings_and_spec_no_full_rewrite():
-    from lib.plugins.checklist_convergence.surgical_revise import build_surgical_revise_prompt
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import build_surgical_revise_prompt
 
     spec_path = "/tmp/fake/build-spec.md"
     prompt = build_surgical_revise_prompt(spec_path, BASE_SPEC, STRUCTURED_FINDINGS)
@@ -216,7 +215,7 @@ def test_ac3_prompt_contains_fenced_json_instruction_findings_and_spec_no_full_r
 
 
 def _write_prev_spec(scratchpad: Path, text: str = BASE_SPEC) -> Path:
-    from phase_45_spec import SPEC_DOC_RELPATH
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH
 
     spec_path = scratchpad / SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -227,7 +226,7 @@ def _write_prev_spec(scratchpad: Path, text: str = BASE_SPEC) -> Path:
 def test_ac4_surgical_path_taken_when_both_gates_on(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
-    from phase_45_spec import _build_spec_prompt
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt
 
     scratchpad = tmp_path / "scratch"
     spec_path = _write_prev_spec(scratchpad)
@@ -247,7 +246,7 @@ def test_ac4_surgical_path_taken_when_both_gates_on(tmp_path, monkeypatch):
 def test_ac4_legacy_delta_path_when_surgical_gate_off(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
-    from phase_45_spec import _build_spec_prompt
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
@@ -266,7 +265,7 @@ def test_ac4_legacy_delta_path_when_surgical_gate_off(tmp_path, monkeypatch):
 def test_ac4_legacy_delta_path_when_prev_surgical_fallback(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
-    from phase_45_spec import _build_spec_prompt
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
@@ -307,8 +306,8 @@ def _make_write_prev(
 
 
 def test_ac5_surgical_apply_success_writes_canonical_and_versioned_and_emits(tmp_path, monkeypatch):
-    import phase_45_spec
-    from lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
+    from bytedigger_engine.workflows import phase_45_spec
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
 
     events: list[tuple[str, dict]] = []
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: events.append((et, payload)))
@@ -345,7 +344,7 @@ def test_ac5_surgical_apply_success_writes_canonical_and_versioned_and_emits(tmp
 
 
 def test_ac6_surgical_fallback_old_not_found_no_write_and_recoverable_retry(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     events: list[tuple[str, dict]] = []
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: events.append((et, payload)))
@@ -386,7 +385,7 @@ def test_ac8_fallback_invalidates_invoke_sentinel(tmp_path, monkeypatch):
     """AC8 (amendment 1): fallback branch must unlink the poisoned
     invoke_spec_llm_done_c{cycle}_* resume sentinel(s), leaving sibling
     (other-step, other-cycle) sentinels untouched."""
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     events: list[tuple[str, dict]] = []
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: events.append((et, payload)))

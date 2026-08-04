@@ -14,12 +14,10 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib" / "plugins"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from reproducibility import verify_count_reproducible, _REPRODUCIBILITY_RUNS, _pin_pytest_collection  # noqa: E402
-import phase_5_implement  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.reproducibility import verify_count_reproducible, _REPRODUCIBILITY_RUNS, _pin_pytest_collection  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 
 
 # ─── ctx builder (mirrors F9F7E4FD sibling) ───────────────────────────────────

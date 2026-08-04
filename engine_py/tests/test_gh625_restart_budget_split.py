@@ -36,23 +36,23 @@ import pytest
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-import telemetry_ctx as _telemetry_ctx  # noqa: E402
+from bytedigger_engine import telemetry_ctx as _telemetry_ctx  # noqa: E402
 
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine  # noqa: E402
-from lib.recoverable_gate import RecoverableGateMixin  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -128,7 +128,7 @@ def test_ac1_crash_loop_denies_and_state_shows_split_counters(tmp_path):
     """AC1: 3x governor_record_start with no results (crash loop):
     governor_check(cap=3) denies E_RESTART_CAP; state file shows
     crash_starts==2, pending==true (2 closed-as-crash + 1 open)."""
-    from lib.restart_governor import governor_check, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_start
 
     run_id, workflow = "gh625-ac1", "echo"
     for _ in range(3):
@@ -153,7 +153,7 @@ def test_ac2_gate_retries_dont_touch_crash_budget(tmp_path):
     """AC2: 3x (record_start + record_result(distinct code)) alternating:
     with gate_cap=3 check denies; with gate_cap=10, cap=3 check ALLOWS
     (crash budget untouched: crash_starts==0)."""
-    from lib.restart_governor import governor_check, governor_record_result, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result, governor_record_start
 
     run_id, workflow = "gh625-ac2", "echo"
     for i in range(3):
@@ -181,7 +181,7 @@ def test_ac2_gate_retries_dont_touch_crash_budget(tmp_path):
 def test_ac3_interleaved_crash_and_gate_starts_independent_budgets(tmp_path):
     """AC3: 2 crashes then 1 gated result: state crash_starts==2, gate_starts==1,
     pending==false; cap=3, gate_cap=3 allows (crash_eff 2<3, gate 1<3)."""
-    from lib.restart_governor import governor_check, governor_record_result, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result, governor_record_start
 
     run_id, workflow = "gh625-ac3", "echo"
     governor_record_start(tmp_path, run_id, workflow)  # open #1
@@ -208,7 +208,7 @@ def test_ac4_legacy_state_migrates_to_schema_v2(tmp_path):
     """AC4: legacy state file {"starts": 3, "error_codes": []} -> check(cap=3)
     denies E_RESTART_CAP (migrates to crash_starts=3); after
     record_result("E_Y") file is schema-2 with gate_starts==1."""
-    from lib.restart_governor import governor_check, governor_record_result
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result
 
     run_id, workflow = "gh625-ac4", "echo"
     state_file = tmp_path / f"restart-governor-{run_id}-{workflow}.json"
@@ -230,7 +230,7 @@ def test_ac5_pause_refunds_without_decrementing_split_counters(tmp_path):
     """AC5: record_start then governor_record_pause: pending==false,
     crash_starts==0, gate_starts==0; subsequent check allows (GH576 refund
     preserved)."""
-    from lib.restart_governor import governor_check, governor_record_pause, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_pause, governor_record_start
 
     run_id, workflow = "gh625-ac5", "echo"
     governor_record_start(tmp_path, run_id, workflow)
@@ -249,7 +249,7 @@ def test_ac5_pause_refunds_without_decrementing_split_counters(tmp_path):
 def test_ac6_success_result_unlinks_state_file(tmp_path):
     """AC6: governor_record_result(None) unlinks state file (success reset
     unchanged, cite restart_governor.py:84-90)."""
-    from lib.restart_governor import governor_record_result, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_record_result, governor_record_start
 
     run_id, workflow = "gh625-ac6", "echo"
     governor_record_start(tmp_path, run_id, workflow)
@@ -265,7 +265,7 @@ def test_ac7_governor_gate_denied_payload_has_split_keys(tmp_path):
     pending state denies with a StepResult-shaped dict, error_code==
     'E_RESTART_CAP'; emitted restart_governor_denied event payload contains
     deny_class=='crash', crash_starts, gate_starts, and legacy starts."""
-    from lib.restart_governor import governor_gate
+    from bytedigger_engine.lib.restart_governor import governor_gate
 
     run_id, workflow = "gh625-ac7", "echo"
     state_file = tmp_path / f"restart-governor-{run_id}-{workflow}.json"

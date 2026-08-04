@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from spec_cite import _iter_code_files
+from bytedigger_engine.spec_cite import _iter_code_files
 
 
 def _scandir_visit_recorder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -49,7 +49,7 @@ def test_ac1_parity_composition_gh912(tmp_path: Path) -> None:
     (rep / "b.py").write_text("b = 1\n")
     (root / "notes.txt").write_text("hello\n")
     big = root / "big.py"
-    from spec_cite import _MAX_INDEX_FILE_BYTES
+    from bytedigger_engine.spec_cite import _MAX_INDEX_FILE_BYTES
 
     big.write_text("x" * (_MAX_INDEX_FILE_BYTES + 10))
 
@@ -144,7 +144,7 @@ def test_ac6_cap_limits_file_count_gh912(
     for i in range(10):
         (root / f"f{i}.py").write_text(f"v{i} = 1\n")
 
-    monkeypatch.setattr("spec_cite._MAX_INDEX_FILES", 3)
+    monkeypatch.setattr("bytedigger_engine.spec_cite._MAX_INDEX_FILES", 3)
     files = _iter_code_files(root)
     assert len(files) == 3
 

@@ -48,10 +48,10 @@ from typing import Any
 
 import pytest
 
-import telemetry_ctx  # noqa: E402
-import lib.directed_repair as directed_repair  # noqa: E402
-import spec_cite  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.lib import directed_repair as directed_repair  # noqa: E402
+from bytedigger_engine import spec_cite  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers ───────────────────────────────────────────────────────────

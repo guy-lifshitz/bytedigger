@@ -32,17 +32,15 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
 
 
 def _make_ctx(scratchpad: Path, **org_extra) -> WorkflowContext:
@@ -81,9 +79,9 @@ def test_b2_lib_step_sentinel_exposes_functions():
     """B2: lib/step_sentinel.py exposes write/read_step_sentinel with the
     BC45C403 signatures.
 
-    At RED: `import step_sentinel` fails (module absent) → ImportError.
+    At RED: `import bytedigger_engine.lib.step_sentinel` fails (module absent) → ImportError.
     """
-    import step_sentinel  # noqa: PLC0415 — deferred, module does not exist at RED
+    from bytedigger_engine.lib import step_sentinel  # noqa: PLC0415 — deferred, module does not exist at RED
 
     assert callable(step_sentinel.write_step_sentinel)
     assert callable(step_sentinel.read_step_sentinel)
@@ -98,10 +96,10 @@ def test_b3_preseeded_sentinel_short_circuits_flagged_step(tmp_path):
     invoke execute(); the final result is 'ok' with the cached data, and a
     step_sentinel_resumed event is emitted.
 
-    At RED: `import step_sentinel` fails inside the body → ImportError → FAIL.
+    At RED: `import bytedigger_engine.lib.step_sentinel` fails inside the body → ImportError → FAIL.
     """
-    import step_sentinel  # noqa: PLC0415
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib import step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True)
@@ -141,10 +139,10 @@ def test_b4_flagged_step_ok_writes_sentinel(tmp_path):
     """B4: a flagged step that returns ok writes a sentinel file under
     <scratchpad>/resume/ containing result.data.
 
-    At RED: `import step_sentinel` fails inside the body → ImportError → FAIL.
+    At RED: `import bytedigger_engine.lib.step_sentinel` fails inside the body → ImportError → FAIL.
     """
-    import step_sentinel  # noqa: PLC0415
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib import step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True)
@@ -174,9 +172,9 @@ def test_b5_unflagged_step_ignores_preseeded_sentinel(tmp_path):
     """B5: an UNflagged step always executes, even with a pre-seeded sentinel,
     and produces no sentinel read/write events.
 
-    At RED: `import step_sentinel` fails inside the body → ImportError → FAIL.
+    At RED: `import bytedigger_engine.lib.step_sentinel` fails inside the body → ImportError → FAIL.
     """
-    import step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib import step_sentinel  # noqa: PLC0415
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True)
@@ -217,7 +215,7 @@ def test_b6_retry_cycle2_does_not_reuse_cycle1_sentinel(tmp_path):
     At RED: `StepContract(..., resume_sentinel=True)` raises TypeError
     (unexpected keyword — field does not exist yet) → FAIL.
     """
-    from resume_keying import resume_sentinel_name  # existing module, safe at call time
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # existing module, safe at call time
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True)
@@ -300,9 +298,9 @@ def test_b8_exactly_three_llm_steps_flagged():
 
     At RED: `.resume_sentinel` does not exist on any StepContract → AttributeError.
     """
-    from phase_45_spec import phase_45_spec_workflow  # noqa: PLC0415
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
-    from phase_4_architect import phase_4_architect_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import phase_45_spec_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_4_architect import phase_4_architect_workflow  # noqa: PLC0415
 
     expected_true = {"invoke_spec_llm", "invoke_green_llm", "invoke_architect_llm", "invoke_review_llm"}
     flagged: set = set()
@@ -325,10 +323,10 @@ def test_b9_disable_flag_suppresses_read_and_write(tmp_path):
     with a pre-seeded sentinel still executes (no read short-circuit), and
     the pre-seeded sentinel is left untouched (no write).
 
-    At RED: `import step_sentinel` fails inside the body → ImportError → FAIL.
+    At RED: `import bytedigger_engine.lib.step_sentinel` fails inside the body → ImportError → FAIL.
     """
-    import step_sentinel  # noqa: PLC0415
-    from resume_keying import resume_sentinel_name  # noqa: PLC0415
+    from bytedigger_engine.lib import step_sentinel  # noqa: PLC0415
+    from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True)

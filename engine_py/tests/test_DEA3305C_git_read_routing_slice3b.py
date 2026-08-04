@@ -35,9 +35,9 @@ Pre-GREEN PASS/FAIL classification (expected: 5 FAIL / 0 PASS):
 """
 from __future__ import annotations
 
-import engine
-from engine import _git_changes_vs_head
-from lib.git_port import (
+from bytedigger_engine import engine
+from bytedigger_engine.engine import _git_changes_vs_head
+from bytedigger_engine.lib.git_port import (
     GitResult,
     set_default_git_read_factory,
     reset_default_git_read_factory,

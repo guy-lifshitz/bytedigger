@@ -21,12 +21,12 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-for p in (str(ENGINE_ROOT), str(ENGINE_ROOT / "lib"), str(ENGINE_ROOT / "workflows")):
+for p in (str(ENGINE_ROOT), str(ENGINE_ROOT / "bytedigger_engine" / "lib"), str(ENGINE_ROOT / "bytedigger_engine" / "workflows")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import phase_45_spec  # noqa: E402  (monkeypatch target for _emit_safe)
-from phase_45_spec import (  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec  # noqa: E402  (monkeypatch target for _emit_safe)
+from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
     _write_review_doc,
     _gate_on_review,
     _parse_verdict,
@@ -35,7 +35,7 @@ from phase_45_spec import (  # noqa: E402
     VERDICT_UNKNOWN,
     MAX_REVIEW_CYCLES,
 )
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── raw markdown fixtures ─────────────────────────────────────────────────────

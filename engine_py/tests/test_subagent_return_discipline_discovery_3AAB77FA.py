@@ -36,12 +36,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 # Stable, always-exist imports only — no _resolve_discovery_source / _emit_safe at top level.
-import phase_1_discovery as disc  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_1_discovery import (  # noqa: E402
+from bytedigger_engine.workflows import phase_1_discovery as disc  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_1_discovery import (  # noqa: E402
     FEATURE_DOC_RELPATH,
     SIMPLE_DOC_RELPATH,
 )

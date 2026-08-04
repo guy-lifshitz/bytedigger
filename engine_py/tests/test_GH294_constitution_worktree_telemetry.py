@@ -38,10 +38,10 @@ from pathlib import Path
 
 import pytest
 
-import phase_05_inject
-import telemetry_ctx
-from contracts import WorkflowContext
-from event_log import EventLog
+from bytedigger_engine.workflows import phase_05_inject
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.contracts import WorkflowContext
+from bytedigger_engine.event_log import EventLog
 
 
 def _make_ctx(org_config: dict | None = None) -> WorkflowContext:

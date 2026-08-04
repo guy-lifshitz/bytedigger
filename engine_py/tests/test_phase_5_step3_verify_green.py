@@ -28,11 +28,9 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from phase_5_implement import _verify_green_passing, phase_5_implement_workflow  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _verify_green_passing, phase_5_implement_workflow  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -103,7 +101,7 @@ def _write_failing_test(repo: Path, relpath: str) -> None:
 
 
 def _patch_emit(monkeypatch) -> list[dict]:
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
     captured: list[dict] = []
     monkeypatch.setattr(
         phase_5_implement,
@@ -245,7 +243,7 @@ class TestVerifyGreenPassingFunction:
 
         _patch_emit(monkeypatch)
 
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         def _raise_fnf(*args, **kwargs):
             raise FileNotFoundError("binary not found")

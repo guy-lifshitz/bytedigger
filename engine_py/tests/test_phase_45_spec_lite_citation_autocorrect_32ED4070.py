@@ -30,16 +30,14 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_45_spec_lite  # noqa: E402
-from phase_45_spec_lite import (  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec_lite  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec_lite import (  # noqa: E402
     VERDICT_REVISE,
     VERDICT_SHIP,
     _write_review_doc,
 )
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── shared test helpers ───────────────────────────────────────────────────────
@@ -92,7 +90,7 @@ def _structured_findings_raw(findings: list[dict]) -> str:
 
 def test_ac1_citation_line_re_constant():
     """AC1: _CITATION_LINE_RE is defined at module scope; pattern and flags are correct."""
-    from phase_45_spec_lite import _CITATION_LINE_RE  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _CITATION_LINE_RE  # noqa: PLC0415
 
     assert isinstance(_CITATION_LINE_RE, type(re.compile(""))), (
         "_CITATION_LINE_RE must be a compiled regex object"
@@ -111,7 +109,7 @@ def test_ac1_citation_line_re_constant():
 
 def test_ac2_citation_window_lines_constant():
     """AC2: _CITATION_WINDOW_LINES is an int with value 3."""
-    from phase_45_spec_lite import _CITATION_WINDOW_LINES  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _CITATION_WINDOW_LINES  # noqa: PLC0415
 
     assert isinstance(_CITATION_WINDOW_LINES, int), (
         f"_CITATION_WINDOW_LINES must be int, got {type(_CITATION_WINDOW_LINES)}"
@@ -126,7 +124,7 @@ def test_ac2_citation_window_lines_constant():
 
 def test_ac3_repair_finding_citation_signature():
     """AC3: _repair_finding_citation exists with parameters (finding, file_cache, cwd) in that order."""
-    from phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
 
     sig = inspect.signature(_repair_finding_citation)
     param_names = list(sig.parameters.keys())
@@ -140,7 +138,7 @@ def test_ac3_repair_finding_citation_signature():
 
 def test_ac4_tier_a_already_correct(tmp_path: Path):
     """AC4: citation already correct at cited line → (False, None), evidence unchanged."""
-    from phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
 
     # Create a file where line 5 is exactly "    pass"
     foo = tmp_path / "foo.py"
@@ -171,7 +169,7 @@ def test_ac4_tier_a_already_correct(tmp_path: Path):
 
 def test_ac5_off_by_1_positive_delta(tmp_path: Path):
     """AC5: citation at line 5, actual content at line 6 → (True, info with delta=1), evidence updated."""
-    from phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
 
     foo = tmp_path / "foo.py"
     lines = ["line1\n", "line2\n", "line3\n", "x = 1\n", "    pass\n"]
@@ -213,7 +211,7 @@ def test_ac5_off_by_1_positive_delta(tmp_path: Path):
 
 def test_ac6_off_by_3_negative_delta(tmp_path: Path):
     """AC6: citation at line 8, actual content 'target' at line 5 → (True, info with delta=-3)."""
-    from phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
 
     foo = tmp_path / "foo.py"
     # 9 lines; line 5 = "target", line 8 = "wrong"
@@ -256,7 +254,7 @@ def test_ac6_off_by_3_negative_delta(tmp_path: Path):
 
 def test_ac7_out_of_window_no_repair(tmp_path: Path):
     """AC7: citation at line 1, actual content at line 5 → delta=-4 → out of window → (False, None)."""
-    from phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
 
     foo = tmp_path / "foo.py"
     content_lines = [
@@ -290,7 +288,7 @@ def test_ac7_out_of_window_no_repair(tmp_path: Path):
 
 def test_ac8_relative_path_resolved_under_cwd(tmp_path: Path):
     """AC8a: file doesn't exist → (False, None). AC8b: relative path off-by-1 → repair with absolute path in info."""
-    from phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _repair_finding_citation  # noqa: PLC0415
 
     # AC8a: relative path with nonexistent file → (False, None)
     finding_a: dict = {
@@ -345,7 +343,7 @@ def test_ac8_relative_path_resolved_under_cwd(tmp_path: Path):
 
 def test_ac9_auto_correct_citations_returns_repaired_ids(tmp_path: Path):
     """AC9: 3 findings — F1 off-by-1, F2 exact, F3 out-of-window → returns {'F1'}, F1 mutated, F2/F3 unchanged."""
-    from phase_45_spec_lite import _auto_correct_citations  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _auto_correct_citations  # noqa: PLC0415
 
     foo = tmp_path / "target.py"
     content_lines = [
@@ -403,7 +401,7 @@ def test_ac10_auto_correct_emits_telemetry(tmp_path: Path, monkeypatch):
     Payload keys: phase, finding_id, original_lineno, new_lineno, delta, path, match_tier.
     phase=='phase_45_spec_lite', match_tier=='B'.
     """
-    from phase_45_spec_lite import _auto_correct_citations  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec_lite import _auto_correct_citations  # noqa: PLC0415
 
     foo = tmp_path / "src.py"
     content_lines = [

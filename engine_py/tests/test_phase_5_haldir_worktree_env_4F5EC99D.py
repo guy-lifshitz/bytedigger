@@ -27,11 +27,9 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))                      # contracts, etc.
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))              # plugins.disk_truth
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))        # phase_5_implement
 
-from plugins.disk_truth import run_test_command, TestRunResult  # noqa: E402
-from contracts import StepResult, WorkflowContext               # noqa: E402
+from bytedigger_engine.lib.plugins.disk_truth import run_test_command, TestRunResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext               # noqa: E402
 
 
 # ─── shared helpers ────────────────────────────────────────────────────────────
@@ -73,7 +71,7 @@ def _make_prev(red_test_paths: list[str]) -> StepResult:
 def test_ac1_test_subprocess_env_returns_env_with_hal_dir(tmp_path: Path) -> None:
     """AC1: test_subprocess_env(p) == {**os.environ, 'HAL_DIR': str(p)}.
     FAILS today: helper absent → ImportError."""
-    from plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
+    from bytedigger_engine.lib.plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
 
     expected = {**os.environ, "HAL_DIR": str(tmp_path)}
     result = test_subprocess_env(tmp_path)
@@ -91,7 +89,7 @@ def test_ac1_test_subprocess_env_returns_env_with_hal_dir(tmp_path: Path) -> Non
 def test_ac2_test_subprocess_env_does_not_mutate_os_environ(tmp_path: Path) -> None:
     """AC2: test_subprocess_env returns a fresh dict; os.environ is unchanged.
     FAILS today: helper absent → ImportError."""
-    from plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
+    from bytedigger_engine.lib.plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
 
     before = dict(os.environ)
     result = test_subprocess_env(tmp_path)
@@ -112,7 +110,7 @@ def test_ac3_worktree_wins_over_preexisting_hal_dir(
 ) -> None:
     """AC3: with os.environ['HAL_DIR']=='/main', test_subprocess_env('/wt')['HAL_DIR']=='/wt'.
     FAILS today: helper absent → ImportError."""
-    from plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
+    from bytedigger_engine.lib.plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
 
     worktree = tmp_path / "worktree"
     worktree.mkdir()
@@ -177,8 +175,8 @@ def test_ac6_verify_red_fails_mechanically_passes_hal_dir_env(
 ) -> None:
     """AC6: _verify_red_fails_mechanically passes env={'HAL_DIR': git_cwd, ...}
     to its direct subprocess.run call. FAILS today: env kwarg is absent (None)."""
-    import phase_5_implement
-    from plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
+    from bytedigger_engine.workflows import phase_5_implement
+    from bytedigger_engine.lib.plugins.disk_truth import test_subprocess_env  # lazy — absent pre-GREEN
 
     captured_kwargs: list[dict] = []
 

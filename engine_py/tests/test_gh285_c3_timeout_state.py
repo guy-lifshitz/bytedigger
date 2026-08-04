@@ -29,12 +29,10 @@ import pytest  # noqa: E402
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -146,7 +144,7 @@ def _run_outer_timeout(schedule, timeout_sec=1, block_sec=30.0, **kwargs):
     the given NDJSON schedule feeding stdout content."""
     stdout_obj = _TimedStdout(schedule, block_sec=block_sec)
     proc = _stream_proc_with_stdout(stdout_obj, returncode=None)
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -162,21 +160,21 @@ def _run_outer_timeout(schedule, timeout_sec=1, block_sec=30.0, **kwargs):
 
 def test_ac1_classify_timeout_state_active_above_threshold():
     """AC1: classify_timeout_state(50001, 50000) == "active" (strict >)."""
-    from lib.timeout_policy import classify_timeout_state
+    from bytedigger_engine.lib.timeout_policy import classify_timeout_state
 
     assert classify_timeout_state(50001, 50000) == "active"
 
 
 def test_ac2_classify_timeout_state_stuck_at_boundary():
     """AC2: classify_timeout_state(50000, 50000) == "stuck" (== is stuck)."""
-    from lib.timeout_policy import classify_timeout_state
+    from bytedigger_engine.lib.timeout_policy import classify_timeout_state
 
     assert classify_timeout_state(50000, 50000) == "stuck"
 
 
 def test_ac3_classify_timeout_state_stuck_at_zero():
     """AC3: classify_timeout_state(0, 50000) == "stuck"."""
-    from lib.timeout_policy import classify_timeout_state
+    from bytedigger_engine.lib.timeout_policy import classify_timeout_state
 
     assert classify_timeout_state(0, 50000) == "stuck"
 
@@ -184,7 +182,7 @@ def test_ac3_classify_timeout_state_stuck_at_zero():
 def test_ac4_resolve_active_threshold_bytes_default():
     """AC4: resolve_active_threshold_bytes(None) == 50000 and
     ACTIVE_THRESHOLD_BYTES_DEFAULT == 50000."""
-    from lib.timeout_policy import (
+    from bytedigger_engine.lib.timeout_policy import (
         ACTIVE_THRESHOLD_BYTES_DEFAULT,
         resolve_active_threshold_bytes,
     )
@@ -196,7 +194,7 @@ def test_ac4_resolve_active_threshold_bytes_default():
 def test_ac5_resolve_active_threshold_bytes_override_and_fallback():
     """AC5: "120000" -> 120000; "abc" -> 50000 (malformed fall-through);
     "0" -> 1 (max(1, ·) mirror of resolve_timeout_sec semantics)."""
-    from lib.timeout_policy import resolve_active_threshold_bytes
+    from bytedigger_engine.lib.timeout_policy import resolve_active_threshold_bytes
 
     assert resolve_active_threshold_bytes("120000") == 120000
     assert resolve_active_threshold_bytes("abc") == 50000
@@ -259,7 +257,7 @@ def test_ac9_llm_timeout_state_event_emitted_once():
     try:
         stdout_obj = _TimedStdout(schedule, block_sec=10.0)
         proc = _stream_proc_with_stdout(stdout_obj, returncode=None)
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="x", model="sonnet", timeout_sec=1, step_name="s"
             )
@@ -284,7 +282,7 @@ def test_ac9b_success_path_emits_zero_llm_timeout_state_events():
     )
     try:
         proc = _static_stream_proc(_RESULT_OK + "\n", returncode=0)
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x", model="sonnet", timeout_sec=20, step_name="s"
             )
@@ -311,7 +309,7 @@ def test_ac10_idle_abort_no_timeout_state_key_or_event():
         event_log=log, run_id="r-idle", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",

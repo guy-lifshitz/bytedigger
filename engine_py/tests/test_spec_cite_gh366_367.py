@@ -4,7 +4,7 @@ Spec: SHARED/memory/Decisions/2026-07-06_106C8D6F_gh366_368_spec_lint_fp_spec.md
 
 The module `spec_cite.py` ALREADY EXISTS (conftest.py inserts engine_py/ onto
 sys.path — see tests/conftest.py "Conftest-import-time singleton"), so a plain
-top-level `import spec_cite` is safe (§1q only forbids importing symbols that
+top-level `import bytedigger_engine.spec_cite` is safe (§1q only forbids importing symbols that
 do not exist yet). The NEW symbols under test (Citation.is_new, the
 "new_symbol" Finding.status value, the tightened _SYMBOL_TOKEN_RE charset)
 are exercised via calls to the EXISTING public functions (scan_citations,
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-import spec_cite
+from bytedigger_engine import spec_cite
 
 
 # ── T1 (#367): `result[0]["status"]=="not_remediated"` is NOT a symbol ──────

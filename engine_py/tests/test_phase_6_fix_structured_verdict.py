@@ -13,12 +13,10 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_6_review  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     FIX_BLOCKED,
     FIX_COMPLETE,
     FIX_DOC_RELPATH,
@@ -98,11 +96,11 @@ def _no_op_disk_truth(monkeypatch) -> None:
 
 def test_ac1_fix_verdict_importable_and_has_correct_fields():
     """AC1: FixVerdict exists as a dataclass with fix_complete: bool and
-    remaining: List[dict]; importable as `from plugins.disk_truth import FixVerdict`.
+    remaining: List[dict]; importable as `from bytedigger_engine.lib.plugins.disk_truth import FixVerdict`.
 
     FAILS today: FixVerdict does not exist in schema.py / __init__.py.
     """
-    from plugins.disk_truth import FixVerdict  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import FixVerdict  # type: ignore[attr-defined]
     import dataclasses
 
     assert dataclasses.is_dataclass(FixVerdict), "FixVerdict must be a dataclass"
@@ -124,7 +122,7 @@ def test_ac2_enforce_fix_verdict_happy_path():
 
     FAILS today: FixVerdict not yet defined.
     """
-    from plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
 
     result = enforce({"fix_complete": True, "remaining": []}, FixVerdict)
     assert isinstance(result, FixVerdict)
@@ -138,7 +136,7 @@ def test_ac2_enforce_fix_verdict_strict_bool_rejects_int():
 
     FAILS today: FixVerdict not yet defined.
     """
-    from plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
 
     with pytest.raises(SchemaViolation):
         enforce({"fix_complete": 1, "remaining": []}, FixVerdict)
@@ -150,7 +148,7 @@ def test_ac2_enforce_fix_verdict_missing_required_remaining_raises():
 
     FAILS today: FixVerdict not yet defined.
     """
-    from plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
 
     with pytest.raises(SchemaViolation):
         enforce({"fix_complete": True}, FixVerdict)
@@ -162,7 +160,7 @@ def test_ac2_enforce_fix_verdict_unknown_field_raises():
 
     FAILS today: FixVerdict not yet defined.
     """
-    from plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import FixVerdict, enforce, SchemaViolation  # type: ignore[attr-defined]
 
     with pytest.raises(SchemaViolation):
         enforce({"fix_complete": True, "remaining": [], "extra": 1}, FixVerdict)
@@ -176,8 +174,8 @@ def test_ac3_parse_fix_structured_happy_path():
 
     FAILS today: _parse_fix_structured does not exist in phase_6_review.
     """
-    from phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
-    from plugins.disk_truth import FixVerdict  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import FixVerdict  # type: ignore[attr-defined]
 
     raw = (
         "Some fix text here.\n"
@@ -202,7 +200,7 @@ def test_ac4_parse_fix_structured_no_block_returns_absent():
 
     FAILS today: _parse_fix_structured does not exist.
     """
-    from phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
 
     verdict, reason = _parse_fix_structured("FIX COMPLETE — done")
     assert verdict is None
@@ -214,7 +212,7 @@ def test_ac4_parse_fix_structured_empty_string_returns_absent():
 
     FAILS today: _parse_fix_structured does not exist.
     """
-    from phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
 
     verdict, reason = _parse_fix_structured("")
     assert verdict is None
@@ -226,7 +224,7 @@ def test_ac4_parse_fix_structured_malformed_json_returns_malformed():
 
     FAILS today: _parse_fix_structured does not exist.
     """
-    from phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
 
     raw = "## fix-output (structured)\n```json\n{not json}\n```\n"
     verdict, reason = _parse_fix_structured(raw)
@@ -239,7 +237,7 @@ def test_ac4_parse_fix_structured_schema_violation_returns_schema_violation():
 
     FAILS today: _parse_fix_structured does not exist.
     """
-    from phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
+    from bytedigger_engine.workflows.phase_6_review import _parse_fix_structured  # type: ignore[attr-defined]
 
     raw = (
         "## fix-output (structured)\n"
@@ -266,7 +264,7 @@ def test_ac5_structured_fix_complete_true_returns_ok_with_event(tmp_path, monkey
     FAILS today: structured parsing not yet implemented; 'structured_verdict' key
     absent from common_data; no 'fix_structured_ok' event emitted.
     """
-    from plugins.disk_truth import FixVerdict  # type: ignore[attr-defined]
+    from bytedigger_engine.lib.plugins.disk_truth import FixVerdict  # type: ignore[attr-defined]
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()
@@ -474,7 +472,7 @@ def test_ac9_parse_fix_status_still_works():
     This test exercises existing behavior and should pass today AND after GREEN.
     It guards that the #12 changes do not regress the legacy marker parser.
     """
-    from phase_6_review import _parse_fix_status  # noqa: E402
+    from bytedigger_engine.workflows.phase_6_review import _parse_fix_status  # noqa: E402
 
     assert _parse_fix_status("FIX COMPLETE — all done") == FIX_COMPLETE
     assert _parse_fix_status("FIX SKIPPED — no findings") == FIX_SKIPPED

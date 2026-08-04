@@ -74,9 +74,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from helpers import live_repo  # noqa: E402 — bd#2 git-checkout requirement
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_5_implement as p5  # noqa: E402
-import phase_6_review as p6  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as p6  # noqa: E402
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -196,7 +196,7 @@ def test_ac1_relative_current_worktree_path_labelled_ambient(tmp_path, monkeypat
     str(Path(raw).expanduser().resolve()). Pre-GREEN FAIL: today's resolver
     always returns 'cfg_current_worktree_path' regardless of relative/absolute
     input (lib/git_cwd.py L45-49 has no relative/absolute branch)."""
-    from lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
 
     base = tmp_path / "base"
     base.mkdir()
@@ -218,7 +218,7 @@ def test_ac1_relative_current_worktree_path_labelled_ambient(tmp_path, monkeypat
 def test_ac2_absolute_current_worktree_path_labelled_explicit(tmp_path):
     """AC2 (regression pin): absolute current_worktree_path -> source stays
     'cfg_current_worktree_path' (unaffected by the new relative-detection)."""
-    from lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
 
     abs_dir = tmp_path / "worktree"
     abs_dir.mkdir()
@@ -237,7 +237,7 @@ def test_ac3_relative_scratchpad_climb_labelled_ambient(tmp_path, monkeypatch):
     'scratchpad_climb_relative', same resolved path as today. Pre-GREEN FAIL:
     today's climb branch always labels 'scratchpad_climb' regardless of
     relative/absolute input (lib/git_cwd.py L51-62)."""
-    from lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
 
     tmp_repo, scratchpad = _build_repo_with_scratchpad(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -258,7 +258,7 @@ def test_ac3_relative_scratchpad_climb_labelled_ambient(tmp_path, monkeypatch):
 def test_ac4_absolute_scratchpad_climb_labelled_explicit(tmp_path):
     """AC4 (regression pin): absolute scratchpad_dir climb -> source stays
     'scratchpad_climb'."""
-    from lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
 
     tmp_repo, scratchpad = _build_repo_with_scratchpad(tmp_path)
 
@@ -281,7 +281,7 @@ def test_ac5_is_ambient_git_cwd_both_directions():
     5); no implementation could satisfy both, so this is the corrected form.
     Pre-GREEN FAIL: ImportError, `is_ambient_git_cwd` /
     `AMBIENT_GIT_CWD_SOURCES` / `EXPLICIT_GIT_CWD_SOURCES` do not exist yet."""
-    from lib.git_cwd import (  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import (  # noqa: PLC0415
         AMBIENT_GIT_CWD_SOURCES,
         EXPLICIT_GIT_CWD_SOURCES,
         is_ambient_git_cwd,
@@ -309,7 +309,7 @@ def test_ac6_resolve_git_cwd_for_write_ambient_vs_explicit(tmp_path, monkeypatch
     """AC6: `resolve_git_cwd_for_write({})` -> (None, "cwd");
     `resolve_git_cwd_for_write({"git_cwd": "/x"})` -> ("/x", "cfg_git_cwd").
     Pre-GREEN FAIL: ImportError, the function does not exist yet."""
-    from lib.git_cwd import resolve_git_cwd_for_write  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd_for_write  # noqa: PLC0415
 
     monkeypatch.chdir(tmp_path)
 
@@ -328,8 +328,8 @@ def test_ac7_emit_resolver_resolved_called_with_relative_labels(tmp_path, monkey
     resolver contract pin). Pre-GREEN FAIL: today's code only ever emits
     'cfg_current_worktree_path' / 'scratchpad_climb', never the '_relative'
     labels."""
-    from lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
-    import lib.git_cwd as git_cwd_mod  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import resolve_git_cwd_with_source  # noqa: PLC0415
+    from bytedigger_engine.lib import git_cwd as git_cwd_mod  # noqa: PLC0415
 
     captured: list[tuple] = []
     monkeypatch.setattr(
@@ -369,7 +369,7 @@ def test_ac7b_relative_cfg_and_prev_data_git_cwd_labelled_ambient(tmp_path, monk
     silently anchor to cwd. Pre-GREEN FAIL: today both levels always label
     'cfg_git_cwd' / 'prev_data' regardless of relative/absolute input
     (lib/git_cwd.py L33-43), and `resolve_git_cwd_for_write` does not exist."""
-    from lib.git_cwd import (  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import (  # noqa: PLC0415
         resolve_git_cwd_for_write,
         resolve_git_cwd_with_source,
     )
@@ -1032,7 +1032,7 @@ def test_ac14b_autocommit_fix_tail_skip_reason_pinned_to_cwd_default(tmp_path, m
 def test_ac15_e_git_cwd_ambient_registered_in_error_codes():
     """AC15: E_GIT_CWD_AMBIENT is present in error_codes.py's registry AND in
     ERROR_CODES.md (two-direction, §1n). Pre-GREEN FAIL: neither exists yet."""
-    import error_codes  # noqa: PLC0415
+    from bytedigger_engine import error_codes  # noqa: PLC0415
 
     assert "E_GIT_CWD_AMBIENT" in error_codes.ERROR_CODES, (
         f"expected 'E_GIT_CWD_AMBIENT' registered in error_codes.ERROR_CODES; "
@@ -1135,7 +1135,7 @@ def test_ac26b_verify_green_passing_ambient_never_stashes_real_caller(tmp_path, 
     stderr_file = tmp_path / "stderr.txt"
     stderr_file.write_text("", encoding="utf-8")
 
-    from lib.plugins.disk_truth.test_runner import TestRunResult  # noqa: PLC0415
+    from bytedigger_engine.lib.plugins.disk_truth.test_runner import TestRunResult  # noqa: PLC0415
 
     fake_result = TestRunResult(
         exit_code=1, n_passed=0, n_failed=1,
@@ -2131,7 +2131,7 @@ def test_ac32_lint_reports_zero_unclassified_sites_on_real_engine_tree():
     §0's inventory is in `GUARDED_WRITE_SITES` or
     `DECLARED_NON_GIT_CWD_SITES`. Pre-GREEN FAIL: ImportError,
     lib/mutating_git_lint.py does not exist yet."""
-    import mutating_git_lint  # noqa: PLC0415
+    from bytedigger_engine.lib import mutating_git_lint  # noqa: PLC0415
 
     engine_root = Path(__file__).resolve().parents[1]
     unclassified = mutating_git_lint.find_unclassified_sites(engine_root)
@@ -2153,7 +2153,7 @@ def test_ac45_guarded_write_sites_covers_all_ten_b1_b10_functions(tmp_path):
     declares away every real hazard, and the entire SYSTEMATIC justification
     for Change D over a per-site PATCH would be a declaration rather than an
     enforced property. Pre-GREEN FAIL: ImportError, module absent."""
-    import mutating_git_lint  # noqa: PLC0415
+    from bytedigger_engine.lib import mutating_git_lint  # noqa: PLC0415
 
     b1_through_b10 = {
         "_commit_red_tests",
@@ -2212,7 +2212,7 @@ def test_ac33_lint_reports_file_line_function_for_unclassified_synthetic_site(tm
     the engine into `DECLARED_NON_GIT_CWD_SITES` as noise (AC32 would then
     force ~10 such sites in) -- exactly the failure this asserts against.
     Pre-GREEN FAIL: ImportError, module absent."""
-    import mutating_git_lint  # noqa: PLC0415
+    from bytedigger_engine.lib import mutating_git_lint  # noqa: PLC0415
 
     synthetic_root = tmp_path / "synthetic_engine_ac33"
     synthetic_root.mkdir()
@@ -2272,7 +2272,7 @@ def test_ac34_removing_guard_from_registered_site_is_detected(tmp_path):
     `dict` type Amendment 3.3 names -- the orchestrator has explicitly
     widened the frozen API to accept either shape for these two keyword
     params. Pre-GREEN FAIL: ImportError, module absent."""
-    import mutating_git_lint  # noqa: PLC0415
+    from bytedigger_engine.lib import mutating_git_lint  # noqa: PLC0415
 
     synthetic_root = tmp_path / "synthetic_engine_ac34"
     synthetic_root.mkdir()
@@ -2307,8 +2307,8 @@ def test_ac35_lint_label_set_matches_resolver_output_both_directions(tmp_path, m
     derived from the resolver, both directions, so a future sixth level
     cannot land unclassified. Pre-GREEN FAIL: ImportError, the lint module
     (and the wider label sets it derives from) do not exist yet."""
-    import mutating_git_lint  # noqa: PLC0415
-    from lib.git_cwd import (  # noqa: PLC0415
+    from bytedigger_engine.lib import mutating_git_lint  # noqa: PLC0415
+    from bytedigger_engine.lib.git_cwd import (  # noqa: PLC0415
         AMBIENT_GIT_CWD_SOURCES,
         EXPLICIT_GIT_CWD_SOURCES,
         resolve_git_cwd_with_source,
@@ -2366,7 +2366,7 @@ def test_ac36_kill_switch_disables_lint(monkeypatch, tmp_path):
     anything absent it); THEN `HAL_MUTATING_GIT_LINT=0` disables it (escape
     hatch present and effective) -- the SAME synthetic unclassified site no
     longer fails the run. Pre-GREEN FAIL: ImportError, module absent."""
-    import mutating_git_lint  # noqa: PLC0415
+    from bytedigger_engine.lib import mutating_git_lint  # noqa: PLC0415
 
     synthetic_root = tmp_path / "synthetic_engine_ac36"
     synthetic_root.mkdir()
@@ -2409,7 +2409,7 @@ def test_ac37_lint_flags_mutating_verb_through_read_port():
     re-routing is a follow-up OFI, so the site must still be found post-GREEN,
     just possibly at a different line. Pre-GREEN FAIL: ImportError, module
     absent."""
-    import mutating_git_lint  # noqa: PLC0415
+    from bytedigger_engine.lib import mutating_git_lint  # noqa: PLC0415
 
     engine_root = Path(__file__).resolve().parents[1]
     misuse = mutating_git_lint.find_read_port_misuse(engine_root)
@@ -2443,7 +2443,7 @@ def test_ac38_git_write_port_refuses_relative_cwd(tmp_path):
     refusal names the offending value. Pre-GREEN FAIL: `op_capture`/
     `op_with_lock_retry` (lib/git_write_port.py:36-64) run `bounded_run`
     unconditionally regardless of whether `cwd` is relative or absolute."""
-    import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     relative_cwd = "rel/dir/ac38"
 
@@ -2462,7 +2462,7 @@ def test_ac39_git_read_port_refuses_relative_cwd():
     once Change B5 threads an explicit/absolute cwd. Pre-GREEN FAIL:
     `git_read`/`_git_read_subprocess` (lib/git_port.py:63-96) run
     `bounded_run` unconditionally regardless of relative/absolute `cwd`."""
-    import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
 
     relative_cwd = "rel/dir/ac39"
 
@@ -2481,8 +2481,8 @@ def test_ac40_absolute_cwd_including_process_cwd_is_unaffected(tmp_path, monkeyp
     cwd); pinned here so a GREEN that over-widens Change E to reject
     'anything that looks ambient' cannot ship -- it must still fail every
     Change B refusal AC for the 'cwd' label specifically."""
-    import git_port  # noqa: PLC0415
-    import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     repo, base_sha = _make_repo_with_base_commit(tmp_path)
 
@@ -2524,8 +2524,8 @@ def test_ac41_git_write_at_cwd_emitted_unconditionally_on_every_port_write(tmp_p
     observability that would have caught this bug class in a day. Only the
     `telemetry_ctx.emit_safe` collaborator seam is patched (§1l) -- never the
     UUT. Pre-GREEN FAIL: neither function emits any telemetry today."""
-    import telemetry_ctx  # noqa: PLC0415
-    import git_write_port  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     captured: list[dict] = []
     monkeypatch.setattr(
@@ -2587,8 +2587,8 @@ def test_ac42_git_write_telemetry_never_raises_even_if_emit_safe_fails(tmp_path,
     vacuously satisfied for the wrong reason -- it becomes a REAL guard only
     once AC41 lands, and is written now so GREEN cannot ship AC41 without
     also shipping this."""
-    import telemetry_ctx  # noqa: PLC0415
-    import git_write_port  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     def _raise(*a, **kw):
         raise RuntimeError("telemetry sink is down")
@@ -2617,8 +2617,8 @@ def test_ac43_cwd_none_allowed_at_all_three_entry_points(tmp_path):
     already treats cwd=None as inherit); pinned so a naive `if not
     os.path.isabs(cwd): raise` (which throws TypeError on None) cannot ship
     and brick the commit-msg audit gate (gate 0a)."""
-    import git_port  # noqa: PLC0415
-    import git_write_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_write_port  # noqa: PLC0415
 
     r1 = git_port.git_read(["rev-parse", "--is-inside-work-tree"], cwd=None)
     assert isinstance(r1.returncode, int), (
@@ -2657,8 +2657,8 @@ def test_ac44_escaped_change_e_valueerror_propagates_uncaught_from_workflow_engi
     PASS already -- this is today's real `engine.py` behavior, independent
     of GH1220; pinned here so a GREEN touching `engine.py` incidentally
     cannot regress it."""
-    from contracts import StepContract, WorkflowDefinition  # noqa: PLC0415
-    from engine import WorkflowEngine  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepContract, WorkflowDefinition  # noqa: PLC0415
+    from bytedigger_engine.engine import WorkflowEngine  # noqa: PLC0415
 
     def _raising_step(ctx, prev):
         raise ValueError("git_write_port: refusing a relative cwd: 'rel/dir'")

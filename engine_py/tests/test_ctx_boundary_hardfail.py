@@ -28,17 +28,16 @@ from pathlib import Path
 # Match existing test convention (test_engine.py:6) — sys.path bootstrap
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 import pytest
 
-from contracts import (
+from bytedigger_engine.contracts import (
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
+from bytedigger_engine.engine import WorkflowEngine
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -231,7 +230,7 @@ def test_run_py_parse_ctx_does_not_default_session_id_to_unknown():
     checks and triggers silent-skip downstream — phase_8_post_deploy.py:604).
     """
     import argparse
-    import run
+    from bytedigger_engine import run
 
     # Simulate the CLI args namespace passed to parse_ctx
     args = argparse.Namespace(
@@ -259,7 +258,7 @@ def test_phase_05_inject_step_has_required_ctx_org_config():
     phase_05_inject.py:404 calls _resolve_scratchpad which reads org_config)
     must declare required_ctx_fields=['org_config'] so the engine hard-fails
     BEFORE silently treating None as `{}` at line 348."""
-    from phase_05_inject import phase_05_inject_workflow
+    from bytedigger_engine.workflows.phase_05_inject import phase_05_inject_workflow
 
     wf = phase_05_inject_workflow()
     target = next(
@@ -287,7 +286,7 @@ def test_phase_8_deregister_step_has_required_ctx_session_id():
     skips when session_id is None/empty/'unknown' (line 604, returns
     status='ok' with skipped=True). It must declare
     required_ctx_fields=['session_id'] so the engine hard-fails instead."""
-    from phase_8_post_deploy import phase_8_post_deploy_workflow
+    from bytedigger_engine.workflows.phase_8_post_deploy import phase_8_post_deploy_workflow
 
     wf = phase_8_post_deploy_workflow()
     target = next(
@@ -417,7 +416,7 @@ def test_run_py_parse_ctx_file_branch_does_not_default_session_id_to_unknown(tmp
     bug returns through the file branch.
     """
     import argparse
-    import run
+    from bytedigger_engine import run
 
     ctx_path = tmp_path / "ctx.json"
     ctx_path.write_text(json.dumps({"tenant_id": "t", "question": "q"}))

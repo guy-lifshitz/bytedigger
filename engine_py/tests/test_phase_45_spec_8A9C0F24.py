@@ -34,9 +34,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── helpers (mirrors test_phase_45_spec_A813CA08.py boilerplate) ─────────────
@@ -60,7 +59,7 @@ def make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra)
 def get_revision_prompt(scratchpad: Path, *, cycle: int = 2, findings: str = "stub finding text") -> str:
     """Drive _build_spec_prompt with cycle≥2 ``_prev`` dict (matches
     engine retry hook injection — see phase_45_spec.py L357 isinstance dict)."""
-    from phase_45_spec import _build_spec_prompt
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt
 
     ctx = make_ctx(scratchpad)
     prev = {"cycle": cycle, "findings": findings}
@@ -70,7 +69,7 @@ def get_revision_prompt(scratchpad: Path, *, cycle: int = 2, findings: str = "st
 
 
 def get_cycle1_prompt(scratchpad: Path) -> str:
-    from phase_45_spec import _build_spec_prompt
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt
 
     ctx = make_ctx(scratchpad)
     result = _build_spec_prompt(ctx, None)

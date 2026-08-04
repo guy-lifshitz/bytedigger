@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 # sys.path seam provided by conftest.py (§1q / 81F97F3D gate — no module-level sys.path here).
-import phase_5_implement  # module exists pre-GREEN; conftest adds engine_py/workflows to path
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine.workflows import phase_5_implement  # module exists pre-GREEN; conftest adds engine_py/workflows to path
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 # PRE_RED_REF_RELPATH constant — used to write frozen-ref file
 PRE_RED_REF_RELPATH = "integrity/pre-red-ref.txt"
@@ -210,7 +210,7 @@ def test_commit_recovers_via_disk_fallback(tmp_path):
 
     Pre-GREEN: returns E_RED_NO_MARKER (hard error in else branch) → FAIL.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -250,7 +250,7 @@ def test_commit_no_marker_when_no_candidates(tmp_path):
     Guards preserved behavior: when there genuinely is no RED, must still fail.
     Pre-GREEN: already returns E_RED_NO_MARKER → likely PASSES (regression guard).
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -281,7 +281,7 @@ def test_commit_rejects_nonexistent_candidates(tmp_path):
     Pre-GREEN: may already return E_RED_NO_MARKER (regression guard).
     Post-GREEN: fallback filters to on-disk-present only; bogus path → empty → error.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -313,7 +313,7 @@ def test_commit_error_msg_corrected(tmp_path):
     Post-GREEN message must contain: 'no ctx red_test_paths exist on disk'
     Pre-GREEN: old message → FAIL.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -347,7 +347,7 @@ def test_commit_primary_git_path_unchanged(tmp_path):
     the frozen pre-red SHA (the initial commit HEAD) IS non-empty.
     Pre-GREEN: already works (back-compat regression guard) — likely PASSES.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -392,7 +392,7 @@ def test_commit_emits_fallback_telemetry(tmp_path, monkeypatch):
 
     Pre-GREEN: fallback branch does not exist → event never emitted → FAIL.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     # Capture all _emit_safe calls from phase_5_implement
     captured = _patch_emit_p5(monkeypatch)

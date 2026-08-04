@@ -31,10 +31,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib" / "plugins"))  # noqa: E402
 
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     LoopStepContract,
     RetryPolicy,
     StepContract,
@@ -43,8 +41,8 @@ from contracts import (  # noqa: E402
     WorkflowDefinition,
     step as contracts_step,
 )
-from engine import LoopRunner, WorkflowEngine  # noqa: E402
-from phase_5_implement import _verify_green_passing  # noqa: E402
+from bytedigger_engine.engine import LoopRunner, WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _verify_green_passing  # noqa: E402
 
 
 # ─── shared helpers ───────────────────────────────────────────────────────────
@@ -159,7 +157,7 @@ def _make_prev_with_paths(paths: list[str]) -> StepResult:
 
 
 def _patch_emit_p5(monkeypatch) -> list[dict]:
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
     captured: list[dict] = []
 
     def _capture(event_type, payload, severity="warning"):

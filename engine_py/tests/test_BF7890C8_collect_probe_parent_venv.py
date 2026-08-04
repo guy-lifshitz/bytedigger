@@ -18,7 +18,7 @@ They PASS once GREEN adds the two helpers and rewires the .py branch.
 COLLECTABILITY NOTE (D1CF5FDF / §1q):
   - NO top-level import of _venv_pytest / _main_checkout_root — they don't exist yet.
   - sys.path is set by conftest.py (conftest-import-time singleton, §1q / 81F97F3D).
-  - 'import phase_5_implement' is deferred to inside each test body so missing
+  - 'import bytedigger_engine.workflows.phase_5_implement' is deferred to inside each test body so missing
     attrs raise AttributeError at ASSERT time, never at collection time.
 """
 from __future__ import annotations
@@ -70,7 +70,7 @@ def _skip_if_no_git() -> None:
 
 def test_ac1_venv_pytest_returns_dot_venv_path(tmp_path):
     """AC1: _venv_pytest(base) -> '<base>/.venv/bin/pytest' when that file exists and is executable."""
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_venv_pytest"), (
         "phase_5_implement._venv_pytest does not exist — GREEN must add this helper"
@@ -95,7 +95,7 @@ def test_ac1_venv_pytest_returns_dot_venv_path(tmp_path):
 
 def test_ac2_venv_pytest_prefers_dot_venv_over_venv(tmp_path):
     """AC2: when both .venv/bin/pytest and venv/bin/pytest exist, .venv wins."""
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_venv_pytest"), (
         "phase_5_implement._venv_pytest does not exist — GREEN must add this helper"
@@ -119,7 +119,7 @@ def test_ac2_venv_pytest_prefers_dot_venv_over_venv(tmp_path):
 
 def test_ac3_venv_pytest_returns_none_when_no_venv(tmp_path):
     """AC3: _venv_pytest(empty_dir) -> None (no venv)."""
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_venv_pytest"), (
         "phase_5_implement._venv_pytest does not exist — GREEN must add this helper"
@@ -143,7 +143,7 @@ def test_ac4_main_checkout_root_returns_main_for_worktree(tmp_path):
     """AC4: _main_checkout_root(worktree_path) -> realpath of main checkout root."""
     _skip_if_no_git()
 
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_main_checkout_root"), (
         "phase_5_implement._main_checkout_root does not exist — GREEN must add this helper"
@@ -179,7 +179,7 @@ def test_ac5_main_checkout_root_returns_none_for_main_repo(tmp_path):
     """AC5: _main_checkout_root(main_repo) -> None (not a worktree)."""
     _skip_if_no_git()
 
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_main_checkout_root"), (
         "phase_5_implement._main_checkout_root does not exist — GREEN must add this helper"
@@ -201,7 +201,7 @@ def test_ac5_main_checkout_root_returns_none_for_main_repo(tmp_path):
 
 def test_ac6_main_checkout_root_returns_none_for_non_git_dir(tmp_path):
     """AC6: _main_checkout_root(non_git_dir) -> None, no exception raised."""
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_main_checkout_root"), (
         "phase_5_implement._main_checkout_root does not exist — GREEN must add this helper"
@@ -235,7 +235,7 @@ def test_ac7_runner_for_path_uses_main_repo_venv_from_worktree(tmp_path):
     """
     _skip_if_no_git()
 
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     main_repo = tmp_path / "main_repo"
     _git_init_repo(main_repo)
@@ -274,7 +274,7 @@ def test_ac7_runner_for_path_uses_main_repo_venv_from_worktree(tmp_path):
 
 def test_ac8_runner_for_path_uses_own_venv_when_present(tmp_path):
     """AC8: git_cwd has its own .venv/bin/pytest → argv_prefix[0] is that path."""
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     git_cwd = tmp_path / "my_repo"
     own_pytest = _make_executable_pytest(git_cwd, ".venv")
@@ -304,7 +304,7 @@ def test_ac9_runner_for_path_falls_back_to_python3_when_no_venv(tmp_path):
     """
     _skip_if_no_git()
 
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     # Must have _main_checkout_root wired — otherwise behaviour is same as today
     assert hasattr(phase_5_implement, "_main_checkout_root"), (
@@ -341,7 +341,7 @@ def test_ac9_runner_for_path_falls_back_to_python3_when_no_venv(tmp_path):
 
 def test_ac10_main_checkout_root_passes_finite_timeout(tmp_path):
     """AC10a: _main_checkout_root passes a finite timeout= kwarg to subprocess.run."""
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_main_checkout_root"), (
         "phase_5_implement._main_checkout_root does not exist — GREEN must add this helper"
@@ -380,7 +380,7 @@ def test_ac10_main_checkout_root_passes_finite_timeout(tmp_path):
 
 def test_ac10_main_checkout_root_returns_none_on_timeout_expired(tmp_path):
     """AC10b: _main_checkout_root returns None (not raises) when subprocess raises TimeoutExpired."""
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     assert hasattr(phase_5_implement, "_main_checkout_root"), (
         "phase_5_implement._main_checkout_root does not exist — GREEN must add this helper"

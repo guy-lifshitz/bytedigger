@@ -29,7 +29,6 @@ from unittest import mock
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── helpers (mirror test_phase_5_implement_B6247E87.py) ─────────────────────

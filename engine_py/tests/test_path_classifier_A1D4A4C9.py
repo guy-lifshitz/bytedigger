@@ -12,12 +12,10 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 import importlib
-import phase_5_implement as _p5  # noqa: E402
-import phase_6_review as _p6  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement as _p5  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402
 
 _pc_mod = None
 
@@ -25,12 +23,12 @@ def _pc():
     """Return the util.path_classifier module, asserting it is importable."""
     global _pc_mod
     if _pc_mod is None:
-        _pc_mod = importlib.import_module("util.path_classifier")
+        _pc_mod = importlib.import_module("bytedigger_engine.lib.util.path_classifier")
     return _pc_mod
 
 
 # Resolve phase-file paths robustly from this test file's location
-_WORKFLOWS = ENGINE_ROOT / "workflows"
+_WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 _P5_SRC = (_WORKFLOWS / "phase_5_implement.py").read_text()
 _P6_SRC = (_WORKFLOWS / "phase_6_review.py").read_text()
 

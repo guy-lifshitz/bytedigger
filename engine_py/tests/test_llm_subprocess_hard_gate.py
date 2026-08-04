@@ -29,10 +29,9 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # Single-line stream-json result event — also a valid 1-event stream.
@@ -80,7 +79,7 @@ def test_hard_gate_param_refuses_claude_p_without_model():
     New seam requires model= string. Use model="sonnet" — a non-Opus model —
     which is still refused by hard_gate, preserving the test's intent.
     """
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -105,7 +104,7 @@ def test_hard_gate_param_refuses_claude_p_without_model():
 def test_hard_gate_param_refuses_explicit_non_opus():
     """hard_gate=True must refuse explicit non-Opus model (e.g. sonnet) without spawning."""
     # R1: command=["claude","-p","--model","sonnet"] -> model="sonnet"
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -126,7 +125,7 @@ def test_hard_gate_param_refuses_explicit_non_opus():
 def test_hard_gate_param_passes_opus():
     """hard_gate=True with Opus model must pass the gate AND spawn subprocess."""
     # R1: command=["claude","-p","--model","claude-opus-4-7"] -> model="claude-opus-4-7"
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _mock_proc(stdout=_OPUS_OK_JSON)
         result = invoke_llm_subprocess(
             prompt="x",
@@ -154,7 +153,7 @@ def test_hard_gate_default_off_preserves_existing_behavior():
     haiku-default backward-compat path.
     """
     # R1: command=["claude","-p","--model","haiku"] -> model="haiku"
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         mock_popen.return_value = _mock_proc(stdout=_OPUS_OK_JSON)
         result = invoke_llm_subprocess(
             prompt="x",
@@ -187,7 +186,7 @@ def test_hard_gate_emits_telemetry_with_active_run_ctx():
         event_log=log, run_id="r-w6", step_name="step-x", phase="phase_5_integrity"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -224,7 +223,7 @@ def test_hard_gate_no_telemetry_without_run_ctx():
     """
     telemetry_ctx.clear_current_run()  # belt + suspenders
     # R1: command=["claude","-p","--model","sonnet"] -> model="sonnet"
-    with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -257,8 +256,8 @@ def test_hard_gate_chokepoint_phase_5_integrity_default_haiku_now_refused():
     (b) when run for real with default haiku command + hard_gate=True, the
     chokepoint refuses (no Popen).
     """
-    from contracts import StepResult, WorkflowContext
-    import workflows.phase_5_integrity as p5i
+    from bytedigger_engine.contracts import StepResult, WorkflowContext
+    from bytedigger_engine.workflows import phase_5_integrity as p5i
 
     # Build a minimal ctx with scratchpad_dir set; no real disk ops needed
     # because we stub the prev step.
@@ -324,8 +323,8 @@ def test_hard_gate_chokepoint_phase_45_spec_lite_missing_gate_now_refused():
     After the chokepoint fix lands AND phase_45_spec_lite opts in
     (hard_gate=True), this path must pass the kwarg.
     """
-    from contracts import StepResult, WorkflowContext
-    import workflows.phase_45_spec_lite as p45
+    from bytedigger_engine.contracts import StepResult, WorkflowContext
+    from bytedigger_engine.workflows import phase_45_spec_lite as p45
 
     tmp = HERE / "_w6_tmp_p45"
     tmp.mkdir(exist_ok=True)

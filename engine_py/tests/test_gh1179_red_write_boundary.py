@@ -14,7 +14,7 @@ Per §1q/D1CF5FDF: `lib/red_write_boundary.py` does not exist yet, and
 yet either. Every reference to either is deferred INTO the test bodies (via
 the `_mod()` helper / `getattr(p5_mod, ...)`) so this file still imports
 cleanly at pytest COLLECTION time — each test instead FAILS at ASSERT time.
-A module-level `import red_write_boundary` would fail at collection and hang
+A module-level `import bytedigger_engine.lib.red_write_boundary` would fail at collection and hang
 red_runtime (the exact failure mode D1CF5FDF documents). `phase_5_implement`
 and `contracts` ARE imported at module level below because both already
 exist in production.
@@ -29,13 +29,13 @@ from pathlib import Path
 
 # Conftest singleton (§1q, tests/conftest.py:24-37) already put engine_py
 # root, workflows/ and lib/ on sys.path — no module-level sys.path edits here.
-import phase_5_implement as p5_mod
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine.workflows import phase_5_implement as p5_mod
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 
 def _mod():
     """Deferred import of the not-yet-existing lib module (§1q / D1CF5FDF)."""
-    import red_write_boundary  # noqa: PLC0415
+    from bytedigger_engine.lib import red_write_boundary  # noqa: PLC0415
 
     return red_write_boundary
 
@@ -149,7 +149,7 @@ def test_ac01_resolve_main_repo_root_uses_git_worktree_list_str_or_path(tmp_path
     (§1.6-1).
     """
     m = _mod()
-    from lib import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
 
@@ -243,7 +243,7 @@ def test_ac04_snapshot_unavailable_and_never_raises_on_either_git_call_failing(t
     FileNotFoundError, OSError — each call independently guarded (§1.6-2).
     """
     m = _mod()
-    from lib import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
 
     main = _make_repo(tmp_path / "main")
     wt = _add_worktree(main, tmp_path / "wt", "feat4")
@@ -912,8 +912,8 @@ def test_ac23_error_code_and_flag_registered():
     kind == "gate" and default == "1"; flags_catalog.unregistered_tokens_in_files
     ([<touched prod files>]) omits the token.
     """
-    import error_codes  # noqa: PLC0415
-    import flags_catalog  # noqa: PLC0415
+    from bytedigger_engine import error_codes  # noqa: PLC0415
+    from bytedigger_engine import flags_catalog  # noqa: PLC0415
 
     assert "E_RED_WROTE_OUTSIDE_WORKTREE" in error_codes.ERROR_CODES, (
         "E_RED_WROTE_OUTSIDE_WORKTREE must be registered in error_codes.ERROR_CODES"
@@ -947,8 +947,8 @@ def test_ac24_error_code_classifies_needs_prompt_and_quality_gate():
     "E_RED_WROTE_OUTSIDE_WORKTREE") == "quality-gate" — pins the naming
     constraint (§2/§1o-1) and the RED_ bucket.
     """
-    import error_locus  # noqa: PLC0415
-    from lib import dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine import error_locus  # noqa: PLC0415
+    from bytedigger_engine.lib import dispatcher_report  # noqa: PLC0415
 
     assert error_locus.classify_error("E_RED_WROTE_OUTSIDE_WORKTREE") == "needs-prompt", (
         "E_RED_WROTE_OUTSIDE_WORKTREE must NOT contain a LINTABLE_PATTERNS token "

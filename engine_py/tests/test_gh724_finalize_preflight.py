@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 def make_ctx(scratchpad: Path, *, question: str = "GH724 finalize preflight") -> WorkflowContext:
@@ -41,7 +41,7 @@ def make_ctx(scratchpad: Path, *, question: str = "GH724 finalize preflight") ->
 
 
 def build_prompt(scratchpad: Path, *, cycle: int, findings=None):
-    from phase_45_spec import _build_spec_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: PLC0415
 
     ctx = make_ctx(scratchpad)
     prev = {"cycle": cycle}
@@ -53,7 +53,7 @@ def build_prompt(scratchpad: Path, *, cycle: int, findings=None):
 
 
 def _write_prev_spec(scratchpad: Path) -> Path:
-    from phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
 
     spec_path = scratchpad / SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,7 +82,7 @@ STRUCTURED_FINDINGS_FENCE_TEXT = (
 
 
 def test_ac_a1_item5_literal_present():
-    from phase_45_spec import _spec_preflight_block  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _spec_preflight_block  # noqa: PLC0415
 
     block = _spec_preflight_block()
     assert "5. §2-vs-§3 finalize coverage" in block
@@ -92,8 +92,8 @@ def test_ac_a1_item5_literal_present():
 
 
 def test_ac_a2_all_seven_finalize_groups_match_preflight_block():
-    from phase_45_spec import _spec_preflight_block  # noqa: PLC0415
-    from spec_coverage import _FINALIZE_GROUP_PATTERNS  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _spec_preflight_block  # noqa: PLC0415
+    from bytedigger_engine.spec_coverage import _FINALIZE_GROUP_PATTERNS  # noqa: PLC0415
 
     block = _spec_preflight_block()
     missing = [
@@ -108,7 +108,7 @@ def test_ac_a2_all_seven_finalize_groups_match_preflight_block():
 
 
 def test_ac_a3_axis_registered_and_substring_of_block():
-    from phase_45_spec import SPEC_HIGH_BINDING_AXES, _spec_preflight_block  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_HIGH_BINDING_AXES, _spec_preflight_block  # noqa: PLC0415
 
     axis = "§2-vs-§3 finalize coverage"
     assert axis in SPEC_HIGH_BINDING_AXES
@@ -119,7 +119,7 @@ def test_ac_a3_axis_registered_and_substring_of_block():
 
 
 def test_ac_a4_missing_high_binding_axes_parity():
-    from phase_45_spec import missing_high_binding_axes, _spec_high_binding_block  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes, _spec_high_binding_block  # noqa: PLC0415
 
     axis = "§2-vs-§3 finalize coverage"
     assert axis in missing_high_binding_axes("")

@@ -39,14 +39,10 @@ ENGINE_ROOT = HERE.parent
 # Grandfathered sys.path pattern — matches all sibling tests in this dir.
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "workflows") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
 
-import llm_subprocess as _llm_module  # noqa: E402
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine import llm_subprocess as _llm_module  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -278,8 +274,8 @@ def test_g2_ac1c_claude_subprocess_idle_watchdog_passes_probe(
 
     popen_mock = _minimal_mock_proc()
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=popen_mock), \
-         patch("llm_subprocess._stream_read_events", side_effect=_fake_stream):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=popen_mock), \
+         patch("bytedigger_engine.llm_subprocess._stream_read_events", side_effect=_fake_stream):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -393,8 +389,8 @@ def test_g2_ac2_idle_abort_error_code_byte_identical_baseline(monkeypatch) -> No
 
     popen_mock = _minimal_mock_proc()
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=popen_mock), \
-         patch("llm_subprocess._stream_read_events", side_effect=_fake_stream_idle):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=popen_mock), \
+         patch("bytedigger_engine.llm_subprocess._stream_read_events", side_effect=_fake_stream_idle):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -446,7 +442,7 @@ def test_g2_ac3_straggler_abort_step_result_shape_byte_identical_baseline(
     # to set self.aborted = True immediately on construction (before start() runs
     # its thread). This deterministically ensures the aborted-check fires without
     # relying on thread timing.
-    import llm_subprocess as _llm
+    from bytedigger_engine import llm_subprocess as _llm
     original_init = _llm._StragglerWatchdog.__init__
 
     def _pre_staged_init(self, *, proc, reviews_dir, expected_n,
@@ -473,8 +469,8 @@ def test_g2_ac3_straggler_abort_step_result_shape_byte_identical_baseline(
 
     popen_mock = _minimal_mock_proc(pid=4242)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=popen_mock), \
-         patch("llm_subprocess._stream_read_events", side_effect=_fake_stream_ok):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=popen_mock), \
+         patch("bytedigger_engine.llm_subprocess._stream_read_events", side_effect=_fake_stream_ok):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -524,7 +520,7 @@ def test_g2_ac4_no_progress_single_emit_site() -> None:
 
     §1l layer 1 (single-source-of-truth grep count).
     """
-    source_path = ENGINE_ROOT / "llm_subprocess.py"
+    source_path = ENGINE_ROOT / "bytedigger_engine" / "llm_subprocess.py"
     assert source_path.exists(), f"G2-AC4: llm_subprocess.py not found at {source_path}"
     source_text = source_path.read_text(encoding="utf-8")
 
@@ -559,7 +555,7 @@ def test_g2_ac5_straggler_abort_no_deadlock_wall_bound(
     reviews_dir = tmp_path / "reviews"
     reviews_dir.mkdir()
 
-    import llm_subprocess as _llm
+    from bytedigger_engine import llm_subprocess as _llm
     original_init = _llm._StragglerWatchdog.__init__
 
     def _pre_staged_init(self, *, proc, reviews_dir, expected_n,
@@ -583,8 +579,8 @@ def test_g2_ac5_straggler_abort_no_deadlock_wall_bound(
     popen_mock = _minimal_mock_proc()
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=popen_mock), \
-         patch("llm_subprocess._stream_read_events", side_effect=_fake_stream_ok):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=popen_mock), \
+         patch("bytedigger_engine.llm_subprocess._stream_read_events", side_effect=_fake_stream_ok):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",

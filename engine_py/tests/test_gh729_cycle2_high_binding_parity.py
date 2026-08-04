@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 import pytest
 
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── shared fixtures / helpers (mirrors test_gh443_delta_retry.py) ─────────
@@ -44,7 +44,7 @@ def make_ctx(scratchpad: Path, *, question: str = "Add cycle2 high-binding parit
 
 
 def _write_prev_spec(scratchpad: Path) -> Path:
-    from phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH  # noqa: PLC0415
 
     spec_path = scratchpad / SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,7 +98,7 @@ STRUCTURED_FINDINGS_FENCE_TEXT = (
 
 def build_prompt(scratchpad: Path, *, cycle: int, findings=None, structured_findings=None,
                   surgical_fallback=None):
-    from phase_45_spec import _build_spec_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: PLC0415
 
     ctx = make_ctx(scratchpad)
     prev = {"cycle": cycle}
@@ -118,7 +118,7 @@ def build_prompt(scratchpad: Path, *, cycle: int, findings=None, structured_find
 
 def test_ac1_axes_constant_and_block_helper_exist(tmp_path):
     try:
-        from phase_45_spec import (
+        from bytedigger_engine.workflows.phase_45_spec import (
             SPEC_HIGH_BINDING_AXES,
             _spec_high_binding_block,
             missing_high_binding_axes,
@@ -141,7 +141,7 @@ def test_ac2_cycle2_surgical_path_carries_all_axes(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     try:
-        from phase_45_spec import missing_high_binding_axes
+        from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
     except ImportError:
         pytest.fail("phase_45_spec.missing_high_binding_axes does not exist yet")
 
@@ -163,7 +163,7 @@ def test_ac3_cycle2_delta_path_carries_all_axes(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
     try:
-        from phase_45_spec import missing_high_binding_axes
+        from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
     except ImportError:
         pytest.fail("phase_45_spec.missing_high_binding_axes does not exist yet")
 
@@ -184,7 +184,7 @@ def test_ac3_cycle2_delta_path_carries_all_axes(tmp_path, monkeypatch):
 def test_ac4_cycle2_restricted_writer_scaffold_path_carries_all_axes(tmp_path, monkeypatch):
     monkeypatch.setenv("HAL_SPEC_DELTA_RETRY", "0")
     try:
-        from phase_45_spec import missing_high_binding_axes
+        from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
     except ImportError:
         pytest.fail("phase_45_spec.missing_high_binding_axes does not exist yet")
 
@@ -212,7 +212,7 @@ def test_ac4_cycle2_restricted_writer_scaffold_path_carries_all_axes(tmp_path, m
 def test_ac5_cycle2_legacy_revision_path_carries_all_axes(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     try:
-        from phase_45_spec import missing_high_binding_axes
+        from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
     except ImportError:
         pytest.fail("phase_45_spec.missing_high_binding_axes does not exist yet")
 
@@ -229,7 +229,7 @@ def test_ac5_cycle2_legacy_revision_path_carries_all_axes(tmp_path, monkeypatch)
 
 def test_ac6_grep_parity_axes_present_in_cycle1_equal_axes_present_in_cycle2(tmp_path, monkeypatch):
     try:
-        from phase_45_spec import SPEC_HIGH_BINDING_AXES
+        from bytedigger_engine.workflows.phase_45_spec import SPEC_HIGH_BINDING_AXES
     except ImportError:
         pytest.fail("phase_45_spec.SPEC_HIGH_BINDING_AXES does not exist yet")
 
@@ -288,7 +288,7 @@ def test_ac7_reentry_cycle3_surgical_and_post_fallback_delta_both_carry_all_axes
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     try:
-        from phase_45_spec import missing_high_binding_axes
+        from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
     except ImportError:
         pytest.fail("phase_45_spec.missing_high_binding_axes does not exist yet")
 
@@ -333,7 +333,7 @@ def test_ac8_guard_miss_revise_regression_shield_carries_reachability_and_citeve
 def test_ac9_no_double_injection_and_cycle1_unchanged(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
-    from phase_45_spec import _SPEC_STABLE_PREFIX  # exists today
+    from bytedigger_engine.workflows.phase_45_spec import _SPEC_STABLE_PREFIX  # exists today
 
     scratchpad_c1 = tmp_path / "scratch_c1"
     p1, _ = build_prompt(scratchpad_c1, cycle=1)
@@ -356,7 +356,7 @@ def test_ac10_byte_cap_and_bounded_growth_vs_kill_switch_off(tmp_path, monkeypat
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     try:
-        from phase_45_spec import _spec_high_binding_block
+        from bytedigger_engine.workflows.phase_45_spec import _spec_high_binding_block
     except ImportError:
         pytest.fail("phase_45_spec._spec_high_binding_block does not exist yet")
 
@@ -392,7 +392,7 @@ def test_ac11_kill_switch_restores_status_quo_byte_identically(tmp_path, monkeyp
     monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     monkeypatch.setenv("HAL_SPEC_HIGH_BINDING_PARITY", "0")
     try:
-        from phase_45_spec import SPEC_HIGH_BINDING_AXES, missing_high_binding_axes
+        from bytedigger_engine.workflows.phase_45_spec import SPEC_HIGH_BINDING_AXES, missing_high_binding_axes
     except ImportError:
         pytest.fail(
             "phase_45_spec.SPEC_HIGH_BINDING_AXES / missing_high_binding_axes "
@@ -419,7 +419,7 @@ def test_ac12_event_emitted_once_with_path_and_cycle(tmp_path, monkeypatch):
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
 
-    with patch("phase_45_spec._emit_safe") as mock_emit:
+    with patch("bytedigger_engine.workflows.phase_45_spec._emit_safe") as mock_emit:
         build_prompt(
             scratchpad, cycle=2, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
         )
@@ -443,7 +443,7 @@ def test_ac12_event_emitted_once_with_path_and_cycle(tmp_path, monkeypatch):
 
 def test_ac13_gh443_economics_preserved_scaffold_still_dropped(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    from phase_45_spec import _spec_output_schema
+    from bytedigger_engine.workflows.phase_45_spec import _spec_output_schema
 
     schema_first_line = next(
         line for line in _spec_output_schema("x").splitlines() if line.strip()

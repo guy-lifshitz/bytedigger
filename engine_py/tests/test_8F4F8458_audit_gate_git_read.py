@@ -5,7 +5,7 @@ Spec: SHARED/memory/Decisions/2026-06-21_8F4F8458_audit_gate_git_read_spec.md
 
 All tests MUST FAIL until GREEN applies §1.1 edits to audit_gate.py:
   - drops `runner=subprocess.run` from both _git_staged_modified_paths and _git_all_staged_paths
-  - adds `from lib.git_port import git_read`
+  - adds `from bytedigger_engine.lib.git_port import git_read`
   - removes `import subprocess`
   - rewrites both bodies to call git_read(...)
 
@@ -48,8 +48,8 @@ def test_ac1_staged_modified_routes_through_git_port_seam() -> None:
     Pre-GREEN FAIL: fn uses raw subprocess.run default; injected factory ignored;
     captured stays empty → '--diff-filter=MR' assertion fails.
     """
-    import audit_gate
-    from lib.git_port import (
+    from bytedigger_engine import audit_gate
+    from bytedigger_engine.lib.git_port import (
         GitResult,
         reset_default_git_read_factory,
         set_default_git_read_factory,
@@ -95,7 +95,7 @@ def test_ac3_both_fns_use_git_read() -> None:
     Pre-GREEN FAIL: both slices contain 'runner(' and 'subprocess.run' and '["git"'
     and do NOT contain 'git_read('. All four negative assertions fire.
     """
-    import audit_gate
+    from bytedigger_engine import audit_gate
 
     source = Path(audit_gate.__file__).read_text(encoding="utf-8")
     lines = source.splitlines()
@@ -164,7 +164,7 @@ def test_ac4_import_subprocess_removed() -> None:
 
     Pre-GREEN FAIL: line 18 is 'import subprocess' → regex matches → assert fails.
     """
-    import audit_gate
+    from bytedigger_engine import audit_gate
 
     source = Path(audit_gate.__file__).read_text(encoding="utf-8")
     matches = re.findall(r"^import subprocess$", source, re.MULTILINE)
@@ -186,8 +186,8 @@ def test_ac5_blank_lines_stripped() -> None:
     Pre-GREEN FAIL: fn uses raw subprocess.run; injected factory ignored; real git
     runs and returns something other than ['a.py','b.py'] → assert fails.
     """
-    import audit_gate
-    from lib.git_port import (
+    from bytedigger_engine import audit_gate
+    from bytedigger_engine.lib.git_port import (
         GitResult,
         reset_default_git_read_factory,
         set_default_git_read_factory,

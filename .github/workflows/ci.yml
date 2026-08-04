@@ -40,12 +40,18 @@ jobs:
       - name: compileall — every shipped module byte-compiles
         run: python -m compileall -q .
 
-      - name: import smoke — every packaged py-module importable without dbos
+      - name: import smoke — every packaged core module importable without dbos
         run: |
           python - <<'PY'
-          import tomllib, importlib, sys
-          cfg = tomllib.load(open("pyproject.toml", "rb"))
-          mods = cfg["tool"]["setuptools"]["py-modules"]
+          # bd#44: the distribution owns ONE top-level name, so the module list
+          # is discovered from the package rather than read off a `py-modules`
+          # registry that no longer exists.
+          import importlib, pathlib, sys
+          pkg = pathlib.Path("bytedigger_engine")
+          mods = ["bytedigger_engine"] + sorted(
+              f"bytedigger_engine.{f.stem}" for f in pkg.glob("*.py")
+              if f.stem != "__init__"
+          )
           failed = []
           for m in mods:
               try:
@@ -54,25 +60,30 @@ jobs:
                   failed.append(f"{m}: {type(e).__name__}: {e}")
           if failed:
               print("\n".join(failed)); sys.exit(1)
-          print(f"OK: {len(mods)} py-modules import clean without dbos")
+          print(f"OK: {len(mods)} package modules import clean without dbos")
           PY
 
-      - name: manifest parity — every core_manifest root module is packaged
+      - name: manifest parity — every core_manifest module ships in the package
         run: |
           python - <<'PY'
-          import tomllib, json, sys
-          py = set(tomllib.load(open("pyproject.toml","rb"))["tool"]["setuptools"]["py-modules"])
-          man = {m[:-3] for m in json.load(open("core_manifest.json"))["core_modules"] if "/" not in m}
-          missing = sorted(man - py)
+          # bd#44: core_manifest.json paths are relative to the PACKAGE root
+          # (`engine_py/bytedigger_engine/`), which is also where every packaged
+          # file now lives — so parity is checked against the tree that ships,
+          # not against a flat `py-modules` list.
+          import json, pathlib, sys
+          pkg = pathlib.Path("bytedigger_engine")
+          man = json.load(open("core_manifest.json"))["core_modules"]
+          missing = sorted(m for m in man if not (pkg / m).is_file())
           if missing:
               print("manifest-not-packaged:", missing); sys.exit(1)
-          extra = sorted(py - man)
-          print(f"OK: {len(man)} manifest root modules packaged; closure extras: {extra}")
+          shipped = {str(f.relative_to(pkg)) for f in pkg.rglob("*.py")}
+          extra = sorted(shipped - set(man))
+          print(f"OK: {len(man)} manifest modules ship; non-core extras: {len(extra)}")
           PY
 
       - name: CLI smoke
         run: |
-          python run.py --help >/dev/null && echo "OK: run.py --help"
+          python -m bytedigger_engine.run --help >/dev/null && echo "OK: bytedigger_engine.run --help"
 
   pytest:
     runs-on: ubuntu-latest
@@ -97,7 +108,7 @@ jobs:
       - name: install wheel — no dbos
         run: |
           pip install --quiet dist/*.whl pytest pytest-timeout pyyaml  # pyyaml: lazy import in ac_dsl.py
-          python -c "import engine, event_log, workflows; print('OK: wheel imports')"
+          python -c "import bytedigger_engine; from bytedigger_engine import engine, event_log, workflows; print('OK: wheel imports')"
 
       - name: pytest — engine test suite (hermetic, no dbos, no network)
         run: python -m pytest tests/ -q -p no:cacheprovider --timeout=120

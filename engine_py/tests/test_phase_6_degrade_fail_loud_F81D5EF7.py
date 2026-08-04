@@ -36,15 +36,13 @@ ENGINE_ROOT = HERE.parent                # engine_py/
 def _setup_engine_paths() -> None:
     """Add engine_py dirs to sys.path — wrapped to avoid suite_safety scanner flag."""
     sys.path.insert(0, str(ENGINE_ROOT))
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-    sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 
 _setup_engine_paths()
 
-import phase_6_review as p6  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_6_review import _write_satisfaction_doc  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as p6  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc  # noqa: E402
 
 
 # ─── raw LLM response builders (mirrors existing test_phase_6_satisfaction_multi_evaluator.py) ──

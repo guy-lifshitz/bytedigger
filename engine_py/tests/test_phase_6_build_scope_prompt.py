@@ -23,11 +23,10 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import telemetry_ctx  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _build_review_prompt,
     _build_satisfaction_prompt,
 )
@@ -93,7 +92,7 @@ def test_ac1_build_review_prompt_injects_build_scope_header_with_sha(tmp_path):
     fake_sha = _make_fake_sha()
     (integrity_dir / "pre-red-ref.txt").write_text(fake_sha)
 
-    with patch("phase_6_review.git_diff_files", return_value=["src/foo.py", "src/bar.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["src/foo.py", "src/bar.py"]):
         result = _build_review_prompt(make_ctx(scratchpad), None)
 
     assert result.status == "ok", (
@@ -125,7 +124,7 @@ def test_ac2_build_scope_block_lists_changed_files_and_empty_placeholder(tmp_pat
     integrity_a.mkdir(parents=True, exist_ok=True)
     (integrity_a / "pre-red-ref.txt").write_text(_make_fake_sha())
 
-    with patch("phase_6_review.git_diff_files", return_value=["src/foo.py", "src/bar.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["src/foo.py", "src/bar.py"]):
         result_a = _build_review_prompt(make_ctx(scratchpad_a), None)
 
     assert result_a.status == "ok"
@@ -144,7 +143,7 @@ def test_ac2_build_scope_block_lists_changed_files_and_empty_placeholder(tmp_pat
     integrity_b.mkdir(parents=True, exist_ok=True)
     (integrity_b / "pre-red-ref.txt").write_text(_make_fake_sha())
 
-    with patch("phase_6_review.git_diff_files", return_value=[]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=[]):
         result_b = _build_review_prompt(make_ctx(scratchpad_b), None)
 
     assert result_b.status == "ok"
@@ -172,7 +171,7 @@ def test_ac3_build_scope_block_strict_rules_verbatim(tmp_path):
     integrity_dir.mkdir(parents=True, exist_ok=True)
     (integrity_dir / "pre-red-ref.txt").write_text(_make_fake_sha())
 
-    with patch("phase_6_review.git_diff_files", return_value=["src/foo.py"]):
+    with patch("bytedigger_engine.workflows.phase_6_review.git_diff_files", return_value=["src/foo.py"]):
         result = _build_review_prompt(make_ctx(scratchpad), None)
 
     assert result.status == "ok"
@@ -271,7 +270,7 @@ def test_ac5_degraded_path_missing_ref_emits_telemetry_no_scope_block(tmp_path):
         phase="phase_6_review",
     )
     try:
-        with patch("phase_6_review.resolve_pre_phase_sha", return_value=""):
+        with patch("bytedigger_engine.workflows.phase_6_review.resolve_pre_phase_sha", return_value=""):
             result = _build_review_prompt(make_ctx(scratchpad), None)
     finally:
         telemetry_ctx.clear_current_run()

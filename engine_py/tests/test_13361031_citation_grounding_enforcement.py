@@ -21,15 +21,14 @@ import pytest  # noqa: F401
 HERE = Path(__file__).parent
 ENGINE_PY = HERE.parent
 sys.path.insert(0, str(ENGINE_PY))
-sys.path.insert(0, str(ENGINE_PY / "workflows"))
 
-from contracts import StepResult  # noqa: E402
-from phase_45_spec import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
     _citation_grounding_rubric,
     _review_output_schema,
     _write_review_doc,
 )
-import phase_45_spec as _m45  # noqa: E402  — used for monkeypatch + _GROUNDING_COUNT_RE probe
+from bytedigger_engine.workflows import phase_45_spec as _m45  # noqa: E402  — used for monkeypatch + _GROUNDING_COUNT_RE probe
 
 
 # ---------------------------------------------------------------------------

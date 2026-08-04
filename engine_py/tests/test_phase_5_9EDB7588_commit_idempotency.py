@@ -35,15 +35,15 @@ import pytest
 _ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "workflows"
+_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(_WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(_WORKFLOWS))
 
 # ─── Production imports (module-level — types only, no not-yet-existing symbols) ─
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 # _commit_red_tests exists today — safe at module level
-from phase_5_implement import _commit_red_tests  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: E402
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -227,7 +227,7 @@ def test_reentry_emits_idempotent_skip_event(tmp_path: Path, monkeypatch: pytest
     'commit_red_tests_idempotent_skip' event is emitted (0 events captured).
     Isolation: fresh repo + monkeypatch per test; no cross-test state.
     """
-    import phase_5_implement as _p5m  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as _p5m  # noqa: PLC0415
 
     events: list[tuple[str, dict, dict]] = []
 
@@ -277,7 +277,7 @@ def test_paths_have_staged_changes_helper(tmp_path: Path) -> None:
     """
     # Deferred import — avoids collection-time ImportError when helper absent
     try:
-        from phase_5_implement import _paths_have_staged_changes  # noqa: PLC0415
+        from bytedigger_engine.workflows.phase_5_implement import _paths_have_staged_changes  # noqa: PLC0415
     except ImportError as exc:
         pytest.fail(
             f"AC6: _paths_have_staged_changes not importable from phase_5_implement "

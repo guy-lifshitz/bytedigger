@@ -16,7 +16,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     StepResult,
     WorkflowContext,
     step,

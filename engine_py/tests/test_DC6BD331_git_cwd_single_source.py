@@ -37,16 +37,16 @@ from typing import Any
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 # ─── Production imports — symbols that exist pre-GREEN ────────────────────────
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_5_implement import _check_red_executable  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _check_red_executable  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ def test_resolve_git_cwd_prefers_org_config(tmp_path):
     Pre-GREEN: FAIL — ImportError on _resolve_git_cwd (symbol does not exist yet).
     """
     # §1q deferred import: _resolve_git_cwd does not exist pre-GREEN
-    from phase_5_implement import _resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_git_cwd  # noqa: PLC0415
 
     ctx = make_ctx(extra_cfg={"git_cwd": "/cfg/dir"})
     prev = make_prev(
@@ -131,7 +131,7 @@ def test_resolve_git_cwd_falls_back_to_prev_data(tmp_path):
     Pre-GREEN: FAIL — ImportError on _resolve_git_cwd (symbol does not exist yet).
     """
     # §1q deferred import
-    from phase_5_implement import _resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_git_cwd  # noqa: PLC0415
 
     # org_config has only complexity — no git_cwd key
     ctx = make_ctx(complexity="SIMPLE")
@@ -158,7 +158,7 @@ def test_resolve_git_cwd_never_none(tmp_path):
     Pre-GREEN: FAIL — ImportError on _resolve_git_cwd (symbol does not exist yet).
     """
     # §1q deferred import
-    from phase_5_implement import _resolve_git_cwd  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _resolve_git_cwd  # noqa: PLC0415
 
     # Neither side has git_cwd
     ctx = make_ctx(complexity="SIMPLE")
@@ -208,7 +208,7 @@ def test_check_red_executable_threads_git_cwd_to_probe_cwd(monkeypatch, tmp_path
             args=argv, returncode=0, stdout="1 collected", stderr=""
         )
 
-    monkeypatch.setattr("phase_5_implement.subprocess.run", _fake_run)
+    monkeypatch.setattr("bytedigger_engine.workflows.phase_5_implement.subprocess.run", _fake_run)
 
     _check_red_executable(ctx, prev)
 
@@ -249,7 +249,7 @@ def test_check_red_executable_uses_venv_pytest_when_git_cwd_threaded(monkeypatch
             args=argv, returncode=0, stdout="1 collected", stderr=""
         )
 
-    monkeypatch.setattr("phase_5_implement.subprocess.run", _fake_run)
+    monkeypatch.setattr("bytedigger_engine.workflows.phase_5_implement.subprocess.run", _fake_run)
 
     _check_red_executable(ctx, prev)
 
@@ -279,7 +279,7 @@ def test_valid_red_collect_does_not_false_fail(monkeypatch, tmp_path):
     prev = make_prev(red_test_paths=[str(tmp / "tests" / "red_x.py")])
 
     monkeypatch.setattr(
-        "phase_5_implement.subprocess.run",
+        "bytedigger_engine.workflows.phase_5_implement.subprocess.run",
         lambda argv, *args, **kwargs: subprocess.CompletedProcess(
             args=argv, returncode=0, stdout="1 collected", stderr=""
         ),

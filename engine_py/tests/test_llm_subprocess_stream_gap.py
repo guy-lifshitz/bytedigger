@@ -77,11 +77,9 @@ from unittest.mock import MagicMock, patch
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ─── Helpers — mirror test_llm_subprocess_775D6752.py exactly ────────────────
@@ -211,7 +209,7 @@ def test_stream_gap_tolerated_with_idle_timeout_none():
     )
     started = time.monotonic()
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -291,7 +289,7 @@ def test_stream_gap_aborts_when_idle_timeout_explicit():
         event_log=log, run_id="r-d2b", step_name="invoke_fix_llm", phase="phase_6"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -359,7 +357,7 @@ def test_idle_timeout_alarm_emitted_on_abort():
         phase="phase_6",
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -457,7 +455,7 @@ def test_idle_timeout_alarm_absent_on_success():
         phase="phase_6",
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",

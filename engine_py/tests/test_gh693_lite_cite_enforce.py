@@ -25,12 +25,12 @@ from __future__ import annotations
 
 from collections import Counter
 
-import phase_45_spec
-import telemetry_ctx
-from contracts import LoopStepContract, StepContract, StepResult, WorkflowContext
-from engine import LoopRunner
-from event_log import EventLog
-from phase_45_spec_lite import MAX_REVIEW_CYCLES, VERDICT_SHIP, build_review_loop_contract
+from bytedigger_engine.workflows import phase_45_spec
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.contracts import LoopStepContract, StepContract, StepResult, WorkflowContext
+from bytedigger_engine.engine import LoopRunner
+from bytedigger_engine.event_log import EventLog
+from bytedigger_engine.workflows.phase_45_spec_lite import MAX_REVIEW_CYCLES, VERDICT_SHIP, build_review_loop_contract
 
 
 # ─── Harness (spec §2.1 — copied from siblings) ─────────────────────────────

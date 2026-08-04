@@ -52,7 +52,7 @@ def _read_function_slice(filepath: pathlib.Path, fn_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def test_ac1_bounded_run_returns_completed_process_returncode_0():
-    from lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
+    from bytedigger_engine.lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
     import subprocess
     r = bounded_run(["true"], timeout=5)
     assert isinstance(r, subprocess.CompletedProcess), (
@@ -67,7 +67,7 @@ def test_ac1_bounded_run_returns_completed_process_returncode_0():
 
 def test_ac2_bounded_run_without_timeout_raises_type_error():
     import pytest
-    from lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
+    from bytedigger_engine.lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
     with pytest.raises(TypeError):
         bounded_run(["true"])
 
@@ -77,7 +77,7 @@ def test_ac2_bounded_run_without_timeout_raises_type_error():
 # ---------------------------------------------------------------------------
 
 def test_ac3_timeout_returns_sentinel_rc124_stdout_empty_str_text_mode():
-    from lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
+    from bytedigger_engine.lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
     r = bounded_run(["sleep", "5"], timeout=0.3, capture_output=True, text=True)
     assert r.returncode == 124, (
         f"expected returncode 124 on timeout, got {r.returncode}"
@@ -92,7 +92,7 @@ def test_ac3_timeout_returns_sentinel_rc124_stdout_empty_str_text_mode():
 # ---------------------------------------------------------------------------
 
 def test_ac4_timeout_sentinel_stdout_bytes_when_no_text_mode():
-    from lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
+    from bytedigger_engine.lib.bounded_spawn import bounded_run  # deferred per D1CF5FDF
     r = bounded_run(["sleep", "5"], timeout=0.3)
     assert r.returncode == 124, (
         f"expected returncode 124 on timeout, got {r.returncode}"
@@ -107,7 +107,7 @@ def test_ac4_timeout_sentinel_stdout_bytes_when_no_text_mode():
 # ---------------------------------------------------------------------------
 
 def test_ac5_timeout_returncode_constant_equals_124():
-    from lib.bounded_spawn import TIMEOUT_RETURNCODE  # deferred per D1CF5FDF
+    from bytedigger_engine.lib.bounded_spawn import TIMEOUT_RETURNCODE  # deferred per D1CF5FDF
     assert TIMEOUT_RETURNCODE == 124, (
         f"expected TIMEOUT_RETURNCODE==124, got {TIMEOUT_RETURNCODE}"
     )
@@ -119,7 +119,7 @@ def test_ac5_timeout_returncode_constant_equals_124():
 
 def test_ac6_git_toplevel_in_project_root_uses_git_read():
     engine_py = _engine_py_root()
-    filepath = engine_py / "lib" / "project_root.py"
+    filepath = engine_py / "bytedigger_engine" / "lib" / "project_root.py"
     body = _read_function_slice(filepath, "_git_toplevel")
     assert "git_read(" in body, (
         f"_git_toplevel in {filepath} does not call git_read( — seam migration incomplete"
@@ -134,7 +134,7 @@ def test_ac6_git_toplevel_in_project_root_uses_git_read():
 
 def test_ac6_run_git_in_git_diff_uses_git_read():
     engine_py = _engine_py_root()
-    filepath = engine_py / "lib" / "plugins" / "disk_truth" / "git_diff.py"
+    filepath = engine_py / "bytedigger_engine" / "lib" / "plugins" / "disk_truth" / "git_diff.py"
     body = _read_function_slice(filepath, "_run_git")
     assert "git_read(" in body, (
         f"_run_git in {filepath} does not call git_read( — seam migration incomplete"
@@ -149,7 +149,7 @@ def test_ac6_run_git_in_git_diff_uses_git_read():
 
 def test_ac6_check_update_needs_update_in_graph_source_uses_bounded_run():
     engine_py = _engine_py_root()
-    filepath = engine_py / "workflows" / "graph_source.py"
+    filepath = engine_py / "bytedigger_engine" / "workflows" / "graph_source.py"
     body = _read_function_slice(filepath, "_check_update_needs_update")
     assert "bounded_run(" in body, (
         f"_check_update_needs_update in {filepath} does not call bounded_run("
@@ -161,7 +161,7 @@ def test_ac6_check_update_needs_update_in_graph_source_uses_bounded_run():
 
 def test_ac6_compute_baseline_failed_in_phase5_uses_bounded_run():
     engine_py = _engine_py_root()
-    filepath = engine_py / "workflows" / "phase_5_implement.py"
+    filepath = engine_py / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
     body = _read_function_slice(filepath, "_compute_baseline_failed")
     # Both stash push (try-body) AND stash pop (finally block) must go through
     # git_op_capture seam (git_write_port), not bounded_run directly.
@@ -177,7 +177,7 @@ def test_ac6_compute_baseline_failed_in_phase5_uses_bounded_run():
 
 def test_ac6_compute_baseline_typecheck_count_stash_push_uses_bounded_run():
     engine_py = _engine_py_root()
-    filepath = engine_py / "workflows" / "phase_5_implement.py"
+    filepath = engine_py / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
     body = _read_function_slice(filepath, "_compute_baseline_typecheck_count")
     # The function body must route the stash push through the git_op_capture seam.
     assert "git_op_capture(" in body, (
@@ -190,7 +190,7 @@ def test_ac6_compute_baseline_typecheck_count_stash_push_uses_bounded_run():
 
 def test_ac6_compute_baseline_typecheck_count_finally_stash_pop_uses_bounded_run():
     engine_py = _engine_py_root()
-    filepath = engine_py / "workflows" / "phase_5_implement.py"
+    filepath = engine_py / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
     body = _read_function_slice(filepath, "_compute_baseline_typecheck_count")
     # Both stash push AND stash pop must go through the git_op_capture seam.
     # Count occurrences: need >= 2 git_op_capture( calls (push + pop).

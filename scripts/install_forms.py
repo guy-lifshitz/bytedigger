@@ -110,15 +110,15 @@ KIND_PYTHON_LITERAL = "python_literal"
 KIND_PYTHON_RUNTIME = "python_runtime"
 
 # §2.6/§0 -- the seven measured platforms, including the bd#17 pair.
-# engine_py/lib/dbos_setup.py is deliberately NOT registered (§2.7): its
+# engine_py/bytedigger_engine/lib/dbos_setup.py is deliberately NOT registered (§2.7): its
 # command was removed because the extra it named does not exist.
 CARRIERS: tuple[tuple[str, str], ...] = (
     ("npm/bin/bytedigger.js", KIND_EXECUTED_NODE),
     ("npm/README.md", KIND_MARKDOWN),
     ("packaging/pypi-pointer/README.md", KIND_MARKDOWN),
-    ("engine_py/package_meta.py", KIND_PYTHON_RUNTIME),
-    ("engine_py/llm_subprocess.py", KIND_PYTHON_LITERAL),
-    ("engine_py/lib/reference_backends/agent_sdk.py", KIND_PYTHON_LITERAL),
+    ("engine_py/bytedigger_engine/package_meta.py", KIND_PYTHON_RUNTIME),
+    ("engine_py/bytedigger_engine/llm_subprocess.py", KIND_PYTHON_LITERAL),
+    ("engine_py/bytedigger_engine/lib/reference_backends/agent_sdk.py", KIND_PYTHON_LITERAL),
     ("engine_py/README.md", KIND_MARKDOWN),
 )
 

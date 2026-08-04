@@ -8,7 +8,7 @@ Discipline inherited verbatim: EMISSIONS_SPEC.md §0.1-§0.6, CONTRACTS_SPEC.md
 
 COLLECTION SAFETY (§1q / D1CF5FDF).  `conformance.attest` and
 `invoke_llm_subprocess(injections=...)` do NOT exist on this base.  Every
-reference to them is DEFERRED into a test body (`from conformance import attest`
+reference to them is DEFERRED into a test body (`from bytedigger_engine.conformance import attest`
 inside the function, or a keyword argument that raises TypeError at call time),
 so this module COLLECTS cleanly pre-GREEN and FAILS at assert/call time.  There
 is no module-level `sys.path` mutation and no `from conftest import` — the
@@ -146,13 +146,13 @@ from pathlib import Path
 
 import pytest
 
-import config_provider
-import error_codes
-import llm_subprocess
-import telemetry_ctx
-from contracts import StepResult, WorkflowContext
-from engine import WorkflowEngine
-from lib.llm_provider import CLAUDE_PROVIDER
+from bytedigger_engine import config_provider
+from bytedigger_engine import error_codes
+from bytedigger_engine import llm_subprocess
+from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.contracts import StepResult, WorkflowContext
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine.lib.llm_provider import CLAUDE_PROVIDER
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +406,7 @@ def test_ac_p1_exact_payload_key_set() -> None:
 
     Pre-GREEN: no such event exists — `len(attests) == 1` fails.
     """
-    from conformance.attest import EVENT_TYPE as GREEN_EVENT_TYPE, InjectedBlock
+    from bytedigger_engine.conformance.attest import EVENT_TYPE as GREEN_EVENT_TYPE, InjectedBlock
 
     assert GREEN_EVENT_TYPE == EVENT_TYPE, (
         f"AC-P1: attest.EVENT_TYPE must be {EVENT_TYPE!r} per AUTHORSHIP_SPEC.md §2.2; "
@@ -782,7 +782,7 @@ def test_ac_p7_requirement_labels_pinned_exactly_and_immutable() -> None:
 
     Pre-GREEN: `conformance.attest` does not exist (ImportError).
     """
-    from conformance.attest import REQUIREMENT_LABELS as GREEN_LABELS
+    from bytedigger_engine.conformance.attest import REQUIREMENT_LABELS as GREEN_LABELS
 
     # Provenance sanity on the TEST's own constant: every key is a CL
     # requirement id, and R3.4 is the one deliberately absent (it is recorded
@@ -824,7 +824,7 @@ def test_ac_i1_assemble_order_and_separator() -> None:
 
     Pre-GREEN: `conformance.attest` does not exist (ImportError).
     """
-    from conformance.attest import InjectedBlock, assemble
+    from bytedigger_engine.conformance.attest import InjectedBlock, assemble
 
     prompt = "PROMPT HEAD"
     blocks = [
@@ -871,7 +871,7 @@ def test_ac_i2_injections_in_declaration_order() -> None:
 
     Pre-GREEN: `conformance.attest` does not exist (ImportError).
     """
-    from conformance.attest import InjectedBlock
+    from bytedigger_engine.conformance.attest import InjectedBlock
 
     blocks = [
         InjectedBlock(source_id="src-alpha", content="ALPHA CONTENT"),
@@ -980,7 +980,7 @@ def test_ac_i3_unattributed_block_blocks_dispatch(bad_source_id, position) -> No
     Pre-GREEN: `injections` is not a parameter of `invoke_llm_subprocess`, so
     the call raises TypeError.
     """
-    from conformance.attest import InjectedBlock
+    from bytedigger_engine.conformance.attest import InjectedBlock
 
     # Every content below really occurs in `i3_prompt`, so the positive control
     # dispatches on the attribution rule alone and never on AC-I7's occurrence
@@ -1148,7 +1148,7 @@ def test_ac_i5_phase_2_explore_role_template_declared_through_injections(tmp_pat
         "otherwise the digest assertion cannot distinguish the two readings"
     )
 
-    from phase_2_explore import phase_2_explore_workflow
+    from bytedigger_engine.workflows.phase_2_explore import phase_2_explore_workflow
 
     register("claude-subprocess", _RecordingAdapter(
         "i5", data={"raw_response": "findings\n\nSTATUS: DONE\n"}
@@ -1253,7 +1253,7 @@ def test_ac_i6_migrated_phase_prompt_is_byte_identical(tmp_path) -> None:
     role_path.write_text(role_file_text, encoding="utf-8")
     expected_content = role_file_text.rstrip() + "\n\n"
 
-    from phase_2_explore import phase_2_explore_workflow
+    from bytedigger_engine.workflows.phase_2_explore import phase_2_explore_workflow
 
     adapter = _RecordingAdapter("i6", data={"raw_response": "findings\n\nSTATUS: DONE\n"})
     register("claude-subprocess", adapter,
@@ -1339,7 +1339,7 @@ def test_ac_i7_declared_block_absent_from_prompt_is_unattributed() -> None:
 
     Pre-GREEN: `injections` is not a parameter, so the call raises TypeError.
     """
-    from conformance.attest import InjectedBlock
+    from bytedigger_engine.conformance.attest import InjectedBlock
 
     prompt = "AC-I7 PROMPT HEAD\n\nPRESENT BLOCK BODY\n\nAC-I7 PROMPT TAIL"
     absent = InjectedBlock(source_id="src-i7", content="ABSENT BLOCK BODY")
@@ -1982,7 +1982,7 @@ def test_ac_c3_capability_escapes_both_orderings() -> None:
 
     Pre-GREEN: `conformance.attest` does not exist (ImportError).
     """
-    from conformance.attest import capability_escapes
+    from bytedigger_engine.conformance.attest import capability_escapes
 
     declared = list(REAL_DECLARED_TOOLS)
 
@@ -2309,7 +2309,7 @@ def test_ac_c6_argument_level_escape_is_not_detected_in_v1() -> None:
 
     Pre-GREEN: `conformance.attest` does not exist (ImportError).
     """
-    from conformance.attest import capability_escapes
+    from bytedigger_engine.conformance.attest import capability_escapes
 
     declared = ["Bash(graphify-shim.sh:*)"]
 

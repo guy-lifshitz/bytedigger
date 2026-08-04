@@ -14,12 +14,10 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_5_implement  # noqa: E402
-from phase_5_implement import _parse_validation_structured, _write_validation_doc  # noqa: E402
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _parse_validation_structured, _write_validation_doc  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── raw markdown builders ────────────────────────────────────────────────────

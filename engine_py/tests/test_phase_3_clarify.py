@@ -15,22 +15,21 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext, StepResult  # noqa: E402
-from derive_state import replay  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from phase_3_clarify import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.derive_state import replay  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.workflows.phase_3_clarify import (  # noqa: E402
     CLARIFY_DOC_RELPATH,
     DEFAULT_CLARIFY_TIMEOUT_SEC,
     DEFAULT_LLM_COMMAND,
     EXPLORATION_DOC_RELPATH,
     phase_3_clarify_workflow,
 )
-import llm_subprocess  # noqa: E402
-from llm_subprocess import register_backend, reset_backends  # noqa: E402
-import workflows  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine.llm_subprocess import register_backend, reset_backends  # noqa: E402
+from bytedigger_engine import workflows  # noqa: E402
 
 
 # ─── stub backend helpers ─────────────────────────────────────────────────────

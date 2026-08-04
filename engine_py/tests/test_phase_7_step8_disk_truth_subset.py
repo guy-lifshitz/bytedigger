@@ -30,12 +30,10 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_7_synthesize  # noqa: E402
-from phase_7_synthesize import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_7_synthesize  # noqa: E402
+from bytedigger_engine.workflows.phase_7_synthesize import (  # noqa: E402
     REPORT_DOC_RELPATH,
     SPEC_DOC_RELPATH,
     REVIEW_DOC_RELPATH,

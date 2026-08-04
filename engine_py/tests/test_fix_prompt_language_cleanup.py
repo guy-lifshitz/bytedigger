@@ -11,10 +11,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext, StepResult  # noqa: E402
-from phase_6_review import _build_fix_prompt  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _build_fix_prompt  # noqa: E402
 
 
 def test_fix_prompt_no_run_verification_command_phrase(tmp_path):

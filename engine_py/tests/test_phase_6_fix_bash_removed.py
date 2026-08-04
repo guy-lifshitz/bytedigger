@@ -12,10 +12,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext, StepResult  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     FIX_NO_MARKER,
     _build_fix_prompt,
     _invoke_fix_llm,
@@ -101,7 +100,7 @@ def test_invoke_fix_llm_main_allowed_tools_no_bash(tmp_path, monkeypatch):
             step_name="invoke_fix_llm",
         )
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", fake_invoke_llm_subprocess)
 
     ctx = _make_ctx(tmp_path)
@@ -143,7 +142,7 @@ def test_invoke_fix_llm_retry_allowed_tools_no_bash(tmp_path, monkeypatch):
             step_name="invoke_fix_llm",
         )
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", fake_invoke_llm_subprocess)
 
     ctx = _make_ctx(tmp_path)

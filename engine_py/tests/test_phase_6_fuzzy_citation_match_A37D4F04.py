@@ -34,18 +34,18 @@ import pytest  # noqa: F401 — pytest discovery
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     VERDICT_FAIL,
     VERDICT_PASS,
     _aggregate_review_findings,
     _verify_finding_quote,
 )
-import phase_6_review as _p6  # noqa: E402 — for monkeypatching _emit_safe; MUST be top-level alias (see test_906e37dc_review_findings_audit.py:358-361 — _aggregate_review_findings's globals resolve to the top-level module, not workflows.phase_6_review)
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402 — for monkeypatching _emit_safe; MUST be top-level alias (see test_906e37dc_review_findings_audit.py:358-361 — _aggregate_review_findings's globals resolve to the top-level module, not workflows.phase_6_review)
 
 
 # ─── local helpers (modelled on test_phase_6_review_21792EE7.py) ─────────────

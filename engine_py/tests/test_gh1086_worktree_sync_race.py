@@ -22,9 +22,9 @@ from pathlib import Path
 import pytest
 
 # Conftest singleton (§1q) already put engine_py root + workflows on sys.path.
-import phase_5_implement as p5_mod
-import phase_8_post_deploy as p8_mod
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine.workflows import phase_5_implement as p5_mod
+from bytedigger_engine.workflows import phase_8_post_deploy as p8_mod
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 
 # ─── shared git-repo helpers (mirrors test_8D162396 idiom) ────────────────────
@@ -132,7 +132,7 @@ def test_ac1_no_drift_when_frozen_sha_is_ancestor(tmp_path):
         "_detect_head_drift not found on phase_5_implement — M1 helper missing"
     )
 
-    from lib import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
     frozen_sha = _head_sha(repo)
@@ -159,7 +159,7 @@ def test_ac2_drift_when_frozen_sha_missing(tmp_path):
         "_detect_head_drift not found on phase_5_implement — M1 helper missing"
     )
 
-    from lib import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
 
     # Unrelated repo root — frozen sha comes from a *different* repo entirely,
     # so it is not an object in this repo (missing, not just non-ancestor).
@@ -206,7 +206,7 @@ def test_ac3_drift_when_frozen_sha_not_ancestor(tmp_path):
         "_detect_head_drift not found on phase_5_implement — M1 helper missing"
     )
 
-    from lib import git_port  # noqa: PLC0415
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
     frozen_sha = _head_sha(repo)  # base commit, becomes the diverged-away sha
@@ -263,7 +263,7 @@ def test_ac5_same_cycle_retry_reentry_idempotent_drift_outcome(tmp_path):
 
     Fails pre-GREEN: terminal branch never returns E_WORKTREE_HEAD_MOVED.
     """
-    from lib import git_port  # noqa: PLC0415 (imported for parity; not directly asserted)
+    from bytedigger_engine.lib import git_port  # noqa: PLC0415 (imported for parity; not directly asserted)
 
     other_repo = _make_repo(tmp_path / "other")
     frozen_sha = _head_sha(other_repo)
@@ -306,8 +306,8 @@ def test_ac6_error_code_registered_and_not_evict_on_retry(tmp_path):
 
     Fails pre-GREEN: code not yet registered.
     """
-    import error_codes  # noqa: PLC0415
-    import lib.dbos_setup as dbos_mod  # noqa: PLC0415
+    from bytedigger_engine import error_codes  # noqa: PLC0415
+    from bytedigger_engine.lib import dbos_setup as dbos_mod  # noqa: PLC0415
 
     assert "E_WORKTREE_HEAD_MOVED" in error_codes.ERROR_CODES, (
         "E_WORKTREE_HEAD_MOVED must be registered in error_codes.ERROR_CODES"

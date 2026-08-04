@@ -31,12 +31,10 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-from contracts import WorkflowContext  # noqa: E402
-from step_sentinel import compute_ctx_hash, maybe_read_sentinel, write_step_sentinel  # noqa: E402
-from phase_sentinel import phase_key  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.lib.step_sentinel import compute_ctx_hash, maybe_read_sentinel, write_step_sentinel  # noqa: E402
+from bytedigger_engine.lib.phase_sentinel import phase_key  # noqa: E402
 
 
 def make_ctx(scratchpad: Path, *, task_description: str = "t", **org_extra) -> WorkflowContext:
@@ -59,7 +57,7 @@ def make_ctx(scratchpad: Path, *, task_description: str = "t", **org_extra) -> W
 
 def test_ac1_hash_equals_inline_recomputed_v2_formula(tmp_path):
     import hashlib
-    from phase_sentinel import ctx_cfg_sha8  # not-yet-existing alias (§1q)
+    from bytedigger_engine.lib.phase_sentinel import ctx_cfg_sha8  # not-yet-existing alias (§1q)
 
     ctx = make_ctx(tmp_path)
     task = str(ctx.org_config.get("task_description") or "")
@@ -130,7 +128,7 @@ def test_ac5_identical_ctx_hashed_twice_is_equal(tmp_path):
 
 
 def test_ac6_parity_with_real_phase_key_on_org_config_diff(tmp_path):
-    from phase_sentinel import ctx_cfg_sha8  # noqa: F401  (not-yet-existing alias, forces §1q deferral)
+    from bytedigger_engine.lib.phase_sentinel import ctx_cfg_sha8  # noqa: F401  (not-yet-existing alias, forces §1q deferral)
 
     base = make_ctx(tmp_path)
     other = dataclasses.replace(base, org_config={**base.org_config, "_retry_nonce": "1"})

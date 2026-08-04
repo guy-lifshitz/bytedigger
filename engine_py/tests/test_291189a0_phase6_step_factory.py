@@ -13,10 +13,9 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import RetryPolicy, StepContract, StepResult  # noqa: E402
-from phase_6_review import phase_6_review_workflow  # noqa: E402
+from bytedigger_engine.contracts import RetryPolicy, StepContract, StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import phase_6_review_workflow  # noqa: E402
 
 
 def _find_step(workflow, name: str) -> StepContract:
@@ -61,7 +60,7 @@ def test_write_review_artifact_terminal_drift_is_recoverable_false(tmp_path, mon
     Setup: stub the inline retry path so both first attempt and retry produce non-conformant content.
     Expect: result.recoverable is False, error_code='E_REVIEW_FORMAT_DRIFT'.
     """
-    from workflows import phase_6_review as p6r
+    from bytedigger_engine.workflows import phase_6_review as p6r
 
     # Force conformance check to fail
     monkeypatch.setattr(p6r, "_is_review_conformant", lambda content: False)
@@ -104,7 +103,7 @@ def test_write_review_artifact_terminal_drift_is_recoverable_false(tmp_path, mon
 
 def test_write_fix_artifact_terminal_no_marker_is_recoverable_false(tmp_path, monkeypatch):
     """Terminal E_FIX_NO_MARKER must return recoverable=False (behavioral no-op for type-level pilot)."""
-    from workflows import phase_6_review as p6r
+    from bytedigger_engine.workflows import phase_6_review as p6r
 
     monkeypatch.setattr(p6r, "_parse_fix_status", lambda raw: p6r.FIX_NO_MARKER)
     def fake_invoke(**kwargs):

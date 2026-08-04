@@ -27,8 +27,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import lib.directed_repair as dr  # noqa: E402
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.lib import directed_repair as dr  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # --- shared fixtures / helpers ------------------------------------------------
@@ -88,7 +88,7 @@ def _patch_invoke(monkeypatch, dr_mod, patched_text: str, calls: list) -> None:
         monkeypatch.setattr(dr_mod, "invoke_llm_subprocess", fake_invoke)
         patched = True
     try:
-        import llm_subprocess  # noqa: PLC0415
+        from bytedigger_engine import llm_subprocess  # noqa: PLC0415
         monkeypatch.setattr(llm_subprocess, "invoke_llm_subprocess", fake_invoke)
         patched = True
     except ImportError:
@@ -295,7 +295,7 @@ def _always_error_invoke(monkeypatch, dr_mod, calls: list) -> None:
         monkeypatch.setattr(dr_mod, "invoke_llm_subprocess", fake_invoke)
         patched = True
     try:
-        import llm_subprocess  # noqa: PLC0415
+        from bytedigger_engine import llm_subprocess  # noqa: PLC0415
         monkeypatch.setattr(llm_subprocess, "invoke_llm_subprocess", fake_invoke)
         patched = True
     except ImportError:

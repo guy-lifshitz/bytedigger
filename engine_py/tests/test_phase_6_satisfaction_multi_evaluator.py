@@ -27,12 +27,10 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_6_review as p6  # noqa: E402  (needed for monkeypatching module-level names)
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as p6  # noqa: E402  (needed for monkeypatching module-level names)
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _invoke_satisfaction_llm,
     _write_satisfaction_doc,
     SatisfactionVerdict,  # re-exported from plugins.disk_truth via phase_6_review imports

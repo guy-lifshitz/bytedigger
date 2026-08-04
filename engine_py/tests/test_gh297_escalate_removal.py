@@ -30,13 +30,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib" / "plugins"))  # noqa: E402
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_5_implement import _verify_green_passing, GREEN_TEST_CYCLE_CAP  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _verify_green_passing, GREEN_TEST_CYCLE_CAP  # noqa: E402
 
-_PROD_FILE = HERE.parent / "workflows" / "phase_5_implement.py"
+_PROD_FILE = HERE.parent / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
 
 
 # ─── shared helpers (copied shape from test_phase_5_p0_escalate_585E30E3.py) ──
@@ -93,7 +91,7 @@ def _make_prev_with_paths(paths: list[str], *, cycle_count: int | None = None) -
 
 
 def _patch_emit_p5(monkeypatch) -> list[dict]:
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
     captured: list[dict] = []
 
     def _capture(event_type, payload, severity="warning"):

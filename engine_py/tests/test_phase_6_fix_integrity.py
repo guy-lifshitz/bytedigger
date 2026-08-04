@@ -17,12 +17,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext, StepResult  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from llm_subprocess import register_backend, reset_backends  # noqa: E402
-from phase_6_fix_integrity import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.llm_subprocess import register_backend, reset_backends  # noqa: E402
+from bytedigger_engine.workflows.phase_6_fix_integrity import (  # noqa: E402
     DEFAULT_INTEGRITY_TIMEOUT_SEC,
     DEFAULT_LLM_COMMAND,
     DIFF_PATCH_RELPATH,
@@ -188,7 +187,7 @@ def test_defaults_are_sensible():
     # DEFAULT_LLM_COMMAND must be the Opus-pinned command list via get_claude_critical().
     # Do NOT hardcode the model string; verify the structure and that it routes through
     # the critical model (whatever ModelConfig reports for 'critical').
-    from model_config import get_claude_critical  # noqa: PLC0415
+    from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: PLC0415
     critical = get_claude_critical()
     assert DEFAULT_LLM_COMMAND == ["claude", "-p", "--model", critical]
     # Verify the constants reflect FIX-side doc paths (not reused from phase_5_integrity).
@@ -206,7 +205,7 @@ def test_two_sha_diff_command(tmp_path):
     """AC3: when both SHAs are in org_config, diff command is
     ['git','diff',<pre>,<post>,'--','*test*','*spec*','*.test.*'].
     """
-    from phase_6_fix_integrity import _resolve_fix_diff_command  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_fix_integrity import _resolve_fix_diff_command  # noqa: PLC0415
 
     pre = "abc1234"
     post = "def5678"
@@ -467,7 +466,7 @@ def test_missing_boundary_blocks_via_monkeypatch(tmp_path, monkeypatch):
             raise _sp.CalledProcessError(128, cmd, stderr="not a git repository")
         return original_run(cmd, *args, **kwargs)
 
-    import phase_6_fix_integrity as _p6fi  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_6_fix_integrity as _p6fi  # noqa: PLC0415
     monkeypatch.setattr(_p6fi.subprocess, "run", patched_run)
 
     eng = make_engine_with_wf()
@@ -521,7 +520,7 @@ def test_test_patterns_filter_default_excludes_src(tmp_path):
     """AC10 supplement: verify the assembled diff command explicitly includes
     the pattern segment so non-test paths are excluded by git itself.
     """
-    from phase_6_fix_integrity import _resolve_fix_diff_command  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_fix_integrity import _resolve_fix_diff_command  # noqa: PLC0415
 
     cfg = {"pre_fix_sha": "aaa", "fix_commit_sha": "bbb"}
     cmd = _resolve_fix_diff_command(cfg, scratchpad=None)
@@ -539,7 +538,7 @@ def test_test_patterns_filter_default_excludes_src(tmp_path):
 
 def test_registry_includes_phase_6_fix_integrity():
     """Verify that workflows.register_all will include phase_6_fix_integrity after GREEN."""
-    import workflows  # noqa: PLC0415
+    from bytedigger_engine import workflows  # noqa: PLC0415
     eng = WorkflowEngine()
     workflows.register_all(eng)
     assert "phase_6_fix_integrity" in eng.registered()

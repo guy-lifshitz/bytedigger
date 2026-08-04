@@ -30,12 +30,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-import phase_45_spec  # noqa: E402
-import phase_5_integration_canary  # noqa: E402
-import telemetry_ctx  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec  # noqa: E402
+from bytedigger_engine.workflows import phase_5_integration_canary  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers ────────────────────────────────────────────────────────────

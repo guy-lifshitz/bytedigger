@@ -13,10 +13,8 @@ from pathlib import Path
 HERE = Path(__file__).parent          # engine_py/tests/
 ENGINE_ROOT = HERE.parent             # engine_py/
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from phase_45_spec_lite import _review_output_schema  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec_lite import _review_output_schema  # noqa: E402
 
 
 # ── AC1: ctx-json directive present ──────────────────────────────────────────

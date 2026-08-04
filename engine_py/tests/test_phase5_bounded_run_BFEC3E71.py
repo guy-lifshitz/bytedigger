@@ -22,10 +22,10 @@ import pytest
 # conftest-import-time singleton handles sys.path (§1q / 81F97F3D gate).
 # Do NOT add sys.path.insert here.
 
-import phase_5_implement as _p5
-from contracts import StepResult, WorkflowContext
-from bounded_spawn import TIMEOUT_RETURNCODE
-from lib.git_port import GitResult as _GitResult
+from bytedigger_engine.workflows import phase_5_implement as _p5
+from bytedigger_engine.contracts import StepResult, WorkflowContext
+from bytedigger_engine.lib.bounded_spawn import TIMEOUT_RETURNCODE
+from bytedigger_engine.lib.git_port import GitResult as _GitResult
 
 # ─── path to the production file under migration ──────────────────────────────
 _PROD_FILE = Path(_p5.__file__)
@@ -39,7 +39,7 @@ def _source() -> str:
 
 
 def _common_source() -> str:
-    import phase_workflows_common as _pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as _pwc  # noqa: PLC0415
     return Path(_pwc.__file__).read_text(encoding="utf-8")
 
 
@@ -114,7 +114,7 @@ class TestSourceGrepBFEC3E71:
         to lib/git_write_port.py; coverage is preserved at the new home.
         FAILS today: git_write_port.py does not exist yet (ImportError inside body).
         """
-        from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+        from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
         _gwp = Path(git_write_port.__file__).read_text(encoding="utf-8")
         assert "bounded_run(" in _gwp, (
             "git_write_port.py has no bounded_run( call — migration not done"
@@ -329,7 +329,7 @@ class TestSourceGrepBFEC3E71:
         # Repointed per §2.5 (5F06E98D): retry body moved to git_write_port.py;
         # read op_with_lock_retry body from the port's new home.
         # FAILS today: git_write_port.py does not exist yet (ImportError inside body).
-        from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+        from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
         _gwp_src = Path(git_write_port.__file__).read_text(encoding="utf-8")
         assert "== 124" in _gwp_src or "returncode == 124" in _gwp_src, (
             "git_write_port.py missing rc==124 comparison after migration"
@@ -365,7 +365,7 @@ class TestBehaviorBFEC3E71:
         the port's bounded_run and the (None,'timeout') branch fires there.
         FAILS today: git_write_port.py does not exist yet (ImportError inside body).
         """
-        from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+        from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
         monkeypatch.setattr(git_write_port, "bounded_run", lambda *a, **kw: _rc124())
         result_tuple = _p5._git_op_with_lock_retry(
             ["git", "status"], cwd=str(tmp_path), timeout=30
@@ -559,7 +559,7 @@ class TestBehaviorBFEC3E71:
         error='timeout' for the file — proves runtime routing through the port seam,
         not a monkeypatch of the module-local `bounded_run` name (which the GREEN
         change removes from _revert_cross_tree_modifications entirely)."""
-        from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+        from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
 
         class FakePort:
             def op_capture(self, cmd, *, cwd, timeout=30):
@@ -584,7 +584,7 @@ class TestBehaviorBFEC3E71:
         """Spec 8B9CAB8C AC3: injected git_write_port returning rc=0 must mark the
         file reverted — proves the happy path also runs through the injected port,
         not real subprocess git (which would fail/non-zero against a non-repo tmp_path)."""
-        from lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
+        from bytedigger_engine.lib import git_write_port  # noqa: PLC0415 — deferred per §1q/D1CF5FDF
 
         class FakePort:
             def op_capture(self, cmd, *, cwd, timeout=30):

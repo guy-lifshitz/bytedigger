@@ -96,12 +96,10 @@ import pytest  # noqa: E402
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +241,7 @@ def test_idle_timeout_kills_subprocess_when_no_events():
     proc = _stream_proc_with_stdout(stdout_obj, returncode=None)
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -301,7 +299,7 @@ def test_idle_timeout_resets_on_each_event():
     proc = _stream_proc_with_stdout(stdout_obj, returncode=0)
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -347,7 +345,7 @@ def test_idle_timeout_default_is_60s():
     Also checks the kwarg signature — invoke_llm_subprocess must accept
     ``idle_timeout_sec`` as a keyword-only parameter.
     """
-    import llm_subprocess  # local import — module is in sys.path
+    from bytedigger_engine import llm_subprocess  # local import — module is in sys.path
 
     # 1. Module-level constant must exist and equal None (disabled by default).
     assert hasattr(llm_subprocess, "_DEFAULT_IDLE_TIMEOUT_SEC"), (
@@ -395,7 +393,7 @@ def test_idle_timeout_only_applies_to_stream_json_path():
     proc = _stream_proc_with_stdout(stdout_obj, returncode=0)
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -451,7 +449,7 @@ def test_idle_timeout_emits_aborted_reason_in_telemetry():
         event_log=log, run_id="r-idle", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -521,7 +519,7 @@ def test_overall_timeout_still_applies_as_ceiling():
     proc = _stream_proc_with_stdout(stdout_obj, returncode=None)
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -576,7 +574,7 @@ def test_idle_timeout_zero_or_negative_disables_watchdog():
     proc = _stream_proc_with_stdout(stdout_obj, returncode=0)
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -636,7 +634,7 @@ def test_success_path_omits_aborted_reason():
         event_log=log, run_id="r-ok", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -729,7 +727,7 @@ def test_outer_timeout_abort_not_labeled_idle():
         event_log=log, run_id="r-outer", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -869,7 +867,7 @@ def test_lingering_cli_emits_cli_lingered_post_result_event():
         event_log=log, run_id="r-linger-ac1", step_name="red-writer", phase="phase_5"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -940,7 +938,7 @@ def test_cli_lingered_salvage_no_unbounded_proc_wait():
         event_log=log, run_id="r-15D89831-ac1", step_name="red-writer", phase="phase_5"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="",
                 model="sonnet",
@@ -983,7 +981,7 @@ def test_lingering_cli_kills_and_returns_success():
 
     proc = _lingering_proc_after_result()
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -1059,7 +1057,7 @@ def test_lingering_cli_kills_but_omits_aborted_reason():
         event_log=log, run_id="r-linger-ac7", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -1190,7 +1188,7 @@ def test_3C54A029_post_result_wait_ms_uses_constant():
     TODAY: FAILS at import — POST_RESULT_WAIT_SEC does not exist in llm_subprocess.py.
     After GREEN: import succeeds, constant == 5, payload field == 5000.
     """
-    from llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
+    from bytedigger_engine.llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
     # Constant value check.
     assert POST_RESULT_WAIT_SEC == 5, (
         "3C54A029 AC1: POST_RESULT_WAIT_SEC must equal 5; "
@@ -1205,7 +1203,7 @@ def test_3C54A029_post_result_wait_ms_uses_constant():
         event_log=log, run_id="r-3c54a029-ac1", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -1243,11 +1241,11 @@ def test_3C54A029_post_kill_wait_has_timeout():
     Inspecting proc.wait.call_args_list[1].kwargs gives {} → assertion fails.
     After GREEN: call_args_list[1].kwargs["timeout"] == POST_RESULT_WAIT_SEC.
     """
-    from llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
+    from bytedigger_engine.llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
 
     proc = _lingering_proc_after_result()
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -1287,7 +1285,7 @@ def test_3C54A029_kernel_returncode_in_subprocess_exited_on_salvage():
     TODAY: FAILS — subprocess_exited payload has no kernel_returncode key.
     KeyError or assertion failure depending on how GREEN is implemented.
     """
-    from llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
+    from bytedigger_engine.llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
 
     proc = _lingering_proc_after_result()
 
@@ -1296,7 +1294,7 @@ def test_3C54A029_kernel_returncode_in_subprocess_exited_on_salvage():
         event_log=log, run_id="r-3c54a029-ac3", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -1349,7 +1347,7 @@ def test_3C54A029_kernel_returncode_absent_on_clean_path():
     TODAY: FAILS — POST_RESULT_WAIT_SEC does not exist in llm_subprocess.py.
     After GREEN: import succeeds, and the clean path omits the key.
     """
-    from llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
+    from bytedigger_engine.llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
 
     proc = _clean_proc_after_result()
 
@@ -1358,7 +1356,7 @@ def test_3C54A029_kernel_returncode_absent_on_clean_path():
         event_log=log, run_id="r-3c54a029-ac4", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -1401,13 +1399,13 @@ def test_3C54A029_zombie_post_kill_wait_does_not_hang():
     After GREEN: both assertions pass — timeout kwarg present on reap call,
     and function returns without raising despite double-TimeoutExpired.
     """
-    from llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
+    from bytedigger_engine.llm_subprocess import POST_RESULT_WAIT_SEC  # noqa: E402 — FAILS today (constant missing)
 
     proc = _lingering_proc_zombie()
 
     # Assert: function must NOT raise even with double-TimeoutExpired.
     t0 = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",
@@ -1482,7 +1480,7 @@ def test_idle_timeout_capped_to_overall_timeout():
     proc = _stream_proc_with_stdout(stdout_obj, returncode=None)
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x",
             model="sonnet",

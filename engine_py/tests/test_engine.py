@@ -8,14 +8,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from contracts import (
+from bytedigger_engine.contracts import (
     WorkflowContext,
     StepResult,
     StepContract,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
-import engine
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine import engine
 
 
 @pytest.fixture(autouse=True)
@@ -276,7 +276,7 @@ def test_workflow_finished_emits_workflow_name(tmp_path):
     don't have to correlate workflow_started -> workflow_finished by run_id
     ordering. Unlocks per-phase telemetry roll-up.
     """
-    from event_log import EventLog  # noqa: E402
+    from bytedigger_engine.event_log import EventLog  # noqa: E402
 
     log = EventLog(tmp_path / "events.jsonl")
     eng = WorkflowEngine(event_log=log)

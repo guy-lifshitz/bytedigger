@@ -21,11 +21,9 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from lib import git_port as real_git_port  # noqa: E402  — real infra module, not the UUT
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.lib import git_port as real_git_port  # noqa: E402  — real infra module, not the UUT
 
 
 # ─── presence-gate helper (§1q / D1CF5FDF — no top-level import of missing module) ──
@@ -34,14 +32,14 @@ from lib import git_port as real_git_port  # noqa: E402  — real infra module, 
 def _import_dtg():
     """Import lib.dirty_tree_guard, failing the calling test (not collection) if absent."""
     try:
-        import dirty_tree_guard  # type: ignore
+        from bytedigger_engine.lib import dirty_tree_guard  # type: ignore
     except ImportError as e:
         pytest.fail(f"lib.dirty_tree_guard not implemented yet (GH961 GREEN pending): {e}")
     return dirty_tree_guard
 
 
 def _import_phase5():
-    import phase_5_implement  # type: ignore
+    from bytedigger_engine.workflows import phase_5_implement  # type: ignore
     return phase_5_implement
 
 
@@ -526,7 +524,7 @@ class _PlanReachedMarker(Exception):
 
 class TestRegistrations:
     def test_ac13_error_code_registered(self) -> None:
-        import error_codes  # type: ignore
+        from bytedigger_engine import error_codes  # type: ignore
         codes = getattr(error_codes, "ERROR_CODES", None) or getattr(error_codes, "ERROR_CODE_REGISTRY", None)
         assert codes is not None, "could not locate the error-code registry dict in error_codes module"
         assert "E_RED_WORKTREE_DIRTY" in codes, (
@@ -534,7 +532,7 @@ class TestRegistrations:
         )
 
     def test_ac13_flag_registered_default_on(self) -> None:
-        import flags_catalog  # type: ignore
+        from bytedigger_engine import flags_catalog  # type: ignore
         flags = getattr(flags_catalog, "FLAGS", None) or getattr(flags_catalog, "FLAGS_CATALOG", None)
         assert flags is not None, "could not locate the flags registry dict in flags_catalog module"
         assert "HAL_DIRTY_TREE_GUARD" in flags, (

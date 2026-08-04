@@ -22,11 +22,9 @@ from unittest.mock import call, patch
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-from phase_6_review import _build_review_prompt  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _build_review_prompt  # noqa: E402
 
 # ─── shared fixtures ──────────────────────────────────────────────────────────
 
@@ -74,7 +72,7 @@ def _write_last_findings(scratch: Path, attempt: int = 1, findings: list | None 
 
 def _suppress_emit(monkeypatch) -> list[tuple]:
     """Suppress _emit_safe and capture calls for assertion."""
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     captured: list[tuple] = []
     monkeypatch.setattr(
         phase_6_review,
@@ -244,7 +242,7 @@ def test_propagation_emits_telemetry(tmp_path: Path, monkeypatch) -> None:
     ]
     _write_last_findings(scratch, attempt=1, findings=two_findings)
 
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     emitted_events: list[tuple] = []
 
     def _capture_emit(event_type, payload, **kw):

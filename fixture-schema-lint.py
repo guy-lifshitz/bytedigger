@@ -25,11 +25,14 @@ import json
 import sys
 from pathlib import Path
 
-# Add engine_py root to sys.path so fixture_schema is importable
+# Add engine_py root (the parent of the bytedigger_engine package) to sys.path
+# so the engine is importable from a source checkout. This shim lives OUTSIDE
+# the distribution, so the insert is a host-side bootstrap, not a package
+# path hack — bd#44 removed all 63 of those from inside the package.
 _ENGINE_PY_ROOT = Path(__file__).resolve().parent / "engine_py"
 sys.path.insert(0, str(_ENGINE_PY_ROOT))
 
-from fixture_schema import parse_reference_ddl, scan_fixture_schema  # noqa: E402
+from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema  # noqa: E402
 
 
 def main() -> int:

@@ -17,11 +17,10 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-import phase_5_implement  # noqa: E402  (needed for monkeypatch target)
-from contracts import StepResult  # noqa: E402
-from phase_5_implement import (  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402  (needed for monkeypatch target)
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import (  # noqa: E402
     _gate_on_validation,
     _write_validation_doc,
     VERDICT_PASS,

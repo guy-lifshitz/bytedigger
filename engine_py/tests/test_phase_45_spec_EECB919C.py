@@ -22,9 +22,8 @@ from pathlib import Path
 # Must be module-level (not inside functions) to reach contracts/phase_45_spec.
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── fixture text constants ────────────────────────────────────────────────────
@@ -162,7 +161,7 @@ def test_ac1_verify_spec_scope_inverse_in_step_list_after_lint() -> None:
     """AC1: phase_45_spec_workflow().steps has 'verify_spec_scope_inverse',
     index > index of 'verify_spec_lint' and < index of 'build_review_prompt'.
     FAILS pre-GREEN: step absent from workflow list."""
-    from phase_45_spec import phase_45_spec_workflow  # deferred — uniformity
+    from bytedigger_engine.workflows.phase_45_spec import phase_45_spec_workflow  # deferred — uniformity
 
     names = [s.name for s in phase_45_spec_workflow().steps]
 
@@ -193,7 +192,7 @@ def test_ac2_verify_spec_coverage_in_step_list_after_scope_inverse() -> None:
     """AC2: phase_45_spec_workflow().steps has 'verify_spec_coverage',
     index > 'verify_spec_scope_inverse' and < 'build_review_prompt'.
     FAILS pre-GREEN: step absent."""
-    from phase_45_spec import phase_45_spec_workflow  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import phase_45_spec_workflow  # deferred
 
     names = [s.name for s in phase_45_spec_workflow().steps]
 
@@ -226,7 +225,7 @@ def test_ac3_scope_violating_spec_returns_error(tmp_path) -> None:
     """AC3: _verify_spec_scope_inverse on a scope-violating spec (cycle=1)
     → status='error', error_code='E_SPEC_SCOPE_INVERSE', recoverable=True.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_scope_inverse  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # deferred
 
     f = _write(tmp_path, "spec_violating.md", _SCOPE_VIOLATING)
     ctx = _make_ctx()
@@ -248,7 +247,7 @@ def test_ac4_scope_clean_spec_returns_ok(tmp_path) -> None:
     """AC4: _verify_spec_scope_inverse on a spec with both 'Files in scope' header
     AND 'Files NOT in scope' line → status='ok'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_scope_inverse  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # deferred
 
     f = _write(tmp_path, "spec_clean.md", _SCOPE_CLEAN)
     ctx = _make_ctx()
@@ -266,7 +265,7 @@ def test_ac5_coverage_violating_spec_returns_error(tmp_path) -> None:
     """AC5: _verify_spec_coverage on a spec with a bold §2 op absent from AC
     table (cycle=1) → status='error', error_code='E_SPEC_COVERAGE', recoverable=True.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_coverage  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_coverage  # deferred
 
     f = _write(tmp_path, "spec_cov_viol.md", _COVERAGE_VIOLATING)
     ctx = _make_ctx()
@@ -288,7 +287,7 @@ def test_ac6_coverage_clean_spec_returns_ok(tmp_path) -> None:
     """AC6: _verify_spec_coverage on a spec where every §2 bold op appears in
     the AC table → status='ok'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_coverage  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_coverage  # deferred
 
     f = _write(tmp_path, "spec_cov_clean.md", _COVERAGE_CLEAN)
     ctx = _make_ctx()
@@ -306,7 +305,7 @@ def test_ac7_no_ac_table_returns_ok(tmp_path) -> None:
     """AC7: _verify_spec_coverage on a spec with NO markdown AC table
     → status='ok' (scan_spec_coverage returns [] → no findings).
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_coverage  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_coverage  # deferred
 
     f = _write(tmp_path, "spec_no_table.md", _NO_AC_TABLE)
     ctx = _make_ctx()
@@ -327,7 +326,7 @@ def test_ac8_frozen_spec_both_gates_skip(tmp_path) -> None:
     """AC8: with prev.data['is_frozen']=True, BOTH _verify_spec_scope_inverse and
     _verify_spec_coverage return status='skip'.
     FAILS pre-GREEN: functions do not exist."""
-    from phase_45_spec import _verify_spec_scope_inverse, _verify_spec_coverage  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse, _verify_spec_coverage  # deferred
 
     # Use the violating fixture so these would error if the frozen fast-path is absent.
     f = _write(tmp_path, "spec_frozen.md", _SCOPE_VIOLATING)
@@ -354,7 +353,7 @@ def test_ac9_env_kill_switch_scope_gate(tmp_path, monkeypatch) -> None:
     """AC9: with HAL_SPEC_SCOPE_GATE='0', _verify_spec_scope_inverse on a
     scope-VIOLATING spec → status='ok', data['spec_scope_inverse_skipped']=='env_skip'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_scope_inverse  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # deferred
 
     monkeypatch.setenv("HAL_SPEC_SCOPE_GATE", "0")
 
@@ -380,7 +379,7 @@ def test_ac10_env_kill_switch_coverage_gate(tmp_path, monkeypatch) -> None:
     """AC10: with HAL_SPEC_COVERAGE_GATE='0', _verify_spec_coverage on a
     coverage-VIOLATING spec → status='ok'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_coverage  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_coverage  # deferred
 
     monkeypatch.setenv("HAL_SPEC_COVERAGE_GATE", "0")
 
@@ -407,7 +406,7 @@ def test_ac11_scope_violating_cycle2_returns_fatal(tmp_path) -> None:
     cycle; spec_retry cap is now 1 (recoverable_once). Seed 1 prior attempt
     (== cap) — prev.data is spread into forwarded_data at
     phase_45_spec.py:1900 `forwarded_data={**prev.data, ...}`, confirmed."""
-    from phase_45_spec import _verify_spec_scope_inverse  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # deferred
 
     f = _write(tmp_path, "spec_fatal.md", _SCOPE_VIOLATING)
     ctx = _make_ctx()
@@ -431,7 +430,7 @@ def test_ac12_findings_str_and_findings_structured_list(tmp_path) -> None:
     """AC12: on a scope violation (cycle=1), result.data['findings'] is a str
     (not a list) AND result.data['findings_structured'] is a list.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_scope_inverse  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # deferred
 
     f = _write(tmp_path, "spec_findings.md", _SCOPE_VIOLATING)
     ctx = _make_ctx()

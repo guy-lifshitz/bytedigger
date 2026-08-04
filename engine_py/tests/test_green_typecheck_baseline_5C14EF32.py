@@ -28,10 +28,10 @@ import pytest
 # Both modules import cleanly today (conftest inserts sys.path).
 # Not-yet-existing attrs (_compute_baseline_typecheck_count) referenced
 # inside test bodies.
-import phase_5_implement  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from net_new_delta import delta_verdict  # noqa: E402  (exists today — used in AC9)
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.net_new_delta import delta_verdict  # noqa: E402  (exists today — used in AC9)
 
 
 # ─── shared helpers ───────────────────────────────────────────────────────────

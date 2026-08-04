@@ -32,16 +32,16 @@ import pytest
 _ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "workflows"
+_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(_WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(_WORKFLOWS))
-_LIB = _ENGINE_PY / "lib"
+_LIB = _ENGINE_PY / "bytedigger_engine" / "lib"
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
 # ─── Production imports ────────────────────────────────────────────────────────
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import telemetry_ctx  # noqa: E402  # attribute-lookup so monkeypatch.setattr works
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402  # attribute-lookup so monkeypatch.setattr works
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ def test_duration_overrun_returns_escalate(tmp_path: Path) -> None:
     grep prod confirms it does not exist today.  Cannot be stub-satisfied
     without the real mixin wire-up (§1l).
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     # green_llm_timeout_sec=600 → wall_limit_ms = 2 * 600 * 1000 = 1_200_000 ms
     # Use duration_ms just over the limit.
@@ -135,7 +135,7 @@ def test_tokens_overrun_returns_ok_nonfatal(tmp_path: Path) -> None:
     Emit coverage (green_watchdog_token_alert) is tested in the dedicated
     test_phase_5_32C49788_green_watchdog_token_alert.py AC2 test.
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     ctx = _make_ctx(tmp_path, green_llm_timeout_sec=600)
     # duration well under wall_limit (1 s < 1_200_000 ms) → only token branch trips
@@ -163,7 +163,7 @@ def test_healthy_path_returns_ok_with_prev_data(tmp_path: Path) -> None:
     Pre-GREEN: PASS — regression guard; current code already returns ok
     on this path.  Remains green post-GREEN.
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     ctx = _make_ctx(tmp_path, green_llm_timeout_sec=600)
     # duration=1_000 ms << 1_200_000 ms wall limit; tokens=100 << 25_000 token limit
@@ -199,7 +199,7 @@ def test_tripwire_emits_telemetry_event(tmp_path: Path, monkeypatch) -> None:
 
     Pre-GREEN: FAIL — current code emits zero events (no mixin call).
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     captured: list[tuple[str, dict]] = []
 
@@ -244,7 +244,7 @@ def test_build_class_resolved_from_ctx_complexity(tmp_path: Path, monkeypatch) -
 
     Pre-GREEN: FAIL — no event emitted; assertion on payload["build_class"] not reached.
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     captured: list[tuple[str, dict]] = []
 

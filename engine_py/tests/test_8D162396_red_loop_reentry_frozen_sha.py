@@ -25,7 +25,7 @@ import pytest
 
 # Import the module at top level — conftest-import-time singleton already put
 # engine_py root + workflows on sys.path (§1q / 81F97F3D gate).
-import phase_5_implement as mod
+from bytedigger_engine.workflows import phase_5_implement as mod
 
 # NOTE: _resolve_frozen_pre_red_sha and _persist_pre_red_ref do NOT exist yet.
 # We resolve them via getattr() inside each test body (D1CF5FDF: defer
@@ -79,7 +79,7 @@ def _make_scratchpad() -> Path:
 
 
 def _make_ctx(scratchpad: Path, git_cwd: str | None = None):
-    from contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
 
     org: dict = {"scratchpad_dir": str(scratchpad)}
     if git_cwd is not None:
@@ -99,7 +99,7 @@ def _make_ctx(scratchpad: Path, git_cwd: str | None = None):
 
 def _prev_for_commit(scratchpad: Path, cycle: int = 1):
     """Minimal prev StepResult accepted by _commit_red_tests."""
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     return StepResult(
         status="ok",
@@ -296,8 +296,8 @@ def test_ac7_e_red_no_marker_code_unchanged_message_updated(tmp_path):
     assert on 'frozen' / 'pre-red' FAILS (old message says 'Files: [...]').
     This FAILS pre-GREEN on the message assertion.
     """
-    from contracts import StepResult  # noqa: PLC0415
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
     scratchpad = _make_scratchpad()
@@ -346,7 +346,7 @@ def test_ac8_cycle2_reentry_no_e_red_no_marker(tmp_path):
 
     This test FAILS pre-GREEN.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
 

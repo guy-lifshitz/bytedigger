@@ -41,16 +41,12 @@ ENGINE_ROOT = HERE.parent
 
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-if str(ENGINE_ROOT / "workflows") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # Import the MODULE only — _resolve_satisfaction_source doesn't exist yet.
 # Accessing it at top-level would raise ImportError and hang the RED phase (D1CF5FDF).
-import phase_6_review  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402
 
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     SATISFACTION_DOC_RELPATH,
     SPEC_DOC_RELPATH,
     REVIEW_DOC_RELPATH,
@@ -59,7 +55,7 @@ from phase_6_review import (  # noqa: E402
     _invoke_satisfaction_llm,
     _write_satisfaction_doc,
 )
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── fixture helpers ──────────────────────────────────────────────────────────

@@ -20,12 +20,10 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_6_review  # noqa: E402  (needed for monkeypatch target)
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402  (needed for monkeypatch target)
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _build_satisfaction_prompt,
     _write_satisfaction_doc,
     SatisfactionVerdict,          # NEW symbol — not yet exported; RED failure surface

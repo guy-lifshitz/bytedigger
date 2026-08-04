@@ -21,9 +21,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 def make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra) -> WorkflowContext:
@@ -42,7 +41,7 @@ def make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra)
 
 
 def get_spec_prompt(scratchpad: Path, *, _prev=None) -> str:
-    from phase_45_spec import _build_spec_prompt
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt
 
     ctx = make_ctx(scratchpad)
     result = _build_spec_prompt(ctx, _prev)
@@ -152,7 +151,7 @@ def test_spec_stable_prefix_untouched_by_new_symbol_ban():
     still PASS after GREEN (rule 9 landed in the contract fn, not the
     stable prefix) — it is a leak guard, not a forcing function for GH934.
     """
-    from phase_45_spec import _SPEC_STABLE_PREFIX
+    from bytedigger_engine.workflows.phase_45_spec import _SPEC_STABLE_PREFIX
 
     assert "must NEVER appear in citation form" not in _SPEC_STABLE_PREFIX, (
         "rule-9 citation-form ban token leaked into _SPEC_STABLE_PREFIX"

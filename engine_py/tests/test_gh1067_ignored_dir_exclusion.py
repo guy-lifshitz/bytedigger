@@ -11,6 +11,8 @@ Seam adaptations from the hal source (PORT_SPEC-style):
 from __future__ import annotations
 
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
@@ -21,14 +23,14 @@ def _scan_roots():
     import importlib
     if str(ENGINE_PY_ROOT) not in sys.path:
         sys.path.insert(0, str(ENGINE_PY_ROOT))
-    return importlib.import_module("lib.scan_roots")
+    return importlib.import_module("bytedigger_engine.lib.scan_roots")
 
 
 def _error_codes_mod():
     import importlib
     if str(ENGINE_PY_ROOT) not in sys.path:
         sys.path.insert(0, str(ENGINE_PY_ROOT))
-    return importlib.import_module("error_codes")
+    return importlib.import_module("bytedigger_engine.error_codes")
 
 
 def _init_git_repo(root: Path) -> None:
@@ -119,7 +121,7 @@ def test_ac4_git_ignored_dirs_non_git_returns_empty_without_raising(tmp_path):
 
 def test_ac5_real_error_codes_check_exits_0_ok(tmp_path):
     result = subprocess.run(
-        [sys.executable, str(ENGINE_PY_ROOT / "error_codes.py"), "--check"],
+        [sys.executable, str(ENGINE_PY_ROOT / "bytedigger_engine" / "error_codes.py"), "--check"], env=engine_env(),
         cwd=str(ENGINE_PY_ROOT),
         capture_output=True,
         text=True,
@@ -140,7 +142,7 @@ def test_ac5_real_error_codes_check_exits_0_ok(tmp_path):
 def test_ac6_iter_prod_py_files_excludes_and_includes_expected(tmp_path):
     sr = _scan_roots()
     files = sr.iter_prod_py_files(ENGINE_PY_ROOT)
-    scan_roots_path = ENGINE_PY_ROOT / "lib" / "scan_roots.py"
+    scan_roots_path = ENGINE_PY_ROOT / "bytedigger_engine" / "lib" / "scan_roots.py"
     assert scan_roots_path in files
 
     for p in files:

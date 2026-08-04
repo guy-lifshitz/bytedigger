@@ -25,9 +25,8 @@ from unittest.mock import patch, MagicMock
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared fixtures (mirror C76F6F3C style) ────────────────────────────────
@@ -73,10 +72,10 @@ def _stub_proc(returncode: int = 1, stdout: str = "", stderr: str = "") -> Magic
 
 
 def test_ts_paths_dispatch_to_bun_test(tmp_path):
-    from phase_5_implement import _verify_red_fails_mechanically
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically
 
     prev = _make_prev(["scratch/foo.test.ts"])
-    with patch("phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
+    with patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
         result = _verify_red_fails_mechanically(_make_ctx(tmp_path), prev)
 
     assert mrun.called, "subprocess.run was not invoked"
@@ -90,10 +89,10 @@ def test_ts_paths_dispatch_to_bun_test(tmp_path):
 
 
 def test_swift_paths_dispatch_to_swift_test(tmp_path):
-    from phase_5_implement import _verify_red_fails_mechanically
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically
 
     prev = _make_prev(["scratch/FooTests.swift"])
-    with patch("phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
+    with patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
         result = _verify_red_fails_mechanically(_make_ctx(tmp_path), prev)
 
     assert mrun.called, "subprocess.run was not invoked"
@@ -107,10 +106,10 @@ def test_swift_paths_dispatch_to_swift_test(tmp_path):
 
 
 def test_rust_paths_dispatch_to_cargo_test(tmp_path):
-    from phase_5_implement import _verify_red_fails_mechanically
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically
 
     prev = _make_prev(["scratch/foo_test.rs"])
-    with patch("phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
+    with patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
         result = _verify_red_fails_mechanically(_make_ctx(tmp_path), prev)
 
     assert mrun.called, "subprocess.run was not invoked"
@@ -124,10 +123,10 @@ def test_rust_paths_dispatch_to_cargo_test(tmp_path):
 
 
 def test_unsupported_language_skips_gracefully(tmp_path):
-    from phase_5_implement import _verify_red_fails_mechanically
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically
 
     prev = _make_prev(["scratch/foo_test.go"])
-    with patch("phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
+    with patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
         result = _verify_red_fails_mechanically(_make_ctx(tmp_path), prev)
 
     if mrun.called:
@@ -145,10 +144,10 @@ def test_unsupported_language_skips_gracefully(tmp_path):
 
 
 def test_mixed_language_paths_does_not_pytest_everything(tmp_path):
-    from phase_5_implement import _verify_red_fails_mechanically
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically
 
     prev = _make_prev(["scratch/foo.test.ts", "scratch/bar_test.py"])
-    with patch("phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
+    with patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
         _verify_red_fails_mechanically(_make_ctx(tmp_path), prev)
 
     forbidden = ["python3", "-m", "pytest", "-x", "--tb=no", "-q",
@@ -178,7 +177,7 @@ def test_mixed_paths_with_passing_subgroup_returns_error(tmp_path):
     RED) but PY passes (fake RED in that subgroup), function must return error
     with E_RED_NOT_FAILING — not silently accept the partial fake RED.
     """
-    from phase_5_implement import _verify_red_fails_mechanically
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_fails_mechanically
 
     prev = _make_prev(["scratch/foo.test.ts", "scratch/bar_test.py"])
 
@@ -191,7 +190,7 @@ def test_mixed_paths_with_passing_subgroup_returns_error(tmp_path):
             return _stub_proc(returncode=0, stdout="py passed")
         return _stub_proc(returncode=1)
 
-    with patch("phase_5_implement.subprocess.run", side_effect=_fake_run):
+    with patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", side_effect=_fake_run):
         result = _verify_red_fails_mechanically(_make_ctx(tmp_path), prev)
 
     assert result.status == "error", (

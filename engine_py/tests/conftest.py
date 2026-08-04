@@ -32,10 +32,19 @@ from helpers import live_repo as _live_repo
 # below.
 pytest_runtest_makereport = _host_tools.pytest_runtest_makereport
 
-# Conftest-import-time singleton: expose engine_py root + workflows dir so test
-# files don't need module-level sys.path manipulation (§1q / 81F97F3D gate).
+# Conftest-import-time singleton: expose engine_py root (the PARENT of the
+# `bytedigger_engine` package) plus the tests dir, so test files don't need
+# module-level sys.path manipulation (§1q / 81F97F3D gate).
+#
+# bd#44 fence (spec §5): the entries for `engine_py/workflows` and
+# `engine_py/lib` are GONE and must not come back in any spelling. Those two
+# directories now live INSIDE the package; putting them back on sys.path would
+# make `phase_5_implement` and `model_config` resolve as flat top-level names
+# again — the exact defect this lot removes — and would make the suite green
+# over a package that is broken for anyone who pip-installs it. Only the
+# package's parent directory is exposed.
 _ENGINE_ROOT = Path(__file__).parent.parent
-for _p in [str(_ENGINE_ROOT), str(_ENGINE_ROOT / "workflows"), str(Path(__file__).parent)]:
+for _p in [str(_ENGINE_ROOT), str(Path(__file__).parent)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -44,10 +53,7 @@ for _p in [str(_ENGINE_ROOT), str(_ENGINE_ROOT / "workflows"), str(Path(__file__
 # critical/spec_writer -> fable). Pin model_config to a static fixture at
 # conftest import time -- BEFORE any test module imports phase_45_spec, whose
 # module-level DEFAULT_*_LLM_COMMAND constants are computed at import time.
-_LIB_DIR = str(_ENGINE_ROOT / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import model_config as _model_config  # noqa: E402
+from bytedigger_engine.lib import model_config as _model_config  # noqa: E402
 
 _MODELS_PINNED_FIXTURE = Path(__file__).parent / "fixtures" / "models_pinned.json"
 _model_config._CONFIG_PATH = _MODELS_PINNED_FIXTURE
@@ -255,7 +261,7 @@ def _hal_config_provider_default():
 @pytest.fixture(autouse=True)
 def _llm_backend_registry_isolation():
     """Hermetic backend registry per test (GH1082 — #1092/#1098)."""
-    import llm_subprocess as _llm  # noqa: PLC0415
+    from bytedigger_engine import llm_subprocess as _llm  # noqa: PLC0415
     _llm.reset_backends()
     yield
     _llm.reset_backends()

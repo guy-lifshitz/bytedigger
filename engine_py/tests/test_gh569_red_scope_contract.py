@@ -26,8 +26,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from lib.run_allowlist import _parse_items  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.lib.run_allowlist import _parse_items  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── repo helpers (same pattern as test_phase_5_AD14A3ED_red_scope.py) ────────
@@ -151,7 +151,7 @@ def test_ac6_parse_items_legacy_bulleted_form_regression() -> None:
 
 
 def test_ac7_is_test_shaped_true_cases() -> None:
-    from lib.run_allowlist import is_test_shaped
+    from bytedigger_engine.lib.run_allowlist import is_test_shaped
 
     for path in (
         "x/__tests__/y.test.ts",
@@ -165,7 +165,7 @@ def test_ac7_is_test_shaped_true_cases() -> None:
 
 
 def test_ac7_is_test_shaped_false_cases() -> None:
-    from lib.run_allowlist import is_test_shaped
+    from bytedigger_engine.lib.run_allowlist import is_test_shaped
 
     for path in ("x/y.py", "x/contest.py"):
         assert is_test_shaped(path) is False, (
@@ -180,7 +180,7 @@ def test_ac7_is_test_shaped_false_cases() -> None:
 
 
 def test_ac8_derived_test_scope_match_zero_levels_up() -> None:
-    from lib.run_allowlist import derived_test_scope_match
+    from bytedigger_engine.lib.run_allowlist import derived_test_scope_match
 
     entries = ["USER/skills/PAHelper/Tools/bridge.ts"]
     assert derived_test_scope_match(
@@ -189,7 +189,7 @@ def test_ac8_derived_test_scope_match_zero_levels_up() -> None:
 
 
 def test_ac8_derived_test_scope_match_one_level_up() -> None:
-    from lib.run_allowlist import derived_test_scope_match
+    from bytedigger_engine.lib.run_allowlist import derived_test_scope_match
 
     entries = ["engine_py/lib/x.py"]
     assert derived_test_scope_match("engine_py/tests/test_x.py", entries) is True, (
@@ -198,7 +198,7 @@ def test_ac8_derived_test_scope_match_one_level_up() -> None:
 
 
 def test_ac8_derived_test_scope_match_three_levels_up_not_admitted() -> None:
-    from lib.run_allowlist import derived_test_scope_match
+    from bytedigger_engine.lib.run_allowlist import derived_test_scope_match
 
     entries = ["SYSTEM/cli/build/engine_py/lib/x.py"]
     assert derived_test_scope_match(
@@ -210,7 +210,7 @@ def test_ac8_derived_test_scope_match_three_levels_up_not_admitted() -> None:
 
 
 def test_ac8_derived_test_scope_match_non_test_shaped_rogue_not_admitted() -> None:
-    from lib.run_allowlist import derived_test_scope_match
+    from bytedigger_engine.lib.run_allowlist import derived_test_scope_match
 
     entries = ["engine_py/lib/x.py"]
     assert derived_test_scope_match("engine_py/rogue.py", entries) is False, (
@@ -238,7 +238,7 @@ class TestGateDerivedScopeIntegration:
         dir (engine_py/lib/x.py -> engine_py/tests/test_x.py) must parse the
         allowlist as non-empty (AC1-AC6 parser fix) AND admit the RED path via
         derivation: violations_n=0, derived_matched_n=1."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo = _make_repo(tmp_path)
         spec_file = tmp_path / "spec.md"
@@ -289,7 +289,7 @@ class TestGateDerivedScopeIntegration:
         enumeration only surfaces test-shaped files — a non-test-shaped rogue
         never reaches the scope gate at all. It sits outside the ≤2-level
         derivation reach of the `engine_py/lib/x.py` entry."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo = _make_repo(tmp_path)
         spec_file = tmp_path / "spec.md"
@@ -328,7 +328,7 @@ class TestGateAuthorizedTestEditsIntegration:
         """A RED path matched only via the `authorized-test-edits:` marker
         block (not derivable, not in ## Files) must yield violations_n=0 and
         authorized_test_edits_n>=1."""
-        import phase_5_implement
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo = _make_repo(tmp_path)
         spec_file = tmp_path / "spec.md"

@@ -25,9 +25,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -101,7 +100,7 @@ def test_import_autoprefix():
 
     Today: ImportError → RED.
     """
-    from phase_45_spec import _autoprefix_bare_citations  # noqa: F401
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations  # noqa: F401
 
 
 @pytest.mark.skipif(not _has_git(), reason="git not on PATH")
@@ -111,7 +110,7 @@ def test_unique_match_is_rewritten(tmp_path):
     stage a repo with SYSTEM/foo/bar.py; input "see bar.py:42 for details";
     expect "see SYSTEM/foo/bar.py:42 for details".
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo/bar.py")
@@ -129,7 +128,7 @@ def test_multiple_matches_left_alone(tmp_path):
 
     stage a/foo.py AND b/foo.py; "foo.py:1" must stay "foo.py:1".
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "a/foo.py")
@@ -148,7 +147,7 @@ def test_zero_matches_left_alone(tmp_path):
 
     stage repo with no unknown.py; "unknown.py:5" → unchanged.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     # no unknown.py staged
@@ -167,7 +166,7 @@ def test_already_prefixed_left_alone(tmp_path):
     stage SYSTEM/foo/bar.py; input "see SYSTEM/foo/bar.py:10";
     expect unchanged (no SYSTEM/SYSTEM/... churn).
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo/bar.py")
@@ -182,7 +181,7 @@ def test_already_prefixed_left_alone(tmp_path):
 @pytest.mark.skipif(not _has_git(), reason="git not on PATH")
 def test_mixed_paragraph_only_bare_rewritten(tmp_path):
     """Mixed text: bare citation gets prefixed, already-prefixed citation untouched."""
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo/bar.py")
@@ -203,7 +202,7 @@ def test_non_target_extension_left_alone(tmp_path):
 
     "foo.txt:5" is not a citation target; leave it alone even if foo.txt exists.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "docs/foo.txt")
@@ -223,7 +222,7 @@ def test_inside_code_fence_still_rewritten(tmp_path):
     documents that choice: lint behaviour stays consistent regardless of
     markdown context. Change this test if context-aware exclusion is added.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo/bar.py")
@@ -237,7 +236,7 @@ def test_inside_code_fence_still_rewritten(tmp_path):
 
 def test_empty_text_returns_empty():
     """Empty input string → empty output, no error."""
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     result = _autoprefix_bare_citations("", Path("/nonexistent/path"))
     assert result == "", f"empty text should return empty; got {result!r}"
@@ -245,7 +244,7 @@ def test_empty_text_returns_empty():
 
 def test_git_ls_files_fails_graceful_degradation(tmp_path):
     """If git ls-files fails (not a repo) → return text unchanged, no exception."""
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     # tmp_path is NOT a git repo
     text = "bar.py:42"
@@ -265,7 +264,7 @@ def test_write_spec_doc_prefixes_before_atomic_write(tmp_path):
     Stage a repo with SYSTEM/foo.py; raw_response contains "foo.py:1";
     file on disk must contain "SYSTEM/foo.py:1".
     """
-    from phase_45_spec import _write_spec_doc
+    from bytedigger_engine.workflows.phase_45_spec import _write_spec_doc
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo.py")
@@ -297,7 +296,7 @@ def test_write_spec_doc_idempotent(tmp_path):
 
     No churn from re-rewriting an already-prefixed citation.
     """
-    from phase_45_spec import _write_spec_doc
+    from bytedigger_engine.workflows.phase_45_spec import _write_spec_doc
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/foo.py")
@@ -335,7 +334,7 @@ def test_partial_path_unique_is_rewritten_no_double_prefix(tmp_path):
     """Partial-path citation with UNIQUE suffix MUST be rewritten (post-DA5330E9 contract).
     Defends against double-prefix bug: SYSTEM/cli/build/engine_py/cli/build/engine_py/foo.py:5.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, "SYSTEM/cli/build/engine_py/foo.py")
@@ -364,7 +363,7 @@ def test_multi_dot_filename_rewritten(tmp_path, rel_path, citation, expected):
     Ensures the regex handles filenames like `build-spec.md` and `foo.bar.py`
     whose basename contains more than one dot.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     _git_init_repo(tmp_path)
     _add_file(tmp_path, rel_path)
@@ -381,9 +380,9 @@ def test_git_subprocess_timeout_graceful(monkeypatch):
     Patches subprocess.run as imported inside phase_45_spec to raise
     TimeoutExpired, simulating a slow git invocation.
     """
-    from phase_45_spec import _autoprefix_bare_citations  # RED: ImportError today
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations  # RED: ImportError today
 
-    import phase_45_spec as _phase_mod
+    from bytedigger_engine.workflows import phase_45_spec as _phase_mod
 
     def _raise_timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=args[0] if args else "git", timeout=5)
@@ -405,7 +404,7 @@ def test_git_ls_files_called_once_per_call(monkeypatch, tmp_path):
     single git ls-files invocation, not once per citation.
     Input has 3 distinct bare citations; subprocess.run must fire only once.
     """
-    from phase_45_spec import _autoprefix_bare_citations  # RED: ImportError today
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations  # RED: ImportError today
 
     # Provide a fake git ls-files response covering all 3 basenames
     fake_stdout = "src/a.py\nlib/b.py\nutils/c.py\n"
@@ -416,7 +415,7 @@ def test_git_ls_files_called_once_per_call(monkeypatch, tmp_path):
         call_count["n"] += 1
         return types.SimpleNamespace(stdout=fake_stdout, returncode=0, stderr="")
 
-    import phase_45_spec as _phase_mod
+    from bytedigger_engine.workflows import phase_45_spec as _phase_mod
     monkeypatch.setattr(_phase_mod.subprocess, "run", _fake_run)
 
     text = "a.py:1 and b.py:2 and c.py:3"
@@ -439,7 +438,7 @@ def test_no_citation_tokens_skips_git_subprocess(monkeypatch, tmp_path):
     then). To keep the early-return optimisation meaningfully tested, the input
     must contain no path tokens at all.
     """
-    from phase_45_spec import _autoprefix_bare_citations
+    from bytedigger_engine.workflows.phase_45_spec import _autoprefix_bare_citations
 
     call_count = {"n": 0}
 
@@ -447,7 +446,7 @@ def test_no_citation_tokens_skips_git_subprocess(monkeypatch, tmp_path):
         call_count["n"] += 1
         return types.SimpleNamespace(stdout="", returncode=0)
 
-    import phase_45_spec as _phase_mod
+    from bytedigger_engine.workflows import phase_45_spec as _phase_mod
     monkeypatch.setattr(_phase_mod.subprocess, "run", _fake_run)
 
     # Pure prose: no `<path>.<ext>:<digits>` patterns anywhere.

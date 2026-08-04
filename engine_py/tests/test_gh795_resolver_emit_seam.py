@@ -55,17 +55,17 @@ from typing import Any
 
 import pytest
 
-import event_sink  # type: ignore[import]  # AC2 spy target — INFRA, never the UUT
+from bytedigger_engine import event_sink  # type: ignore[import]  # AC2 spy target — INFRA, never the UUT
 
 # Skip the whole module if dbos is absent (lib.dbos_setup imports it at module level).
 try:
-    import lib.dbos_setup as dbos_setup  # type: ignore[import]  # attr access only — never patched
+    from bytedigger_engine.lib import dbos_setup as dbos_setup  # type: ignore[import]  # attr access only — never patched
 except ImportError:  # pragma: no cover
     pytest.skip("dbos not installed", allow_module_level=True)
 
-import telemetry_ctx  # type: ignore[import]
-from lib.observability.emit_resolver import emit_resolver_resolved  # type: ignore[import]
-from lib import phase_sentinel  # type: ignore[import]
+from bytedigger_engine import telemetry_ctx  # type: ignore[import]
+from bytedigger_engine.lib.observability.emit_resolver import emit_resolver_resolved  # type: ignore[import]
+from bytedigger_engine.lib import phase_sentinel  # type: ignore[import]
 # §1q / D1CF5FDF: resolve `resolve_durable_backend` / `E_DURABLE_BACKEND_UNKNOWN`
 # as MODULE ATTRIBUTES at call time (never module-level `from ... import`) —
 # tests/test_gh612_phase_sentinel_seam.py calls `importlib.reload(lib.phase_sentinel)`
@@ -154,8 +154,8 @@ def _register_noop_workflow(monkeypatch, name: str) -> None:
     counter-file discipline from GH792 is not needed here since no AC in
     this file asserts on step-execution counts; the resolver's own emit is
     the sole thing under test)."""
-    import workflows as workflows_pkg  # type: ignore
-    from contracts import StepContract, StepResult, WorkflowDefinition  # type: ignore
+    from bytedigger_engine import workflows as workflows_pkg  # type: ignore
+    from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition  # type: ignore
 
     def _step(_ctx, _prev):
         return StepResult(status="ok", data={"echoed": name}, duration_ms=0, step_name=name)
@@ -569,11 +569,11 @@ def test_ac10_single_construction_and_emit_site_gh795():
         if call_re.search(text):
             emit_call_sites.append(str(p.relative_to(engine_py_root)))
 
-    assert construction_sites == ["lib/observability/emit_resolver.py"], (
+    assert construction_sites == ["bytedigger_engine/lib/observability/emit_resolver.py"], (  # bd#44: engine_py-relative, and the engine moved into the package
         f"AC10 (GH795): expected exactly 1 construction site for the resolver "
         f"event-type f-string; found {construction_sites!r}"
     )
-    assert emit_call_sites == ["lib/phase_sentinel.py"], (
+    assert emit_call_sites == ["bytedigger_engine/lib/phase_sentinel.py"], (  # bd#44: engine_py-relative
         f"AC10 (GH795): expected exactly 1 prod emit site for "
         f"'resolver_durable_backend_resolved'; found {emit_call_sites!r}"
     )
@@ -668,7 +668,7 @@ def test_ac14_direct_sink_and_bound_run_context_are_exclusive_gh795(tmp_path):
     Pre-GREEN: FAIL — today's emit_resolver_resolved has no event_log_path
     keyword -> TypeError before either channel is touched.
     """
-    from event_log import EventLog  # type: ignore[import]  # local — only this test binds a run-context
+    from bytedigger_engine.event_log import EventLog  # type: ignore[import]  # local — only this test binds a run-context
 
     real_tmp = Path(realpath(str(tmp_path)))
     path_a = str(real_tmp / "channel-a-events.jsonl")

@@ -19,13 +19,11 @@ from types import SimpleNamespace
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 import pytest  # noqa: E402
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _build_satisfaction_prompt,
     DEFAULT_SATISFACTION_THRESHOLD,
 )

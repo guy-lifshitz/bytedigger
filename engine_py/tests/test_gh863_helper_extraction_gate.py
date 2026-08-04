@@ -29,10 +29,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_45_spec  # noqa: E402 -- module already exists; new symbols probed lazily
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec  # noqa: E402 -- module already exists; new symbols probed lazily
 
 
 # ─── fixture spec texts ────────────────────────────────────────────────────
@@ -105,7 +104,7 @@ def _get_uut():
 
 
 def test_ac1_flags_catalog_defaults_and_flip_by_token():
-    import flags_catalog  # noqa: PLC0415
+    from bytedigger_engine import flags_catalog  # noqa: PLC0415
 
     assert "HAL_SPEC_HELPER_EXTRACTION_GATE" in flags_catalog.FLAGS, (
         "HAL_SPEC_HELPER_EXTRACTION_GATE missing from flags_catalog.FLAGS"
@@ -127,7 +126,7 @@ def test_ac1_flags_catalog_defaults_and_flip_by_token():
 
 
 def test_ac2_error_codes_registered():
-    import error_codes  # noqa: PLC0415
+    from bytedigger_engine import error_codes  # noqa: PLC0415
 
     assert "E_SPEC_HELPER_EXTRACTION" in error_codes.ERROR_CODES, (
         "E_SPEC_HELPER_EXTRACTION missing from error_codes.ERROR_CODES"
@@ -169,7 +168,7 @@ def test_ac4_warn_mode_returns_ok_with_findings_and_emits_violation(tmp_path, mo
     monkeypatch.delenv("HAL_SPEC_HELPER_EXTRACTION_ENFORCE", raising=False)
     monkeypatch.delenv("HAL_SPEC_HELPER_EXTRACTION_GATE", raising=False)
 
-    from helper_extraction import scan_helper_extraction  # noqa: PLC0415
+    from bytedigger_engine.helper_extraction import scan_helper_extraction  # noqa: PLC0415
 
     assert scan_helper_extraction(_SPEC_WITH_INLINE_MATH), (
         "fixture must produce >=1 finding via scan_helper_extraction"
@@ -227,7 +226,7 @@ def test_ac6_clean_spec_returns_ok_empty_findings(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_HELPER_EXTRACTION_ENFORCE", raising=False)
     monkeypatch.delenv("HAL_SPEC_HELPER_EXTRACTION_GATE", raising=False)
 
-    from helper_extraction import scan_helper_extraction  # noqa: PLC0415
+    from bytedigger_engine.helper_extraction import scan_helper_extraction  # noqa: PLC0415
 
     assert scan_helper_extraction(_SPEC_CLEAN) == [], (
         "fixture must produce no findings via scan_helper_extraction"
@@ -328,7 +327,7 @@ def test_ac10_prev_missing_spec_path_returns_e_missing_prev_data():
 
 
 def test_ac11_source_contains_flip_by_and_issue_ref_tokens():
-    src_path = HERE.parent / "workflows" / "phase_45_spec.py"
+    src_path = HERE.parent / "bytedigger_engine" / "workflows" / "phase_45_spec.py"
     src = src_path.read_text(encoding="utf-8")
     assert "flip-by:2026-07-29" in src, (
         "expected literal 'flip-by:2026-07-29' token in phase_45_spec.py"

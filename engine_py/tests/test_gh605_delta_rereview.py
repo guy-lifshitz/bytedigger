@@ -19,9 +19,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 def make_ctx(scratchpad: Path, *, question: str = "GH605 delta rereview") -> WorkflowContext:
@@ -78,7 +77,7 @@ POST_PATCH_SPEC = BASE_SPEC.replace(
 
 
 def _write_prev_review_with_findings(scratchpad: Path, cycle: int, findings: list[dict]) -> Path:
-    from phase_45_spec import _review_cycle_relpath
+    from bytedigger_engine.workflows.phase_45_spec import _review_cycle_relpath
 
     review_path = scratchpad / _review_cycle_relpath(cycle)
     review_path.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +94,7 @@ def _write_sidecar(scratchpad: Path, cycle: int, patches: list[dict]) -> Path:
 
 
 def _write_spec_file(scratchpad: Path, text: str) -> Path:
-    from phase_45_spec import SPEC_DOC_RELPATH
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH
 
     spec_path = scratchpad / SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +106,7 @@ def _write_spec_file(scratchpad: Path, text: str) -> Path:
 
 
 def test_ac1_surgical_apply_success_writes_delta_sidecar(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: None)
 
@@ -144,7 +143,7 @@ def test_ac1_surgical_apply_success_writes_delta_sidecar(tmp_path, monkeypatch):
 
 
 def test_ac2_surgical_fallback_unlinks_same_cycle_sidecar(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: None)
 
@@ -184,7 +183,7 @@ def test_ac2_surgical_fallback_unlinks_same_cycle_sidecar(tmp_path, monkeypatch)
 
 
 def test_ac3_extract_affected_sections_returns_enclosing_section_and_dedups():
-    from lib.plugins.checklist_convergence.delta_reviewer_prompt import extract_affected_sections
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import extract_affected_sections
 
     # §2.1: extract_affected_sections matches patch["new"] against the ON-DISK
     # spec text, which at cycle-2 review time is the POST-patch spec — so the
@@ -219,7 +218,7 @@ def test_ac3_extract_affected_sections_returns_enclosing_section_and_dedups():
 
 
 def test_ac4_extract_affected_sections_skips_unfound_patch_and_returns_empty():
-    from lib.plugins.checklist_convergence.delta_reviewer_prompt import extract_affected_sections
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import extract_affected_sections
 
     patches = [
         {"finding_id": "F9", "old": "NOT_PRESENT_ANYWHERE_XYZ", "new": "irrelevant"},
@@ -232,7 +231,7 @@ def test_ac4_extract_affected_sections_skips_unfound_patch_and_returns_empty():
 
 
 def test_ac5_build_delta_reviewer_prompt_contract_and_no_untouched_marker():
-    from lib.plugins.checklist_convergence.delta_reviewer_prompt import (
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import (
         build_delta_reviewer_prompt,
         extract_affected_sections,
     )
@@ -266,7 +265,7 @@ def _cycle2_ctx_and_prev(scratchpad: Path, spec_text: str = BASE_SPEC):
     _write_spec_file(scratchpad, spec_text)
     _write_prev_review_with_findings(scratchpad, 1, STRUCTURED_FINDINGS)
     ctx = make_ctx(scratchpad)
-    from phase_45_spec import SPEC_DOC_RELPATH
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH
 
     prev = StepResult(
         status="ok",
@@ -278,7 +277,7 @@ def _cycle2_ctx_and_prev(scratchpad: Path, spec_text: str = BASE_SPEC):
 
 
 def test_ac6_delta_path_used_when_gate_on_and_valid_sidecar(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.delenv("HAL_DELTA_REREVIEW", raising=False)
     events: list[tuple[str, dict]] = []
@@ -318,7 +317,7 @@ def test_ac6_delta_path_used_when_gate_on_and_valid_sidecar(tmp_path, monkeypatc
 
 
 def test_ac7_gate_off_falls_back_to_full_embed(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.setenv("HAL_DELTA_REREVIEW", "0")
     events: list[tuple[str, dict]] = []
@@ -339,7 +338,7 @@ def test_ac7_gate_off_falls_back_to_full_embed(tmp_path, monkeypatch):
 
 
 def test_ac8_gate_on_no_sidecar_falls_back_with_reason_no_sidecar(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.delenv("HAL_DELTA_REREVIEW", raising=False)
     events: list[tuple[str, dict]] = []
@@ -364,7 +363,7 @@ def test_ac8_gate_on_no_sidecar_falls_back_with_reason_no_sidecar(tmp_path, monk
     [("mismatch", "cycle_mismatch"), ("bad_json", "parse_error"), ("no_sections", "no_sections")],
 )
 def test_ac9_load_surgical_delta_fallback_reasons(tmp_path, monkeypatch, setup_kind, expected_reason):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.delenv("HAL_DELTA_REREVIEW", raising=False)
     events: list[tuple[str, dict]] = []
@@ -395,7 +394,7 @@ def test_ac9_load_surgical_delta_fallback_reasons(tmp_path, monkeypatch, setup_k
 
 
 def test_ac10_delta_prompt_ends_with_rule_axes_suffix(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.delenv("HAL_DELTA_REREVIEW", raising=False)
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: None)
@@ -420,7 +419,7 @@ def test_ac10_delta_prompt_ends_with_rule_axes_suffix(tmp_path, monkeypatch):
 
 
 def test_ac11_delta_prompt_bytes_and_restricted_reviewer_flag(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.delenv("HAL_DELTA_REREVIEW", raising=False)
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: None)
@@ -445,7 +444,7 @@ def test_ac11_delta_prompt_bytes_and_restricted_reviewer_flag(tmp_path, monkeypa
 
 
 def test_ac12_uncovered_finding_still_present_in_delta_prompt(tmp_path, monkeypatch):
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     monkeypatch.delenv("HAL_DELTA_REREVIEW", raising=False)
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda et, payload: None)

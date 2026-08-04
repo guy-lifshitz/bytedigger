@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import pathlib
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 
 
@@ -19,12 +21,12 @@ def _engine_py_root() -> pathlib.Path:
 
 
 def _run_py() -> pathlib.Path:
-    return _engine_py_root() / "run.py"
+    return _engine_py_root() / "bytedigger_engine" / "run.py"
 
 
 def _run_doctor(*extra_args: str, timeout: int = 120) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(_run_py()), "doctor", *extra_args],
+        [sys.executable, str(_run_py()), "doctor", *extra_args], env=engine_env(),
         cwd=str(_engine_py_root()),
         capture_output=True,
         text=True,
@@ -34,7 +36,7 @@ def _run_doctor(*extra_args: str, timeout: int = 120) -> subprocess.CompletedPro
 
 def _import_doctor():
     sys.path.insert(0, str(_engine_py_root()))
-    import doctor  # deferred import — v2 seams/checks do not exist yet
+    from bytedigger_engine import doctor  # deferred import — v2 seams/checks do not exist yet
     return doctor
 
 
@@ -189,7 +191,7 @@ def test_ac8_human_mode_reports_at_least_13_status_lines_and_summary():
 def test_ac9_env_alias_fail_when_get_config_raises(monkeypatch):
     doctor = _import_doctor()
     assert hasattr(doctor, "check_env_alias"), "check_env_alias not implemented yet"
-    import config_provider
+    from bytedigger_engine import config_provider
 
     def _boom():
         raise RuntimeError("config provider exploded")

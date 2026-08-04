@@ -20,11 +20,9 @@ from unittest.mock import patch
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _build_review_prompt,
     _write_satisfaction_doc,
 )
@@ -118,7 +116,7 @@ def _make_satisfaction_prev(
 
 def _suppress_emit(monkeypatch) -> list[tuple]:
     """Suppress _emit_safe calls and capture them for assertion."""
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
     captured = []
     monkeypatch.setattr(
         phase_6_review,

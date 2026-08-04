@@ -28,12 +28,10 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_5_implement as _p5  # noqa: E402
-from phase_5_implement import _parse_green_status  # noqa: E402  (already-shipped symbol)
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement as _p5  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import _parse_green_status  # noqa: E402  (already-shipped symbol)
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────

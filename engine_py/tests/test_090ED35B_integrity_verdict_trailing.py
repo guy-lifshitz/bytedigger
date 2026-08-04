@@ -24,7 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-_LIB_PATH = str(ENGINE_ROOT / "lib")
+_LIB_PATH = str(ENGINE_ROOT / "bytedigger_engine" / "lib")
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ def test_ac1_strict_default_rejects_trailing_gloss():
     Passes pre-GREEN and post-GREEN (default stays strict).
     """
     _ensure_lib_path()
-    from verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
+    from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE — all hunks legit\n"
     result = last_standalone_line_verdict(raw, _TOKENS, fallback="UNKNOWN")
@@ -71,7 +71,7 @@ def test_ac2_allow_trailing_accepts_gloss():
     Passes after GREEN adds the kwarg.
     """
     _ensure_lib_path()
-    from verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
+    from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE — all hunks legit\n"
     result = last_standalone_line_verdict(raw, _TOKENS, fallback="UNKNOWN", allow_trailing=True)
@@ -90,7 +90,7 @@ def test_ac3_no_prefix_bleed_spec_changed():
     match inside SPEC_CHANGED.
     """
     _ensure_lib_path()
-    from verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
+    from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGED extra\n"
     result = last_standalone_line_verdict(raw, _TOKENS, fallback="UNKNOWN", allow_trailing=True)
@@ -112,7 +112,7 @@ def test_ac4_head_anchor_mid_prose_ignored():
     It pins the invariant.
     """
     _ensure_lib_path()
-    from verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
+    from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "I think the VERDICT: SPEC_CHANGE is right\n"
     result = last_standalone_line_verdict(raw, _TOKENS, fallback="UNKNOWN", allow_trailing=True)
@@ -132,7 +132,7 @@ def test_ac5_last_match_wins_two_glossed_lines():
     Expected: ASSERTION_GAMING (last wins).
     """
     _ensure_lib_path()
-    from verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
+    from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = (
         "VERDICT: SPEC_CHANGE — first pass looks clean\n"
@@ -155,7 +155,7 @@ def test_ac6_phase5_parse_verdict_assertion_gaming_with_gloss():
     fail-CLOSED preserved: gate fires even when the LLM appends a gloss.
     Depends on `allow_trailing=True` in the caller — FAILS pre-GREEN.
     """
-    from phase_5_integrity import _parse_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _parse_verdict  # noqa: PLC0415
 
     raw = "VERDICT: ASSERTION_GAMING — hunk 2 gamed\n"
     result = _parse_verdict(raw)
@@ -174,7 +174,7 @@ def test_ac7_phase5_parse_verdict_spec_change_with_gloss():
     Fails pre-GREEN: strict parser returns UNKNOWN on the trailing gloss.
     Passes after GREEN passes allow_trailing=True.
     """
-    from phase_5_integrity import _parse_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _parse_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE — all hunks legitimate spec-driven updates\n"
     result = _parse_verdict(raw)
@@ -193,7 +193,7 @@ def test_ac8_phase6_parse_verdict_spec_change_with_gloss():
 
     Mirror of AC7 for the phase_6 caller. Fails pre-GREEN.
     """
-    from phase_6_fix_integrity import _parse_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_fix_integrity import _parse_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE — all hunks legitimate spec-driven updates\n"
     result = _parse_verdict(raw)
@@ -222,7 +222,7 @@ def test_ac9_keystone_schema_example_lines_round_trip():
          Test-path = function call with extracted literal lines.
     """
     import re  # noqa: PLC0415
-    from phase_5_integrity import _integrity_output_schema, _parse_verdict  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_output_schema, _parse_verdict  # noqa: PLC0415
 
     schema = _integrity_output_schema()
     # Extract lines of the canonical form:  "  VERDICT: <TOK> — <prose>"
@@ -268,8 +268,8 @@ def test_ac10_schema_drops_no_trailing_punctuation_instruction():
     FAILS pre-GREEN: both files currently contain that substring.
     Passes after GREEN rewrites the instruction block.
     """
-    from phase_5_integrity import _integrity_output_schema as p5_schema  # noqa: PLC0415
-    from phase_6_fix_integrity import _integrity_output_schema as p6_schema  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import _integrity_output_schema as p5_schema  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_6_fix_integrity import _integrity_output_schema as p6_schema  # noqa: PLC0415
 
     p5 = p5_schema()
     p6 = p6_schema()
@@ -313,9 +313,9 @@ def test_ac11_passthrough_echo_still_blocked(tmp_path):
     import sys  # noqa: PLC0415
 
     # WorkflowEngine and helpers are on sys.path via conftest singleton.
-    from engine import WorkflowEngine  # noqa: PLC0415
-    from contracts import WorkflowContext  # noqa: PLC0415
-    from phase_5_integrity import phase_5_integrity_workflow  # noqa: PLC0415
+    from bytedigger_engine.engine import WorkflowEngine  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_integrity import phase_5_integrity_workflow  # noqa: PLC0415
 
     def passthrough_stub() -> list[str]:
         return ["python3", "-c", "import sys; sys.stdout.write(sys.stdin.read())"]

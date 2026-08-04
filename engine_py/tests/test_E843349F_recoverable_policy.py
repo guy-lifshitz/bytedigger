@@ -27,42 +27,42 @@ import pytest
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
-LIB = ENGINE_PY / "lib"
+LIB = ENGINE_PY / "bytedigger_engine" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 # ─── Production imports — MUST FAIL pre-GREEN with ModuleNotFoundError ────────
 # These imports are the RED state. Do NOT guard with try/except.
-from _recoverable_policy import (  # noqa: E402
+from bytedigger_engine.workflows._recoverable_policy import (  # noqa: E402
     resolve_policy,
     RecoverablePolicy,
     _DEFAULT_POLICY,
     _POLICY_MATRIX,
 )
-from recoverable_gate import RecoverableGateMixin  # noqa: E402
+from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin  # noqa: E402
 
 # contracts is already present (used for return-type assertions)
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
-# telemetry_ctx: existing tests use plain `import telemetry_ctx` (no engine_py. prefix).
+# telemetry_ctx: existing tests use plain `import bytedigger_engine.telemetry_ctx` (no engine_py. prefix).
 # sys.path includes engine_py/ so telemetry_ctx is importable directly.
 # Spec §2.1 writes `from engine_py.telemetry_ctx import emit_safe` inside resolve_policy;
 # GREEN must reconcile this with the sys.path convention. For patching, we set the
 # attribute on the telemetry_ctx module object — both deferred and top-level imports
-# resolve through sys.modules["telemetry_ctx"] (or "engine_py.telemetry_ctx" if that
+# resolve through sys.modules["bytedigger_engine.telemetry_ctx"] (or "engine_py.telemetry_ctx" if that
 # alias is registered). We patch the module object directly after import.
-import telemetry_ctx as _telemetry_ctx  # noqa: E402
+from bytedigger_engine import telemetry_ctx as _telemetry_ctx  # noqa: E402
 
 # Module-level aliases for monkeypatching emit_safe:
 # - _rp_module: _recoverable_policy module (deferred import path; patching
 #   _telemetry_ctx covers it since deferred `from ... import emit_safe` resolves
 #   through the already-loaded module object in sys.modules).
 # - _rg_module: recoverable_gate module (top-level import; patch _rg_module.emit_safe).
-import _recoverable_policy as _rp_module  # noqa: E402
-import recoverable_gate as _rg_module  # noqa: E402
+from bytedigger_engine.workflows import _recoverable_policy as _rp_module  # noqa: E402
+from bytedigger_engine.lib import recoverable_gate as _rg_module  # noqa: E402
 
 
 # ─── AC1: resolve_policy("SIMPLE", "green_lint") exact values ─────────────────

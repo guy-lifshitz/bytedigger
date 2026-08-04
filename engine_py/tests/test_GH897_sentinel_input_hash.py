@@ -26,17 +26,15 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import step_sentinel  # noqa: E402 — module exists today; new attr accessed lazily
-from contracts import (  # noqa: E402
+from bytedigger_engine.lib import step_sentinel  # noqa: E402 — module exists today; new attr accessed lazily
+from bytedigger_engine.contracts import (  # noqa: E402
     LoopStepContract,
     StepContract,
     StepResult,
     WorkflowContext,
 )
-from resume_keying import resume_sentinel_name  # noqa: E402
+from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: E402
 
 
 def _make_ctx(scratchpad: Path, **org_extra) -> WorkflowContext:
@@ -107,9 +105,9 @@ def _make_flagged_step(counts: dict, name: str = "invoke_red_llm"):
 
 
 def _run_base_loop_with_prompt(tmp_path, prompt: str, counts: dict, run_id: str, iteration_prev_field="prompt"):
-    import telemetry_ctx
-    from engine import LoopRunner
-    from event_log import EventLog
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.event_log import EventLog
 
     ctx = _make_ctx(tmp_path)
     event_log = EventLog(tmp_path / "events.jsonl")
@@ -159,7 +157,7 @@ def test_ac3_base_loop_changed_prompt_second_run_reexecutes():
 
 
 def test_ac4_build_validation_loop_contract_marks_only_two_llm_steps():
-    from phase_5_implement import build_validation_loop_contract
+    from bytedigger_engine.workflows.phase_5_implement import build_validation_loop_contract
 
     contract = build_validation_loop_contract()
     by_name = {s.name: s for s in contract.body}
@@ -186,7 +184,7 @@ def test_ac5_part1_build_validation_prompt_sentinel_input_reacts_to_file_bytes(t
     data['sentinel_input'] that changes on an in-place red-fix (same paths,
     changed bytes), even though data['prompt'] (built from paths + static
     text) stays byte-identical."""
-    from phase_5_implement import _build_validation_prompt
+    from bytedigger_engine.workflows.phase_5_implement import _build_validation_prompt
 
     scratchpad = tmp_path
     red_test_file = scratchpad / "test_red.py"
@@ -233,10 +231,10 @@ def test_ac5_part2_e2e_loop_reddrive_after_ondisk_redfix_forces_fresh_validation
     test file. First loop run -> FAIL (cached). On-disk red-fix (same path,
     changed bytes). Re-drive with the SAME run_id -> the fake validation step
     must be invoked AGAIN (not replayed) and this time return PASS."""
-    import telemetry_ctx
-    from engine import LoopRunner
-    from event_log import EventLog
-    from phase_5_implement import _build_validation_prompt
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.event_log import EventLog
+    from bytedigger_engine.workflows.phase_5_implement import _build_validation_prompt
 
     scratchpad = tmp_path
     red_test_file = scratchpad / "test_red.py"
@@ -304,7 +302,7 @@ def test_ac5_part2_e2e_loop_reddrive_after_ondisk_redfix_forces_fresh_validation
 
 
 def test_ac5b_verdict_content_digest_deterministic_byte_sensitive_order_normalized(tmp_path):
-    import phase_5_implement as p5
+    from bytedigger_engine.workflows import phase_5_implement as p5
 
     fn = getattr(p5, "_verdict_content_digest", None)
     assert fn is not None, (
@@ -340,7 +338,7 @@ def test_ac5b_verdict_content_digest_deterministic_byte_sensitive_order_normaliz
 
 
 def test_ac5c_build_red_prompt_sentinel_input_reacts_to_validation_doc_bytes(tmp_path):
-    from phase_5_implement import _build_red_prompt
+    from bytedigger_engine.workflows.phase_5_implement import _build_red_prompt
 
     scratchpad = tmp_path
     (scratchpad / "specs").mkdir(parents=True)
@@ -374,10 +372,10 @@ def test_ac6_unflagged_field_step_keeps_byte_identical_sentinel_filename(tmp_pat
     """A step with sentinel_input_field left unset must produce the exact
     same sentinel filename as before this ship (backward-compat with live
     resume files)."""
-    import telemetry_ctx
-    from engine import LoopRunner
-    from event_log import EventLog
-    from step_sentinel import compute_ctx_hash
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.event_log import EventLog
+    from bytedigger_engine.lib.step_sentinel import compute_ctx_hash
 
     ctx = _make_ctx(tmp_path)
     event_log = EventLog(tmp_path / "events.jsonl")
@@ -503,9 +501,9 @@ def test_ac8_run_id_prefix_collision_r1_vs_r12_survives(tmp_path):
 def _run_consuming_with_prompt(tmp_path, prompt: str, counts: dict, run_id: str):
     """One top-level LoopRunner._run_consuming pass (consume_recoverable_retry=True,
     single flagged body step, max_iterations=1) fed a prev carrying ``prompt``."""
-    import telemetry_ctx
-    from engine import LoopRunner
-    from event_log import EventLog
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.engine import LoopRunner
+    from bytedigger_engine.event_log import EventLog
 
     ctx = _make_ctx(tmp_path)
     event_log = EventLog(tmp_path / "events.jsonl")

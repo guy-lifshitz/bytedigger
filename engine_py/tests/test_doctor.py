@@ -11,6 +11,8 @@ import json
 import os
 import pathlib
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 import tempfile
 
@@ -21,12 +23,12 @@ def _engine_py_root() -> pathlib.Path:
 
 
 def _run_py() -> pathlib.Path:
-    return _engine_py_root() / "run.py"
+    return _engine_py_root() / "bytedigger_engine" / "run.py"
 
 
 def _run_doctor(*extra_args: str, timeout: int = 120) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(_run_py()), "doctor", *extra_args],
+        [sys.executable, str(_run_py()), "doctor", *extra_args], env=engine_env(),
         cwd=str(_engine_py_root()),
         capture_output=True,
         text=True,
@@ -115,7 +117,7 @@ def test_ac4_check_event_log_returns_fail_on_unwritable_dir():
         pytest.skip("running as root — chmod 0o000 has no effect")
 
     sys.path.insert(0, str(_engine_py_root()))
-    import doctor  # deferred import — module does not exist yet
+    from bytedigger_engine import doctor  # deferred import — module does not exist yet
 
     unwritable = tempfile.mkdtemp()
     os.chmod(unwritable, 0o000)
@@ -139,7 +141,7 @@ def test_ac5_run_doctor_exits_1_when_mkdtemp_seam_forced_to_unwritable_dir(monke
         pytest.skip("running as root — chmod 0o000 has no effect")
 
     sys.path.insert(0, str(_engine_py_root()))
-    import doctor  # deferred import — module does not exist yet
+    from bytedigger_engine import doctor  # deferred import — module does not exist yet
 
     unwritable = tempfile.mkdtemp()
     os.chmod(unwritable, 0o000)
@@ -191,7 +193,7 @@ def test_ac7_engine_smoke_check_ok_and_detail_mentions_echo():
 
 def test_ac8_run_py_list_unaffected_by_doctor_dispatch():
     r = subprocess.run(
-        [sys.executable, str(_run_py()), "--list"],
+        [sys.executable, str(_run_py()), "--list"], env=engine_env(),
         cwd=str(_engine_py_root()),
         capture_output=True,
         text=True,

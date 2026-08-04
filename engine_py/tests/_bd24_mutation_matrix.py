@@ -65,7 +65,7 @@ from pathlib import Path
 
 _TESTS = Path(__file__).resolve().parent
 _ENGINE = _TESTS.parent
-_IMPL = _ENGINE / "conformance" / "quant_lint.py"
+_IMPL = _ENGINE / "bytedigger_engine" / "conformance" / "quant_lint.py"
 _RED = _TESTS / "test_bd24_quant_lint.py"
 
 # Anchors: exact source fragments of the shipped implementation that mutants
@@ -432,17 +432,17 @@ MUTANTS: dict[str, tuple[str, list[tuple[str, str]]]] = {
 
 def _load(source: str, name: str):
     """Install `source` as `conformance.quant_lint` and return the module."""
-    for stale in ("conformance.quant_lint", "conformance"):
+    for stale in ("bytedigger_engine.conformance.quant_lint", "conformance"):
         sys.modules.pop(stale, None)
     pkg = importlib.util.module_from_spec(
-        importlib.util.spec_from_loader("conformance", loader=None, is_package=True)
+        importlib.util.spec_from_loader("bytedigger_engine.conformance", loader=None, is_package=True)
     )
     pkg.__path__ = []
-    sys.modules["conformance"] = pkg
-    spec = importlib.util.spec_from_loader("conformance.quant_lint", loader=None)
+    sys.modules["bytedigger_engine.conformance"] = pkg
+    spec = importlib.util.spec_from_loader("bytedigger_engine.conformance.quant_lint", loader=None)
     mod = importlib.util.module_from_spec(spec)
     mod.__file__ = str(_IMPL)
-    sys.modules["conformance.quant_lint"] = mod
+    sys.modules["bytedigger_engine.conformance.quant_lint"] = mod
     exec(compile(source, f"<{name}>", "exec"), mod.__dict__)
     pkg.quant_lint = mod
     return mod

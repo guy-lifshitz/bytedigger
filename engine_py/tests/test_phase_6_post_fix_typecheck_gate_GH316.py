@@ -39,9 +39,9 @@ import pytest
 # Do NOT re-insert sys.path here.
 
 # phase_6_review module itself already EXISTS — safe to import at module level.
-import phase_6_review  # noqa: E402
-from phase_6_review import phase_6_review_workflow  # noqa: E402
-from contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import phase_6_review_workflow  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ class TestPostFixTypecheckGate:
         AC1: mypy_base_argv structure.
         """
         # §D1CF5FDF: deferred import — module does not exist yet in GREEN
-        from lib.mypy_baseline import mypy_base_argv  # type: ignore[import]  # noqa: PLC0415
+        from bytedigger_engine.lib.mypy_baseline import mypy_base_argv  # type: ignore[import]  # noqa: PLC0415
 
         cwd = str(tmp_path)
         argv = mypy_base_argv(cwd)
@@ -177,7 +177,7 @@ class TestPostFixTypecheckGate:
         AC2: parse_mypy_output behavior.
         """
         # §D1CF5FDF: deferred import
-        from lib.mypy_baseline import parse_mypy_output  # type: ignore[import]  # noqa: PLC0415
+        from bytedigger_engine.lib.mypy_baseline import parse_mypy_output  # type: ignore[import]  # noqa: PLC0415
 
         # Empty
         assert parse_mypy_output("") == [], "Empty input must return []"
@@ -224,12 +224,12 @@ class TestPostFixTypecheckGate:
         AC3: re-alias identity (behavior-preserving refactor of phase_5).
         """
         # §D1CF5FDF: both imports deferred — lib does not exist yet
-        from lib.mypy_baseline import (  # type: ignore[import]  # noqa: PLC0415
+        from bytedigger_engine.lib.mypy_baseline import (  # type: ignore[import]  # noqa: PLC0415
             mypy_base_argv,
             parse_mypy_output,
             MYPY_LINE_RE,
         )
-        import workflows.phase_5_implement as p5  # noqa: PLC0415
+        from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
         p5_argv_fn = getattr(p5, "_mypy_base_argv", None)
         p5_parse_fn = getattr(p5, "_parse_mypy_output", None)
@@ -305,7 +305,7 @@ class TestPostFixTypecheckGate:
         §1i (8CA8D54C): real git repo pre-staged before invoke, never racy.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -374,7 +374,7 @@ class TestPostFixTypecheckGate:
         §1i (8CA8D54C): git state pre-staged, never racy.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -430,7 +430,7 @@ class TestPostFixTypecheckGate:
         AC7: enforce=False → no block.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         captured: list[dict] = []
         monkeypatch.setattr(
@@ -512,7 +512,7 @@ class TestPostFixTypecheckGate:
         AC8: no_python_scope skip.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         captured: list[dict] = []
         monkeypatch.setattr(
@@ -569,7 +569,7 @@ class TestPostFixTypecheckGate:
         AC9: mypy_missing graceful skip.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         captured: list[dict] = []
         monkeypatch.setattr(
@@ -640,7 +640,7 @@ class TestPostFixTypecheckGate:
         AC10: synthetic env skip.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         captured: list[dict] = []
         mypy_calls: list = []
@@ -707,7 +707,7 @@ class TestPostFixTypecheckGate:
         AC11: missing SHA boundary graceful skip.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         captured: list[dict] = []
         monkeypatch.setattr(
@@ -752,7 +752,7 @@ class TestPostFixTypecheckGate:
         AC12: verdict event shape.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         captured: list[dict] = []
         monkeypatch.setattr(
@@ -842,7 +842,7 @@ class TestPostFixTypecheckGate:
         §1i (8CA8D54C): git state pre-staged, never racy.
         """
         # §D1CF5FDF: deferred import
-        from phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import phase_6_review` the tests monkeypatch
+        from bytedigger_engine.workflows.phase_6_review import _verify_fix_typecheck  # type: ignore[import]  # noqa: PLC0415  # §1q: same module object as top-level `import bytedigger_engine.workflows.phase_6_review` the tests monkeypatch
 
         repo = tmp_path / "repo"
         repo.mkdir()

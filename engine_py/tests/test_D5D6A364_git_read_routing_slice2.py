@@ -39,12 +39,12 @@ from unittest.mock import MagicMock
 # conftest-import-time singleton handles sys.path (§1q / 81F97F3D gate).
 # Do NOT add sys.path.insert here.
 
-import lib.git_port as git_port
-from lib.git_port import GitResult, set_default_git_read_factory, reset_default_git_read_factory
+from bytedigger_engine.lib import git_port as git_port
+from bytedigger_engine.lib.git_port import GitResult, set_default_git_read_factory, reset_default_git_read_factory
 
-import phase_6_review
-from phase_6_review import _commit_fix_code, _commit_fix_tests
-from contracts import WorkflowContext
+from bytedigger_engine.workflows import phase_6_review
+from bytedigger_engine.workflows.phase_6_review import _commit_fix_code, _commit_fix_tests
+from bytedigger_engine.contracts import WorkflowContext
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -14,17 +14,19 @@ mocked or monkeypatched.
 from __future__ import annotations
 
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
 _ENGINE_ROOT = Path(__file__).resolve().parent.parent
-_LIB_DIR = str(_ENGINE_ROOT / "scripts" / "lib")
+_LIB_DIR = str(_ENGINE_ROOT / "bytedigger_engine" / "scripts" / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 if str(_ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(_ENGINE_ROOT))
 
-from ground_truth_verifier import find_missing_ground_truth  # noqa: E402
+from bytedigger_engine.scripts.lib.ground_truth_verifier import find_missing_ground_truth  # noqa: E402
 
 
 # ─── shared fixture texts (per §3 AC table) ─────────────────────────────────
@@ -161,7 +163,7 @@ def test_ac9_classify_db_token_identifier_vs_pathlike() -> None:
     """AC9 (§1aa forcing fn): classify_db_token importable from
     ground_truth_verifier; True on AC4's path-like match, False on AC3's
     identifier-shaped unquoted match."""
-    from ground_truth_verifier import classify_db_token, DB_REF_RE  # ImportError -> FAIL
+    from bytedigger_engine.scripts.lib.ground_truth_verifier import classify_db_token, DB_REF_RE  # ImportError -> FAIL
 
     ac4_match = DB_REF_RE.search(_AC4_TEXT)
     assert ac4_match is not None
@@ -183,7 +185,7 @@ def test_ac10_directed_repair_prompt_carries_ground_truth_guidance() -> None:
     """AC10: _build_prompt for gate 'spec_lint' with a
     missing-ground-truth-ddl finding contains 'never-opened' AND
     'Data-Model Ground Truth'; a differently-ruled finding contains neither."""
-    from lib.directed_repair import _build_prompt  # symbol exists, guidance is new
+    from bytedigger_engine.lib.directed_repair import _build_prompt  # symbol exists, guidance is new
 
     prompt_with_guidance = _build_prompt(
         "spec_lint",
@@ -224,7 +226,7 @@ def test_ac11_lint_spec_subprocess_no_longer_flags_fp_corpus(tmp_path) -> None:
     """AC11 e2e: lint_spec.py subprocess on FP1+FP2+FP3 text (no header) ->
     exit 0, no 'missing-ground-truth-ddl' in stdout; on AC4 text -> exit 1,
     stdout contains 'missing-ground-truth-ddl:pipeline-output/ppba-v2.db'."""
-    lint_spec = _ENGINE_ROOT / "scripts" / "spec_lint" / "lint_spec.py"
+    lint_spec = _ENGINE_ROOT / "bytedigger_engine" / "scripts" / "spec_lint" / "lint_spec.py"
     assert lint_spec.exists(), f"lint_spec.py driver not found at {lint_spec}"
 
     fp_text = "## §2 Design\n\n" + "\n".join(
@@ -238,7 +240,7 @@ def test_ac11_lint_spec_subprocess_no_longer_flags_fp_corpus(tmp_path) -> None:
     fp_spec = tmp_path / "fp_spec.md"
     fp_spec.write_text(fp_text)
     proc_fp = subprocess.run(
-        [sys.executable, str(lint_spec), str(fp_spec), "--hal-root", str(tmp_path)],
+        [sys.executable, str(lint_spec), str(fp_spec), "--hal-root", str(tmp_path)], env=engine_env(),
         capture_output=True, text=True,
     )
     assert proc_fp.returncode == 0, (
@@ -251,7 +253,7 @@ def test_ac11_lint_spec_subprocess_no_longer_flags_fp_corpus(tmp_path) -> None:
     ac4_spec = tmp_path / "ac4_spec.md"
     ac4_spec.write_text(_AC4_TEXT)
     proc_ac4 = subprocess.run(
-        [sys.executable, str(lint_spec), str(ac4_spec), "--hal-root", str(tmp_path)],
+        [sys.executable, str(lint_spec), str(ac4_spec), "--hal-root", str(tmp_path)], env=engine_env(),
         capture_output=True, text=True,
     )
     assert proc_ac4.returncode == 1, (

@@ -20,11 +20,11 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-import phase_45_spec  # noqa: E402
-import phase_1_discovery  # noqa: E402
-import phase_5_implement  # noqa: E402
-import lib.run_allowlist as run_allowlist_mod  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec  # noqa: E402
+from bytedigger_engine.workflows import phase_1_discovery  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.lib import run_allowlist as run_allowlist_mod  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 class TestGH513SpecAuthorizedEditsProducer:

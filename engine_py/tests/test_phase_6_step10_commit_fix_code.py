@@ -23,14 +23,12 @@ from unittest.mock import MagicMock, patch, call
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 # These imports WILL fail with ImportError until GREEN implements _commit_fix_code.
 # That ImportError IS the RED signal — correct behavior.
-from phase_6_review import _commit_fix_code, phase_6_review_workflow  # noqa: E402
-from contracts import WorkflowContext, StepResult  # noqa: E402
-from lib.git_port import GitResult, set_default_git_read_factory, reset_default_git_read_factory  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _commit_fix_code, phase_6_review_workflow  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.lib.git_port import GitResult, set_default_git_read_factory, reset_default_git_read_factory  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -144,7 +142,7 @@ class TestCommitFixCode:
 
         AC2: SHA boundary guard, both paths exhausted.
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         monkeypatch.setattr(
             phase_6_review,
@@ -174,7 +172,7 @@ class TestCommitFixCode:
 
         AC2: SHA boundary guard (invalid value branch — not-hex, too-short, right-length-not-hex).
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         monkeypatch.setattr(
             phase_6_review,
@@ -206,7 +204,7 @@ class TestCommitFixCode:
 
         AC3: empty manifest → skip path (4961254A manifest allowlist inversion).
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         captured: list[dict] = []
         monkeypatch.setattr(
@@ -258,7 +256,7 @@ class TestCommitFixCode:
         AC4: non-empty commit path — also verifies git add + git commit called with correct args.
         4961254A: manifest drives path selection (not git_diff_files).
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         post_sha = "b" * 40
         captured: list[dict] = []
@@ -345,7 +343,7 @@ class TestCommitFixCode:
         Revision 3 (4961254A update): SHA fallback resolves correctly; then empty manifest → skip.
         (git_diff_files is no longer called — 4961254A manifest allowlist inversion.)
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         fallback_sha = _VALID_SHA
         resolve_calls: list = []
@@ -383,7 +381,7 @@ class TestCommitFixCode:
 
         AC5: _is_test_path filter excludes test files from manifest (4961254A manifest allowlist).
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         # 4961254A: manifest drives selection; test paths excluded by _is_test_path
         manifest_paths = ["src/foo.py", "tests/test_foo.py", "src/bar.test.ts"]
@@ -450,7 +448,7 @@ class TestCommitFixCode:
 
         AC6: {**prev.data, fix_commit_sha: ...} spread.
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         post_sha = "d" * 40
 
@@ -516,7 +514,7 @@ class TestCommitFixCode:
     def test_commit_fix_code_writes_pre_fix_ref_on_success(self, tmp_path: Path, monkeypatch) -> None:
         """AC1 (DD34EEBF): on successful commit, scratchpad/integrity/pre-fix-ref.txt
         contains the resolved pre_fix_sha (40-char hex, no trailing newline)."""
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         post_sha = "e" * 40
 
@@ -564,7 +562,7 @@ class TestCommitFixCode:
     def test_commit_fix_code_writes_fix_commit_sha_on_success(self, tmp_path: Path, monkeypatch) -> None:
         """AC2 (DD34EEBF): on successful commit, scratchpad/integrity/fix-commit-sha.txt
         contains the post-commit HEAD SHA."""
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         post_sha = "f" * 40
 
@@ -619,7 +617,7 @@ class TestCommitFixCode:
         pre-fix-ref.txt IS written (boundary needed by integrity gate),
         fix-commit-sha.txt is NOT (no commit happened).
         4961254A: skip triggered by empty worker_written_paths (not git_diff_files)."""
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         monkeypatch.setattr(
             phase_6_review,
@@ -658,7 +656,7 @@ class TestCommitFixCode:
         This test now mirrors AC3 to confirm integrity-file semantics on skip path
         independent of the skip trigger.
         """
-        import phase_6_review
+        from bytedigger_engine.workflows import phase_6_review
 
         monkeypatch.setattr(
             phase_6_review,

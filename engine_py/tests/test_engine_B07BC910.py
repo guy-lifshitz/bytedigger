@@ -16,13 +16,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from contracts import (
+from bytedigger_engine.contracts import (
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
+from bytedigger_engine.engine import WorkflowEngine
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────

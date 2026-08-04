@@ -5,7 +5,7 @@ Covers AC1-AC12 from spec §3
 
 UUT: engine_py/lib/timeout_policy.py — `resolve_timeout_sec`, `load_policy`.
 Does NOT exist at RED time. Per spec §1q/D1CF5FDF, each test imports the UUT
-INSIDE the test function body (module-level `from lib.timeout_policy import
+INSIDE the test function body (module-level `from bytedigger_engine.lib.timeout_policy import
 ...` would make the whole file non-collectable and risk the ~30 min
 red_runtime collection hang). conftest.py already puts engine_py/ on
 sys.path (Conftest-import-time singleton, §1q), so no per-file sys.path
@@ -55,7 +55,7 @@ PARITY_TABLE = [
 
 def test_ac1_base_default_no_cfg():
     """AC1: resolve_timeout_sec('implement.green', None) == 900."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     assert resolve_timeout_sec("implement.green", None) == 900
 
@@ -67,14 +67,14 @@ def test_ac1_base_default_no_cfg():
 
 def test_ac2_complexity_complex():
     """AC2: complexity=COMPLEX for implement.green -> 1800."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     assert resolve_timeout_sec("implement.green", {"complexity": "COMPLEX"}) == 1800
 
 
 def test_ac2_complexity_feature_case_insensitive():
     """AC2: complexity='feature' (lowercase) for implement.green -> 1500."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     assert resolve_timeout_sec("implement.green", {"complexity": "feature"}) == 1500
 
@@ -86,7 +86,7 @@ def test_ac2_complexity_feature_case_insensitive():
 
 def test_ac3_override_beats_complexity_class():
     """AC3: green_llm_timeout_sec=77 beats COMPLEX -> 77."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     cfg = {"green_llm_timeout_sec": 77, "complexity": "COMPLEX"}
     assert resolve_timeout_sec("implement.green", cfg) == 77
@@ -99,7 +99,7 @@ def test_ac3_override_beats_complexity_class():
 
 def test_ac4_malformed_override_falls_through():
     """AC4: green_llm_timeout_sec='abc' (TypeError/ValueError) -> base 900."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     cfg = {"green_llm_timeout_sec": "abc"}
     assert resolve_timeout_sec("implement.green", cfg) == 900
@@ -112,7 +112,7 @@ def test_ac4_malformed_override_falls_through():
 
 def test_ac5a_negative_override_clamps_to_one():
     """AC5a: green_llm_timeout_sec='-5' -> max(1,int(-5)) == 1."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     cfg = {"green_llm_timeout_sec": "-5"}
     assert resolve_timeout_sec("implement.green", cfg) == 1
@@ -120,7 +120,7 @@ def test_ac5a_negative_override_clamps_to_one():
 
 def test_ac5b_falsy_zero_override_skipped():
     """AC5b: green_llm_timeout_sec=0 is falsy -> skip override -> base 900."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     cfg = {"green_llm_timeout_sec": 0}
     assert resolve_timeout_sec("implement.green", cfg) == 900
@@ -133,14 +133,14 @@ def test_ac5b_falsy_zero_override_skipped():
 
 def test_ac6a_opus_floor_no_complexity():
     """AC6a: spec.writer, model_is_opus=True, no complexity -> 900."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     assert resolve_timeout_sec("spec.writer", {}, model_is_opus=True) == 900
 
 
 def test_ac6b_complexity_beats_opus_floor():
     """AC6b: spec.writer, model_is_opus=True, complexity=COMPLEX -> 1800."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     cfg = {"complexity": "COMPLEX"}
     assert resolve_timeout_sec("spec.writer", cfg, model_is_opus=True) == 1800
@@ -153,7 +153,7 @@ def test_ac6b_complexity_beats_opus_floor():
 
 def test_ac7_feature_beats_opus_floor():
     """AC7: spec.reviewer, complexity=FEATURE, model_is_opus=True -> 600."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     cfg = {"complexity": "FEATURE"}
     assert resolve_timeout_sec("spec.reviewer", cfg, model_is_opus=True) == 600
@@ -166,7 +166,7 @@ def test_ac7_feature_beats_opus_floor():
 
 def test_ac8_unknown_step_raises_value_error():
     """AC8: unknown step 'nonexistent.role' raises ValueError (no silent default)."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     with pytest.raises(ValueError):
         resolve_timeout_sec("nonexistent.role", None)
@@ -179,7 +179,7 @@ def test_ac8_unknown_step_raises_value_error():
 
 def test_ac9a_load_policy_none_returns_defaults():
     """AC9a: load_policy(None) resolves defaults; implement.green -> 900."""
-    from lib.timeout_policy import load_policy, resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import load_policy, resolve_timeout_sec
 
     policy = load_policy(None)
     assert resolve_timeout_sec("implement.green", None, policy=policy) == 900
@@ -187,7 +187,7 @@ def test_ac9a_load_policy_none_returns_defaults():
 
 def test_ac9b_load_policy_missing_path_returns_defaults(tmp_path):
     """AC9b: load_policy(<missing path>) resolves defaults; implement.green -> 900."""
-    from lib.timeout_policy import load_policy, resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import load_policy, resolve_timeout_sec
 
     missing = tmp_path / "does-not-exist.json"
     policy = load_policy(str(missing))
@@ -201,7 +201,7 @@ def test_ac9b_load_policy_missing_path_returns_defaults(tmp_path):
 
 def test_ac10_override_merge_preserves_base_and_overrides_complex(tmp_path):
     """AC10: overrides file bumps implement.green COMPLEX to 3600, base stays 900."""
-    from lib.timeout_policy import load_policy, resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import load_policy, resolve_timeout_sec
 
     override_path = tmp_path / "timeout-policy.json"
     override_path.write_text(
@@ -225,7 +225,7 @@ def test_ac10_override_merge_preserves_base_and_overrides_complex(tmp_path):
 
 def test_ac11a_malformed_json_raises_value_error(tmp_path):
     """AC11a: non-JSON file content raises ValueError."""
-    from lib.timeout_policy import load_policy
+    from bytedigger_engine.lib.timeout_policy import load_policy
 
     bad_path = tmp_path / "bad.json"
     bad_path.write_text("not json {")
@@ -236,7 +236,7 @@ def test_ac11a_malformed_json_raises_value_error(tmp_path):
 
 def test_ac11b_toplevel_list_raises_value_error(tmp_path):
     """AC11b: top-level JSON array (non-dict) raises ValueError."""
-    from lib.timeout_policy import load_policy
+    from bytedigger_engine.lib.timeout_policy import load_policy
 
     bad_path = tmp_path / "bad_list.json"
     bad_path.write_text("[]")
@@ -247,7 +247,7 @@ def test_ac11b_toplevel_list_raises_value_error(tmp_path):
 
 def test_ac11c_non_int_tier_value_raises_value_error(tmp_path):
     """AC11c: non-int tier value in overrides raises ValueError at load."""
-    from lib.timeout_policy import load_policy
+    from bytedigger_engine.lib.timeout_policy import load_policy
 
     bad_path = tmp_path / "bad_tier.json"
     bad_path.write_text(
@@ -272,7 +272,7 @@ def test_ac12_parity_sweep(step, base, feature, complex_, opus, override_key):
     """AC12: for every seeded step, base/FEATURE/COMPLEX/opus resolve to the
     frozen parity-table values (today's effective values, zero behavior change).
     """
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     # base (no cfg)
     assert resolve_timeout_sec(step, None) == base
@@ -304,7 +304,7 @@ def test_ac12_parity_sweep(step, base, feature, complex_, opus, override_key):
 def test_gate1a_feature_beats_opus_distinguishable(tmp_path):
     """Gate1a: with FEATURE overridden to a value distinct from opus (600),
     FEATURE must still beat the opus-class floor for spec.reviewer."""
-    from lib.timeout_policy import load_policy, resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import load_policy, resolve_timeout_sec
 
     override_path = tmp_path / "timeout-policy.json"
     override_path.write_text(
@@ -321,7 +321,7 @@ def test_gate1a_feature_beats_opus_distinguishable(tmp_path):
 
 def test_gate1b_override_beats_opus():
     """Gate1b: an explicit override key beats the opus-class model floor."""
-    from lib.timeout_policy import resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import resolve_timeout_sec
 
     cfg = {"spec_llm_timeout_sec": 77}
     assert resolve_timeout_sec("spec.writer", cfg, model_is_opus=True) == 77
@@ -335,7 +335,7 @@ def test_gate1b_override_beats_opus():
 def test_gate2a_shipped_json_shape_tolerated(tmp_path):
     """Gate2a: the exact shipped file shape (with $schema-note key and empty
     overrides) loads successfully and unknown top-level keys are tolerated."""
-    from lib.timeout_policy import load_policy, resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import load_policy, resolve_timeout_sec
 
     shipped_path = tmp_path / "timeout-policy.json"
     shipped_path.write_text(
@@ -357,7 +357,7 @@ def test_gate2a_shipped_json_shape_tolerated(tmp_path):
 def test_gate2b_missing_overrides_key(tmp_path):
     """Gate2b: a bare '{}' (dict, no 'overrides' key) is accepted; absent
     overrides sub-object == empty, defaults remain intact."""
-    from lib.timeout_policy import load_policy, resolve_timeout_sec
+    from bytedigger_engine.lib.timeout_policy import load_policy, resolve_timeout_sec
 
     bare_path = tmp_path / "timeout-policy.json"
     bare_path.write_text(json.dumps({}))

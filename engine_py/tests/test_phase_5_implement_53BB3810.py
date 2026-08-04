@@ -27,7 +27,6 @@ from unittest import mock
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── helpers (mirror test_phase_5_implement_B6247E87.py style) ──────────────
@@ -57,7 +56,7 @@ def _minimal_repo(tmp_path: Path) -> Path:
 
 
 def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra):
-    from contracts import WorkflowContext  # noqa: PLC0415
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415
 
     org = {"scratchpad_dir": str(scratchpad), **org_extra}
     return WorkflowContext(
@@ -74,7 +73,7 @@ def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra
 
 
 def _prev_ok(scratchpad: Path, repo: Path, test_relpath: str = "tests/test_red.py"):
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     return StepResult(
         status="ok",
@@ -98,7 +97,7 @@ def test_53bb3810_subprocess_timeout_returns_clean_outcome(tmp_path):
 
     FAILS today: TimeoutExpired propagates uncaught.
     """
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
 
@@ -130,7 +129,7 @@ def test_53bb3810_subprocess_os_error_returns_clean_outcome(tmp_path):
 
     FAILS today: FileNotFoundError propagates uncaught.
     """
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
 
@@ -164,7 +163,7 @@ def test_53bb3810_timeout_does_not_retry(tmp_path):
     FAILS today: TimeoutExpired propagates on the first call (call_count == 1
     by accident), but once GREEN adds try/except it MUST still return early.
     """
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
 
@@ -197,7 +196,7 @@ def test_53bb3810_os_error_does_not_retry(tmp_path):
     """A missing git binary won't appear on retry — FileNotFoundError must
     abort immediately with a single subprocess.run call.
     """
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
 
@@ -231,8 +230,8 @@ def test_53bb3810_commit_red_tests_returns_e_git_timeout_on_subprocess_timeout(t
 
     FAILS today: TimeoutExpired propagates out of phase_5.
     """
-    import phase_5_implement  # noqa: PLC0415
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -275,8 +274,8 @@ def test_53bb3810_commit_red_tests_returns_e_git_os_error_on_filenotfound(tmp_pa
 
     FAILS today: FileNotFoundError propagates out of phase_5.
     """
-    import phase_5_implement  # noqa: PLC0415
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -323,8 +322,8 @@ def test_53bb3810_commit_red_tests_returns_e_git_timeout_when_commit_step_times_
 
     FAILS today: TimeoutExpired propagates out of phase_5.
     """
-    import phase_5_implement  # noqa: PLC0415
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -376,8 +375,8 @@ def test_53bb3810_commit_red_tests_returns_e_git_os_error_when_commit_step_raise
 
     FAILS today: FileNotFoundError propagates out of phase_5.
     """
-    import phase_5_implement  # noqa: PLC0415
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -427,7 +426,7 @@ def test_53bb3810_lock_contention_path_unchanged(tmp_path):
 
     Should PASS today (preservation guard).
     """
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     repo = _minimal_repo(tmp_path)
 

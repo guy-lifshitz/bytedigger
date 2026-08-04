@@ -23,7 +23,7 @@ import pytest
 
 # sys.path is set by conftest.py (conftest-import-time singleton).
 # Do NOT add sys.path.insert here — violates 81F97F3D gate.
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 _SHIM_TOKEN = "Bash(graphify-shim.sh:*)"
 _GRAPH_QUERY_DIRECTIVE = "graphify query"
@@ -71,7 +71,7 @@ def test_ac6_discovery_allowed_tools_contains_graphify_shim(tmp_path):
     Fails today: allowed_tools=["Read","Grep","Glob","Write"] — shim token absent.
     """
     import importlib
-    phase_1 = importlib.import_module("phase_1_discovery")
+    phase_1 = importlib.import_module("bytedigger_engine.workflows.phase_1_discovery")
 
     ctx = _make_ctx(tmp_path)
     prev = _ok_result(
@@ -81,7 +81,7 @@ def test_ac6_discovery_allowed_tools_contains_graphify_shim(tmp_path):
     )
 
     mock_invoke = _mock_invoke_ok()
-    with patch("phase_1_discovery.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_1_discovery.invoke_llm_subprocess", mock_invoke):
         phase_1._invoke_discovery_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -108,7 +108,7 @@ def test_ac7_explore_allowed_tools_contains_graphify_shim(tmp_path):
     Fails today: allowed_tools=[..., "Write"] — shim token absent.
     """
     import importlib
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     ctx = _make_ctx(tmp_path)
     # prev must not be skipped — passthrough_if_skipped checks for "skipped" key
@@ -119,7 +119,7 @@ def test_ac7_explore_allowed_tools_contains_graphify_shim(tmp_path):
     )
 
     mock_invoke = _mock_invoke_ok()
-    with patch("phase_2_explore.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_2_explore.invoke_llm_subprocess", mock_invoke):
         phase_2._invoke_explore_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1, (
@@ -148,7 +148,7 @@ def test_ac10_grep_fallback_tools_preserved_discovery(tmp_path):
     (feedback_cleanup_must_preserve_grounding_fallback_chain)
     """
     import importlib
-    phase_1 = importlib.import_module("phase_1_discovery")
+    phase_1 = importlib.import_module("bytedigger_engine.workflows.phase_1_discovery")
 
     ctx = _make_ctx(tmp_path)
     prev = _ok_result(
@@ -158,7 +158,7 @@ def test_ac10_grep_fallback_tools_preserved_discovery(tmp_path):
     )
 
     mock_invoke = _mock_invoke_ok()
-    with patch("phase_1_discovery.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_1_discovery.invoke_llm_subprocess", mock_invoke):
         phase_1._invoke_discovery_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1
@@ -178,7 +178,7 @@ def test_ac10_grep_fallback_tools_preserved_explore(tmp_path):
     Passes today — correctness guard that must keep passing post-GREEN.
     """
     import importlib
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     ctx = _make_ctx(tmp_path)
     prev = _ok_result(
@@ -188,7 +188,7 @@ def test_ac10_grep_fallback_tools_preserved_explore(tmp_path):
     )
 
     mock_invoke = _mock_invoke_ok()
-    with patch("phase_2_explore.invoke_llm_subprocess", mock_invoke):
+    with patch("bytedigger_engine.workflows.phase_2_explore.invoke_llm_subprocess", mock_invoke):
         phase_2._invoke_explore_llm(ctx, prev)
 
     assert mock_invoke.call_count >= 1
@@ -212,7 +212,7 @@ def test_ac8_discovery_prompt_contains_graph_first_directive(tmp_path):
     §2.3/DF-7: verbatim token check (Principle C engine-prompt forcing function).
     """
     import importlib
-    phase_1 = importlib.import_module("phase_1_discovery")
+    phase_1 = importlib.import_module("bytedigger_engine.workflows.phase_1_discovery")
 
     ctx = _make_ctx(tmp_path)
     result = phase_1._build_discovery_prompt(ctx, None)
@@ -243,7 +243,7 @@ def test_ac9_explore_prompt_contains_graph_first_directive(tmp_path):
     §2.3/DF-7: verbatim token check (Principle C engine-prompt forcing function).
     """
     import importlib
-    phase_2 = importlib.import_module("phase_2_explore")
+    phase_2 = importlib.import_module("bytedigger_engine.workflows.phase_2_explore")
 
     ctx = _make_ctx(tmp_path)
     # _build_explore_prompt calls passthrough_if_skipped on prev; pass a non-skipped prev

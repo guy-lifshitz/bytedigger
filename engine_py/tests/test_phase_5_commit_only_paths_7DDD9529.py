@@ -18,12 +18,12 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 
 ENGINE_PY_ROOT = Path(__file__).resolve().parent.parent
-PHASE_5 = ENGINE_PY_ROOT / "workflows" / "phase_5_implement.py"
+PHASE_5 = ENGINE_PY_ROOT / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
 
 # Ensure the engine root is importable so we can import functions for AC6.
 if str(ENGINE_PY_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY_ROOT))
-_WORKFLOWS = ENGINE_PY_ROOT / "workflows"
+_WORKFLOWS = ENGINE_PY_ROOT / "bytedigger_engine" / "workflows"
 if str(_WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(_WORKFLOWS))
 
@@ -206,8 +206,8 @@ def test_ac6_subprocess_argv_via_monkeypatch_commit_red(tmp_path):
     FAILs today because the real argv is `["git", "commit", "-m", msg]` with
     no `-o` / `"--"` / paths.
     """
-    import phase_5_implement as p5  # type: ignore
-    from contracts import StepResult, WorkflowContext  # type: ignore
+    from bytedigger_engine.workflows import phase_5_implement as p5  # type: ignore
+    from bytedigger_engine.contracts import StepResult, WorkflowContext  # type: ignore
 
     # Fake test path — must appear in captured commit argv
     fake_test_path = "SYSTEM/cli/build/engine_py/tests/test_fake_7DDD9529.py"
@@ -271,7 +271,7 @@ def test_ac6_subprocess_argv_via_monkeypatch_commit_red(tmp_path):
     # Patch _derive_red_paths_via_git_diff to return our fake path
     with (
         patch.object(p5, "_git_op_with_lock_retry", side_effect=fake_git_op),
-        patch("phase_5_implement.subprocess.run", side_effect=fake_subprocess_run),
+        patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", side_effect=fake_subprocess_run),
         patch.object(p5, "_derive_red_paths_via_git_diff", return_value=[fake_test_path]),
         patch.object(p5, "_emit_safe"),
     ):
@@ -320,8 +320,8 @@ def test_ac6_subprocess_argv_via_monkeypatch_commit_green(tmp_path):
     FAILs today because the real argv is `["git", "commit", "-m", msg]` with
     no `-o` / `"--"` / paths.
     """
-    import phase_5_implement as p5  # type: ignore
-    from contracts import StepResult, WorkflowContext  # type: ignore
+    from bytedigger_engine.workflows import phase_5_implement as p5  # type: ignore
+    from bytedigger_engine.contracts import StepResult, WorkflowContext  # type: ignore
 
     fake_prod_path = "SYSTEM/cli/build/engine_py/workflows/fake_prod_7DDD9529.py"
     fake_sha = "b" * 40

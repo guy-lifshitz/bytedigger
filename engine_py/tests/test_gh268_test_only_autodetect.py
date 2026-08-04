@@ -49,9 +49,9 @@ from unittest.mock import patch
 
 import pytest
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_5_implement as _p5  # noqa: E402
-import phase_6_review as p6  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement as _p5  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as p6  # noqa: E402
 
 
 # ─── shared helpers ────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ def test_ac1_prose_symbols_absent():
     Fails today: all three symbols still exist (this is the GH268 shipment
     GH1245 removes).
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     for name in ("detect_test_only_intent", "_engine_mode_task_text", "_TEST_ONLY_INTENT_RE"):
         assert not hasattr(pwc, name), (
@@ -202,7 +202,7 @@ def test_ac2_prose_never_selects_mode(text):
     Fails today: resolve_engine_mode's prose branch still fires and returns
     'test_only' for each of these phrases.
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     ctx = _make_ctx(question=text)
     result = pwc.resolve_engine_mode(None, ctx)
@@ -219,7 +219,7 @@ def test_ac3_marker_test_only_wins_no_autodetect_event(tmp_path):
     """Retained marker-precedence test: spec with test_only marker + ctx
     WITHOUT intent -> 'test_only', and NO engine_mode_autodetected event
     fires. Still holds post-GH1245 (declared field is untouched)."""
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     spec = _spec_with_content(tmp_path, "<!-- engine-mode: test_only -->\n# spec\n")
     ctx = _make_ctx(question="benign build task, nothing special")
@@ -241,7 +241,7 @@ def test_ac4_marker_other_mode_wins_over_intent(tmp_path):
     """Retained marker-precedence test: spec with '<!-- engine-mode: standard -->'
     + ctx text that used to carry intent -> 'standard' (manual override wins
     trivially now, since prose is never consulted at all)."""
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     spec = _spec_with_content(tmp_path, "<!-- engine-mode: standard -->\n# spec\n")
     ctx = _make_ctx(task_description="this is a test-only fix, no production code")
@@ -266,7 +266,7 @@ def test_ac5_markerless_intent_no_longer_autodetects(tmp_path):
     Fails today: resolve_engine_mode still autodetects 'test_only' from
     task_description prose and emits engine_mode_autodetected.
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     spec = _spec_with_content(tmp_path, "# spec\nno marker here\n")
     ctx = _make_ctx(task_description="Fix the assertion — test-only, no production code")
@@ -294,7 +294,7 @@ def test_ac5_markerless_intent_no_longer_autodetects(tmp_path):
 def test_ac6_markerless_no_intent_returns_none(tmp_path):
     """Retained: marker-less spec, benign task_description AND question ->
     None, no event fires. Held before and after GH1245."""
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     spec = _spec_with_content(tmp_path, "# spec\nnothing special\n")
     ctx = _make_ctx(
@@ -320,7 +320,7 @@ def test_ac7_spec_path_none_question_intent_returns_none():
     Fails today: resolve_engine_mode still falls back to ctx.question for
     prose-intent detection and returns 'test_only'.
     """
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     ctx = _make_ctx(question="This is a test-only change, please review")
 
@@ -483,7 +483,7 @@ def test_ac12_marker_regression_guard_still_skips(tmp_path, monkeypatch):
     reason='test_only_mode' — the GH1245 prose removal must not regress the
     manual-marker path. resolve_engine_mode must still be reachable from
     phase_5_implement's module namespace (i.e. wired per spec §2.2)."""
-    import phase_workflows_common as pwc  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_workflows_common as pwc  # noqa: PLC0415
 
     assert hasattr(_p5, "resolve_engine_mode"), (
         "phase_5_implement must import resolve_engine_mode from "

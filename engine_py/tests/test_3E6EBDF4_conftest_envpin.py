@@ -129,7 +129,7 @@ def test_ac5_resolve_backend_source_env():
     if _ENGINE_ROOT not in sys.path:
         sys.path.insert(0, _ENGINE_ROOT)
 
-    from llm_subprocess import _resolve_backend  # type: ignore[import]
+    from bytedigger_engine.llm_subprocess import _resolve_backend  # type: ignore[import]
 
     result = _resolve_backend(None, os.environ)
     assert result == ("claude-subprocess", "env"), (

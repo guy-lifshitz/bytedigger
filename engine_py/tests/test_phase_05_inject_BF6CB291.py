@@ -39,15 +39,15 @@ from pathlib import Path
 _ENGINE_PY = Path(__file__).resolve().parent.parent
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "workflows"
+_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(_WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(_WORKFLOWS))
 
-from contracts import StepContract, WorkflowContext, WorkflowDefinition  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-import phase_05_inject  # noqa: E402
-from phase_05_inject import _read_orchestrator_checklist  # noqa: E402
+from bytedigger_engine.contracts import StepContract, WorkflowContext, WorkflowDefinition  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.workflows import phase_05_inject  # noqa: E402
+from bytedigger_engine.workflows.phase_05_inject import _read_orchestrator_checklist  # noqa: E402
 
 
 # ─── FakeClock (GH966 §2) ───────────────────────────────────────────────────────

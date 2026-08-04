@@ -35,9 +35,9 @@ ENGINE_ROOT = HERE.parent
 import sys
 sys.path.insert(0, str(ENGINE_ROOT))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import llm_subprocess as _llm_module              # noqa: E402
-import telemetry_ctx                               # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import llm_subprocess as _llm_module              # noqa: E402
+from bytedigger_engine import telemetry_ctx                               # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@ def test_AC2_no_popen_on_in_session_path(monkeypatch, tmp_path, active_run_ctx):
     popen_mock = MagicMock()
     monkeypatch.setenv("HAL_RUNNER_REQUEST_DIR", str(tmp_path))
 
-    with patch("llm_subprocess.subprocess.Popen", popen_mock):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", popen_mock):
         result = invoke_llm_subprocess(
             prompt="hello",
             model=_MODEL,

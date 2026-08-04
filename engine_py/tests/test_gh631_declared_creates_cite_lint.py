@@ -5,7 +5,7 @@ Spec: SHARED/memory/Decisions/2026-07-12_GH631_cite_lint_declared_creates_spec.m
 §3 AC1-AC12.
 
 The module `spec_cite.py` ALREADY EXISTS (conftest.py inserts engine_py/ onto
-sys.path), so a plain top-level `import spec_cite` is safe (§1q only forbids
+sys.path), so a plain top-level `import bytedigger_engine.spec_cite` is safe (§1q only forbids
 importing symbols that do not exist yet). The NEW public symbols under test
 (`declared_created_files`, `_norm_path`, `check_citation(..., declared=...)`)
 are fetched lazily via `getattr` inside each test body with an explicit
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import spec_cite
+from bytedigger_engine import spec_cite
 
 
 def _get_declared_created_files():

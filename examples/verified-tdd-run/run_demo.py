@@ -32,14 +32,14 @@ _ENGINE = HERE.parents[1] / "engine_py"
 if _ENGINE.is_dir():
     sys.path.insert(0, str(_ENGINE))
 
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition  # noqa: E402
-from derive_state import replay                                                      # noqa: E402
-from engine import WorkflowEngine                                                    # noqa: E402
-from event_log import EventLog                                                       # noqa: E402
-from event_sink import get_event_sink                                                # noqa: E402
-from llm_subprocess import invoke_llm_subprocess, register_backend, reset_backends   # noqa: E402
-from scope_inverse import scan_scope_inverse                                         # noqa: E402
-from stub_passability import scan_stub_passability                                   # noqa: E402
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition  # noqa: E402
+from bytedigger_engine.derive_state import replay                                                      # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine                                                    # noqa: E402
+from bytedigger_engine.event_log import EventLog                                                       # noqa: E402
+from bytedigger_engine.event_sink import get_event_sink                                                # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, register_backend, reset_backends   # noqa: E402
+from bytedigger_engine.scope_inverse import scan_scope_inverse                                         # noqa: E402
+from bytedigger_engine.stub_passability import scan_stub_passability                                   # noqa: E402
 
 SPEC = (HERE / "spec.md").read_text(encoding="utf-8")
 

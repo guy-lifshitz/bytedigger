@@ -17,9 +17,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── shared fixtures / helpers ─────────────────────────────────────────────
@@ -63,7 +62,7 @@ def make_ctx(scratchpad: Path, *, question: str = "Add delta-retry prompt path")
 
 
 def _write_prev_spec(scratchpad: Path) -> Path:
-    from phase_45_spec import SPEC_DOC_RELPATH
+    from bytedigger_engine.workflows.phase_45_spec import SPEC_DOC_RELPATH
 
     spec_path = scratchpad / SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,7 +74,7 @@ def _write_prev_spec(scratchpad: Path) -> Path:
 
 
 def get_prompt_and_data(scratchpad: Path, *, cycle: int, findings: str | None):
-    from phase_45_spec import _build_spec_prompt
+    from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt
 
     ctx = make_ctx(scratchpad)
     prev = {"cycle": cycle, "findings": findings}
@@ -89,7 +88,7 @@ def get_prompt_and_data(scratchpad: Path, *, cycle: int, findings: str | None):
 
 def test_ac1_delta_path_drops_the_scaffold(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    from phase_45_spec import _spec_output_schema
+    from bytedigger_engine.workflows.phase_45_spec import _spec_output_schema
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
@@ -116,7 +115,7 @@ def test_ac2_delta_prompt_is_self_sufficient(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     # GH592: pin surgical OFF — this test covers the delta-prompt lane
     monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
-    from phase_45_spec import _get_out_of_role_block
+    from bytedigger_engine.workflows.phase_45_spec import _get_out_of_role_block
 
     scratchpad = tmp_path / "scratch"
     spec_path = _write_prev_spec(scratchpad)
@@ -222,7 +221,7 @@ def test_ac7_token_cut_is_real_relative(tmp_path, monkeypatch):
 def test_ac8_preflight_block_on_cycle1(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
     try:
-        from phase_45_spec import _spec_preflight_block
+        from bytedigger_engine.workflows.phase_45_spec import _spec_preflight_block
     except ImportError:
         pytest.fail(
             "phase_45_spec._spec_preflight_block does not exist yet "
@@ -267,7 +266,7 @@ def test_ac9_preflight_present_on_cycle_ge2_GH729(tmp_path, monkeypatch):
 
 def test_ac10_helper_is_lib_importable(tmp_path):
     try:
-        from lib.plugins.checklist_convergence.delta_retry_prompt import (
+        from bytedigger_engine.lib.plugins.checklist_convergence.delta_retry_prompt import (
             build_delta_retry_prompt,
         )
     except ImportError:

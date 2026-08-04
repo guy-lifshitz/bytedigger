@@ -16,14 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from contracts import (
+from bytedigger_engine.contracts import (
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine
-import telemetry_ctx
+from bytedigger_engine.engine import WorkflowEngine
+from bytedigger_engine import telemetry_ctx
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ class TestRunExceptionClassification:
     def _run_with_argv(self, argv: list[str]) -> dict:
         """Invoke run.main() with patched sys.argv, capture stdout JSON."""
         import io
-        import run as run_module
+        from bytedigger_engine import run as run_module
         from contextlib import redirect_stdout
 
         buf = io.StringIO()
@@ -168,7 +168,7 @@ class TestRunExceptionClassification:
         F7BE40B9 Ship #1 sibling-test co-change: previously patched
         run_module.make_engine().eng.execute; now patches the
         execute_durable_workflow public entry imported by run.py."""
-        import run as run_module
+        from bytedigger_engine import run as run_module
 
         def raising_execute(workflow_name, ctx_dict, run_id, event_log_path=None):
             raise ValueError("bad context field: scope")
@@ -190,7 +190,7 @@ class TestRunExceptionClassification:
         """FileNotFoundError raised during execution → error_code == 'E_FILE_NOT_FOUND'.
 
         F7BE40B9 Ship #1 sibling-test co-change (see ac3a)."""
-        import run as run_module
+        from bytedigger_engine import run as run_module
 
         def raising_execute(workflow_name, ctx_dict, run_id, event_log_path=None):
             raise FileNotFoundError("/nonexistent/path.json")
@@ -211,7 +211,7 @@ class TestRunExceptionClassification:
         """Unclassified exceptions still → E_RUNNER but MUST include 'exception_type' field.
 
         F7BE40B9 Ship #1 sibling-test co-change (see ac3a)."""
-        import run as run_module
+        from bytedigger_engine import run as run_module
 
         class _Weird(Exception):
             pass

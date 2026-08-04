@@ -27,29 +27,27 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-WORKFLOWS = ENGINE_ROOT / "workflows"
+WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 
 # Match the import pattern used by sibling tests
 # (test_phase_6_fix_structured_verdict.py, test_phase_6_1F39FB1A_soft_tag.py)
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(ENGINE_ROOT / "lib") not in sys.path:
-    sys.path.insert(0, str(ENGINE_ROOT / "lib"))
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
 # Top-level import of the module (it already exists — collects fine).
 # NOT-YET-EXISTING symbols (REVIEW_FIX_DOC_RELPATH, _render_fix_doc) are accessed
 # inside test bodies via getattr/hasattr to comply with §1q/D1CF5FDF.
-import phase_6_review as _p6  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402
 
 # Import existing symbols for regression-guard tests (these all exist today).
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     REVIEW_DOC_RELPATH,
     _build_satisfaction_prompt,
     _build_fix_prompt,
 )
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── fixture helpers ───────────────────────────────────────────────────────────
@@ -267,7 +265,7 @@ def test_ac4_full_review_doc_still_has_both_sections(tmp_path, monkeypatch):
         duration_ms=0,
         step_name="aggregate_review_findings",
     )
-    from phase_6_review import _write_review_artifact  # noqa: E402
+    from bytedigger_engine.workflows.phase_6_review import _write_review_artifact  # noqa: E402
     ctx = types.SimpleNamespace(
         org_config={"scratchpad_dir": str(scratchpad)},
         question="q",
@@ -483,7 +481,7 @@ def test_ac9_fix_verdict_schema_unchanged_and_e_fix_blocked_present():
 
     # Import deferred inside test body (§1q/D1CF5FDF — import at assert time, not collect time)
     # ENGINE_ROOT/lib is on sys.path so the package path is plugins.disk_truth.schema
-    from plugins.disk_truth.schema import FixVerdict  # noqa: E402
+    from bytedigger_engine.lib.plugins.disk_truth.schema import FixVerdict  # noqa: E402
 
     assert dataclasses.is_dataclass(FixVerdict), (
         "AC9: FixVerdict must be a dataclass"
@@ -580,7 +578,7 @@ def test_ac3_write_review_artifact_produces_both_doc_files_with_correct_content(
         question="Add foo",
     )
 
-    from phase_6_review import _write_review_artifact  # noqa: E402
+    from bytedigger_engine.workflows.phase_6_review import _write_review_artifact  # noqa: E402
     result = _write_review_artifact(ctx, prev)
 
     assert result.status == "ok", (
@@ -690,7 +688,7 @@ def test_ac5_write_review_artifact_returns_both_path_keys(tmp_path, monkeypatch)
         question="Add foo",
     )
 
-    from phase_6_review import _write_review_artifact  # noqa: E402
+    from bytedigger_engine.workflows.phase_6_review import _write_review_artifact  # noqa: E402
     result = _write_review_artifact(ctx, prev)
 
     assert result.status == "ok", (
@@ -744,7 +742,7 @@ def test_ac11_aggregate_review_findings_partitions_and_forwards_verified_only(tm
 
     Invocation mirrors test_phase_6_1F39FB1A_soft_tag.py _run_agg pattern.
     """
-    from phase_6_review import _aggregate_review_findings  # noqa: E402
+    from bytedigger_engine.workflows.phase_6_review import _aggregate_review_findings  # noqa: E402
 
     monkeypatch.setattr(_p6, "_emit_safe", lambda *a, **kw: None)
 

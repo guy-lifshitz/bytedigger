@@ -30,13 +30,13 @@ from __future__ import annotations
 
 import pytest
 
-import phase_8_post_deploy
-from lib.git_port import (
+from bytedigger_engine.workflows import phase_8_post_deploy
+from bytedigger_engine.lib.git_port import (
     GitResult,
     reset_default_git_read_factory,
     set_default_git_read_factory,
 )
-from lib.git_write_port import (
+from bytedigger_engine.lib.git_write_port import (
     reset_default_git_write_factory,
     set_default_git_write_factory,
 )
@@ -96,7 +96,7 @@ def test_ac1_ship_to_pr_routes_push_through_write_seam(
     Pre-GREEN: push→_git(noop)→write-spy empty→FAIL.
     Post-GREEN: push→_git_write→factory spy→argv recorded→PASS.
     """
-    from contracts import WorkflowContext  # noqa: PLC0415 — deferred per §1q
+    from bytedigger_engine.contracts import WorkflowContext  # noqa: PLC0415 — deferred per §1q
 
     working = tmp_path / "work"
     working.mkdir(parents=True, exist_ok=True)

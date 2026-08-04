@@ -32,7 +32,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── Finding #4: _parse_green_status last-marker-wins ────────────────────────
@@ -45,7 +44,7 @@ def test_green_status_last_marker_wins_complete_after_blocked():
     later COMPLETE marker. With last-marker-wins, COMPLETE wins because it
     appears later in the output.
     """
-    from phase_5_implement import _parse_green_status, GREEN_COMPLETE  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_green_status, GREEN_COMPLETE  # noqa: PLC0415
 
     raw = (
         "cycle 1 attempt:\n"
@@ -71,7 +70,7 @@ def test_green_status_last_marker_wins_blocked_after_complete():
     hit anywhere). Post-fix it must still return BLOCKED, but because
     ``rfind('GREEN BLOCKED') > rfind('GREEN COMPLETE')``.
     """
-    from phase_5_implement import _parse_green_status, GREEN_BLOCKED  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_green_status, GREEN_BLOCKED  # noqa: PLC0415
 
     raw = (
         "cycle 2:\n"
@@ -119,7 +118,7 @@ def test_green_status_substring_in_prose_does_not_trigger():
       ``_parse_verdict``. Defer that to a follow-up agreement; W7 keeps
       sister-parser parity.
     """
-    from phase_5_implement import _parse_green_status, GREEN_NO_MARKER  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_green_status, GREEN_NO_MARKER  # noqa: PLC0415
 
     raw = (
         "The validator said this is not GREEN BLOCKED but something else "
@@ -143,7 +142,7 @@ def test_green_status_substring_in_prose_does_not_trigger():
 
 def test_green_status_no_marker_returns_no_marker():
     """Regression guard: empty / no-marker input → GREEN_NO_MARKER."""
-    from phase_5_implement import _parse_green_status, GREEN_NO_MARKER  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _parse_green_status, GREEN_NO_MARKER  # noqa: PLC0415
 
     assert _parse_green_status("") == GREEN_NO_MARKER
     assert _parse_green_status("worker output without any marker at all") == GREEN_NO_MARKER

@@ -32,7 +32,7 @@ from unittest.mock import patch
 
 import pytest
 
-import model_config
+from bytedigger_engine.lib import model_config
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def model_config_fixture(monkeypatch, tmp_path):
 def _load_directed_repair_module():
     import importlib
     try:
-        return importlib.import_module("lib.directed_repair")
+        return importlib.import_module("bytedigger_engine.lib.directed_repair")
     except ImportError as exc:
         pytest.fail(f"lib/directed_repair.py failed to import: {exc}")
 
@@ -138,7 +138,7 @@ class TestGH386ModelPinRemoval:
         monkeypatch.delenv("HAL_MODEL_UNAVAILABLE", raising=False)
         model_config_fixture({"claude": {}})
         dr = _load_directed_repair_module()
-        with patch("lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
+        with patch("bytedigger_engine.lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
             result = dr._resolve_directed_repair_model({})
         assert result == "sonnet"
         assert "opus" not in result
@@ -148,7 +148,7 @@ class TestGH386ModelPinRemoval:
 
     def test_ac10_no_fable5_literal_in_directed_repair_source(self):
         """AC10: source text of lib/directed_repair.py no longer contains "claude-fable-5"."""
-        src_path = Path(__file__).parent.parent / "lib" / "directed_repair.py"
+        src_path = Path(__file__).parent.parent / "bytedigger_engine" / "lib" / "directed_repair.py"
         text = src_path.read_text(encoding="utf-8")
         assert "claude-fable-5" not in text, (
             "GH386 AC10: claude-fable-5 literal still present in lib/directed_repair.py"
@@ -157,7 +157,7 @@ class TestGH386ModelPinRemoval:
     def test_ac11_cfg_override_unchanged(self):
         """AC11: org_config override still wins, reason "cfg_override" (behavior unchanged)."""
         dr = _load_directed_repair_module()
-        with patch("lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
+        with patch("bytedigger_engine.lib.observability.emit_resolver.emit_resolver_resolved") as mock_emit:
             result = dr._resolve_directed_repair_model({"directed_repair_model": "custom-x"})
         assert result == "custom-x"
         mock_emit.assert_called_once_with(
@@ -169,6 +169,6 @@ class TestGH386ModelPinRemoval:
         monkeypatch.delenv("HAL_MODEL_UNAVAILABLE", raising=False)
         model_config_fixture({"claude": {"unavailable": ["sonnet"]}})
         dr = _load_directed_repair_module()
-        with patch("lib.observability.emit_resolver.emit_resolver_resolved"):
+        with patch("bytedigger_engine.lib.observability.emit_resolver.emit_resolver_resolved"):
             result = dr._resolve_directed_repair_model({})
         assert result == "haiku"

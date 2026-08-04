@@ -17,7 +17,7 @@ import re as _re_module
 from pathlib import Path
 from unittest.mock import patch
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers (mirror test_gh501_red_prompt_rules.py / test_gh595) ──
@@ -45,7 +45,7 @@ def _write_spec(scratchpad: Path, spec_text: str) -> None:
 
 
 def _build_red(tmp_path: Path, spec_text: str | None, **org_extra):
-    from phase_5_implement import _build_red_prompt  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _build_red_prompt  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ def test_something():
 
 
 def test_ac1_spec_wants_script_uut_true_on_hyphenated_py_token():
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     fn = getattr(p5, "_spec_wants_script_uut", None)
     assert callable(fn), "_spec_wants_script_uut must exist as a module-level callable"
@@ -120,7 +120,7 @@ def test_ac1_spec_wants_script_uut_true_on_hyphenated_py_token():
 
 
 def test_ac2_spec_wants_script_uut_false_on_non_hyphenated_tokens():
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     fn = getattr(p5, "_spec_wants_script_uut", None)
     assert callable(fn), "_spec_wants_script_uut must exist as a module-level callable"
@@ -161,7 +161,7 @@ def test_ac4_prompt_omits_script_loader_rule_when_no_hyphenated_uut(tmp_path):
 
 
 def test_ac5_verify_red_lint_rules_rejects_runpy_run_path(tmp_path, monkeypatch):
-    from phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RED_PREFLIGHT_DELTA_RETRY", "0")
     relpath = _write_test_file(tmp_path, "tests/test_1017_runpy.py", _RUNPY_VIOLATION)
@@ -179,7 +179,7 @@ def test_ac5_verify_red_lint_rules_rejects_runpy_run_path(tmp_path, monkeypatch)
 
 
 def test_ac6_pragma_1q_allow_suppresses_runpy_reject(tmp_path):
-    from phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
 
     relpath = _write_test_file(tmp_path, "tests/test_1017_runpy_pragma.py", _RUNPY_PRAGMA)
     ctx = _make_ctx(tmp_path)
@@ -193,7 +193,7 @@ def test_ac6_pragma_1q_allow_suppresses_runpy_reject(tmp_path):
 
 
 def test_ac7_env_gate_disabled_bypasses_runpy_reject(tmp_path, monkeypatch):
-    from phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RED_1Q_GATE", "0")
     relpath = _write_test_file(tmp_path, "tests/test_1017_runpy_gated.py", _RUNPY_VIOLATION)
@@ -209,7 +209,7 @@ def test_ac7_env_gate_disabled_bypasses_runpy_reject(tmp_path, monkeypatch):
 
 def test_ac8_regression_spec_from_file_location_still_rejected(tmp_path, monkeypatch):
     """Pure regression pin — passes today and must still pass post-GREEN."""
-    from phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RED_PREFLIGHT_DELTA_RETRY", "0")
     relpath = _write_test_file(
@@ -229,7 +229,7 @@ def test_ac8_regression_spec_from_file_location_still_rejected(tmp_path, monkeyp
 
 
 def test_ac9_single_source_exactly_one_module_level_recompile_for_1q():
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     source_path = Path(p5.__file__)
     source = source_path.read_text(encoding="utf-8")
@@ -256,7 +256,7 @@ def test_ac9_single_source_exactly_one_module_level_recompile_for_1q():
 
 
 def test_ac10_preflight_batch_flags_runpy_run_path(tmp_path, monkeypatch):
-    import phase_5_implement as p5  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RED_PREFLIGHT_DELTA_RETRY", "0")
     collect_fn = getattr(p5, "_collect_red_lint_findings", None)
@@ -274,7 +274,7 @@ def test_ac10_preflight_batch_flags_runpy_run_path(tmp_path, monkeypatch):
     except TypeError:
         # tolerate a slightly different signature; fall back to the full
         # verify path which shares the batch dispatcher per §2.2
-        from phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
+        from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # noqa: PLC0415
 
         prev = _make_prev([relpath])
         result = _verify_red_lint_rules(ctx, prev)

@@ -29,15 +29,15 @@ import pytest
 _ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "workflows"
+_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(_WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(_WORKFLOWS))
-_LIB = _ENGINE_PY / "lib"
+_LIB = _ENGINE_PY / "bytedigger_engine" / "lib"
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
 # ─── Production imports (module-level — types only, no not-yet-existing symbols) ─
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── Helpers (mirrored from test_42E92BE7_green_watchdog_mixin.py per §4 idiom) ─
@@ -93,7 +93,7 @@ def test_token_overrun_healthy_duration_returns_ok(tmp_path: Path) -> None:
     Forcing function: status literal "ok" + error_code None — cannot be satisfied
     without flipping the token branch away from gated_step_result (§1l, §1y).
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     # green_llm_timeout_sec=600 → wall_limit_ms = 2 * 600 * 1000 = 1_200_000 ms
     ctx = _make_ctx(tmp_path, green_llm_timeout_sec=600)
@@ -134,7 +134,7 @@ def test_token_overrun_emits_token_alert(tmp_path: Path, monkeypatch: pytest.Mon
     Pre-GREEN: FAIL — current code calls gated_step_result (no _emit_safe for
     token alert), zero "green_watchdog_token_alert" events captured.
     """
-    import phase_5_implement as _p5m  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as _p5m  # noqa: PLC0415
 
     events: list[tuple[str, dict, dict]] = []
 
@@ -182,7 +182,7 @@ def test_wall_clock_overrun_still_escalates(tmp_path: Path) -> None:
     Wall-clock branch is UNCHANGED by 32C49788 — this is a regression guard.
     Pre-GREEN: PASS (wall-clock branch still terminal).  Stays green post-GREEN.
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     ctx = _make_ctx(tmp_path, green_llm_timeout_sec=600)
     prev = _make_prev(duration_ms=1_200_001, tokens_out=100)
@@ -214,7 +214,7 @@ def test_healthy_no_token_alert(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     Pre-GREEN: PASS — healthy path already returns ok; no alert emitted.
     Stays green post-GREEN.
     """
-    import phase_5_implement as _p5m  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement as _p5m  # noqa: PLC0415
 
     events: list[tuple[str, dict, dict]] = []
 
@@ -250,7 +250,7 @@ def test_combined_overrun_wall_clock_fires_first(tmp_path: Path) -> None:
     unchanged by 32C49788.  Pre-GREEN: PASS (wall-clock terminal already).
     Stays green post-GREEN.
     """
-    from phase_5_implement import _green_watchdog  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _green_watchdog  # noqa: PLC0415
 
     ctx = _make_ctx(tmp_path, green_llm_timeout_sec=600)
     prev = _make_prev(duration_ms=2_400_000, tokens_out=25_001)

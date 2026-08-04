@@ -20,15 +20,14 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from derive_state import replay  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from llm_subprocess import register_backend, reset_backends  # noqa: E402
-import telemetry_ctx  # noqa: E402
-from phase_7_synthesize import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.derive_state import replay  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.llm_subprocess import register_backend, reset_backends  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.workflows.phase_7_synthesize import (  # noqa: E402
     DEFAULT_LLM_COMMAND,
     DEFAULT_SYNTHESIZER_TIMEOUT_SEC,
     FIX_DOC_RELPATH,
@@ -43,14 +42,14 @@ from phase_7_synthesize import (  # noqa: E402
     STATUS_NO_MARKER,
     phase_7_synthesize_workflow,
 )
-import workflows  # noqa: E402
+from bytedigger_engine import workflows  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # §1i autouse teardown: restore _BACKENDS singleton + clear telemetry context
 # between tests (mirrors test_25e75663_llm_semantic_params pattern).
 # ---------------------------------------------------------------------------
 
-import llm_subprocess as _llm_mod  # noqa: E402
+from bytedigger_engine import llm_subprocess as _llm_mod  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -232,7 +231,7 @@ def test_defaults_are_sensible():
 
 
 def test_canonical_doc_paths():
-    import phase_7_synthesize as m
+    from bytedigger_engine.workflows import phase_7_synthesize as m
     assert REPORT_DOC_RELPATH == "post-deploy/post-deploy-report.md"
     for deleted in (
         "DOCS_DOC_RELPATH",
@@ -388,7 +387,7 @@ def test_synthesizer_no_marker_returns_error(tmp_path):
 
 
 def test_synthesizer_status_parser_unit():
-    from phase_7_synthesize import _parse_synthesizer_status
+    from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_status
 
     assert _parse_synthesizer_status("STATUS: DONE") == STATUS_DONE
     assert _parse_synthesizer_status("STATUS: DONE_WITH_CONCERNS") == STATUS_DONE_WITH_CONCERNS
@@ -669,7 +668,7 @@ def test_telemetry_digest_enabled_includes_phase_summary(tmp_path, monkeypatch):
     ]
     log_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
 
-    import derive_state as ds
+    from bytedigger_engine import derive_state as ds
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
 
     scratchpad = tmp_path / "scratch"
@@ -699,7 +698,7 @@ def test_telemetry_digest_excludes_phase_7_self(tmp_path, monkeypatch):
          "payload": {"workflow_name": "phase_7_synthesize", "status": "ok", "wall_ms": 500}},
     ]
     log_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
-    import derive_state as ds
+    from bytedigger_engine import derive_state as ds
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
 
     scratchpad = tmp_path / "scratch"
@@ -722,7 +721,7 @@ def test_telemetry_digest_empty_log_no_block(tmp_path, monkeypatch):
     """Enabled but log empty → no TELEMETRY block (silence over noise)."""
     log_path = tmp_path / "build-events.jsonl"
     log_path.write_text("")
-    import derive_state as ds
+    from bytedigger_engine import derive_state as ds
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
 
     scratchpad = tmp_path / "scratch"

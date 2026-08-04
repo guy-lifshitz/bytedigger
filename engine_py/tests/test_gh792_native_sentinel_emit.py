@@ -33,8 +33,8 @@ import pytest
 
 pytest.importorskip("dbos")
 
-import lib.dbos_setup as dbos_setup  # type: ignore[import]  # attr access only — never patched
-import telemetry_ctx  # type: ignore[import]
+from bytedigger_engine.lib import dbos_setup as dbos_setup  # type: ignore[import]  # attr access only — never patched
+from bytedigger_engine import telemetry_ctx  # type: ignore[import]
 
 _ENV = "HAL_ENGINE_DURABLE_BACKEND"
 
@@ -102,8 +102,8 @@ def _register_counter_workflow(
     calls — so the step only ever runs when the production engine really
     executes it (§1l: a stub cannot move this counter).
     """
-    import workflows as workflows_pkg  # type: ignore
-    from contracts import StepContract, StepResult, WorkflowDefinition  # type: ignore
+    from bytedigger_engine import workflows as workflows_pkg  # type: ignore
+    from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition  # type: ignore
 
     def _step(_ctx, _prev):
         _bump_counter(counter_path)
@@ -202,7 +202,7 @@ def test_ac2_store_fresh_appends_phase_sentinel_stored_gh792(tmp_path, monkeypat
     `telemetry_ctx.emit_safe`, which no-ops without a bound run-context
     (spec §0/P1, `telemetry_ctx.py:84`).
     """
-    from lib.phase_sentinel import phase_key  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import phase_key  # type: ignore[import]
 
     monkeypatch.setenv(_ENV, "native")
     real_tmp = Path(realpath(str(tmp_path)))
@@ -246,7 +246,7 @@ def test_ac3_serve_auto_resume_appends_phase_sentinel_resumed_gh792(tmp_path, mo
     Pre-GREEN: FAIL — 0 lines written (same emit_safe no-op as AC2, plus
     `execute_native_workflow`'s SERVE branch calls emit_safe too).
     """
-    from lib.phase_sentinel import phase_key  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import phase_key  # type: ignore[import]
 
     monkeypatch.setenv(_ENV, "native")
     real_tmp = Path(realpath(str(tmp_path)))
@@ -301,7 +301,7 @@ def test_ac4_emitted_lines_carry_real_run_id_gh792(tmp_path, monkeypatch):
 
     Pre-GREEN: FAIL — no lines are emitted at all (same root cause as AC2/AC3).
     """
-    from lib.phase_sentinel import phase_key  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import phase_key  # type: ignore[import]
 
     monkeypatch.setenv(_ENV, "native")
     real_tmp = Path(realpath(str(tmp_path)))
@@ -351,7 +351,7 @@ def test_ac5_no_store_event_on_non_cacheable_status_gh792(tmp_path, monkeypatch,
     'phase_sentinel_stored' line either way. This guard must stay green through
     GREEN.
     """
-    from lib.phase_sentinel import phase_key  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import phase_key  # type: ignore[import]
 
     monkeypatch.setenv(_ENV, "native")
     real_tmp = Path(realpath(str(tmp_path)))
@@ -404,7 +404,7 @@ def test_ac6_store_success_no_event_log_path_no_emit_no_raise_gh792(tmp_path):
     only 3 params (TypeError on the 4th positional arg), and
     `lib.phase_sentinel._emit_sentinel_event` does not exist yet (ImportError).
     """
-    from lib.phase_sentinel import store_success  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import store_success  # type: ignore[import]
 
     ok_result = {
         "status": "ok", "data": {"x": 1}, "duration_ms": 1, "step_name": "y",
@@ -421,7 +421,7 @@ def test_ac6_store_success_no_event_log_path_no_emit_no_raise_gh792(tmp_path):
         f"event_log_path is None; found {stray!r}"
     )
 
-    from lib.phase_sentinel import _emit_sentinel_event  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import _emit_sentinel_event  # type: ignore[import]
 
     direct_ret = _emit_sentinel_event("x", {}, "rid", None)
     assert direct_ret is None, (
@@ -439,7 +439,7 @@ def test_ac6_store_success_no_event_log_path_no_emit_no_raise_gh792(tmp_path):
 #
 # BLOCKER-1 fix: fault the sink's `.append`, NEVER the `get_event_sink` factory
 # itself. `execute_engine` performs the SAME local
-# `from event_sink import get_event_sink` to build the engine's own sink
+# `from bytedigger_engine.event_sink import get_event_sink` to build the engine's own sink
 # (phase_sentinel.py:156-159) and lets exceptions propagate (:145) — a raising
 # FACTORY blows up inside execute_engine on any cache-MISS path, before any
 # emit is attempted, and no spec-compliant GREEN could ever pass that. The
@@ -472,8 +472,8 @@ def test_ac7a_store_emit_failure_does_not_break_green_phase_gh792(tmp_path, monk
     Pre-GREEN: FAIL — 0 attempts recorded (`_emit_sentinel_event` does not
     exist yet, so nothing calls `get_event_sink` from the STORE path today).
     """
-    from lib.phase_sentinel import execute_native_workflow, phase_key  # type: ignore[import]
-    import event_sink  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import execute_native_workflow, phase_key  # type: ignore[import]
+    from bytedigger_engine import event_sink  # type: ignore[import]
 
     monkeypatch.setenv(_ENV, "native")
     real_tmp = Path(realpath(str(tmp_path)))
@@ -517,8 +517,8 @@ def test_ac7b_serve_emit_failure_does_not_break_served_phase_gh792(tmp_path, mon
     Pre-GREEN: FAIL — 0 attempts recorded (`_emit_sentinel_event` does not
     exist yet, so nothing calls `get_event_sink` from the SERVE path today).
     """
-    from lib.phase_sentinel import execute_native_workflow, phase_key  # type: ignore[import]
-    import event_sink  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import execute_native_workflow, phase_key  # type: ignore[import]
+    from bytedigger_engine import event_sink  # type: ignore[import]
 
     monkeypatch.setenv(_ENV, "native")
     real_tmp = Path(realpath(str(tmp_path)))
@@ -574,7 +574,7 @@ def test_ac8_third_call_emits_second_phase_sentinel_resumed_gh792(tmp_path, monk
 
     Pre-GREEN: FAIL — 0 lines emitted today at all.
     """
-    from lib.phase_sentinel import phase_key  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import phase_key  # type: ignore[import]
 
     monkeypatch.setenv(_ENV, "native")
     real_tmp = Path(realpath(str(tmp_path)))
@@ -630,7 +630,7 @@ def test_ac9_legacy_three_arg_store_success_still_emits_gh792(tmp_path):
     (only `telemetry_ctx.emit_safe`, a no-op without a bound run-context), so
     no line lands at all.
     """
-    from lib.phase_sentinel import store_success  # type: ignore[import]
+    from bytedigger_engine.lib.phase_sentinel import store_success  # type: ignore[import]
 
     real_tmp = Path(realpath(str(tmp_path)))
     event_log_path = str(real_tmp / ".hal-build" / "events.jsonl")

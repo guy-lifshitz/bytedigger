@@ -31,11 +31,10 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-import phase_5_implement  # noqa: E402  (needed for monkeypatch target + getattr resolve)
-from contracts import StepResult  # noqa: E402
-from phase_5_implement import (  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402  (needed for monkeypatch target + getattr resolve)
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_5_implement import (  # noqa: E402
     _gate_on_validation,
     VERDICT_PASS,
     VERDICT_FAIL,
@@ -43,7 +42,7 @@ from phase_5_implement import (  # noqa: E402
     MAX_VALIDATION_CYCLES,
     ValidationVerdict,
 )
-from engine import _extract_marker_text  # noqa: E402  (AC2 — exists today)
+from bytedigger_engine.engine import _extract_marker_text  # noqa: E402  (AC2 — exists today)
 
 
 # ─── fixture builder (copied from test_phase_5_gate_structured_verdict.py:80-107) ──

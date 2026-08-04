@@ -50,11 +50,11 @@ import pytest
 # conftest-import-time singleton handles sys.path (§1q / 81F97F3D gate).
 # Do NOT add sys.path.insert here.
 
-import lib.git_port as git_port
-from lib.git_port import GitResult
+from bytedigger_engine.lib import git_port as git_port
+from bytedigger_engine.lib.git_port import GitResult
 
-import phase_6_fix_integrity as _p6fi
-import phase_6_review as _p6r
+from bytedigger_engine.workflows import phase_6_fix_integrity as _p6fi
+from bytedigger_engine.workflows import phase_6_review as _p6r
 
 
 # ─────────────────────────────────────────────────────────────────────────────

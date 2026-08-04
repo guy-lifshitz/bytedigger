@@ -21,9 +21,8 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 def _make_ctx(scratchpad: Path, **org_extra) -> WorkflowContext:
@@ -51,7 +50,7 @@ def test_green_watchdog_step_uses_retry_policy():
     The behavioral pilot tests below pin that the wrapped execute still
     runs the underlying _green_watchdog logic.
     """
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
 
     wf = phase_5_implement_workflow()
     watchdog_step = next(s for s in wf.steps if s.name == "green_watchdog")
@@ -61,7 +60,7 @@ def test_green_watchdog_step_uses_retry_policy():
 
 def test_green_watchdog_step_smoke_passthrough_ok(tmp_path: Path):
     """Wrapped watchdog still returns ok on healthy duration+tokens."""
-    from phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
@@ -87,7 +86,7 @@ def test_green_watchdog_step_smoke_terminal_on_overrun(tmp_path: Path):
     step() retry loop sees recoverable=False and returns immediately
     instead of retrying.
     """
-    from phase_5_implement import (  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import (  # noqa: PLC0415
         DEFAULT_GREEN_TIMEOUT_SEC,
         GREEN_WATCHDOG_WALL_MULTIPLIER,
         phase_5_implement_workflow,

@@ -53,15 +53,15 @@ import pytest
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     _written_paths_from_events,
     invoke_llm_subprocess,
     reset_backends,
 )
-import llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
-from lib.llm_provider import (  # noqa: E402
+from bytedigger_engine.lib.llm_provider import (  # noqa: E402
     CLAUDE_PROVIDER,
     ProviderSpec,
     get_provider,
@@ -300,7 +300,7 @@ def test_ac3_flag_present_by_default_after_stream_flags(monkeypatch):
     monkeypatch.delenv("HAL_FORWARD_SUBAGENT_TEXT", raising=False)
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -332,7 +332,7 @@ def test_ac4_literal_zero_disables_flag(monkeypatch):
     monkeypatch.setenv("HAL_FORWARD_SUBAGENT_TEXT", "0")
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -360,7 +360,7 @@ def test_ac4_narrowed_false_and_no_do_not_disable(monkeypatch, non_disable_value
     monkeypatch.setenv("HAL_FORWARD_SUBAGENT_TEXT", non_disable_value)
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -393,7 +393,7 @@ def test_ac4a_explicit_truthy_value_keeps_flag_present(monkeypatch, truthy_value
     monkeypatch.setenv("HAL_FORWARD_SUBAGENT_TEXT", truthy_value)
     captured, side = _capture_popen_from_argv()
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -419,7 +419,7 @@ def test_ac4a_explicit_truthy_value_keeps_flag_present(monkeypatch, truthy_value
 def test_ac5_provider_scope_empty_tuple_never_forwarded(monkeypatch):
     """AC5 — spec §3: a provider declaring subagent_forward_flags=() never
     receives the flag, even with the toggle ON (default)."""
-    from llm_subprocess import _subagent_forward_flags
+    from bytedigger_engine.llm_subprocess import _subagent_forward_flags
 
     stub = ProviderSpec(
         name="stub-ac5",
@@ -451,7 +451,7 @@ def test_ac5_provider_scope_empty_tuple_never_forwarded(monkeypatch):
 def test_ac6_stream_reader_ingests_forwarded_events_without_loss():
     """AC6 — spec §3: _stream_read_events ingests forwarded events carrying
     parent_tool_use_id without loss or throw; they appear in returned events."""
-    from llm_subprocess import _stream_read_events
+    from bytedigger_engine.llm_subprocess import _stream_read_events
 
     depth2_event = _write_event("toolu_write2", "toolu_agent2", "depth2.txt")
     lines = json.dumps(depth2_event) + "\n" + _RESULT_EVENT
@@ -583,7 +583,7 @@ def test_ac7d_orphaned_depth1_write_excluded_fail_closed():
 def test_ac7_manifest_eligible_events_symbol_reflects_depth1_ceiling():
     """Direct unit test of the new named helper _manifest_eligible_events
     (§1aa forcing function), anchored to AC7/AC7b (spec §2.6)."""
-    from llm_subprocess import _manifest_eligible_events
+    from bytedigger_engine.llm_subprocess import _manifest_eligible_events
 
     events = _depth_chain_events()
     eligible = _manifest_eligible_events(events)
@@ -710,7 +710,7 @@ def test_ac11_exceeding_byte_budget_stops_appends_and_writes_one_truncated_recor
     {"type":"truncated","dropped_events":N,"limit_bytes":L} record. Byte cap
     monkeypatched directly (§1i: deterministic, not a timing race)."""
     write_sink = _sink_uut()
-    import llm_subprocess as llm_subprocess_mod
+    from bytedigger_engine import llm_subprocess as llm_subprocess_mod
 
     monkeypatch.setattr(llm_subprocess_mod, "_SUBAGENT_SINK_MAX_BYTES", 200)
 
@@ -793,7 +793,7 @@ def test_ac12_sink_disabled_by_toggle_produces_no_sidecar_file(monkeypatch):
         extra_stdout_lines=[json.dumps(depth2_tool) + "\n", json.dumps(text_event) + "\n"]
     )
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -830,7 +830,7 @@ def test_ac12_pair_full_invoke_writes_sidecar_with_depth2_record(monkeypatch):
         extra_stdout_lines=[json.dumps(depth2) + "\n"]
     )
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         result = invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -889,7 +889,7 @@ def test_ac12_inert_sink_dir_unset_writes_nothing_step_still_ok(monkeypatch):
         extra_stdout_lines=[json.dumps(depth2) + "\n"]
     )
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
         result = invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -941,7 +941,7 @@ def test_ac13_unwritable_sink_path_does_not_change_step_result_status(monkeypatc
             extra_stdout_lines=[json.dumps(depth2) + "\n"]
         )
 
-        with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
             result = invoke_llm_subprocess(
                 prompt="hi",
                 model="claude-3-haiku-20240307",
@@ -1018,7 +1018,7 @@ def test_ac14_idle_abort_branch_sidecar_has_prekill_subagent_records(monkeypatch
     proc.kill = MagicMock(side_effect=stdout_obj.close)
     proc.communicate = MagicMock(return_value=("", ""))
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -1093,7 +1093,7 @@ def test_ac15_timeout_branch_sidecar_has_prekill_subagent_records(monkeypatch, r
     proc.kill = MagicMock()
     proc.communicate = MagicMock(return_value=("", ""))
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="hi",
             model="claude-3-haiku-20240307",
@@ -1139,7 +1139,7 @@ def test_ac16_flag_not_in_cmd_tail_redacted(monkeypatch):
     telemetry_ctx.set_current_run(event_log=log, run_id="r_ac16", step_name="s", phase="p")
     captured, side = _capture_popen_from_argv()
     try:
-        with patch("llm_subprocess.subprocess.Popen", side_effect=side):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=side):
             invoke_llm_subprocess(
                 prompt="hi",
                 model="claude-3-haiku-20240307",
@@ -1178,7 +1178,7 @@ def test_ac18_forward_subagent_enabled_is_importable_symbol():
     named, importable, callable module-level symbol (the §1aa forcing
     function for the toggle predicate — no inline predicate inside control
     flow)."""
-    from llm_subprocess import _forward_subagent_enabled
+    from bytedigger_engine.llm_subprocess import _forward_subagent_enabled
 
     assert callable(_forward_subagent_enabled), (
         "§2.2/§1aa: _forward_subagent_enabled must be an importable, "

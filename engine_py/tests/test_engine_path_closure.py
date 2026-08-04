@@ -60,15 +60,17 @@ ESCAPE_ALLOWLIST = {
 
 # Assets the packaged fallback must actually contain (the resolvable side of
 # the allowlist rows above plus the in-package red-lint ruleset).
+# bd#44: paths are relative to the PACKAGE root, which is where everything the
+# distribution ships now lives.
 PACKAGED_ASSETS = [
-    "security/__init__.py",
-    "security/security_lint.py",
-    "security/semgrep-rules.yml",
-    "security/secure-codegen-rules.md",
-    "security/secure-codegen-fragment.md",
-    "security/gitleaks.toml",
-    "security/except-pass-allowlist.txt",
-    "scripts/red_lint/rules.yml",
+    "bytedigger_engine/security/__init__.py",
+    "bytedigger_engine/security/security_lint.py",
+    "bytedigger_engine/security/semgrep-rules.yml",
+    "bytedigger_engine/security/secure-codegen-rules.md",
+    "bytedigger_engine/security/secure-codegen-fragment.md",
+    "bytedigger_engine/security/gitleaks.toml",
+    "bytedigger_engine/security/except-pass-allowlist.txt",
+    "bytedigger_engine/scripts/red_lint/rules.yml",
 ]
 
 def _pyproject(root=None):
@@ -161,7 +163,7 @@ def test_ac1_every_out_of_package_path_is_packaged_or_allowlisted():
             tail = segs[-1]
             if tail in ESCAPE_ALLOWLIST:
                 continue
-            if (ENGINE_PY_ROOT / "security" / tail).is_file():
+            if (ENGINE_PY_ROOT / "bytedigger_engine" / "security" / tail).is_file():
                 continue
             if (ENGINE_PY_ROOT / Path(*segs)).exists():
                 continue
@@ -261,12 +263,20 @@ def test_ac2_packaged_assets_exist():
 
 
 def test_ac3_packaged_assets_are_wheel_visible():
+    """bd#44: `security` and `scripts` are subpackages now, so the include
+    patterns name them through the one package the distribution owns. The AC is
+    unchanged — the asset-bearing dirs must be shipped and their data declared —
+    only the spelling moved, and it is checked by setuptools' own matching rule
+    instead of a prefix test that only worked while they were top-level."""
+    import fnmatch
+
     cfg = _pyproject()
     include = cfg["tool"]["setuptools"]["packages"]["find"]["include"]
-    assert any(pat.startswith("security") for pat in include), include
-    assert any(pat.startswith("scripts") for pat in include), include
+    for sub in ("bytedigger_engine.security", "bytedigger_engine.scripts"):
+        assert any(fnmatch.fnmatchcase(sub, pat) for pat in include), (sub, include)
     pkg_data = cfg["tool"]["setuptools"]["package-data"]
-    assert "security" in pkg_data and "scripts.red_lint" in pkg_data, pkg_data
+    assert "bytedigger_engine.security" in pkg_data, pkg_data
+    assert "bytedigger_engine.scripts.red_lint" in pkg_data, pkg_data
 
 
 # ─── AC5: fixed-depth ancestor indexing (bd#97) ──────────────────────────────
@@ -432,7 +442,7 @@ def test_ac5c_pep604_annotations_carry_the_future_import():
     on a newer runner.
 
     Scoped to shipped sources: the wheel's import closure is what breaks
-    `import workflows`. PEP-585 (`list[str]`) is valid on 3.9 and is not flagged.
+    `import bytedigger_engine.workflows`. PEP-585 (`list[str]`) is valid on 3.9 and is not flagged.
     """
     offenders = []
     for src in _shipped_sources():
@@ -481,7 +491,7 @@ def _guarded_spans(tree):
 
 
 def test_ac4_unguarded_imports_resolve_in_tree_or_deps():
-    # Bare sibling imports (import phase_45_spec from inside workflows/) resolve
+    # Bare sibling imports (import bytedigger_engine.workflows.phase_45_spec from inside workflows/) resolve
     # at runtime because callers put the package dirs on sys.path -- so every
     # shipped module stem anywhere in the tree counts as local.
     shipped_dirs = _declared_shipped_dirs()

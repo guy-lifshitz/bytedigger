@@ -16,7 +16,7 @@ import pytest
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     _MODEL_RANK,
     _assert_hard_gate_opus,
     _assert_in_session_model_or_downgrade,
@@ -28,7 +28,7 @@ from llm_subprocess import (  # noqa: E402
 
 def _import_is_fable_model():
     try:
-        from llm_subprocess import _is_fable_model
+        from bytedigger_engine.llm_subprocess import _is_fable_model
     except ImportError:
         pytest.fail("_is_fable_model not implemented yet (GH426)")
     return _is_fable_model
@@ -36,7 +36,7 @@ def _import_is_fable_model():
 
 def _import_meets_opus_floor():
     try:
-        from llm_subprocess import _meets_opus_floor
+        from bytedigger_engine.llm_subprocess import _meets_opus_floor
     except ImportError:
         pytest.fail("_meets_opus_floor not implemented yet (GH426)")
     return _meets_opus_floor

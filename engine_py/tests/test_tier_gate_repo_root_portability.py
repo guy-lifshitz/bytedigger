@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import tier_gate
+from bytedigger_engine import tier_gate
 
 
 def test_import_does_not_crash_and_root_is_set():

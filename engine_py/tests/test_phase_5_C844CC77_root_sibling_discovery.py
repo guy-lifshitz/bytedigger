@@ -25,7 +25,7 @@ import pytest
 # sys.path managed by conftest.py (§1q / 81F97F3D — no module-level sys.path here).
 # conftest already inserts engine_py root + engine_py/workflows so imports below work.
 
-import phase_5_implement as _p5m
+from bytedigger_engine.workflows import phase_5_implement as _p5m
 
 
 # ─── AC1: _module_tokens_for basic derivation ────────────────────────────────
@@ -172,7 +172,7 @@ class TestAC7MissingRootNoCrash:
 
 class TestAC8Wiring:
     def test_ac8_sibling_test_paths_includes_root_test_via_import_grep(self, tmp_path):
-        from phase_5_implement import _sibling_test_paths  # type: ignore[attr-defined]
+        from bytedigger_engine.workflows.phase_5_implement import _sibling_test_paths  # type: ignore[attr-defined]
 
         # Build tmp git_cwd with tests/test_feat.py importing bark.core.strategy
         tests_dir = tmp_path / "tests"
@@ -199,7 +199,7 @@ class TestAC8Wiring:
 
 class TestAC9BackwardCompat:
     def test_ac9_conventional_sibling_and_root_test_both_in_result(self, tmp_path):
-        from phase_5_implement import _sibling_test_paths  # type: ignore[attr-defined]
+        from bytedigger_engine.workflows.phase_5_implement import _sibling_test_paths  # type: ignore[attr-defined]
 
         # Conventional sibling: <prod_dir>/test_<stem>.py
         prod_dir = tmp_path / "bark" / "core"

@@ -6,18 +6,17 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext  # noqa: E402
-from derive_state import replay  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from phase_0_research import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.derive_state import replay  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.workflows.phase_0_research import (  # noqa: E402
     SUBDIRS,
     RESEARCH_STUB_FILENAME,
     phase_0_research_workflow,
 )
-import workflows  # noqa: E402
+from bytedigger_engine import workflows  # noqa: E402
 
 
 def make_ctx(scratchpad: Path, task: str = "Add foo to bar") -> WorkflowContext:

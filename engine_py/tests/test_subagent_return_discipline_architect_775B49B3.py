@@ -48,12 +48,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 # Stable, always-exist imports only — no _resolve_architect_source at top level.
-import phase_4_architect as a  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_4_architect import (  # noqa: E402
+from bytedigger_engine.workflows import phase_4_architect as a  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_4_architect import (  # noqa: E402
     ARCHITECTURE_DOC_RELPATH,
 )
 

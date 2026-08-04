@@ -26,7 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from contracts import StepResult  # already exists — safe top-level import
+from bytedigger_engine.contracts import StepResult  # already exists — safe top-level import
 
 
 # ─── event-log capture helpers (mirror test_phase_45_ac_dsl_wiring_GH517A2.py) ─
@@ -47,7 +47,7 @@ class _StubRunCtx:
 
 
 def _patch_telemetry(monkeypatch, log: _CaptureEventLog | None = None):
-    import telemetry_ctx  # deferred — reached via workflows/ on sys.path
+    from bytedigger_engine import telemetry_ctx  # deferred — reached via workflows/ on sys.path
 
     stub = _StubRunCtx(log) if log is not None else _StubRunCtx(_CaptureEventLog())
     monkeypatch.setattr(telemetry_ctx, "get_current_run", lambda: stub)
@@ -90,7 +90,7 @@ AC1:
 
 def _make_spy(monkeypatch, return_value):
     """Patch phase_45_spec.attempt_directed_repair; returns a mutable capture dict."""
-    import phase_45_spec
+    from bytedigger_engine.workflows import phase_45_spec
 
     captured: dict = {"called": 0, "kwargs": None}
 
@@ -104,7 +104,7 @@ def _make_spy(monkeypatch, return_value):
 
 
 def _run_enforce(tmp_path, monkeypatch, ctx=None):
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     monkeypatch.setenv("HAL_AC_DSL_GATE_ENFORCE", "1")
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "1")
@@ -119,7 +119,7 @@ def _run_enforce(tmp_path, monkeypatch, ctx=None):
 def test_ac1_attempt_directed_repair_invoked_once_with_expected_kwargs(
     tmp_path, monkeypatch
 ) -> None:
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=False, attempts=2, final=None)
@@ -151,8 +151,8 @@ def test_ac1_attempt_directed_repair_invoked_once_with_expected_kwargs(
 def test_ac2_findings_kwarg_has_one_entry_per_rejected_ac_with_evidence(
     tmp_path, monkeypatch
 ) -> None:
-    import ac_dsl  # deferred — to compute the expected reason independently
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine import ac_dsl  # deferred — to compute the expected reason independently
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=False, attempts=2, final=None)
@@ -185,7 +185,7 @@ def test_ac2_findings_kwarg_has_one_entry_per_rejected_ac_with_evidence(
 def test_ac3_convergence_returns_final_step_result_not_terminal(
     tmp_path, monkeypatch
 ) -> None:
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     final = StepResult(
         status="ok", data={"marker": "repaired"}, duration_ms=0, step_name="repaired",
@@ -204,7 +204,7 @@ def test_ac3_convergence_returns_final_step_result_not_terminal(
 def test_ac4_exhaustion_returns_unchanged_terminal_with_findings_structured(
     tmp_path, monkeypatch
 ) -> None:
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     _make_spy(monkeypatch, DirectedRepairResult(converged=False, attempts=2, final=None))
     r, _f = _run_enforce(tmp_path, monkeypatch)
@@ -226,9 +226,9 @@ def test_ac4_exhaustion_returns_unchanged_terminal_with_findings_structured(
 def test_ac5_directed_repair_disabled_skips_repair_returns_terminal(
     tmp_path, monkeypatch
 ) -> None:
-    import phase_45_spec  # deferred
+    from bytedigger_engine.workflows import phase_45_spec  # deferred
 
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=True, attempts=1, final=None)
@@ -249,7 +249,7 @@ def test_ac5_directed_repair_disabled_skips_repair_returns_terminal(
 
 
 def test_ac6_max_attempts_kwarg_equals_repair_cap(tmp_path, monkeypatch) -> None:
-    from lib.directed_repair import DirectedRepairResult, _repair_cap  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult, _repair_cap  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=False, attempts=2, final=None)
@@ -274,7 +274,7 @@ def test_ac7_no_second_repair_loop_or_revise_counter_added() -> None:
     has neither) — that is expected for this guard AC."""
     import inspect
 
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
     src = inspect.getsource(_verify_spec_ac_dsl)
     assert "revise_counter" not in src, (
@@ -292,8 +292,8 @@ def test_ac7_no_second_repair_loop_or_revise_counter_added() -> None:
 
 
 def test_ac8_rerun_gate_reinvokes_verify_spec_ac_dsl(tmp_path, monkeypatch) -> None:
-    import phase_45_spec  # deferred
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.workflows import phase_45_spec  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=False, attempts=2, final=None)
@@ -325,8 +325,8 @@ def test_ac8_rerun_gate_reinvokes_verify_spec_ac_dsl(tmp_path, monkeypatch) -> N
 
 
 def test_ac9_enforce_off_regression_ok_and_repair_not_called(tmp_path, monkeypatch) -> None:
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=True, attempts=1, final=None)
@@ -347,8 +347,8 @@ def test_ac9_enforce_off_regression_ok_and_repair_not_called(tmp_path, monkeypat
 
 
 def test_ac10_gate_kill_switch_off_no_repair_no_crash(tmp_path, monkeypatch) -> None:
-    from phase_45_spec import _verify_spec_ac_dsl  # deferred
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=True, attempts=1, final=None)
@@ -373,7 +373,7 @@ def test_ac10_gate_kill_switch_off_no_repair_no_crash(tmp_path, monkeypatch) -> 
 def test_ac11_directed_repair_skip_config_falls_to_terminal_not_called(
     tmp_path, monkeypatch
 ) -> None:
-    from lib.directed_repair import DirectedRepairResult  # deferred
+    from bytedigger_engine.lib.directed_repair import DirectedRepairResult  # deferred
 
     captured = _make_spy(
         monkeypatch, DirectedRepairResult(converged=True, attempts=1, final=None)

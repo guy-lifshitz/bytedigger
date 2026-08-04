@@ -35,14 +35,12 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_5_implement  # noqa: E402 — module exists; new attrs accessed lazily
-import step_sentinel  # noqa: E402
-import restart_governor  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from resume_keying import resume_sentinel_name  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402 — module exists; new attrs accessed lazily
+from bytedigger_engine.lib import step_sentinel  # noqa: E402
+from bytedigger_engine.lib import restart_governor  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: E402
 
 
 def _make_ctx(**org_extra) -> WorkflowContext:
@@ -297,7 +295,7 @@ def test_ac9_policy_matrix_has_validation_execution_rows():
 
     At RED: ('SIMPLE', 'validation_execution') not in _POLICY_MATRIX.
     """
-    import _recoverable_policy as rp
+    from bytedigger_engine.workflows import _recoverable_policy as rp
 
     assert ("SIMPLE", "validation_execution") in rp._POLICY_MATRIX
     for bc in ("SIMPLE", "FEATURE", "COMPLEX"):
@@ -315,7 +313,7 @@ def test_ac10_error_codes_registry_has_new_codes():
 
     At RED: neither key is present in ERROR_CODES.
     """
-    import error_codes
+    from bytedigger_engine import error_codes
 
     for code in ("E_VALIDATION_EXEC_RETRY", "E_VALIDATION_EXECUTION_FAILURE"):
         assert code in error_codes.ERROR_CODES, f"missing {code}"
@@ -441,7 +439,7 @@ def test_ac14_run_py_calls_governor_reset_full_with_scratchpad_dir():
 
     At RED: run.py still calls bare governor_reset(...) at L166.
     """
-    src = (ENGINE_ROOT / "run.py").read_text()
+    src = (ENGINE_ROOT / "bytedigger_engine" / "run.py").read_text()
     assert "governor_reset_full(" in src, "run.py must call governor_reset_full"
     assert "scratchpad_dir=" in src, "run.py call must pass scratchpad_dir="
 

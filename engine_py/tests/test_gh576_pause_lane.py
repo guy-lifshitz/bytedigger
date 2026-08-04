@@ -20,13 +20,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     WorkflowContext,
     StepResult,
     StepContract,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
 
 
 def make_ctx() -> WorkflowContext:
@@ -84,7 +84,7 @@ def _other_error_step(name: str = "call_llm", error_code: str = "E_LLM_EXIT"):
 # ---------------------------------------------------------------------------
 
 def test_p1_is_paused_result_predicate():
-    from lib.env_limit import is_paused_result, PAUSE_LANE_ERROR_CODES
+    from bytedigger_engine.lib.env_limit import is_paused_result, PAUSE_LANE_ERROR_CODES
 
     assert is_paused_result("error", "E_LLM_SPEND_LIMIT") is True
     assert is_paused_result("error", "E_LLM_EXIT") is False
@@ -161,7 +161,7 @@ def test_p5_governor_record_pause_refunds_start_and_floors_at_zero(tmp_path):
     an unclosed-then-paused start was never counted toward either budget,
     so clearing `pending` IS the refund. A subsequent `governor_check`
     must still ALLOW (GH576 exemption semantics preserved)."""
-    from lib.restart_governor import (
+    from bytedigger_engine.lib.restart_governor import (
         governor_check,
         governor_record_pause,
         governor_record_start,
@@ -208,7 +208,7 @@ def test_p5_governor_record_pause_refunds_start_and_floors_at_zero(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_p6_run_py_wires_pause_lane_and_keeps_legacy_call():
-    run_py_path = Path(__file__).parent.parent / "run.py"
+    run_py_path = Path(__file__).parent.parent / "bytedigger_engine" / "run.py"
     source = run_py_path.read_text(encoding="utf-8")
 
     assert "governor_record_pause(" in source, (
@@ -227,7 +227,7 @@ def test_p6_run_py_wires_pause_lane_and_keeps_legacy_call():
 # ---------------------------------------------------------------------------
 
 def test_p7_flags_catalog_declares_hal_pause_lane():
-    import flags_catalog
+    from bytedigger_engine import flags_catalog
 
     assert "HAL_PAUSE_LANE" in flags_catalog.FLAGS, (
         "P7 FAIL: flags_catalog.FLAGS must declare HAL_PAUSE_LANE"

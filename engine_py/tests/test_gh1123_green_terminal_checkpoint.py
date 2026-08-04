@@ -61,9 +61,9 @@ from pathlib import Path
 
 import pytest
 
-import config_provider  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_5_implement  # noqa: E402
+from bytedigger_engine import config_provider  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 
 
 # ─── git fixture helpers (SETUP + assertion reads only) ───────────────────────
@@ -179,7 +179,7 @@ def _make_fail_stdout(dirpath: Path, content: str = "") -> tuple[str, str]:
 def _patch_run_test_command(monkeypatch, stdout_path: str, stderr_path: str,
                             exit_code: int = 1, n_passed: int = 0, n_failed: int = 1):
     """Monkeypatch the disk_truth test-runner seam inside phase_5_implement."""
-    from lib.plugins.disk_truth.test_runner import TestRunResult  # noqa: PLC0415
+    from bytedigger_engine.lib.plugins.disk_truth.test_runner import TestRunResult  # noqa: PLC0415
 
     fake_result = TestRunResult(
         exit_code=exit_code,
@@ -904,7 +904,7 @@ def test_ac17_neutral_provider_foreign_state_dir_excluded(repo, tmp_path, monkey
 
     Only the CONFIG seam is patched, never the UUT (§1l).  Both binding forms
     are patched so the test is agnostic to whether GREEN does
-    `from config_provider import foreign_state_dirname` or
+    `from bytedigger_engine.config_provider import foreign_state_dirname` or
     `config_provider.foreign_state_dirname()`."""
     fn = _resolve("_checkpoint_green_worktree")
     assert fn is not None, (

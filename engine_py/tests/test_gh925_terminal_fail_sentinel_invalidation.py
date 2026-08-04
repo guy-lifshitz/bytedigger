@@ -28,13 +28,11 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition  # noqa: E402
-from engine import WorkflowEngine  # noqa: E402
-from event_log import EventLog  # noqa: E402
-from resume_keying import resume_sentinel_name  # noqa: E402
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: E402
 
 
 def _make_ctx(scratchpad: Path) -> WorkflowContext:
@@ -338,8 +336,8 @@ def test_ac6_single_eval_fail_declares_invalidation_flag(tmp_path, monkeypatch):
     At RED: the key does not exist in production yet -> data.get(...) is
     None, not True.
     """
-    import phase_6_review
-    from phase_6_review import _write_satisfaction_doc
+    from bytedigger_engine.workflows import phase_6_review
+    from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc
 
     captured: list = []
     monkeypatch.setattr(phase_6_review, "_emit_safe", lambda et, p, **kw: captured.append((et, p, kw)))
@@ -361,8 +359,8 @@ def test_ac7_multi_eval_both_fail_sites_declare_flag_ok_does_not(tmp_path, monke
 
     At RED: the flag is absent on the FAIL result -> first assertion fails.
     """
-    import phase_6_review
-    from phase_6_review import _write_satisfaction_doc
+    from bytedigger_engine.workflows import phase_6_review
+    from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc
 
     captured: list = []
     monkeypatch.setattr(phase_6_review, "_emit_safe", lambda et, p, **kw: captured.append((et, p, kw)))
@@ -404,8 +402,8 @@ def test_ac8_review_degraded_does_not_declare_flag(tmp_path, monkeypatch):
     'not in data' is trivially true) — kept as the DEFER-classification
     regression guard per spec §2.3; paired with AC6/AC7 which DO fail today.
     """
-    import phase_6_review
-    from phase_6_review import _write_satisfaction_doc
+    from bytedigger_engine.workflows import phase_6_review
+    from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc
 
     captured: list = []
     monkeypatch.setattr(phase_6_review, "_emit_safe", lambda et, p, **kw: captured.append((et, p, kw)))

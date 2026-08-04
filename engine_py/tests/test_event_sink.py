@@ -3,7 +3,7 @@
 Covers AC1–AC7. ALL tests FAIL pre-GREEN because event_sink.py does not exist.
 
 Collection safety (§1q / D1CF5FDF): `event_sink` is NOT imported at module
-level. Every `from event_sink import ...` is deferred to inside the test
+level. Every `from bytedigger_engine.event_sink import ...` is deferred to inside the test
 function body (or guarded by pytest.importorskip). The file collects cleanly;
 each test fails at assert time, not collection time.
 
@@ -42,7 +42,7 @@ def _reset_factory_after_test():
     """
     yield
     try:
-        from event_sink import reset_default_event_sink_factory  # type: ignore[import]
+        from bytedigger_engine.event_sink import reset_default_event_sink_factory  # type: ignore[import]
         reset_default_event_sink_factory()
     except Exception:
         pass
@@ -58,8 +58,8 @@ def test_ac1_eventsink_protocol_isinstance_check(tmp_path):
 
     Pre-GREEN: FAIL — ImportError: event_sink module does not exist.
     """
-    from event_sink import EventSink  # type: ignore[import]
-    from event_log import EventLog
+    from bytedigger_engine.event_sink import EventSink  # type: ignore[import]
+    from bytedigger_engine.event_log import EventLog
 
     log_path = tmp_path / "e.jsonl"
     log = EventLog(log_path)
@@ -84,8 +84,8 @@ def test_ac2_default_factories_return_eventlog_at_default_path(tmp_path):
 
     Pre-GREEN: FAIL — ImportError: event_sink module does not exist.
     """
-    from event_sink import get_event_sink, default_event_sink  # type: ignore[import]
-    from event_log import EventLog, default_log_path
+    from bytedigger_engine.event_sink import get_event_sink, default_event_sink  # type: ignore[import]
+    from bytedigger_engine.event_log import EventLog, default_log_path
 
     sink_get = get_event_sink()
     assert type(sink_get).__name__ == "EventLog", (
@@ -115,7 +115,7 @@ def test_ac3_get_event_sink_writes_canonical_jsonl(tmp_path):
 
     Pre-GREEN: FAIL — ImportError: event_sink module does not exist.
     """
-    from event_sink import get_event_sink  # type: ignore[import]
+    from bytedigger_engine.event_sink import get_event_sink  # type: ignore[import]
 
     event_log_path = tmp_path / "e.jsonl"
     sink = get_event_sink(str(event_log_path))
@@ -155,7 +155,7 @@ def test_ac4_set_default_event_sink_factory_injects_custom_sink(tmp_path):
 
     Pre-GREEN: FAIL — ImportError: event_sink module does not exist.
     """
-    from event_sink import get_event_sink, set_default_event_sink_factory  # type: ignore[import]
+    from bytedigger_engine.event_sink import get_event_sink, set_default_event_sink_factory  # type: ignore[import]
 
     class RecordingSink:
         def __init__(self):
@@ -189,7 +189,7 @@ def test_ac5_reset_restores_eventlog_default(tmp_path):
 
     Pre-GREEN: FAIL — ImportError: event_sink module does not exist.
     """
-    from event_sink import (  # type: ignore[import]
+    from bytedigger_engine.event_sink import (  # type: ignore[import]
         get_event_sink,
         set_default_event_sink_factory,
         reset_default_event_sink_factory,
@@ -232,8 +232,8 @@ def test_ac6_workflow_engine_emits_through_injected_sink(tmp_path):
     EventSink Protocol isinstance check on RecordingSink succeeds (which requires
     event_sink.py to exist).
     """
-    from event_sink import EventSink  # type: ignore[import]
-    from engine import WorkflowEngine
+    from bytedigger_engine.event_sink import EventSink  # type: ignore[import]
+    from bytedigger_engine.engine import WorkflowEngine
 
     class RecordingSink:
         def __init__(self):
@@ -280,12 +280,12 @@ def test_ac7_make_engine_explicit_path_routes_through_seam(tmp_path):
     the factory changes what make_engine returns. Without the seam, a factory
     override would be ignored.
     """
-    from event_sink import (  # type: ignore[import]
+    from bytedigger_engine.event_sink import (  # type: ignore[import]
         get_event_sink,
         set_default_event_sink_factory,
         reset_default_event_sink_factory,
     )
-    from run import make_engine  # type: ignore[import]
+    from bytedigger_engine.run import make_engine  # type: ignore[import]
 
     # Part A: explicit path → EventLog at that path (basic regression guard)
     explicit_path = str(tmp_path / "e.jsonl")

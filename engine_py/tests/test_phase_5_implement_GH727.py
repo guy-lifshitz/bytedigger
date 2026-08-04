@@ -26,7 +26,6 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── autouse fixtures ──────────────────────────────────────────────────────
@@ -57,7 +56,7 @@ class _Ctx:
 
 
 def _make_prev(tokens_out: int):
-    from contracts import StepResult  # noqa: PLC0415
+    from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
 
     return StepResult(
         status="ok",
@@ -78,7 +77,7 @@ def _make_prev(tokens_out: int):
 
 
 def _get_resolver():
-    import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
 
     fn = getattr(phase_5_implement, "_resolve_green_output_token_budget", None)
     assert fn is not None, (
@@ -140,8 +139,8 @@ def test_ac9_complex_ctx_tokens_out_21309_does_not_alert():
     """Core regression fix: a COMPLEX build legitimately writing 21309 tokens
     out (cal7 datapoint) must NOT fire the flat-5000 alert. FAILS today
     because prod ignores ctx.org_config complexity entirely."""
-    import phase_5_implement  # noqa: PLC0415
-    import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
 
     prev = _make_prev(21309)
     ctx = _Ctx({"complexity": "COMPLEX"})
@@ -166,8 +165,8 @@ def test_ac9_complex_ctx_tokens_out_21309_does_not_alert():
 
 
 def test_ac10_complex_ctx_tokens_out_40001_alerts_with_complex_threshold():
-    import phase_5_implement  # noqa: PLC0415
-    import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
 
     prev = _make_prev(40001)
     ctx = _Ctx({"complexity": "COMPLEX"})
@@ -197,8 +196,8 @@ def test_ac10_complex_ctx_tokens_out_40001_alerts_with_complex_threshold():
 def test_ac11_none_ctx_tokens_out_13043_alerts_with_base_threshold_sibling_compat():
     """Sibling-compat: ctx=None must still resolve to base 5000 (unchanged
     from B7442146's existing coverage)."""
-    import phase_5_implement  # noqa: PLC0415
-    import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
 
     prev = _make_prev(13043)
     log = _AlertEventLog()
@@ -225,8 +224,8 @@ def test_ac11_none_ctx_tokens_out_13043_alerts_with_base_threshold_sibling_compa
 
 
 def test_ac12_none_ctx_tokens_out_4999_no_alert_regression_guard():
-    import phase_5_implement  # noqa: PLC0415
-    import telemetry_ctx  # noqa: PLC0415
+    from bytedigger_engine.workflows import phase_5_implement  # noqa: PLC0415
+    from bytedigger_engine import telemetry_ctx  # noqa: PLC0415
 
     prev = _make_prev(4999)
     log = _AlertEventLog()

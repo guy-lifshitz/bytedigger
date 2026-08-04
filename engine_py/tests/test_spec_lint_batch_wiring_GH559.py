@@ -21,9 +21,8 @@ from pathlib import Path
 # Must be module-level (not inside functions) to reach contracts/phase_45_spec.
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── fixture text constants ────────────────────────────────────────────────
@@ -136,7 +135,7 @@ def test_ac1_verify_spec_lint_batch_in_step_list_between_coverage_and_review() -
     """AC1: phase_45_spec_workflow().steps has 'verify_spec_lint_batch',
     index > 'verify_spec_coverage' and < 'build_review_prompt'.
     FAILS pre-GREEN: step absent from workflow list."""
-    from phase_45_spec import phase_45_spec_workflow  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import phase_45_spec_workflow  # deferred
 
     names = [s.name for s in phase_45_spec_workflow().steps]
 
@@ -166,7 +165,7 @@ def test_ac1_verify_spec_lint_batch_in_step_list_between_coverage_and_review() -
 def test_ac2_clean_spec_returns_ok_empty_findings(tmp_path) -> None:
     """AC2: on a clean spec, status='ok' and data['spec_lint_batch_findings']==[].
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     f = _write(tmp_path, "spec_clean.md", _CLEAN_SPEC)
     ctx = _make_ctx()
@@ -188,7 +187,7 @@ def test_ac3_token_drift_spec_warn_only_ok_with_findings(tmp_path) -> None:
     AND findings non-empty AND some finding rule_id=='token-inconsistency'
     AND data['spec_lint_batch_warn_count']==len(findings).
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     f = _write(tmp_path, "spec_drift.md", _TOKEN_DRIFT_SPEC)
     ctx = _make_ctx()
@@ -216,7 +215,7 @@ def test_ac4_token_drift_spec_enforce_on_returns_error(tmp_path, monkeypatch) ->
     """AC4: same drifting spec with HAL_SPEC_LINT_BATCH_ENFORCE=1 →
     status='error', error_code=='E_SPEC_LINT_BATCH'.
     FAILS pre-GREEN: function does not exist (and enforce path unimplemented)."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     monkeypatch.setenv("HAL_SPEC_LINT_BATCH_ENFORCE", "1")
 
@@ -239,7 +238,7 @@ def test_ac5_env_kill_switch_gate_off_skips(tmp_path, monkeypatch) -> None:
     """AC5: HAL_SPEC_LINT_BATCH_GATE=0 with drifting spec → status='ok' AND
     data['spec_lint_batch_skipped']=='env_skip'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     monkeypatch.setenv("HAL_SPEC_LINT_BATCH_GATE", "0")
 
@@ -261,7 +260,7 @@ def test_ac5_env_kill_switch_gate_off_skips(tmp_path, monkeypatch) -> None:
 def test_ac6_frozen_spec_returns_skip(tmp_path) -> None:
     """AC6: prev.data['is_frozen']=True → status='skip'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     f = _write(tmp_path, "spec_frozen.md", _TOKEN_DRIFT_SPEC)
     ctx = _make_ctx()
@@ -279,7 +278,7 @@ def test_ac7_presence_triad_missing_spec_warn_only_ok(tmp_path) -> None:
     """AC7: side-effect AC missing §1y presence triad → warn-only ok AND
     some finding rule_id=='presence-triad-missing'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     f = _write(tmp_path, "spec_presence_missing.md", _PRESENCE_TRIAD_MISSING_SPEC)
     ctx = _make_ctx()
@@ -302,7 +301,7 @@ def test_ac8_format_conversion_missing_section_warn_only_ok(tmp_path) -> None:
     section → warn-only ok AND some finding rule_id startswith
     'format-conversion-'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     f = _write(
         tmp_path, "spec_format_missing.md", _FORMAT_CONVERSION_MISSING_SECTION_SPEC
@@ -327,7 +326,7 @@ def test_ac9_flags_catalog_has_new_gate_and_enforce_flags() -> None:
     (kind='gate', default='1') and HAL_SPEC_LINT_BATCH_ENFORCE
     (kind='flag', default='0').
     FAILS pre-GREEN: keys absent."""
-    import flags_catalog  # deferred
+    from bytedigger_engine import flags_catalog  # deferred
 
     flags = flags_catalog.FLAGS
 
@@ -354,7 +353,7 @@ def test_ac9_flags_catalog_has_new_gate_and_enforce_flags() -> None:
 def test_ac10_prev_none_returns_error_missing_prev_data() -> None:
     """AC10: prev=None → status='error', error_code=='E_MISSING_PREV_DATA'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     ctx = _make_ctx()
 
@@ -373,7 +372,7 @@ def test_ac11_missing_spec_file_returns_ok_skipped(tmp_path) -> None:
     """AC11: prev.data['spec_path'] points at a nonexistent file →
     status='ok' AND data['spec_lint_batch_skipped']=='spec_file_missing'.
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     missing = tmp_path / "does_not_exist_spec.md"
     ctx = _make_ctx()
@@ -396,7 +395,7 @@ def test_ac12_findings_carry_lint_key_from_known_names(tmp_path) -> None:
     'lint' key whose value is one of the three GH540 lint names
     (consumer-shape anchor).
     FAILS pre-GREEN: function does not exist."""
-    from phase_45_spec import _verify_spec_lint_batch  # deferred
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_lint_batch  # deferred
 
     known_lint_names = {
         "token-consistency-lint",

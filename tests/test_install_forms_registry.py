@@ -15,7 +15,7 @@ parse ci.yml; its absence must be a loud collection error, never a skip).
 Per §4.0, AC1-AC9/AC12 have no reason of their own to fail today besides the
 canonical module's absence (this file loads it first in every test body);
 AC10 (reads tests/test_npm_install_hint.py), AC11 (reads
-engine_py/lib/dbos_setup.py) and AC13 (reads ci.yml) each have their own,
+engine_py/bytedigger_engine/lib/dbos_setup.py) and AC13 (reads ci.yml) each have their own,
 independent red-today reason.
 
 Nothing here reimplements R1/R2, the domain scan, or the waiver predicate --
@@ -43,7 +43,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALL_FORMS_RELPATH = "scripts/install_forms.py"
 INSTALL_FORMS_PATH = REPO_ROOT / INSTALL_FORMS_RELPATH
-PACKAGE_META_PATH = REPO_ROOT / "engine_py" / "package_meta.py"
+PACKAGE_META_PATH = REPO_ROOT / "engine_py" / "bytedigger_engine" / "package_meta.py"
 ENGINE_PY_DIR = REPO_ROOT / "engine_py"
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 THIS_FILE_RELPATH = "tests/test_install_forms_registry.py"
@@ -206,7 +206,7 @@ BD33_INSTALL_TEXT = "pip install bytedigger"
 # packaging/pypi-pointer/README.md, and would do so only on a tree that has
 # residue -- i.e. only on the releaser's, where AC14 itself never sees it.
 REQUIRED_DOMAIN_ANCHORS = {
-    "engine_py/lib/reference_backends/agent_sdk.py",  # recursion into engine_py/**
+    "engine_py/bytedigger_engine/lib/reference_backends/agent_sdk.py",  # recursion into engine_py/**
     "npm/bin/bytedigger.js",                          # npm/** root
     "packaging/pypi-pointer/README.md",                # packaging/** root
     "engine_py/README.md",                             # non-.py under engine_py
@@ -348,7 +348,7 @@ def _run_doctor_check_optional_deps() -> dict:
     code = (
         "import sys, json\n"
         "sys.path.insert(0, sys.argv[1])\n"
-        "import doctor\n"
+        "from bytedigger_engine import doctor\n"   # bd#44: doctor moved into the package
         "print(json.dumps(doctor.check_optional_deps()))\n"
     )
     result = subprocess.run(
@@ -764,7 +764,7 @@ class TestInstallFormsRegistry:
         same -- read BEFORE the canonical module is loaded, so this AC's
         own red-today reason cannot be masked by the module's absence
         (re-gate note: AC11 must not fail 'for free' on the missing UUT)."""
-        dbos_path = REPO_ROOT / "engine_py" / "lib" / "dbos_setup.py"
+        dbos_path = REPO_ROOT / "engine_py" / "bytedigger_engine" / "lib" / "dbos_setup.py"
         assert dbos_path.is_file(), f"{dbos_path} missing -- fixture broken"
         dbos_text = dbos_path.read_text(encoding="utf-8")
         dbos_lines = dbos_text.splitlines()
@@ -786,12 +786,12 @@ class TestInstallFormsRegistry:
             if install_forms.contains_any_install_form(line)
         ]
         assert not hits, (
-            f"engine_py/lib/dbos_setup.py must carry no installer form at all: {hits!r}"
+            f"engine_py/bytedigger_engine/lib/dbos_setup.py must carry no installer form at all: {hits!r}"
         )
 
         carrier_paths = {relpath for relpath, _kind in install_forms.CARRIERS}
-        assert "engine_py/lib/dbos_setup.py" not in carrier_paths, (
-            "engine_py/lib/dbos_setup.py must not be registered in CARRIERS once "
+        assert "engine_py/bytedigger_engine/lib/dbos_setup.py" not in carrier_paths, (
+            "engine_py/bytedigger_engine/lib/dbos_setup.py must not be registered in CARRIERS once "
             "its command is removed (spec §2.7)"
         )
 
@@ -811,9 +811,9 @@ class TestInstallFormsRegistry:
             "npm/bin/bytedigger.js": install_forms.KIND_EXECUTED_NODE,
             "npm/README.md": install_forms.KIND_MARKDOWN,
             "packaging/pypi-pointer/README.md": install_forms.KIND_MARKDOWN,
-            "engine_py/package_meta.py": install_forms.KIND_PYTHON_RUNTIME,
-            "engine_py/llm_subprocess.py": install_forms.KIND_PYTHON_LITERAL,
-            "engine_py/lib/reference_backends/agent_sdk.py": install_forms.KIND_PYTHON_LITERAL,
+            "engine_py/bytedigger_engine/package_meta.py": install_forms.KIND_PYTHON_RUNTIME,
+            "engine_py/bytedigger_engine/llm_subprocess.py": install_forms.KIND_PYTHON_LITERAL,
+            "engine_py/bytedigger_engine/lib/reference_backends/agent_sdk.py": install_forms.KIND_PYTHON_LITERAL,
             "engine_py/README.md": install_forms.KIND_MARKDOWN,
         }
         missing = set(expected_kind_by_platform) - set(carrier_kinds)

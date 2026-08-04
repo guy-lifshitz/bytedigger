@@ -82,8 +82,8 @@ from unittest.mock import MagicMock, patch
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from llm_subprocess import invoke_llm_subprocess  # noqa: E402
-import telemetry_ctx  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ def test_auto_injects_stream_json_not_plain_json():
         captured_argv.append(list(argv))
         return _stream_proc(stdout)
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=_capture_popen):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=_capture_popen):
         invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -230,7 +230,7 @@ def test_does_not_override_caller_output_format():
         captured_argv.append(list(argv))
         return _stream_proc(stdout)
 
-    with patch("llm_subprocess.subprocess.Popen", side_effect=_capture_popen):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=_capture_popen):
         invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -295,7 +295,7 @@ def test_streaming_read_loop_used_not_communicate():
 
     proc.stdout = _TrackingStdout(real_stdout)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -358,7 +358,7 @@ def test_raw_response_is_extracted_result_text_from_last_event():
     )
     stdout = _ndjson_lines(_SYSTEM_INIT, _ASSISTANT_DELTA, _RESULT_OK, trailing_delta)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -399,7 +399,7 @@ def test_cost_and_tokens_extracted_from_final_result_event():
         event_log=log, run_id="r1", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
             invoke_llm_subprocess(
                 prompt="x", model="sonnet", timeout_sec=10, step_name="s"
             )
@@ -448,7 +448,7 @@ def test_result_event_with_error_subtype_returns_error_status():
     )
     stdout = _ndjson_lines(_SYSTEM_INIT, err_event)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout, returncode=0)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout, returncode=0)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -490,7 +490,7 @@ def test_no_result_event_treated_as_subprocess_failure():
     # Only system-init, then EOF — no result event ever.
     stdout = _ndjson_lines(_SYSTEM_INIT)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout, returncode=0)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout, returncode=0)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -550,7 +550,7 @@ def test_invalid_json_line_logged_but_does_not_kill_stream():
     bad_line = "this is not valid json at all"
     stdout = _ndjson_lines(_SYSTEM_INIT, _ASSISTANT_DELTA, _RESULT_OK, bad_line)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -588,7 +588,7 @@ def test_telemetry_subprocess_spawned_emits_output_format_stream_json():
         event_log=log, run_id="r1", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
             invoke_llm_subprocess(
                 prompt="x", model="sonnet", timeout_sec=10, step_name="s"
             )
@@ -684,7 +684,7 @@ def test_streaming_timeout_enforced_via_deadline(request):
     proc.communicate = MagicMock(return_value=("CORRUPTED_NEVER_SEE_THIS", ""))
 
     started = time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=1, step_name="s"
         )
@@ -776,7 +776,7 @@ def test_stdin_written_and_closed_before_stdout_iter():
     proc.wait = MagicMock(return_value=0)
     proc.communicate = MagicMock(return_value=("CORRUPTED_NEVER_SEE_THIS", ""))
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         invoke_llm_subprocess(
             prompt="HELLO_PROMPT_TEXT",
             model="sonnet",
@@ -854,8 +854,8 @@ def test_run_ctx_none_skips_telemetry():
         + repr(telemetry_ctx.get_current_run())
     )
 
-    with patch("llm_subprocess._emit_safe") as mock_emit:
-        with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+    with patch("bytedigger_engine.llm_subprocess._emit_safe") as mock_emit:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
             result = invoke_llm_subprocess(
                 prompt="x", model="sonnet", timeout_sec=10, step_name="s"
             )
@@ -908,7 +908,7 @@ def test_hard_gate_refusal_short_circuits_before_stream_read():
         event_log=log, run_id="r-a4", step_name="s", phase="p"
     )
     try:
-        with patch("llm_subprocess.subprocess.Popen") as mock_popen:
+        with patch("bytedigger_engine.llm_subprocess.subprocess.Popen") as mock_popen:
             result = invoke_llm_subprocess(
                 prompt="x",
                 model="sonnet",
@@ -996,7 +996,7 @@ def test_large_prompt_does_not_deadlock():
     proc.communicate = MagicMock(return_value=("CORRUPTED_NEVER_SEE_THIS", ""))
 
     started = _time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x" * 70_000,  # >> macOS 16KB pipe buffer
             model="sonnet",
@@ -1078,7 +1078,7 @@ def test_timeout_uses_remaining_budget(request):
     proc.communicate = MagicMock(return_value=("CORRUPTED_NEVER_SEE_THIS", ""))
 
     started = _time.monotonic()
-    with patch("llm_subprocess.subprocess.Popen", return_value=proc):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=3, step_name="s"
         )
@@ -1117,7 +1117,7 @@ def test_success_with_empty_result_is_error():
     )
     stdout = _ndjson_lines(_SYSTEM_INIT, empty_result)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -1157,7 +1157,7 @@ def test_success_with_whitespace_result_is_error():
     )
     stdout = _ndjson_lines(_SYSTEM_INIT, ws_result)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -1188,7 +1188,7 @@ def test_missing_subtype_treated_as_malformed():
     )
     stdout = _ndjson_lines(_SYSTEM_INIT, no_subtype)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )
@@ -1223,7 +1223,7 @@ def test_error_returns_omit_raw_response_key():
     )
     stdout = _ndjson_lines(_SYSTEM_INIT, err_event)
 
-    with patch("llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
+    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=_stream_proc(stdout)):
         result = invoke_llm_subprocess(
             prompt="x", model="sonnet", timeout_sec=10, step_name="s"
         )

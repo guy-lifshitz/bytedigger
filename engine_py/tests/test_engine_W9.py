@@ -26,9 +26,9 @@ PASS/FAIL status depends only on whether Bug B is already fixed in engine.py.
 
 import pytest
 
-import engine
-from engine import _git_changes_vs_head, _diff_changes
-from lib.git_port import (
+from bytedigger_engine import engine
+from bytedigger_engine.engine import _git_changes_vs_head, _diff_changes
+from bytedigger_engine.lib.git_port import (
     GitResult,
     set_default_git_read_factory,
     reset_default_git_read_factory,

@@ -27,8 +27,6 @@ from unittest.mock import MagicMock, patch
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
 
 # ─── git repo helpers (mirrors test_phase_5_step5_commit_green_code.py) ───────
@@ -70,7 +68,7 @@ def _make_repo_with_base_commit(tmp_path: Path) -> tuple[Path, str]:
 
 
 def _make_ctx(scratchpad: Path, git_cwd: str, **org_extra):
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
     org = {"scratchpad_dir": str(scratchpad), "git_cwd": git_cwd, **org_extra}
     return WorkflowContext(
         tenant_id="hal",
@@ -98,7 +96,7 @@ class TestWrittenPathsFromEventsBasic:
 
     def test_ac1_sorted_dedup_write_edit_multiedit(self) -> None:
         """AC1: Write + Edit + MultiEdit tool_use blocks → sorted dedup list of file_path."""
-        from llm_subprocess import _written_paths_from_events  # type: ignore[import]
+        from bytedigger_engine.llm_subprocess import _written_paths_from_events  # type: ignore[import]
 
         events = [
             {
@@ -144,7 +142,7 @@ class TestWrittenPathsFromEventsNotebook:
 
     def test_ac2_notebook_edit_uses_notebook_path(self) -> None:
         """AC2: NotebookEdit with notebook_path (no file_path) → notebook_path collected."""
-        from llm_subprocess import _written_paths_from_events  # type: ignore[import]
+        from bytedigger_engine.llm_subprocess import _written_paths_from_events  # type: ignore[import]
 
         events = [
             {
@@ -188,7 +186,7 @@ class TestWrittenPathsFromEventsMalformed:
 
     def test_ac3_malformed_blocks_do_not_raise(self) -> None:
         """AC3: missing keys (message/content/input/name) → no exception, best-effort result."""
-        from llm_subprocess import _written_paths_from_events  # type: ignore[import]
+        from bytedigger_engine.llm_subprocess import _written_paths_from_events  # type: ignore[import]
 
         malformed_events = [
             {},  # empty dict
@@ -220,7 +218,7 @@ class TestWrittenPathsFromEventsMalformed:
 
     def test_ac3_empty_events_returns_empty_list(self) -> None:
         """AC3: no tool_use blocks at all → []."""
-        from llm_subprocess import _written_paths_from_events  # type: ignore[import]
+        from bytedigger_engine.llm_subprocess import _written_paths_from_events  # type: ignore[import]
 
         assert _written_paths_from_events([]) == [], "Expected [] for empty events"
 
@@ -245,7 +243,7 @@ class TestInvokeLlmSubprocessWorkerWrittenPaths:
         to return a canned events list containing a Write tool_use block. The resulting
         StepResult.data must carry 'worker_written_paths'.
         """
-        import llm_subprocess
+        from bytedigger_engine import llm_subprocess
 
         fake_events = [
             {
@@ -330,8 +328,8 @@ class TestCommitGreenCodeManifest:
     ) -> None:
         """AC5 forcing-function: manifest=['a.py']; ambient dirt (.hal-build/x, SHARED/state/y,
         projects/z.jsonl, unrelated dirty tracked file) → commit contains ONLY a.py."""
-        from phase_5_implement import _commit_green_code  # type: ignore[import]
-        import phase_5_implement
+        from bytedigger_engine.workflows.phase_5_implement import _commit_green_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -396,8 +394,8 @@ class TestCommitFixCodeManifest:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC6 forcing-function: manifest=['b.py']; ambient dirt present → commit contains ONLY b.py."""
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -462,8 +460,8 @@ class TestCommitFixTestsManifest:
         Post-GREEN (manifest path): ONLY tests/test_real_change.py committed.
         Today's code (git_diff_files + _is_test_path filter): BOTH test files committed → FAIL.
         """
-        from phase_6_review import _commit_fix_tests  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_tests  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -530,8 +528,8 @@ class TestRunPytestPostFixScope:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC8: git_diff_files must NOT be called when worker_written_paths is in prev.data."""
-        from phase_6_review import _run_pytest_post_fix  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _run_pytest_post_fix  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -572,8 +570,8 @@ class TestRunPytestPostFixScope:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC8: red_test_paths channel takes priority over worker_written_paths."""
-        from phase_6_review import _run_pytest_post_fix  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _run_pytest_post_fix  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -629,8 +627,8 @@ class TestEmptyManifestGuard:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC9: worker_written_paths=[] → green_commit_skipped reason='empty_manifest', ok, sha=None."""
-        from phase_5_implement import _commit_green_code  # type: ignore[import]
-        import phase_5_implement
+        from bytedigger_engine.workflows.phase_5_implement import _commit_green_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -673,8 +671,8 @@ class TestEmptyManifestGuard:
         per spec §1n behavioral DELTA table. The silent-failure F9F7E4FD pattern is
         structurally unrepresentable — missing manifest is always an error.
         """
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -708,8 +706,8 @@ class TestEmptyManifestGuard:
         self, tmp_path, monkeypatch
     ) -> None:
         """AC9: empty manifest → git add must NOT be invoked."""
-        from phase_5_implement import _commit_green_code  # type: ignore[import]
-        import phase_5_implement
+        from bytedigger_engine.workflows.phase_5_implement import _commit_green_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -719,7 +717,7 @@ class TestEmptyManifestGuard:
 
         original_git_op = None
         try:
-            import phase_5_implement as p5
+            from bytedigger_engine.workflows import phase_5_implement as p5
             original_git_op = getattr(p5, "_git_op_with_lock_retry", None)
         except Exception:
             pass
@@ -833,7 +831,7 @@ class TestGitResilientDeleted:
 
     def test_ac11_git_resilient_file_does_not_exist(self) -> None:
         """AC11: lib/util/git_resilient.py must not exist after GREEN."""
-        git_resilient = ENGINE_ROOT / "lib" / "util" / "git_resilient.py"
+        git_resilient = ENGINE_ROOT / "bytedigger_engine" / "lib" / "util" / "git_resilient.py"
         assert not git_resilient.exists(), (
             f"lib/util/git_resilient.py must be deleted by GREEN. "
             f"Path still exists: {git_resilient}"
@@ -861,10 +859,10 @@ class TestIsTestPathSurvives:
     def test_ac12_is_test_path_importable_from_path_classifier(self) -> None:
         """AC12: _is_test_path still importable from lib.util.path_classifier."""
         try:
-            from lib.util.path_classifier import _is_test_path  # type: ignore[import]
+            from bytedigger_engine.lib.util.path_classifier import _is_test_path  # type: ignore[import]
         except ImportError:
             # try direct import (sys.path includes lib/)
-            from util.path_classifier import _is_test_path  # type: ignore[import]
+            from bytedigger_engine.lib.util.path_classifier import _is_test_path  # type: ignore[import]
 
         assert callable(_is_test_path), "_is_test_path must be a callable"
         # Sanity-check basic routing behaviour
@@ -874,9 +872,9 @@ class TestIsTestPathSurvives:
     def test_ac12_test_filename_patterns_constant_present(self) -> None:
         """AC12: _TEST_FILENAME_PATTERNS still exists in path_classifier."""
         try:
-            from lib.util.path_classifier import _TEST_FILENAME_PATTERNS  # type: ignore[import]
+            from bytedigger_engine.lib.util.path_classifier import _TEST_FILENAME_PATTERNS  # type: ignore[import]
         except ImportError:
-            from util.path_classifier import _TEST_FILENAME_PATTERNS  # type: ignore[import]
+            from bytedigger_engine.lib.util.path_classifier import _TEST_FILENAME_PATTERNS  # type: ignore[import]
 
         assert isinstance(_TEST_FILENAME_PATTERNS, tuple), (
             f"_TEST_FILENAME_PATTERNS must be a tuple, got {type(_TEST_FILENAME_PATTERNS)}"
@@ -886,9 +884,9 @@ class TestIsTestPathSurvives:
     def test_ac12_test_path_segments_constant_present(self) -> None:
         """AC12: _TEST_PATH_SEGMENTS still exists in path_classifier."""
         try:
-            from lib.util.path_classifier import _TEST_PATH_SEGMENTS  # type: ignore[import]
+            from bytedigger_engine.lib.util.path_classifier import _TEST_PATH_SEGMENTS  # type: ignore[import]
         except ImportError:
-            from util.path_classifier import _TEST_PATH_SEGMENTS  # type: ignore[import]
+            from bytedigger_engine.lib.util.path_classifier import _TEST_PATH_SEGMENTS  # type: ignore[import]
 
         assert isinstance(_TEST_PATH_SEGMENTS, tuple), (
             f"_TEST_PATH_SEGMENTS must be a tuple, got {type(_TEST_PATH_SEGMENTS)}"
@@ -897,7 +895,7 @@ class TestIsTestPathSurvives:
 
     def test_ac12_phase_5_imports_is_test_path(self) -> None:
         """AC12: phase_5_implement imports _is_test_path (still uses it for routing)."""
-        import phase_5_implement  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_5_implement  # type: ignore[import]
 
         assert hasattr(phase_5_implement, "_is_test_path") or (
             "_is_test_path" in dir(phase_5_implement)
@@ -905,7 +903,7 @@ class TestIsTestPathSurvives:
 
     def test_ac12_phase_6_imports_is_test_path(self) -> None:
         """AC12: phase_6_review imports _is_test_path (still uses it for routing)."""
-        import phase_6_review  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review  # type: ignore[import]
 
         assert hasattr(phase_6_review, "_is_test_path") or (
             "_is_test_path" in dir(phase_6_review)
@@ -930,8 +928,8 @@ class TestCommitManifestResolvedTelemetry:
         Prod-only router: n_committed = 2 (prod_a + prod_b, test_x routed away).
         step='_commit_green_code', phase=5.
         """
-        from phase_5_implement import _commit_green_code  # type: ignore[import]
-        import phase_5_implement
+        from bytedigger_engine.workflows.phase_5_implement import _commit_green_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_5_implement
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -988,8 +986,8 @@ class TestCommitManifestResolvedTelemetry:
         Prod-only router: n_committed = 1 (src/fix.py; test_fix routed away).
         step='_commit_fix_code', phase=6.
         """
-        from phase_6_review import _commit_fix_code  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -1044,8 +1042,8 @@ class TestCommitManifestResolvedTelemetry:
         Test-only router: n_committed = 2 (test_a + test_b; impl.py routed away).
         step='_commit_fix_tests', phase=6.
         """
-        from phase_6_review import _commit_fix_tests  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_tests  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, base_sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"

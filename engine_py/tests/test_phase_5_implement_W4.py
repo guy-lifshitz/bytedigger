@@ -18,9 +18,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -86,7 +85,7 @@ def minimal_repo(tmp_path: Path) -> Path:
 
 def test_ac1_bypass_not_pass():
     """AC1: 'BYPASS' must NOT match 'PASS' — VERDICT_UNKNOWN expected."""
-    from phase_5_implement import _parse_verdict, VERDICT_UNKNOWN
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_UNKNOWN
     result = _parse_verdict("Note: BYPASS the test")
     assert result == VERDICT_UNKNOWN, (
         f"Expected VERDICT_UNKNOWN for 'BYPASS the test', got {result!r}. "
@@ -96,7 +95,7 @@ def test_ac1_bypass_not_pass():
 
 def test_ac1_bypass_before_real_pass():
     """AC1: BYPASS appears first but real VERDICT: PASS appears last — should be PASS."""
-    from phase_5_implement import _parse_verdict, VERDICT_PASS
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_PASS
     result = _parse_verdict("Note: BYPASS this\nVERDICT: PASS")
     assert result == VERDICT_PASS, (
         f"Expected VERDICT_PASS for 'BYPASS this\\nVERDICT: PASS', got {result!r}."
@@ -105,7 +104,7 @@ def test_ac1_bypass_before_real_pass():
 
 def test_ac1_last_wins_pass():
     """AC1: VERDICT: FAIL first, VERDICT: PASS last → VERDICT_PASS."""
-    from phase_5_implement import _parse_verdict, VERDICT_PASS
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_PASS
     raw = "VERDICT: FAIL\n... fixed;\nVERDICT: PASS"
     result = _parse_verdict(raw)
     assert result == VERDICT_PASS, (
@@ -116,7 +115,7 @@ def test_ac1_last_wins_pass():
 
 def test_ac1_last_wins_fail():
     """AC1: VERDICT: PASS first, VERDICT: FAIL last → VERDICT_FAIL."""
-    from phase_5_implement import _parse_verdict, VERDICT_FAIL
+    from bytedigger_engine.workflows.phase_5_implement import _parse_verdict, VERDICT_FAIL
     raw = "VERDICT: PASS\n... wait actually\nVERDICT: FAIL"
     result = _parse_verdict(raw)
     assert result == VERDICT_FAIL, (
@@ -129,7 +128,7 @@ def test_ac1_last_wins_fail():
 
 def test_ac2_docstring_steps_12():
     """AC2: module docstring must contain 'Steps (12)'."""
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
     doc = phase_5_implement.__doc__ or ""
     assert "Steps (12)" in doc, (
         f"Module docstring does not contain 'Steps (12)'. "
@@ -143,7 +142,7 @@ def test_ac2_docstring_steps_12():
 
 def test_ac3_docstring_timeout_1200s_red():
     """AC3: module docstring must mention '1200s RED' and 'FEATURE/COMPLEX'."""
-    import phase_5_implement
+    from bytedigger_engine.workflows import phase_5_implement
     doc = phase_5_implement.__doc__ or ""
     assert "1200s RED" in doc, (
         f"Module docstring does not contain '1200s RED'. "
@@ -176,7 +175,7 @@ def test_ac4_bad_git_state_detected(tmp_path, relpath, is_dir):
     A naive MERGE_HEAD-only check leaves rebase/cherry-pick failure modes
     unguarded. All 5 in-progress operation markers must trigger the gate.
     """
-    from phase_5_implement import _commit_red_tests
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests
 
     repo = minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"
@@ -214,7 +213,7 @@ def test_ac4_bad_git_state_detected(tmp_path, relpath, is_dir):
 
 def test_ac4_clean_state_no_bad_state_error(tmp_path):
     """AC4: clean git state → no E_GIT_BAD_STATE (existing happy path intact)."""
-    from phase_5_implement import _commit_red_tests
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests
 
     repo = minimal_repo(tmp_path)
     scratchpad = tmp_path / "scratch"

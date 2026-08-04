@@ -21,8 +21,8 @@ delenv scoped to the single test function, nothing raced across tests.
 """
 from __future__ import annotations
 
-import phase_6_review as p6
-from verdict_verify import VerifyResult, verify_ac_parity
+from bytedigger_engine.workflows import phase_6_review as p6
+from bytedigger_engine.verdict_verify import VerifyResult, verify_ac_parity
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared fixture text (mirrors _SPEC_TABLE_3 in test_GH398_verdict_verify.py)
@@ -104,7 +104,7 @@ def test_ac1_verify_ac_checklist_delegates_to_classify_parity(monkeypatch) -> No
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_ac2_classify_parity_missing() -> None:
-    from verdict_verify import _classify_parity
+    from bytedigger_engine.verdict_verify import _classify_parity
 
     result = _classify_parity({"AC1", "AC2"}, {"AC1": "PASS"})
     assert result.result == "MISSING"
@@ -117,7 +117,7 @@ def test_ac2_classify_parity_missing() -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_ac3_classify_parity_ignore_extra_flag() -> None:
-    from verdict_verify import _classify_parity
+    from bytedigger_engine.verdict_verify import _classify_parity
 
     ignored = _classify_parity(
         {"AC1"}, {"AC1": "PASS", "AC9": "PASS"}, ignore_extra=True
@@ -135,7 +135,7 @@ def test_ac3_classify_parity_ignore_extra_flag() -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_ac4_classify_parity_fail_claimed() -> None:
-    from verdict_verify import _classify_parity
+    from bytedigger_engine.verdict_verify import _classify_parity
 
     result = _classify_parity({"AC1", "AC2"}, {"AC1": "PASS", "AC2": "FAIL"})
     assert result.result == "FAIL_CLAIMED"

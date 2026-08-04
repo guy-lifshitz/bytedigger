@@ -34,8 +34,8 @@ import pytest
 # engine_py root + engine_py/workflows to sys.path before this module loads.
 # No sys.path manipulation here.
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_6_review as p6  # noqa: E402  — module exists today; _read_engine_mode added by GREEN
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as p6  # noqa: E402  — module exists today; _read_engine_mode added by GREEN
 
 
 # ─── shared helpers ────────────────────────────────────────────────────────────

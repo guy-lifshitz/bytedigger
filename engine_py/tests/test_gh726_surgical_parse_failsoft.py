@@ -26,7 +26,6 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 VALID_PATCH_SINGLE = [
@@ -38,7 +37,7 @@ VALID_PATCH_SINGLE = [
 
 
 def test_ac1_uppercase_json_fence_tag_returns_list():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```JSON\n" + json.dumps(VALID_PATCH_SINGLE) + "\n```\n"
     result = extract_surgical_patches(raw)
@@ -49,7 +48,7 @@ def test_ac1_uppercase_json_fence_tag_returns_list():
 
 
 def test_ac2_array_same_line_as_json_fence_returns_list():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```json" + json.dumps(VALID_PATCH_SINGLE) + "```\n"
     result = extract_surgical_patches(raw)
@@ -60,7 +59,7 @@ def test_ac2_array_same_line_as_json_fence_returns_list():
 
 
 def test_ac3_generic_fence_no_json_tag_returns_list():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```\n" + json.dumps(VALID_PATCH_SINGLE) + "\n```\n"
     result = extract_surgical_patches(raw)
@@ -71,7 +70,7 @@ def test_ac3_generic_fence_no_json_tag_returns_list():
 
 
 def test_ac4_bare_array_no_fence_returns_list():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = json.dumps(VALID_PATCH_SINGLE)
     result = extract_surgical_patches(raw)
@@ -82,7 +81,7 @@ def test_ac4_bare_array_no_fence_returns_list():
 
 
 def test_ac5_two_json_fences_last_fence_wins():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     decoy = [{"finding_id": "F1", "old": "a", "new": "b"}]
     first = "```json\n" + json.dumps(decoy) + "\n```\n"
@@ -96,7 +95,7 @@ def test_ac5_two_json_fences_last_fence_wins():
 
 
 def test_ac6_json_object_not_array_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```json\n" + json.dumps({"finding_id": "F1", "old": "x", "new": "y"}) + "\n```\n"
     assert extract_surgical_patches(raw) is None
@@ -106,7 +105,7 @@ def test_ac6_json_object_not_array_returns_none():
 
 
 def test_ac7_array_item_missing_old_key_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```json\n" + json.dumps([{"finding_id": "F1", "new": "y"}]) + "\n```\n"
     assert extract_surgical_patches(raw) is None
@@ -116,7 +115,7 @@ def test_ac7_array_item_missing_old_key_returns_none():
 
 
 def test_ac8_prose_no_array_anywhere_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     assert extract_surgical_patches("no patches here at all") is None
 
@@ -125,7 +124,7 @@ def test_ac8_prose_no_array_anywhere_returns_none():
 
 
 def test_ac9_empty_string_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     assert extract_surgical_patches("") is None
 
@@ -134,7 +133,7 @@ def test_ac9_empty_string_returns_none():
 
 
 def test_ac10_prose_decoy_bracket_plus_fence_prefers_fenced_list():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     fenced = "```json\n" + json.dumps(VALID_PATCH_SINGLE) + "\n```\n"
     raw = "prose with a decoy [not, json] and then\n" + fenced
@@ -146,7 +145,7 @@ def test_ac10_prose_decoy_bracket_plus_fence_prefers_fenced_list():
 
 
 def test_ac11_array_item_empty_old_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```json\n" + json.dumps(
         [{"finding_id": "F1", "old": "", "new": "y"}]
@@ -158,7 +157,7 @@ def test_ac11_array_item_empty_old_returns_none():
 
 
 def test_ac12_bare_array_with_decoy_prose_bracket_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "note: see item [3] for context, then\n" + json.dumps(
         [{"finding_id": "F1", "old": "o", "new": "n"}]
@@ -170,7 +169,7 @@ def test_ac12_bare_array_with_decoy_prose_bracket_returns_none():
 
 
 def test_ac13_non_json_generic_code_fence_returns_none():
-    from lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
+    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import extract_surgical_patches
 
     raw = "```python\nprint([1, 2])\n```"
     assert extract_surgical_patches(raw) is None

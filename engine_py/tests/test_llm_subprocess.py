@@ -19,14 +19,14 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
 import pytest  # noqa: E402
-from llm_subprocess import (  # noqa: E402
+from bytedigger_engine.llm_subprocess import (  # noqa: E402
     invoke_llm_subprocess,
     register_backend,
     reset_backends,
 )
-from contracts import StepResult  # noqa: E402
-import telemetry_ctx  # noqa: E402
-import llm_subprocess  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +374,7 @@ def test_communicate_legacy_passes_under_pytest_env(tmp_path):
     """AC1: PYTEST_CURRENT_TEST present (pytest default) → no AssertionError.
     Use a minimal subprocess command that exits 0 quickly."""
     import subprocess as _sp
-    from llm_subprocess import _communicate_legacy
+    from bytedigger_engine.llm_subprocess import _communicate_legacy
 
     proc = _sp.Popen(
         ["python3", "-c", "import sys; sys.stdin.read(); sys.stdout.write('ok\\n')"],
@@ -388,7 +388,7 @@ def test_communicate_legacy_passes_under_pytest_env(tmp_path):
 def test_communicate_legacy_raises_outside_test_context(tmp_path, monkeypatch):
     """AC2: no PYTEST_CURRENT_TEST, no HAL_ALLOW_LEGACY_COMMUNICATE → AssertionError."""
     import subprocess as _sp
-    from llm_subprocess import _communicate_legacy
+    from bytedigger_engine.llm_subprocess import _communicate_legacy
 
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.delenv("HAL_ALLOW_LEGACY_COMMUNICATE", raising=False)
@@ -417,7 +417,7 @@ def test_communicate_legacy_raises_outside_test_context(tmp_path, monkeypatch):
 def test_communicate_legacy_passes_with_escape_hatch(tmp_path, monkeypatch):
     """AC3: HAL_ALLOW_LEGACY_COMMUNICATE=1 overrides missing PYTEST_CURRENT_TEST."""
     import subprocess as _sp
-    from llm_subprocess import _communicate_legacy
+    from bytedigger_engine.llm_subprocess import _communicate_legacy
 
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setenv("HAL_ALLOW_LEGACY_COMMUNICATE", "1")

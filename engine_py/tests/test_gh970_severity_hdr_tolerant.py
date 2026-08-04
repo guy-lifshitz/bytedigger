@@ -28,13 +28,13 @@ import pytest  # noqa: F401 — pytest discovery convention
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "workflows"
+WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 if str(WORKFLOWS) not in sys.path:
     sys.path.insert(0, str(WORKFLOWS))
 
-from contracts import StepResult  # noqa: E402
-from phase_6_review import _aggregate_review_findings, _parse_role_findings  # noqa: E402
-import phase_6_review as _p6  # noqa: E402 — top-level alias for monkeypatching _emit_safe.
+from bytedigger_engine.contracts import StepResult  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _aggregate_review_findings, _parse_role_findings  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402 — top-level alias for monkeypatching _emit_safe.
 # CRITICAL: patch _p6 (the top-level "phase_6_review" module), NOT
 # "workflows.phase_6_review" — _aggregate_review_findings's globals resolve to
 # the top-level module (see test_906e37dc_review_findings_audit.py:358-363).
@@ -164,7 +164,7 @@ def test_ac4_identity_closure_canonical_singleton_aliases(tmp_path):
     / `SEVERITY_HDR_CORE` exist yet in canonical.py, and the three call sites
     are locally-defined `re.compile(...)` objects, not aliases.
     """
-    canonical = importlib.import_module("plugins.review_schema.canonical")
+    canonical = importlib.import_module("bytedigger_engine.lib.plugins.review_schema.canonical")
 
     assert hasattr(canonical, "SEVERITY_HDR_MULTILINE_RE"), (
         "AC4: plugins.review_schema.canonical.SEVERITY_HDR_MULTILINE_RE "
@@ -182,7 +182,7 @@ def test_ac4_identity_closure_canonical_singleton_aliases(tmp_path):
     )
 
     helper_mod = importlib.import_module(
-        "lib.plugins.anti_hallucination.helper"
+        "bytedigger_engine.lib.plugins.anti_hallucination.helper"
     )
     assert helper_mod._SEVERITY_HDR_RE is canonical.SEVERITY_HDR_LINE_RE, (
         "AC4: anti_hallucination.helper._SEVERITY_HDR_RE must be the SAME "
@@ -191,7 +191,7 @@ def test_ac4_identity_closure_canonical_singleton_aliases(tmp_path):
     )
 
     semverify_mod = importlib.import_module(
-        "lib.plugins.anti_hallucination.semantic_verifier"
+        "bytedigger_engine.lib.plugins.anti_hallucination.semantic_verifier"
     )
     assert semverify_mod._SEVERITY_HDR_RE is canonical.SEVERITY_HDR_LINE_RE, (
         "AC4: anti_hallucination.semantic_verifier._SEVERITY_HDR_RE must be "
@@ -212,7 +212,7 @@ def test_ac5_lint_role_report_flags_malformed_spares_well_formed(tmp_path):
     MUST FAIL today: `lint_role_report` does not exist yet in canonical.py
     (presence gate).
     """
-    canonical = importlib.import_module("plugins.review_schema.canonical")
+    canonical = importlib.import_module("bytedigger_engine.lib.plugins.review_schema.canonical")
     assert hasattr(canonical, "lint_role_report"), (
         "AC5: plugins.review_schema.canonical.lint_role_report does not "
         "exist yet (presence gate)."
@@ -426,7 +426,7 @@ def test_ac9_per_role_schema_template_unchanged_prescribed_form(tmp_path):
     '### SEVERITY:' (prescribed form unchanged by D1). Already true today —
     regression guard, not a forcing AC.
     """
-    canonical = importlib.import_module("plugins.review_schema.canonical")
+    canonical = importlib.import_module("bytedigger_engine.lib.plugins.review_schema.canonical")
     assert "### SEVERITY:" in canonical.PER_ROLE_SCHEMA_TEMPLATE, (
         "AC9: PER_ROLE_SCHEMA_TEMPLATE must still contain the '### SEVERITY:' "
         "literal (prescribed form unchanged)."
@@ -446,10 +446,10 @@ def test_ac10_helper_and_semantic_verifier_tolerant_match(tmp_path):
     match either.
     """
     helper_mod = importlib.import_module(
-        "lib.plugins.anti_hallucination.helper"
+        "bytedigger_engine.lib.plugins.anti_hallucination.helper"
     )
     semverify_mod = importlib.import_module(
-        "lib.plugins.anti_hallucination.semantic_verifier"
+        "bytedigger_engine.lib.plugins.anti_hallucination.semantic_verifier"
     )
 
     line = "## SEVERITY: HIGH — t"

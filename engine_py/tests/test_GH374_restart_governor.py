@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
@@ -26,7 +28,7 @@ from pathlib import Path
 
 
 def test_a1_fresh_state_allows_and_record_start_creates_state_file(tmp_path):
-    from lib.restart_governor import governor_check, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_start
 
     run_id, workflow = "run-a1", "echo"
 
@@ -45,7 +47,7 @@ def test_a1_fresh_state_allows_and_record_start_creates_state_file(tmp_path):
 
 
 def test_a2_cap_reached_denies_with_restart_cap_code(tmp_path):
-    from lib.restart_governor import governor_check, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_start
 
     run_id, workflow = "run-a2", "echo"
     for _ in range(3):
@@ -57,7 +59,7 @@ def test_a2_cap_reached_denies_with_restart_cap_code(tmp_path):
 
 
 def test_a3_repeated_identical_non_transient_code_short_circuits(tmp_path):
-    from lib.restart_governor import governor_check, governor_record_result
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result
 
     run_id, workflow = "run-a3", "echo"
     governor_record_result(tmp_path, run_id, workflow, error_code="E_BOUNDARY_SUPPRESSION")
@@ -71,7 +73,7 @@ def test_a3_repeated_identical_non_transient_code_short_circuits(tmp_path):
 
 
 def test_a4_transient_codes_exempt_from_short_circuit(tmp_path):
-    from lib.restart_governor import governor_check, governor_record_result
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result
 
     run_id, workflow = "run-a4", "echo"
     governor_record_result(tmp_path, run_id, workflow, error_code="E_LLM_TIMEOUT")
@@ -91,7 +93,7 @@ def test_a4_transient_codes_exempt_from_short_circuit(tmp_path):
 
 
 def test_a5_success_result_deletes_state_file_and_resets_count(tmp_path):
-    from lib.restart_governor import governor_check, governor_record_result, governor_record_start
+    from bytedigger_engine.lib.restart_governor import governor_check, governor_record_result, governor_record_start
 
     run_id, workflow = "run-a5", "echo"
     governor_record_start(tmp_path, run_id, workflow)
@@ -108,7 +110,7 @@ def test_a5_success_result_deletes_state_file_and_resets_count(tmp_path):
 
 
 def test_a6_corrupt_state_file_self_heals_without_exception(tmp_path):
-    from lib.restart_governor import governor_check
+    from bytedigger_engine.lib.restart_governor import governor_check
 
     run_id, workflow = "run-a6", "echo"
     state_file = tmp_path / f"restart-governor-{run_id}-{workflow}.json"
@@ -124,7 +126,7 @@ def test_a7_e2e_subprocess_denies_at_cap_and_never_starts_workflow(tmp_path):
     no mocking. Seeds starts>=3 for (run_id, echo) BEFORE invoking (§1i:
     pre-stage deterministic state, never race)."""
     engine_root = Path(__file__).parent.parent
-    run_py = engine_root / "run.py"
+    run_py = engine_root / "bytedigger_engine" / "run.py"
     event_log_path = tmp_path / "events.jsonl"
     run_id, workflow = "gh374-a7-run", "echo"
 
@@ -140,7 +142,7 @@ def test_a7_e2e_subprocess_denies_at_cap_and_never_starts_workflow(tmp_path):
             "--run-id", run_id,
             "--event-log", str(event_log_path),
             "--ctx-json", "{}",
-        ],
+        ], env=engine_env(),
         cwd=str(engine_root),
         capture_output=True,
         text=True,
@@ -170,7 +172,7 @@ def test_a7_e2e_subprocess_denies_at_cap_and_never_starts_workflow(tmp_path):
 
 
 def test_a8_governor_gate_fails_open_on_broken_state_dir(tmp_path):
-    from lib.restart_governor import governor_gate
+    from bytedigger_engine.lib.restart_governor import governor_gate
 
     # dirname(event_log_path) resolves to a plain FILE, not a directory —
     # real, unmocked broken-filesystem condition (§1n fail-open).
@@ -183,7 +185,7 @@ def test_a8_governor_gate_fails_open_on_broken_state_dir(tmp_path):
 
 
 def test_a9_governor_gate_disabled_via_org_config_writes_nothing(tmp_path):
-    from lib.restart_governor import governor_gate
+    from bytedigger_engine.lib.restart_governor import governor_gate
 
     event_log_path = str(tmp_path / "events.jsonl")
     result = governor_gate(
@@ -201,7 +203,7 @@ def test_a9_governor_gate_disabled_via_org_config_writes_nothing(tmp_path):
 
 
 def test_a10_run_py_calls_governor_gate_before_execute_and_records_result():
-    run_py_path = Path(__file__).parent.parent / "run.py"
+    run_py_path = Path(__file__).parent.parent / "bytedigger_engine" / "run.py"
     source = run_py_path.read_text(encoding="utf-8")
 
     assert "governor_gate(" in source, "A10 FAIL: run.py must call governor_gate("
@@ -225,7 +227,7 @@ def test_a10_run_py_calls_governor_gate_before_execute_and_records_result():
 
 
 def test_a11_last_line_anchored_score_wins_over_earlier_one(tmp_path):
-    from phase_6_review import _parse_satisfaction_score
+    from bytedigger_engine.workflows.phase_6_review import _parse_satisfaction_score
 
     raw = "SCORE: 90\nsome intervening evaluator prose\nSCORE: 62\n"
     result = _parse_satisfaction_score(raw)
@@ -235,7 +237,7 @@ def test_a11_last_line_anchored_score_wins_over_earlier_one(tmp_path):
 
 
 def test_a12_mid_line_and_prompt_echo_score_yield_none():
-    from phase_6_review import _parse_satisfaction_score
+    from bytedigger_engine.workflows.phase_6_review import _parse_satisfaction_score
 
     assert _parse_satisfaction_score("the SCORE: 90 rubric") is None, (
         "A12 FAIL: mid-line (non-line-anchored) SCORE must NOT match"
@@ -246,7 +248,7 @@ def test_a12_mid_line_and_prompt_echo_score_yield_none():
 
 
 def test_a13_back_compat_score_cases_unchanged():
-    from phase_6_review import _parse_satisfaction_score
+    from bytedigger_engine.workflows.phase_6_review import _parse_satisfaction_score
 
     assert _parse_satisfaction_score("SCORE: 87") == 87
     assert _parse_satisfaction_score("**SCORE: 92**") == 92

@@ -22,7 +22,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -53,7 +52,7 @@ def test_ac1_derive_fallback_verdict_importable():
     """AC1: _derive_fallback_verdict exists in phase_6_review and is importable."""
     # This import will raise ImportError / AttributeError against current code
     # because _derive_fallback_verdict does not yet exist.
-    from phase_6_review import _derive_fallback_verdict  # noqa: F401
+    from bytedigger_engine.workflows.phase_6_review import _derive_fallback_verdict  # noqa: F401
 
     assert callable(_derive_fallback_verdict), "_derive_fallback_verdict must be callable"
 
@@ -64,7 +63,7 @@ def test_ac1_derive_fallback_verdict_importable():
 def test_ac2_critical_high_finding_yields_fail():
     """AC2: structured block with CRITICAL (or HIGH) finding → VERDICT_FAIL,
     even if prose contains VERDICT: PASS."""
-    from phase_6_review import _derive_fallback_verdict, VERDICT_FAIL
+    from bytedigger_engine.workflows.phase_6_review import _derive_fallback_verdict, VERDICT_FAIL
 
     # CRITICAL + prose PASS
     block_crit = (
@@ -97,7 +96,7 @@ def test_ac2_critical_high_finding_yields_fail():
 def test_ac3_medium_low_finding_yields_partial():
     """AC3: structured block with only MEDIUM/LOW findings → VERDICT_PARTIAL,
     even if prose says VERDICT: PASS."""
-    from phase_6_review import _derive_fallback_verdict, VERDICT_PARTIAL
+    from bytedigger_engine.workflows.phase_6_review import _derive_fallback_verdict, VERDICT_PARTIAL
 
     # MEDIUM + prose PASS
     block_med = (
@@ -129,7 +128,7 @@ def test_ac3_medium_low_finding_yields_partial():
 
 def test_ac4_empty_structured_block_yields_pass():
     """AC4: structured block = [] (reviewer reported zero findings) → VERDICT_PASS."""
-    from phase_6_review import _derive_fallback_verdict, VERDICT_PASS
+    from bytedigger_engine.workflows.phase_6_review import _derive_fallback_verdict, VERDICT_PASS
 
     block_empty = (
         '## Findings (structured)\n'
@@ -149,7 +148,7 @@ def test_ac4_empty_structured_block_yields_pass():
 def test_ac5_no_block_prose_pass_yields_suspect():
     """AC5: no ## Findings (structured) block, prose VERDICT: PASS → VERDICT_SUSPECT
     (never auto-PASS on the anomalous fallback path)."""
-    from phase_6_review import _derive_fallback_verdict, VERDICT_SUSPECT
+    from bytedigger_engine.workflows.phase_6_review import _derive_fallback_verdict, VERDICT_SUSPECT
 
     content = _make_conformant_review("", prose_verdict="VERDICT: PASS")
     assert _derive_fallback_verdict(content) == VERDICT_SUSPECT, (
@@ -166,7 +165,7 @@ def test_ac6_no_block_prose_fail_partial_unknown():
     - prose VERDICT: PARTIAL → VERDICT_PARTIAL
     - no VERDICT: line → VERDICT_SUSPECT
     """
-    from phase_6_review import _derive_fallback_verdict, VERDICT_FAIL, VERDICT_PARTIAL, VERDICT_SUSPECT
+    from bytedigger_engine.workflows.phase_6_review import _derive_fallback_verdict, VERDICT_FAIL, VERDICT_PARTIAL, VERDICT_SUSPECT
 
     # prose FAIL
     content_fail = _make_conformant_review("", prose_verdict="VERDICT: FAIL")
@@ -193,7 +192,7 @@ def test_ac6_no_block_prose_fail_partial_unknown():
 def test_ac7_malformed_json_block_treated_as_no_block():
     """AC7: a ## Findings (structured) block with invalid JSON is treated as absent;
     falls back to prose-verdict path (PASS → SUSPECT)."""
-    from phase_6_review import _derive_fallback_verdict, VERDICT_SUSPECT
+    from bytedigger_engine.workflows.phase_6_review import _derive_fallback_verdict, VERDICT_SUSPECT
 
     block_bad_json = (
         '## Findings (structured)\n'
@@ -215,8 +214,8 @@ def test_ac8_write_artifact_fallback_high_yields_fail(tmp_path):
     """AC8: _write_review_artifact via stdout-fallback path with raw_response
     containing a HIGH structured finding and prose VERDICT: PASS →
     StepResult.data["verdict"] == VERDICT_FAIL."""
-    from contracts import StepResult
-    from phase_6_review import _write_review_artifact, VERDICT_FAIL
+    from bytedigger_engine.contracts import StepResult
+    from bytedigger_engine.workflows.phase_6_review import _write_review_artifact, VERDICT_FAIL
 
     doc_path = tmp_path / "scratch" / "reviews" / "build-review.md"
 
@@ -258,8 +257,8 @@ def test_ac9_write_artifact_fallback_empty_yields_pass(tmp_path):
     """AC9: _write_review_artifact via stdout-fallback path with raw_response
     containing an empty structured block [] and no prose VERDICT: line →
     StepResult.data["verdict"] == VERDICT_PASS."""
-    from contracts import StepResult
-    from phase_6_review import _write_review_artifact, VERDICT_PASS
+    from bytedigger_engine.contracts import StepResult
+    from bytedigger_engine.workflows.phase_6_review import _write_review_artifact, VERDICT_PASS
 
     doc_path = tmp_path / "scratch" / "reviews" / "build-review.md"
 
@@ -302,8 +301,8 @@ def test_ac10_normal_aggregated_path_regression_guard(tmp_path):
     and verdict == VERDICT_PASS → returned data["verdict"] == VERDICT_PASS.
     Verifies the fix did not bleed into the non-fallback path.
     Expected to PASS against current code too (correctness guard)."""
-    from contracts import StepResult
-    from phase_6_review import _write_review_artifact, VERDICT_PASS
+    from bytedigger_engine.contracts import StepResult
+    from bytedigger_engine.workflows.phase_6_review import _write_review_artifact, VERDICT_PASS
 
     doc_path = tmp_path / "r" / "build-review.md"
 
@@ -340,10 +339,10 @@ def test_ac10_normal_aggregated_path_regression_guard(tmp_path):
 def test_ac11_telemetry_event_fires_on_fallback_path(tmp_path):
     """AC11: on the stdout-fallback path, a review_stdout_fallback_verdict event
     fires with payload {phase: 6, verdict: <derived>, had_structured_block: bool}."""
-    import telemetry_ctx
-    from event_log import EventLog
-    from contracts import StepResult
-    from phase_6_review import _write_review_artifact, VERDICT_FAIL
+    from bytedigger_engine import telemetry_ctx
+    from bytedigger_engine.event_log import EventLog
+    from bytedigger_engine.contracts import StepResult
+    from bytedigger_engine.workflows.phase_6_review import _write_review_artifact, VERDICT_FAIL
 
     log_path = tmp_path / "events.jsonl"
     log = EventLog(log_path)
@@ -406,7 +405,7 @@ def test_ac11_telemetry_event_fires_on_fallback_path(tmp_path):
 def test_ac12_parse_review_verdict_still_works():
     """AC12 (regression guard): _parse_review_verdict is kept and still returns
     correct values. Expected to PASS against current code too."""
-    from phase_6_review import _parse_review_verdict, VERDICT_PASS, VERDICT_FAIL, VERDICT_PARTIAL, VERDICT_UNKNOWN
+    from bytedigger_engine.workflows.phase_6_review import _parse_review_verdict, VERDICT_PASS, VERDICT_FAIL, VERDICT_PARTIAL, VERDICT_UNKNOWN
 
     assert _parse_review_verdict("VERDICT: PASS\n") == VERDICT_PASS
     assert _parse_review_verdict("VERDICT: FAIL\n") == VERDICT_FAIL

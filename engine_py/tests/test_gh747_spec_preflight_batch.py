@@ -10,7 +10,7 @@ UUT (does NOT exist yet — every test FAILS pre-GREEN):
     drivers in ONE pass and dispatches a single combined directed-repair call.
 
 §1q/D1CF5FDF non-collectable-RED discipline: the UUT symbols do not exist
-yet. This file imports the MODULE at top level (`from workflows import
+yet. This file imports the MODULE at top level (`from bytedigger_engine.workflows import
 phase_45_spec` — the module itself already exists) and references the
 not-yet-existing attributes (`phase_45_spec._verify_spec_preflight_batch`,
 `phase_45_spec._collect_spec_gate_findings`) INSIDE each test body, so the
@@ -35,8 +35,8 @@ import json
 import types
 from unittest.mock import patch
 
-from workflows import phase_45_spec
-from contracts import StepResult
+from bytedigger_engine.workflows import phase_45_spec
+from bytedigger_engine.contracts import StepResult
 
 
 # ─── shared fixtures / helpers ──────────────────────────────────────────────

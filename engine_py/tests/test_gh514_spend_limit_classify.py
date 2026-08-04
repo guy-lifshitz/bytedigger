@@ -20,9 +20,9 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
 import pytest  # noqa: E402
-from llm_subprocess import invoke_llm_subprocess, reset_backends  # noqa: E402
-import telemetry_ctx  # noqa: E402
-import llm_subprocess  # noqa: E402
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, reset_backends  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ import llm_subprocess  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _reset_env(monkeypatch):
-    from lib.llm_provider import reset_providers
+    from bytedigger_engine.lib.llm_provider import reset_providers
 
     monkeypatch.setattr(llm_subprocess, "emit_resolver_resolved", lambda *a, **kw: None)
     telemetry_ctx.clear_current_run()
@@ -49,7 +49,7 @@ def _reset_env(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def _register_fake_claude(monkeypatch, *, stderr_text: str = "", stdout_text: str = "", exit_code: int = 1) -> None:
-    from lib.llm_provider import ProviderSpec, register_provider
+    from bytedigger_engine.lib.llm_provider import ProviderSpec, register_provider
 
     script = (
         "import sys\n"
@@ -168,7 +168,7 @@ def test_ac5_kill_switch_disables_classification(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_ac6_error_codes_registers_e_llm_spend_limit():
-    import error_codes
+    from bytedigger_engine import error_codes
 
     assert "E_LLM_SPEND_LIMIT" in error_codes.ERROR_CODES
     unregistered, dead = error_codes.check(HERE.parent)
@@ -181,7 +181,7 @@ def test_ac6_error_codes_registers_e_llm_spend_limit():
 # ---------------------------------------------------------------------------
 
 def test_ac7_dbos_setup_evicts_on_e_llm_spend_limit():
-    from lib import dbos_setup
+    from bytedigger_engine.lib import dbos_setup
 
     assert "E_LLM_SPEND_LIMIT" in dbos_setup._EVICT_ON_RETRY_CODES
 
@@ -191,8 +191,8 @@ def test_ac7_dbos_setup_evicts_on_e_llm_spend_limit():
 # ---------------------------------------------------------------------------
 
 def test_ac8_directed_repair_markers_single_source_identity():
-    from lib import directed_repair
-    from lib.env_limit import ENV_LIMIT_MARKERS
+    from bytedigger_engine.lib import directed_repair
+    from bytedigger_engine.lib.env_limit import ENV_LIMIT_MARKERS
 
     assert directed_repair._MODEL_UNAVAILABLE_MARKERS is ENV_LIMIT_MARKERS
     assert "spend limit" in directed_repair._MODEL_UNAVAILABLE_MARKERS
@@ -203,7 +203,7 @@ def test_ac8_directed_repair_markers_single_source_identity():
 # ---------------------------------------------------------------------------
 
 def test_ac9_detect_env_limit_empty_and_non_str_inputs_return_none():
-    from lib.env_limit import detect_env_limit
+    from bytedigger_engine.lib.env_limit import detect_env_limit
 
     assert detect_env_limit() is None
     assert detect_env_limit(None, 42, "") is None
@@ -214,7 +214,7 @@ def test_ac9_detect_env_limit_empty_and_non_str_inputs_return_none():
 # ---------------------------------------------------------------------------
 
 def test_ac10_detect_env_limit_case_insensitive_match():
-    from lib.env_limit import detect_env_limit
+    from bytedigger_engine.lib.env_limit import detect_env_limit
 
     assert detect_env_limit("XX Rate_Limit_Error yy") == "rate_limit_error"
 
@@ -224,6 +224,6 @@ def test_ac10_detect_env_limit_case_insensitive_match():
 # ---------------------------------------------------------------------------
 
 def test_ac11_flags_catalog_declares_env_limit_classify():
-    import flags_catalog
+    from bytedigger_engine import flags_catalog
 
     assert "HAL_ENV_LIMIT_CLASSIFY" in flags_catalog.FLAGS

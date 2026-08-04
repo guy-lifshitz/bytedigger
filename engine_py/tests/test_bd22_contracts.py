@@ -15,7 +15,7 @@ the team lead, not a defect in the six remaining ACs.
 
 Spec: engine_py/conformance/CONTRACTS_SPEC.md. `engine_py/conformance/`
 exists on this base only as `CONTRACTS_SPEC.md` — no `__init__.py`, so
-`import conformance` alone already resolves as an empty **namespace**
+`import bytedigger_engine.conformance` alone already resolves as an empty **namespace**
 package today (`[G22:3]`) and forces nothing. Every test below therefore
 imports a real submodule (`conformance.report`/`.tokens`/`.quant_lint`) or
 reads a packaging artifact directly, and fails today — either at
@@ -61,7 +61,7 @@ class TestConformancePackageImport:
         importlib.metadata, spawning a subprocess to discover a git root, or
         scanning a directory to build a registry).
 
-        `[G22:3]`: forcing on `import conformance` alone is vacuous — a
+        `[G22:3]`: forcing on `import bytedigger_engine.conformance` alone is vacuous — a
         directory with no `__init__.py` is a namespace package, so the bare
         top-level import already succeeds today without touching any real
         code. This test instead imports the real submodules pinned by §1.5
@@ -167,10 +167,13 @@ class TestConformancePackageImport:
                 if name == "conformance" or name.startswith("conformance."):
                     del sys.modules[name]
 
-            import conformance  # noqa: F401
-            import conformance.quant_lint  # noqa: F401
-            import conformance.report  # noqa: F401
-            import conformance.tokens  # noqa: F401
+            from bytedigger_engine import conformance  # noqa: F401
+            from bytedigger_engine import conformance
+            import bytedigger_engine.conformance.quant_lint  # noqa: F401
+            from bytedigger_engine import conformance
+            import bytedigger_engine.conformance.report  # noqa: F401
+            from bytedigger_engine import conformance
+            import bytedigger_engine.conformance.tokens  # noqa: F401
 
         assert conformance.__file__ is not None, (
             "conformance resolved as a namespace package (no __init__.py) — "
@@ -213,7 +216,7 @@ class TestL0Report:
         """
         import dataclasses
 
-        from conformance.report import L0Report
+        from bytedigger_engine.conformance.report import L0Report
 
         report = L0Report(
             passed=True,
@@ -261,7 +264,7 @@ class TestTokenVocabulary:
         above are strictly stronger and are what actually kills the
         unification defect this test's docstring names.
         """
-        from conformance.tokens import (
+        from bytedigger_engine.conformance.tokens import (
             ADVERSARY_NOT_EXECUTED,
             REQUIREMENT_FAILED,
             REQUIREMENT_NOT_CHECKED,
@@ -287,13 +290,14 @@ class TestNoNewDependency:
         against pyproject.toml's *declared* dependency lists — not an import
         scan, which cannot tell stdlib from vendored (per the spec's
         explicit rejection of that mechanism). `[G22:3]`: a bare
-        `import conformance` is vacuous (namespace package, already
+        `import bytedigger_engine.conformance` is vacuous (namespace package, already
         resolves) — this imports the real `conformance.quant_lint`
         submodule instead, which forces `ModuleNotFoundError` today; after
         GREEN, that submodule must exist AND the declared dependency set
         must be unchanged from this baseline.
         """
-        import conformance.quant_lint  # noqa: F401 — forces failure today
+        from bytedigger_engine import conformance
+        import bytedigger_engine.conformance.quant_lint  # noqa: F401 — forces failure today
 
         pyproject_path = _ENGINE_ROOT / "pyproject.toml"
         text = pyproject_path.read_text()
@@ -351,8 +355,23 @@ class TestPackaging:
         include_match = re.search(r"include\s*=\s*\[(.*?)\]", section_match.group(1), re.S)
         include_list = re.findall(r'"([^"]+)"', include_match.group(1))
 
-        assert "conformance*" in include_list
-        assert {"lib*", "workflows*", "security*", "scripts*"} <= set(include_list)
+        # bd#44: the five shipped dirs are no longer five top-level `include`
+        # patterns — they are SUBpackages of the one package the distribution
+        # owns, so `bytedigger_engine*` matches all of them. The AC's subject is
+        # unchanged (conformance ships, and adding it did not stop the other
+        # four from shipping); only the spelling of "ships" moved. Asserted
+        # against setuptools' own matching rule rather than against a literal
+        # list, so it survives the next re-spelling too.
+        import fnmatch
+
+        for sub in ("conformance", "lib", "workflows", "security", "scripts"):
+            dotted = f"bytedigger_engine.{sub}"
+            assert any(fnmatch.fnmatchcase(dotted, pat) for pat in include_list), (
+                f"{dotted} matches no include pattern in {include_list}"
+            )
+            assert (_ENGINE_ROOT / "bytedigger_engine" / sub / "__init__.py").is_file(), (
+                f"{sub} has no __init__.py, so packages.find would not ship it"
+            )
 
     def test_ac_p2_core_manifest_excludes_conformance(self):
         """AC-P2 (declared pre-passing shield, §0.6). `core_manifest.json`

@@ -29,9 +29,8 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "lib"))
 
-import mutating_git_lint  # noqa: E402
+from bytedigger_engine.lib import mutating_git_lint  # noqa: E402
 
 # A mutating-git call whose enclosing function is in neither registry — the
 # shape `find_unclassified_sites` is built to report. Mirrors semgrep's

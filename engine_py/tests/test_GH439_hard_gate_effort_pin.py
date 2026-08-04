@@ -33,8 +33,8 @@ from __future__ import annotations
 import inspect
 import json
 
-import config_provider
-import llm_subprocess
+from bytedigger_engine import config_provider
+from bytedigger_engine import llm_subprocess
 
 
 # ─── AC1: _load_effort_gate("fable") == "low" with by_model pin fixture ────────

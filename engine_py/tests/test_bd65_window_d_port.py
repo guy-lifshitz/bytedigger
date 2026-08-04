@@ -25,9 +25,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import lib.authored_boundary as boundary_mod  # noqa: E402
-from error_codes import ERROR_CODES  # noqa: E402
-from flags_catalog import FLAGS  # noqa: E402
+from bytedigger_engine.lib import authored_boundary as boundary_mod  # noqa: E402
+from bytedigger_engine.error_codes import ERROR_CODES  # noqa: E402
+from bytedigger_engine.flags_catalog import FLAGS  # noqa: E402
 
 
 # ─── shared helpers (mirrors hal's test_gh921_red_baseline_refresh.py) ────────

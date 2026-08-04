@@ -16,7 +16,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 
 # ─── AC1 — _is_opus_class_model: None / empty / no-flag → False ───────────────
@@ -24,7 +23,7 @@ sys.path.insert(0, str(HERE.parent / "workflows"))
 
 def test_ac1_is_opus_class_model_handles_none_empty_no_flag():
     """AC1: _is_opus_class_model(None) → False; [] → False; no --model flag → False."""
-    from phase_45_spec import _is_opus_class_model  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _is_opus_class_model  # noqa: PLC0415
 
     assert _is_opus_class_model(None) is False
     assert _is_opus_class_model([]) is False
@@ -37,7 +36,7 @@ def test_ac1_is_opus_class_model_handles_none_empty_no_flag():
 
 def test_ac2_opus_recognised_case_insensitive():
     """AC2: --model opus/OPUS/Opus/claude-opus-4-7 all return True."""
-    from phase_45_spec import _is_opus_class_model  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _is_opus_class_model  # noqa: PLC0415
 
     assert _is_opus_class_model(["claude", "-p", "--model", "opus"]) is True
     assert _is_opus_class_model(["claude", "-p", "--model", "OPUS"]) is True
@@ -51,7 +50,7 @@ def test_ac2_opus_recognised_case_insensitive():
 
 def test_ac3_non_opus_model_returns_false():
     """AC3: sonnet, haiku, gemini-2.5-pro, empty string → False."""
-    from phase_45_spec import _is_opus_class_model  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _is_opus_class_model  # noqa: PLC0415
 
     assert _is_opus_class_model(["claude", "-p", "--model", "sonnet"]) is False
     assert _is_opus_class_model(["claude", "-p", "--model", "haiku"]) is False
@@ -64,7 +63,7 @@ def test_ac3_non_opus_model_returns_false():
 
 def test_ac4_equals_form_model_flag():
     """AC4: --model=opus → True; --model=sonnet → False (equals-sign form)."""
-    from phase_45_spec import _is_opus_class_model  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _is_opus_class_model  # noqa: PLC0415
 
     assert _is_opus_class_model(["claude", "--model=opus"]) is True
     assert _is_opus_class_model(["claude", "--model=claude-opus-4-7"]) is True
@@ -77,7 +76,7 @@ def test_ac4_equals_form_model_flag():
 
 def test_ac5_model_flag_at_end_malformed():
     """AC5: ['claude', '-p', '--model'] (flag with no value) → False, not an error."""
-    from phase_45_spec import _is_opus_class_model  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _is_opus_class_model  # noqa: PLC0415
 
     assert _is_opus_class_model(["claude", "-p", "--model"]) is False
 
@@ -87,7 +86,7 @@ def test_ac5_model_flag_at_end_malformed():
 
 def test_ac6_review_timeout_opus_floor_600():
     """AC6: Opus reviewer and no complexity set → 600s floor (new branch)."""
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     cfg = {"review_llm_command": ["claude", "-p", "--model", "opus"]}
     assert _resolve_review_timeout_sec(cfg) == 600
@@ -98,7 +97,7 @@ def test_ac6_review_timeout_opus_floor_600():
 
 def test_ac7_review_timeout_complex_beats_opus_floor():
     """AC7: COMPLEX complexity wins over Opus model floor → still 900s."""
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     cfg = {
         "complexity": "COMPLEX",
@@ -112,7 +111,7 @@ def test_ac7_review_timeout_complex_beats_opus_floor():
 
 def test_ac8_review_timeout_non_opus_baseline_300():
     """AC8: sonnet or haiku model, SIMPLE complexity → 300s (no floor)."""
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     assert _resolve_review_timeout_sec(
         {"complexity": "SIMPLE", "review_llm_command": ["claude", "-p", "--model", "sonnet"]}
@@ -127,7 +126,7 @@ def test_ac8_review_timeout_non_opus_baseline_300():
 
 def test_ac9_explicit_override_wins_over_opus_floor():
     """AC9: review_llm_timeout_sec explicit override wins even when Opus model set."""
-    from phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_review_timeout_sec  # noqa: PLC0415
 
     cfg = {
         "review_llm_timeout_sec": 123,
@@ -141,7 +140,7 @@ def test_ac9_explicit_override_wins_over_opus_floor():
 
 def test_ac10_spec_timeout_symmetric_opus_and_complex():
     """AC10: Opus spec writer → 900s floor; COMPLEX wins → 1800s; sonnet → 600s."""
-    from phase_45_spec import _resolve_spec_timeout_sec  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import _resolve_spec_timeout_sec  # noqa: PLC0415
 
     # Opus floor for spec writer (non-COMPLEX)
     assert _resolve_spec_timeout_sec(
@@ -167,7 +166,7 @@ def test_ac10_spec_timeout_symmetric_opus_and_complex():
 
 def test_ac11_module_constants_exported_with_correct_values():
     """AC11: DEFAULT_REVIEW_TIMEOUT_SEC_OPUS == 600; DEFAULT_SPEC_TIMEOUT_SEC_OPUS == 900."""
-    from phase_45_spec import (  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import (  # noqa: PLC0415
         DEFAULT_REVIEW_TIMEOUT_SEC_OPUS,
         DEFAULT_SPEC_TIMEOUT_SEC_OPUS,
     )
@@ -181,7 +180,7 @@ def test_ac11_module_constants_exported_with_correct_values():
 
 def test_ac12_regression_guard_baseline_cases_unchanged():
     """AC12: Pre-existing 80CC602D paths (no-cfg, COMPLEX, explicit override) unchanged."""
-    from phase_45_spec import (  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_45_spec import (  # noqa: PLC0415
         _resolve_review_timeout_sec,
         _resolve_spec_timeout_sec,
     )

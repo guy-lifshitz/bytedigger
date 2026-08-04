@@ -17,10 +17,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import phase_45_spec
-from contracts import StepResult
-from _recoverable_policy import resolve_policy
-import flags_catalog
+from bytedigger_engine.workflows import phase_45_spec
+from bytedigger_engine.contracts import StepResult
+from bytedigger_engine.workflows._recoverable_policy import resolve_policy
+from bytedigger_engine import flags_catalog
 
 
 def _ctx(org_config: dict | None = None) -> SimpleNamespace:

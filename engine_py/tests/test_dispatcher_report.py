@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
-from engine import WorkflowEngine
+from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
+from bytedigger_engine.engine import WorkflowEngine
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,7 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 # ─── AC1: classify_error_code — ordered rule table + external-outage marker ──
 
 def test_ac1_classify_error_code_ordered_rule_table():
-    from lib.dispatcher_report import classify_error_code  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import classify_error_code  # noqa: PLC0415
 
     assert classify_error_code("E_LLM_TIMEOUT") == "external", (
         "AC1 FAIL: E_LLM_TIMEOUT must classify external"
@@ -86,7 +86,7 @@ def test_ac1_classify_error_code_ordered_rule_table():
 # ─── AC2: full fixture — timeline/retries/restart/rollup + md + index row ───
 
 def test_ac2_emit_dispatcher_report_full_fixture(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     rows = [
@@ -169,7 +169,7 @@ def test_ac2_emit_dispatcher_report_full_fixture(tmp_path):
 # ─── AC3: run_id falsy -> suppress entirely, no exception ───────────────────
 
 def test_ac3_run_id_none_suppresses_write(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     report_dir = Path(tmp_path).resolve() / "reports"
     index_path = Path(tmp_path).resolve() / "index.jsonl"
@@ -185,7 +185,7 @@ def test_ac3_run_id_none_suppresses_write(tmp_path):
 
 
 def test_ac3_run_id_empty_string_suppresses_write(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     report_dir = Path(tmp_path).resolve() / "reports"
     index_path = Path(tmp_path).resolve() / "index.jsonl"
@@ -203,7 +203,7 @@ def test_ac3_run_id_empty_string_suppresses_write(tmp_path):
 # ─── AC4: index_path whose parent is an existing FILE -> swallow, no raise ──
 
 def test_ac4_index_parent_is_file_swallows_no_raise(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     blocker_file = Path(tmp_path).resolve() / "not_a_dir"
     blocker_file.write_text("i am a file, not a directory", encoding="utf-8")
@@ -220,7 +220,7 @@ def test_ac4_index_parent_is_file_swallows_no_raise(tmp_path):
 # ─── AC5: env call-time seams (BD_DISPATCHER_REPORTS_LOG / BD_DISPATCHER_REPORT_DIR) ──
 
 def test_ac5_resolve_dispatcher_index_path_honors_env_at_call_time(tmp_path, monkeypatch):
-    from lib.dispatcher_report import resolve_dispatcher_index_path  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import resolve_dispatcher_index_path  # noqa: PLC0415
 
     seam_path = Path(tmp_path).resolve() / "seam" / "dispatcher-reports.jsonl"
     monkeypatch.setenv("BD_DISPATCHER_REPORTS_LOG", str(seam_path))
@@ -232,7 +232,7 @@ def test_ac5_resolve_dispatcher_index_path_honors_env_at_call_time(tmp_path, mon
 
 
 def test_ac5_emit_dispatcher_report_honors_env_index_log_at_call_time(tmp_path, monkeypatch):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     seam_path = Path(tmp_path).resolve() / "seam" / "dispatcher-reports.jsonl"
     monkeypatch.setenv("BD_DISPATCHER_REPORTS_LOG", str(seam_path))
@@ -247,7 +247,7 @@ def test_ac5_emit_dispatcher_report_honors_env_index_log_at_call_time(tmp_path, 
 
 
 def test_ac5_emit_dispatcher_report_honors_env_report_dir_at_call_time(tmp_path, monkeypatch):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     _write_jsonl(events_path, [])
@@ -267,7 +267,7 @@ def test_ac5_emit_dispatcher_report_honors_env_report_dir_at_call_time(tmp_path,
 # ─── AC6: config_provider accessor default (neutral, .hal-build seam) ───────
 
 def test_ac6_config_provider_default_dispatcher_reports_relpath():
-    import config_provider  # noqa: PLC0415
+    from bytedigger_engine import config_provider  # noqa: PLC0415
 
     try:
         config_provider.reset_default_config_provider_factory()
@@ -294,7 +294,7 @@ def test_ac6_config_provider_default_dispatcher_reports_relpath():
 # ─── AC7: no events_path, no env dir, no report_dir -> index row, no md ─────
 
 def test_ac7_no_events_path_no_dir_index_row_no_md(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     index_path = Path(tmp_path).resolve() / "index.jsonl"
     emit_dispatcher_report(
@@ -374,11 +374,11 @@ def test_ac9_engine_ok_step_writes_zero_dispatcher_reports(tmp_path, monkeypatch
     # would pass vacuously before the wiring exists (nothing writes anything
     # yet either way). Force it to fail pre-GREEN by asserting the wire point
     # is actually present.
-    mod = importlib.import_module("lib.dispatcher_report")
+    mod = importlib.import_module("bytedigger_engine.lib.dispatcher_report")
     assert hasattr(mod, "emit_dispatcher_report"), (
         "AC9 FAIL (presence gate): lib.dispatcher_report.emit_dispatcher_report does not exist yet"
     )
-    import engine as engine_mod  # noqa: PLC0415
+    from bytedigger_engine import engine as engine_mod  # noqa: PLC0415
     assert getattr(engine_mod, "emit_dispatcher_report", None) is not None, (
         "AC9 FAIL (presence gate): engine.py has not wired in emit_dispatcher_report yet (§2.4)"
     )
@@ -423,7 +423,7 @@ def test_ac10_engine_escalate_step_writes_one_row_status_escalate(tmp_path, monk
 # ─── AC11: malformed events file -> no raise, row written, cost_usd None ────
 
 def test_ac11_malformed_events_file_no_raise_row_written_cost_none(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     with open(events_path, "wb") as fh:
@@ -463,7 +463,7 @@ def test_ac11_malformed_events_file_no_raise_row_written_cost_none(tmp_path):
 # ─── AC16: report_dir whose parent is a FILE -> md fails, index row unaffected ─
 
 def test_ac16_report_dir_parent_is_file_index_row_still_written(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     events_path = Path(tmp_path).resolve() / "events.jsonl"
     _write_jsonl(events_path, [])
@@ -491,7 +491,7 @@ def test_ac16_report_dir_parent_is_file_index_row_still_written(tmp_path):
 # ─── AC17: 100k-char error -> truncated to <=500 chars, row still written ───
 
 def test_ac17_very_long_error_truncated_row_written(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     index_path = Path(tmp_path).resolve() / "index.jsonl"
     long_error = "x" * 100_000
@@ -512,7 +512,7 @@ def test_ac17_very_long_error_truncated_row_written(tmp_path):
 # ─── AC12: filename sanitization + oversized row skip ───────────────────────
 
 def test_ac12_filename_sanitized_no_slash_or_space(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     report_dir = Path(tmp_path).resolve() / "reports"
     index_path = Path(tmp_path).resolve() / "index.jsonl"
@@ -532,7 +532,7 @@ def test_ac12_filename_sanitized_no_slash_or_space(tmp_path):
 
 
 def test_ac12_oversized_row_skipped_index_file_unchanged(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     index_path = Path(tmp_path).resolve() / "index.jsonl"
     preexisting = json.dumps({"ts": "pre", "run_id": "prior"}) + "\n"
@@ -552,7 +552,7 @@ def test_ac12_oversized_row_skipped_index_file_unchanged(tmp_path):
 # ─── AC13: error=None must not be dropped ────────────────────────────────────
 
 def test_ac13_error_none_still_writes_row(tmp_path):
-    from lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
+    from bytedigger_engine.lib.dispatcher_report import emit_dispatcher_report  # noqa: PLC0415
 
     index_path = Path(tmp_path).resolve() / "index.jsonl"
     emit_dispatcher_report(
@@ -569,7 +569,7 @@ def test_ac13_error_none_still_writes_row(tmp_path):
 # ─── AC14: §1ab zombie guard — non-authoritative execution -> 0 rows ────────
 
 def test_ac14_non_authoritative_execution_writes_zero_rows(tmp_path, monkeypatch):
-    import engine as engine_module  # noqa: PLC0415
+    from bytedigger_engine import engine as engine_module  # noqa: PLC0415
 
     # Presence gate: absence-assertion RED — force a pre-GREEN fail by
     # asserting the wire point is actually present (else this would pass
@@ -595,7 +595,7 @@ def test_ac14_non_authoritative_execution_writes_zero_rows(tmp_path, monkeypatch
 # ─── AC15: paused lane — E_LLM_SPEND_LIMIT status remapped, no dispatch ─────
 
 def test_ac15_paused_lane_spend_limit_writes_zero_rows(tmp_path, monkeypatch):
-    import engine as engine_module  # noqa: PLC0415
+    from bytedigger_engine import engine as engine_module  # noqa: PLC0415
 
     # Presence gate: absence-assertion RED — force a pre-GREEN fail by
     # asserting the wire point is actually present (else this would pass

@@ -93,7 +93,7 @@ def _make_repo_with_base_commit(tmp_path: Path):
 def _get_autocommit_fix_tail():
     """Presence gate (D1CF5FDF): fails the calling test at assert time, not
     collection time, when the symbol does not exist yet."""
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     fn = getattr(phase_6_review, "_autocommit_fix_tail", None)
     assert fn is not None, (
@@ -296,7 +296,7 @@ class TestAC12GitLockPersistedMapsToELockCode:
 
 
 def _make_fi_ctx(git_cwd: str, pre_fix_sha: str, fix_commit_sha: str, scratchpad: Path, **extra):
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
 
     org = {
         "git_cwd": git_cwd,
@@ -326,7 +326,7 @@ class TestAC7SelfHealCommitsAndGuardReturnsNone:
     def test_ac7_selfheal_commits_and_step_continues_with_sentinel_created(
         self, tmp_path, monkeypatch
     ) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
 
         repo, sha = _make_repo_with_base_commit(tmp_path)
         _write_file(repo, "src/dirty.py", "# uncommitted fix edit\n")
@@ -359,7 +359,7 @@ class TestAC8SentinelAlreadyPresentTerminalFail:
     def test_ac8_sentinel_present_skips_selfheal_terminal_fail(
         self, tmp_path, monkeypatch
     ) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
 
         repo, sha = _make_repo_with_base_commit(tmp_path)
         _write_file(repo, "src/dirty.py", "# uncommitted fix edit\n")
@@ -387,8 +387,8 @@ class TestAC9DirtyUnknownSkipsSelfHeal:
     def test_ac9_git_status_rc_nonzero_no_selfheal_attempt(
         self, tmp_path, monkeypatch
     ) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
-        import phase_6_fix_integrity
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_fix_integrity
 
         repo, sha = _make_repo_with_base_commit(tmp_path)
         scratchpad = tmp_path / "scratch"
@@ -417,7 +417,7 @@ class TestAC10SelfHealUnsuccessfulCwdDefaultTerminalFail:
     def test_ac10_selfheal_noop_cwd_default_terminal_fail(
         self, tmp_path, monkeypatch
     ) -> None:
-        from phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
+        from bytedigger_engine.workflows.phase_6_fix_integrity import _build_fix_integrity_prompt  # type: ignore[import]
 
         repo, sha = _make_repo_with_base_commit(tmp_path)
         _write_file(repo, "src/dirty.py", "# uncommitted fix edit\n")
@@ -428,7 +428,7 @@ class TestAC10SelfHealUnsuccessfulCwdDefaultTerminalFail:
         # No git_cwd in cfg -> resolver must default to ambient cwd (source
         # "cwd"), so the self-heal helper no-ops (GH381 hazard, AC4) and the
         # tree stays dirty -> terminal fail, same as before self-heal existed.
-        from contracts import WorkflowContext
+        from bytedigger_engine.contracts import WorkflowContext
 
         ctx = WorkflowContext(
             tenant_id="hal",
@@ -459,7 +459,7 @@ class TestAC10SelfHealUnsuccessfulCwdDefaultTerminalFail:
 
 
 def _make_step_ctx(scratchpad: Path, git_cwd: str, **org_extra):
-    from contracts import WorkflowContext
+    from bytedigger_engine.contracts import WorkflowContext
 
     org = {"scratchpad_dir": str(scratchpad), "git_cwd": git_cwd, **org_extra}
     return WorkflowContext(
@@ -490,8 +490,8 @@ class TestAC13E2ECommitFixTestsAutocommitsTail:
     def test_ac13_commit_fix_tests_e2e_autocommits_non_manifest_tail(
         self, tmp_path, monkeypatch
     ) -> None:
-        from phase_6_review import _commit_fix_tests  # type: ignore[import]
-        import phase_6_review
+        from bytedigger_engine.workflows.phase_6_review import _commit_fix_tests  # type: ignore[import]
+        from bytedigger_engine.workflows import phase_6_review
 
         repo, pre_sha = _make_repo_with_base_commit(tmp_path)
         # Manifest path: worker wrote a test file, self-reported.

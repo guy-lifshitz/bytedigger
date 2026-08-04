@@ -34,11 +34,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import telemetry_ctx  # noqa: E402
-import phase_5_implement  # noqa: E402
-import phase_6_review  # noqa: E402
-import lib.directed_repair as dr_mod  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine import telemetry_ctx  # noqa: E402
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review  # noqa: E402
+from bytedigger_engine.lib import directed_repair as dr_mod  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
 
 
 # ─── shared helpers ───────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ from contracts import WorkflowContext  # noqa: E402
 def _load_authored_boundary():
     """Import the GH373 Part A primitive INSIDE test bodies (collectability guard)."""
     try:
-        return importlib.import_module("lib.authored_boundary")
+        return importlib.import_module("bytedigger_engine.lib.authored_boundary")
     except ImportError as exc:
         pytest.fail(
             "lib/authored_boundary.py absent — GH373 Part A scanner not yet "

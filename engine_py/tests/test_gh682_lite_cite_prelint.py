@@ -22,9 +22,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import phase_45_spec
-import phase_45_spec_lite
-from contracts import StepResult
+from bytedigger_engine.workflows import phase_45_spec
+from bytedigger_engine.workflows import phase_45_spec_lite
+from bytedigger_engine.contracts import StepResult
 
 
 def _ctx(org_config: dict | None = None) -> SimpleNamespace:

@@ -152,7 +152,7 @@ class _LookalikeOutcome:
 
 def _oracle_module():
     """Deferred import of the unit under test (§1q)."""
-    import conformance.oracle as mod
+    from bytedigger_engine.conformance import oracle as mod
 
     return mod
 

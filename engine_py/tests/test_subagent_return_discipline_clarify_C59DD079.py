@@ -38,12 +38,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
 # Stable, always-exist imports only — no _resolve_clarify_source at top level.
-import phase_3_clarify as c  # noqa: E402
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from phase_3_clarify import (  # noqa: E402
+from bytedigger_engine.workflows import phase_3_clarify as c  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows.phase_3_clarify import (  # noqa: E402
     CLARIFY_DOC_RELPATH,
 )
 

@@ -17,12 +17,10 @@ from unittest.mock import MagicMock, patch
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from phase_6_review import _commit_fix_code  # noqa: E402
-from contracts import WorkflowContext  # noqa: E402
-from lib.git_port import GitResult, set_default_git_read_factory, reset_default_git_read_factory  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _commit_fix_code  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
+from bytedigger_engine.lib.git_port import GitResult, set_default_git_read_factory, reset_default_git_read_factory  # noqa: E402
 
 
 # ─── shared fixtures ──────────────────────────────────────────────────────────
@@ -73,7 +71,7 @@ def test_pre_ref_written_on_no_production_paths_skip(tmp_path: Path, monkeypatch
     Current bug: the write lives after the no_production_paths guard (line 2297-2300),
     so this test FAILS until GREEN hoists it before the guard.
     """
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     monkeypatch.setattr(
         phase_6_review,
@@ -127,7 +125,7 @@ def test_pre_ref_written_on_success_path(tmp_path: Path, monkeypatch) -> None:
     Existing behavior — must continue to pass both before and after GREEN lands.
     4961254A update: worker_written_paths drives commit path selection.
     """
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     post_sha = "b" * 40
 
@@ -201,7 +199,7 @@ def test_pre_ref_not_written_without_scratchpad(tmp_path: Path, monkeypatch) -> 
 
     No scratchpad_dir → no write attempt → no FileNotFoundError.
     """
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     monkeypatch.setattr(
         phase_6_review,
@@ -255,7 +253,7 @@ def test_pre_ref_not_written_on_missing_boundary(tmp_path: Path, monkeypatch) ->
     """AC4 (7B6A9AD1): when SHA validation fails and fallback returns empty, function returns
     E_MISSING_FIX_BOUNDARY and pre-fix-ref.txt is NOT written.
     """
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     monkeypatch.setattr(
         phase_6_review,
@@ -299,7 +297,7 @@ def test_fix_commit_sha_only_on_success(tmp_path: Path, monkeypatch) -> None:
     The post-commit write (lines 2375-2378) must remain in place and only fire
     after a real git commit. Reuses the same no_production_paths fixture as AC1.
     """
-    import phase_6_review
+    from bytedigger_engine.workflows import phase_6_review
 
     monkeypatch.setattr(
         phase_6_review,

@@ -42,12 +42,10 @@ import pytest
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-import phase_7_synthesize  # noqa: E402
-from phase_7_synthesize import (  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.workflows import phase_7_synthesize  # noqa: E402
+from bytedigger_engine.workflows.phase_7_synthesize import (  # noqa: E402
     REPORT_DOC_RELPATH,
     SPEC_DOC_RELPATH,
     REVIEW_DOC_RELPATH,
@@ -172,7 +170,7 @@ def test_imports_disk_truth_symbols():
     Currently fails — disk_truth is not imported in phase_7_synthesize.py.
     """
     assert hasattr(phase_7_synthesize, "git_diff_files"), (
-        "phase_7_synthesize must `from plugins.disk_truth import git_diff_files` "
+        "phase_7_synthesize must `from bytedigger_engine.lib.plugins.disk_truth import git_diff_files` "
         "at module scope (Step 8 disk-truth wiring)"
     )
 

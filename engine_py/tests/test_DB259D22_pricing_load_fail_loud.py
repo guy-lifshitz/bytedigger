@@ -32,8 +32,8 @@ from pathlib import Path
 
 import pytest
 
-import llm_subprocess
-import config_provider
+from bytedigger_engine import llm_subprocess
+from bytedigger_engine import config_provider
 
 
 # ---------------------------------------------------------------------------

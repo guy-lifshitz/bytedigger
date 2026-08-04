@@ -3,7 +3,7 @@
 Covers AC1–AC10.  AC11/AC12 are orchestrator-run (mypy + full suite delta), NOT test funcs.
 
 Pre-GREEN predict:
-  AC1:  FAIL — ImportError on deferred `from config_provider import ConfigProvider`
+  AC1:  FAIL — ImportError on deferred `from bytedigger_engine.config_provider import ConfigProvider`
   AC2:  FAIL — ImportError on deferred import
   AC3:  FAIL — ImportError on deferred import
   AC4:  FAIL — ImportError on deferred import
@@ -22,7 +22,7 @@ Pre-GREEN predict:
                (None != "0" = True ⇒ no skip); post-GREEN it reads the provider ⇒ skip fires
 
 Collection safety (§1q / D1CF5FDF): `config_provider` is NOT imported at module level.
-Every `from config_provider import ...` is deferred inside the test function body.
+Every `from bytedigger_engine.config_provider import ...` is deferred inside the test function body.
 The file COLLECTS cleanly; each test fails at assert time, not collection time.
 
 Singleton-resource guard (§1i, workflows.md §1i): the autouse `_reset_factory_after_test`
@@ -53,7 +53,7 @@ def _reset_factory_after_test():
     """
     yield
     try:
-        from config_provider import reset_default_config_provider_factory  # type: ignore[import]
+        from bytedigger_engine.config_provider import reset_default_config_provider_factory  # type: ignore[import]
         reset_default_config_provider_factory()
     except Exception:
         pass
@@ -71,7 +71,7 @@ def test_ac1_configprovider_protocol_isinstance_check():
 
     Pre-GREEN: FAIL — ImportError: config_provider module does not exist.
     """
-    from config_provider import ConfigProvider  # type: ignore[import]
+    from bytedigger_engine.config_provider import ConfigProvider  # type: ignore[import]
 
     class ConcreteProvider:
         def gate_enabled(self, env_var: str) -> bool:
@@ -110,7 +110,7 @@ def test_ac2_get_config_returns_configprovider():
 
     Pre-GREEN: FAIL — ImportError: config_provider module does not exist.
     """
-    from config_provider import ConfigProvider, get_config  # type: ignore[import]
+    from bytedigger_engine.config_provider import ConfigProvider, get_config  # type: ignore[import]
 
     result = get_config()
     assert isinstance(result, ConfigProvider) is True, (
@@ -131,7 +131,7 @@ def test_ac3_default_gate_enabled_truth_table(monkeypatch, env_val, expected):
 
     Pre-GREEN: FAIL — ImportError: config_provider module does not exist.
     """
-    from config_provider import get_config  # type: ignore[import]
+    from bytedigger_engine.config_provider import get_config  # type: ignore[import]
 
     TEST_VAR = "HAL_TEST_9AB32375_AC3"
     if env_val is None:
@@ -155,7 +155,7 @@ def test_ac4_get_config_resolves_through_default_factory():
 
     Pre-GREEN: FAIL — ImportError: config_provider module does not exist.
     """
-    from config_provider import get_config, set_default_config_provider_factory  # type: ignore[import]
+    from bytedigger_engine.config_provider import get_config, set_default_config_provider_factory  # type: ignore[import]
 
     class RecordingProvider:
         def gate_enabled(self, env_var: str) -> bool:
@@ -178,7 +178,7 @@ def test_ac5_set_and_reset_factory(monkeypatch):
 
     Pre-GREEN: FAIL — ImportError: config_provider module does not exist.
     """
-    from config_provider import (  # type: ignore[import]
+    from bytedigger_engine.config_provider import (  # type: ignore[import]
         get_config,
         set_default_config_provider_factory,
         reset_default_config_provider_factory,
@@ -222,8 +222,8 @@ def test_ac6_scope_gate_env_skip_regression(monkeypatch):
     Pre-GREEN: PASS — the behavior is unchanged; the site still reads os.environ.
     Post-GREEN: PASS — the migrated site reads get_config(), same truth value.
     """
-    from workflows.phase_45_spec import _verify_spec_scope_inverse  # type: ignore[import]
-    from contracts import StepResult  # type: ignore[import]
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # type: ignore[import]
+    from bytedigger_engine.contracts import StepResult  # type: ignore[import]
 
     monkeypatch.setenv("HAL_SPEC_SCOPE_GATE", "0")
 
@@ -261,8 +261,8 @@ def test_ac7_coverage_gate_env_skip_regression(monkeypatch):
     Pre-GREEN: PASS — the behavior is unchanged; the site still reads os.environ.
     Post-GREEN: PASS — the migrated site reads get_config(), same truth value.
     """
-    from workflows.phase_45_spec import _verify_spec_coverage  # type: ignore[import]
-    from contracts import StepResult  # type: ignore[import]
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_coverage  # type: ignore[import]
+    from bytedigger_engine.contracts import StepResult  # type: ignore[import]
 
     monkeypatch.setenv("HAL_SPEC_COVERAGE_GATE", "0")
 
@@ -313,9 +313,9 @@ def test_ac8_stub_passability_gate_provider_driven(monkeypatch, tmp_path):
     §1i (singleton-resource): config_provider factory reset is handled by the
     autouse _reset_factory_after_test fixture.
     """
-    from config_provider import set_default_config_provider_factory  # type: ignore[import]
-    from workflows.phase_5_implement import _verify_red_lint_rules  # type: ignore[import]
-    from contracts import StepResult  # type: ignore[import]
+    from bytedigger_engine.config_provider import set_default_config_provider_factory  # type: ignore[import]
+    from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules  # type: ignore[import]
+    from bytedigger_engine.contracts import StepResult  # type: ignore[import]
 
     # Env UNSET — provider injection must be the only source of gate=OFF
     monkeypatch.delenv("HAL_STUB_PASSABILITY_GATE", raising=False)
@@ -336,9 +336,9 @@ def test_ac8_stub_passability_gate_provider_driven(monkeypatch, tmp_path):
     # a symbol it also imports — the vacuous-RED pattern flagged by the gate)
     red_file = tmp_path / "test_stub_vacuous.py"
     red_file.write_text(
-        "from contracts import StepResult\n"
+        "from bytedigger_engine.contracts import StepResult\n"
         "from unittest.mock import patch\n"
-        "@patch('contracts.StepResult')\n"
+        "@patch('bytedigger_engine.contracts.StepResult')\n"
         "def test_mock_uut(mock_sr):\n"
         "    assert mock_sr is not None\n",
         encoding="utf-8",
@@ -381,8 +381,8 @@ def test_ac9_inline_os_environ_replaced_in_workflow_files():
     in a string literal.
     """
     worktree = Path(__file__).parent.parent  # engine_py root
-    phase45 = worktree / "workflows" / "phase_45_spec.py"
-    phase5 = worktree / "workflows" / "phase_5_implement.py"
+    phase45 = worktree / "bytedigger_engine" / "workflows" / "phase_45_spec.py"
+    phase5 = worktree / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
 
     assert phase45.is_file(), f"phase_45_spec.py not found at {phase45}"
     assert phase5.is_file(), f"phase_5_implement.py not found at {phase5}"
@@ -428,9 +428,9 @@ def test_ac10_injection_reachability_scope_gate(monkeypatch):
 
     §1i: factory reset is handled by the autouse _reset_factory_after_test fixture.
     """
-    from config_provider import set_default_config_provider_factory  # type: ignore[import]
-    from workflows.phase_45_spec import _verify_spec_scope_inverse  # type: ignore[import]
-    from contracts import StepResult  # type: ignore[import]
+    from bytedigger_engine.config_provider import set_default_config_provider_factory  # type: ignore[import]
+    from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # type: ignore[import]
+    from bytedigger_engine.contracts import StepResult  # type: ignore[import]
 
     # Env UNSET — os.environ path would NOT skip; only provider path skips
     monkeypatch.delenv("HAL_SPEC_SCOPE_GATE", raising=False)

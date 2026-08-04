@@ -31,11 +31,9 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "lib" / "plugins"))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
-from event_log import EventLog  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.event_log import EventLog  # noqa: E402
 
 
 def _ctx(question: str = "test") -> WorkflowContext:
@@ -82,8 +80,8 @@ def test_verify_findings_emits_unverified_count_event(tmp_path):
     """``_verify_findings`` wrapper must emit ``phase_6_unverified_count``
     after the impl runs, with the count of UNVERIFIED findings as payload.
     """
-    import phase_6_review as m
-    import telemetry_ctx
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx
 
     log_path = tmp_path / "events.jsonl"
     event_log = EventLog(path=log_path)
@@ -134,8 +132,8 @@ def test_verify_findings_zero_unverified_still_emits_count_event(tmp_path):
     """Source-of-truth event MUST fire even when count=0 — downstream
     detector relies on presence to confirm verify_findings ran.
     """
-    import phase_6_review as m
-    import telemetry_ctx
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx
 
     log_path = tmp_path / "events.jsonl"
     event_log = EventLog(path=log_path)
@@ -171,8 +169,8 @@ def test_detect_mass_unverified_emits_alert_when_threshold_met(tmp_path):
     for current run_id, ``_detect_mass_unverified`` must emit
     ``review_aggregator_mass_unverified`` event.
     """
-    import phase_6_review as m
-    import telemetry_ctx
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx
 
     log_path = tmp_path / "events.jsonl"
     event_log = EventLog(path=log_path)
@@ -204,8 +202,8 @@ def test_detect_mass_unverified_emits_alert_when_threshold_met(tmp_path):
 
 def test_detect_mass_unverified_no_alert_below_threshold(tmp_path):
     """count < 3 must NOT emit the alert event."""
-    import phase_6_review as m
-    import telemetry_ctx
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx
 
     log_path = tmp_path / "events.jsonl"
     event_log = EventLog(path=log_path)
@@ -233,8 +231,8 @@ def test_detect_mass_unverified_uses_last_count_for_retry_cycles(tmp_path):
     """When phase_6 retries, multiple phase_6_unverified_count events fire
     for the same run. Detector must use the LAST one (final cycle's).
     """
-    import phase_6_review as m
-    import telemetry_ctx
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx
 
     log_path = tmp_path / "events.jsonl"
     event_log = EventLog(path=log_path)
@@ -262,8 +260,8 @@ def test_detect_mass_unverified_uses_last_count_for_retry_cycles(tmp_path):
 
 def test_detect_mass_unverified_ignores_other_runs(tmp_path):
     """Counts from a different run_id must be ignored."""
-    import phase_6_review as m
-    import telemetry_ctx
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx
 
     log_path = tmp_path / "events.jsonl"
     event_log = EventLog(path=log_path)
@@ -289,8 +287,8 @@ def test_detect_mass_unverified_ignores_other_runs(tmp_path):
 
 def test_detect_mass_unverified_robust_to_missing_event_log(tmp_path):
     """If telemetry_ctx has no run_ctx, detector must still return ok."""
-    import phase_6_review as m
-    import telemetry_ctx
+    from bytedigger_engine.workflows import phase_6_review as m
+    from bytedigger_engine import telemetry_ctx
 
     prev = _make_prev({})
 
@@ -308,7 +306,7 @@ def test_phase_6_workflow_includes_detect_mass_unverified_step():
     """detect_mass_unverified must be the LAST step in the workflow,
     so it only runs when satisfaction passed (failed satisfaction aborts).
     """
-    import phase_6_review as m
+    from bytedigger_engine.workflows import phase_6_review as m
 
     wf = m.phase_6_review_workflow()
     step_names = [s.name for s in wf.steps]

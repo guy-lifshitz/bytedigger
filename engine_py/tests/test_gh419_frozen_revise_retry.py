@@ -20,17 +20,16 @@ from typing import Any
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import (  # noqa: E402
+from bytedigger_engine.contracts import (  # noqa: E402
     StepContract,
     StepResult,
     WorkflowContext,
     WorkflowDefinition,
 )
-from engine import WorkflowEngine  # noqa: E402
-import phase_45_spec as _p45  # noqa: E402
-from phase_45_spec import (  # noqa: E402
+from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec as _p45  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
     VERDICT_REVISE,
     VERDICT_SHIP,
     _gate_on_review,

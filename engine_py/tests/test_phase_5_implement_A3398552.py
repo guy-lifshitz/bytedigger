@@ -16,9 +16,8 @@ from unittest.mock import patch
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import StepResult, WorkflowContext  # noqa: E402
+from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -86,7 +85,7 @@ def test_simple_tier_pins_red_to_haiku(tmp_path):
 
     25e75663 migration (R2): fake_invoke now receives model= kwarg, not command= list.
     """
-    from phase_5_implement import _invoke_red_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _invoke_red_llm  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ctx = make_ctx(scratchpad, complexity="SIMPLE")
@@ -98,7 +97,7 @@ def test_simple_tier_pins_red_to_haiku(tmp_path):
         captured_models.append(model)
         return ok_stub(step_name)
 
-    with patch("phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
         _invoke_red_llm(ctx, prev)
 
     assert captured_models, "invoke_llm_subprocess was not called"
@@ -116,7 +115,7 @@ def test_simple_tier_pins_green_to_haiku(tmp_path):
 
     25e75663 migration (R2): fake_invoke now receives model= kwarg, not command= list.
     """
-    from phase_5_implement import _invoke_green_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _invoke_green_llm  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ctx = make_ctx(scratchpad, complexity="SIMPLE")
@@ -133,7 +132,7 @@ def test_simple_tier_pins_green_to_haiku(tmp_path):
             step_name=step_name,
         )
 
-    with patch("phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
         _invoke_green_llm(ctx, prev)
 
     assert captured_models, "invoke_llm_subprocess was not called"
@@ -151,7 +150,7 @@ def test_feature_tier_keeps_sonnet(tmp_path):
 
     25e75663 migration (R2): fake_invoke now receives model= kwarg, not command= list.
     """
-    from phase_5_implement import _invoke_green_llm, _invoke_red_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _invoke_green_llm, _invoke_red_llm  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
 
@@ -164,7 +163,7 @@ def test_feature_tier_keeps_sonnet(tmp_path):
         captured_red.append(model)
         return ok_stub(step_name)
 
-    with patch("phase_5_implement.invoke_llm_subprocess", side_effect=fake_red):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", side_effect=fake_red):
         _invoke_red_llm(ctx_red, prev_red)
 
     assert captured_red, "RED invoke_llm_subprocess was not called"
@@ -187,7 +186,7 @@ def test_feature_tier_keeps_sonnet(tmp_path):
             step_name=step_name,
         )
 
-    with patch("phase_5_implement.invoke_llm_subprocess", side_effect=fake_green):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", side_effect=fake_green):
         _invoke_green_llm(ctx_green, prev_green)
 
     assert captured_green, "GREEN invoke_llm_subprocess was not called"
@@ -206,7 +205,7 @@ def test_explicit_red_command_overrides_tier(tmp_path):
     Per-step override > tier default.
     25e75663 migration (R4): red_llm_command → red_model (model string).
     """
-    from phase_5_implement import _invoke_red_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _invoke_red_llm  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ctx = make_ctx(
@@ -222,7 +221,7 @@ def test_explicit_red_command_overrides_tier(tmp_path):
         captured_models.append(model)
         return ok_stub(step_name)
 
-    with patch("phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
         _invoke_red_llm(ctx, prev)
 
     assert captured_models, "invoke_llm_subprocess was not called"
@@ -244,7 +243,7 @@ def test_simple_tier_does_not_downgrade_validation(tmp_path):
 
     25e75663 migration (R2): fake_invoke now receives model= kwarg, not command= list.
     """
-    from phase_5_implement import _invoke_validation_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _invoke_validation_llm  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ctx = make_ctx(scratchpad, complexity="SIMPLE")
@@ -271,7 +270,7 @@ def test_simple_tier_does_not_downgrade_validation(tmp_path):
             step_name=step_name,
         )
 
-    with patch("phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
         _invoke_validation_llm(ctx, prev)
 
     assert captured_models, "invoke_llm_subprocess was not called"
@@ -292,7 +291,7 @@ def test_global_llm_command_overrides_tier_default(tmp_path):
 
     25e75663 migration (R4): llm_command → model (model string); R2: fake signature.
     """
-    from phase_5_implement import _invoke_red_llm  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _invoke_red_llm  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ctx = make_ctx(
@@ -308,7 +307,7 @@ def test_global_llm_command_overrides_tier_default(tmp_path):
         captured_models.append(model)
         return ok_stub(step_name)
 
-    with patch("phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
+    with patch("bytedigger_engine.workflows.phase_5_implement.invoke_llm_subprocess", side_effect=fake_invoke):
         _invoke_red_llm(ctx, prev)
 
     assert captured_models, "invoke_llm_subprocess was not called"

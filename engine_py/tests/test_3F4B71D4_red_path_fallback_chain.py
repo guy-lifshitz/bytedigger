@@ -13,7 +13,7 @@ AC8  Recovery emits red_files_recovered_via_persisted_paths (not E_RED_NO_MARKER
 AC9  Happy path still emits red_files_drift(chosen="git"); recovery event absent.
 AC10 All fallbacks absent AND git empty → E_RED_NO_MARKER still returned.
 
-Import idiom: plain `import phase_5_implement as p5` (conftest-import-time
+Import idiom: plain `import bytedigger_engine.workflows.phase_5_implement as p5` (conftest-import-time
 singleton adds engine_py root + workflows to sys.path — §1q / 81F97F3D gate).
 New symbols accessed via getattr() INSIDE test bodies so the file COLLECTS
 cleanly even before GREEN ships them (D1CF5FDF §1q-ext).
@@ -28,8 +28,8 @@ from pathlib import Path
 import pytest
 
 # conftest-import-time singleton provides sys.path seam (§1q / 81F97F3D gate).
-import phase_5_implement as p5
-from contracts import StepResult, WorkflowContext
+from bytedigger_engine.workflows import phase_5_implement as p5
+from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 
 # ─── shared git-repo helpers ──────────────────────────────────────────────────
@@ -287,7 +287,7 @@ def test_ac5_write_red_artifact_persists_paths(tmp_path):
 
     Fails pre-GREEN: _write_red_artifact does not call _persist_red_test_paths.
     """
-    from phase_5_implement import _write_red_artifact  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _write_red_artifact  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
     sp = _make_scratchpad()
@@ -329,7 +329,7 @@ def test_ac6_write_red_artifact_threads_paths_into_result(tmp_path):
     Fails pre-GREEN: _write_red_artifact ignores ctx/git and threads prev.data's
     red_test_paths (which is None post-γ-cleanup).
     """
-    from phase_5_implement import _write_red_artifact  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _write_red_artifact  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
     sp = _make_scratchpad()
@@ -366,7 +366,7 @@ def test_ac7_commit_recovers_via_persisted_paths(tmp_path):
     This is THE core regression test for #270 / 3F4B71D4.
     Fails pre-GREEN: else-branch does NOT read persisted file → E_RED_NO_MARKER.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
     sp = _make_scratchpad()
@@ -408,7 +408,7 @@ def test_ac8_commit_recovery_emits_persisted_paths_event(tmp_path, monkeypatch):
 
     Fails pre-GREEN: the branch and its emit do not exist.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     captured = _patch_emit_p5(monkeypatch)
 
@@ -452,7 +452,7 @@ def test_ac9_happy_path_git_diff_nonempty_no_recovery_event(tmp_path, monkeypatc
     path, the recovery event appears — regression guard.
     Also the happy-path already works today, so drift event assertion is a correctness guard.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     captured = _patch_emit_p5(monkeypatch)
 
@@ -504,7 +504,7 @@ def test_ac10_no_fallbacks_returns_e_red_no_marker(tmp_path):
     Post-GREEN: persisted-paths tier is consulted first, but with absent scratchpad
     file and None prev.data, all tiers empty → must still error.
     """
-    from phase_5_implement import _commit_red_tests  # noqa: PLC0415
+    from bytedigger_engine.workflows.phase_5_implement import _commit_red_tests  # noqa: PLC0415
 
     repo = _make_repo(tmp_path)
     sp = _make_scratchpad()

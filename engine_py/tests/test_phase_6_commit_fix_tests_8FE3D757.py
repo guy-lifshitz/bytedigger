@@ -32,16 +32,14 @@ from unittest.mock import MagicMock
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_6_review as _p6  # noqa: E402  — top-level alias; bound functions resolve names here
-from phase_6_review import (  # noqa: E402
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402  — top-level alias; bound functions resolve names here
+from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _commit_fix_tests,
     _build_fix_test_commit_message,
     phase_6_review_workflow,
 )
-from contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────

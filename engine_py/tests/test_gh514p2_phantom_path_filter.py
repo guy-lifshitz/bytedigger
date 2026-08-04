@@ -21,8 +21,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import phase_workflows_common  # noqa: E402  — plain import, symbol exists at collection time
-import phase_5_implement  # noqa: E402
+from bytedigger_engine.workflows import phase_workflows_common  # noqa: E402  — plain import, symbol exists at collection time
+from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 
 
 # ─── shared git-repo fixtures ─────────────────────────────────────────────────
@@ -68,7 +68,7 @@ def _real_repo(tmp_path: Path) -> Path:
 def test_ac1_committed_deletion_dropped_and_event_emitted(tmp_path: Path) -> None:
     """AC1: absent+untracked path is filtered out; _emit_safe called once with
     commit_phantom_paths_skipped, payload paths==[<p>]."""
-    from phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
 
     repo = _real_repo(tmp_path)
     _commit_file(repo, "src/gone.py")
@@ -95,7 +95,7 @@ def test_ac1_committed_deletion_dropped_and_event_emitted(tmp_path: Path) -> Non
 
 def test_ac2_present_on_disk_path_kept_no_event(tmp_path: Path) -> None:
     """AC2: path existing on disk (even untracked-new) is kept; no event emitted."""
-    from phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
 
     repo = _real_repo(tmp_path)
     (repo / "new_untracked.py").write_text("new\n")
@@ -117,7 +117,7 @@ def test_ac2_present_on_disk_path_kept_no_event(tmp_path: Path) -> None:
 
 def test_ac3_uncommitted_deletion_kept_no_event(tmp_path: Path) -> None:
     """AC3: absent-but-tracked path (deletion NOT yet committed) is kept; no event."""
-    from phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
 
     repo = _real_repo(tmp_path)
     _commit_file(repo, "src/staged_del.py")
@@ -142,7 +142,7 @@ def test_ac3_uncommitted_deletion_kept_no_event(tmp_path: Path) -> None:
 
 def test_ac4_empty_input_returns_empty_zero_git_read_calls(tmp_path: Path) -> None:
     """AC4: empty input list → [] returned, zero git_port.git_read calls."""
-    from phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
 
     repo = _real_repo(tmp_path)
 
@@ -159,7 +159,7 @@ def test_ac4_empty_input_returns_empty_zero_git_read_calls(tmp_path: Path) -> No
 def test_ac5_ls_files_failure_returns_all_paths_no_event(tmp_path: Path) -> None:
     """AC5: ls-files failure (rc!=0, e.g. git_cwd not a repo) → all paths
     returned unchanged, no event."""
-    from phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
+    from bytedigger_engine.workflows.phase_workflows_common import _filter_phantom_deleted_paths  # ImportError at RED → FAIL
 
     non_repo = Path(tmp_path).resolve() / "not_a_repo"
     non_repo.mkdir()
@@ -195,7 +195,7 @@ def test_ac6_commit_red_tests_e2e_phantom_plus_real_path_status_ok(
     filter) → `git add -- <phantom> <real>` fails atomically →
     status=='error', error_code=='E_GIT_COMMIT_FAILED'. FAILS at RED.
     """
-    from contracts import StepResult, WorkflowContext  # type: ignore
+    from bytedigger_engine.contracts import StepResult, WorkflowContext  # type: ignore
 
     repo = _real_repo(tmp_path)
     _commit_file(repo, "src/phantom.py")
@@ -255,7 +255,7 @@ def test_ac7_commit_red_tests_e2e_all_phantom_degraded_skip(
     Today: `git add -- <phantom>` fails atomically → status=='error',
     error_code=='E_GIT_COMMIT_FAILED'. FAILS at RED.
     """
-    from contracts import StepResult, WorkflowContext  # type: ignore
+    from bytedigger_engine.contracts import StepResult, WorkflowContext  # type: ignore
 
     repo = _real_repo(tmp_path)
     _commit_file(repo, "src/phantom2.py")
@@ -311,7 +311,7 @@ def test_ac8_commit_green_code_e2e_phantom_plus_real_prod_path_status_ok(
     FAILS at RED.
     """
     monkeypatch.setenv("HAL_AUTHORED_BOUNDARY_GATE", "0")
-    from contracts import StepResult, WorkflowContext  # type: ignore
+    from bytedigger_engine.contracts import StepResult, WorkflowContext  # type: ignore
 
     repo = _real_repo(tmp_path)
     _commit_file(repo, "src/phantom_prod.py")

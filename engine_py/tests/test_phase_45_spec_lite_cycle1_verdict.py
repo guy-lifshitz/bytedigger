@@ -18,11 +18,9 @@ from pathlib import Path
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
-sys.path.insert(0, str(ENGINE_ROOT / "lib"))
-sys.path.insert(0, str(ENGINE_ROOT / "workflows"))
 
-import phase_45_spec_lite  # noqa: E402
-from phase_45_spec_lite import (  # noqa: E402
+from bytedigger_engine.workflows import phase_45_spec_lite  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec_lite import (  # noqa: E402
     _write_review_doc,
     _gate_on_review,
     _parse_verdict,
@@ -31,7 +29,7 @@ from phase_45_spec_lite import (  # noqa: E402
     VERDICT_UNKNOWN,
     MAX_REVIEW_CYCLES,
 )
-from contracts import StepResult  # noqa: E402
+from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── raw markdown fixtures ─────────────────────────────────────────────────────

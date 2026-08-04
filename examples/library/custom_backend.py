@@ -27,8 +27,8 @@ _ENGINE = Path(__file__).resolve().parents[2] / "engine_py"
 if _ENGINE.is_dir():
     sys.path.insert(0, str(_ENGINE))
 
-from contracts import StepResult                                    # noqa: E402
-from llm_subprocess import (                                        # noqa: E402
+from bytedigger_engine.contracts import StepResult                                    # noqa: E402
+from bytedigger_engine.llm_subprocess import (                                        # noqa: E402
     invoke_llm_subprocess,
     register_backend,
     reset_backends,

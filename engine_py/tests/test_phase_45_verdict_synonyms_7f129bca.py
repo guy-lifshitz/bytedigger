@@ -14,17 +14,17 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-for p in (str(ENGINE_ROOT), str(ENGINE_ROOT / "lib"), str(ENGINE_ROOT / "workflows")):
+for p in (str(ENGINE_ROOT), str(ENGINE_ROOT / "bytedigger_engine" / "lib"), str(ENGINE_ROOT / "bytedigger_engine" / "workflows")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from phase_45_spec import (  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
     _parse_verdict as _parse_verdict_spec,
     VERDICT_SHIP,
     VERDICT_REVISE,
     VERDICT_UNKNOWN,
 )
-from phase_45_spec_lite import (  # noqa: E402
+from bytedigger_engine.workflows.phase_45_spec_lite import (  # noqa: E402
     _parse_verdict as _parse_verdict_lite,
 )
 

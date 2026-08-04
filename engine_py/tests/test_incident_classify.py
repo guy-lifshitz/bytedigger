@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+
+from helpers.engine_subprocess import engine_env
 import sys
 from pathlib import Path
 
@@ -51,7 +53,7 @@ def _write_ledger(path: Path, records: "list[str]"):
 # ─── AC1: single-target mutation, others byte-identical ─────────────────────
 
 def test_ac1_classify_mutates_target_record_only(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     line0 = json.dumps(_rec("r1", "p1", "s1"))
@@ -86,7 +88,7 @@ def test_ac1_classify_mutates_target_record_only(tmp_path):
 # ─── AC2: workaround truncation to 500 chars / preserved when omitted ───────
 
 def test_ac2_workaround_truncated_to_500_chars(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1"))])
@@ -102,7 +104,7 @@ def test_ac2_workaround_truncated_to_500_chars(tmp_path):
 
 
 def test_ac2_workaround_omitted_preserves_existing_value(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1", workaround="w0"))])
@@ -120,7 +122,7 @@ def test_ac2_workaround_omitted_preserves_existing_value(tmp_path):
 # ─── AC3: argparse bad/missing --class → SystemExit 2, file untouched ───────
 
 def test_ac3_main_bad_class_value_exits_2_file_unchanged(tmp_path):
-    from lib.incident_classify import main  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import main  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     line0 = json.dumps(_rec("r1", "p1", "s1"))
@@ -135,7 +137,7 @@ def test_ac3_main_bad_class_value_exits_2_file_unchanged(tmp_path):
 
 
 def test_ac3_main_missing_class_exits_2(tmp_path):
-    from lib.incident_classify import main  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import main  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1"))])
@@ -148,7 +150,7 @@ def test_ac3_main_missing_class_exits_2(tmp_path):
 # ─── AC4: no match / missing file → exit 4 ───────────────────────────────────
 
 def test_ac4_no_matching_record_exits_4_file_unchanged(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     line0 = json.dumps(_rec("r1", "p1", "s1"))
@@ -165,7 +167,7 @@ def test_ac4_no_matching_record_exits_4_file_unchanged(tmp_path):
 
 
 def test_ac4_missing_ledger_file_exits_4(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "does_not_exist.jsonl"
     exit_code, stdout, stderr = classify(
@@ -179,7 +181,7 @@ def test_ac4_missing_ledger_file_exits_4(tmp_path):
 # ─── AC5: multi-match ambiguity → exit 3; --last resolves to highest index ──
 
 def test_ac5_multi_match_no_last_exits_3_lists_candidates_file_unchanged(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     line0 = json.dumps(_rec("r1", "p1", "s1", cycle=1))
@@ -206,7 +208,7 @@ def test_ac5_multi_match_no_last_exits_3_lists_candidates_file_unchanged(tmp_pat
 
 
 def test_ac5_multi_match_with_last_mutates_only_higher_index(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     line0 = json.dumps(_rec("r1", "p1", "s1", cycle=1))
@@ -229,7 +231,7 @@ def test_ac5_multi_match_with_last_mutates_only_higher_index(tmp_path):
 # ─── AC6: unparseable middle line survives, is never matched ────────────────
 
 def test_ac6_unparseable_middle_line_survives_byte_identical(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     line0 = json.dumps(_rec("r1", "p1", "s1"))
@@ -247,7 +249,7 @@ def test_ac6_unparseable_middle_line_survives_byte_identical(tmp_path):
 
 
 def test_ac6_unparseable_line_never_matched(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     garbage = "not json{{{"
@@ -264,7 +266,7 @@ def test_ac6_unparseable_line_never_matched(tmp_path):
 # ─── AC7: list_records — all / run_id filter / unclassified filter / missing file ──
 
 def test_ac7_list_records_prints_all_as_compact_json_lines(tmp_path):
-    from lib.incident_classify import list_records  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import list_records  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1")), json.dumps(_rec("r2", "p1", "s1"))])
@@ -278,7 +280,7 @@ def test_ac7_list_records_prints_all_as_compact_json_lines(tmp_path):
 
 
 def test_ac7_list_records_run_id_filter(tmp_path):
-    from lib.incident_classify import list_records  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import list_records  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1")), json.dumps(_rec("r2", "p1", "s1"))])
@@ -291,7 +293,7 @@ def test_ac7_list_records_run_id_filter(tmp_path):
 
 
 def test_ac7_list_records_unclassified_filter_hides_classified_row(tmp_path):
-    from lib.incident_classify import list_records  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import list_records  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [
@@ -307,7 +309,7 @@ def test_ac7_list_records_unclassified_filter_hides_classified_row(tmp_path):
 
 
 def test_ac7_list_records_missing_file_exits_0_empty_stdout(tmp_path):
-    from lib.incident_classify import list_records  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import list_records  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "does_not_exist.jsonl"
     exit_code, stdout, _stderr = list_records(log_path)
@@ -318,7 +320,7 @@ def test_ac7_list_records_missing_file_exits_0_empty_stdout(tmp_path):
 # ─── AC8: env seam — BD_INCIDENT_LOG honored when --path omitted ────────────
 
 def test_ac8_main_honors_env_seam_when_path_omitted(tmp_path, monkeypatch):
-    from lib.incident_classify import main  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import main  # noqa: PLC0415
 
     seam_path = Path(tmp_path).resolve() / "seam" / "incidents.jsonl"
     seam_path.parent.mkdir(parents=True, exist_ok=True)
@@ -339,7 +341,7 @@ def test_ac8_main_honors_env_seam_when_path_omitted(tmp_path, monkeypatch):
 # ─── AC9: read-only parent → exit 5; successful classify leaves no *.tmp ────
 
 def test_ac9_readonly_parent_exits_5_file_unchanged(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("AC9: chmod read-only has no effect when running as root")
@@ -365,7 +367,7 @@ def test_ac9_readonly_parent_exits_5_file_unchanged(tmp_path):
 
 
 def test_ac9_successful_classify_leaves_no_tmp_files(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1"))])
@@ -381,9 +383,9 @@ def test_ac9_successful_classify_leaves_no_tmp_files(tmp_path):
 # ─── AC10: §1f entry-point shape + real subprocess smoke ────────────────────
 
 def test_ac10_entry_point_imports_main_no_local_defs():
-    entry_path = HERE.parent / "classify_incident.py"
+    entry_path = HERE.parent / "bytedigger_engine" / "classify_incident.py"
     source = entry_path.read_text(encoding="utf-8")
-    assert "from lib.incident_classify import main" in source, (
+    assert "from bytedigger_engine.lib.incident_classify import main" in source, (
         "AC10 FAIL: classify_incident.py must import main from lib.incident_classify"
     )
     assert "def " not in source, (
@@ -392,12 +394,12 @@ def test_ac10_entry_point_imports_main_no_local_defs():
 
 
 def test_ac10_entry_point_subprocess_list_smoke(tmp_path):
-    entry_path = HERE.parent / "classify_incident.py"
+    entry_path = HERE.parent / "bytedigger_engine" / "classify_incident.py"
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1"))])
 
     result = subprocess.run(
-        [sys.executable, str(entry_path), "--list", "--path", str(log_path)],
+        [sys.executable, str(entry_path), "--list", "--path", str(log_path)], env=engine_env(),
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, (
@@ -411,7 +413,7 @@ def test_ac10_entry_point_subprocess_list_smoke(tmp_path):
 # ─── AC11: filters narrow correctly (cycle int, step_name) ──────────────────
 
 def test_ac11_match_indices_cycle_and_step_name_filters_narrow():
-    from lib.incident_classify import match_indices  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import match_indices  # noqa: PLC0415
 
     entries = [
         (json.dumps(_rec("r1", "p1", "s1", cycle=1)), _rec("r1", "p1", "s1", cycle=1)),
@@ -422,7 +424,7 @@ def test_ac11_match_indices_cycle_and_step_name_filters_narrow():
 
 
 def test_ac11_match_indices_via_load_entries_round_trip(tmp_path):
-    from lib.incident_classify import load_entries, match_indices  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import load_entries, match_indices  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     line0 = json.dumps(_rec("r1", "p1", "s1", cycle=1))
@@ -441,7 +443,7 @@ def test_ac11_match_indices_via_load_entries_round_trip(tmp_path):
 # ─── AC13: byte-identity of untouched lines + O_APPEND glue regression pin ──
 
 def test_ac13_byte_identity_only_target_line_changes(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [
@@ -470,8 +472,8 @@ def test_ac13_byte_identity_only_target_line_changes(tmp_path):
 
 
 def test_ac13_oappend_glue_after_classify_every_line_still_parses(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
-    from lib.incident_ledger import emit_incident  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_ledger import emit_incident  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [
@@ -502,7 +504,7 @@ def test_ac13_oappend_glue_after_classify_every_line_still_parses(tmp_path):
 # ─── AC12: §1ab idempotent re-entry — same classify twice ───────────────────
 
 def test_ac12_repeat_classify_same_args_idempotent(tmp_path):
-    from lib.incident_classify import classify  # noqa: PLC0415
+    from bytedigger_engine.lib.incident_classify import classify  # noqa: PLC0415
 
     log_path = Path(tmp_path).resolve() / "incidents.jsonl"
     _write_ledger(log_path, [json.dumps(_rec("r1", "p1", "s1"))])

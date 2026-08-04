@@ -35,12 +35,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-sys.path.insert(0, str(HERE.parent / "workflows"))
 
-from contracts import WorkflowContext, StepResult  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext, StepResult  # noqa: E402
 
 # Import the workflow builder (always exists — pre-GREEN)
-from phase_8_post_deploy import (  # noqa: E402
+from bytedigger_engine.workflows.phase_8_post_deploy import (  # noqa: E402
     phase_8_post_deploy_workflow,
     _accumulate_summary,
     _resolve_working_dir,
@@ -51,7 +50,7 @@ from phase_8_post_deploy import (  # noqa: E402
 # and individual tests fail at the assertion / import-inside-test level.
 # This way pytest -q reports 14 FAIL instead of 1 collection error.
 
-import phase_8_post_deploy as _p8mod  # noqa: E402
+from bytedigger_engine.workflows import phase_8_post_deploy as _p8mod  # noqa: E402
 
 
 # ─── shared fixtures ─────────────────────────────────────────────────────────
