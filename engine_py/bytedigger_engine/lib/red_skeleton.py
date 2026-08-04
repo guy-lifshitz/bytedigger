@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from lib import dirty_tree_guard, git_port
+from bytedigger_engine.lib import dirty_tree_guard, git_port
 
 PRE_RED_DIRTY_RELPATH = "integrity/pre-red-dirty.json"
 

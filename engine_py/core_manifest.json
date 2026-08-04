@@ -79,7 +79,11 @@
     "workflows/phase_8_post_deploy.py",
     "workflows/phase_workflows_common.py",
     "lib/receipts_line.py",
-    "generate_receipts.py"
+    "generate_receipts.py",
+    "core_boundary.py",
+    "lib/corpus_parity.py",
+    "lib/micro_scope.py",
+    "lib/red_skeleton.py"
   ],
   "host_modules": [
     "hal_config_provider.py",
@@ -106,10 +110,10 @@
     ]
   },
   "policy": {
-    "workflows_dir": "core \u2014 every workflows/*.py is core by policy (GH499 item 5); new workflow files MUST be added to core_modules",
+    "workflows_dir": "core — every workflows/*.py is core by policy (GH499 item 5); new workflow files MUST be added to core_modules",
     "host_rationale": {
       "hal_config_provider.py": "host-side by design (GH444); NOT part of the OSS package (excluded from pyproject packaging)",
-      "model_flip_lint.py": "host tooling \u2014 SHARED/config/models.json semantics baked in (GH499 item 3)"
+      "model_flip_lint.py": "host tooling — SHARED/config/models.json semantics baked in (GH499 item 3)"
     }
   }
 }
