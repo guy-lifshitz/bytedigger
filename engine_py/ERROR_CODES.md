@@ -102,6 +102,10 @@
 
 - `E_FRESHNESS_UNKNOWN` — lib/corpus_parity: base freshness could not be determined — merge-base/ancestry check failed or is unavailable (GH1338)
 
+## E_GATE
+
+- `E_GATE_INDETERMINATE` — conformance/bd_l2: a gate raised and was recorded as absent rather than failed; a gate that cannot reach a verdict fails closed (bd#9 R2.4 / ADV-5)
+
 ## E_GIT
 
 - `E_GIT_BAD_STATE` — phase_5_implement: git working tree in an unexpected/bad state
@@ -220,6 +224,7 @@
 - `E_ORACLE_INDETERMINATE` — conformance/oracle: freeze or verify could not read a declared member, the document directory, or the event log (bd#8)
 - `E_ORACLE_MUTATED` — conformance/oracle: recomputed oracle digest or scope digest differs from the frozen one (bd#8 R1.4)
 - `E_ORACLE_UNFROZEN` — conformance/oracle: implementing phase found no freeze event in its event log, or one whose run_id contradicts it (bd#8)
+- `E_ORACLE_VACUOUS` — conformance/bd_l2: the oracle substitutes the subject of its own assertions (mocks its UUT) and so constrains nothing (bd#9 R2.2 / ADV-3)
 
 ## E_ORCHESTRATOR
 
@@ -385,6 +390,10 @@
 ## E_STEP
 
 - `E_STEP_TIMEOUT` — contracts/dbos_setup: a DBOS workflow step exceeded its configured timeout
+
+## E_SUPPRESSION
+
+- `E_SUPPRESSION_UNBOUNDED` — conformance/bd_l2: a tolerated known failure lacks an owner reference or a live expiry date (bd#9 R2.5 / ADV-6)
 
 ## E_SYNTHESIZER
 
