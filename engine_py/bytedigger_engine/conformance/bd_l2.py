@@ -42,7 +42,8 @@ from .report import L0Report as _L0Report
 if _TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l2", "validate_report"]
+__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "ENFORCEMENT", "check_bd_l2",
+           "validate_report"]
 
 REQUIREMENTS: "tuple[str, ...]" = ("R2.1", "R2.2", "R2.3", "R2.4", "R2.5", "R2.6")
 
@@ -55,6 +56,43 @@ _VERDICT_KEY = "verdict:{}"
 #: registry honest in BOTH directions: an undeclared gap fails, and so does a
 #: stale entry once a producer appears.
 AWAITING_PRODUCER: "tuple[str, ...]" = ("R2.3", "R2.4", "R2.5")
+
+#: bd#59: requirement -> the production refusal that ALREADY guards it.
+#:
+#: Measured, not designed: every observable requirement was found to have a
+#: refusal in the engine already, so wiring the L2 verdict into a phase would
+#: put a SECOND guard on an already-guarded condition — the defect found in
+#: bd#29 §5a, where the later guard overwrites the earlier one's code and the
+#: caller is told the wrong reason.
+#:
+#: What was genuinely missing is this binding. Without it, "no refusal exists"
+#: and "a refusal exists but its flag is off" are indistinguishable, which is
+#: what made enforcement unverifiable rather than absent.
+#:
+#: `enforced_by_default` is a MEASUREMENT of `flags_catalog` at bd#59 time, and
+#: `test_bd59_enforcement_map.py::test_ac6` pins it: a flag flip elsewhere makes
+#: that AC fail and demand a decision instead of drifting silently.
+ENFORCEMENT: "dict[str, dict[str, object]]" = {
+    "R2.1": {
+        "error_code": "E_RED_COLLECT_PROBE",
+        "flag": "HAL_RED_COLLECT_PROBE_ENFORCE",
+        "enforced_by_default": False,
+    },
+    "R2.2": {
+        "error_code": "E_RED_STUB_PASSABLE",
+        "flag": "HAL_STUB_PASSABILITY_GATE",
+        "enforced_by_default": True,
+    },
+    "R2.6": {
+        "error_code": "E_BASELINE_DELTA",
+        "flag": "HAL_BASELINE_DELTA_ENFORCE",
+        "enforced_by_default": False,
+    },
+}
+
+_ENFORCED = "enforced"
+_DECLARED_NOT_ENFORCED = "declared-not-enforced"
+_NO_CONSEQUENCE = "no-consequence"
 
 # Bound as bare quoted literals on purpose: `error_codes.CODE_RE` harvests
 # `["']E_[A-Z0-9_]+["']`, so a code embedded inside a longer message string is
@@ -247,6 +285,18 @@ def check_bd_l2(events: "Iterable[Mapping[str, object]]") -> _L0Report:
 
     for adv, ran in executed.items():
         labels[adv] = ("executed" if ran else _tokens.ADVERSARY_NOT_EXECUTED)
+
+    # bd#59: three distinct states, because "no refusal" and "a refusal whose
+    # flag is off" used to look identical from the outside.
+    for req in REQUIREMENTS:
+        entry = ENFORCEMENT.get(req)
+        if entry is None:
+            state = _NO_CONSEQUENCE
+        elif entry["enforced_by_default"]:
+            state = _ENFORCED
+        else:
+            state = _DECLARED_NOT_ENFORCED
+        labels[f"enforcement:{req}"] = state
 
     passed = all(
         labels[_VERDICT_KEY.format(req)] == _tokens.REQUIREMENT_PASSED
