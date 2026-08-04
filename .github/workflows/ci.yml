@@ -110,6 +110,45 @@ jobs:
           pip install --quiet dist/*.whl pytest pytest-timeout pyyaml  # pyyaml: lazy import in ac_dsl.py
           python -c "import bytedigger_engine; from bytedigger_engine import engine, event_log, workflows; print('OK: wheel imports')"
 
+      # bd#48: eight GH1338 ACs drive a REAL `bun test` (§4) and deliberately
+      # refuse to skip themselves when bun is absent — a hard failure, because a
+      # silent skip would certify corpus parity without ever running a corpus.
+      # Installed from the official script rather than a marketplace action:
+      # every workflow here uses actions/checkout@v4 and nothing else, and the
+      # header commits to "stock GitHub infra". Version is PINNED so CI and a
+      # developer machine agree on the runner under test.
+      - name: install bun (pinned — GH1338 real-`bun test` ACs)
+        run: |
+          curl -fsSL https://bun.sh/install | BUN_INSTALL="$RUNNER_TEMP/bun" bash -s "bun-v1.3.4"
+          echo "$RUNNER_TEMP/bun/bin" >> "$GITHUB_PATH"
+
+      - name: receipt — the bun-dependent ACs RUN (never skipped, never absent)
+        run: |
+          bun --version
+          python -m pytest tests/test_gh1338_corpus_parity_gate.py \
+            -q -p no:cacheprovider --timeout=180 -rs \
+            -k "test_ac11_real_bun_fixture_delta_zero_but_corpus_blocked or \
+                test_ac12_allow_removed_test_file_defeats_block_under_enforce or \
+                test_ac13_blocked_verdict_always_exits_5_stderr_enumerates or \
+                test_ac23_env_declaration_channel_and_pytest_patterns_and_source or \
+                test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence or \
+                test_ac37_run_evidence_and_corpus_scope_present_on_real_bun_run or \
+                test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it or \
+                test_ac39_corpus_parity_enforce_flag_no_longer_affects_exit_code" \
+            | tee bun-acs.txt
+          # The count is the receipt: "8 passed" and nothing skipped. Selecting
+          # zero tests also prints no "passed" line, so a renamed AC fails here
+          # instead of silently shrinking the set.
+          if ! grep -qE '^8 passed' bun-acs.txt; then
+            echo "expected exactly '8 passed' from the bun-dependent AC set" >&2
+            exit 1
+          fi
+          if grep -q 'skipped' bun-acs.txt; then
+            echo "an AC skipped itself — the bun receipt would be inert" >&2
+            exit 1
+          fi
+          rm -f bun-acs.txt
+
       - name: pytest — engine test suite (hermetic, no dbos, no network)
         run: python -m pytest tests/ -q -p no:cacheprovider --timeout=120
 
