@@ -33,7 +33,7 @@ import pytest
 
 _THIS = Path(__file__).resolve()
 _ENGINE_ROOT = _THIS.parents[1]        # …/engine_py/
-_BUILD_DIR = _THIS.parents[2]          # …/SYSTEM/cli/build/
+_BUILD_DIR = _THIS.parents[2]          # bytedigger repo root
 _SCRIPT = _BUILD_DIR / "baseline_delta_gate.py"
 _WORKFLOWS = _ENGINE_ROOT / "workflows"
 
@@ -431,7 +431,6 @@ def test_ac10_precondition_codes_closure_and_blocked_by_fixed_order(tmp_path) ->
 # ─── AC11: §1l REAL bun runs — Δ0 by reds, but BLOCKED by corpus divergence ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac11_real_bun_fixture_delta_zero_but_corpus_blocked(tmp_path) -> None:
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
 
@@ -465,7 +464,6 @@ def test_ac11_real_bun_fixture_delta_zero_but_corpus_blocked(tmp_path) -> None:
 # ─── AC12: negative control — declared removal defeats the block, even under enforce ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac12_allow_removed_test_file_defeats_block_under_enforce(tmp_path) -> None:
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
 
@@ -497,7 +495,6 @@ def test_ac12_allow_removed_test_file_defeats_block_under_enforce(tmp_path) -> N
 # ─── AC13 (AMENDED rev4 MAJOR-4): BLOCKED ⇒ exit 5 ALWAYS, not just under enforce ──
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac13_blocked_verdict_always_exits_5_stderr_enumerates(tmp_path) -> None:
     """§10 MAJOR-4 (rev4): the prior contract — 'no HAL_CORPUS_PARITY_ENFORCE →
     exit 0 even though verdict is BLOCKED' — is REVERSED. A consumer gating on
@@ -535,7 +532,6 @@ def test_ac13_blocked_verdict_always_exits_5_stderr_enumerates(tmp_path) -> None
 # ─── AC14: bogus --base-ref under --require-corpus-parity → BLOCKED, never PASS ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac14_bogus_base_ref_blocked_never_pass(tmp_path) -> None:
     """§2.2 (amended, gate M3): preconditions run BEFORE resolve_baseline, so an
     unresolvable --base-ref under --require-corpus-parity yields verdict BLOCKED
@@ -753,7 +749,6 @@ def test_ac17_worktree_only_uncommitted_deletion_still_blocked(tmp_path) -> None
 # ─── AC18: kill-switch is never silent under --require-corpus-parity (edge 3) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac18_kill_switch_with_require_corpus_parity_is_counted_not_silent(tmp_path) -> None:
     results = tmp_path / "results.txt"
     results.write_text("(pass) suite > ok\n")
@@ -1032,7 +1027,6 @@ def test_ac22_all_four_functions_returned_statuses_in_precondition_codes(tmp_pat
 # ─── AC23: env declaration channel HAL_CORPUS_ALLOW_REMOVED (no CLI flag) (m6/m7) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac23_env_declaration_channel_and_pytest_patterns_and_source(tmp_path) -> None:
     import fnmatch
 
@@ -1076,7 +1070,7 @@ def test_ac23_env_declaration_channel_and_pytest_patterns_and_source(tmp_path) -
 # ─── AC24: gh1318 protocol doc — every invocation line carries the flag (M5) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
+@pytest.mark.skip(reason="bd port: not portable — asserts a HAL governance document at <repo_root>/SHARED/memory/Decisions/gh1318_delta_measurement_protocol.md. bytedigger has no SHARED/ tree, and the `_BUILD_DIR.parents[2]` anchor resolves OUTSIDE the repo here (HAL nests engine_py three levels deep, bytedigger one). The CLI it documents IS ported and covered by the other 14 ACs of this file; only the doc-existence claim is HAL-only.")
 def test_ac24_gh1318_protocol_doc_every_gate_invocation_carries_flag() -> None:
     repo_root = _BUILD_DIR.parents[2]
     doc_path = (
@@ -1274,7 +1268,6 @@ def test_ac27_phase5_reachability_whitelist_only_stdout_path_condition() -> None
 # ─── AC26: exit-code ladder from §2.2 (delta FAIL > corpus divergence > clean) (N2) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence(tmp_path) -> None:
     """§2.2 ladder (rev2-N2, AMENDED rev4 MAJOR-4): (a) delta FAIL +
     HAL_BASELINE_DELTA_GATE_ENFORCE=1 + corpus divergence -> exit 4, verdict
@@ -1402,7 +1395,6 @@ def test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence(tmp_path) -> N
 # ─── AC28: `corpus_parity` key present in normal-mode JSON (rev2-m1) ────────
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac28_corpus_parity_key_present_in_normal_mode_json(tmp_path) -> None:
     """§2.2: without --require-corpus-parity the gate must still land in
     NORMAL mode (verdict PASS/FAIL, not ERROR) and carry corpus_parity ==
@@ -2099,7 +2091,6 @@ def test_ac34_raw_sha_base_ref_skips_remote_check_but_records_reason(tmp_path) -
 # ─── AC35: empty / unparseable results log → E_RESULTS_UNPARSEABLE (§10 MAJOR-3) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac35_empty_or_unparseable_results_block_as_e_results_unparseable(tmp_path) -> None:
     """§10 MAJOR-3: an empty results file or a results file containing only a
     collector crash line must never certify PASS — 'nothing to check' printed
@@ -2150,7 +2141,6 @@ def test_ac35_empty_or_unparseable_results_block_as_e_results_unparseable(tmp_pa
 # ─── AC36: summary present but zero tests → E_EMPTY_RUN (§10 MAJOR-3) ───────
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac36_summary_present_but_zero_tests_blocks_as_e_empty_run(tmp_path) -> None:
     from bytedigger_engine.lib.corpus_parity import PRECONDITION_CODES
 
@@ -2199,7 +2189,6 @@ def test_ac36_summary_present_but_zero_tests_blocks_as_e_empty_run(tmp_path) -> 
 # ─── AC37: run_evidence + corpus_scope present on a real bun run (§10 MAJOR-3) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac37_run_evidence_and_corpus_scope_present_on_real_bun_run(tmp_path) -> None:
     repo, base_sha, head_sha, base_out, head_out, ledger, head_wt = _build_parity_fixture(tmp_path)
 
@@ -2268,7 +2257,6 @@ def test_ac37_run_evidence_and_corpus_scope_present_on_real_bun_run(tmp_path) ->
 # ─── AC38: exit ladder rev4 — BLOCKED always non-zero; delta beats it; clean is 0 ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) -> None:
     """§10 MAJOR-4 ladder: (1) delta FAIL + HAL_BASELINE_DELTA_GATE_ENFORCE=1 ->
     4; (2) else BLOCKED -> 5 REGARDLESS of HAL_CORPUS_PARITY_ENFORCE; (3) else
@@ -2341,7 +2329,6 @@ def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) 
 # ─── AC39: HAL_CORPUS_PARITY_ENFORCE no longer affects the exit code ────────
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac39_corpus_parity_enforce_flag_no_longer_affects_exit_code(tmp_path) -> None:
     """§10 MAJOR-4: HAL_CORPUS_PARITY_ENFORCE now governs ONLY the engine-level
     parity_block/E_CORPUS_PARITY branch (§2.3), not the CLI exit code. The
@@ -2467,14 +2454,13 @@ def test_ac40_delta_and_parity_block_both_reported_not_elif_masked(tmp_path) -> 
 # ─── AC41: E_STALE_BASE description drops the false 'freshness window' claim ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: requires E_CORPUS_PARITY registered in error_codes.py, an existing product file outside Ф1's scope. Re-enable in Ф B.")
 def test_ac41_stale_base_error_description_drops_false_freshness_window_claim() -> None:
     """§10 'Взято в этот шип из MINOR': `error_codes.ERROR_CODES['E_STALE_BASE']`
     currently reads '...older than the configured freshness window...' — there
     is no freshness WINDOW; the real mechanism is git ancestry / merge-base.
     A correct fix does not resurrect a false rationale for a correct behavior.
     """
-    import error_codes as _error_codes_mod
+    from bytedigger_engine import error_codes as _error_codes_mod
 
     description = _error_codes_mod.ERROR_CODES.get("E_STALE_BASE", "")
     assert "freshness window" not in description, (
@@ -2573,7 +2559,6 @@ def test_ac42_parse_run_evidence_normalizes_group_prefixes_and_ansi() -> None:
 # ─── AC43: parse_bun_fails / parse_pytest_fails normalize CI log decoration ──
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: drives SYSTEM/cli/build/baseline_delta_gate.py, a HAL-side CLI entry-point outside engine_py and not part of the bytedigger package. lib.corpus_parity itself IS ported and covered by the AC set that runs. Re-enable when/if a bytedigger gate CLI exists.")
 def test_ac43_fail_name_parsers_normalize_group_prefixes_and_ansi() -> None:
     """Same defect class as AC42, worse: `_PYTEST_FAIL_RE` / `_BUN_FAIL_RE`
     in baseline_delta_gate.py are anchored at line start (`^(FAILED|ERROR)`,
