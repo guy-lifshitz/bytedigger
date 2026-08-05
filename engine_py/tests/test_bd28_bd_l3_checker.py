@@ -1,24 +1,24 @@
 """bd#28 — BD-L3 conformance checker + attestation report.
 
-Спека: `docs/decisions/2026-08-04-bd28-bd-l3-conformance-checker.md`.
+Spec: `docs/decisions/2026-08-04-bd28-bd-l3-conformance-checker.md`.
 
-Class: оракул, который не умеет отказать (B-1 гейта bd#10 раунда 1, форма
-`[G22:18]`, инверсия P2 из CL §1). Чекер с недостижимой веткой `failed` не
-слабый, а ПЕРЕВЁРНУТЫЙ: он превращает отсутствие свидетельств в утверждение о
-соответствии. Гейт bd#10 назвал три правдоподобных GREEN, проходивших все 36
-тестов раунда 1 — ветка `failed` опущена целиком; `passed=True` безусловно;
-`violations=()` всегда. Поэтому здесь ветка `failed` утверждается ПЕРВОЙ, а
-`passed`/`not-checked` строятся тем же построителем лога, что и она.
+Class: an oracle that cannot refuse (gate B-1 of bd#10 round 1, form
+`[G22:18]`, the inversion of P2 from CL §1). A checker with an unreachable `failed` branch is not
+weak but INVERTED: it turns an absence of evidence into a claim of
+conformance. The bd#10 gate named three plausible GREENs that passed all 36
+tests of round 1 — the `failed` branch omitted entirely; `passed=True` unconditionally;
+`violations=()` always. So here the `failed` branch is asserted FIRST, and
+`passed`/`not-checked` are built by the same log builder as it.
 
-`conformance.bd_l3` на этой базе НЕ СУЩЕСТВУЕТ, поэтому каждый тест падает на
-`ImportError` в СВОЁМ теле. Импорты `conformance.*` — только внутри тел
-(дисциплина bd#24): сбор остаётся чистым, а RED получается assert/import-time
-внутри теста, а не collection-error на весь файл.
+`conformance.bd_l3` does NOT EXIST on this base, so every test fails on
+`ImportError` inside ITS OWN body. `conformance.*` imports are inside bodies only
+(the bd#24 discipline): collection stays clean, and RED comes out assert/import-time
+inside the test rather than a collection error over the whole file.
 
-Интерфейс несёт СПЕКА §3, не этот файл (`CONTRACTS_SPEC.md` §1.5 / bd#7 §3.0).
+The interface is carried by SPEC §3, not by this file (`CONTRACTS_SPEC.md` §1.5 / bd#7 §3.0).
 
-Форма фикстур снята с живого производителя (`llm_subprocess._attest_payload`,
-`:1060-1085`): девять ключей — step_name, backend, model_requested,
+The fixture form is taken from the live producer (`llm_subprocess._attest_payload`,
+`:1060-1085`): nine keys — step_name, backend, model_requested,
 prompt_sha256, injections, declared_capabilities, capability_enforcement,
 observed_model, observed_tools.
 """
@@ -37,11 +37,11 @@ def _attested(
     event_type: "str | None" = None,
     extra: "dict[str, Any] | None" = None,
 ) -> "dict[str, Any]":
-    """Одно событие в форме живого производителя.
+    """One event in the form of the live producer.
 
-    ОДИН построитель на все ветки — требование issue «утверждать в обе стороны
-    на одном наборе фикстур». Если бы `failed` и `passed` строились разными
-    фикстурами, разошлись бы не вердикты, а фикстуры.
+    ONE builder for all branches — the issue's requirement to "assert in both directions
+    on one set of fixtures". If `failed` and `passed` were built from different
+    fixtures, it would be the fixtures that diverged, not the verdicts.
     """
     if event_type is None:
         from bytedigger_engine.conformance import attest  # noqa: PLC0415
@@ -51,21 +51,21 @@ def _attested(
         "step_name": "s1",
         "backend": "claude-subprocess",
         "model_requested": model_requested,
-        # bd#73 пинует ФОРМУ хеша, а не только присутствие ключа — фикстура
-        # приведена к настоящей: sha256:<64 hex>.
+        # bd#73 pins the FORM of the hash, not merely the key's presence — the fixture
+        # is brought to a real one: sha256:<64 hex>.
         "prompt_sha256": "sha256:" + "0" * 64,
-        # bd#73: R3.2 без инъекций даёт not-checked (пустой список законен, но
-        # наблюдать нечего), поэтому ПОЛНОСТЬЮ конформная инвокация несёт
-        # атрибутированный блок — как и реальная, идущая через канал инъекций.
+        # bd#73: R3.2 with no injections gives not-checked (an empty list is legitimate, but
+        # there is nothing to observe), so a FULLY conformant invocation carries an
+        # attributed block — like a real one going through the injection channel.
         "injections": [{"source_id": "role-template",
                         "sha256": "sha256:" + "0" * 64}],
         "declared_capabilities": declared_capabilities,
         "capability_enforcement": "declared",
         "observed_model": observed_model,
         "observed_tools": observed_tools,
-        # bd#63: R3.5 читает заявление вместе со свидетельством побега. Полностью
-        # конформная инвокация ЗАЯВЛЯЕТ принуждение и его не нарушает; бэкенд,
-        # ничего не заявивший, оставляет R3.5 в not-checked — проверять нечего.
+        # bd#63: R3.5 reads the claim together with the escape evidence. A fully
+        # conformant invocation CLAIMS enforcement and does not violate it; a backend
+        # that claimed nothing leaves R3.5 at not-checked — there is nothing to check.
         "capability_enforcement": capability_enforcement,
     }
     if extra:
@@ -85,16 +85,16 @@ def _tokens():
     return tokens
 
 
-# ─── AC1/AC2: ветка `failed` — утверждается ПЕРВОЙ ────────────────────────
+# ─── AC1/AC2: the `failed` branch — asserted FIRST ───────────────────────
 
 def test_ac1_r33_family_drift_is_a_violation():
-    """Ветка, которой не существовало в RED раунда 1: `REQUIREMENT_FAILED` не
-    был даже связан в тест-файле, и ни одна фикстура не подавала нарушение."""
+    """The branch that did not exist in round 1's RED: `REQUIREMENT_FAILED` was
+    not even bound in the test file, and no fixture supplied a violation."""
     report = _check([_attested(model_requested="sonnet", observed_model="haiku")])
 
     assert report.labels["verdict:R3.3"] == _tokens().REQUIREMENT_FAILED
-    assert report.passed is False, "нарушение обязано ронять отчёт"
-    assert report.violations, "нарушение обязано быть перечислено"
+    assert report.passed is False, "a violation must fail the report"
+    assert report.violations, "a violation must be listed"
 
 
 def test_ac2_r36_capability_escape_is_a_violation():
@@ -107,7 +107,7 @@ def test_ac2_r36_capability_escape_is_a_violation():
     assert report.violations
 
 
-# ─── AC3: ветка `passed`, ТОТ ЖЕ построитель ──────────────────────────────
+# ─── AC3: the `passed` branch, THE SAME builder ──────────────────────────
 
 def test_ac3_conformant_invocation_passes_both_requirements():
     report = _check([_attested(
@@ -122,7 +122,7 @@ def test_ac3_conformant_invocation_passes_both_requirements():
     assert report.violations == ()
 
 
-# ─── AC4: ветка `not-checked` ─────────────────────────────────────────────
+# ─── AC4: the `not-checked` branch ───────────────────────────────────────
 
 def test_ac4_null_observations_are_not_checked():
     report = _check([_attested(observed_model=None, observed_tools=None)])
@@ -132,12 +132,12 @@ def test_ac4_null_observations_are_not_checked():
     assert report.labels["verdict:R3.6"] == t.REQUIREMENT_NOT_CHECKED
 
 
-# ─── AC5: EDGE-1, ОТРИЦАТЕЛЬНАЯ НОГА — нуль свидетельств ≠ соответствие ───
+# ─── AC5: EDGE-1, NEGATIVE LEG — zero evidence ≠ conformance ─────────────
 
 def test_ac5_empty_log_is_not_checked_and_not_passed():
-    """Отчёт по нулю свидетельств, возвращающий passed=True, — чистейшая
-    форма B-1: у пустого лога нет ненулевых наблюдений, и `passed` не
-    определён ни одним пунктом агрегации. `not-checked` НЕ есть `passed`.
+    """A report over zero evidence returning passed=True is the purest
+    form of B-1: an empty log has no non-zero observations, and `passed` is
+    not determined by any aggregation clause. `not-checked` is NOT `passed`.
     """
     report = _check([])
     t = _tokens()
@@ -145,18 +145,18 @@ def test_ac5_empty_log_is_not_checked_and_not_passed():
     assert report.labels["verdict:R3.3"] == t.REQUIREMENT_NOT_CHECKED
     assert report.labels["verdict:R3.6"] == t.REQUIREMENT_NOT_CHECKED
     assert report.passed is False, (
-        "пустой лог не даёт свидетельств соответствия — passed обязан быть False"
+        "an empty log yields no evidence of conformance — passed must be False"
     )
 
 
-# ─── AC6: EDGE-8, ОТРИЦАТЕЛЬНАЯ НОГА — фильтр входа ───────────────────────
+# ─── AC6: EDGE-8, NEGATIVE LEG — the input filter ────────────────────────
 
 def test_ac6_violation_in_a_foreign_event_type_is_ignored():
-    """Реальный лог гетерогенен, а корпус фикстур однороден — GREEN без
-    фильтра неотличим на однородном корпусе и врёт на настоящем.
+    """A real log is heterogeneous while a fixture corpus is homogeneous — a GREEN without
+    a filter is indistinguishable on a homogeneous corpus and lies on a real one.
 
-    Нарушающая нагрузка лежит в событии ЧУЖОГО типа; аттестованное событие
-    чистое. Вердикт обязан быть `passed`.
+    The violating payload sits in an event of a FOREIGN type; the attested event is
+    clean. The verdict must be `passed`.
     """
     events = [
         _attested(event_type="runner_result_consumed",
@@ -169,62 +169,62 @@ def test_ac6_violation_in_a_foreign_event_type_is_ignored():
     t = _tokens()
 
     assert report.labels["verdict:R3.3"] == t.REQUIREMENT_PASSED, (
-        "нарушение в событии чужого типа обязано игнорироваться"
+        "a violation in an event of a foreign type must be ignored"
     )
     assert report.labels["verdict:R3.6"] == t.REQUIREMENT_PASSED
     assert report.passed is True
 
 
-# ─── AC7: ОТРИЦАТЕЛЬНАЯ НОГА — пересчёт из payload, не записанный флаг ────
+# ─── AC7: NEGATIVE LEG — recomputation from the payload, not a recorded flag ─
 
 def test_ac7_recorded_verdict_flag_does_not_override_recomputation():
-    """Доверять записанному флагу значит дать эмиттеру оценивать самого себя —
-    subtype (3) из hal#1373 на уровне всей системы."""
+    """Trusting a recorded flag means letting the emitter grade itself —
+    subtype (3) of hal#1373 at the level of the whole system."""
     report = _check([_attested(
         model_requested="sonnet", observed_model="haiku",
         extra={"verdict": "passed", "verdict:R3.3": "passed"},
     )])
 
     assert report.labels["verdict:R3.3"] == _tokens().REQUIREMENT_FAILED, (
-        "вердикт обязан пересчитываться из payload, а не читаться из флага"
+        "the verdict must be recomputed from the payload, not read from a flag"
     )
     assert report.passed is False
 
 
-# ─── AC8: B-2 — поверхность экспортов против __all__ ──────────────────────
+# ─── AC8: B-2 — the export surface against __all__ ───────────────────────
 
 def test_ac8_public_surface_equals_dunder_all():
-    """Замерено: инстансы встроенных типов НЕ несут `__module__`
-    (`"x".__module__` -> AttributeError), поэтому форма
+    """Measured: instances of builtin types do NOT carry `__module__`
+    (`"x".__module__` -> AttributeError), so the form
     `getattr(value, "__module__", module.__name__) == module.__name__`
-    считает импортированные константы экспортами. `bd_l3` обязан импортировать
-    `REQUIREMENT_FAILED` — то есть починка B-1 ДЕТОНИРУЕТ B-2. Поэтому
-    равенство утверждается против `__all__`, а не против вычисления.
+    counts imported constants as exports. `bd_l3` must import
+    `REQUIREMENT_FAILED` — that is, the B-1 fix DETONATES B-2. Therefore
+    equality is asserted against `__all__` rather than against a computation.
     """
     from bytedigger_engine.conformance import bd_l3  # noqa: PLC0415
 
-    assert hasattr(bd_l3, "__all__"), "модуль обязан объявлять __all__ (B-2)"
-    # bd#63 не менял поверхность — REQUIREMENTS выросли, имена те же.
-    # bd#68 добавил AWAITING_PRODUCER — объявленный реестр требований, чьё поле
-    # наблюдения пишется не на всех прод-путях. Пробел обязан быть виден.
-    # bd#71 добавил SILENT_BACKENDS — объявленный список бэкендов, не пишущих
-    # наблюдений. Дефолтный писал ничего, а чекеры были зелены.
+    assert hasattr(bd_l3, "__all__"), "the module must declare __all__ (B-2)"
+    # bd#63 did not change the surface — REQUIREMENTS grew, the names are the same.
+    # bd#68 added AWAITING_PRODUCER — a declared registry of requirements whose observation
+    # field is not written on every production path. The gap must be visible.
+    # bd#71 added SILENT_BACKENDS — a declared list of backends that write no
+    # observations. The default one wrote nothing, and the checkers were green.
     assert set(bd_l3.__all__) == {
         "REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS",
         "LABEL_EXCEPTIONS", "check_bd_l3", "validate_report"}
     for name in bd_l3.__all__:
-        assert hasattr(bd_l3, name), f"__all__ называет отсутствующее имя {name!r}"
+        assert hasattr(bd_l3, name), f"__all__ names a missing symbol {name!r}"
     public = {n for n in vars(bd_l3) if not n.startswith("_")}
     assert public == set(bd_l3.__all__), (
-        f"публичная поверхность разошлась с __all__: лишние "
+        f"the public surface diverged from __all__: extra "
         f"{sorted(public - set(bd_l3.__all__))!r}"
     )
 
 
-# ─── AC9: validate_report как судья, обе стороны ──────────────────────────
+# ─── AC9: validate_report as a judge, both sides ─────────────────────────
 
 def test_ac9_validate_report_judges_both_ways():
-    """Судья, всегда возвращающий (), зелен — поэтому обе стороны."""
+    """A judge that always returns () is green — hence both sides."""
     from bytedigger_engine.conformance.bd_l3 import validate_report  # noqa: PLC0415
     from bytedigger_engine.conformance.report import L0Report  # noqa: PLC0415
 
@@ -243,11 +243,11 @@ def test_ac9_validate_report_judges_both_ways():
                 "verdict:R3.6": t.REQUIREMENT_PASSED},
     )
     assert validate_report(lying), (
-        "passed=True при вердикте failed обязан быть отвергнут судьёй"
+        "passed=True with a failed verdict must be rejected by the judge"
     )
 
 
-# ─── AC10/AC11: ADV-9 и нерасширенный контракт ────────────────────────────
+# ─── AC10/AC11: ADV-9 and the unextended contract ────────────────────────
 
 def test_ac10_adv9_recorded_as_not_executed():
     report = _check([])
@@ -255,12 +255,12 @@ def test_ac10_adv9_recorded_as_not_executed():
 
 
 def test_ac11_l0report_contract_not_extended():
-    """Четыре поля — контракт bd#22 (`CONTRACTS_SPEC.md` §2 AC-C2)."""
+    """Four fields — the bd#22 contract (`CONTRACTS_SPEC.md` §2 AC-C2)."""
     import dataclasses  # noqa: PLC0415
 
     report = _check([])
     names = {f.name for f in dataclasses.fields(report)}
     assert names == {"passed", "requirements", "violations", "labels"}
-    # bd#63 добавил R3.5: заявление о принуждении стало опровержимым.
-    # bd#73 добавил R3.1/R3.2: у них была метка без вердикта.
+    # bd#63 added R3.5: the enforcement claim became refutable.
+    # bd#73 added R3.1/R3.2: they carried a label with no verdict.
     assert tuple(report.requirements) == ("R3.1", "R3.2", "R3.3", "R3.5", "R3.6")
