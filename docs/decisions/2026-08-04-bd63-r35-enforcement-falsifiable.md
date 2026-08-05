@@ -1,114 +1,114 @@
-# bd#63 — R3.5: заявление о принуждении становится опровержимым
+# bd#63 — R3.5: the enforcement claim becomes refutable
 
-**Class:** актор оценивает себя. `capability_enforcement` в аттестации приходит из
-`_capability_enforcement(resolved_backend)`, то есть из реестра, который **сам бэкенд и
-заполняет** — `register_backend(..., capabilities=...)`. Заявление о принуждении,
-исходящее от принуждаемого, неотличимо от вежливой лжи, и ни один слой сегодня этой
-разницы не видит. Тот же надкласс, что закрывали bd#29 и bd#36.
+**Class:** the actor grades itself. `capability_enforcement` in the attestation comes from
+`_capability_enforcement(resolved_backend)`, i.e. from a registry **the backend itself fills in** —
+`register_backend(..., capabilities=...)`. A claim of enforcement issued by the party being enforced is
+indistinguishable from a polite lie, and no layer today sees that
+difference. The same superclass that bd#29 and bd#36 closed.
 
-**Chokepoint:** `conformance/bd_l3` — единственное место, где заявление сверяется с
-наблюдением. `_capability_enforcement` и `_attest_payload` **не трогаются**: заявление
-остаётся, оно перестаёт быть неопровержимым.
+**Chokepoint:** `conformance/bd_l3` — the only place where a claim is cross-checked against an
+observation. `_capability_enforcement` and `_attest_payload` are **not touched**: the claim
+stays, it merely stops being irrefutable.
 
 ---
 
-## §1. §1b живая база — оба корпуса, `6fb06ba`
+## §1. §1b live base — both corpora, `6fb06ba`
 
-| корпус | результат |
+| corpus | result |
 |---|---|
-| **pytest** | **5449 passed / 47 skipped / 1 xfailed / 0 failed**, 348 с |
-| **clean-room suite** | **5362 passed / 69 skipped / 1 xfailed / 0 failed**, 208 с, `PASS` |
+| **pytest** | **5449 passed / 47 skipped / 1 xfailed / 0 failed**, 348 s |
+| **clean-room suite** | **5362 passed / 69 skipped / 1 xfailed / 0 failed**, 208 s, `PASS` |
 
-## §2. Замер — три вопроса issue закрыты числом
+## §2. Measurement — the issue's three questions closed by number
 
-**(1) Сколько бэкендов объявляют принуждение.** Шесть зарегистрированных:
+**(1) How many backends declare enforcement.** Six are registered:
 
-| бэкенд | `capabilities` | `capability_enforcement` |
+| backend | `capabilities` | `capability_enforcement` |
 |---|---|---|
-| `claude-subprocess` | несёт `tool_allowlist` | **`runtime-allowlist`** — единственный заявитель |
-| `claude-in-session` | без него | `not-enforced` |
+| `claude-subprocess` | carries `tool_allowlist` | **`runtime-allowlist`** — the only claimant |
+| `claude-in-session` | without it | `not-enforced` |
 | `agent-sdk`, `anthropic-api`, `pydantic-anthropic`, `pydantic-openai` | `frozenset()` | `not-enforced` |
 
-⇒ **1 из 6** заявляет принуждение. Экспозиция правки мала и названа числом.
+⇒ **1 of 6** declares enforcement. The edit's exposure is small and stated as a number.
 
-**(2) Чем заявление можно опровергнуть — прибор УЖЕ есть.** Payload аттестации несёт
-и заявление (`capability_enforcement`), и свидетельство (`observed_tools`,
-`declared_capabilities`) — **в одном и том же событии**. `attest.capability_escapes`
-уже считает побеги для R3.6. Значит внешнее наблюдение хоста **не требуется**: бэкенд,
-заявивший `runtime-allowlist` и при этом показавший побег, опровергнут собственной же
-записью.
+**(2) What the claim can be refuted with — the instrument ALREADY exists.** The attestation payload carries
+both the claim (`capability_enforcement`) and the evidence (`observed_tools`,
+`declared_capabilities`) — **in one and the same event**. `attest.capability_escapes`
+already counts escapes for R3.6. So an external host observation is **not required**: a backend
+that declared `runtime-allowlist` and then exhibited an escape is refuted by its own
+record.
 
-**(3) Опирается ли ADV-10 на то же самоописание — НЕТ.** Проба ADV-10 в харнессе
-(`harness._adv_10`) читает `capability_escapes` и вердикт R3.6; `capability_enforcement`
-она не читает. Значит уровень BD-L3 не держится на самоописании, и правка R3.5 его не
-обрушит. Вопрос §3 issue закрыт замером, а не рассуждением.
+**(3) Does ADV-10 rest on the same self-description — NO.** The ADV-10 probe in the harness
+(`harness._adv_10`) reads `capability_escapes` and the R3.6 verdict; it does not read
+`capability_enforcement`. So the BD-L3 level does not rest on self-description, and the R3.5 edit
+will not collapse it. The §3 question of the issue is closed by measurement, not by argument.
 
-## §3. Решения
+## §3. Decisions
 
-**D1 — заявление не отменяется, оно становится ОПРОВЕРЖИМЫМ.** Нарушение R3.5 — это
-`capability_enforcement == "runtime-allowlist"` **и** непустой набор побегов в том же
-событии. Заявление, противоречащее собственному свидетельству, — не мнение, а
-опровергнутое утверждение.
+**D1 — the claim is not abolished, it becomes REFUTABLE.** An R3.5 violation is
+`capability_enforcement == "runtime-allowlist"` **and** a non-empty escape set in the same
+event. A claim contradicted by its own evidence is not an opinion but a
+refuted assertion.
 
-**D2 — честность не наказывается.** Бэкенд, объявивший `not-enforced`, при побеге
-**не** нарушает R3.5: он ничего не обещал. Побег у него ловит R3.6. Иначе честное
-объявление стало бы дороже ложного — инверсия стимула, и она хуже исходного дефекта.
+**D2 — honesty is not punished.** A backend that declared `not-enforced` does **not**
+violate R3.5 on an escape: it promised nothing. Its escape is caught by R3.6. Otherwise an honest
+declaration would cost more than a false one — an inversion of incentive, and that is worse than the original defect.
 
-**D3 — нет свидетельства ⇒ `not-checked`.** Заявление без наблюдения не подтверждается
-и не опровергается. Молча засчитывать его в `passed` значило бы вернуть самооценку.
+**D3 — no evidence ⇒ `not-checked`.** A claim with no observation is neither confirmed
+nor refuted. Silently counting it as `passed` would mean restoring self-assessment.
 
-**D4 — новый код `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED`**, связанный в модуле
-**голым строковым литералом**: `error_codes.CODE_RE` харвестит `["']E_[A-Z0-9_]+["']`, и
-код внутри длинного сообщения читается как `DEAD` (замерено на bd#9). После правки
-обязателен `python3 -m bytedigger_engine.error_codes --markdown > engine_py/ERROR_CODES.md`
-— канонический файл именно там (`_ENGINE_ROOT`), в дереве их два (ошибка bd#9).
+**D4 — a new code `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED`**, bound in the module as
+a **bare string literal**: `error_codes.CODE_RE` harvests `["']E_[A-Z0-9_]+["']`, and a
+code inside a long message reads as `DEAD` (measured in bd#9). After the edit,
+`python3 -m bytedigger_engine.error_codes --markdown > engine_py/ERROR_CODES.md` is mandatory
+— the canonical file is exactly there (`_ENGINE_ROOT`); there are two in the tree (the bd#9 error).
 
-**D5 — внешнего наблюдения хоста НЕ вводим.** Оно потребовало бы инструментации
-процесса и своей экспозиции. Сегодня опровержение делается уликой, которая уже
-записана. Названо, не сделано.
+**D5 — we do NOT introduce external host observation.** It would require instrumenting the
+process and carry its own exposure. Today the refutation is made with evidence that is already
+recorded. Named, not done.
 
 ## §4. Scope
 
-**Правится:** `conformance/bd_l3.py` (+R3.5 в `REQUIREMENTS`, предикат, код),
-`error_codes.py` (+1 код), `engine_py/ERROR_CODES.md` (регенерация),
-`tests/test_bd28_bd_l3_checker.py` (пины `REQUIREMENTS` и `__all__` — законно растут).
+**Edited:** `conformance/bd_l3.py` (+R3.5 in `REQUIREMENTS`, the predicate, the code),
+`error_codes.py` (+1 code), `engine_py/ERROR_CODES.md` (regenerated),
+`tests/test_bd28_bd_l3_checker.py` (the `REQUIREMENTS` and `__all__` pins — they grow legitimately).
 
-**Новое:** `tests/test_bd63_r35_enforcement_falsifiable.py`.
+**New:** `tests/test_bd63_r35_enforcement_falsifiable.py`.
 
-**§1v — НЕ в области:** `_capability_enforcement`, `_attest_payload`, `register_backend`
-— заявление остаётся на месте; `harness` (ADV-10 от самоописания не зависит — §2.3);
-`bd_l2`; внешнее наблюдение хоста (D5).
+**§1v — NOT in scope:** `_capability_enforcement`, `_attest_payload`, `register_backend`
+— the claim stays in place; `harness` (ADV-10 does not depend on self-description — §2.3);
+`bd_l2`; external host observation (D5).
 
-## §5. §1a Sibling-audit
+## §5. §1a Sibling audit
 
-`test_bd28_bd_l3_checker.py` (**прямой риск** — пинует `REQUIREMENTS` и `__all__`),
+`test_bd28_bd_l3_checker.py` (**direct risk** — it pins `REQUIREMENTS` and `__all__`),
 `test_bd10_l3_authorship.py`, `test_bd58_adversary_harness.py`,
-`test_bd59_enforcement_map.py`, `test_bd9_l2_falsifiable_oracle.py`, тесты
-`error_codes`. Проверить прогоном.
+`test_bd59_enforcement_map.py`, `test_bd9_l2_falsifiable_oracle.py`, the
+`error_codes` tests. To be checked by a run.
 
 ## §6. Acceptance criteria
 
-- **AC1 (ОТРИЦАТЕЛЬНАЯ, сердце лота).** Заявлено `runtime-allowlist`, в том же событии
-  побег (`observed_tools=["bash"]` при `declared=["Read"]`) ⇒ `verdict:R3.5 == failed`,
-  нарушение называет `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED`. **Вход, на котором
-  механизм обязан сказать НЕТ самообъявившемуся** — без него это сегодняшнее состояние
-  под другим именем.
-- **AC2 (положительная).** Заявлено `runtime-allowlist`, побегов нет ⇒ `passed`.
-- **AC3 (ОТРИЦАТЕЛЬНАЯ, честность не наказывается).** `not-enforced` + побег ⇒ R3.5
-  **не** `failed` (R3.6 при этом `failed` — побег не теряется).
-- **AC4 (нет свидетельства).** Заявление есть, `observed_tools`/`declared` отсутствуют
-  ⇒ `not-checked`, никогда `passed`.
-- **AC5 (замер зафиксирован).** `claude-subprocess` → `runtime-allowlist`;
-  `claude-in-session` и все четыре референсных → `not-enforced`. Дрейф реестра роняет AC.
-- **AC6 (ADV-10 независим).** Проба ADV-10 не читает `capability_enforcement`; харнесс
-  по-прежнему даёт 9/9 `defended`.
-- **AC7 (код зарегистрирован и не DEAD).** Код в `ERROR_CODES`, гейт дрейфа чист.
-- **AC8 (поверхность = `__all__`, `REQUIREMENTS` выросли осознанно).**
+- **AC1 (NEGATIVE, the heart of the lot).** `runtime-allowlist` declared, and in the same event
+  an escape (`observed_tools=["bash"]` with `declared=["Read"]`) ⇒ `verdict:R3.5 == failed`,
+  with the violation naming `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED`. **The input on which the
+  mechanism must say NO to a self-declaring backend** — without it this is today's state
+  under another name.
+- **AC2 (positive).** `runtime-allowlist` declared, no escapes ⇒ `passed`.
+- **AC3 (NEGATIVE, honesty is not punished).** `not-enforced` + an escape ⇒ R3.5
+  **not** `failed` (R3.6 meanwhile is `failed` — the escape is not lost).
+- **AC4 (no evidence).** The claim is present, `observed_tools`/`declared` are absent
+  ⇒ `not-checked`, never `passed`.
+- **AC5 (the measurement is pinned).** `claude-subprocess` → `runtime-allowlist`;
+  `claude-in-session` and all four reference ones → `not-enforced`. Registry drift fails the AC.
+- **AC6 (ADV-10 is independent).** The ADV-10 probe does not read `capability_enforcement`; the harness
+  still gives 9/9 `defended`.
+- **AC7 (the code is registered and not DEAD).** The code is in `ERROR_CODES`, and the drift gate is clean.
+- **AC8 (surface = `__all__`, `REQUIREMENTS` grew deliberately).**
 
-## §7. Чего PR НЕ утверждает
+## §7. What the PR does NOT claim
 
-- Не вводит внешнее наблюдение хоста (D5) — опровержение делается уликой из той же
-  записи.
-- Не отменяет заявление и не меняет `capability_enforcement`.
-- Не утверждает, что `runtime-allowlist` действительно принуждается: PR отличает
-  **опровергнутое** заявление от неопровергнутого, а не доказывает второе.
+- It does not introduce external host observation (D5) — the refutation is made with evidence from the same
+  record.
+- It does not abolish the claim and does not change `capability_enforcement`.
+- It does not claim that `runtime-allowlist` is genuinely enforced: the PR distinguishes a
+  **refuted** claim from an unrefuted one, it does not prove the latter.

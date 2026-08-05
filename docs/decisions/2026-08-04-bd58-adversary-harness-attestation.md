@@ -1,125 +1,125 @@
-# bd#58 — харнесс исполнения адверсариев + публикация аттестации
+# bd#58 — adversary execution harness + attestation publishing
 
-**Class:** щит, зелёный потому что его никто не поднимал. Оба чекера (`bd_l2`, `bd_l3`)
-умеют сказать НЕТ — это доказано их отрицательными ногами. Но ни один адверсарий против
-собственного хоста **не прогоняется**, поэтому на реальном логе каждый вердикт сегодня
-`not-checked`, а публикатора нет вовсе. Сам `not-checked` честен; опасен он в паре с
-отсутствующим публикатором — наружу не выходит ничего, и «уровень не измерен» читается
-как «вопрос закрыт».
+**Class:** a shield that is green because nobody ever raised it. Both checkers (`bd_l2`, `bd_l3`)
+can say NO — that is proven by their negative legs. But no adversary is **ever run** against its
+own host, so on a real log every verdict today is `not-checked`, and there is no publisher at
+all. `not-checked` on its own is honest; it is dangerous paired with an absent
+publisher — nothing goes out, and "the level was not measured" reads
+as "the question is closed".
 
-**Chokepoint:** новый модуль `engine_py/bytedigger_engine/conformance/harness.py` —
-**единственное** место, где адверсарий исполняется, его исход записывается и строится
-артефакт аттестации.
+**Chokepoint:** a new module `engine_py/bytedigger_engine/conformance/harness.py` —
+the **only** place where an adversary is executed, its outcome recorded, and the attestation
+artefact built.
 
-**Замороженная спека:** `2026-07-26_bytedigger_conformance_levels.md` (HAL `fd35e1304`),
-§4 (таблица адверсариев + Attestation output), §8 (последний абзац), §9 шаг 1.
+**Frozen spec:** `2026-07-26_bytedigger_conformance_levels.md` (HAL `fd35e1304`),
+§4 (the adversary table + Attestation output), §8 (the last paragraph), §9 step 1.
 
 ---
 
-## §1. §1b живая база — ДВА КОРПУСА, снята ДО заморозки
+## §1. §1b live base — TWO CORPORA, taken BEFORE the freeze
 
-На `a6e7fb5`, этот хост:
+On `a6e7fb5`, this host:
 
-| корпус | результат |
+| corpus | result |
 |---|---|
-| **pytest** | **5417 passed / 47 skipped / 1 xfailed / 0 failed**, 411 с |
-| **clean-room suite** | **5330 passed / 69 skipped / 1 xfailed / 0 failed**, 238 с, `PASS` |
+| **pytest** | **5417 passed / 47 skipped / 1 xfailed / 0 failed**, 411 s |
+| **clean-room suite** | **5330 passed / 69 skipped / 1 xfailed / 0 failed**, 238 s, `PASS` |
 
-## §2. Замер: что есть и чего нет
+## §2. Measurement: what exists and what does not
 
-| адверсарий | уровень | примитив в дереве | исполним сегодня |
+| adversary | level | primitive in the tree | executable today |
 |---|---|---|---|
-| ADV-1, ADV-2 | L1 | `conformance.oracle` (`compute_digest`, `compute_scope_digest`, `OracleRefusal`) | **да** |
-| ADV-3 | L2 | `stub_passability.lint_red_file` | **да** |
-| ADV-4 | L2 | оракул, не загружающийся ⇒ `E_ORACLE_INDETERMINATE`; различитель в `bd_l2._r21` | **да** |
-| ADV-5 | L2 | гейт, поднявший исключение; различитель в `bd_l2._r24` | **да** |
-| ADV-6 | L2 | `known_reds_ledger.classify_kill_by` | **да** |
-| ADV-7, ADV-8, ADV-10 | L3 | `attest.capability_escapes`, `_model_family`, `attest.assemble` | **да** |
-| ADV-9 | L3 | — | **нет, декларативен по §8** |
+| ADV-1, ADV-2 | L1 | `conformance.oracle` (`compute_digest`, `compute_scope_digest`, `OracleRefusal`) | **yes** |
+| ADV-3 | L2 | `stub_passability.lint_red_file` | **yes** |
+| ADV-4 | L2 | an oracle that fails to load ⇒ `E_ORACLE_INDETERMINATE`; the discriminator is in `bd_l2._r21` | **yes** |
+| ADV-5 | L2 | a gate that raised; the discriminator is in `bd_l2._r24` | **yes** |
+| ADV-6 | L2 | `known_reds_ledger.classify_kill_by` | **yes** |
+| ADV-7, ADV-8, ADV-10 | L3 | `attest.capability_escapes`, `_model_family`, `attest.assemble` | **yes** |
+| ADV-9 | L3 | — | **no, declarative per §8** |
 
-⇒ Лот не изобретает адверсариев. Он **исполняет** их существующими примитивами и
-**публикует** результат. `bd_l2`/`bd_l3`/`report`/`tokens`/`attest` потребляются, не
-правятся.
+⇒ The lot invents no adversaries. It **executes** them with existing primitives and
+**publishes** the result. `bd_l2`/`bd_l3`/`report`/`tokens`/`attest` are consumed, not
+edited.
 
-## §3. Интерфейс — несёт СПЕКА (`CONTRACTS_SPEC` §1.5)
+## §3. The interface — carried by the SPEC (`CONTRACTS_SPEC` §1.5)
 
 ```
 __all__ = ["ADVERSARIES", "OUTCOME_DEFENDED", "OUTCOME_UNDEFENDED",
            "OUTCOME_ERRORED", "run_adversaries", "build_attestation",
            "validate_attestation"]
 
-ADVERSARIES: tuple[str, ...]          # исполняемый набор §8: ADV-1..ADV-8, ADV-10
-def run_adversaries(only=None) -> dict[str, str]      # адверсарий -> исход
+ADVERSARIES: tuple[str, ...]          # the executable set of §8: ADV-1..ADV-8, ADV-10
+def run_adversaries(only=None) -> dict[str, str]      # adversary -> outcome
 def build_attestation(outcomes, *, level_claimed, engine_version,
                       adapter_identity, host_identity, timestamp) -> dict
 def validate_attestation(attestation) -> tuple[str, ...]
 ```
 
-Импорты под подчёркиванием, аннотации строковые, `__all__` обязателен (B-2).
+Imports under an underscore, annotations stringly, `__all__` mandatory (B-2).
 
-## §4. Семантика исходов — тут и живёт fail-closed
+## §4. Outcome semantics — this is where fail-closed lives
 
-- `defended` — адверсарий запущен И хост его отбил.
-- `undefended` — запущен, хост **не** отбил. Роняет уровень.
-- `errored` — исполнение кинуло исключение ⇒ считается **НЕ сданным** (fail-closed, дух
-  R2.4: страж, не достигший вердикта, отказывает). Никогда не «отсутствует».
-- `not_executed` (`tokens.ADVERSARY_NOT_EXECUTED`) — не запускался. **Снимает** грант, а
-  не повышает его.
+- `defended` — the adversary was run AND the host repelled it.
+- `undefended` — run, and the host did **not** repel it. Sinks the level.
+- `errored` — the execution raised ⇒ counts as **NOT passed** (fail-closed, the spirit of
+  R2.4: a guard that reached no verdict refuses). Never "absent".
+- `not_executed` (`tokens.ADVERSARY_NOT_EXECUTED`) — not run. **Withdraws** the grant rather
+  than raising it.
 
-**Грант уровня кумулятивен и выдаётся ТОЛЬКО по `defended`.** Любой другой исход у
-адверсария уровня N означает, что N не достигнут. ADV-9 декларативен и **обязан
-присутствовать** в отчёте как `not_executed`, а не отсутствовать: молчание и есть та
-форма, которую §8 запрещает.
+**The level grant is cumulative and is issued ONLY on `defended`.** Any other outcome on a
+level-N adversary means N was not achieved. ADV-9 is declarative and **must
+be present** in the report as `not_executed` rather than absent: silence is precisely the
+form §8 forbids.
 
 ## §5. Scope
 
-**Новое:** `conformance/harness.py`; `tests/test_bd58_adversary_harness.py`.
-**Правится:** ничего.
-**§1v — НЕ в области:** `bd_l2`, `bd_l3`, `oracle`, `stub_passability`,
-`known_reds_ledger`, `attest`, `report`, `tokens` — потребляются. Проведение вердиктов в
-фазы движка — **issue #59**, отдельный лот со своим замером экспозиции.
+**New:** `conformance/harness.py`; `tests/test_bd58_adversary_harness.py`.
+**Edited:** nothing.
+**§1v — NOT in scope:** `bd_l2`, `bd_l3`, `oracle`, `stub_passability`,
+`known_reds_ledger`, `attest`, `report`, `tokens` — consumed. Wiring the verdicts into
+the engine phases is **issue #59**, a separate lot with its own exposure measurement.
 
-## §6. §1a Sibling-audit
+## §6. §1a Sibling audit
 
 `test_bd9_l2_falsifiable_oracle.py`, `test_bd28_bd_l3_checker.py`,
 `test_bd8_l1_oracle.py`, `test_bd27_oracle.py`, `test_bd22_contracts.py`,
-`test_contracts.py`, `test_bd24_quant_lint.py`. Существование проверить прогоном, а не
-предположить: в bd#28 перечисление несуществующего файла дало `no tests ran` и обнулило
-весь вызов.
+`test_contracts.py`, `test_bd24_quant_lint.py`. Existence to be checked by a run rather than
+assumed: in bd#28 listing a non-existent file gave `no tests ran` and voided the
+whole invocation.
 
 ## §7. Acceptance criteria
 
-Импорты `conformance.*` — внутри тел тестов.
+`conformance.*` imports go inside test bodies.
 
-- **AC1 (исполнение реально).** `run_adversaries()` возвращает исход для **каждого**
-  имени из `ADVERSARIES`, и хотя бы один — `defended`, полученный настоящим прогоном
-  примитива, а не константой.
-- **AC2 (ОТРИЦАТЕЛЬНАЯ — неисполненный снимает грант).** Аттестация, где адверсарий
-  уровня стоит `not_executed`, **не** даёт этого уровня; `level_achieved` ниже
-  заявленного.
-- **AC3 (ОТРИЦАТЕЛЬНАЯ — неотбитый роняет).** `undefended` у адверсария уровня ⇒ уровень
-  не достигнут.
-- **AC4 (ОТРИЦАТЕЛЬНАЯ — исключение = не сдан).** `errored` ⇒ уровень не достигнут.
-  Страж, у которого прогон упал, не «отсутствует».
-- **AC5 (ОТРИЦАТЕЛЬНАЯ — заявка выше факта отвергается).** `level_claimed` выше
-  `level_achieved` ⇒ `validate_attestation` возвращает непустой кортеж.
-- **AC6 (кумулятивность).** Все L2-адверсарии `defended`, но L1-адверсарий `undefended`
-  ⇒ BD-L2 не выдан.
-- **AC7 (ADV-9 присутствует).** Отчёт несёт `ADV-9` со значением `not_executed`;
-  отсутствие ключа — тоже провал.
-- **AC8 (§4 схема).** Аттестация несёт ровно: `level_claimed`, `level_achieved`,
+- **AC1 (the execution is real).** `run_adversaries()` returns an outcome for **every**
+  name in `ADVERSARIES`, and at least one is `defended`, obtained by a genuine run of the
+  primitive rather than by a constant.
+- **AC2 (NEGATIVE — an unexecuted one withdraws the grant).** An attestation where a level's
+  adversary stands at `not_executed` does **not** grant that level; `level_achieved` is below
+  what was claimed.
+- **AC3 (NEGATIVE — an unrepelled one sinks it).** `undefended` on a level's adversary ⇒ the level
+  is not achieved.
+- **AC4 (NEGATIVE — an exception = not passed).** `errored` ⇒ the level is not achieved.
+  A guard whose run crashed is not "absent".
+- **AC5 (NEGATIVE — a claim above the fact is rejected).** `level_claimed` above
+  `level_achieved` ⇒ `validate_attestation` returns a non-empty tuple.
+- **AC6 (cumulativity).** All L2 adversaries `defended`, but an L1 adversary `undefended`
+  ⇒ BD-L2 is not granted.
+- **AC7 (ADV-9 is present).** The report carries `ADV-9` with the value `not_executed`;
+  a missing key is also a failure.
+- **AC8 (the §4 schema).** The attestation carries exactly: `level_claimed`, `level_achieved`,
   `adversaries`, `engine_version`, `adapter_identity`, `host_identity`, `timestamp`.
-- **AC9 (`validate_attestation` обе стороны).** Согласованная ⇒ `()`.
-- **AC10 (поверхность = `__all__`).** B-2.
-- **AC11 (детерминизм).** Два подряд `run_adversaries()` дают одинаковые исходы —
-  харнесс, чей вердикт скачет, не прибор.
+- **AC9 (`validate_attestation` both sides).** A consistent one ⇒ `()`.
+- **AC10 (surface = `__all__`).** B-2.
+- **AC11 (determinism).** Two consecutive `run_adversaries()` give identical outcomes —
+  a harness whose verdict jumps around is not an instrument.
 
-## §8. База — числа в §1, сняты ДО заморозки
+## §8. The base — the numbers are in §1, taken BEFORE the freeze
 
-Обе стороны обеих дельт снимаются мной на одном хосте, по каждому корпусу отдельно.
+Both sides of both deltas are taken by me on one host, per corpus separately.
 
-## §9. Чего PR НЕ утверждает
+## §9. What the PR does NOT claim
 
-- Не проводит вердикты в фазы движка (#59).
-- Не утверждает, что достигнутый уровень высок: харнесс публикует то, что измерил.
-- ADV-9 остаётся декларативным (§8), и это объявлено, а не скрыто.
+- It does not wire the verdicts into the engine phases (#59).
+- It does not claim the achieved level is high: the harness publishes what it measured.
+- ADV-9 stays declarative (§8), and that is declared rather than hidden.
