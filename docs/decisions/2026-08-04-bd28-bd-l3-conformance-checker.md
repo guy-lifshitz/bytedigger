@@ -1,43 +1,43 @@
 # bd#28 — BD-L3 conformance checker + attestation report
 
-**Class:** оракул, который не умеет отказать (B-1 гейта bd#10 раунда 1, форма
-`[G22:18]`, инверсия P2 из CL §1). Чекер, у которого ветка `failed` недостижима,
-это не слабый контроль, а **перевёрнутый**: он превращает отсутствие свидетельств в
-утверждение о соответствии.
+**Class:** an oracle that cannot refuse (B-1 of the bd#10 round-1 gate, the
+`[G22:18]` form, the inversion of P2 from CL §1). A checker whose `failed` branch is unreachable
+is not a weak control but an **inverted** one: it turns an absence of evidence into
+a claim of conformance.
 
-**Chokepoint:** новый модуль `conformance/bd_l3.py` — единственное место, где
-вердикты по R3.3/R3.6 **вычисляются**. Источник фактов —
-события `model_invocation_attested` (`conformance.attest.EVENT_TYPE`), которые
-пишет чокпоинт `_dispatch_backend` (bd#10). Метки требований потребляются из
-`conformance.attest.REQUIREMENT_LABELS`, не переобъявляются.
+**Chokepoint:** the new module `conformance/bd_l3.py` — the only place where the
+R3.3/R3.6 verdicts are **computed**. The source of facts is the
+`model_invocation_attested` events (`conformance.attest.EVENT_TYPE`) written by
+the `_dispatch_backend` chokepoint (bd#10). The requirement labels are consumed from
+`conformance.attest.REQUIREMENT_LABELS`, not redeclared.
 
 ---
 
-## §1b. Живая база — ДВА КОРПУСА, замерены ДО заморозки
+## §1b. Live base — TWO CORPORA, measured BEFORE the freeze
 
-Дисциплина issue: дельта снимается **по каждому корпусу отдельно**. На `8548c39`,
-на этом хосте:
+The issue's discipline: the delta is taken **per corpus separately**. On `8548c39`,
+on this host:
 
-| корпус | команда | результат |
+| corpus | command | result |
 |---|---|---|
-| **pytest** (`ci.yml`) | `python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120` из `engine_py` | **5336 passed / 47 skipped / 1 xfailed / 0 failed**, 385 с |
-| **clean-room suite** (`clean-room.yml`) | `bash scripts/clean-room/run.sh suite 3.11` (docker, `git archive`) | **5250 passed / 68 skipped / 1 xfailed / 0 failed**, 216 с, вердикт `PASS` |
+| **pytest** (`ci.yml`) | `python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120` from `engine_py` | **5336 passed / 47 skipped / 1 xfailed / 0 failed**, 385 s |
+| **clean-room suite** (`clean-room.yml`) | `bash scripts/clean-room/run.sh suite 3.11` (docker, `git archive`) | **5250 passed / 68 skipped / 1 xfailed / 0 failed**, 216 s, verdict `PASS` |
 
-**Расхождение корпусов выросло:** issue называет 11 тестов (`test_gh792_native_sentinel_emit.py`
-за `importorskip dbos`) на базе `dc6f0d0`; сегодня разница **86 passed / 21 skipped**.
-На этом хосте `dbos` установлен, в clean-room его нет — но одним этим файлом разница
-больше не объясняется. **Не выводить причину рассуждением**: обе стороны дельты
-снимаются в СВОЁМ корпусе, и число из чужого корпуса в отчёт не подставляется.
+**The corpus divergence has grown:** the issue names 11 tests (`test_gh792_native_sentinel_emit.py`
+behind `importorskip dbos`) on base `dc6f0d0`; today the difference is **86 passed / 21 skipped**.
+On this host `dbos` is installed and in the clean room it is not — but that one file no longer
+explains the difference. **Do not derive the cause by reasoning**: both sides of the delta
+are taken in THEIR OWN corpus, and a number from the other corpus is not substituted into the report.
 
-## §2. Предмет жив
+## §2. The subject is alive
 
-`engine_py/bytedigger_engine/conformance/bd_l3.py` **не существует** на `8548c39`
-(проверено `ls`). Лот строит его с нуля; `check_bd_l3` в bd#10 был бы отчётом без
-потребителя, поэтому и отщеплён.
+`engine_py/bytedigger_engine/conformance/bd_l3.py` **does not exist** on `8548c39`
+(verified with `ls`). The lot builds it from scratch; `check_bd_l3` in bd#10 would have been a report with no
+consumer, which is why it was split off.
 
-## §3. Интерфейс — несёт СПЕКА, а не RED (§1.5 / bd#7 §3.0)
+## §3. The interface — carried by the SPEC, not by the RED (§1.5 / bd#7 §3.0)
 
-Модуль `bytedigger_engine/conformance/bd_l3.py`.
+The module `bytedigger_engine/conformance/bd_l3.py`.
 
 ```
 __all__ = ["REQUIREMENTS", "check_bd_l3", "validate_report"]
@@ -48,128 +48,128 @@ def check_bd_l3(events: "Iterable[Mapping[str, Any]]") -> L0Report: ...
 def validate_report(report: L0Report) -> tuple[str, ...]: ...
 ```
 
-`L0Report` импортируется из `conformance.report` и **НЕ расширяется** — его четыре
-поля контракт bd#22 (`CONTRACTS_SPEC.md` §2 AC-C2).
+`L0Report` is imported from `conformance.report` and is **NOT extended** — its four
+fields are the bd#22 contract (`CONTRACTS_SPEC.md` §2 AC-C2).
 
-`labels` отчёта несёт `verdict:R3.3` и `verdict:R3.6` со значениями из
+The report's `labels` carries `verdict:R3.3` and `verdict:R3.6` with values from
 `conformance.tokens` (`REQUIREMENT_PASSED` / `REQUIREMENT_FAILED` /
-`REQUIREMENT_NOT_CHECKED`), плюс метки требований из
+`REQUIREMENT_NOT_CHECKED`), plus the requirement labels from
 `attest.REQUIREMENT_LABELS`.
 
-## §4. Механизм — закрепляется ЗДЕСЬ, потому что v3 bd#10 его не закрепила
+## §4. The mechanism — fixed HERE, because bd#10's v3 did not fix it
 
-**Агрегация, три ветки, по каждому требованию отдельно (`[bd10:13]`):**
-1. `failed` — если **хоть одна** инвокация записала нарушение;
-2. иначе `not-checked` — если **ни одна** не несла ненулевого наблюдения;
-3. иначе `passed`.
+**Aggregation, three branches, per requirement separately (`[bd10:13]`):**
+1. `failed` — if **at least one** invocation recorded a violation;
+2. else `not-checked` — if **none** carried a non-null observation;
+3. else `passed`.
 
-**Что есть нарушение — пересчёт из payload, НЕ записанный флаг вердикта.**
-Записанный флаг дал бы эмиттеру оценивать самого себя (subtype (3) из hal#1373 на
-уровне всей системы).
-- **R3.3 нарушено**, когда `observed_model` не `null` **и** его семейство отличается
-  от семейства `model_requested`. Семейство — `lib.llm_provider` (`model_family`).
-- **R3.6 нарушено**, когда `observed_tools` не `null`, `declared_capabilities` не
-  `null`, и `attest.capability_escapes(observed_tools, declared_capabilities)`
-  возвращает непустой кортеж.
+**What constitutes a violation — recomputation from the payload, NOT a recorded verdict flag.**
+A recorded flag would let the emitter grade itself (subtype (3) from hal#1373 at
+the level of the whole system).
+- **R3.3 is violated** when `observed_model` is not `null` **and** its family differs
+  from the family of `model_requested`. The family comes from `lib.llm_provider` (`model_family`).
+- **R3.6 is violated** when `observed_tools` is not `null`, `declared_capabilities` is not
+  `null`, and `attest.capability_escapes(observed_tools, declared_capabilities)`
+  returns a non-empty tuple.
 
-**Что есть «ненулевое наблюдение»** (различитель ветки 2 от ветки 3):
-- для R3.3 — `observed_model` не `null`;
-- для R3.6 — `observed_tools` не `null` **и** `declared_capabilities` не `null`.
+**What constitutes a "non-null observation"** (the discriminator between branch 2 and branch 3):
+- for R3.3 — `observed_model` is not `null`;
+- for R3.6 — `observed_tools` is not `null` **and** `declared_capabilities` is not `null`.
 
-**Фильтр входа.** `check_bd_l3` читает **только** события с
-`type == attest.EVENT_TYPE` и игнорирует остальные. Закрепляется отдельно, потому
-что реальный лог гетерогенен, а однородный корпус фикстур (EDGE-8 гейта) пропустил
-бы GREEN без фильтра.
+**The input filter.** `check_bd_l3` reads **only** events with
+`type == attest.EVENT_TYPE` and ignores the rest. It is fixed separately, because
+a real log is heterogeneous, while a homogeneous fixture corpus (the gate's EDGE-8) would let
+a GREEN without the filter through.
 
-**`passed` отчёта** истинен, только когда **каждое** требование из `REQUIREMENTS`
-имеет вердикт `passed`. `not-checked` — **не** `passed` (EDGE-1).
+**The report's `passed`** is true only when **every** requirement in `REQUIREMENTS`
+has the verdict `passed`. `not-checked` is **not** `passed` (EDGE-1).
 
-**ADV-9** записывается как `ADVERSARY_NOT_EXECUTED`; судья — `validate_report`
-(CL:221-224): она возвращает кортеж строк-претензий, пустой кортеж = отчёт
-самосогласован.
+**ADV-9** is recorded as `ADVERSARY_NOT_EXECUTED`; the judge is `validate_report`
+(CL:221-224): it returns a tuple of complaint strings, and an empty tuple means the report is
+self-consistent.
 
 ## §5. Scope
 
-**Новые файлы**
+**New files**
 - `engine_py/bytedigger_engine/conformance/bd_l3.py`
-- `engine_py/tests/test_bd28_bd_l3_checker.py` — RED
+- `engine_py/tests/test_bd28_bd_l3_checker.py` — the RED
 
-**Правится** — ничего. Ни один существующий модуль не меняется.
+**Edited** — nothing. Not one existing module changes.
 
-**§1v — НЕ в области**
-- `L0Report` (контракт bd#22).
-- `attest.py`, `tokens.py`, `report.py` — потребляются, не правятся.
-- Грант уровня BD-L3: требует BD-L0/L1/L2 (bd#8, bd#9, bd#27 открыты). Этот лот
-  строит чекер и отчёт, **не выдаёт уровень**.
-- `_dispatch_backend` и payload аттестации — bd#10.
+**§1v — NOT in scope**
+- `L0Report` (the bd#22 contract).
+- `attest.py`, `tokens.py`, `report.py` — consumed, not edited.
+- The BD-L3 level grant: it requires BD-L0/L1/L2 (bd#8, bd#9, bd#27 are open). This lot
+  builds the checker and the report and **grants no level**.
+- `_dispatch_backend` and the attestation payload — bd#10.
 
-## §6. §1a Sibling-audit
+## §6. §1a Sibling audit
 
-Потребители того, что лот трогает (импортирует, не правит):
+The consumers of what the lot touches (imports, does not edit):
 
-Существование проверено на `8548c39`, а не предположено:
+Existence verified on `8548c39` rather than assumed:
 
-| файл | связь |
+| file | link |
 |---|---|
-| `test_bd10_l3_authorship.py` | `REQUIREMENT_LABELS`, payload аттестации |
-| `test_bd22_contracts.py` | `L0Report`, контракт AC-C2 |
-| `test_bd24_quant_lint.py` | форма поверхности экспортов, дисциплина отложенных импортов |
-| `test_contracts.py` | контракты |
+| `test_bd10_l3_authorship.py` | `REQUIREMENT_LABELS`, the attestation payload |
+| `test_bd22_contracts.py` | `L0Report`, the AC-C2 contract |
+| `test_bd24_quant_lint.py` | the export-surface form, the deferred-import discipline |
+| `test_contracts.py` | the contracts |
 
-**Итого 163 теста, все зелены на базе.** `test_bd29_in_session_pin_fail_closed.py` в
-списке НЕТ: он приезжает моим же PR bd#54, ещё не смерженным.
+**163 tests in total, all green on the base.** `test_bd29_in_session_pin_fail_closed.py` is NOT in
+the list: it arrives with my own PR bd#54, not yet merged.
 
-**★★★Против себя:** первый прогон этой поверхности перечислил несуществующий файл
-bd#29 и вернул **`no tests ran`** — pytest на отсутствующем пути обнуляет ВЕСЬ вызов,
-а не пропускает один аргумент. Правдоподобный ноль снова оказался сломанным прибором,
-а не находкой. Форма: перед прогоном списка файлов проверять их существование, и
-любой `no tests ran` читать как отказ прибора.
+**★★★Against myself:** the first run of this surface listed the non-existent bd#29
+file and returned **`no tests ran`** — pytest on a missing path voids the WHOLE invocation
+rather than skipping one argument. A plausible zero turned out once again to be a broken instrument,
+not a finding. The form: before running a list of files, verify they exist, and read
+any `no tests ran` as an instrument failure.
 
-Прогнать прицельно + **оба** полных корпуса (§1b).
+Run it targeted + **both** full corpora (§1b).
 
 ## §7. Acceptance criteria
 
-Импорты `conformance.*` — **внутри тел тестов**, никогда на уровне модуля
-(дисциплина bd#24: сбор остаётся чистым, RED падает на assert/ImportError в теле).
+`conformance.*` imports go **inside test bodies**, never at module level
+(the bd#24 discipline: collection stays clean, and the RED fails on an assert/ImportError in the body).
 
-- **AC1 (ветка `failed`, R3.3).** Лог с инвокацией, где `observed_model="haiku"` при
+- **AC1 (the `failed` branch, R3.3).** A log with an invocation where `observed_model="haiku"` while
   `model_requested="sonnet"` ⇒ `labels["verdict:R3.3"] == REQUIREMENT_FAILED`,
-  `report.passed is False`, `violations` непуст.
-- **AC2 (ветка `failed`, R3.6).** Инвокация с `observed_tools=["bash"]` и
+  `report.passed is False`, `violations` non-empty.
+- **AC2 (the `failed` branch, R3.6).** An invocation with `observed_tools=["bash"]` and
   `declared_capabilities=["Read"]` ⇒ `verdict:R3.6 == REQUIREMENT_FAILED`,
-  `passed is False`, `violations` непуст.
-- **AC3 (ветка `passed`).** Инвокация с совпадающим семейством и без побегов ⇒ оба
-  вердикта `passed`, `report.passed is True`, `violations == ()`.
-- **AC4 (ветка `not-checked`).** Инвокация с `observed_model=None` и
-  `observed_tools=None` ⇒ оба вердикта `not-checked`.
-- **AC5 (EDGE-1, ОТРИЦАТЕЛЬНАЯ НОГА).** `check_bd_l3([])` ⇒ оба вердикта
-  `not-checked` **и `report.passed is False`**. Отчёт по нулю свидетельств,
-  возвращающий `passed=True`, — чистейшая форма B-1.
-- **AC6 (EDGE-8, ОТРИЦАТЕЛЬНАЯ НОГА — фильтр входа).** Лог, где НАРУШАЮЩАЯ инвокация
-  лежит в событии ЧУЖОГО типа (`"runner_result_consumed"` с теми же ключами), а
-  событие `model_invocation_attested` чистое ⇒ вердикты `passed`, не `failed`.
-  Ловит GREEN без фильтра, который на однородном корпусе неотличим.
-- **AC7 (ОТРИЦАТЕЛЬНАЯ НОГА — пересчёт, не флаг).** Инвокация НАРУШАЮЩАЯ по payload,
-  но несущая `"verdict": "passed"` ⇒ вердикт всё равно `failed`. Ловит GREEN,
-  доверяющий записанному флагу, то есть дающий эмиттеру оценивать себя.
-- **AC8 (B-2, поверхность экспортов).** Публичная поверхность модуля равна
-  `__all__`. Утверждается ПРОТИВ `__all__`, а не вычислением по `__module__`:
-  замерено, что инстансы встроенных типов не несут `__module__` (`"x".__module__`
-  кидает `AttributeError`), поэтому вычисляющая форма считает импортированные
-  константы экспортами — а `bd_l3.py` обязан импортировать `REQUIREMENT_FAILED`,
-  то есть **починка B-1 детонирует B-2**.
-- **AC9 (`validate_report` как судья).** Самосогласованный отчёт ⇒ `()`.
-  Отчёт с `passed=True` при вердикте `failed` ⇒ непустой кортеж претензий.
-  Обе стороны, иначе судья, всегда возвращающий `()`, зелен.
-- **AC10 (ADV-9).** `labels` несёт ADV-9 со значением `ADVERSARY_NOT_EXECUTED`.
-- **AC11 (`L0Report` не расширён).** Поля отчёта ровно четыре — контракт bd#22.
+  `passed is False`, `violations` non-empty.
+- **AC3 (the `passed` branch).** An invocation with a matching family and no escapes ⇒ both
+  verdicts `passed`, `report.passed is True`, `violations == ()`.
+- **AC4 (the `not-checked` branch).** An invocation with `observed_model=None` and
+  `observed_tools=None` ⇒ both verdicts `not-checked`.
+- **AC5 (EDGE-1, NEGATIVE LEG).** `check_bd_l3([])` ⇒ both verdicts
+  `not-checked` **and `report.passed is False`**. A report over zero evidence
+  returning `passed=True` is the purest form of B-1.
+- **AC6 (EDGE-8, NEGATIVE LEG — the input filter).** A log where the VIOLATING invocation
+  sits in an event of ANOTHER type (`"runner_result_consumed"` with the same keys), while the
+  `model_invocation_attested` event is clean ⇒ verdicts `passed`, not `failed`.
+  It catches a GREEN without the filter, which is indistinguishable on a homogeneous corpus.
+- **AC7 (NEGATIVE LEG — recomputation, not a flag).** An invocation VIOLATING by payload
+  but carrying `"verdict": "passed"` ⇒ the verdict is `failed` all the same. It catches a GREEN
+  that trusts the recorded flag, i.e. one that lets the emitter grade itself.
+- **AC8 (B-2, the export surface).** The module's public surface equals
+  `__all__`. It is asserted AGAINST `__all__` rather than computed via `__module__`:
+  it is measured that instances of built-in types carry no `__module__` (`"x".__module__`
+  raises `AttributeError`), so the computing form counts imported
+  constants as exports — and `bd_l3.py` is obliged to import `REQUIREMENT_FAILED`,
+  i.e. **fixing B-1 detonates B-2**.
+- **AC9 (`validate_report` as the judge).** A self-consistent report ⇒ `()`.
+  A report with `passed=True` under a `failed` verdict ⇒ a non-empty tuple of complaints.
+  Both sides, otherwise a judge that always returns `()` is green.
+- **AC10 (ADV-9).** `labels` carries ADV-9 with the value `ADVERSARY_NOT_EXECUTED`.
+- **AC11 (`L0Report` is not extended).** The report has exactly four fields — the bd#22 contract.
 
-**В обе стороны на одном наборе фикстур** (требование issue): AC1/AC2 против AC3 —
-один и тот же построитель лога, разные наблюдения.
+**In both directions on one fixture set** (the issue's requirement): AC1/AC2 against AC3 —
+the same log builder, different observations.
 
-## §8. Чего этот PR НЕ утверждает
+## §8. What this PR does NOT claim
 
-- Не выдаёт грант BD-L3: BD-L0/L1/L2 не существуют (bd#8, bd#9, bd#27 открыты).
-- Не меняет ни одного существующего модуля.
-- Не утверждает полноту R3.1/R3.2/R3.5 — `REQUIREMENTS` этого лота ровно
-  `("R3.3", "R3.6")`, как задаёт issue.
+- It does not issue a BD-L3 grant: BD-L0/L1/L2 do not exist (bd#8, bd#9, bd#27 are open).
+- It changes not one existing module.
+- It does not claim completeness for R3.1/R3.2/R3.5 — this lot's `REQUIREMENTS` is exactly
+  `("R3.3", "R3.6")`, as the issue specifies.

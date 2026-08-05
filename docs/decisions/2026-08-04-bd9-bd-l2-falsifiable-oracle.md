@@ -1,51 +1,51 @@
-# bd#9 — BD-L2: фальсифицируемый оракул + fail-closed гейты (ADV-3…ADV-6)
+# bd#9 — BD-L2: falsifiable oracle + fail-closed gates (ADV-3…ADV-6)
 
-**Class:** оракул, который нельзя фальсифицировать, оракулом не является. BD-L2 —
-первый уровень, на котором **зелёный результат начинает нести информацию**, поэтому
-каждое требование обязано иметь предъявленный вход, на котором чекер говорит **НЕТ**.
-Форма провала — та же, что гейт bd#10 назвал B-1 и что я закрывал в bd#28: оракул с
-недостижимой веткой отказа не слабый, а **перевёрнутый**.
+**Class:** an oracle that cannot be falsified is not an oracle. BD-L2 is the
+first level at which **a green result starts to carry information**, so
+every requirement must have a presented input on which the checker says **NO**.
+The failure form is the same one the bd#10 gate called B-1 and that I closed in bd#28: an oracle with
+an unreachable refusal branch is not weak but **inverted**.
 
-**Chokepoint:** новый модуль `conformance/bd_l2.py` — единственное место, где вердикты
-R2.1–R2.6 **вычисляются**. Факты берутся из событий лога и из УЖЕ СУЩЕСТВУЮЩИХ
-детерминированных примитивов; ни один из них не переписывается.
+**Chokepoint:** the new module `conformance/bd_l2.py` — the only place where the
+R2.1–R2.6 verdicts are **computed**. The facts come from log events and from ALREADY EXISTING
+deterministic primitives; not one of them is rewritten.
 
-**Замороженная спека:** `SHARED/memory/Decisions/2026-07-26_bytedigger_conformance_levels.md`
-(HAL `fd35e1304`), §4 таблица адверсариев, §8 последний абзац, §9 порядок.
+**Frozen spec:** `SHARED/memory/Decisions/2026-07-26_bytedigger_conformance_levels.md`
+(HAL `fd35e1304`), §4 the adversary table, §8 the last paragraph, §9 the order.
 
 ---
 
-## §1. Живая база — ДВА КОРПУСА, замерены ДО заморозки
+## §1. Live base — TWO CORPORA, measured BEFORE the freeze
 
-На `c1cc725`, на этом хосте, из `engine_py` / из корня:
+On `c1cc725`, on this host, from `engine_py` / from the root:
 
-| корпус | результат |
+| corpus | result |
 |---|---|
-| **pytest** (`ci.yml`) | **5401 passed / 47 skipped / 1 xfailed / 0 failed**, 446 с |
-| **clean-room suite** (`clean-room.yml`, docker) | **5314 passed / 69 skipped / 1 xfailed / 0 failed**, 239 с, вердикт `PASS` |
+| **pytest** (`ci.yml`) | **5401 passed / 47 skipped / 1 xfailed / 0 failed**, 446 s |
+| **clean-room suite** (`clean-room.yml`, docker) | **5314 passed / 69 skipped / 1 xfailed / 0 failed**, 239 s, verdict `PASS` |
 
-Гейт дрейфа кодов на базе: `python3 -m bytedigger_engine.error_codes --check` → `OK 230 codes`.
-(Запуск файлом, а не модулем, падает `ModuleNotFoundError` — прибор надо звать `-m`.)
+The code-drift gate on the base: `python3 -m bytedigger_engine.error_codes --check` → `OK 230 codes`.
+(Invoking it as a file rather than a module fails with `ModuleNotFoundError` — the instrument must be called with `-m`.)
 
-## §2. Замер: все четыре примитива УЖЕ ЕСТЬ — лот их СОЕДИНЯЕТ, а не пишет заново
+## §2. Measurement: all four primitives ALREADY EXIST — the lot CONNECTS them rather than writing them anew
 
-| требование | адверсарий | примитив в дереве | статус |
+| requirement | adversary | primitive in the tree | status |
 |---|---|---|---|
-| R2.1 | — | события `red_test_outcome` (`group`, `exit_code`, `n_passed`, `n_failed`), `red_collect_probe_check` | есть |
-| R2.2 | **ADV-3** | `stub_passability.scan_stub_passability` / `lint_red_file` — AST-скан «RED мокает свой UUT» | есть |
-| R2.5 | **ADV-6** | `known_reds_ledger.classify_kill_by` → `active`/`expired`/`malformed`, `ISSUE_INDEX=3`, `KILL_BY_INDEX=4` | есть |
-| R2.6 | — | событие `baseline_delta_gate_verdict` | есть |
+| R2.1 | — | the events `red_test_outcome` (`group`, `exit_code`, `n_passed`, `n_failed`), `red_collect_probe_check` | present |
+| R2.2 | **ADV-3** | `stub_passability.scan_stub_passability` / `lint_red_file` — the AST scan for "the RED mocks its own UUT" | present |
+| R2.5 | **ADV-6** | `known_reds_ledger.classify_kill_by` → `active`/`expired`/`malformed`, `ISSUE_INDEX=3`, `KILL_BY_INDEX=4` | present |
+| R2.6 | — | the event `baseline_delta_gate_verdict` | present |
 
-**Отсутствуют только коды ошибок:** `E_ORACLE_VACUOUS`, `E_GATE_INDETERMINATE`,
-`E_SUPPRESSION_UNBOUNDED` — замерено грепом по `error_codes.py` (0 попаданий каждый);
-`E_ORACLE_INDETERMINATE` и `E_ORACLE_MUTATED` уже есть от bd#8.
+**Only the error codes are missing:** `E_ORACLE_VACUOUS`, `E_GATE_INDETERMINATE`,
+`E_SUPPRESSION_UNBOUNDED` — measured by grepping `error_codes.py` (0 hits each);
+`E_ORACLE_INDETERMINATE` and `E_ORACLE_MUTATED` already exist from bd#8.
 
-⇒ Лот не изобретает механику фальсифицируемости. Он **выносит вердикт** по
-существующим наблюдениям и закрывает три дыры в словаре кодов.
+⇒ The lot does not invent the mechanics of falsifiability. It **issues a verdict** over
+existing observations and closes three holes in the code dictionary.
 
-## §3. Интерфейс — несёт СПЕКА, не RED (`CONTRACTS_SPEC` §1.5 / bd#7 §3.0)
+## §3. The interface — carried by the SPEC, not the RED (`CONTRACTS_SPEC` §1.5 / bd#7 §3.0)
 
-Модуль `bytedigger_engine/conformance/bd_l2.py`.
+The module `bytedigger_engine/conformance/bd_l2.py`.
 
 ```
 __all__ = ["REQUIREMENTS", "check_bd_l2", "validate_report"]
@@ -56,139 +56,139 @@ def check_bd_l2(events: "Iterable[Mapping[str, object]]") -> L0Report: ...
 def validate_report(report: L0Report) -> tuple[str, ...]: ...
 ```
 
-`L0Report` импортируется и **НЕ расширяется** (контракт bd#22, `CONTRACTS_SPEC` §2
-AC-C2). `labels` несёт `verdict:R2.1`…`verdict:R2.6` из `conformance.tokens`, плюс
-`ADV-3`…`ADV-6` с их исполненным исходом.
+`L0Report` is imported and **NOT extended** (the bd#22 contract, `CONTRACTS_SPEC` §2
+AC-C2). `labels` carries `verdict:R2.1`…`verdict:R2.6` from `conformance.tokens`, plus
+`ADV-3`…`ADV-6` with their executed outcome.
 
-**Импорты под подчёркиванием, аннотации строковые, `__all__` обязателен** — B-2 из
-bd#10 и мой собственный промах в bd#28, где поверхность утекла тремя именами
-(`annotations`, `Any`, `TYPE_CHECKING`). Здесь это форма с первой строки.
+**Imports under an underscore, annotations stringly, `__all__` mandatory** — B-2 from
+bd#10 and my own slip in bd#28, where the surface leaked three names
+(`annotations`, `Any`, `TYPE_CHECKING`). Here that is the form from the first line.
 
-## §4. Механизм вердиктов — три ветки на требование, как в bd#28
+## §4. The verdict mechanism — three branches per requirement, as in bd#28
 
-`failed` — если хоть одно наблюдение записало нарушение; иначе `not-checked` — если ни
-одно не несло ненулевого наблюдения; иначе `passed`. `passed` отчёта истинен, только
-когда **каждое** требование `passed`; `not-checked` — **не** `passed`.
+`failed` — if at least one observation recorded a violation; else `not-checked` — if not one
+carried a non-null observation; else `passed`. The report's `passed` is true only
+when **every** requirement is `passed`; `not-checked` is **not** `passed`.
 
-**Вердикт пересчитывается из payload, а не читается из записанного флага** — иначе
-эмиттер оценивает себя.
+**The verdict is recomputed from the payload rather than read from a recorded flag** — otherwise the
+emitter grades itself.
 
-Пофакторно:
+Factor by factor:
 
-- **R2.1 (отказ ≠ несрабатывание).** Наблюдение — событие `red_test_outcome`.
-  *Отказ* = `n_failed >= 1` при нормальном коде выхода. *Неопределённость* =
-  собрано ноль тестов (`n_passed + n_failed == 0`) либо код выхода ошибки сбора.
-  **Нарушение** — прогон, который неопределённость **зачёл как отказ**
+- **R2.1 (a refusal ≠ a no-op).** The observation is the `red_test_outcome` event.
+  *A refusal* = `n_failed >= 1` under a normal exit code. *Indeterminacy* =
+  zero tests collected (`n_passed + n_failed == 0`) or a collection-error exit code.
+  **A violation** is a run that **counted** indeterminacy **as a refusal**
   (`E_ORACLE_INDETERMINATE`).
-- **R2.2 (вакуумный оракул, ADV-3).** Нарушение — непустой набор findings
-  `stub_passability` по файлам оракула (`E_ORACLE_VACUOUS`).
-- **R2.3 (наблюдаемый эффект).** Наблюдение — объявленный список ACs; нарушение —
-  ни один AC не привязан к наблюдаемому эффекту артефакта.
-- **R2.4 (гейт с исключением, ADV-5).** Гейт, поднявший исключение, считается
-  **упавшим**, никогда отсутствующим (`E_GATE_INDETERMINATE`). Нарушение — гейт с
-  записанным исключением и исходом «отсутствует/пропущен».
-- **R2.5 (подавление, ADV-6).** Нарушение — строка реестра без владельца
-  (`ISSUE_INDEX` пуст) **или** с `classify_kill_by != active`
+- **R2.2 (a vacuous oracle, ADV-3).** A violation is a non-empty set of
+  `stub_passability` findings over the oracle's files (`E_ORACLE_VACUOUS`).
+- **R2.3 (an observable effect).** The observation is the declared list of ACs; a violation is
+  not a single AC bound to an observable effect of the artefact.
+- **R2.4 (a gate that raised, ADV-5).** A gate that raised an exception counts as
+  **failed**, never as absent (`E_GATE_INDETERMINATE`). A violation is a gate with
+  a recorded exception and an outcome of "absent/skipped".
+- **R2.5 (suppression, ADV-6).** A violation is a registry row with no owner
+  (`ISSUE_INDEX` empty) **or** with `classify_kill_by != active`
   (`E_SUPPRESSION_UNBOUNDED`).
-- **R2.6 (дельта против объявленного базлайна).** Наблюдение — событие
-  `baseline_delta_gate_verdict`. Нарушение — объявлен только scoped-результат без
-  дельты полного сьюта. **Это про ГЕЙТ, а не про оракул** — прямое напоминание issue.
+- **R2.6 (the delta against a declared baseline).** The observation is the
+  `baseline_delta_gate_verdict` event. A violation is declaring only a scoped result with no
+  full-suite delta. **This is about the GATE, not the oracle** — a direct reminder from the issue.
 
-**§8 замороженной спеки: уровень заявляется ТОЛЬКО по реально исполненным
-адверсариям.** Поэтому `labels` несёт исход каждого ADV, а `validate_report` отвергает
-отчёт, объявляющий `passed` по адверсарию, который не исполнялся — «реализация, тихо
-считающая неисполненный адверсарий пройденным, сама есть провал конформанса».
+**§8 of the frozen spec: a level is claimed ONLY on adversaries actually
+executed.** So `labels` carries each ADV's outcome, and `validate_report` rejects a
+report declaring `passed` on an adversary that was not executed — "an implementation that silently
+counts an unexecuted adversary as passed is itself a conformance failure".
 
 ## §5. Scope
 
-**Новые файлы**
+**New files**
 - `engine_py/bytedigger_engine/conformance/bd_l2.py`
-- `engine_py/tests/test_bd9_l2_falsifiable_oracle.py` — RED
+- `engine_py/tests/test_bd9_l2_falsifiable_oracle.py` — the RED
 
-**Правится**
-- `engine_py/bytedigger_engine/error_codes.py` — **+3 кода**:
+**Edited**
+- `engine_py/bytedigger_engine/error_codes.py` — **+3 codes**:
   `E_ORACLE_VACUOUS`, `E_GATE_INDETERMINATE`, `E_SUPPRESSION_UNBOUNDED`.
 
-**§1v — НЕ в области**
-- `stub_passability.py`, `known_reds_ledger.py`, `oracle.py` — **потребляются, не
-  правятся**. Переписывать их значило бы делать два предмета одним диффом.
-- Проводка вердиктов L2 в фазы движка (отказ прогона по `E_ORACLE_VACUOUS` и пр.) —
-  **отдельный лот**, как флип bd#29 был отдельным от шва bd#10. Здесь строится чекер и
-  отчёт; enforcement — следствие, которое надо мерить своей экспозицией.
-- `L0Report` (контракт bd#22).
-- Грант уровня BD-L2: кумулятивен, требует BD-L0/L1 (bd#27 и bd#8 в дереве, но грант
-  выдаёт не этот лот).
+**§1v — NOT in scope**
+- `stub_passability.py`, `known_reds_ledger.py`, `oracle.py` — **consumed, not
+  edited**. Rewriting them would mean making two subjects into one diff.
+- Wiring the L2 verdicts into the engine phases (failing a run on `E_ORACLE_VACUOUS` etc.) —
+  **a separate lot**, as the bd#29 flip was separate from the bd#10 seam. Here the checker and the
+  report are built; enforcement is a consequence that must be measured with its own exposure.
+- `L0Report` (the bd#22 contract).
+- The BD-L2 level grant: it is cumulative and requires BD-L0/L1 (bd#27 and bd#8 are in the tree, but this lot
+  does not issue the grant).
 
-## §6. §1a Sibling-audit
+## §6. §1a Sibling audit
 
-Существование проверено на `c1cc725`, а не предположено:
+Existence verified on `c1cc725` rather than assumed:
 
-| файл | связь |
+| file | link |
 |---|---|
-| `test_bd8_l1_oracle.py` | `oracle.py`, коды `E_ORACLE_*` |
-| `test_bd27_oracle.py` | оракул L0/L1 |
-| `test_bd28_bd_l3_checker.py` | форма чекера, `L0Report`, `__all__` |
-| `test_bd22_contracts.py`, `test_contracts.py` | контракт `L0Report` |
-| `test_bd24_quant_lint.py` | дисциплина отложенных импортов |
-| тесты `error_codes` | реестр кодов — **прямой риск**: реестр двусторонний, `--check` ронял 5 тестов в bd#48 при регистрации кода без излучателя |
+| `test_bd8_l1_oracle.py` | `oracle.py`, the `E_ORACLE_*` codes |
+| `test_bd27_oracle.py` | the L0/L1 oracle |
+| `test_bd28_bd_l3_checker.py` | the checker's form, `L0Report`, `__all__` |
+| `test_bd22_contracts.py`, `test_contracts.py` | the `L0Report` contract |
+| `test_bd24_quant_lint.py` | the deferred-import discipline |
+| the `error_codes` tests | the code registry — **direct risk**: the registry is two-sided, and `--check` failed 5 tests in bd#48 when a code was registered with no emitter |
 
-**Риск назван заранее:** bd#48 показал, что регистрация кода **без излучателя** даёт
-`DEAD <CODE>` и роняет тесты дрейфа. Три новых кода обязаны либо иметь излучателя в
-этом же диффе, либо быть зарегистрированы в форме, которую гейт дрейфа принимает.
-Проверяется до заморозки GREEN.
+**The risk is named in advance:** bd#48 showed that registering a code **with no emitter** gives
+`DEAD <CODE>` and fails the drift tests. The three new codes must either have an emitter in
+this same diff or be registered in a form the drift gate accepts.
+To be checked before the GREEN freeze.
 
 ## §7. Acceptance criteria
 
-Импорты `conformance.*` — **внутри тел тестов**. Все ноги строятся **одним**
-построителем лога: если `failed` и `passed` собираются разными фикстурами, разойдутся
-не вердикты, а фикстуры.
+`conformance.*` imports go **inside test bodies**. Every leg is built by **one**
+log builder: if `failed` and `passed` are assembled by different fixtures, it is the fixtures that
+diverge, not the verdicts.
 
-**Отрицательная нога на КАЖДОЕ требование — вход, на котором чекер обязан сказать
-НЕТ.** Это мандат лота, а не украшение.
+**A negative leg for EVERY requirement — an input on which the checker must say
+NO.** That is the lot's mandate, not a decoration.
 
-- **AC1 (R2.1, ОТКАЗ).** `red_test_outcome` с `n_failed=1` ⇒ `verdict:R2.1 == passed`.
-- **AC2 (R2.1, ОТРИЦАТЕЛЬНАЯ).** Прогон, собравший НОЛЬ тестов
-  (`n_passed=0, n_failed=0`), зачтённый как отказ ⇒ `failed`, код
-  `E_ORACLE_INDETERMINATE`. Несрабатывание — не отказ.
-- **AC3 (R2.2, ADV-3, ОТРИЦАТЕЛЬНАЯ).** Оракул, мокающий свой UUT ⇒ `failed`,
-  `E_ORACLE_VACUOUS`. Вход — реальный findings-набор формы `stub_passability`.
-- **AC4 (R2.2, положительная).** Оракул без findings ⇒ `passed`.
-- **AC5 (R2.4, ADV-5, ОТРИЦАТЕЛЬНАЯ).** Гейт с записанным исключением и исходом
-  «отсутствует» ⇒ `failed`, `E_GATE_INDETERMINATE`. Гейт, не достигший вердикта,
-  падает закрыто.
-- **AC6 (R2.5, ADV-6, ОТРИЦАТЕЛЬНАЯ, обе половины).** Строка без владельца ⇒ `failed`;
-  строка с истёкшим `Kill-by` ⇒ `failed`; обе с `E_SUPPRESSION_UNBOUNDED`. Строка с
-  владельцем и живой датой ⇒ `passed`. Три входа, потому что «без владельца ИЛИ
-  просрочено» — дизъюнкция, и проверка одной половины оставляет вторую недостижимой.
-- **AC7 (R2.6, ОТРИЦАТЕЛЬНАЯ).** Только scoped-результат без дельты полного сьюта ⇒
-  не `passed`. Прямое требование issue: R2.6 про гейт, не про оракул.
-- **AC8 (R2.3).** Ни один AC не привязан к наблюдаемому эффекту ⇒ не `passed`.
-- **AC9 (EDGE-1, ОТРИЦАТЕЛЬНАЯ).** `check_bd_l2([])` ⇒ все вердикты `not-checked` и
-  **`passed is False`**. Отчёт по нулю свидетельств с `passed=True` — форма B-1.
-- **AC10 (фильтр входа).** Нарушение, подложенное в событие ЧУЖОГО типа,
-  игнорируется. Реальный лог гетерогенен, корпус фикстур однороден.
-- **AC11 (пересчёт, не флаг).** Событие, несущее `"verdict": "passed"`, но нарушающее
-  по данным ⇒ `failed`. Иначе эмиттер оценивает себя.
-- **AC12 (§8 — только исполненные адверсарии).** Отчёт, объявляющий `passed` по
-  адверсарию с исходом «не исполнялся», отвергается `validate_report`.
-- **AC13 (`validate_report`, обе стороны).** Самосогласованный ⇒ `()`; лгущий ⇒
-  непустой кортеж. Судья, всегда возвращающий `()`, зелен.
-- **AC14 (поверхность = `__all__`).** B-2; форма с первой строки, а не после падения.
-- **AC15 (`L0Report` не расширён).** Четыре поля — контракт bd#22.
-- **AC16 (коды зарегистрированы).** Три новых кода присутствуют в реестре
-  `error_codes` и проходят его гейт дрейфа.
+- **AC1 (R2.1, A REFUSAL).** `red_test_outcome` with `n_failed=1` ⇒ `verdict:R2.1 == passed`.
+- **AC2 (R2.1, NEGATIVE).** A run that collected ZERO tests
+  (`n_passed=0, n_failed=0`), counted as a refusal ⇒ `failed`, code
+  `E_ORACLE_INDETERMINATE`. A no-op is not a refusal.
+- **AC3 (R2.2, ADV-3, NEGATIVE).** An oracle mocking its own UUT ⇒ `failed`,
+  `E_ORACLE_VACUOUS`. The input is a real findings set of the `stub_passability` shape.
+- **AC4 (R2.2, positive).** An oracle with no findings ⇒ `passed`.
+- **AC5 (R2.4, ADV-5, NEGATIVE).** A gate with a recorded exception and an outcome of
+  "absent" ⇒ `failed`, `E_GATE_INDETERMINATE`. A gate that reached no verdict
+  fails closed.
+- **AC6 (R2.5, ADV-6, NEGATIVE, both halves).** A row with no owner ⇒ `failed`;
+  a row with an expired `Kill-by` ⇒ `failed`; both with `E_SUPPRESSION_UNBOUNDED`. A row with
+  an owner and a live date ⇒ `passed`. Three inputs, because "no owner OR
+  expired" is a disjunction, and checking one half leaves the other unreachable.
+- **AC7 (R2.6, NEGATIVE).** A scoped result only, with no full-suite delta ⇒
+  not `passed`. A direct requirement of the issue: R2.6 is about the gate, not the oracle.
+- **AC8 (R2.3).** Not a single AC bound to an observable effect ⇒ not `passed`.
+- **AC9 (EDGE-1, NEGATIVE).** `check_bd_l2([])` ⇒ all verdicts `not-checked` and
+  **`passed is False`**. A report over zero evidence with `passed=True` is the B-1 form.
+- **AC10 (the input filter).** A violation planted in an event of ANOTHER type is
+  ignored. A real log is heterogeneous, a fixture corpus is homogeneous.
+- **AC11 (recomputation, not a flag).** An event carrying `"verdict": "passed"` while violating
+  on the data ⇒ `failed`. Otherwise the emitter grades itself.
+- **AC12 (§8 — executed adversaries only).** A report declaring `passed` on an
+  adversary whose outcome is "not executed" is rejected by `validate_report`.
+- **AC13 (`validate_report`, both sides).** A self-consistent one ⇒ `()`; a lying one ⇒
+  a non-empty tuple. A judge that always returns `()` is green.
+- **AC14 (surface = `__all__`).** B-2; the form from the first line, not after a failure.
+- **AC15 (`L0Report` is not extended).** Four fields — the bd#22 contract.
+- **AC16 (the codes are registered).** The three new codes are present in the `error_codes`
+  registry and pass its drift gate.
 
-## §8. База — см. §1, снята ДО заморозки
+## §8. The base — see §1, taken BEFORE the freeze
 
-Числа в §1. Обе стороны дельты будут сняты мной на этом же хосте, по каждому корпусу
-отдельно.
+The numbers are in §1. Both sides of the delta will be taken by me on this same host, per corpus
+separately.
 
-## §9. Чего этот PR НЕ утверждает
+## §9. What this PR does NOT claim
 
-- **Не выдаёт грант BD-L2** — уровень кумулятивен и заявляется только по реально
-  исполненным адверсариям; этот лот строит чекер и отчёт.
-- Не проводит вердикты в фазы движка (enforcement — отдельный лот со своей
-  экспозицией).
-- Не переписывает `stub_passability`, `known_reds_ledger`, `oracle` — потребляет.
-- Не утверждает качество самого критерия: независимый, фальсифицируемый, но неверный
-  оракул проходит BD-L2 по построению (§5 замороженной спеки).
+- **It does not issue a BD-L2 grant** — the level is cumulative and is claimed only on adversaries
+  actually executed; this lot builds the checker and the report.
+- It does not wire the verdicts into the engine phases (enforcement is a separate lot with its own
+  exposure).
+- It does not rewrite `stub_passability`, `known_reds_ledger`, `oracle` — it consumes them.
+- It does not claim the quality of the criterion itself: an independent, falsifiable, but wrong
+  oracle passes BD-L2 by construction (§5 of the frozen spec).

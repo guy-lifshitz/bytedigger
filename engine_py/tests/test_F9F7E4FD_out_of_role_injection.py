@@ -12,6 +12,8 @@ After GREEN they MUST PASS.
 from __future__ import annotations
 
 import sys
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -32,13 +34,20 @@ from bytedigger_engine.workflows import phase_5_integrity  # noqa: E402
 # ─── shared fixtures ──────────────────────────────────────────────────────────
 
 
-def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar") -> WorkflowContext:
+def _make_ctx(
+    scratchpad: Path,
+    *,
+    question: str = "Add foo to bar",
+    org_extra: dict | None = None,
+) -> WorkflowContext:
     scratchpad.mkdir(parents=True, exist_ok=True)
+    org_config = {"scratchpad_dir": str(scratchpad)}
+    org_config.update(org_extra or {})
     return WorkflowContext(
         tenant_id="hal",
         scope=None,
         db_path=None,
-        org_config={"scratchpad_dir": str(scratchpad)},
+        org_config=org_config,
         question=question,
         session_id="test-F9F7E4FD",
         persona="hal",
@@ -46,6 +55,56 @@ def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar") -> Workflow
         domain=None,
     )
 
+
+
+def _hermetic_diff_repo(root: Path) -> Path:
+    """A throwaway git repo whose `git diff HEAD~1 -- *test*` is guaranteed
+    non-empty.
+
+    Why this exists. `_build_integrity_prompt` resolves its diff through
+    `resolve_git_cwd(cfg)`, which without `cfg["git_cwd"]` falls back to the
+    process CWD - i.e. whatever checkout pytest happens to run in. The diff is
+    then `git diff HEAD~1 -- "*test*" "*spec*" "*.test.*"`, so the assertion
+    below was live or dead depending on whether that checkout's top commit
+    touched a test-named path.
+
+    Measured (bd#76 gate): a commit touching only `docs/` - English or Russian,
+    it makes no difference - empties the diff, and the test reports SUCCESS
+    while the OUT OF ROLE check never runs. Reproduced on the untouched base
+    with a pure-English docs commit, so the coupling is to the ambient repo's
+    HEAD, not to any document's language.
+
+    Owning the repo removes the dependency outright: no commit ordering in any
+    checkout can silence this assertion again.
+    """
+    repo = root / "diffrepo"
+    repo.mkdir(parents=True, exist_ok=True)
+    env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=repo, env=env, check=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+
+    git("init", "-q", "-b", "main")
+    (repo / "sample_test_file.py").write_text("def test_one():\n    assert True\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "baseline")
+    # the second commit MUST touch a path matching DEFAULT_DIFF_PATTERNS,
+    # otherwise this helper would reproduce the very defect it removes
+    (repo / "sample_test_file.py").write_text(
+        "def test_one():\n    assert True\n\n\ndef test_two():\n    assert True\n"
+    )
+    git("add", "-A")
+    git("commit", "-q", "-m", "change under test")
+    return repo
 
 def _seed_injection(scratchpad: Path) -> None:
     """Seed injection/*.md stubs so _read_first_block doesn't raise."""
@@ -232,23 +291,17 @@ def test_clarify_prompt_includes_out_of_role_block(tmp_path):
 def test_integrity_prompt_includes_out_of_role_block(tmp_path):
     scratch = tmp_path / "s"
     _seed_injection(scratch)
-    ctx = _make_ctx(scratch)
-    # _build_integrity_prompt runs `git diff` via _resolve_diff_command.
-    # Provide a scratchpad inside a real git repo so it can run.
+    # The diff is resolved inside a repo this test owns, so the assertion below
+    # cannot be silenced by what some ambient checkout's last commit touched.
+    ctx = _make_ctx(scratch, org_extra={"git_cwd": str(_hermetic_diff_repo(tmp_path))})
     result = phase_5_integrity._build_integrity_prompt(ctx, None)
-    # Legitimate skip paths:
-    #   - status=error: diff command failed (not a git repo / cmd missing)
-    #   - status=ok with verdict_override=NO_CHANGES: empty diff → no LLM
-    #     prompt assembled (prompt=None). This is a Phase 3.5.3 ideal case
-    #     and varies based on test execution order / fixture diff state.
-    if result.status == "error":
-        pytest.skip(
-            f"_build_integrity_prompt returned error (likely diff-cmd setup): {result.error} "
-            "— covered by GREEN-phase impl test"
-        )
-    if result.data.get("verdict_override") and result.data.get("prompt") is None:
-        pytest.skip(
-            "_build_integrity_prompt skipped LLM call (empty diff) — "
-            "OUT OF ROLE injection is irrelevant when no prompt is built"
-        )
+    # No skip branches. Both former ones were environment-dependent, and the
+    # empty-diff one fired on a green run - an assertion that reports success
+    # while never executing is worse than a red one.
+    assert result.status != "error", f"_build_integrity_prompt errored: {result.error}"
+    assert result.data.get("prompt") is not None, (
+        "no prompt was assembled, so the OUT OF ROLE block was never checked; "
+        f"verdict_override={result.data.get('verdict_override')!r}, "
+        f"diff_command={result.data.get('diff_command')!r}"
+    )
     _assert_out_of_role(result, "_build_integrity_prompt")

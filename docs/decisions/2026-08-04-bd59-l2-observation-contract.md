@@ -1,120 +1,120 @@
-# bd#59 — замер экспозиции остановил enforcement: наблюдения не производятся
+# bd#59 — an exposure measurement stopped enforcement: the observations are not produced
 
-**Class:** наблюдение без производителя. #59 заявлен как «вердикт без последствия»
-(код зарегистрирован, но ни на что не влияет). Замер экспозиции, который issue сам
-объявил обязательным ДО RED, показал, что дефект **на уровень глубже**: у пяти из шести
-требований BD-L2 нет не только последствия, но и **наблюдения** — событий, которые
-`bd_l2` читает, никто не эмитит. Enforcement, построенный сегодня, был бы инертен на
-**6/6** требований.
+**Class:** an observation with no producer. #59 was filed as "a verdict with no consequence"
+(a code is registered but affects nothing). The exposure measurement, which the issue itself
+declared mandatory BEFORE the RED, showed the defect is **one level deeper**: five of the six
+BD-L2 requirements lack not only a consequence but the **observation** — nobody emits the events
+`bd_l2` reads. Enforcement built today would be inert on
+**6/6** requirements.
 
-**Chokepoint:** `conformance/bd_l2._EVENT_FOR` — контракт «требование → событие,
-несущее его наблюдение». Сегодня он ссылается на имена, которых в проде нет.
+**Chokepoint:** `conformance/bd_l2._EVENT_FOR` — the contract "requirement → the event
+carrying its observation". Today it references names that do not exist in production.
 
 ---
 
-## §1. §1b живая база — оба корпуса, на `1a82f8c`
+## §1. §1b live base — both corpora, on `1a82f8c`
 
-| корпус | результат |
+| corpus | result |
 |---|---|
-| **pytest** | **5428 passed / 47 skipped / 1 xfailed / 0 failed**, 352 с |
-| **clean-room suite** | **5341 passed / 69 skipped / 1 xfailed / 0 failed**, 204 с, `PASS` |
+| **pytest** | **5428 passed / 47 skipped / 1 xfailed / 0 failed**, 352 s |
+| **clean-room suite** | **5341 passed / 69 skipped / 1 xfailed / 0 failed**, 204 s, `PASS` |
 
-## §2. ЗАМЕР ЭКСПОЗИЦИИ — обязательное условие issue, выполнено числом
+## §2. EXPOSURE MEASUREMENT — the issue's mandatory condition, met as a number
 
-| требование | событие, которое ждёт `bd_l2` | прод-эмиттеров | payload совпадает |
+| requirement | the event `bd_l2` waits for | production emitters | payload matches |
 |---|---|---|---|
-| R2.1 | `red_test_outcome` | **1** (`phase_5_implement.py:2635`) | **НЕТ** — нет ключа `counted_as`, а именно на нём стоит различитель |
+| R2.1 | `red_test_outcome` | **1** (`phase_5_implement.py:2635`) | **NO** — no `counted_as` key, and the discriminator rests on precisely that |
 | R2.2 | `oracle_vacuity_scan` | **0** | — |
 | R2.3 | `acceptance_criteria_declared` | **0** | — |
-| R2.4 | `gate_decision` | **0** — в дереве это **ключ payload** (`"gate_decision": "fail-closed"`), а не тип события | — |
+| R2.4 | `gate_decision` | **0** — in the tree that is a **payload key** (`"gate_decision": "fail-closed"`), not an event type | — |
 | R2.5 | `known_reds_ledger_scan` | **0** | — |
-| R2.6 | `baseline_delta_gate_verdict` | **1** (`_baseline_delta.py:92`) | **НЕТ** — эмитятся `verdict`/`new_fails`/`enforced`, а читаются `scoped_result`/`full_suite_delta` |
+| R2.6 | `baseline_delta_gate_verdict` | **1** (`_baseline_delta.py:92`) | **NO** — `verdict`/`new_fails`/`enforced` are emitted, while `scoped_result`/`full_suite_delta` are read |
 
-**Итог замера: на реальном логе `bd_l2` не выносит НИ ОДНОГО вердикта.** Все шесть
-требований вечно `not-checked`.
+**The measurement's conclusion: on a real log `bd_l2` issues NOT A SINGLE verdict.** All six
+requirements are permanently `not-checked`.
 
-**Контроль (та же проверка на соседе):** `bd_l3` читает `model_invocation_attested` —
-эмиттер реальный (`llm_subprocess.py`), ключи (`observed_model`,
-`declared_capabilities`, `observed_tools`) реальные. Значит метод замера исправен, а
-разница между L2 и L3 настоящая, а не артефакт прибора.
+**A control (the same check on a neighbour):** `bd_l3` reads `model_invocation_attested` — the
+emitter is real (`llm_subprocess.py`), and the keys (`observed_model`,
+`declared_capabilities`, `observed_tools`) are real. So the measurement method is sound, and the
+difference between L2 and L3 is genuine, not an artefact of the instrument.
 
-## §3. ★★★ЭТО ПРОТИВ МОЕГО ЖЕ bd#9
+## §3. ★★★THIS IS AGAINST MY OWN bd#9
 
-`_EVENT_FOR` я написал из имён, **которые сам придумал в фикстурах** RED bd#9. Все
-шестнадцать ACs прошли, потому что каждая фикстура была синтетической: чекер
-адъюдицировал ровно ту форму, которую я же ему и подавал. Отрицательные ноги там честные
-— они доказывают, что функция умеет сказать НЕТ, — но **ни один AC не привязывал `bd_l2`
-к реальному прод-излучению**. Это §1l-якорь, которого в лоте не было.
+I wrote `_EVENT_FOR` from names **I invented myself in the fixtures** of the bd#9 RED. All
+sixteen ACs passed because every fixture was synthetic: the checker
+adjudicated exactly the shape I was feeding it. The negative legs there are honest
+— they prove the function can say NO — but **no AC bound `bd_l2`
+to real production emission**. That is the §1l anchor the lot did not have.
 
-Форма ошибки та же, что я весь день ловлю у других и дважды поймал у себя (порт на не
-том корпусе, `no tests ran`, `diff` против пустого файла): **прибор измерял корпус,
-которого не существует, и молчание принял за исправность.**
+The form of the error is the same one I have been catching in others all day and have caught twice in
+myself (a port against the wrong corpus, `no tests ran`, a `diff` against an empty file): **the instrument measured a corpus
+that does not exist, and took silence for health.**
 
-## §4. Следствие для #59 — enforcement НЕ СТРОИТСЯ, и это ответ, а не отговорка
+## §4. The consequence for #59 — enforcement is NOT BUILT, and that is an answer, not an excuse
 
-Issue #59 требует замер ДО RED и запрещает оценку вместо числа. Число получено, и оно
-говорит: последствие вердикта бессмысленно, пока вердикта не существует. Построить
-отказ сейчас значило бы добавить прод-путь, который не срабатывает никогда, — то есть
-воспроизвести класс, объявленный предметом #59, на слой ниже.
+Issue #59 demands a measurement BEFORE the RED and forbids an estimate in place of a number. The number is in, and it
+says: a verdict's consequence is meaningless while the verdict does not exist. Building a
+refusal now would mean adding a production path that never fires — that is,
+reproducing the class declared as the subject of #59, one layer down.
 
-**Поэтому лот делает то, что разблокирует #59, и не делает enforcement:**
-приводит контракт наблюдений в соответствие с тем, что реально эмитится, и ставит гейт,
-который не даст расхождению вернуться.
+**So the lot does what unblocks #59 and does not do enforcement:**
+it brings the observation contract into line with what is actually emitted and installs a gate
+that will not let the divergence return.
 
 ## §5. Scope
 
-**Правится**
-- `conformance/bd_l2.py` — `_EVENT_FOR` и предикаты R2.1/R2.6 перенаводятся на
-  **реальные** типы событий и **реальные** ключи payload.
-- Требования, у которых производителя нет (R2.2, R2.3, R2.4, R2.5), получают
-  **объявленный** статус «ожидает производителя» — как `"R3.3": "in-session-warn-only"`
-  был честной меткой до bd#29. Молчание здесь и есть дефект.
+**Edited**
+- `conformance/bd_l2.py` — `_EVENT_FOR` and the R2.1/R2.6 predicates are retargeted onto
+  the **real** event types and the **real** payload keys.
+- Requirements with no producer (R2.2, R2.3, R2.4, R2.5) receive a
+  **declared** status "awaiting a producer" — as `"R3.3": "in-session-warn-only"`
+  was an honest label before bd#29. The silence here is itself the defect.
 
-**Новое**
-- `tests/test_bd59_l2_observation_contract.py` — RED, включая **гейт против рецидива**.
+**New**
+- `tests/test_bd59_l2_observation_contract.py` — the RED, including a **gate against recurrence**.
 
-**§1v — НЕ в области**
-- Написание недостающих производителей (`oracle_vacuity_scan` и др.) — это правка
-  прод-фаз, свой предмет и своя экспозиция. Заводится отдельным issue.
-- Сам enforcement (#59 в исходной формулировке) — остаётся открытым, разблокируется
-  производителями.
-- `bd_l3`, `harness`, `oracle`, `attest` — не трогаются.
+**§1v — NOT in scope**
+- Writing the missing producers (`oracle_vacuity_scan` and the rest) — that is an edit to
+  production phases, its own subject and its own exposure. Filed as a separate issue.
+- Enforcement itself (#59 in its original framing) — it stays open and is unblocked by
+  the producers.
+- `bd_l3`, `harness`, `oracle`, `attest` — untouched.
 
-## §6. §1a Sibling-audit
+## §6. §1a Sibling audit
 
-`test_bd9_l2_falsifiable_oracle.py` (**прямой риск** — его фикстуры и есть источник
-расхождения), `test_bd58_adversary_harness.py` (пробы ADV-4/5/6 кормят `bd_l2`
-синтетикой), `test_bd28_bd_l3_checker.py`, `test_bd8_l1_oracle.py`,
-`test_bd27_oracle.py`, `test_bd22_contracts.py`, `test_contracts.py`. Существование
-проверить прогоном.
+`test_bd9_l2_falsifiable_oracle.py` (**direct risk** — its fixtures are the source
+of the divergence), `test_bd58_adversary_harness.py` (the ADV-4/5/6 probes feed `bd_l2`
+synthetics), `test_bd28_bd_l3_checker.py`, `test_bd8_l1_oracle.py`,
+`test_bd27_oracle.py`, `test_bd22_contracts.py`, `test_contracts.py`. Existence
+to be checked by a run.
 
 ## §7. Acceptance criteria
 
-- **AC1 (ГЕЙТ ПРОТИВ РЕЦИДИВА, главный).** Каждый тип события в `bd_l2._EVENT_FOR`,
-  объявленный наблюдаемым, обязан иметь **производителя в прод-коде**
-  (`bytedigger_engine/**`, вне `conformance/`). Требование без производителя обязано
-  быть **объявлено** в реестре ожидающих, а не молчать. Это тот AC, отсутствие которого
-  и пропустило дефект в bd#9.
-- **AC2 (R2.1 на реальном payload).** Событие формы, которую эмитит
-  `phase_5_implement.py:2635` (**без** `counted_as`), обязано адъюдицироваться: прогон,
-  собравший ноль тестов, — не отказ.
-- **AC3 (ОТРИЦАТЕЛЬНАЯ, R2.1).** Реальный payload с `n_failed>=1` ⇒ `passed`, не
-  `failed`. Иначе «починка» роняет всё подряд.
-- **AC4 (R2.6 на реальном payload).** Событие формы `_baseline_delta.py:92` (`verdict`,
-  `new_fails`, `enforced`) адъюдицируется; отсутствие дельты полного сьюта не
-  выдаётся за наличие.
-- **AC5 (ОТРИЦАТЕЛЬНАЯ, R2.6).** Реальный payload с посчитанной дельтой ⇒ `passed`.
-- **AC6 (объявленный пробел, обе стороны).** Требования без производителя дают
-  `not-checked` **и** перечислены в объявленном реестре ожидающих; требование, у
-  которого производитель появился, из реестра обязано исчезнуть.
-- **AC7 (поверхность = `__all__`).** B-2, форма сохраняется.
-- **AC8 (соседи не сломаны).** `bd_l2` продолжает адъюдицировать синтетические формы
-  bd#9/bd#58 там, где они совпадают с реальными; расхождения объявлены.
+- **AC1 (THE GATE AGAINST RECURRENCE, the main one).** Every event type in `bd_l2._EVENT_FOR`
+  declared observable must have a **producer in production code**
+  (`bytedigger_engine/**`, outside `conformance/`). A requirement with no producer must
+  be **declared** in the registry of the awaiting rather than stay silent. This is the AC whose absence
+  let the defect through in bd#9.
+- **AC2 (R2.1 on a real payload).** An event of the shape emitted by
+  `phase_5_implement.py:2635` (**without** `counted_as`) must be adjudicated: a run
+  that collected zero tests is not a refusal.
+- **AC3 (NEGATIVE, R2.1).** A real payload with `n_failed>=1` ⇒ `passed`, not
+  `failed`. Otherwise a "fix" fails everything indiscriminately.
+- **AC4 (R2.6 on a real payload).** An event of the `_baseline_delta.py:92` shape (`verdict`,
+  `new_fails`, `enforced`) is adjudicated; the absence of a full-suite delta is not
+  passed off as its presence.
+- **AC5 (NEGATIVE, R2.6).** A real payload with a computed delta ⇒ `passed`.
+- **AC6 (a declared gap, both sides).** Requirements with no producer yield
+  `not-checked` **and** are listed in the declared registry of the awaiting; a requirement that
+  has acquired a producer must disappear from the registry.
+- **AC7 (surface = `__all__`).** B-2, the form is preserved.
+- **AC8 (the neighbours are not broken).** `bd_l2` continues to adjudicate the synthetic shapes
+  of bd#9/bd#58 where they coincide with the real ones; the divergences are declared.
 
-## §8. Чего PR НЕ утверждает
+## §8. What the PR does NOT claim
 
-- **Не утверждает, что BD-L2 наблюдаем на реальном логе.** После лота наблюдаемы
-  R2.1 и R2.6; четыре остальных объявлены ожидающими производителя.
-- Не строит enforcement (#59 остаётся открытым).
-- Не переписывает bd#9 как лот: его отрицательные ноги верны, недоставало §1l-якоря,
-  и этот якорь добавляется здесь.
+- **It does not claim BD-L2 is observable on a real log.** After the lot, R2.1 and R2.6
+  are observable; the other four are declared as awaiting a producer.
+- It does not build enforcement (#59 stays open).
+- It does not rewrite bd#9 as a lot: its negative legs are correct, what was missing was the §1l anchor,
+  and that anchor is added here.

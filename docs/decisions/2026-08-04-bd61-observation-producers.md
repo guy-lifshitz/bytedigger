@@ -1,124 +1,124 @@
-# bd#61 — производители наблюдений BD-L2
+# bd#61 — BD-L2 observation producers
 
-**Class:** отсутствие свидетельства, неотличимое от свидетельства отсутствия. Скан
-вакуумности **уже работает в проде** и эмитит событие — но **только при нарушении**.
-Чистый скан не пишет ничего, поэтому «проверено и чисто» неотличимо от «не
-проверялось». Пока эта пара неразличима, вердикт `passed` недостижим по построению, а
-enforcement (#59) остаётся инертным независимо от своего качества.
+**Class:** an absence of evidence indistinguishable from evidence of absence. The vacuity
+scan **already runs in production** and emits an event — but **only on a violation**. A
+clean scan writes nothing, so "checked and clean" is indistinguishable from "never
+checked". While that pair is indistinguishable, the `passed` verdict is unreachable by construction, and
+enforcement (#59) stays inert regardless of its quality.
 
-**Chokepoint:** `workflows/phase_5_implement.py`, ветка гейта
-`HAL_STUB_PASSABILITY_GATE` (`:3062`), где `scan_stub_passability` вызывается и где
-сегодня эмитится `red_stub_passability_violation` (`:3079`) — единственное место, где
-наблюдение вакуумности возникает.
+**Chokepoint:** `workflows/phase_5_implement.py`, the gate branch
+`HAL_STUB_PASSABILITY_GATE` (`:3062`), where `scan_stub_passability` is called and where
+`red_stub_passability_violation` is emitted today (`:3079`) — the only place where the
+vacuity observation arises.
 
 ---
 
-## §1. §1b живая база — оба корпуса, `40d9d00`
+## §1. §1b live base — both corpora, `40d9d00`
 
-| корпус | результат |
+| corpus | result |
 |---|---|
-| **pytest** | **5435 passed / 47 skipped / 1 xfailed / 0 failed**, 397 с |
-| **clean-room suite** | **5348 passed / 69 skipped / 1 xfailed / 0 failed**, 230 с, `PASS` |
+| **pytest** | **5435 passed / 47 skipped / 1 xfailed / 0 failed**, 397 s |
+| **clean-room suite** | **5348 passed / 69 skipped / 1 xfailed / 0 failed**, 230 s, `PASS` |
 
-## §2. ЗАМЕР — что из четырёх требований вообще наблюдаемо в движке
+## §2. MEASUREMENT — which of the four requirements is observable in the engine at all
 
-| требование | примитив | вызывается в проде | наблюдение сегодня |
+| requirement | primitive | called in production | observation today |
 |---|---|---|---|
-| **R2.2** | `stub_passability.scan_stub_passability` | **ДА** — `phase_5_implement.py:3070` и `:3179`, под гейтом `HAL_STUB_PASSABILITY_GATE` | эмитится `red_stub_passability_violation`, **только если `stub_hits` непуст** |
-| R2.3 | — | — | объявления ACs движок не эмитит вовсе |
-| R2.4 | — | — | ни одной точки, где перехваченное исключение гейта записывалось бы как исход |
-| R2.5 | `known_reds_ledger` | **НЕТ** — **ноль** прод-импортов; реестр парсят только CLI вне пакета. `_baseline_delta.py` относит `ledgered` из чужого JSON, но владельца и срок не классифицирует | нет |
+| **R2.2** | `stub_passability.scan_stub_passability` | **YES** — `phase_5_implement.py:3070` and `:3179`, under the `HAL_STUB_PASSABILITY_GATE` gate | `red_stub_passability_violation` is emitted, **only if `stub_hits` is non-empty** |
+| R2.3 | — | — | the engine does not emit AC declarations at all |
+| R2.4 | — | — | not one point where a gate's caught exception would be recorded as an outcome |
+| R2.5 | `known_reds_ledger` | **NO** — **zero** production imports; the registry is parsed only by CLIs outside the package. `_baseline_delta.py` attributes `ledgered` from somebody else's JSON but does not classify owner and deadline | none |
 
-⇒ **Наблюдаемо ровно одно требование из четырёх, и ему не хватает половины: отрицательной.**
+⇒ **Exactly one requirement of four is observable, and it is missing half of it: the negative half.**
 
-**Против issue #61, который я сам писал:** там сказано «R2.2 — 0 эмиттеров». Замер
-точнее: эмиттер есть, но односторонний. Дефект не в отсутствии события, а в том, что
-событие пишется **только на плохой исход**. Это разные починки, и вторая дешевле и
-честнее первой.
+**Against issue #61, which I wrote myself:** it says "R2.2 — 0 emitters". The measurement is
+more precise: the emitter exists but is one-directional. The defect is not the absence of an event but that the
+event is written **only on the bad outcome**. Those are different fixes, and the second is cheaper and
+more honest than the first.
 
-## §2a. НАЙДЕНО ПРИ ПРАВКЕ: ГЕЙТ ДУБЛИРОВАН, И ЭТО МЕНЯЕТ ОБЪЁМ
+## §2a. FOUND WHILE EDITING: THE GATE IS DUPLICATED, AND THAT CHANGES THE VOLUME
 
-Блок stub-passability существует в файле **ДВАЖДЫ** — в батч-пути
-(`_collect_red_lint_findings`) и в легаси-последовательном. Обнаружено тем, что точная
-замена нашла два совпадения вместо одного.
+The stub-passability block exists in the file **TWICE** — in the batch path
+(`_collect_red_lint_findings`) and in the legacy sequential one. Discovered because an exact
+replacement found two matches instead of one.
 
-Следствие для лота: эмитить обязаны **оба**, иначе наблюдение зависело бы от того,
-какой путь отработал, — то есть дефект остался бы наполовину и проявлялся бы
-непредсказуемо. Оба и правятся.
+The consequence for the lot: **both** must emit, otherwise the observation would depend on which
+path ran — that is, the defect would survive halfway and would surface
+unpredictably. Both are edited.
 
-Сама дупликация (§1g, один канонический источник) **здесь не устраняется**: это правка
-структуры фазы 5, свой предмет со своей проверкой. Названа, не спрятана.
+The duplication itself (§1g, one canonical source) is **not removed here**: that is an edit to
+the structure of phase 5, its own subject with its own check. Named, not hidden.
 
-**Против себя:** первая замена прошла `replace_all` и сломала второй сайт — там за
-`if stub_hits:` следовал зависимый блок directed-repair, который остался с отступом от
-снятого условия. Поймано `ast.parse` до прогона. **Форма: снимая условие, проверить, не
-висит ли на нём тело.**
+**Against myself:** the first replacement went through `replace_all` and broke the second site — there a
+dependent directed-repair block followed `if stub_hits:` and was left indented under
+a condition that had been removed. Caught by `ast.parse` before the run. **The form: when removing a condition, check whether a
+body hangs off it.**
 
-## §3. Решения
+## §3. Decisions
 
-**D1 — R2.2 перенаводится на РЕАЛЬНОЕ имя** `red_stub_passability_violation`, а не на
-придуманное `oracle_vacuity_scan`. Ошибку того же класса bd#59 уже исправлял для
-R2.1/R2.6; здесь она закрывается для R2.2.
+**D1 — R2.2 is retargeted onto the REAL name** `red_stub_passability_violation` rather than the
+invented `oracle_vacuity_scan`. bd#59 already fixed an error of the same class for
+R2.1/R2.6; here it is closed for R2.2.
 
-**D2 — добавляется недостающая ПОЛОЖИТЕЛЬНАЯ эмиссия.** Когда гейт отработал и
-нарушений нет, пишется то же событие с пустым `hits`. Без этого `passed` недостижим:
-чекер не может отличить чистый скан от несостоявшегося.
+**D2 — the missing POSITIVE emission is added.** When the gate has run and there are
+no violations, the same event is written with an empty `hits`. Without it `passed` is unreachable:
+the checker cannot tell a clean scan from one that never happened.
 
-**D3 — kill-switch остаётся видимым.** При выключенном гейте эмитится `gate_disabled`
-(уже существует) и наблюдения нет ⇒ `not-checked`. Выключенный гейт не имеет права
-читаться как «чисто» — это ровно тот путь, которым отсутствие проверки притворяется
-её прохождением.
+**D3 — the kill switch stays visible.** With the gate disabled, `gate_disabled` is emitted
+(it already exists) and there is no observation ⇒ `not-checked`. A disabled gate has no right to
+read as "clean" — that is exactly the path by which an absent check masquerades as
+a passing one.
 
-**D4 — R2.3, R2.4, R2.5 остаются в `AWAITING_PRODUCER`** с замеренной причиной у
-каждого (§2). Для R2.5 причина сильная: реестр вне пакета, и втащить его в движок —
-отдельный предмет со своей экспозицией, а не побочный эффект этого лота.
+**D4 — R2.3, R2.4, R2.5 stay in `AWAITING_PRODUCER`** with a measured reason for
+each (§2). For R2.5 the reason is strong: the registry lives outside the package, and pulling it into the engine is
+a separate subject with its own exposure, not a side effect of this lot.
 
 ## §4. Scope
 
-**Правится**
-- `workflows/phase_5_implement.py` — эмиссия при чистом скане (D2). Логика гейта,
-  batch и коды ошибок **не трогаются**.
-- `conformance/bd_l2.py` — `_EVENT_FOR["R2.2"]`, предикат `_r22`, `AWAITING_PRODUCER`.
+**Edited**
+- `workflows/phase_5_implement.py` — the emission on a clean scan (D2). The gate logic,
+  the batch and the error codes are **untouched**.
+- `conformance/bd_l2.py` — `_EVENT_FOR["R2.2"]`, the `_r22` predicate, `AWAITING_PRODUCER`.
 
-**Новое**
-- `tests/test_bd61_observation_producers.py` — RED.
+**New**
+- `tests/test_bd61_observation_producers.py` — the RED.
 
-**§1v — НЕ в области**
-- `stub_passability.py` — потребляется.
-- Втаскивание `known_reds_ledger` в движок (R2.5) — отдельный предмет.
-- Enforcement (#59) — по-прежнему следующий, не этот.
+**§1v — NOT in scope**
+- `stub_passability.py` — consumed.
+- Pulling `known_reds_ledger` into the engine (R2.5) — a separate subject.
+- Enforcement (#59) — still next, not this.
 - `bd_l3`, `harness`, `oracle`, `attest`.
 
-## §5. §1a Sibling-audit
+## §5. §1a Sibling audit
 
-`test_bd9_l2_falsifiable_oracle.py` (фикстуры R2.2 — **прямой риск**),
-`test_bd59_l2_observation_contract.py` (гейт против рецидива AC1 — **обязан остаться
-зелёным и сам подтвердить, что R2.2 вышел из реестра**), `test_bd58_adversary_harness.py`
-(проба ADV-3 кормит `bd_l2`), плюс тесты `phase_5_implement` вокруг stub-гейта.
-Существование проверить прогоном.
+`test_bd9_l2_falsifiable_oracle.py` (the R2.2 fixtures — **direct risk**),
+`test_bd59_l2_observation_contract.py` (the AC1 gate against recurrence — **must stay
+green and must itself confirm that R2.2 has left the registry**), `test_bd58_adversary_harness.py`
+(the ADV-3 probe feeds `bd_l2`), plus the `phase_5_implement` tests around the stub gate.
+Existence to be checked by a run.
 
 ## §6. Acceptance criteria
 
-- **AC1 (положительная эмиссия существует).** Чистый скан под включённым гейтом эмитит
-  событие с пустым `hits`.
-- **AC2 (ОТРИЦАТЕЛЬНАЯ — нарушение по-прежнему эмитится).** Грязный скан эмитит то же
-  событие с непустым `hits`, и прежний код ошибки/batch не изменились. Иначе «починка»
-  телеметрии тихо снимает гейт.
-- **AC3 (различимость — сердце лота).** `bd_l2` на чистом событии даёт `passed`, на
-  грязном `failed`, при отсутствии события `not-checked`. **Три разных исхода на три
-  разных входа** — до лота первый и третий были неразличимы.
-- **AC4 (ОТРИЦАТЕЛЬНАЯ — выключенный гейт ≠ чисто).** При `HAL_STUB_PASSABILITY_GATE=0`
-  наблюдения нет ⇒ `not-checked`, никогда `passed`.
-- **AC5 (реестр пустеет).** `R2.2` **исчез** из `AWAITING_PRODUCER`, и гейт против
-  рецидива (`test_bd59_*::test_ac1`) это подтверждает, а не просто не мешает.
-- **AC6 (остальные три объявлены).** `R2.3`, `R2.4`, `R2.5` остаются в реестре и дают
+- **AC1 (the positive emission exists).** A clean scan under an enabled gate emits
+  an event with an empty `hits`.
+- **AC2 (NEGATIVE — the violation is still emitted).** A dirty scan emits the same
+  event with a non-empty `hits`, and the previous error code/batch are unchanged. Otherwise a telemetry
+  "fix" silently lifts the gate.
+- **AC3 (distinguishability — the heart of the lot).** `bd_l2` gives `passed` on a clean event,
+  `failed` on a dirty one, and `not-checked` when the event is absent. **Three different outcomes for three
+  different inputs** — before the lot the first and the third were indistinguishable.
+- **AC4 (NEGATIVE — a disabled gate ≠ clean).** With `HAL_STUB_PASSABILITY_GATE=0`
+  there is no observation ⇒ `not-checked`, never `passed`.
+- **AC5 (the registry empties).** `R2.2` has **left** `AWAITING_PRODUCER`, and the gate against
+  recurrence (`test_bd59_*::test_ac1`) confirms it rather than merely not objecting.
+- **AC6 (the other three are declared).** `R2.3`, `R2.4`, `R2.5` stay in the registry and yield
   `not-checked`.
-- **AC7 (поверхность = `__all__`).**
+- **AC7 (surface = `__all__`).**
 
-## §7. Чего PR НЕ утверждает
+## §7. What the PR does NOT claim
 
-- Не делает BD-L2 наблюдаемым целиком: после лота наблюдаемы **R2.1, R2.2, R2.6**;
-  три остальных объявлены ожидающими с замеренной причиной.
-- Не строит enforcement (#59).
-- Не меняет решение гейта stub-passability — только делает его исход наблюдаемым в обе
-  стороны.
+- It does not make BD-L2 observable as a whole: after the lot **R2.1, R2.2, R2.6** are observable;
+  the other three are declared as awaiting, with a measured reason.
+- It does not build enforcement (#59).
+- It does not change the stub-passability gate's decision — it only makes its outcome observable in both
+  directions.

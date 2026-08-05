@@ -1,105 +1,105 @@
-# bd#59 — enforcement: замер нашёл отказы на месте, но без привязки к вердикту
+# bd#59 — enforcement: the measurement found refusals already in place, but with no link to a verdict
 
-**Class:** дублирующий страж. #59 заявлен как «код без излучателя, вердикт без
-последствия». Замер экспозиции — обязательный по issue ДО RED — показал, что
-последствие **уже есть у всех трёх наблюдаемых требований**, и построить «проведение
-вердиктов L2 в фазы» значило бы поставить **второго стража на уже охраняемое условие**.
-Это ровно тот дефект, который я нашёл в bd#29 §5a: два стража на hard-gate пути, где
-поздний затирает код раннего.
+**Class:** a duplicate guard. #59 was filed as "code with no emitter, a verdict with no
+consequence". The exposure measurement — mandatory per the issue BEFORE the RED — showed that the
+consequence **already exists for all three observable requirements**, and that building "wire the L2
+verdicts into the phases" would mean placing **a second guard on an already guarded condition**.
+That is exactly the defect I found in bd#29 §5a: two guards on the hard-gate path, where the
+later one overwrites the earlier one's code.
 
-**Chokepoint:** соответствие «требование BD-L2 → прод-отказ», которого сегодня не
-существует ни в каком виде. Оно и строится: `conformance/bd_l2.ENFORCEMENT`.
+**Chokepoint:** the correspondence "BD-L2 requirement → production refusal", which today does not
+exist in any form. That is what gets built: `conformance/bd_l2.ENFORCEMENT`.
 
 ---
 
-## §1. §1b живая база — оба корпуса, `0dfa549`
+## §1. §1b live base — both corpora, `0dfa549`
 
-| корпус | результат |
+| corpus | result |
 |---|---|
-| **pytest** | **5442 passed / 47 skipped / 1 xfailed / 0 failed**, 353 с |
-| **clean-room suite** | **5355 passed / 69 skipped / 1 xfailed / 0 failed**, 209 с, `PASS` |
+| **pytest** | **5442 passed / 47 skipped / 1 xfailed / 0 failed**, 353 s |
+| **clean-room suite** | **5355 passed / 69 skipped / 1 xfailed / 0 failed**, 209 s, `PASS` |
 
-## §2. ЗАМЕР ЭКСПОЗИЦИИ — числом, как требует issue
+## §2. EXPOSURE MEASUREMENT — as a number, as the issue demands
 
-Для каждого **наблюдаемого** требования (R2.1, R2.2, R2.6 после bd#61):
+For each **observable** requirement (R2.1, R2.2, R2.6 after bd#61):
 
-| требование | прод-отказ существует | код | сайтов в `phase_5_implement` | принуждение |
+| requirement | a production refusal exists | code | sites in `phase_5_implement` | enforcement |
 |---|---|---|---|---|
-| **R2.2** вакуумный оракул | **ДА, терминальный** | `E_RED_STUB_PASSABLE`, `recoverable=False` | **6** | гейт `HAL_STUB_PASSABILITY_GATE` **default=1** — включён |
-| **R2.1** нулевой сбор | **ДА, но мягкий** | `E_RED_COLLECT_PROBE`, `recoverable=True` | **3** | `HAL_RED_COLLECT_PROBE_ENFORCE` **default=0** — предупреждение |
-| **R2.6** дельта против базлайна | **ДА, но выключен** | `would_block` / `BLOCKED` в `_baseline_delta` | 0 (живёт в своём модуле) | `HAL_BASELINE_DELTA_ENFORCE` **default=0** |
+| **R2.2** vacuous oracle | **YES, terminal** | `E_RED_STUB_PASSABLE`, `recoverable=False` | **6** | the gate `HAL_STUB_PASSABILITY_GATE` **default=1** — on |
+| **R2.1** zero collection | **YES, but soft** | `E_RED_COLLECT_PROBE`, `recoverable=True` | **3** | `HAL_RED_COLLECT_PROBE_ENFORCE` **default=0** — a warning |
+| **R2.6** delta against the baseline | **YES, but disabled** | `would_block` / `BLOCKED` in `_baseline_delta` | 0 (lives in its own module) | `HAL_BASELINE_DELTA_ENFORCE` **default=0** |
 
-**Вывод замера: движку не не хватает отказов — ему не хватает того, чтобы они были
-ВКЛЮЧЕНЫ и чтобы связь «вердикт ⇄ отказ» была объявлена.**
+**The measurement's conclusion: the engine is not short of refusals — it is short of them being
+ENABLED and of the link "verdict ⇄ refusal" being declared.**
 
-Экспозиция «сколько шагов сегодня упало бы» по каждому коду:
-- R2.2 — **уже падает** (гейт включён по умолчанию); enforcement добавил бы ноль;
-- R2.1 — падало бы всё, что не собирается, вместо предупреждения;
-- R2.6 — падало бы всё с непокрытой дельтой.
+The exposure "how many steps would fail today" per code:
+- R2.2 — **already fails** (the gate is on by default); enforcement would add zero;
+- R2.1 — everything that fails to collect would fail instead of warning;
+- R2.6 — everything with an uncovered delta would fail.
 
-Для R2.1/R2.6 точное число прогонов **на этом хосте неизмеримо**: нужна история
-реальных прогонов движка, которой в репозитории нет. Оценку вместо числа issue
-запрещает, поэтому число **не подставляется**, а называется недостающим прибором.
+For R2.1/R2.6 the exact number of runs is **unmeasurable on this host**: it needs a history of
+real engine runs, which the repository does not have. The issue forbids an estimate in place of a
+number, so the number is **not substituted** — the missing instrument is named instead.
 
-## §3. Решения
+## §3. Decisions
 
-**D1 — второго стража НЕ ставим.** Проведение вердикта L2 в фазу дало бы отказ поверх
-существующего отказа на том же условии. Цена известна поимённо из bd#29 §5a: поздний
-страж перезаписывает код раннего, и до вызывающего доходит не та причина.
+**D1 — we do NOT place a second guard.** Wiring an L2 verdict into a phase would give a refusal on top of
+an existing refusal on the same condition. The price is known by name from bd#29 §5a: the later
+guard overwrites the earlier one's code, and the caller receives the wrong cause.
 
-**D2 — строится то, чего действительно нет: ОБЪЯВЛЕННОЕ соответствие.**
-`bd_l2.ENFORCEMENT` — таблица «требование → (код отказа, флаг принуждения, включён ли
-по умолчанию)». Сегодня связь существует только в голове читателя.
+**D2 — what is built is what genuinely does not exist: a DECLARED correspondence.**
+`bd_l2.ENFORCEMENT` — a table "requirement → (refusal code, enforcement flag, whether it is on
+by default)". Today the link exists only in the reader's head.
 
-**D3 — гейт против инертности.** Требование, объявленное наблюдаемым, обязано иметь
-запись в `ENFORCEMENT`; запись обязана называть **существующий** код из реестра
-`error_codes` и **существующий** флаг из `flags_catalog`. Ссылка на несуществующий код
-или флаг роняет гейт. Это тот слой, отсутствие которого позволило бы «провести
-вердикты» вслепую.
+**D3 — a gate against inertness.** A requirement declared observable must have an
+entry in `ENFORCEMENT`; the entry must name an **existing** code from the `error_codes`
+registry and an **existing** flag from `flags_catalog`. A reference to a non-existent code
+or flag fails the gate. That is the layer whose absence would have allowed "wiring the
+verdicts" blind.
 
-**D4 — выключенные флаги ОБЪЯВЛЕНЫ, а не молча приняты.** `ENFORCEMENT` несёт
-`enforced_by_default`, и отчёт `check_bd_l2` показывает требование, чей отказ
-существует, но выключен, **иначе, чем требование без отказа вовсе**. Сегодня оба
-выглядят одинаково.
+**D4 — disabled flags are DECLARED, not silently accepted.** `ENFORCEMENT` carries
+`enforced_by_default`, and the `check_bd_l2` report shows a requirement whose refusal
+exists but is disabled **differently from** a requirement with no refusal at all. Today they both
+look the same.
 
-**D5 — флаги не флипаются этим лотом.** Флип `HAL_RED_COLLECT_PROBE_ENFORCE` или
-`HAL_BASELINE_DELTA_ENFORCE` — прод-поведение с экспозицией, которую нечем измерить без
-истории прогонов (§2). Это отдельный предмет, и он назван, а не сделан молча.
+**D5 — no flag is flipped by this lot.** Flipping `HAL_RED_COLLECT_PROBE_ENFORCE` or
+`HAL_BASELINE_DELTA_ENFORCE` is production behaviour with an exposure that cannot be measured without
+a run history (§2). That is a separate subject, and it is named rather than done silently.
 
 ## §4. Scope
 
-**Правится:** `conformance/bd_l2.py` — `ENFORCEMENT`, `__all__`, метки отчёта.
-**Новое:** `tests/test_bd59_enforcement_map.py`.
-**§1v — НЕ в области:** фазы движка (второго стража нет — D1); значения флагов (D5);
+**Edited:** `conformance/bd_l2.py` — `ENFORCEMENT`, `__all__`, the report labels.
+**New:** `tests/test_bd59_enforcement_map.py`.
+**§1v — NOT in scope:** the engine phases (there is no second guard — D1); the flag values (D5);
 `stub_passability`, `known_reds_ledger`, `_baseline_delta`, `bd_l3`, `harness`.
 
-## §5. §1a Sibling-audit
+## §5. §1a Sibling audit
 
 `test_bd9_l2_falsifiable_oracle.py`, `test_bd59_l2_observation_contract.py`,
 `test_bd61_observation_producers.py`, `test_bd58_adversary_harness.py`,
-`test_bd28_bd_l3_checker.py`, тесты `error_codes` и `flags_catalog`. Проверить прогоном.
+`test_bd28_bd_l3_checker.py`, the `error_codes` and `flags_catalog` tests. To be checked by a run.
 
 ## §6. Acceptance criteria
 
-- **AC1 (ГЕЙТ: наблюдаемое обязано быть привязано).** Каждое требование вне
-  `AWAITING_PRODUCER` имеет запись в `ENFORCEMENT`.
-- **AC2 (ОТРИЦАТЕЛЬНАЯ: запись обязана быть настоящей).** Код отказа из записи
-  существует в `error_codes.ERROR_CODES`; флаг существует в `flags_catalog`. Ссылка на
-  выдуманное имя роняет гейт — это ровно та ошибка, которую я допустил в bd#9 с
-  событиями и bd#59 с ключами.
-- **AC3 (ОТРИЦАТЕЛЬНАЯ: реестр не обгоняет реальность).** Требование, стоящее в
-  `AWAITING_PRODUCER`, **не** имеет записи в `ENFORCEMENT` — нельзя объявлять
-  последствие тому, чего не наблюдаешь.
-- **AC4 (различимость трёх состояний).** Отчёт отличает: отказ включён · отказ есть, но
-  выключен · отказа нет. Три разных метки на три разных состояния.
-- **AC5 (ОТРИЦАТЕЛЬНАЯ: выключенный отказ ≠ включённый).** Требование с
-  `enforced_by_default=False` не имеет права выглядеть как принуждаемое.
-- **AC6 (замер зафиксирован).** R2.2 объявлен принуждаемым по умолчанию; R2.1 и R2.6 —
-  нет. Если значение флага в каталоге изменится, AC падает и потребует решения.
-- **AC7 (поверхность = `__all__`).**
+- **AC1 (THE GATE: the observable must be bound).** Every requirement outside
+  `AWAITING_PRODUCER` has an entry in `ENFORCEMENT`.
+- **AC2 (NEGATIVE: the entry must be real).** The refusal code from the entry
+  exists in `error_codes.ERROR_CODES`; the flag exists in `flags_catalog`. A reference to
+  an invented name fails the gate — that is exactly the error I made in bd#9 with the
+  events and in bd#59 with the keys.
+- **AC3 (NEGATIVE: the registry does not outrun reality).** A requirement standing in
+  `AWAITING_PRODUCER` has **no** entry in `ENFORCEMENT` — one cannot declare a
+  consequence for something one does not observe.
+- **AC4 (three states are distinguishable).** The report distinguishes: the refusal is on · the refusal exists but is
+  off · there is no refusal. Three different labels for three different states.
+- **AC5 (NEGATIVE: a disabled refusal ≠ an enabled one).** A requirement with
+  `enforced_by_default=False` has no right to look enforced.
+- **AC6 (the measurement is pinned).** R2.2 is declared enforced by default; R2.1 and R2.6 are
+  not. If a flag's value in the catalogue changes, the AC fails and demands a decision.
+- **AC7 (surface = `__all__`).**
 
-## §7. Чего PR НЕ утверждает
+## §7. What the PR does NOT claim
 
-- **Не включает принуждение** для R2.1/R2.6 (D5) — экспозиция неизмерима здесь.
-- Не ставит второго стража ни на одно условие (D1).
-- Не делает наблюдаемыми R2.3/R2.4/R2.5.
+- **It does not enable enforcement** for R2.1/R2.6 (D5) — the exposure is unmeasurable here.
+- It places no second guard on any condition (D1).
+- It does not make R2.3/R2.4/R2.5 observable.
