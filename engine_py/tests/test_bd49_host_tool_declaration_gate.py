@@ -1,40 +1,40 @@
-"""bd#49 — производный гейт объявления на хост-инструмент.
+"""bd#49 — a derived declaration gate on the host tool.
 
-Спека: `docs/decisions/2026-08-04-bd49-host-tool-declaration-gate.md`.
+Spec: `docs/decisions/2026-08-04-bd49-host-tool-declaration-gate.md`.
 
-ЧТО ЭТОТ ГЕЙТ ПРИНУЖДАЕТ, И ПОЧЕМУ ИМЕННО ЭТО.
+WHAT THIS GATE ENFORCES, AND WHY EXACTLY THAT.
 
-`helpers/host_tools.py::pytest_runtest_makereport` уже **тотален** по обычному
-пути: любой тест, упавший `FileNotFoundError` на объявленном и действительно
-отсутствующем инструменте, автоматически становится `skipped` — независимо от
-того, как он звал инструмент. Замерено на корпусе `b95e48a`: **610** тел
-`test_*` достигают хост-инструмент литералом argv (`subprocess.run(["git", …])`)
-вообще без `which`, и все они этим механизмом покрыты (`docs/host-requirements.md`
-пишет о ~500 таких на одном только `git`).
+`helpers/host_tools.py::pytest_runtest_makereport` is already **total** over the ordinary
+path: any test that fails with `FileNotFoundError` on a declared and genuinely
+absent tool automatically becomes `skipped` — regardless of
+how it invoked the tool. Measured on the corpus at `b95e48a`: **610** `test_*`
+bodies reach a host tool by an argv literal (`subprocess.run(["git", …])`)
+with no `which` at all, and all of them are covered by that mechanism (`docs/host-requirements.md`
+reports ~500 such on `git` alone).
 
-Уйти из-под тотального механизма можно ровно одним способом — **опросить
-доступность самому** и принять решение до того, как полетит `FileNotFoundError`.
-Таких тел **37**, и это ПОЛНОЕ множество побегов, а не выборка. Домен гейта —
-именно они.
+There is exactly one way out from under the total mechanism — **probe
+availability yourself** and take a decision before the `FileNotFoundError` can fly.
+There are **37** such bodies, and that is the COMPLETE set of escapes, not a sample. The gate's domain is
+precisely them.
 
-Отсюда политика, которую гейт принуждает:
+Hence the policy the gate enforces:
 
-    тело теста, которое САМО опрашивает доступность хост-инструмента, обязано
-    объявить, что делает с ответом — либо `skip_without(tool)`, либо
-    `# host-tool-hard-fail: <довод>`. Молчаливого третьего пути нет.
+    a test body that PROBES host-tool availability ITSELF must
+    declare what it does with the answer — either `skip_without(tool)` or
+    `# host-tool-hard-fail: <argument>`. There is no silent third path.
 
-ГРАНИЦА ЧЕСТНОСТИ (AC11). Сканер ловит пре-эмпцию, сделанную через `which`, и
-НЕ ловит сделанную иначе — `os.path.exists("/usr/bin/git")`, собственный
-`except FileNotFoundError: pytest.skip(...)`. Это не недосмотр, а объявленная
-граница: замерено, что в корпусе таких форм **ноль** (`except FileNotFoundError`
-рядом со `skip` — 0 попаданий, `exists()` по путям бинарей — 0). Появится
-первая — граница обязана двинуться, и этот абзац её место в исходнике.
+THE BOUNDARY OF HONESTY (AC11). The scanner catches pre-emption done through `which`, and
+does NOT catch it done otherwise — `os.path.exists("/usr/bin/git")`, a custom
+`except FileNotFoundError: pytest.skip(...)`. This is not an oversight but a declared
+boundary: it was measured that there are **zero** such forms in the corpus (`except FileNotFoundError`
+next to a `skip` — 0 hits, `exists()` over binary paths — 0). Should a first one
+appear, the boundary must move, and this paragraph is its place in the source.
 
-ЧЕГО ГЕЙТ НЕ УТВЕРЖДАЕТ: что корпус целиком инертен-безопасен без инструмента
-(тотальность даёт хукврапер, гейт закрывает только побеги), и что
-`_C4/_C5/_C6_*_CALL_SITES` в `test_bd102_host_tool_contract.py` больше не нужны
-— те принуждают более сильное свойство (форма обязана быть именно
-`skip_without`) на своих 8 сайтах.
+WHAT THE GATE DOES NOT CLAIM: that the corpus as a whole is inert-safe without a tool
+(totality is provided by the hook wrapper, the gate closes only the escapes), and that
+`_C4/_C5/_C6_*_CALL_SITES` in `test_bd102_host_tool_contract.py` are no longer needed
+— those enforce a stronger property (the form must be exactly
+`skip_without`) on their 8 sites.
 """
 from __future__ import annotations
 
@@ -45,9 +45,9 @@ TESTS_DIR = Path(__file__).parent
 
 
 def _probes(source: str) -> list[tuple[str, str]]:
-    """Импорт внутри тела — идиома этого корпуса для символа, которого ещё нет
-    (ср. `test_bd102_host_tool_contract.py::test_ac6`). Модульный импорт ронял
-    бы СБОР, и RED был бы collection-error, а не assert-time (§1q)."""
+    """An import inside the body is this corpus's idiom for a symbol that does not yet exist
+    (cf. `test_bd102_host_tool_contract.py::test_ac6`). A module-level import would break
+    COLLECTION, and RED would be a collection error rather than assert-time (§1q)."""
     from helpers.host_tool_probes import (  # noqa: PLC0415
         undeclared_host_tool_probes,
     )
@@ -59,14 +59,14 @@ def _scan(source: str) -> list[tuple[str, str]]:
     return _probes(textwrap.dedent(source))
 
 
-# ─── AC1: §1l — якорь на живом корпусе, не на фикстуре ─────────────────────
+# ─── AC1: §1l — anchored to the live corpus, not to a fixture ─────────────
 
 def test_ac1_live_corpus_has_no_undeclared_host_tool_probes() -> None:
-    """Каждое тело в РЕАЛЬНОМ `engine_py/tests/**`, опрашивающее доступность
-    хост-инструмента само, объявляет выбранную форму.
+    """Every body in the REAL `engine_py/tests/**` that probes host-tool
+    availability itself declares the form it chose.
 
-    Это утверждение о поставляемом корпусе, а не о синтетической строке —
-    §1l-якорь спеки. На момент RED оно ложно ровно 37 раз.
+    This is a claim about the shipped corpus, not about a synthetic string —
+    the spec's §1l anchor. At the time of RED it is false exactly 37 times.
     """
     offenders: list[str] = []
     for path in sorted(TESTS_DIR.rglob("test_*.py")):
@@ -75,14 +75,14 @@ def test_ac1_live_corpus_has_no_undeclared_host_tool_probes() -> None:
             offenders.append(f"{path.relative_to(TESTS_DIR).as_posix()}::{func_name} probes {tool!r}")
 
     assert offenders == [], (
-        "тела опрашивают доступность хост-инструмента, не объявив формы "
+        "bodies probe host-tool availability without declaring a form "
         f"({len(offenders)}):\n  " + "\n  ".join(offenders) + "\n"
-        "Каждое обязано либо звать skip_without(<tool>), либо нести комментарий "
-        "`# host-tool-hard-fail: <довод>` в собственном теле."
+        "Each must either call skip_without(<tool>) or carry the comment "
+        "`# host-tool-hard-fail: <argument>` in its own body."
     )
 
 
-# ─── AC2/AC3: положительные ноги — обе формы принимаются ───────────────────
+# ─── AC2/AC3: positive legs — both forms are accepted ─────────────────────
 
 def test_ac2_skip_without_form_is_accepted() -> None:
     assert _scan('''
@@ -101,20 +101,20 @@ def test_ac3_declared_hard_fail_marker_is_accepted() -> None:
         import shutil
 
         def test_thing():
-            # host-tool-hard-fail: паритет корпуса нельзя сертифицировать,
-            # ни разу его не прогнав — тихий пропуск здесь дороже красноты.
+            # host-tool-hard-fail: corpus parity cannot be certified
+            # without ever running it — a silent skip here costs more than a red.
             bun = shutil.which("bun")
             assert bun is not None, "hard AC failure, not a skip"
     ''') == []
 
 
-# ─── AC4/AC5: ОТРИЦАТЕЛЬНЫЕ НОГИ — гейт, не падающий на новом сайте, инертен ─
+# ─── AC4/AC5: NEGATIVE LEGS — a gate that does not fail on a new site is inert ─
 
 def test_ac4_undeclared_direct_probe_is_reported() -> None:
-    """Новый вызывающий сайт, не объявивший ничего, ОБЯЗАН вернуться записью.
+    """A new calling site that declared nothing MUST come back as an entry.
 
-    Без этого AC гейт декоративен: он бы одинаково молчал и на чистом корпусе,
-    и на корпусе, полном необъявленных проб.
+    Without this AC the gate is decoration: it would stay equally silent on a clean corpus
+    and on a corpus full of undeclared probes.
     """
     assert _scan('''
         import shutil
@@ -126,13 +126,13 @@ def test_ac4_undeclared_direct_probe_is_reported() -> None:
 
 
 def test_ac5_undeclared_probe_reached_through_helper_is_reported() -> None:
-    """Проба, спрятанная в хелпере, который зовёт тело теста.
+    """A probe hidden in a helper that the test body calls.
 
-    Это НЕ гипотетика: `test_gh1338_corpus_parity_gate.py` держит
-    `shutil.which("bun")` в `_build_parity_fixture`, а не в телах, и именно
-    так восемь его ACs — ac11/12/13/23/26/37/38/39 — уходят из-под прямого
-    сканера. Сканер, ключующийся только на прямой вызов, пропустил бы ровно
-    тот предмет, ради которого bd#49 заведён.
+    This is NOT hypothetical: `test_gh1338_corpus_parity_gate.py` keeps
+    `shutil.which("bun")` in `_build_parity_fixture` rather than in the bodies, and that is
+    exactly how eight of its ACs — ac11/12/13/23/26/37/38/39 — escape a direct
+    scanner. A scanner keyed only on a direct call would miss exactly
+    the subject bd#49 was raised for.
     """
     assert _scan('''
         import shutil
@@ -147,10 +147,10 @@ def test_ac5_undeclared_probe_reached_through_helper_is_reported() -> None:
     ''') == [("test_thing", "bun")]
 
 
-# ─── AC6/AC7/AC8: объявление обязано быть настоящим, своим и про тот инструмент ─
+# ─── AC6/AC7/AC8: the declaration must be real, its own, and about that tool ─
 
 def test_ac6_marker_without_a_reason_is_not_a_declaration() -> None:
-    """Пустой маркер — молчаливое освобождение под видом объявления."""
+    """An empty marker is a silent exemption in the guise of a declaration."""
     assert _scan('''
         import shutil
 
@@ -162,7 +162,7 @@ def test_ac6_marker_without_a_reason_is_not_a_declaration() -> None:
 
 
 def test_ac7_declaration_does_not_leak_between_bodies_in_one_file() -> None:
-    """Ловит сканер, ищущий маркер/вызов по файлу целиком вместо тела."""
+    """Catches a scanner that looks for the marker/call across the whole file instead of the body."""
     assert _scan('''
         import shutil
         from helpers.host_tools import skip_without
@@ -177,7 +177,7 @@ def test_ac7_declaration_does_not_leak_between_bodies_in_one_file() -> None:
 
 
 def test_ac8_declaration_is_bound_to_the_probed_tool() -> None:
-    """Ловит сканер, сверяющий факт вызова `skip_without` вместо аргумента."""
+    """Catches a scanner that checks the fact of a `skip_without` call instead of its argument."""
     assert _scan('''
         import shutil
         from helpers.host_tools import skip_without
@@ -188,7 +188,7 @@ def test_ac8_declaration_is_bound_to_the_probed_tool() -> None:
     ''') == [("test_thing", "bun")]
 
 
-# ─── AC10: алиасы — в корпусе живут _shutil, _sh, _shutil_real ─────────────
+# ─── AC10: aliases — _shutil, _sh, _shutil_real live in the corpus ────────
 
 def test_ac10_aliased_and_bare_which_are_both_recognised() -> None:
     assert _scan('''
@@ -206,13 +206,13 @@ def test_ac10_aliased_and_bare_which_are_both_recognised() -> None:
     ''') == [("test_bare_name", "bun")]
 
 
-# ─── AC9: §1a sibling — bd#102 AC5b не задет конформансом M2 ───────────────
+# ─── AC9: §1a sibling — bd#102 AC5b untouched by the M2 conformance pass ──
 
 def test_ac9_bd102_call_site_contract_is_untouched_by_this_pr() -> None:
-    """M2 правит только формы 3/4/5; ни один из 8 сайтов bd#102 в них не входит.
+    """M2 edits only forms 3/4/5; none of bd#102's 8 sites is among them.
 
-    Сверяется на исходнике, а не прогоном: файлы, перечисленные в
-    `_C4/_C5/_C6`, обязаны по-прежнему нести `skip_without` в своих телах.
+    Checked against the source rather than by a run: the files listed in
+    `_C4/_C5/_C6` must still carry `skip_without` in their bodies.
     """
     from test_bd102_host_tool_contract import (  # noqa: PLC0415
         _C4_BUN_CALL_SITES,
@@ -225,12 +225,12 @@ def test_ac9_bd102_call_site_contract_is_untouched_by_this_pr() -> None:
         + [(f, n, "semgrep") for f, n in _C5_SEMGREP_CALL_SITES]
         + [(f, n, "git") for f, n in _C6_DOCTOR_GIT_CALL_SITES]
     )
-    assert len(sites) == 8, f"bd#102 перечисляет не 8 сайтов, а {len(sites)}"
+    assert len(sites) == 8, f"bd#102 lists {len(sites)} sites, not 8"
 
     for filename, func_name, tool in sites:
         source = (TESTS_DIR / filename).read_text(encoding="utf-8")
         reported = dict(_probes(source))
         assert reported.get(func_name) != tool, (
-            f"{filename}::{func_name} потерял объявление на {tool!r} — "
-            "конформанс M2 задел сайт bd#102, чего не должен был"
+            f"{filename}::{func_name} lost its declaration for {tool!r} — "
+            "the M2 conformance pass disturbed a bd#102 site, which it must not"
         )
