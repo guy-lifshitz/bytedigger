@@ -1,20 +1,20 @@
-"""bd#68 — BD-L3: канал наблюдения получает производителя.
+"""bd#68 — BD-L3: the observation channel gets a producer.
 
-Спека: `docs/decisions/2026-08-05-bd68-l3-observation-producers.md`.
+Spec: `docs/decisions/2026-08-05-bd68-l3-observation-producers.md`.
 
-Class: канал наблюдения без производителя. Замер: `observed_tools` не пишет
-НИКТО (ни `_invoke_subprocess`, ни `_invoke_in_session`, ни один из шести
-референс-бэкендов), а `observed_model` пишет только in-session. ⇒ R3.5 и R3.6
-на реальном логе вечно `not-checked`, R3.3 наблюдаем лишь для одного бэкенда.
+Class: an observation channel with no producer. Measured: `observed_tools` is written by
+NOBODY (neither `_invoke_subprocess`, nor `_invoke_in_session`, nor any of the six
+reference backends), while `observed_model` is written only in-session. ⇒ R3.5 and R3.6
+are forever `not-checked` on a real log, and R3.3 is observable for one backend only.
 
-ПРОТИВ СЕБЯ: урок bd#59 («отрицательная нога доказывает, что функция УМЕЕТ
-отказать, а не что её СПРОСЯТ») я записал и не применил к L3 — построил поверх
-пустого канала bd#28 и bd#63. Гейта против рецидива у L3 не было, поэтому дефект
-пережил три лота. AC5 — этот гейт.
+AGAINST MYSELF: the bd#59 lesson ("a negative leg proves the function CAN
+refuse, not that it WILL BE ASKED") I wrote down and did not apply to L3 — I built bd#28
+and bd#63 on top of an empty channel. L3 had no gate against a relapse, so the defect
+outlived three lots. AC5 is that gate.
 
-Улика при этом уже существует: `_written_paths_from_events` обходит транскрипт
-и читает `block["name"]`, отбирая write-инструменты. Имена ВСЕХ инструментов
-лежат в тех же блоках, поэтому новая инструментация хоста не нужна.
+The evidence meanwhile already exists: `_written_paths_from_events` walks the transcript
+and reads `block["name"]`, selecting write tools. The names of ALL tools
+lie in those same blocks, so no new host instrumentation is needed.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _bd_l3():
 
 
 def _transcript(*tool_names: str):
-    """Транскрипт stream-json в форме, которую обходит производитель."""
+    """A stream-json transcript in the form the producer walks."""
     return [{
         "type": "assistant",
         "message": {"content": [
@@ -42,39 +42,39 @@ def _transcript(*tool_names: str):
     }]
 
 
-# ─── AC1/AC2: производитель существует и НЕ всегда пуст ──────────────────
+# ─── AC1/AC2: the producer exists and is NOT always empty ────────────────
 
 def test_ac1_extractor_returns_sorted_deduped_tool_names():
     out = _L()._observed_tools_from_events(_transcript("Read", "Bash", "Read"))
-    assert out == ["Bash", "Read"], f"получено {out!r}"
+    assert out == ["Bash", "Read"], f"got {out!r}"
 
 
 def test_ac2_empty_and_nonempty_are_both_reachable():
-    """ОТРИЦАТЕЛЬНАЯ НОГА: производитель, всегда пишущий одно и то же, инертен
-    так же, как его отсутствие."""
+    """NEGATIVE LEG: a producer that always writes the same thing is as inert
+    as its absence."""
     L = _L()
     assert L._observed_tools_from_events([]) == []
     assert L._observed_tools_from_events(_transcript("Bash")) == ["Bash"]
 
 
-# ─── AC3: поле доезжает до data ──────────────────────────────────────────
+# ─── AC3: the field reaches data ─────────────────────────────────────────
 
 def test_ac3_observed_tools_lands_in_step_result_data(monkeypatch):
-    """Проверяется СБОРКА data продовой функции, а не только экстрактор."""
+    """It is the production function's ASSEMBLY of data that is checked, not just the extractor."""
     import inspect  # noqa: PLC0415
 
     src = inspect.getsource(_L()._invoke_subprocess)
     assert 'data["observed_tools"]' in src, (
-        "_invoke_subprocess обязан класть observed_tools в data — иначе "
-        "экстрактор существует, а канал по-прежнему пуст"
+        "_invoke_subprocess must put observed_tools into data — otherwise "
+        "the extractor exists and the channel is still empty"
     )
     assert "_observed_tools_from_events" in src
 
 
-# ─── AC4: сквозная связь улика -> вердикт ────────────────────────────────
+# ─── AC4: the end-to-end link evidence -> verdict ────────────────────────
 
 def test_ac4_escape_seen_only_in_the_transcript_reaches_the_verdict():
-    """Цепочка замкнута: побег из транскрипта становится нарушением R3.6."""
+    """The chain is closed: an escape in the transcript becomes an R3.6 violation."""
     from bytedigger_engine.conformance import attest, tokens  # noqa: PLC0415
 
     observed = _L()._observed_tools_from_events(_transcript("Bash"))
@@ -87,10 +87,10 @@ def test_ac4_escape_seen_only_in_the_transcript_reaches_the_verdict():
     assert report.labels["verdict:R3.6"] == tokens.REQUIREMENT_FAILED
 
 
-# ─── AC5: ГЕЙТ ПРОТИВ РЕЦИДИВА, обе стороны ──────────────────────────────
+# ─── AC5: THE GATE AGAINST A RELAPSE, both sides ─────────────────────────
 
 def _producers(field: str) -> int:
-    """Сколько прод-функций кладут `field` в StepResult.data."""
+    """How many production functions put `field` into StepResult.data."""
     import inspect  # noqa: PLC0415
 
     L = _L()
@@ -102,10 +102,10 @@ def _producers(field: str) -> int:
     return n
 
 
-# bd#73: R3.1 и R3.2 читают поля, которые пишет ЦЕНТРАЛЬНО `_attest_payload`
-# на каждой аттестации, а не тот или иной бэкенд. Гейт этого лота проверяет
-# производителей ПО БЭКЕНДАМ, поэтому такие требования из него исключены —
-# их производителя сторожит bd#73 (метка обязана иметь вердикт).
+# bd#73: R3.1 and R3.2 read fields written CENTRALLY by `_attest_payload`
+# on every attestation, rather than by one backend or another. This lot's gate checks
+# producers PER BACKEND, so such requirements are excluded from it —
+# their producer is guarded by bd#73 (a label must have a verdict).
 _CENTRALLY_PRODUCED = {"R3.1", "R3.2"}
 
 _FIELD_FOR = {"R3.3": "observed_model", "R3.5": "observed_tools",
@@ -119,32 +119,32 @@ def test_ac5_observable_requirements_have_producers_and_registry_is_current():
                   - _CENTRALLY_PRODUCED)
     missing = sorted(r for r in observable if _producers(_FIELD_FOR[r]) == 0)
     assert not missing, (
-        f"требование объявлено наблюдаемым, а поле никто не пишет: {missing!r}"
+        f"a requirement is declared observable and nobody writes the field: {missing!r}"
     )
 
     stale = sorted(r for r in bd_l3.AWAITING_PRODUCER
                    if _producers(_FIELD_FOR.get(r, "")) >= 2)
     assert not stale, (
-        f"производитель появился у всех путей, а требование числится ожидающим: "
-        f"{stale!r} — реестр обязан пустеть"
+        f"a producer has appeared on every path while the requirement is listed as pending: "
+        f"{stale!r} — the registry must drain"
     )
 
 
 def test_ac6_r33_partial_observability_is_declared():
-    """D4: `observed_model` пишет только in-session — это объявлено, не скрыто."""
+    """D4: `observed_model` is written only in-session — this is declared, not hidden."""
     bd_l3 = _bd_l3()
     assert "R3.3" in bd_l3.AWAITING_PRODUCER, (
-        "R3.3 наблюдаем только для одного бэкенда — пока это так, он обязан "
-        "числиться ожидающим, а не выдаваться за полностью наблюдаемый"
+        "R3.3 is observable for one backend only — while that holds, it must be "
+        "listed as pending rather than passed off as fully observable"
     )
     assert _producers("observed_model") == 1
 
 
-# ─── AC7/AC8: соседний контракт и поверхность ────────────────────────────
+# ─── AC7/AC8: the neighbouring contract and the surface ──────────────────
 
 def test_ac7_write_path_extractor_contract_unchanged():
-    """`_written_paths_from_events` обязан по-прежнему отдавать только пути
-    write-инструментов — смешение двух смыслов в одном обходе не делается."""
+    """`_written_paths_from_events` must still return only the paths of
+    write tools — the two meanings are not conflated into one walk."""
     L = _L()
     events = _transcript("Read", "Write")
     assert L._written_paths_from_events(events) == ["/x/Write.py"]
