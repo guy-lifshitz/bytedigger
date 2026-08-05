@@ -1,211 +1,211 @@
-# bd#36 — `phase_artifacts.written`: манифест как ИСТОЧНИК, а не фильтр
+# bd#36 — `phase_artifacts.written`: the manifest as a SOURCE, not a filter
 
-**Class:** прибор отвечает на вопрос, которого ему не задавали, и его отказ выглядит
-как успех. `written: []` при `write_tracking: "git-delta"` читается как «фаза ничего не
-написала», хотя означает «мои записи были вне окна наблюдения».
+**Class:** the instrument answers a question it was never asked, and its refusal looks
+like a success. `written: []` together with `write_tracking: "git-delta"` reads as "the phase wrote
+nothing", while it actually means "my writes were outside the observation window".
 
-**Chokepoint:** `engine.py:493` (`self._written |= delta`) — единственное место, где
-наполняется `written`; `engine.py:787-791` (`write_tracking`);
-`llm_subprocess.py:_validate_manifest_or_raise` (алфавит путей).
+**Chokepoint:** `engine.py:493` (`self._written |= delta`) — the only place where
+`written` is filled; `engine.py:787-791` (`write_tracking`);
+`llm_subprocess.py:_validate_manifest_or_raise` (the alphabet of paths).
 
-**§1b живая база**, снята ДО заморозки, на `a2d901c`, из `engine_py`, после сноса
-`build`/`__pycache__`: **`4489 passed / 39 skipped / 0 failed`**, 291 с.
+**§1b live base**, taken BEFORE the freeze, on `a2d901c`, from `engine_py`, after wiping
+`build`/`__pycache__`: **`4489 passed / 39 skipped / 0 failed`**, 291 s.
 
 ---
 
-## §0. Предмет ЖИВ — замерено прогоном, не чтением
+## §0. The subject is ALIVE — measured by a run, not by reading
 
-Зонд гонял настоящий `WorkflowEngine` (UUT не мокан), шаг реально писал файл, манифест
-отдавался штатной формой `StepResult.data`. Три случая:
+The probe ran a real `WorkflowEngine` (the UUT is not mocked), the step genuinely wrote a file, the manifest
+was delivered in the regular `StepResult.data` form. Three cases:
 
-| случай | пишет | манифест объявляет | `written` | `write_tracking` | `files_touched` |
+| case | writes | the manifest declares | `written` | `write_tracking` | `files_touched` |
 |---|---|---|---|---|---|
-| A | `a.txt`, `b.txt` в репо | только `a.txt` | **`['a.txt','b.txt']`** | `git-delta` | `('manifest', ['a.txt'])` |
-| B (контроль) | `c.txt` в репо | — (нет манифеста) | `['c.txt']` | `git-delta` | `('scan', ['c.txt'])` |
-| C | `scratchpad/note.md` ВНЕ репо | этот путь | **`[]`** | **`git-delta`** | **`[]`** |
+| A | `a.txt`, `b.txt` in the repo | only `a.txt` | **`['a.txt','b.txt']`** | `git-delta` | `('manifest', ['a.txt'])` |
+| B (control) | `c.txt` in the repo | — (no manifest) | `['c.txt']` | `git-delta` | `('scan', ['c.txt'])` |
+| C | `scratchpad/note.md` OUTSIDE the repo | that path | **`[]`** | **`git-delta`** | **`[]`** |
 
-Файл в C физически создан (`exists() == True`), воркер о нём отчитался — и он невидим.
+The file in C was physically created (`exists() == True`), the worker reported it — and it is invisible.
 
-### §0.1. Замер точнее issue: для `written` манифест не фильтр, а НЕ УЧАСТВУЕТ
+### §0.1. The measurement is sharper than the issue: for `written` the manifest is not a filter, it DOES NOT PARTICIPATE
 
-Issue формулирует: манифест «используется только как сужающее пересечение уже
-полученной дельты» применительно к `written`. Замер (случай A) это **опровергает**:
-манифест объявил один путь, а `written` содержит **оба**. Причина — порядок в коде:
-`engine.py:493` объединяет сырую дельту в `self._written` **до** и **вне** всякой
-манифестной логики, а пересечение на `:507-517` правит только payload события
-`files_touched`.
+The issue puts it as: the manifest is "used only as a narrowing intersection with an already
+obtained delta" as regards `written`. The measurement (case A) **refutes** this:
+the manifest declared one path, and `written` contains **both**. The cause is the order in the code:
+`engine.py:493` merges the raw delta into `self._written` **before** and **outside** any
+manifest logic, while the intersection at `:507-517` governs only the payload of the
+`files_touched` event.
 
-⇒ Отсюда второй дефект, которого issue не называет: **`written` и `files_touched.paths`
-описывают запись одного и того же шага по двум РАЗНЫМ правилам и расходятся** — в A
-`written` шире `files_touched` ровно на путь, который манифест отверг. Потребитель,
-сверяющий два события, получит противоречие, и ни одно из них не помечено как менее
-достоверное.
+⇒ Hence a second defect the issue does not name: **`written` and `files_touched.paths`
+describe the writes of one and the same step by two DIFFERENT rules and diverge** — in A
+`written` is wider than `files_touched` by exactly the path the manifest rejected. A consumer
+cross-checking the two events gets a contradiction, and neither one is marked as the less
+trustworthy.
 
-### §0.2. Форма отказа уже запрещена замороженной спекой — но правилом, которое её не ловит
+### §0.2. The shape of the refusal is already forbidden by the frozen spec — but by a rule that does not catch it
 
-`EMISSIONS_SPEC.md` `[G18r3:EDGE-4]` называет `written: []` рядом с `"git-delta"`
-**«overclaim shape»** и требует в такой ситуации `"not-observed"`. AC-E3b формулирует
-принцип: «`write_tracking` never overclaims».
+`EMISSIONS_SPEC.md` `[G18r3:EDGE-4]` names `written: []` next to `"git-delta"`
+an **"overclaim shape"** and requires `"not-observed"` in that situation. AC-E3b states
+the principle: "`write_tracking` never overclaims".
 
-Но AC-E3b связывает правило с вопросом **«была ли дельта посчитана»**, а не
-**«покрыло ли окно наблюдения записи фазы»**. В случае C дельта посчитана успешно
-(шаг отработал, снимки сняты), поэтому буква AC-E3b соблюдена, а объявленный ею смысл
-нарушен. **Это и есть надкласс: прибор отвечает «я запускал git diff», а его подпись
-утверждает «я наблюдал записи».**
+But AC-E3b ties the rule to the question **"was a delta computed"** rather than
+**"did the observation window cover the phase's writes"**. In case C the delta was computed successfully
+(the step ran, the snapshots were taken), so the letter of AC-E3b is observed while the meaning it
+declares is violated. **That is precisely the superclass: the instrument answers "I ran git diff", while its
+signature claims "I observed the writes".**
 
-### §0.3. Кто на самом деле производит манифест — премисса issue держится, но не везде
+### §0.3. Who actually produces the manifest — the issue's premise holds, but not everywhere
 
-| производитель | `manifest_source` | чем строит | несёт ли пути вне репо |
+| producer | `manifest_source` | what it builds from | does it carry paths outside the repo |
 |---|---|---|---|
-| `lib/reference_backends/*` (`pydantic_openai`, `pydantic_anthropic`, `agent_sdk`) | `git_diff` | `_manifest_since` = `git diff --name-only` + untracked **внутри `root`** | **нет, никогда** |
-| `llm_subprocess` (прод, пин `claude-subprocess`) | `harness_tool_record` | `_written_paths_from_events`: `block["input"]["file_path"]` у `Write/Edit/MultiEdit/NotebookEdit` | **да** — берётся ВЕРБАТИМ из транскрипта |
+| `lib/reference_backends/*` (`pydantic_openai`, `pydantic_anthropic`, `agent_sdk`) | `git_diff` | `_manifest_since` = `git diff --name-only` + untracked **inside `root`** | **no, never** |
+| `llm_subprocess` (production, pin `claude-subprocess`) | `harness_tool_record` | `_written_paths_from_events`: `block["input"]["file_path"]` of `Write/Edit/MultiEdit/NotebookEdit` | **yes** — taken VERBATIM from the transcript |
 
-Для референс-бэкендов объединение с манифестом не добавляет НИЧЕГО: их манифест сам
-есть git-дельта того же дерева. Премисса issue («воркер сообщает о том, чего git не
-видит») держится **только для продового пути**, и там держится полностью.
+For the reference backends the union with the manifest adds NOTHING: their manifest is itself
+the git delta of the same tree. The issue's premise ("the worker reports what git does not see")
+holds **only for the production path**, and there it holds completely.
 
-**Это меняет форму проверки:** RED, написанный на референс-бэкенде, был бы зелёным
-и после починки, и до неё. Отрицательная нога обязана бить именно по `harness_tool_record`.
+**This changes the shape of the check:** a RED written on a reference backend would be green
+both after the fix and before it. The negative leg must strike `harness_tool_record` specifically.
 
-### §0.4. «Repo-relative» — незапринуждённое утверждение докстроки
+### §0.4. "Repo-relative" — an unenforced claim of a docstring
 
-`llm_subprocess.py:392` объявляет `worker_written_paths` репо-относительными.
-`_validate_manifest_or_raise` (`:400-424`) проверяет **только** `isinstance(list)` и
-`isinstance(str)` каждого элемента. **Ни нормализации, ни проверки относительности нет.**
-`_written_paths_from_events` кладёт `file_path` как есть.
+`llm_subprocess.py:392` declares `worker_written_paths` to be repo-relative.
+`_validate_manifest_or_raise` (`:400-424`) checks **only** `isinstance(list)` and
+`isinstance(str)` of each element. **There is neither normalisation nor a relativity check.**
+`_written_paths_from_events` puts `file_path` in as is.
 
-⇒ Объединение сегодня склеило бы два алфавита (репо-относительные пути git-дельты и
-произвольные — на практике абсолютные — пути транскрипта), и **ни один слой этого не
-заметил бы**. Это ровно пункт 3 issue, теперь с именами обоих алфавитов.
+⇒ A union today would glue two alphabets together (the repo-relative paths of the git delta and the
+arbitrary — in practice absolute — paths of the transcript), and **not a single layer would
+notice**. This is exactly item 3 of the issue, now with both alphabets named.
 
 ---
 
-## §1. Решения, которые issue требует принять ЯВНО
+## §1. Decisions the issue requires to be taken EXPLICITLY
 
-**D1 — объединение, не пересечение.** `written = git_delta_paths ∪ normalise(manifest_paths)`.
+**D1 — union, not intersection.** `written = git_delta_paths ∪ normalise(manifest_paths)`.
 
-**D2 — `manifest is None` остаётся DEFER** к дельте, без изменений (§2 D2, случай B —
-контрольная нога).
+**D2 — `manifest is None` stays a DEFER** to the delta, unchanged (§2 D2, case B —
+the control leg).
 
-**D3 — нормализация (правило приведения к одному пространству имён).**
-Единое пространство — **репо-относительный POSIX-путь, когда путь лежит внутри
-`git_cwd`; иначе абсолютный POSIX-путь**. Приведение:
-1. `Path(p)`; если не абсолютный — считать репо-относительным, якорь `git_cwd`;
-2. `resolve()` обоих; если результат внутри `git_cwd` — отдать `relative_to(git_cwd)`;
-3. иначе — отдать абсолютный путь.
-Правило тотально (любой вход даёт ровно одну форму) и идемпотентно. **Цена названа:**
-абсолютные пути утекают в событие, то есть `written` перестаёт быть однородно
-репо-относительным. Это сознательно — альтернатива (выбрасывать всё вне репо) есть
-ровно сегодняшняя слепота.
+**D3 — normalisation (the rule for reducing to one namespace).**
+The single namespace is **a repo-relative POSIX path when the path lies inside
+`git_cwd`; otherwise an absolute POSIX path**. The reduction:
+1. `Path(p)`; if not absolute — treat as repo-relative, anchor `git_cwd`;
+2. `resolve()` both; if the result is inside `git_cwd` — return `relative_to(git_cwd)`;
+3. otherwise — return the absolute path.
+The rule is total (any input yields exactly one form) and idempotent. **The price is named:**
+absolute paths leak into the event, i.e. `written` ceases to be uniformly
+repo-relative. This is deliberate — the alternative (discarding everything outside the repo) is
+precisely today's blindness.
 
-**D4 — доверие к манифесту.** Пути из манифеста включаются **без проверки
-существования**. Довод: манифест — запись харнесса о собственных tool-call'ах, а не
-самоотчёт воркера (`4961254A`), и проверка существования ввела бы гонку (файл мог быть
-законно удалён последующим шагом). **Цена названа:** воркер, отчитавшийся о ненаписанном
-пути, попадёт в `written`; сегодня пересечение это гасило. Компенсация — D5.
+**D4 — trust in the manifest.** Paths from the manifest are included **without an existence
+check**. The argument: the manifest is the harness's record of its own tool calls, not
+the worker's self-report (`4961254A`), and an existence check would introduce a race (the file could have been
+legitimately deleted by a later step). **The price is named:** a worker that reported an unwritten
+path will land in `written`; today the intersection suppressed that. The compensation is D5.
 
-**D5 — новое значение `write_tracking`.** Сегодня два: `git-delta`, `not-observed`.
-Добавляется **`git-delta+manifest`** — «часть путей наблюдена только отчётом воркера,
-git их не видел». Значение обязано появляться **только** когда объединение реально
-что-то добавило сверх дельты. Без него смена источника молча растворилась бы в
-`git-delta`, что issue прямо запрещает.
+**D5 — a new value of `write_tracking`.** Today there are two: `git-delta`, `not-observed`.
+**`git-delta+manifest`** is added — "some of the paths were observed only by the worker's report,
+git never saw them". The value must appear **only** when the union actually
+added something beyond the delta. Without it the change of source would dissolve silently into
+`git-delta`, which the issue directly forbids.
 
-**D6 — `not-observed` не смягчается.** Если дельта не посчитана (нет/не-git `git_cwd`,
-падение шага), `write_tracking` остаётся `not-observed` **даже при непустом манифесте**.
-Иначе смена источника молча превратила бы `not-observed` в наблюдение — прямой запрет
-issue и `[G18r3:EDGE-4]`.
+**D6 — `not-observed` is not softened.** If the delta was not computed (missing/non-git `git_cwd`,
+a step failure), `write_tracking` stays `not-observed` **even with a non-empty manifest**.
+Otherwise the change of source would silently turn `not-observed` into an observation — directly forbidden by
+the issue and by `[G18r3:EDGE-4]`.
 
-**D7 — `files_touched` не трогаем.** Пересечение на `:507-517` остаётся как есть.
-Расхождение из §0.1 названо, но его устранение — отдельное решение: `files_touched`
-пошаговое и манифест-фильтрованное по своей спеке `3F5599A6 A3`, и менять его в этом
-же PR значило бы чинить два предмета одним диффом.
+**D7 — `files_touched` is not touched.** The intersection at `:507-517` stays as it is.
+The divergence from §0.1 is named, but removing it is a separate decision: `files_touched` is
+per-step and manifest-filtered by its own spec `3F5599A6 A3`, and changing it in the same
+PR would mean fixing two subjects with one diff.
 
 ---
 
 ## §2. §5 Scope
 
-**Правится**
-- `engine_py/bytedigger_engine/engine.py` — `_written` наполняется из объединения;
-  `write_tracking` получает третье значение; нормализация путей.
+**Edited**
+- `engine_py/bytedigger_engine/engine.py` — `_written` is filled from the union;
+  `write_tracking` gains a third value; path normalisation.
 
-**Новые файлы**
+**New files**
 - `engine_py/tests/test_bd36_written_source.py` — RED.
 
-**§1v — НЕ в области**
-- `llm_subprocess.py` — контракт манифеста и валидатор не меняются. Нормализация
-  делается на стороне потребителя (движка), потому что якорь (`git_cwd`) известен
-  только ему. Ужесточение валидатора до проверки относительности сломало бы прод-путь,
-  где пути абсолютны by construction.
+**§1v — NOT in scope**
+- `llm_subprocess.py` — the manifest contract and the validator are not changed. Normalisation
+  is done on the consumer's side (the engine), because the anchor (`git_cwd`) is known
+  only to it. Tightening the validator to check relativity would break the production path,
+  where paths are absolute by construction.
 - `files_touched` (D7).
-- `lib/reference_backends/*` — их манифест git-производный, чинить нечего.
-- `EMISSIONS_SPEC.md` — заморожена; новое значение `write_tracking` требует поправки
-  спеки, и это **вопрос диспетчеру** (см. §5), а не самовольная правка.
+- `lib/reference_backends/*` — their manifest is git-derived, there is nothing to fix.
+- `EMISSIONS_SPEC.md` — frozen; the new `write_tracking` value requires an amendment to the
+  spec, and that is a **question for the dispatcher** (see §5), not an edit taken unilaterally.
 
-## §3. §1a Sibling-audit
+## §3. §1a Sibling audit
 
-Потребители трёх сигналов, из §5-списка, прогнать с `--require-clean`:
+The consumers of the three signals, from the §5 list, to be run with `--require-clean`:
 
-| файл | тестов | что читает |
+| file | tests | what it reads |
 |---|---|---|
-| `test_bd18_emissions.py` | 45 | `phase_artifacts`, `write_tracking` — **прямой риск** (AC-E3/E3b пинуют ключи и значения) |
-| `test_bd8_l1_oracle.py` | 44 | `phase_artifacts`, `write_tracking` — пинует `{"write_tracking": "git-delta", "written": []}` **буквально** |
+| `test_bd18_emissions.py` | 45 | `phase_artifacts`, `write_tracking` — **direct risk** (AC-E3/E3b pin the keys and the values) |
+| `test_bd8_l1_oracle.py` | 44 | `phase_artifacts`, `write_tracking` — pins `{"write_tracking": "git-delta", "written": []}` **literally** |
 | `test_engine.py` | 19 | `phase_artifacts`, `files_touched` |
 | `test_error_locus_CCA65EB0.py` | 12 | `files_touched` |
-| `test_3F5599A6_a2a3_residue.py` | 11 | `files_touched` (манифестное пересечение) |
+| `test_3F5599A6_a2a3_residue.py` | 11 | `files_touched` (the manifest intersection) |
 | `test_gh1082_engine_scan_cwd.py` | 9 | `files_touched` |
-| `test_gh780_manifest_nondict.py` | 7 | `files_touched`, невалидный манифест |
+| `test_gh780_manifest_nondict.py` | 7 | `files_touched`, an invalid manifest |
 | `test_files_touched.py` | 6 | `files_touched` |
 | `test_event_log_replay_e2e.py` | 3 | `phase_artifacts` |
 
-**Итого 156 тестов.** `test_bd8_l1_oracle.py:19` — известный риск: он пинует пару
-`git-delta` + `written: []` буквально; D5/D6 обязаны его НЕ трогать (у него дельта
-посчитана и манифеста нет ⇒ ветка D2).
+**156 tests in total.** `test_bd8_l1_oracle.py:19` is a known risk: it pins the pair
+`git-delta` + `written: []` literally; D5/D6 must NOT disturb it (its delta is
+computed and there is no manifest ⇒ branch D2).
 
 ## §4. Acceptance criteria
 
-Все ноги — через настоящий `WorkflowEngine`, шаг реально пишет файл (§1l, UUT не мокан).
+Every leg goes through a real `WorkflowEngine`, the step genuinely writes a file (§1l, the UUT is not mocked).
 
-- **AC1 (предмет, §1l).** Шаг пишет файл ВНЕ `git_cwd` и объявляет его манифестом
-  `harness_tool_record` ⇒ путь ЕСТЬ в `written`. Сегодня красный (замер §0, случай C).
-- **AC2 (контрольная нога, D2).** Шаг БЕЗ манифеста ⇒ `written` равен РОВНО git-дельте.
-  Ловит «починку», удовлетворённую тем, что пересекать перестали вообще.
-- **AC3 (ОТРИЦАТЕЛЬНАЯ НОГА, D6).** `git_cwd` отсутствует/не-git + непустой манифест ⇒
-  `write_tracking == "not-observed"`. Гейт, пропускающий здесь наблюдение, инертен:
-  он бы разрешил молча превратить «не смотрел» в «наблюдал».
-- **AC4 (D5, новое значение по делу).** Запись только вне репо ⇒
-  `write_tracking == "git-delta+manifest"`; запись только внутри репо и манифест,
-  ничего не добавивший ⇒ `"git-delta"`. Обе стороны, иначе новое значение либо
-  не появляется, либо появляется всегда.
-- **AC5 (D3, нормализация).** Один и тот же файл внутри репо, объявленный манифестом
-  АБСОЛЮТНЫМ путём, а git-дельтой — относительным, даёт в `written` **одну** запись,
-  репо-относительную. Ловит склейку двух алфавитов.
-- **AC6 (D3, идемпотентность).** Путь вне репо даёт одну и ту же строку при повторной
-  нормализации.
-- **AC7 (D4, цена названа).** Манифест объявляет несуществующий путь ⇒ он ВХОДИТ в
-  `written`. Пинует принятое решение, чтобы будущая «оптимизация» с проверкой
-  существования не прошла молча.
-- **AC8 (§1a).** `test_bd8_l1_oracle.py` и `test_bd18_emissions.py` зелены без правок.
+- **AC1 (the subject, §1l).** A step writes a file OUTSIDE `git_cwd` and declares it in a
+  `harness_tool_record` manifest ⇒ the path IS in `written`. Red today (the §0 measurement, case C).
+- **AC2 (the control leg, D2).** A step WITHOUT a manifest ⇒ `written` equals EXACTLY the git delta.
+  Catches a "fix" satisfied by having stopped intersecting altogether.
+- **AC3 (NEGATIVE LEG, D6).** `git_cwd` missing/non-git + a non-empty manifest ⇒
+  `write_tracking == "not-observed"`. A gate that lets an observation through here is inert:
+  it would permit silently turning "did not look" into "observed".
+- **AC4 (D5, the new value on the merits).** A write only outside the repo ⇒
+  `write_tracking == "git-delta+manifest"`; a write only inside the repo with a manifest that
+  added nothing ⇒ `"git-delta"`. Both sides, otherwise the new value either
+  never appears or appears always.
+- **AC5 (D3, normalisation).** One and the same file inside the repo, declared by the manifest with an
+  ABSOLUTE path and by the git delta with a relative one, yields **one** entry in `written`,
+  repo-relative. Catches the gluing of two alphabets.
+- **AC6 (D3, idempotence).** A path outside the repo yields the same string on repeated
+  normalisation.
+- **AC7 (D4, the price is named).** The manifest declares a non-existent path ⇒ it IS INCLUDED in
+  `written`. Pins the decision taken, so that a future "optimisation" with an existence
+  check cannot pass silently.
+- **AC8 (§1a).** `test_bd8_l1_oracle.py` and `test_bd18_emissions.py` are green without edits.
 
-## §5. ВОПРОС ДИСПЕТЧЕРУ (не блокирует RED, блокирует мерж)
+## §5. QUESTION FOR THE DISPATCHER (does not block RED, blocks the merge)
 
-`EMISSIONS_SPEC.md` — **замороженная** conformance-спека, и AC-E3 пинует
-`write_tracking` в паре с точным набором ключей. D5 вводит третье значение ⇒ спеку
-надо править, а не обходить. Два пути:
-- **(a)** расширить AC-E3b перечислением трёх значений — честно, но правит замороженный
-  документ;
-- **(b)** не вводить новое значение, оставить `git-delta` — тогда смена источника
-  становится невидимой, что issue прямо запрещает («новое значение обязано быть
-  названо, а не свернуто в существующие два»).
+`EMISSIONS_SPEC.md` is a **frozen** conformance spec, and AC-E3 pins
+`write_tracking` together with an exact set of keys. D5 introduces a third value ⇒ the spec
+must be amended, not circumvented. Two paths:
+- **(a)** extend AC-E3b by enumerating the three values — honest, but it edits a frozen
+  document;
+- **(b)** do not introduce the new value, keep `git-delta` — then the change of source
+  becomes invisible, which the issue directly forbids ("the new value must be
+  named, not folded into the existing two").
 
-Иду по **(a)** как единственному, сохраняющему требование issue; правку спеки готовлю
-отдельным коммитом, чтобы её было видно и легко откатить. Если диспетчер решит иначе —
-меняется D5 и AC4, остальное держится.
+I am going with **(a)** as the only one that preserves the issue's requirement; I am preparing the spec
+edit as a separate commit so that it is visible and easy to revert. If the dispatcher decides otherwise —
+D5 and AC4 change, everything else holds.
 
-## §6. Чего этот PR НЕ утверждает
+## §6. What this PR does NOT claim
 
-- Не утверждает, что `written` теперь полон: путь, который воркер записал и НЕ объявил,
-  вне репо остаётся невидимым. Тотальность даёт только манифест, а он — запись
-  харнесса о своих tool-call'ах, не о произвольных записях процесса.
-- Не чинит расхождение `written` ↔ `files_touched` (§0.1, D7) — названо, отложено.
-- Не трогает bd#8: его набор берётся из `scratchpad/<run_id>/`, и этот PR ничего там
-  не меняет.
+- It does not claim that `written` is now complete: a path the worker wrote and did NOT declare
+  remains invisible outside the repo. Totality is provided only by the manifest, and that is the
+  harness's record of its own tool calls, not of arbitrary writes by the process.
+- It does not fix the `written` ↔ `files_touched` divergence (§0.1, D7) — named, deferred.
+- It does not touch bd#8: its set is taken from `scratchpad/<run_id>/`, and this PR changes nothing
+  there.
