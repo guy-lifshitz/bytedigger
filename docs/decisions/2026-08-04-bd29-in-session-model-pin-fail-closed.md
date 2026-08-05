@@ -1,191 +1,192 @@
 # bd#29 — in-session model-pin fail-closed flip (supersede 220E5F63)
 
-**Class:** декларация без измерения (B-3 гейта bd#10). Путь не доходил до чокпоинта
-не потому, что чокпоинт его не покрывал, а потому что **не заполнял канал, который
-чокпоинт читает**. Щит был зелёным всё время, пока дыра оставалась открытой.
-Сопутствующая коллизия: соглашение 220E5F63/GH#222 («warn-only») и CL:99
-(«объявленный пин при несовпадении MUST fail») одновременно истинными быть не могут.
+**Class:** declaration without measurement (gate B-3 of bd#10). The path did not reach the chokepoint
+not because the chokepoint failed to cover it, but because it **did not fill the channel the
+chokepoint reads**. The shield was green the whole time the hole stayed open.
+An accompanying collision: agreement 220E5F63/GH#222 ("warn-only") and CL:99
+("a declared pin MUST fail on mismatch") cannot both be true at once.
 
-**Chokepoint:** `llm_subprocess._pin_mismatch_refusal` (`:1088`, вызывается из
-`invoke_llm_subprocess` на `:1301`). Он **уже стоит на пути КАЖДОГО бэкенда** — после
-диспатча, до возврата. Канал, который он читает — `StepResult.data["observed_model"]`.
+**Chokepoint:** `llm_subprocess._pin_mismatch_refusal` (`:1088`, called from
+`invoke_llm_subprocess` at `:1301`). It **already stands on the path of EVERY backend** — after
+the dispatch, before the return. The channel it reads is `StepResult.data["observed_model"]`.
 
-**Ключевой замер:** `_invoke_in_session` формирует `data` (`:939-951`) из
+**The key measurement:** `_invoke_in_session` assembles `data` (`:939-951`) from
 `raw_response`, `response_bytes`, `model`, `tokens_out`, `tokens_in`, `cost_usd`,
-`worker_written_paths`, `manifest_source` — **`observed_model` там нет**. Поэтому
-`_pin_mismatch_refusal` на in-session результате получает `observed = None` и выходит
-`not-checked`, а параллельная warn-only ветка (`:929-932`,
-`_detect_nonhardgate_model_drift`) эмитит предупреждение и пропускает шаг дальше.
+`worker_written_paths`, `manifest_source` — **`observed_model` is not there**. So
+`_pin_mismatch_refusal` on an in-session result gets `observed = None` and comes out
+`not-checked`, while the parallel warn-only branch (`:929-932`,
+`_detect_nonhardgate_model_drift`) emits a warning and lets the step through.
 
-⇒ **Флип не требует второй реализации проверки.** Он получается СЛЕДСТВИЕМ чокпоинта,
-как и требует issue п.2: достаточно заполнить канал и снять超seded warn-only вызов.
+⇒ **The flip does not require a second implementation of the check.** It falls out as a CONSEQUENCE
+of the chokepoint, exactly as the issue's item 2 demands: it is enough to fill the channel and remove
+the superseded warn-only call.
 
-**§1b живая база**, снята ДО заморозки, `ada6585`, из `engine_py`, после сноса
-`build`/`__pycache__`: **`4497 passed / 39 skipped / 0 failed`**, 297 с.
+**§1b live base**, taken BEFORE the freeze, `ada6585`, from `engine_py`, after wiping
+`build`/`__pycache__`: **`4497 passed / 39 skipped / 0 failed`**, 297 s.
 
 ---
 
-## §1. Замер экспозиции (входное требование issue, п.1) — числом, на этом хосте
+## §1. Exposure measurement (the issue's entry requirement, item 1) — by number, on this host
 
-AST-скан всех прод-сайтов `invoke_llm_subprocess` в `bytedigger_engine/`:
+An AST scan of every production call site of `invoke_llm_subprocess` in `bytedigger_engine/`:
 
-| | сайтов |
+| | sites |
 |---|---|
-| всего прод-сайтов | **22** |
-| `hard_gate=True` (уже fail-closed через `_assert_in_session_model_or_downgrade`) | **7** |
-| **не-hard-gate — это и есть warn-only экспозиция** | **15** |
-| сайтов, не передающих пин модели | **0** |
+| total production sites | **22** |
+| `hard_gate=True` (already fail-closed via `_assert_in_session_model_or_downgrade`) | **7** |
+| **non-hard-gate — this is precisely the warn-only exposure** | **15** |
+| sites not passing a model pin | **0** |
 
-**Против себя — первый счёт был неверен, и я поймал его по невозможному сигналу.**
-Первый скан дал «2 сайта без пина» (`phase_45_spec.py:3854,3905`), хотя `model: str` —
-**обязательный** параметр без значения по умолчанию. Невозможность и была уликой: оба
-сайта зовут `invoke_llm_subprocess(**invoke_kwargs)`, а словарь строится выше и несёт
-`model=rev_model` **и** `hard_gate=True`. Значит статический скан ошибся ДВАЖДЫ — и по
-пину, и по `hard_gate`; эти два сайта не «не-hard-gate без пина», а обычные hard-gate.
-Числа выше уже исправлены. **Форма: splat-вызов статическому скану непрозрачен;
-классификацию по kwargs проверять на невозможные комбинации.**
+**Against myself — the first count was wrong, and I caught it by an impossible signal.**
+The first scan gave "2 sites without a pin" (`phase_45_spec.py:3854,3905`), even though `model: str` is a
+**mandatory** parameter with no default. The impossibility was the evidence: both
+sites call `invoke_llm_subprocess(**invoke_kwargs)`, and the dict is built above and carries
+`model=rev_model` **and** `hard_gate=True`. So the static scan erred TWICE — on the
+pin and on `hard_gate`; those two sites are not "non-hard-gate without a pin" but ordinary hard-gate ones.
+The numbers above are already corrected. **The form: a splat call is opaque to a static scan;
+check kwarg-based classification against impossible combinations.**
 
-**Рантайм-экспозиция.** `_DEFAULT_BACKEND = "agent-sdk"`; in-session включается только
-явным `backend=` или `HAL_RUNNER_BACKEND=claude-in-session` (`_resolve_backend`,
-kwarg > env > default). **Ни один прод-сайт in-session не выбирает** — единственное
-текстовое совпадение (`phase_6_review.py:973`) лишь ЧИТАЕТ разрешённый бэкенд, чтобы
-решить про `straggler_abort`.
+**Runtime exposure.** `_DEFAULT_BACKEND = "agent-sdk"`; in-session is enabled only by an
+explicit `backend=` or `HAL_RUNNER_BACKEND=claude-in-session` (`_resolve_backend`,
+kwarg > env > default). **No production site selects in-session** — the single
+textual match (`phase_6_review.py:973`) merely READS the resolved backend in order to
+decide about `straggler_abort`.
 
-⇒ **Что станет при fail-closed:** 15 не-hard-gate сайтов получают возможность жёстко
-упасть, но только при совпадении трёх условий — прогон идёт in-session (явный opt-in),
-сервисёр вернул `dispatched_model`, и его семейство отличается от пина. Ни один
-существующий вызывающий не ломается из-за отсутствия пина, потому что таких **ноль**.
-Это делает флип дешёвым по риску — и именно этот замер отсутствовал в bd#10.
+⇒ **What happens under fail-closed:** the 15 non-hard-gate sites gain the ability to fail hard,
+but only when three conditions coincide — the run is in-session (explicit opt-in),
+the servicer returned a `dispatched_model`, and its family differs from the pin. No
+existing caller breaks for lack of a pin, because there are **zero** such callers.
+That makes the flip cheap in risk — and it is exactly this measurement that was missing in bd#10.
 
-## §2. Решения
+## §2. Decisions
 
-**D1 — заполнить канал, не писать вторую проверку.** `_invoke_in_session` кладёт в
-`data` ключ `observed_model` со значением `result_obj.get("dispatched_model")`.
-Адъюдикация остаётся ровно одна — чокпоинтная.
+**D1 — fill the channel, do not write a second check.** `_invoke_in_session` puts into
+`data` the key `observed_model` with the value `result_obj.get("dispatched_model")`.
+Adjudication stays exactly one — the chokepoint's.
 
-**D2 — снять超seded warn-only вызов** `_detect_nonhardgate_model_drift` из
-`_invoke_in_session` (`:929-932`). **Саму функцию НЕ удалять** — её юнит-тесты
-AC5–AC9 остаются в силе (требование issue п.5), и она сохраняет ценность как
-чистый предикат.
+**D2 — remove the superseded warn-only call** `_detect_nonhardgate_model_drift` from
+`_invoke_in_session` (`:929-932`). **Do NOT delete the function itself** — its unit tests
+AC5–AC9 remain in force (the issue's item 5), and it retains value as a
+pure predicate.
 
-**D3 — событие сохраняется, требование issue п.4.** Чокпоинт эмитит
-`model_pin_mismatch` с `observed_model`, `pinned_model`, `step_name` (+ `phase`,
-`pinned_family`, `observed_family`, `severity="error"`, `chokepoint=True`). Выжившие
-половины AC10 переякорены в **новом** оракуле (AC2 ниже), а не проверяются только тем
-файлом, который лот сам и правит.
+**D3 — the event is preserved, the issue's item 4.** The chokepoint emits
+`model_pin_mismatch` with `observed_model`, `pinned_model`, `step_name` (+ `phase`,
+`pinned_family`, `observed_family`, `severity="error"`, `chokepoint=True`). The surviving
+halves of AC10 are re-anchored in a **new** oracle (AC2 below) rather than asserted only by the
+file the lot itself edits.
 
-**D4 — «нераспознанное семейство» НЕ трогаем.** bd#10 решил явно: «an adapter that
+**D4 — "unrecognised family" is NOT touched.** bd#10 decided explicitly: "an adapter that
 reported nothing, or reported an unrecognised token, is `not-checked` — an unrecognised
-token is not evidence of drift». Делать это fail-closed означало бы **отменить решение
-bd#10**, а не выполнить bd#29. Цена названа: сервисёр, вернувший неизвестный токен
-модели, гейт не поднимет. Если это надо менять — это отдельный предмет со своим
-доводом.
+token is not evidence of drift". Making that fail-closed would mean **overturning the bd#10
+decision**, not carrying out bd#29. The price is named: a servicer that returned an unknown model
+token will not raise the gate. If that needs changing, it is a separate subject with its own
+argument.
 
-**D5 — 220E5F63 супersedeн.** Дата 2026-08-04, причина: конфликт с CL:99, который
-требует падения при несовпадении объявленного пина. Warn-only был законен, пока
-уровень не объявил обратного; после CL:99 два правила одновременно истинными быть не
-могут. Метка `attest.REQUIREMENT_LABELS["R3.3"]` меняется с `"in-session-warn-only"`
-на `"chokepoint-enforced"`.
+**D5 — 220E5F63 is superseded.** Date 2026-08-04, reason: conflict with CL:99, which
+requires a failure on mismatch of a declared pin. Warn-only was legitimate until the
+level declared otherwise; after CL:99 the two rules cannot both be true at
+once. The label `attest.REQUIREMENT_LABELS["R3.3"]` changes from `"in-session-warn-only"`
+to `"chokepoint-enforced"`.
 
 ## §3. §5 Scope
 
-**Правится**
-- `engine_py/bytedigger_engine/llm_subprocess.py` — D1 (+1 ключ), D2 (снятие вызова).
-- `engine_py/bytedigger_engine/conformance/attest.py` — метка R3.3 (D5).
-- `engine_py/tests/test_2FDA949D_model_pin_warn.py` — **только** ожидаемый статус и код
-  ошибки в AC10 (требование issue п.5). Юнит-assert'ы AC5–AC9 не трогать.
-- `engine_py/tests/test_bd10_l3_authorship.py` — ожидаемое значение метки R3.3.
+**Edited**
+- `engine_py/bytedigger_engine/llm_subprocess.py` — D1 (+1 key), D2 (removal of the call).
+- `engine_py/bytedigger_engine/conformance/attest.py` — the R3.3 label (D5).
+- `engine_py/tests/test_2FDA949D_model_pin_warn.py` — **only** the expected status and error
+  code in AC10 (the issue's item 5). The AC5–AC9 unit asserts are not touched.
+- `engine_py/tests/test_bd10_l3_authorship.py` — the expected value of the R3.3 label.
 
-**Новые файлы**
+**New files**
 - `engine_py/tests/test_bd29_in_session_pin_fail_closed.py` — RED.
-- этот документ (супersession 220E5F63, требование issue п.6).
+- this document (supersession of 220E5F63, the issue's item 6).
 
-**§1v — НЕ в области**
-- `_detect_nonhardgate_model_drift` как функция (D2), её юнит-тесты.
-- `_assert_in_session_model_or_downgrade` — hard-gate путь уже fail-closed.
-- `_pin_mismatch_refusal` — не меняется ни на строку; в этом и смысл (флип как
-  следствие чокпоинта, а не его вторая реализация).
-- «Нераспознанное семейство» (D4).
+**§1v — NOT in scope**
+- `_detect_nonhardgate_model_drift` as a function (D2), its unit tests.
+- `_assert_in_session_model_or_downgrade` — the hard-gate path is already fail-closed.
+- `_pin_mismatch_refusal` — not changed by a single line; that is the whole point (the flip as a
+  consequence of the chokepoint, not a second implementation of it).
+- "Unrecognised family" (D4).
 
-## §4. §1a Sibling-audit
+## §4. §1a Sibling audit
 
-| файл | тестов | что читает |
+| file | tests | what it reads |
 |---|---|---|
-| `test_bd10_l3_authorship.py` | 29 | `REQUIREMENT_LABELS`, `observed_model`, `model_pin_mismatch` — **прямой риск** (пинует `"in-session-warn-only"` на `:200`) |
-| `test_2FDA949D_model_pin_warn.py` | 11 | AC10 end-to-end + AC5–AC9 юниты — **предмет правки** |
+| `test_bd10_l3_authorship.py` | 29 | `REQUIREMENT_LABELS`, `observed_model`, `model_pin_mismatch` — **direct risk** (pins `"in-session-warn-only"` at `:200`) |
+| `test_2FDA949D_model_pin_warn.py` | 11 | AC10 end-to-end + the AC5–AC9 units — **the subject of the edit** |
 | `test_02FF48F4_model_pin_insession.py` | 8 | `observed_model`, hard-gate downgrade |
 | `test_llm_subprocess_hard_gate.py` | 8 | `observed_model` |
 
-Итого **56** тестов, прогнать с `--require-clean`.
+**56** tests in total, to be run with `--require-clean`.
 
 ## §5. Acceptance criteria
 
-Все ноги гоняют `_invoke_in_session` end-to-end через файловый протокол (форма AC10,
-§1y), UUT не мокан.
+Every leg runs `_invoke_in_session` end-to-end through the file protocol (the AC10 form,
+§1y), the UUT is not mocked.
 
-- **AC1 (предмет).** Не-hard-gate шаг, `.res.json` несёт `dispatched_model` другого
-  семейства, чем пин ⇒ `status == "error"`, `error_code == "E_MODEL_PIN_MISMATCH"`,
+- **AC1 (the subject).** A non-hard-gate step whose `.res.json` carries a `dispatched_model` of a
+  family different from the pin ⇒ `status == "error"`, `error_code == "E_MODEL_PIN_MISMATCH"`,
   `recoverable is False`.
-- **AC2 (переякорение выживших половин AC10, п.4).** Тот же прогон по-прежнему эмитит
-  `model_pin_mismatch`, и событие несёт `observed_model`, `pinned_model`, `step_name`.
-  Утверждается в НОВОМ файле, а не только в том, который лот правит.
-- **AC3 (ОТРИЦАТЕЛЬНАЯ НОГА — канал).** `StepResult.data` in-session результата несёт
-  `observed_model`, равный `dispatched_model`. Без этого AC «флип» мог бы быть сделан
-  второй проверкой внутри `_invoke_in_session`, а канал остался бы пустым — то есть
-  ровно дефект B-3, воспроизведённый под видом починки.
-- **AC4 (ОТРИЦАТЕЛЬНАЯ НОГА — гейт не инертен).** Fail-closed, который не падает,
-  не существует: прогон БЕЗ дрейфа (совпадающие семейства) обязан дать
-  `status == "ok"` и НИ ОДНОГО `model_pin_mismatch`. Без этой ноги «починка»,
-  роняющая всё подряд, была бы зелёной по AC1.
-- **AC5 (граница bd#10, D4).** `dispatched_model` отсутствует в `.res.json` ⇒
-  `status == "ok"`, событий нет (`not-checked`). Пинует, что bd#29 НЕ отменял решение
-  bd#10 про нераспознанное/отсутствующее.
-- **AC6 (hard-gate не задет).** `hard_gate=True` с дрейфом по-прежнему обслуживается
-  `_assert_in_session_model_or_downgrade` и падает своим кодом, а не подменяется
-  чокпоинтным.
-- **AC7 (D5, метка).** `attest.REQUIREMENT_LABELS["R3.3"] == "chokepoint-enforced"`.
+- **AC2 (re-anchoring the surviving halves of AC10, item 4).** The same run still emits
+  `model_pin_mismatch`, and the event carries `observed_model`, `pinned_model`, `step_name`.
+  Asserted in a NEW file, not only in the one the lot edits.
+- **AC3 (NEGATIVE LEG — the channel).** The `StepResult.data` of an in-session result carries
+  `observed_model` equal to `dispatched_model`. Without this AC the "flip" could have been done
+  by a second check inside `_invoke_in_session` while the channel stayed empty — that is,
+  precisely defect B-3, reproduced in the guise of a fix.
+- **AC4 (NEGATIVE LEG — the gate is not inert).** A fail-closed that never fails
+  does not exist: a run WITHOUT drift (matching families) must give
+  `status == "ok"` and NOT A SINGLE `model_pin_mismatch`. Without this leg a "fix"
+  that fails everything indiscriminately would be green on AC1.
+- **AC5 (the bd#10 boundary, D4).** `dispatched_model` absent from the `.res.json` ⇒
+  `status == "ok"`, no events (`not-checked`). Pins that bd#29 did NOT overturn the
+  bd#10 decision about the unrecognised/absent case.
+- **AC6 (hard-gate untouched).** `hard_gate=True` with drift is still served by
+  `_assert_in_session_model_or_downgrade` and fails with its own code rather than being replaced
+  by the chokepoint's.
+- **AC7 (D5, the label).** `attest.REQUIREMENT_LABELS["R3.3"] == "chokepoint-enforced"`.
 
-## §5a. НАЙДЕНО ПОПУТНО, НЕ ЧИНИТСЯ ЗДЕСЬ: два стража на hard-gate пути, поздний затирает раннего
+## §5a. FOUND ALONG THE WAY, NOT FIXED HERE: two guards on the hard-gate path, the later overwrites the earlier
 
-Замер при написании AC6. `_assert_in_session_model_or_downgrade` отказывает своим
-кодом **`E_HARD_GATE_MODEL_DOWNGRADE`** и кладёт в `data` ключ `observed_model`
-(`:3386`). Дальше `invoke_llm_subprocess` на `:1301` зовёт `_pin_mismatch_refusal`,
-тот читает **этот же** `observed_model`, видит различие семейств и **перезаписывает
-результат своим `E_MODEL_PIN_MISMATCH`**.
+Measured while writing AC6. `_assert_in_session_model_or_downgrade` refuses with its own
+code **`E_HARD_GATE_MODEL_DOWNGRADE`** and puts the key `observed_model` into `data`
+(`:3386`). Further on, `invoke_llm_subprocess` at `:1301` calls `_pin_mismatch_refusal`,
+which reads **that same** `observed_model`, sees the family difference and **overwrites
+the result with its own `E_MODEL_PIN_MISMATCH`**.
 
-⇒ Код hard-gate-стража **до вызывающего не доходит**, когда семейства вдобавок
-различаются. Замерено: `hard_gate=True`, пин `sonnet`, dispatched `haiku` ⇒ на выходе
-`E_MODEL_PIN_MISMATCH`, а не `E_HARD_GATE_MODEL_DOWNGRADE`.
+⇒ The hard-gate guard's code **does not reach the caller** when the families additionally
+differ. Measured: `hard_gate=True`, pin `sonnet`, dispatched `haiku` ⇒ the output is
+`E_MODEL_PIN_MISMATCH`, not `E_HARD_GATE_MODEL_DOWNGRADE`.
 
-Дефект **предсуществующий**, bd#29 его не создаёт и здесь **не чинит** — это второй
-предмет со своим доводом (какой из двух кодов правилен и должен ли поздний страж
-уважать уже принятый отказ). AC6 пинует сегодняшнее наблюдаемое поведение, чтобы флип
-не сдвинул его незаметно; когда дефект будут чинить, AC6 обязан упасть и потребовать
-решения, а не промолчать.
+The defect is **pre-existing**; bd#29 does not create it and does **not fix** it here — that is a second
+subject with its own argument (which of the two codes is right, and whether the later guard
+should respect a refusal already taken). AC6 pins today's observable behaviour so that the flip
+does not shift it unnoticed; when the defect is fixed, AC6 must fail and demand a
+decision rather than stay silent.
 
-## §5b. ОТСТУПЛЕНИЕ ОТ ТРЕБОВАНИЯ issue п.5 — с замером, а не по удобству
+## §5b. DEPARTURE FROM THE ISSUE'S ITEM 5 — with a measurement, not out of convenience
 
-Issue требует: «Правка `test_2FDA949D_model_pin_warn.py` ограничена ожидаемым статусом
-и кодом ошибки в AC10». **Замерено: это недостижимо, потому что предмет AC10 переехал
-уровнем выше.**
+The issue requires: "The edit to `test_2FDA949D_model_pin_warn.py` is limited to the expected status
+and error code in AC10." **Measured: this is unattainable, because AC10's subject moved
+one level up.**
 
-AC10 зовёт `_invoke_in_session` НАПРЯМУЮ. После D1/D2 внутренняя функция про дрейф
-больше не решает ничего: адъюдикация — `_pin_mismatch_refusal`, вызываемая из
-`invoke_llm_subprocess` (`:1301`). Прямой вызов теперь даёт `status="ok"` и **ноль**
-событий (замер: `events captured: ['resolver_runner_request_dir_resolved',
-'runner_request_built', 'runner_result_consumed']`). То есть ни статуса, ни кода
-ошибки, на которые можно было бы «перенацелить» AC10, на этом уровне не существует.
+AC10 calls `_invoke_in_session` DIRECTLY. After D1/D2 the internal drift function
+decides nothing any more: adjudication is `_pin_mismatch_refusal`, called from
+`invoke_llm_subprocess` (`:1301`). The direct call now yields `status="ok"` and **zero**
+events (measured: `events captured: ['resolver_runner_request_dir_resolved',
+'runner_request_built', 'runner_result_consumed']`). That is, neither a status nor an error
+code onto which AC10 could be "re-targeted" exists at that level.
 
-**Что сделано вместо:** AC10 перепрофилирован в регрессионный страж САМОГО СНЯТИЯ —
-внутренняя функция обязана больше не эмитить и не блокировать. Выжившие половины
-старого контракта (событие с `observed_model`/`pinned_model`/`step_name` и падение
-шага) переякорены в НОВОМ оракуле `test_bd29_in_session_pin_fail_closed.py`
-(AC2/AC1) — ровно как требует issue п.4, чтобы изменение не оценивалось артефактом,
-который лот сам правит. Юнит-assert'ы AC5–AC9 не тронуты.
+**What was done instead:** AC10 was repurposed as a regression guard OF THE REMOVAL ITSELF —
+the internal function must no longer emit or block. The surviving halves of the
+old contract (the event with `observed_model`/`pinned_model`/`step_name` and the step failure)
+are re-anchored in the NEW oracle `test_bd29_in_session_pin_fail_closed.py`
+(AC2/AC1) — exactly as the issue's item 4 requires, so that the change is not judged by an artefact
+the lot edits itself. The AC5–AC9 unit asserts are untouched.
 
-## §6. Чего этот PR НЕ утверждает
+## §6. What this PR does NOT claim
 
-- Не утверждает, что in-session путь защищён при нераспознанном токене модели (D4).
-- Не утверждает, что warn-only форма исчезла из кода: функция-предикат остаётся, снят
-  только её вызов из прод-пути.
-- Не меняет hard-gate путь и не трогает `_pin_mismatch_refusal`.
+- It does not claim the in-session path is protected against an unrecognised model token (D4).
+- It does not claim the warn-only form has disappeared from the code: the predicate function remains,
+  only its call from the production path was removed.
+- It does not change the hard-gate path and does not touch `_pin_mismatch_refusal`.
