@@ -51,8 +51,14 @@ def _attested(
         "step_name": "s1",
         "backend": "claude-subprocess",
         "model_requested": model_requested,
-        "prompt_sha256": "sha256:00",
-        "injections": [],
+        # bd#73 пинует ФОРМУ хеша, а не только присутствие ключа — фикстура
+        # приведена к настоящей: sha256:<64 hex>.
+        "prompt_sha256": "sha256:" + "0" * 64,
+        # bd#73: R3.2 без инъекций даёт not-checked (пустой список законен, но
+        # наблюдать нечего), поэтому ПОЛНОСТЬЮ конформная инвокация несёт
+        # атрибутированный блок — как и реальная, идущая через канал инъекций.
+        "injections": [{"source_id": "role-template",
+                        "sha256": "sha256:" + "0" * 64}],
         "declared_capabilities": declared_capabilities,
         "capability_enforcement": "declared",
         "observed_model": observed_model,
@@ -204,8 +210,8 @@ def test_ac8_public_surface_equals_dunder_all():
     # bd#71 добавил SILENT_BACKENDS — объявленный список бэкендов, не пишущих
     # наблюдений. Дефолтный писал ничего, а чекеры были зелены.
     assert set(bd_l3.__all__) == {
-        "REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS", "check_bd_l3",
-        "validate_report"}
+        "REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS",
+        "LABEL_EXCEPTIONS", "check_bd_l3", "validate_report"}
     for name in bd_l3.__all__:
         assert hasattr(bd_l3, name), f"__all__ называет отсутствующее имя {name!r}"
     public = {n for n in vars(bd_l3) if not n.startswith("_")}
@@ -256,4 +262,5 @@ def test_ac11_l0report_contract_not_extended():
     names = {f.name for f in dataclasses.fields(report)}
     assert names == {"passed", "requirements", "violations", "labels"}
     # bd#63 добавил R3.5: заявление о принуждении стало опровержимым.
-    assert tuple(report.requirements) == ("R3.3", "R3.5", "R3.6")
+    # bd#73 добавил R3.1/R3.2: у них была метка без вердикта.
+    assert tuple(report.requirements) == ("R3.1", "R3.2", "R3.3", "R3.5", "R3.6")
