@@ -201,8 +201,11 @@ def test_ac8_public_surface_equals_dunder_all():
     # bd#63 не менял поверхность — REQUIREMENTS выросли, имена те же.
     # bd#68 добавил AWAITING_PRODUCER — объявленный реестр требований, чьё поле
     # наблюдения пишется не на всех прод-путях. Пробел обязан быть виден.
+    # bd#71 добавил SILENT_BACKENDS — объявленный список бэкендов, не пишущих
+    # наблюдений. Дефолтный писал ничего, а чекеры были зелены.
     assert set(bd_l3.__all__) == {
-        "REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l3", "validate_report"}
+        "REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS", "check_bd_l3",
+        "validate_report"}
     for name in bd_l3.__all__:
         assert hasattr(bd_l3, name), f"__all__ называет отсутствующее имя {name!r}"
     public = {n for n in vars(bd_l3) if not n.startswith("_")}

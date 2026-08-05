@@ -41,7 +41,8 @@ from ..lib.llm_provider import get_provider as _get_provider
 if _TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "check_bd_l3", "validate_report"]
+__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS", "check_bd_l3",
+           "validate_report"]
 
 #: The requirements this checker adjudicates. R3.1/R3.2/R3.5 are out of scope.
 REQUIREMENTS: "tuple[str, ...]" = ("R3.3", "R3.5", "R3.6")
@@ -52,6 +53,17 @@ REQUIREMENTS: "tuple[str, ...]" = ("R3.3", "R3.5", "R3.6")
 #: R3.5/R3.6 shipped inert under bd#28 and bd#63. `observed_model` is written
 #: only by `_invoke_in_session`, so R3.3 is observable for that backend alone.
 AWAITING_PRODUCER: "tuple[str, ...]" = ("R3.3",)
+
+#: bd#71: reference backends that do NOT yet write the observation fields.
+#: Declared rather than silent — `agent-sdk` was the DEFAULT backend and wrote
+#: nothing, so all three L3 requirements were mute on real traffic while the
+#: checkers stayed green. The gate that keeps this current
+#: (`test_bd71_*::test_ac7`) covers EVERY registered backend, not just the one
+#: a lot happened to touch: fixing only where the defect was found is how the
+#: same class survived three lots in a row.
+SILENT_BACKENDS: "tuple[str, ...]" = (
+    "anthropic_api", "anthropic_oauth", "pydantic_anthropic", "pydantic_openai",
+)
 
 _VERDICT_KEY = "verdict:{}"
 _ADV_9 = "ADV-9"

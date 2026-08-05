@@ -91,6 +91,32 @@ def _invalidate(key: str) -> None:
 # message-reader then raises out of the async-for loop).
 # ---------------------------------------------------------------------------
 
+def _accumulate_observations(msg: object, holder: dict[str, object]) -> None:
+    """bd#71: harvest tool names and the dispatched model from one SDK message.
+
+    Defensive by construction — this runs on EVERY message of a live stream and
+    must never be able to break the run it observes. Any shape it does not
+    recognise is skipped silently; telemetry is not allowed to cost a dispatch.
+
+    The model is taken from what the stream REPORTED, never from what was
+    requested: writing the requested value back would have R3.3 compare the pin
+    with itself, and the check could never fail.
+    """
+    content = getattr(msg, "content", None)
+    if isinstance(content, list):
+        tools = holder["tools"]
+        if isinstance(tools, set):
+            for block in content:
+                if getattr(block, "type", None) != "tool_use":
+                    continue
+                name = getattr(block, "name", None)
+                if isinstance(name, str) and name:
+                    tools.add(name)
+    model = getattr(msg, "model", None)
+    if isinstance(model, str) and model:
+        holder["model"] = model
+
+
 def _salvage_success_result(holder: dict[str, object]) -> object | None:
     """Return the already-received success ResultMessage, else None.
 
@@ -342,6 +368,11 @@ def agent_sdk_backend(
 
     stderr_buf: "deque[str]" = deque(maxlen=_stderr_tail_lines())
     result_holder: dict[str, object] = {"msg": None}
+    # bd#71: the observation channel BD-L3 reads. The stream carries both
+    # `ToolUseBlock.name` and `AssistantMessage.model`, and this loop used to
+    # keep only the ResultMessage — the evidence passed through and was
+    # dropped, so R3.3/R3.5/R3.6 were silent on the DEFAULT backend.
+    observed_holder: dict[str, object] = {"tools": set(), "model": None}
 
     def _on_stderr(line: str) -> None:
         stderr_buf.append(line)
@@ -376,6 +407,10 @@ def agent_sdk_backend(
             attempt += 1
             attempt_state["attempts"] = attempt
             result_holder["msg"] = None
+            # Reset with its sibling: observations from a failed attempt must
+            # not leak into the next one.
+            observed_holder["tools"] = set()
+            observed_holder["model"] = None
             resume_this = resume_sid if attempt == 1 else None
             resume_used["value"] = resume_this
             if attempt > 1 and key is not None:
@@ -420,6 +455,7 @@ def agent_sdk_backend(
                     except StopAsyncIteration:
                         # Normal stream end — loop control, not an error.
                         break
+                    _accumulate_observations(msg, observed_holder)
                     if result_cls is not None and isinstance(msg, result_cls):
                         result_msg = msg
                         result_holder["msg"] = msg
@@ -620,6 +656,11 @@ def agent_sdk_backend(
     base_data: dict[str, object] = {
         "raw_response": raw_response,
         "worker_written_paths": manifest,
+        # bd#71: BD-L3's observation channel, from the stream this backend
+        # already reads. Success path only, like its siblings.
+        "observed_tools": sorted(observed_holder["tools"])
+        if isinstance(observed_holder["tools"], set) else [],
+        "observed_model": observed_holder["model"],
         "manifest_source": "git_diff",
         "command": ["agent-sdk", model],
         "tokens_in": tokens_in,
