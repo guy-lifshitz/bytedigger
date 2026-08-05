@@ -1,20 +1,20 @@
-"""bd#59 — enforcement: объявленное соответствие «вердикт ⇄ прод-отказ».
+"""bd#59 — enforcement: a declared correspondence "verdict ⇄ production refusal".
 
-Спека: `docs/decisions/2026-08-04-bd59-enforcement-map.md`.
+Spec: `docs/decisions/2026-08-04-bd59-enforcement-map.md`.
 
-Class: дублирующий страж. Замер экспозиции (обязательный по issue ДО RED)
-показал, что прод-отказ УЖЕ существует у всех трёх наблюдаемых требований:
-R2.2 — `E_RED_STUB_PASSABLE` (recoverable=False, 6 сайтов, гейт включён по
-умолчанию); R2.1 — `E_RED_COLLECT_PROBE` (recoverable=True, флаг принуждения
-default=0); R2.6 — блокировка `_baseline_delta` (флаг default=0).
+Class: a duplicate guard. The exposure measurement (mandated by the issue BEFORE RED)
+showed that a production refusal ALREADY exists for all three observable requirements:
+R2.2 — `E_RED_STUB_PASSABLE` (recoverable=False, 6 sites, the gate is on by
+default); R2.1 — `E_RED_COLLECT_PROBE` (recoverable=True, the enforcement flag
+defaults to 0); R2.6 — blocking of `_baseline_delta` (flag default=0).
 
-⇒ Провести вердикты L2 в фазы значило бы поставить ВТОРОГО стража на уже
-охраняемое условие. Цена известна поимённо из bd#29 §5a: поздний страж
-перезаписывает код раннего, и до вызывающего доходит не та причина.
+⇒ Wiring the L2 verdicts into the phases would mean placing a SECOND guard on an already
+guarded condition. The price is known by name from bd#29 §5a: the later guard
+overwrites the earlier one's code, and the caller receives the wrong cause.
 
-Чего действительно нет — ОБЪЯВЛЕННОЙ связи «требование → (код, флаг, включён
-ли)». Сегодня «отказа нет» и «отказ есть, но выключен» выглядят одинаково, и
-именно это делает enforcement непроверяемым.
+What is genuinely missing is a DECLARED link "requirement → (code, flag, whether it is
+on)". Today "there is no refusal" and "there is a refusal, but it is off" look the same, and
+that is exactly what makes enforcement unverifiable.
 """
 from __future__ import annotations
 
@@ -25,34 +25,34 @@ def _bd_l2():
     return bd_l2
 
 
-# ─── AC1/AC3: реестр и реальность не расходятся ──────────────────────────
+# ─── AC1/AC3: the registry and reality do not diverge ────────────────────
 
 def test_ac1_every_observable_requirement_is_bound_to_a_consequence():
     bd_l2 = _bd_l2()
     observable = set(bd_l2.REQUIREMENTS) - set(bd_l2.AWAITING_PRODUCER)
     missing = sorted(observable - set(bd_l2.ENFORCEMENT))
     assert not missing, (
-        f"требование наблюдаемо, но последствие не объявлено: {missing!r} — "
-        "вердикт без объявленного отказа непроверяем"
+        f"the requirement is observable but the consequence is not declared: {missing!r} — "
+        "a verdict without a declared refusal is unverifiable"
     )
 
 
 def test_ac3_unobservable_requirements_declare_no_consequence():
-    """ОТРИЦАТЕЛЬНАЯ НОГА: нельзя объявлять последствие тому, чего не наблюдаешь."""
+    """NEGATIVE LEG: one may not declare a consequence for what one does not observe."""
     bd_l2 = _bd_l2()
     overreach = sorted(set(bd_l2.AWAITING_PRODUCER) & set(bd_l2.ENFORCEMENT))
     assert not overreach, (
-        f"последствие объявлено требованию без производителя: {overreach!r}"
+        f"a consequence is declared for a requirement with no producer: {overreach!r}"
     )
 
 
-# ─── AC2: запись обязана называть СУЩЕСТВУЮЩИЕ код и флаг ────────────────
+# ─── AC2: the record must name an EXISTING code and flag ─────────────────
 
 def test_ac2_every_entry_names_a_real_code_and_a_real_flag():
-    """ОТРИЦАТЕЛЬНАЯ НОГА. Ссылка на выдуманное имя обязана ронять гейт — это
-    ровно та ошибка, которую я допустил дважды: в bd#9 с именами событий и в
-    bd#59 с ключами payload. Оба раза всё было зелено, потому что никто не
-    сверял объявление с реестром."""
+    """NEGATIVE LEG. A reference to an invented name must fail the gate — this is
+    exactly the mistake I made twice: in bd#9 with event names and in
+    bd#59 with payload keys. Both times everything was green, because nobody
+    checked the declaration against the registry."""
     from bytedigger_engine.error_codes import ERROR_CODES  # noqa: PLC0415
     from bytedigger_engine import flags_catalog  # noqa: PLC0415
 
@@ -61,18 +61,18 @@ def test_ac2_every_entry_names_a_real_code_and_a_real_flag():
 
     for req, entry in bd_l2.ENFORCEMENT.items():
         assert entry["error_code"] in ERROR_CODES, (
-            f"{req}: код {entry['error_code']!r} отсутствует в реестре error_codes"
+            f"{req}: code {entry['error_code']!r} is absent from the error_codes registry"
         )
         assert entry["flag"] in flags, (
-            f"{req}: флаг {entry['flag']!r} отсутствует в flags_catalog"
+            f"{req}: flag {entry['flag']!r} is absent from flags_catalog"
         )
         assert isinstance(entry["enforced_by_default"], bool)
 
 
-# ─── AC4/AC5: ТРИ состояния различимы ────────────────────────────────────
+# ─── AC4/AC5: THREE states are distinguishable ───────────────────────────
 
 def test_ac4_three_enforcement_states_are_distinguishable():
-    """Отказ включён · отказ есть, но выключен · отказа нет — три метки."""
+    """Refusal on · refusal exists but is off · no refusal — three labels."""
     bd_l2 = _bd_l2()
     report = bd_l2.check_bd_l2([])
 
@@ -81,27 +81,27 @@ def test_ac4_three_enforcement_states_are_distinguishable():
     absent = report.labels["enforcement:R2.5"]
 
     assert len({enforced, declared_off, absent}) == 3, (
-        f"три состояния обязаны быть различимы, получено "
+        f"the three states must be distinguishable, got "
         f"{enforced!r} / {declared_off!r} / {absent!r}"
     )
 
 
 def test_ac5_a_disabled_consequence_never_reads_as_enforced():
-    """ОТРИЦАТЕЛЬНАЯ НОГА: выключенный отказ не имеет права выглядеть включённым."""
+    """NEGATIVE LEG: a disabled refusal has no right to look enabled."""
     bd_l2 = _bd_l2()
     report = bd_l2.check_bd_l2([])
 
     assert report.labels["enforcement:R2.1"] != report.labels["enforcement:R2.2"], (
-        "R2.1 принуждается только под флагом default=0, R2.2 — по умолчанию; "
-        "одинаковая метка стирает разницу"
+        "R2.1 is enforced only under a flag with default=0, R2.2 by default; "
+        "an identical label erases the difference"
     )
 
 
-# ─── AC6: замер зафиксирован и обязан упасть при дрейфе ──────────────────
+# ─── AC6: the measurement is pinned and must fail on drift ───────────────
 
 def test_ac6_measured_defaults_are_pinned():
-    """Если значение флага в каталоге изменится, этот AC падает и потребует
-    решения, а не проедет молча."""
+    """If the flag's value in the catalog changes, this AC fails and demands a
+    decision rather than sliding past in silence."""
     bd_l2 = _bd_l2()
 
     assert bd_l2.ENFORCEMENT["R2.2"]["enforced_by_default"] is True

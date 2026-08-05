@@ -1,19 +1,19 @@
-"""bd#71 — дефолтный бэкенд начинает производить наблюдения.
+"""bd#71 — the default backend starts producing observations.
 
-Спека: `docs/decisions/2026-08-05-bd71-agent-sdk-observations.md`.
+Spec: `docs/decisions/2026-08-05-bd71-agent-sdk-observations.md`.
 
-Class: наблюдение, выброшенное по дороге. Не «производителя нет» (bd#68) и не
-«эмиттер односторонний» (bd#61), а третья форма: улика ПРОХОДИТ через код и
-отбрасывается. Цикл `agent_sdk.py:407-427` итерирует весь поток SDK — где лежат
-и `ToolUseBlock.name`, и `AssistantMessage.model` — и сохраняет только
+Class: an observation discarded along the way. Not "there is no producer" (bd#68) and not
+"the emitter is one-sided" (bd#61), but a third form: the evidence PASSES through the code and
+is thrown away. The loop `agent_sdk.py:407-427` iterates the whole SDK stream — where both
+`ToolUseBlock.name` and `AssistantMessage.model` live — and keeps only
 `ResultMessage`.
 
-Экспозиция: `_DEFAULT_BACKEND == "agent-sdk"`, то есть это путь прода по
-умолчанию, и на нём после bd#70 молчат ВСЕ три требования L3.
+Exposure: `_DEFAULT_BACKEND == "agent-sdk"`, i.e. this is the default production
+path, and on it, after bd#70, ALL three L3 requirements are silent.
 
-Фейковый SDK и форма вызова переиспользуют шаблон
-`test_gh1157_agent_sdk_retry.py` — тот же async-generator `query()`, та же
-очередь поведений. UUT не мокан: гоняется настоящий `agent_sdk_backend`.
+The fake SDK and the call form reuse the template of
+`test_gh1157_agent_sdk_retry.py` — the same async-generator `query()`, the same
+queue of behaviours. The UUT is not mocked: the real `agent_sdk_backend` is run.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class _AssistantMessage:
 
 
 def _install_fake_sdk(monkeypatch, *, scripts):
-    """`scripts` — список сценариев по попыткам: каждый список сообщений."""
+    """`scripts` — a list of scenarios by attempt: each a list of messages."""
     queue = list(scripts)
 
     class ClaudeAgentOptions:
@@ -103,34 +103,34 @@ def _run(monkeypatch, tmp_path, *, scripts, model="claude-sonnet"):
 
 
 def _ok(tools=(), model=None):
-    """Один успешный прогон: assistant-сообщение с блоками + результат."""
+    """One successful run: an assistant message with blocks + a result."""
     return [
         _AssistantMessage([_ToolUseBlock(t) for t in tools], model=model),
         _ResultMessage(result="done"),
     ]
 
 
-# ─── AC1/AC2: инструменты, и обе стороны ─────────────────────────────────
+# ─── AC1/AC2: the tools, and both sides ──────────────────────────────────
 
 def test_ac1_tool_names_reach_data(monkeypatch, tmp_path):
     res = _run(monkeypatch, tmp_path, scripts=[_ok(tools=("Read", "Bash"))])
 
     assert isinstance(res.data, dict), f"got {res.data!r}"
     assert res.data.get("observed_tools") == ["Bash", "Read"], (
-        f"имена инструментов обязаны доезжать до data; получено "
+        f"tool names must reach data; got "
         f"{res.data.get('observed_tools')!r}"
     )
 
 
 def test_ac2_no_tool_blocks_yields_empty_not_missing(monkeypatch, tmp_path):
-    """ОТРИЦАТЕЛЬНАЯ НОГА: накопитель, всегда пишущий одно и то же, инертен
-    так же, как его отсутствие (урок bd#61)."""
+    """NEGATIVE LEG: an accumulator that always writes the same thing is as inert
+    as its absence (the bd#61 lesson)."""
     res = _run(monkeypatch, tmp_path, scripts=[_ok(tools=())])
 
     assert res.data.get("observed_tools") == []
 
 
-# ─── AC3/AC4: модель, и она НАБЛЮДЁННАЯ, а не запрошенная ────────────────
+# ─── AC3/AC4: the model, and it is the OBSERVED one, not the requested one ─
 
 def test_ac3_model_from_the_stream_reaches_data(monkeypatch, tmp_path):
     res = _run(monkeypatch, tmp_path, scripts=[_ok(model="claude-sonnet")])
@@ -139,17 +139,17 @@ def test_ac3_model_from_the_stream_reaches_data(monkeypatch, tmp_path):
 
 
 def test_ac4_observed_model_differs_from_requested_and_wins(monkeypatch, tmp_path):
-    """ОТРИЦАТЕЛЬНАЯ НОГА (D3). Записывать запрошенное значило бы сравнивать
-    пин сам с собой — R3.3 не смог бы упасть никогда."""
+    """NEGATIVE LEG (D3). Recording the requested one would mean comparing
+    the pin with itself — R3.3 could never fail."""
     res = _run(monkeypatch, tmp_path, model="claude-opus",
                scripts=[_ok(model="claude-haiku")])
 
     assert res.data.get("observed_model") == "claude-haiku", (
-        "в data обязана попасть НАБЛЮДЁННАЯ модель, а не запрошенная"
+        "the OBSERVED model must land in data, not the requested one"
     )
 
 
-# ─── AC5: сквозная связь улика -> вердикт ────────────────────────────────
+# ─── AC5: the end-to-end link evidence -> verdict ────────────────────────
 
 def test_ac5_stream_evidence_reaches_the_l3_verdicts(monkeypatch, tmp_path):
     from bytedigger_engine.conformance import attest, bd_l3, tokens  # noqa: PLC0415
@@ -164,22 +164,22 @@ def test_ac5_stream_evidence_reaches_the_l3_verdicts(monkeypatch, tmp_path):
                     "declared_capabilities": ["Read"],
                     "observed_tools": res.data.get("observed_tools")},
     }])
-    assert report.labels["verdict:R3.6"] == tokens.REQUIREMENT_FAILED, "побег"
-    assert report.labels["verdict:R3.3"] == tokens.REQUIREMENT_FAILED, "дрейф модели"
+    assert report.labels["verdict:R3.6"] == tokens.REQUIREMENT_FAILED, "escape"
+    assert report.labels["verdict:R3.3"] == tokens.REQUIREMENT_FAILED, "model drift"
 
 
-# ─── AC6: ретрай не протекает ────────────────────────────────────────────
+# ─── AC6: the retry does not leak ────────────────────────────────────────
 
 class _Overloaded(Exception):
     status_code = 529
 
 
 def test_ac6_observations_do_not_leak_across_attempts(monkeypatch, tmp_path):
-    """Первая попытка НАБЛЮДАЕТ Bash/haiku и падает ретраябельно (529), вторая
-    наблюдает Read/sonnet и успевает.
+    """The first attempt OBSERVES Bash/haiku and fails retryably (529), the second
+    observes Read/sonnet and succeeds.
 
-    Ретрай вызывается детерминированно, а не по стечению обстоятельств: пропуск
-    здесь означал бы AC, который сам себя извиняет и ничего не проверяет.
+    The retry is triggered deterministically rather than by coincidence: a skip
+    here would mean an AC that excuses itself and checks nothing.
     """
     monkeypatch.setenv("HAL_OUTAGE_PROBE", "0")
     res = _run(monkeypatch, tmp_path, scripts=[
@@ -189,22 +189,22 @@ def test_ac6_observations_do_not_leak_across_attempts(monkeypatch, tmp_path):
     ])
 
     assert res.status == "ok", (
-        f"ретрай обязан был дойти до успеха; получено {res.status!r} / "
+        f"the retry should have reached success; got {res.status!r} / "
         f"{res.error_code!r}"
     )
     assert res.data.get("observed_tools") == ["Read"], (
-        f"наблюдения первой попытки протекли: {res.data.get('observed_tools')!r}"
+        f"the first attempt's observations leaked: {res.data.get('observed_tools')!r}"
     )
     assert res.data.get("observed_model") == "sonnet"
 
 
-# ─── AC7: ГЕЙТ — все зарегистрированные бэкенды ──────────────────────────
+# ─── AC7: THE GATE — all registered backends ─────────────────────────────
 
 def test_ac7_every_registered_backend_writes_or_is_declared():
-    """Гейт покрывает ВСЕ бэкенды, а не только тронутый.
+    """The gate covers ALL backends, not only the one touched.
 
-    Отсутствие такого гейта дало три инертных лота подряд; чинить там, где
-    искали, и не ставить гейт на остальных — та же форма ещё раз.
+    The absence of such a gate produced three inert lots in a row; fixing where
+    one looked and not placing a gate over the rest is the same form once again.
     """
     import inspect  # noqa: PLC0415
     import pathlib  # noqa: PLC0415
@@ -222,14 +222,14 @@ def test_ac7_every_registered_backend_writes_or_is_declared():
         else:
             silent.add(path.stem)
 
-    assert "agent_sdk" in writing, "дефолтный бэкенд обязан писать оба поля"
+    assert "agent_sdk" in writing, "the default backend must write both fields"
     undeclared = sorted(silent - set(bd_l3.SILENT_BACKENDS))
     assert not undeclared, (
-        f"бэкенд не пишет наблюдений и не объявлен: {undeclared!r}"
+        f"a backend writes no observations and is not declared: {undeclared!r}"
     )
     stale = sorted(set(bd_l3.SILENT_BACKENDS) & writing)
     assert not stale, (
-        f"бэкенд начал писать, но всё ещё числится немым: {stale!r}"
+        f"a backend has started writing but is still listed as silent: {stale!r}"
     )
 
 
