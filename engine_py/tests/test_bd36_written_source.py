@@ -1,29 +1,29 @@
-"""bd#36 — `phase_artifacts.written`: манифест как ИСТОЧНИК, а не фильтр.
+"""bd#36 — `phase_artifacts.written`: the manifest as a SOURCE, not a filter.
 
-Спека: `docs/decisions/2026-08-04-bd36-phase-artifacts-written-source.md`.
+Spec: `docs/decisions/2026-08-04-bd36-phase-artifacts-written-source.md`.
 
-Class: прибор отвечает на вопрос, которого ему не задавали, и его отказ выглядит
-как успех. Сегодня `written` наполняется РОВНО из git-дельты `git_cwd`
-(`engine.py:493`), а подпись `write_tracking: "git-delta"` читается как «я
-наблюдал записи фазы». Замер: шаг, реально записавший файл ВНЕ `git_cwd` и
-объявивший его манифестом, даёт `written: []` при `write_tracking: "git-delta"`
-— то есть «фаза ничего не написала» вместо «мои записи были вне окна».
-`EMISSIONS_SPEC.md [G18r3:EDGE-4]` называет ровно эту пару «overclaim shape» и
-запрещает её; AC-E3b, однако, связывает правило с вопросом «была ли дельта
-посчитана», а не «покрыло ли окно записи» — поэтому буква соблюдена, а смысл нет.
+Class: the instrument answers a question it was never asked, and its refusal looks
+like a success. Today `written` is filled EXACTLY from the git delta of `git_cwd`
+(`engine.py:493`), while the signature `write_tracking: "git-delta"` reads as "I
+observed the phase's writes". Measured: a step that genuinely wrote a file OUTSIDE `git_cwd` and
+declared it in a manifest yields `written: []` with `write_tracking: "git-delta"`
+— that is, "the phase wrote nothing" instead of "my writes were outside the window".
+`EMISSIONS_SPEC.md [G18r3:EDGE-4]` names exactly this pair an "overclaim shape" and
+forbids it; AC-E3b, however, ties the rule to the question "was the delta
+computed" rather than "did the window cover the writes" — so the letter is observed and the meaning is not.
 
-UUT НЕ мокан: во всех ногах крутится настоящий `WorkflowEngine`, шаг физически
-пишет файл, манифест отдаётся штатной формой `StepResult.data`
-(`worker_written_paths` + `manifest_source`), которую разбирает
+The UUT is NOT mocked: every leg runs a real `WorkflowEngine`, the step physically
+writes a file, the manifest is delivered in the regular `StepResult.data` form
+(`worker_written_paths` + `manifest_source`), which is parsed by
 `llm_subprocess.manifest_from_result`.
 
-ПОЧЕМУ ИМЕННО `harness_tool_record`, а не референс-бэкенд. Замерено: все
-`lib/reference_backends/*` строят манифест через `_manifest_since`, то есть
-`git diff --name-only` внутри `root` — их манифест САМ есть git-дельта, и
-объединение с ней не добавляет ничего. Пути вне репозитория несёт только продовый
-путь (`llm_subprocess._written_paths_from_events`, `file_path` из транскрипта
-Write/Edit, вербатим). RED, написанный на референс-бэкенде, был бы зелёным и до
-починки, и после — то есть не RED вовсе.
+WHY `harness_tool_record` SPECIFICALLY, and not a reference backend. Measured: all
+`lib/reference_backends/*` build their manifest via `_manifest_since`, i.e.
+`git diff --name-only` inside `root` — their manifest IS ITSELF the git delta, and
+a union with it adds nothing. Paths outside the repository are carried only by the production
+path (`llm_subprocess._written_paths_from_events`, `file_path` from the transcript of
+Write/Edit, verbatim). A RED written on a reference backend would be green both before
+the fix and after — that is, not a RED at all.
 """
 from __future__ import annotations
 
@@ -40,9 +40,9 @@ MANIFEST_SOURCE = "harness_tool_record"
 
 
 def _step(name: str, writes: list[Path], declared: list[str] | None) -> StepContract:
-    """Шаг, который РЕАЛЬНО пишет `writes` и объявляет `declared`.
+    """A step that REALLY writes `writes` and declares `declared`.
 
-    `declared is None` ⇒ StepResult без манифеста (ветка DEFER, §2 D2).
+    `declared is None` ⇒ a StepResult with no manifest (the DEFER branch, §2 D2).
     """
     def _run(_ctx, _prev):
         for p in writes:
@@ -59,7 +59,7 @@ def _step(name: str, writes: list[Path], declared: list[str] | None) -> StepCont
 
 
 def _phase_artifacts(tmp_path, label, git_cwd, writes, declared):
-    """Прогнать одну фазу и вернуть payload её `phase_artifacts`."""
+    """Run one phase and return the payload of its `phase_artifacts`."""
     log_dir = tmp_path / label
     log_dir.mkdir(parents=True, exist_ok=True)
     log = make_log(log_dir)
@@ -73,153 +73,153 @@ def _phase_artifacts(tmp_path, label, git_cwd, writes, declared):
     return pa[0]["payload"]
 
 
-# ─── AC1: предмет — объявленный путь вне репо обязан попасть в written ──────
+# ─── AC1: the subject — a declared path outside the repo must land in written ─
 
 def test_ac1_manifest_declared_path_outside_git_cwd_lands_in_written(tmp_path, git_repo):
-    """§1l: файл создаётся физически, вне `git_cwd`, и объявлен манифестом.
+    """§1l: the file is created physically, outside `git_cwd`, and declared in a manifest.
 
-    Сегодня красный: `written == []`. Это ровно замер §0 (случай C) спеки.
+    Red today: `written == []`. This is exactly the spec's §0 measurement (case C).
     """
     outside = tmp_path / "scratchpad" / "run1" / "note.md"
     payload = _phase_artifacts(
         tmp_path, "ac1", str(git_repo), [outside], [str(outside)],
     )
 
-    assert outside.exists(), "фикстура обязана реально создать файл"
-    # §1j macOS realpath: tmp_path приходит как /var/..., а resolve() даёт
-    # /private/var/... Сверять надо с РАЗРЕШЁННОЙ формой — иначе корректный
-    # GREEN, нормализующий пути (D3), не смог бы удовлетворить этот AC.
+    assert outside.exists(), "the fixture must genuinely create the file"
+    # §1j macOS realpath: tmp_path arrives as /var/..., while resolve() gives
+    # /private/var/... The comparison must be against the RESOLVED form — otherwise a correct
+    # GREEN that normalises paths (D3) could not satisfy this AC.
     assert str(outside.resolve()) in payload["written"], (
-        f"объявленный манифестом путь вне git_cwd не попал в written: "
-        f"written={payload['written']!r}. Манифест обязан быть ИСТОЧНИКОМ, "
-        f"а не фильтром git-дельты."
+        f"a manifest-declared path outside git_cwd did not land in written: "
+        f"written={payload['written']!r}. The manifest must be a SOURCE, "
+        f"not a filter over the git delta."
     )
 
 
-# ─── AC2: контрольная нога — без манифеста ровно git-дельта (D2) ────────────
+# ─── AC2: the control leg — without a manifest, exactly the git delta (D2) ─
 
 def test_ac2_without_manifest_written_is_exactly_the_git_delta(tmp_path, git_repo):
-    """Ловит «починку», удовлетворённую тем, что пересекать перестали вообще.
+    """Catches a "fix" satisfied by having stopped intersecting altogether.
 
-    Без этой ноги достаточно было бы снести манифестную логику, и AC1 позеленел
-    бы, а поведение шагов без манифеста молча поехало.
+    Without this leg it would be enough to rip out the manifest logic, AC1 would go green,
+    and the behaviour of steps without a manifest would silently drift.
     """
     payload = _phase_artifacts(
         tmp_path, "ac2", str(git_repo), [git_repo / "c.txt"], None,
     )
     assert payload["written"] == ["c.txt"], (
-        f"шаг без манифеста обязан давать РОВНО git-дельту, получено "
+        f"a step without a manifest must give EXACTLY the git delta, got "
         f"{payload['written']!r}"
     )
     assert payload["write_tracking"] == "git-delta"
 
 
-# ─── AC3: ОТРИЦАТЕЛЬНАЯ НОГА — not-observed не смягчается манифестом (D6) ───
+# ─── AC3: NEGATIVE LEG — not-observed is not softened by a manifest (D6) ──
 
 def test_ac3_absent_git_cwd_stays_not_observed_even_with_manifest(tmp_path):
-    """Гейт, разрешающий здесь наблюдение, инертен.
+    """A gate that permits an observation here is inert.
 
-    Дельта не посчитана вовсе (нет `git_cwd`), поэтому непустой манифест НЕ
-    имеет права превратить `not-observed` в наблюдение — это прямой запрет
-    issue и `[G18r3:EDGE-4]`. Без этой ноги «манифест как источник» тихо
-    переписал бы смысл подписи на всех путях, где движок не смотрел.
+    The delta was not computed at all (no `git_cwd`), so a non-empty manifest has NO
+    right to turn `not-observed` into an observation — this is directly forbidden by
+    the issue and by `[G18r3:EDGE-4]`. Without this leg "the manifest as a source" would quietly
+    rewrite the meaning of the signature on every path where the engine never looked.
     """
     outside = tmp_path / "scratchpad" / "run2" / "x.md"
     payload = _phase_artifacts(tmp_path, "ac3", None, [outside], [str(outside)])
 
     assert payload["write_tracking"] == "not-observed", (
-        f"без git_cwd дельта не считалась — подпись обязана остаться "
-        f"'not-observed', получено {payload['write_tracking']!r}"
+        f"without git_cwd the delta was never computed — the signature must stay "
+        f"'not-observed', got {payload['write_tracking']!r}"
     )
 
 
-# ─── AC4: новое значение появляется ПО ДЕЛУ, обе стороны (D5) ──────────────
+# ─── AC4: the new value appears ON THE MERITS, both sides (D5) ────────────
 
 def test_ac4_new_tracking_value_appears_only_when_manifest_added_something(tmp_path, git_repo):
-    """Обе стороны: иначе значение либо не появляется, либо появляется всегда."""
+    """Both sides: otherwise the value either never appears or appears always."""
     outside = tmp_path / "scratchpad" / "run3" / "y.md"
     added = _phase_artifacts(
         tmp_path, "ac4_added", str(git_repo), [outside], [str(outside)],
     )
     assert added["write_tracking"] == "git-delta+manifest", (
-        f"манифест добавил путь сверх дельты — подпись обязана это назвать, "
-        f"получено {added['write_tracking']!r}"
+        f"the manifest added a path beyond the delta — the signature must name that, "
+        f"got {added['write_tracking']!r}"
     )
 
     nothing_new = _phase_artifacts(
         tmp_path, "ac4_plain", str(git_repo), [git_repo / "d.txt"], ["d.txt"],
     )
     assert nothing_new["write_tracking"] == "git-delta", (
-        f"манифест не добавил ничего сверх дельты — подпись обязана остаться "
-        f"'git-delta', получено {nothing_new['write_tracking']!r}"
+        f"the manifest added nothing beyond the delta — the signature must stay "
+        f"'git-delta', got {nothing_new['write_tracking']!r}"
     )
 
 
-# ─── AC5/AC6: нормализация — один алфавит (D3) ─────────────────────────────
+# ─── AC5/AC6: normalisation — one alphabet (D3) ───────────────────────────
 
 def test_ac5_absolute_manifest_path_inside_repo_collapses_with_relative_delta(tmp_path, git_repo):
-    """Один файл, два алфавита: git-дельта даёт `e.txt`, манифест — абсолютный.
+    """One file, two alphabets: the git delta gives `e.txt`, the manifest an absolute path.
 
-    Ловит склейку двух пространств имён: без нормализации в `written` окажутся
-    ДВЕ записи об одном файле.
+    Catches the gluing of two namespaces: without normalisation `written` would hold
+    TWO entries for one file.
     """
     inside = git_repo / "e.txt"
     payload = _phase_artifacts(
         tmp_path, "ac5", str(git_repo), [inside], [str(inside)],
     )
     assert payload["written"] == ["e.txt"], (
-        f"один файл обязан дать одну репо-относительную запись, получено "
+        f"one file must yield one repo-relative entry, got "
         f"{payload['written']!r}"
     )
 
 
 def test_ac6_outside_path_normalisation_is_idempotent(tmp_path, git_repo):
-    """Путь вне репо, объявленный дважды в разных формах, даёт одну запись."""
+    """A path outside the repo, declared twice in different forms, yields one entry."""
     outside = tmp_path / "scratchpad" / "run4" / "z.md"
     messy = str(outside.parent / "." / outside.name)
     payload = _phase_artifacts(
         tmp_path, "ac6", str(git_repo), [outside], [str(outside), messy],
     )
     assert payload["written"] == [str(outside.resolve())], (
-        f"две формы одного пути обязаны схлопнуться в одну, получено "
+        f"two forms of one path must collapse into one, got "
         f"{payload['written']!r}"
     )
 
 
-# ─── AC7: принятая цена доверия к манифесту (D4) ───────────────────────────
+# ─── AC7: the accepted price of trusting the manifest (D4) ────────────────
 
 def test_ac7_declared_but_nonexistent_path_is_trusted_and_included(tmp_path, git_repo):
-    """D4 пинуется НАМЕРЕННО, чтобы будущая проверка существования не прошла молча.
+    """D4 is pinned DELIBERATELY, so that a future existence check cannot pass in silence.
 
-    Манифест — запись харнесса о собственных tool-call'ах (`4961254A`), а не
-    самоотчёт воркера; проверка существования ввела бы гонку с последующим
-    шагом, законно удалившим файл. Цена — путь, о котором отчитались ошибочно,
-    попадёт в `written`.
+    The manifest is the harness's record of its own tool calls (`4961254A`), not
+    the worker's self-report; an existence check would introduce a race with a later
+    step that legitimately deleted the file. The price is that a path reported in error
+    will land in `written`.
     """
     ghost = tmp_path / "scratchpad" / "run5" / "never-written.md"
     payload = _phase_artifacts(
         tmp_path, "ac7", str(git_repo), [], [str(ghost)],
     )
-    assert not ghost.exists(), "фикстура НЕ должна создавать этот файл"
-    # §1j: та же разрешённая форма, что и в AC1.
+    assert not ghost.exists(), "the fixture must NOT create this file"
+    # §1j: the same resolved form as in AC1.
     assert str(ghost.resolve()) in payload["written"], (
-        f"D4: путь из манифеста включается без проверки существования, "
-        f"получено {payload['written']!r}"
+        f"D4: a path from the manifest is included without an existence check, "
+        f"got {payload['written']!r}"
     )
 
 
-# ─── AC8: §1a sibling — потребители подписи не задеты ──────────────────────
+# ─── AC8: §1a sibling — the signature's consumers are untouched ───────────
 
 def test_ac8_bd8_oracle_pinned_pair_still_holds(tmp_path, git_repo):
-    """`test_bd8_l1_oracle.py:19` пинует пару `git-delta` + `written: []` буквально.
+    """`test_bd8_l1_oracle.py:19` pins the pair `git-delta` + `written: []` literally.
 
-    Его случай — фаза с посчитанной дельтой и БЕЗ манифеста, то есть ветка D2.
-    Здесь та же форма воспроизведена напрямую: шаг ничего не пишет, манифеста
-    нет ⇒ подпись обязана остаться `git-delta`, а набор пустым.
+    Its case is a phase with a computed delta and NO manifest, i.e. branch D2.
+    The same form is reproduced here directly: the step writes nothing, there is no
+    manifest ⇒ the signature must stay `git-delta` and the set empty.
     """
     payload = _phase_artifacts(tmp_path, "ac8", str(git_repo), [], None)
     assert payload["written"] == []
     assert payload["write_tracking"] == "git-delta", (
-        f"пара, на которую опирается оракул bd#8, поехала: "
+        f"the pair the bd#8 oracle rests on has drifted: "
         f"{payload['write_tracking']!r}"
     )
