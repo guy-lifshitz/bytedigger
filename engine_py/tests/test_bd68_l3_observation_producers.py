@@ -102,6 +102,12 @@ def _producers(field: str) -> int:
     return n
 
 
+# bd#73: R3.1 и R3.2 читают поля, которые пишет ЦЕНТРАЛЬНО `_attest_payload`
+# на каждой аттестации, а не тот или иной бэкенд. Гейт этого лота проверяет
+# производителей ПО БЭКЕНДАМ, поэтому такие требования из него исключены —
+# их производителя сторожит bd#73 (метка обязана иметь вердикт).
+_CENTRALLY_PRODUCED = {"R3.1", "R3.2"}
+
 _FIELD_FOR = {"R3.3": "observed_model", "R3.5": "observed_tools",
               "R3.6": "observed_tools"}
 
@@ -109,7 +115,8 @@ _FIELD_FOR = {"R3.3": "observed_model", "R3.5": "observed_tools",
 def test_ac5_observable_requirements_have_producers_and_registry_is_current():
     bd_l3 = _bd_l3()
 
-    observable = set(bd_l3.REQUIREMENTS) - set(bd_l3.AWAITING_PRODUCER)
+    observable = (set(bd_l3.REQUIREMENTS) - set(bd_l3.AWAITING_PRODUCER)
+                  - _CENTRALLY_PRODUCED)
     missing = sorted(r for r in observable if _producers(_FIELD_FOR[r]) == 0)
     assert not missing, (
         f"требование объявлено наблюдаемым, а поле никто не пишет: {missing!r}"

@@ -41,11 +41,19 @@ from ..lib.llm_provider import get_provider as _get_provider
 if _TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS", "check_bd_l3",
-           "validate_report"]
+__all__ = ["REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS",
+           "LABEL_EXCEPTIONS", "check_bd_l3", "validate_report"]
 
 #: The requirements this checker adjudicates. R3.1/R3.2/R3.5 are out of scope.
-REQUIREMENTS: "tuple[str, ...]" = ("R3.3", "R3.5", "R3.6")
+REQUIREMENTS: "tuple[str, ...]" = ("R3.1", "R3.2", "R3.3", "R3.5", "R3.6")
+
+#: bd#73: labels in `attest.REQUIREMENT_LABELS` that deliberately carry NO
+#: verdict. R3.4 is recorded verbatim by decision of bd#10 (AC-C1), not
+#: adjudicated. Everything else labelled must be judged — R3.1 and R3.2 wore a
+#: label with nothing computing it, and a silent report is indistinguishable
+#: from a passing one. `test_bd73_*::test_ac7` keeps this honest in BOTH
+#: directions.
+LABEL_EXCEPTIONS: "tuple[str, ...]" = ("R3.4",)
 
 #: bd#68: requirements whose observation field is not yet written on every
 #: production path. Declared rather than silent — a checker adjudicating a
@@ -75,11 +83,81 @@ _CODE_ENFORCEMENT_UNSUBSTANTIATED = "E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED"
 
 _ENFORCEMENT_CLAIM = "runtime-allowlist"
 
+_CODE_INJECT_UNATTRIBUTED = "E_INJECT_UNATTRIBUTED"
+_SHA256_PREFIX = "sha256:"
+_SHA256_HEXLEN = 64
+
 
 def _family(model: "str | None") -> "str | None":
     if not isinstance(model, str) or not model:
         return None
     return _get_provider().model_family(model)
+
+
+def _r31(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
+    """(observed?, violation-or-None) for R3.1 — the effective prompt is hashed.
+
+    The FORM is pinned, not merely the key's presence: a payload carrying
+    `prompt_sha256: "ok"` would satisfy a presence check while being no hash at
+    all, and the whole point of the field is that a reader can recompute it.
+    """
+    value = payload.get("prompt_sha256")
+    if value is None:
+        return (True, "R3.1: no prompt_sha256 recorded for this invocation")
+    if not isinstance(value, str):
+        return (True, f"R3.1: prompt_sha256 is {type(value).__name__}, not a string")
+    digest = value[len(_SHA256_PREFIX):] if value.startswith(_SHA256_PREFIX) else ""
+    if len(digest) != _SHA256_HEXLEN or any(
+        c not in "0123456789abcdef" for c in digest
+    ):
+        return (True, (
+            f"R3.1: prompt_sha256 {value!r} is not of the form "
+            f"'{_SHA256_PREFIX}<64 hex>'"
+        ))
+    return (True, None)
+
+
+def _r32(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
+    """(observed?, violation-or-None) for R3.2 — every injected block is attributed.
+
+    WHAT THIS VERDICT IS, STATED PLAINLY. The chokepoint validates injections
+    BEFORE dispatching and a refusal emits nothing at all (`[bd10:27]`), so an
+    unattributed block cannot reach an attestation while that guard holds. On a
+    real log this verdict therefore CORROBORATES the chokepoint rather than
+    checking the injections independently.
+
+    It is still worth computing, for one precise reason: it is a regression
+    guard on that guard. If the upstream validation ever stops refusing, the
+    block arrives here and R3.2 fails. Presenting it as an independent check
+    would be exactly the green shield this family of lots keeps dismantling.
+
+    Both halves of the conjunction are checked. Testing only `source_id` would
+    leave the `sha256` half unreachable.
+    """
+    blocks = payload.get("injections")
+    if not isinstance(blocks, (list, tuple)):
+        return (False, None)
+    if not blocks:
+        # No injections is a legitimate state, not a violation: requiring one
+        # of every step would be a different rule than the one R3.2 states.
+        return (False, None)
+    offenders = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            offenders.append(repr(block))
+            continue
+        source_id = block.get("source_id")
+        digest = block.get("sha256")
+        if not (isinstance(source_id, str) and source_id.strip()):
+            offenders.append(f"{block!r} (no source_id)")
+        elif not (isinstance(digest, str) and digest.strip()):
+            offenders.append(f"{block!r} (no sha256)")
+    if not offenders:
+        return (True, None)
+    return (True, (
+        f"R3.2: {_CODE_INJECT_UNATTRIBUTED} — step {payload.get('step_name')!r} "
+        f"carries unattributed injected content: {offenders!r}"
+    ))
 
 
 def _r33(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
@@ -163,7 +241,8 @@ def _r36(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
     ))
 
 
-_CHECKS = {"R3.3": _r33, "R3.5": _r35, "R3.6": _r36}
+_CHECKS = {"R3.1": _r31, "R3.2": _r32, "R3.3": _r33,
+           "R3.5": _r35, "R3.6": _r36}
 
 
 def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:
