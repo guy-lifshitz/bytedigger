@@ -15,15 +15,15 @@ terminates in `E_REVIEW_FORMAT_DRIFT` (recoverable=False).
 ★ §1d DISCREPANCY WITH THE FROZEN SPEC — MEASURED, NOT INFERRED.
 
 The spec (§"ДВА ЭКЗЕМПЛЯРА" and AC5) states that in `phase_5_integrity`
-"ретрай ОТСУТСТВУЕТ вовсе (:557-566 уходит в recoverable=False без единой
-попытки)". That is FALSE as of this commit. Lines 557-566 are the *classify*
+"there is NO retry at all (:557-566 goes to recoverable=False without a single
+attempt)". That is FALSE as of this commit. Lines 557-566 are the *classify*
 step, which sits DOWNSTREAM of `_invoke_integrity_llm`, and that step already
 carries GH786's bounded completeness re-ask (phase_5_integrity.py:468-490,
 budget from `_resolve_integrity_verdict_retries`, default 1, env
 HAL_INTEGRITY_VERDICT_RETRY_MAX). The spec measured the wrong function.
 
-Consequence for the AC table: AC5's stated reddening condition ("отказ без
-единой попытки — сегодняшнее поведение") does not hold, so AC5 is GREEN at
+Consequence for the AC table: AC5's stated reddening condition ("a refusal without
+a single attempt — today's behaviour") does not hold, so AC5 is GREEN at
 HEAD and is carried here as a SHIELD, not as a RED. It is NOT "verified" in
 the sense of a change proven — it pins pre-existing behaviour. The cheap fix
 the spec expected to find in phase_5_integrity was already shipped by GH786;

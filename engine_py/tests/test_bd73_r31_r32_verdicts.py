@@ -1,18 +1,18 @@
-"""bd#73 — R3.1 и R3.2 получают вердикт.
+"""bd#73 — R3.1 and R3.2 get a verdict.
 
-Спека: `docs/decisions/2026-08-05-bd73-r31-r32-verdicts.md`.
+Spec: `docs/decisions/2026-08-05-bd73-r31-r32-verdicts.md`.
 
-Class: объявлено ≠ проверяется. `attest.REQUIREMENT_LABELS` объявляет пять
-требований (R3.1, R3.2, R3.3, R3.5, R3.6), `bd_l3.REQUIREMENTS` судит три.
-R3.1 и R3.2 несут метку, читающуюся как вердикт, и молчание отчёта о них
-неотличимо от «соответствует». Четвёртая разновидность семейства после bd#59,
-bd#68 и bd#71.
+Class: declared ≠ checked. `attest.REQUIREMENT_LABELS` declares five
+requirements (R3.1, R3.2, R3.3, R3.5, R3.6), `bd_l3.REQUIREMENTS` adjudicates three.
+R3.1 and R3.2 carry a label that reads as a verdict, and the report's silence about them is
+indistinguishable from "conformant". The fourth variety of the family after bd#59,
+bd#68 and bd#71.
 
-ЧЕСТНАЯ ГРАНИЦА R3.2 (AC8): чокпоинт валидирует инъекции ДО диспатча и при
-отказе не эмитит ничего, поэтому неатрибутированный блок в лог не попадает по
-построению. Вердикт R3.2 на реальном логе — ПОДТВЕРЖДЕНИЕ и страж регрессии
-чокпоинта, а не независимая проверка. Выдавать его за независимую значило бы
-построить ровно тот зелёный щит, который весь заход разбираем.
+THE HONEST BOUNDARY OF R3.2 (AC8): the chokepoint validates injections BEFORE the dispatch and on
+refusal emits nothing, so an unattributed block never reaches the log by
+construction. The R3.2 verdict on a real log is a CONFIRMATION and a chokepoint
+regression guard, not an independent check. Passing it off as independent would
+build exactly the green shield we have been dissecting all the way through.
 """
 from __future__ import annotations
 
@@ -53,43 +53,43 @@ def _verdict(req, **overrides):
     return _bd_l3().check_bd_l3([_ev(**overrides)]).labels[f"verdict:{req}"]
 
 
-# ─── R3.1: хеш эффективного промпта ──────────────────────────────────────
+# ─── R3.1: the hash of the effective prompt ──────────────────────────────
 
 def test_ac1_valid_prompt_hash_passes():
     assert _verdict("R3.1") == _tok().REQUIREMENT_PASSED
 
 
 def test_ac2_missing_prompt_hash_is_a_violation():
-    """ОТРИЦАТЕЛЬНАЯ НОГА."""
+    """NEGATIVE LEG."""
     assert _verdict("R3.1", prompt_sha256=None) == _tok().REQUIREMENT_FAILED
 
 
 def test_ac3_malformed_hash_is_a_violation_form_not_presence():
-    """ОТРИЦАТЕЛЬНАЯ НОГА: ловит проверку «ключ есть».
+    """NEGATIVE LEG: catches a "the key is there" check.
 
-    `"ok"` удовлетворило бы присутствие и не является хешем — если предикат
-    пинует только наличие ключа, эта нога его и вскрывает.
+    `"ok"` would satisfy presence and is not a hash — if the predicate
+    pins only the key's presence, this leg is what exposes it.
     """
     assert _verdict("R3.1", prompt_sha256="ok") == _tok().REQUIREMENT_FAILED
 
 
-# ─── R3.2: атрибуция инъекций, ОБЕ половины конъюнкции ───────────────────
+# ─── R3.2: injection attribution, BOTH halves of the conjunction ─────────
 
 def test_ac4_unattributed_injection_is_a_violation_both_halves():
-    """ОТРИЦАТЕЛЬНАЯ НОГА x2: `source_id` И `sha256`.
+    """NEGATIVE LEG x2: `source_id` AND `sha256`.
 
-    Конъюнкция: проверка одной половины оставляет вторую недостижимой.
+    A conjunction: checking one half leaves the other unreachable.
     """
     t, bd_l3 = _tok(), _bd_l3()
 
     no_src = bd_l3.check_bd_l3([_ev(injections=[{"sha256": GOOD_HASH}])])
-    assert no_src.labels["verdict:R3.2"] == t.REQUIREMENT_FAILED, "нет source_id"
+    assert no_src.labels["verdict:R3.2"] == t.REQUIREMENT_FAILED, "no source_id"
     assert any("E_INJECT_UNATTRIBUTED" in v for v in no_src.violations), (
-        f"нарушение обязано называть существующий код; {no_src.violations!r}"
+        f"a violation must name an existing code; {no_src.violations!r}"
     )
 
     no_hash = bd_l3.check_bd_l3([_ev(injections=[{"source_id": "x"}])])
-    assert no_hash.labels["verdict:R3.2"] == t.REQUIREMENT_FAILED, "нет sha256"
+    assert no_hash.labels["verdict:R3.2"] == t.REQUIREMENT_FAILED, "no sha256"
 
 
 def test_ac5_fully_attributed_injection_passes():
@@ -97,15 +97,15 @@ def test_ac5_fully_attributed_injection_passes():
 
 
 def test_ac6_no_injections_is_not_a_violation():
-    """Пустой список законен: требовать инъекций от каждого шага — не наш случай."""
+    """An empty list is legitimate: requiring injections of every step is not our case."""
     assert _verdict("R3.2", injections=[]) != _tok().REQUIREMENT_FAILED
 
 
-# ─── AC7: ГЕЙТ — каждая метка имеет вердикт или объявлена исключением ────
+# ─── AC7: THE GATE — every label has a verdict or is declared an exception ─
 
 def test_ac7_every_declared_label_has_a_verdict_or_is_declared_exempt():
-    """Обе стороны. Отсутствие этого гейта и дало пробел: R3.1/R3.2 несли
-    метку и не имели вердикта, а отчёт молчал."""
+    """Both sides. The absence of this gate is what produced the gap: R3.1/R3.2 carried
+    a label and had no verdict, and the report stayed silent."""
     from bytedigger_engine.conformance import attest  # noqa: PLC0415
 
     bd_l3 = _bd_l3()
@@ -115,17 +115,17 @@ def test_ac7_every_declared_label_has_a_verdict_or_is_declared_exempt():
 
     unjudged = sorted(labelled - judged - exempt)
     assert not unjudged, (
-        f"метка объявлена, вердикта нет и исключение не заявлено: {unjudged!r} — "
-        "молчание отчёта неотличимо от «соответствует»"
+        f"a label is declared, there is no verdict and no exception is claimed: {unjudged!r} — "
+        "the report's silence is indistinguishable from \"conformant\""
     )
     stale = sorted(exempt & judged)
     assert not stale, (
-        f"требование объявлено исключением, но судится: {stale!r} — исключение "
-        "обязано исчезать, когда вердикт появился"
+        f"a requirement is declared an exception yet is adjudicated: {stale!r} — an exception "
+        "must disappear once a verdict appears"
     )
 
 
-# ─── AC8: граница R3.2 объявлена в исходнике, а не только в спеке ───────
+# ─── AC8: the R3.2 boundary is declared in the source, not only in the spec ─
 
 def test_ac8_r32_states_that_it_corroborates_rather_than_checks():
     import inspect  # noqa: PLC0415
@@ -133,8 +133,8 @@ def test_ac8_r32_states_that_it_corroborates_rather_than_checks():
     doc = inspect.getdoc(_bd_l3()._r32) or ""
     low = doc.lower()
     assert "corroborat" in low or "подтвержд" in low, (
-        "докстрока R3.2 обязана называть, что на реальном логе это "
-        "подтверждение и страж регрессии, а не независимая проверка"
+        "the R3.2 docstring must state that on a real log this is a "
+        "confirmation and a regression guard, not an independent check"
     )
 
 

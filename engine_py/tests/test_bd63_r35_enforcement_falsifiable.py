@@ -1,20 +1,20 @@
-"""bd#63 — R3.5: заявление о принуждении становится опровержимым.
+"""bd#63 — R3.5: the enforcement claim becomes refutable.
 
-Спека: `docs/decisions/2026-08-04-bd63-r35-enforcement-falsifiable.md`.
+Spec: `docs/decisions/2026-08-04-bd63-r35-enforcement-falsifiable.md`.
 
-Class: актор оценивает себя. `capability_enforcement` приходит из реестра,
-который заполняет сам бэкенд (`register_backend(..., capabilities=...)`).
-Заявление о принуждении, исходящее от принуждаемого, неотличимо от вежливой лжи.
+Class: the actor grades itself. `capability_enforcement` comes from a registry
+filled in by the backend itself (`register_backend(..., capabilities=...)`).
+An enforcement claim issued by the enforced is indistinguishable from a polite lie.
 
-Прибор для опровержения УЖЕ есть и не требует инструментации хоста: payload
-аттестации несёт и заявление (`capability_enforcement`), и свидетельство
-(`observed_tools`, `declared_capabilities`) — в ОДНОМ событии. Бэкенд,
-заявивший `runtime-allowlist` и показавший побег, опровергнут собственной же
-записью.
+The instrument for refuting it ALREADY exists and needs no host instrumentation: the attestation
+payload carries both the claim (`capability_enforcement`) and the evidence
+(`observed_tools`, `declared_capabilities`) — in ONE event. A backend that
+claimed `runtime-allowlist` and exhibited an escape is refuted by its own
+record.
 
-AC3 — не украшение: если наказывать за побег и того, кто ничего не обещал,
-честное объявление станет дороже ложного. Инверсия стимула хуже исходного
-дефекта, поэтому у неё своя нога.
+AC3 is not decoration: if an escape is punished even for one who promised nothing,
+an honest declaration becomes costlier than a false one. That inversion of incentive is worse than the original
+defect, so it gets a leg of its own.
 """
 from __future__ import annotations
 
@@ -49,22 +49,22 @@ def _ev(*, enforcement, declared, observed):
     }}
 
 
-# ─── AC1: СЕРДЦЕ — вход, на котором механизм говорит НЕТ самообъявившемуся ─
+# ─── AC1: THE HEART — the input on which the mechanism says NO to a self-declarer ─
 
 def test_ac1_declared_enforcement_refuted_by_its_own_escape():
     report = _bd_l3().check_bd_l3([_ev(
         enforcement=CLAIM, declared=["Read"], observed=["bash"])])
 
     assert report.labels["verdict:R3.5"] == _tok().REQUIREMENT_FAILED, (
-        "бэкенд заявил принуждение и в той же записи показал побег — заявление "
-        "опровергнуто собственным свидетельством"
+        "the backend claimed enforcement and in the same record exhibited an escape — the claim "
+        "is refuted by its own evidence"
     )
     assert any(CODE in v for v in report.violations), (
-        f"нарушение обязано называть код; получено {report.violations!r}"
+        f"a violation must name a code; got {report.violations!r}"
     )
 
 
-# ─── AC2: положительная нога ──────────────────────────────────────────────
+# ─── AC2: the positive leg ────────────────────────────────────────────────
 
 def test_ac2_declared_enforcement_without_escapes_passes():
     report = _bd_l3().check_bd_l3([_ev(
@@ -73,61 +73,61 @@ def test_ac2_declared_enforcement_without_escapes_passes():
     assert report.labels["verdict:R3.5"] == _tok().REQUIREMENT_PASSED
 
 
-# ─── AC3: ОТРИЦАТЕЛЬНАЯ — честность не наказывается ──────────────────────
+# ─── AC3: NEGATIVE — honesty is not punished ─────────────────────────────
 
 def test_ac3_an_honest_backend_is_not_punished_for_the_escape():
-    """`not-enforced` ничего не обещал: побег у него ловит R3.6, не R3.5.
+    """`not-enforced` promised nothing: its escape is caught by R3.6, not R3.5.
 
-    Иначе честное объявление стало бы дороже ложного — инверсия стимула.
+    Otherwise an honest declaration would become costlier than a false one — an inversion of incentive.
     """
     t = _tok()
     report = _bd_l3().check_bd_l3([_ev(
         enforcement=NO_CLAIM, declared=["Read"], observed=["bash"])])
 
     assert report.labels["verdict:R3.5"] != t.REQUIREMENT_FAILED, (
-        "бэкенд, не заявлявший принуждения, не может нарушить R3.5"
+        "a backend that never claimed enforcement cannot violate R3.5"
     )
     assert report.labels["verdict:R3.6"] == t.REQUIREMENT_FAILED, (
-        "побег обязан остаться пойманным — R3.6 никуда не делся"
+        "the escape must stay caught — R3.6 has not gone anywhere"
     )
 
 
-# ─── AC4: нет свидетельства — не passed ──────────────────────────────────
+# ─── AC4: no evidence — not passed ───────────────────────────────────────
 
 def test_ac4_claim_without_evidence_is_not_checked():
-    """Молча засчитывать неподтверждённое заявление — вернуть самооценку."""
+    """Silently crediting an unconfirmed claim is a return to self-assessment."""
     report = _bd_l3().check_bd_l3([_ev(
         enforcement=CLAIM, declared=None, observed=None)])
 
     assert report.labels["verdict:R3.5"] == _tok().REQUIREMENT_NOT_CHECKED
 
 
-# ─── AC5: замер реестра зафиксирован ─────────────────────────────────────
+# ─── AC5: the registry measurement is pinned ─────────────────────────────
 
 def test_ac5_measured_backend_declarations_are_pinned():
-    """Дрейф реестра обязан ронять AC, а не проезжать молча."""
+    """Registry drift must fail an AC rather than slide past in silence."""
     from bytedigger_engine import llm_subprocess as L  # noqa: PLC0415
 
     assert L._capability_enforcement("claude-subprocess") == CLAIM
     assert L._capability_enforcement("claude-in-session") == NO_CLAIM
 
 
-# ─── AC6: ADV-10 не опирается на самоописание ────────────────────────────
+# ─── AC6: ADV-10 does not rest on self-description ───────────────────────
 
 def test_ac6_adv10_does_not_read_the_self_declaration():
-    """Если бы проба читала заявление, уровень BD-L3 держался бы на нём."""
+    """If the probe read the claim, level BD-L3 would rest on it."""
     import inspect  # noqa: PLC0415
 
     from bytedigger_engine.conformance import harness  # noqa: PLC0415
 
     src = inspect.getsource(harness._adv_10)
     assert "capability_enforcement" not in src, (
-        "проба ADV-10 обязана опираться на наблюдение, а не на самоописание"
+        "the ADV-10 probe must rest on observation, not on self-description"
     )
     assert harness.run_adversaries()["ADV-10"] == harness.OUTCOME_DEFENDED
 
 
-# ─── AC7/AC8: код и поверхность ──────────────────────────────────────────
+# ─── AC7/AC8: the code and the surface ───────────────────────────────────
 
 def test_ac7_error_code_registered():
     from bytedigger_engine.error_codes import ERROR_CODES  # noqa: PLC0415

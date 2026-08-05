@@ -1,16 +1,16 @@
-"""bd#49 — сканер необъявленных проб доступности хост-инструмента.
+"""bd#49 — scanner for undeclared host-tool availability probes.
 
-Прибор для `tests/test_bd49_host_tool_declaration_gate.py`; довод, зачем домен
-именно такой, и граница честности — в докстроке того файла. Здесь только
-механика.
+The instrument for `tests/test_bd49_host_tool_declaration_gate.py`; the argument for why the
+domain is exactly this, and the boundary of honesty, are in that file's docstring. Here there is
+only the mechanics.
 
-Принимает ИСХОДНЫЙ ТЕКСТ, а не путь: отрицательные ноги гейта кормятся
-синтетическими строками, и сканер, умеющий только путь, был бы непроверяем на
-том самом множестве, ради которого написан.
+It takes SOURCE TEXT rather than a path: the gate's negative legs are fed
+synthetic strings, and a scanner that only understood paths would be unverifiable on
+the very set it is written for.
 
-`HOST_TOOLS` НЕ дублируется — импортируется из `helpers.host_tools`, иначе
-появился бы второй источник истины на тот же список (§1g), и добавленный
-инструмент молча оставался бы вне гейта.
+`HOST_TOOLS` is NOT duplicated — it is imported from `helpers.host_tools`, otherwise
+there would be a second source of truth for the same list (§1g), and an added
+tool would silently stay outside the gate.
 """
 from __future__ import annotations
 
@@ -18,19 +18,19 @@ import ast
 
 from .host_tools import HOST_TOOLS
 
-#: Комментарий, которым тело объявляет сознательный отказ от пропуска.
-#: Хвост после двоеточия обязан быть непустым — см. AC6.
+#: The comment by which a body declares a deliberate refusal to skip.
+#: The tail after the colon must be non-empty — see AC6.
 HARD_FAIL_MARKER = "# host-tool-hard-fail:"
 
 _SUBPROCESS_ENTRYPOINTS = frozenset({"run", "Popen", "check_output", "check_call", "call"})
 
 
 def _callee_name(node: ast.Call) -> str | None:
-    """Имя вызываемого — по атрибуту либо по голому имени.
+    """The name of the callee — by attribute or by bare name.
 
-    Ключуем на ИМЯ, а не на модуль: в корпусе живут три алиаса `shutil`
-    (`_shutil`, `_sh`, `_shutil_real`), плюс `from shutil import which`.
-    Сверка с модулем требовала бы разрешения алиасов и всё равно текла бы на
+    We key on the NAME, not on the module: three `shutil` aliases live in the corpus
+    (`_shutil`, `_sh`, `_shutil_real`), plus `from shutil import which`.
+    Matching against the module would require resolving aliases and would still leak on
     `from ... import which` (AC10).
     """
     func = node.func
@@ -51,28 +51,28 @@ def _const_str_arg(node: ast.Call) -> str | None:
 
 
 def _body_span(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[int, int] | None:
-    """Строки СОБСТВЕННОГО тела (без сигнатуры и декораторов).
+    """The lines of the function's OWN body (without the signature and decorators).
 
-    Через `node.body`, а не через `node.lineno`: у многострочной сигнатуры
-    строка `def` и строка `)` -> `None` дают отступ <= def-строки, и наивный
-    построчный обход вернул бы список аргументов вместо тела. Это ровно тот
-    дефект, который bd#102 ловил у себя (`_extract_function_body`, gate MINOR-3).
+    Via `node.body`, not via `node.lineno`: with a multi-line signature the
+    `def` line and the `) -> None` line have an indent <= that of the def line, and a naive
+    line-by-line walk would return the argument list instead of the body. This is exactly the
+    defect bd#102 caught in itself (`_extract_function_body`, gate MINOR-3).
     """
     if not node.body:
         return None
     end = node.body[-1].end_lineno
     if end is None:
         return None
-    # Начало — def-строка, а НЕ `body[0].lineno`: комментарий не является узлом
-    # AST, поэтому маркер, стоящий первой строкой перед первым оператором,
-    # выпадал бы из пролёта и объявление не засчитывалось (поймано AC3).
-    # Утечки между телами это не даёт: пролёт всё равно свой у каждой функции,
-    # а декораторы выше def-строки не захватываются (AC7).
+    # The start is the def line, NOT `body[0].lineno`: a comment is not an AST
+    # node, so a marker standing on the first line before the first statement
+    # would fall outside the span and the declaration would not be counted (caught by AC3).
+    # This does not leak between bodies: the span is still each function's own,
+    # and decorators above the def line are not captured (AC7).
     return node.lineno, end
 
 
 class _FunctionFacts:
-    """Факты, снятые с одной функции: пробы, объявления, исходящие вызовы."""
+    """Facts taken from a single function: probes, declarations, outgoing calls."""
 
     __slots__ = ("probes", "declared", "calls", "hard_fail")
 
@@ -105,11 +105,11 @@ def _collect(tree: ast.AST, lines: list[str]) -> dict[str, _FunctionFacts]:
                 if arg is not None:
                     fact.declared.add(arg)
             elif name not in _SUBPROCESS_ENTRYPOINTS:
-                # исходящий вызов — ребро для транзитивного замыкания
+                # an outgoing call — an edge for the transitive closure
                 fact.calls.add(name)
 
-        # фикстуры приходят параметрами, а не вызовами: тело, берущее
-        # `tmp_path`-подобную фикстуру, наследует её пробы ровно так же.
+        # fixtures arrive as parameters rather than calls: a body taking a
+        # `tmp_path`-like fixture inherits its probes in exactly the same way.
         for arg_node in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
             fact.calls.add(arg_node.arg)
 
@@ -126,11 +126,11 @@ def _collect(tree: ast.AST, lines: list[str]) -> dict[str, _FunctionFacts]:
 
 
 def _close_over_calls(facts: dict[str, _FunctionFacts], attr: str) -> dict[str, set[str]]:
-    """Транзитивное замыкание множества `attr` по рёбрам `calls`.
+    """Transitive closure of the set `attr` over the edges `calls`.
 
-    Замыкание обязательно: `test_gh1338_corpus_parity_gate.py` держит
-    `which("bun")` в `_build_parity_fixture`, а не в телах восьми своих ACs.
-    Сканер без замыкания пропустил бы предмет bd#49 целиком.
+    The closure is mandatory: `test_gh1338_corpus_parity_gate.py` keeps
+    `which("bun")` in `_build_parity_fixture` rather than in the bodies of its eight ACs.
+    A scanner without a closure would miss the subject of bd#49 entirely.
     """
     closed = {name: set(getattr(fact, attr)) for name, fact in facts.items()}
     changed = True
@@ -146,16 +146,16 @@ def _close_over_calls(facts: dict[str, _FunctionFacts], attr: str) -> dict[str, 
 
 
 def undeclared_host_tool_probes(source: str) -> list[tuple[str, str]]:
-    """Тела `test_*`, опрашивающие доступность хост-инструмента без объявления.
+    """`test_*` bodies that probe host-tool availability without declaring it.
 
-    Возвращает отсортированный список `(имя_теста, инструмент)`. Пусто —
-    значит каждая проба объявлена: либо `skip_without(<тот же инструмент>)`,
-    либо `# host-tool-hard-fail: <непустой довод>` в собственном теле.
+    Returns a sorted list of `(test_name, tool)`. Empty means
+    every probe is declared: either `skip_without(<the same tool>)`
+    or `# host-tool-hard-fail: <non-empty argument>` in its own body.
 
-    Объявление `skip_without` наследуется по вызовам (хелпер, скрывающий и
-    пробу, и пропуск, законен), а маркер отказа — НЕТ: он довод о конкретном
-    теле, и протекание его на всех вызывающих вернуло бы молчаливое
-    освобождение через общий хелпер.
+    A `skip_without` declaration is inherited through calls (a helper hiding both
+    the probe and the skip is legitimate), while a refusal marker is NOT: it is an argument about a specific
+    body, and letting it leak to every caller would restore the silent
+    exemption through a shared helper.
     """
     try:
         tree = ast.parse(source)
