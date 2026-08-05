@@ -1,4 +1,4 @@
-"""GH371 / 457DC7DC — universal directed gate-repair loop («Слой 2»).
+"""GH371 / 457DC7DC — universal directed gate-repair loop ("Layer 2").
 
 Spec: the state dir's memory/Decisions/2026-07-06_457DC7DC_gh371_universal_gate_repair_spec.md
 

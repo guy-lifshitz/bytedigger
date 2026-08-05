@@ -526,7 +526,7 @@ class TestInstallFormsRegistry:
                 f"scan_domain path must be POSIX-relative: {v['path']!r}"
             )
 
-        # No test-side waiver filtering (spec §2.2, gate MAJOR-9б): scan_domain
+        # No test-side waiver filtering (spec §2.2, gate MAJOR-9b): scan_domain
         # itself must call line_has_valid_waiver and drop only the validly
         # waived hit. A scan that ignores waivers entirely would still pass
         # this test if filtering happened here instead -- that vacuum is

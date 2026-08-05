@@ -97,7 +97,7 @@ def emit_reject_reason(
     Fail-safe: any exception is silently swallowed — this helper must NEVER
     raise into the build pipeline (mirrors _emit_safe pattern).
 
-    build_id обязателен (GH497 D1): if no run_id is supplied and no active
+    build_id is mandatory (GH497 D1): if no run_id is supplied and no active
     telemetry_ctx run is set, build_id resolves to None and the write is
     suppressed entirely (no record) — no more build_id=null prod-log rows.
     """

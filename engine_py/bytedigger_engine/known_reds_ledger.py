@@ -453,7 +453,7 @@ def format_scope_summary(
 
 
 def format_disarmed_scope_warning(suite: str, suite_rows: int) -> str:
-    """§1.6: «фильтр обезоружен» must be distinguishable from «всё зелено»."""
+    """§1.6: "the filter is disarmed" must be distinguishable from "all green"."""
     return (
         f"scope: WARNING suite={suite} had {suite_rows} ledger row(s) but "
         f"0 mute tokens survived scope"

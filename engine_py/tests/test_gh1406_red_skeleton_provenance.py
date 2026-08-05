@@ -606,7 +606,7 @@ def test_ac8_red_authored_paths_excludes_red_tests_and_test_segments():
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_s1_shield_pass_red_authored_skeleton_is_committed(tmp_path, monkeypatch):
     """S1 (§1l, real production side effect): pre-RED snapshot is PRESENT and
     EMPTY, so the RED-authored `pkg/mod.py` is provably authored by THIS RED
@@ -737,7 +737,7 @@ def test_s2_shield_block_path_dirty_before_red_is_not_committed(tmp_path, monkey
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_s3_shield_block_fail_closed_when_snapshot_missing(tmp_path, monkeypatch):
     """S3 (fail-closed): no snapshot file exists at all. Nothing may be
     committed and the guard must return E_RED_WORKTREE_DIRTY — byte-for-byte
@@ -777,7 +777,7 @@ def test_s3_shield_block_fail_closed_when_snapshot_missing(tmp_path, monkeypatch
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_s4_shield_block_behavioural_anti_weakening(tmp_path, monkeypatch):
     """S4 (anti-weakening), at DEFAULT gate settings: the RED-authored
     `pkg/mod.py` carries a REAL implementation, so the RED tests PASS.
@@ -832,7 +832,7 @@ def test_s4_shield_block_behavioural_anti_weakening(tmp_path, monkeypatch):
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac9_kill_switch_red_skeleton_commit_zero_restores_legacy(tmp_path, monkeypatch):
     """AC9 (strengthened in r2): `HAL_RED_SKELETON_COMMIT=0` + the S1 scenario
     -> `pkg/mod.py` is NOT committed, `red_skeleton_commit_skipped` fires with
@@ -888,7 +888,7 @@ def test_ac10_dirty_tree_guard_kill_switch_still_works(tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac11_refusal_text_attributes_what_was_actually_measured(tmp_path, monkeypatch):
     """AC11 (second defect of the issue): the S2 refusal message must NOT
     claim the single unmeasured cause "operator restart likely left GREEN
@@ -923,7 +923,7 @@ def test_ac11_refusal_text_attributes_what_was_actually_measured(tmp_path, monke
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac12_both_guard_call_sites_share_one_message_source(tmp_path, monkeypatch):
     """AC12 (§1g): `_verify_red_dirty_tree_guard` and `_build_validation_prompt`
     must produce LETTER-FOR-LETTER identical refusal text for identical
@@ -962,7 +962,7 @@ def test_ac12_both_guard_call_sites_share_one_message_source(tmp_path, monkeypat
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac13_pre_red_snapshot_taken_even_when_the_red_llm_fails(tmp_path, monkeypatch):
     """AC13: the snapshot is taken on EVERY `invoke_red_llm`, including one
     whose LLM call fails — the snapshot precedes the LLM and must never be
@@ -989,7 +989,7 @@ def test_ac13_pre_red_snapshot_taken_even_when_the_red_llm_fails(tmp_path, monke
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac14_registrations_flag_lint_and_docs_have_no_drift():
     """AC14: `flags_catalog.FLAGS["HAL_RED_SKELETON_COMMIT"]["default"] == "1"`;
     `mutating_git_lint` classifies `_commit_red_skeleton` as a guarded write
@@ -1031,7 +1031,7 @@ def test_ac14_registrations_flag_lint_and_docs_have_no_drift():
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac15_snapshot_records_what_was_actually_dirty_before_red(tmp_path, monkeypatch):
     """AC15 (gate MAJOR-2) — THE snapshot-content assertion, two-sided.
 
@@ -1082,7 +1082,7 @@ def test_ac15_snapshot_records_what_was_actually_dirty_before_red(tmp_path, monk
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac16_spec_allowlist_unavailable_skips_the_skeleton_commit(tmp_path, monkeypatch):
     """AC16 (gate MAJOR-3): a spec with NO `## Files` section + a dirty prod
     file -> the skeleton is NOT committed and `red_skeleton_commit_skipped`
@@ -1138,7 +1138,7 @@ def test_ac16_spec_allowlist_unavailable_skips_the_skeleton_commit(tmp_path, mon
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac17_git_failure_leaves_step_ok_and_tree_dirty(tmp_path, monkeypatch):
     """AC17 (gate MAJOR-3): when the skeleton's git op fails,
     `red_skeleton_commit_failed` is emitted, `_commit_red_tests` still returns
@@ -1244,7 +1244,7 @@ def test_ac18_deletion_is_never_a_skeleton(tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac19_stale_stamp_snapshot_is_treated_as_unavailable(tmp_path, monkeypatch):
     """AC19 (gate MAJOR-6): a snapshot whose `stamp.process_token` belongs to a
     DIFFERENT process (the durable-resume scenario of §3.1b, where
@@ -1295,7 +1295,7 @@ def test_ac19_stale_stamp_snapshot_is_treated_as_unavailable(tmp_path, monkeypat
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac20_red_not_failing_reached_at_default_resume_gate(tmp_path, monkeypatch):
     """AC20 (gate MAJOR-1): the S4 scenario with NO env pins at all. The
     skeleton is committed, the RED passes, and the run must stop with
@@ -1337,7 +1337,7 @@ def test_ac20_red_not_failing_reached_at_default_resume_gate(tmp_path, monkeypat
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac21_legitimate_green_complete_resume_still_fires(tmp_path, monkeypatch):
     """AC21 — the regression guard for AC20's fix. A GENUINELY uncommitted
     GREEN (the prod file is dirty BEFORE invoke_red_llm, i.e. present in the
@@ -1389,7 +1389,7 @@ def test_ac21_legitimate_green_complete_resume_still_fires(tmp_path, monkeypatch
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac22_commit_red_skeleton_refuses_ambient_git_cwd(tmp_path, monkeypatch):
     """AC22 (gate MAJOR-3): `_commit_red_skeleton` must be safe when called
     DIRECTLY with an ambient-resolved git_cwd — it commits nothing and emits
@@ -1439,7 +1439,7 @@ def test_ac22_commit_red_skeleton_refuses_ambient_git_cwd(tmp_path, monkeypatch)
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac23_snapshot_events_are_emitted_on_both_outcomes(tmp_path, monkeypatch):
     """AC23 (§3.2 telemetry, r1 gap): a successful snapshot emits
     `red_pre_dirty_snapshot`; a snapshot whose git call fails emits
@@ -1474,7 +1474,7 @@ def test_ac23_snapshot_events_are_emitted_on_both_outcomes(tmp_path, monkeypatch
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac24_degraded_route_with_uncommitted_red_tests_skips_skeleton(tmp_path, monkeypatch):
     """AC24 (gate MINOR-6): on the degraded route — every `red_test_paths`
     entry is gitignored, so `red_commit_sha == pre_red_sha` and NO RED test
@@ -1553,7 +1553,7 @@ def test_ac24_degraded_route_with_uncommitted_red_tests_skips_skeleton(tmp_path,
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac25_full_chokepoint_path_one_ctx_one_scratchpad(tmp_path, monkeypatch):
     """AC25 (gate MAJOR-B) — the ONLY test that walks BOTH chokepoints.
 
@@ -1652,7 +1652,7 @@ def test_ac25_full_chokepoint_path_one_ctx_one_scratchpad(tmp_path, monkeypatch)
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac26_red_skeleton_sha_has_exactly_one_reader(tmp_path):
     """AC26 (gate MAJOR-A): the new key's blast radius is proved BY A RUN, not
     by a promise. `red_skeleton_sha` must be READ in exactly one place —
@@ -1745,7 +1745,7 @@ def test_ac26_red_skeleton_sha_has_exactly_one_reader(tmp_path):
         )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac27_skeleton_stays_inside_the_green_gate_window(tmp_path, monkeypatch):
     """AC27 (gate MAJOR-A), two-sided, on a real git diff.
 
@@ -1829,7 +1829,7 @@ def test_ac28_addable_xy_is_a_whitelist_of_whole_codes(tmp_path):
         )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac29_dirty_snapshot_failure_skips_the_skeleton_commit(tmp_path, monkeypatch):
     """AC29 (gate MINOR-b): when the skeleton's own `snapshot_dirty_paths` call
     fails, nothing is committed and `red_skeleton_commit_skipped` carries
@@ -1872,7 +1872,7 @@ def test_ac29_dirty_snapshot_failure_skips_the_skeleton_commit(tmp_path, monkeyp
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac30_cycle_two_commits_skeleton_and_sidecar_keeps_red_commit_sha(
     tmp_path, monkeypatch
 ):
@@ -1919,7 +1919,7 @@ def test_ac30_cycle_two_commits_skeleton_and_sidecar_keeps_red_commit_sha(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac31_process_token_actually_varies_between_processes():
     """AC31 (gate MAJOR-1 r3) — the nonce must actually be a nonce.
 
@@ -1975,7 +1975,7 @@ def test_ac31_process_token_actually_varies_between_processes():
     )
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Ф1 ships lib/red_skeleton.py only; editing existing product files is Ф B. These ACs ARE the wiring's proof — un-skip them in Ф B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts GH1406 wiring inside workflows/phase_5_implement.py (UUT-B) — _commit_red_skeleton, _dirty_tree_block_message, the p5.red_skeleton export and the resulting event stream. Phase 1 ships lib/red_skeleton.py only; editing existing product files is phase B. These ACs ARE the wiring's proof — un-skip them in phase B, do not delete. AC31/AC32 additionally degenerate under the bd#44 package layout (see _red_skeleton docstring).")
 def test_ac32_tests_and_production_share_one_red_skeleton_module(tmp_path):
     """AC32 (gate MAJOR-2 r3) — one module object, named explicitly.
 

@@ -165,7 +165,7 @@ def contains_denied_form(line: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# "здесь вообще есть команда установки" -- built by alternation OVER THE
+# "there is an install command here at all" -- built by alternation OVER THE
 # DICTIONARIES (ALLOWED ∪ DENIED, sorted by descending length), not a
 # hardcoded `(pip|pip3|uv)` (spec §2.3: otherwise `pipx` would not match).
 # ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ def line_has_valid_waiver(line: str) -> bool:
 # ---------------------------------------------------------------------------
 # §2.4 Domain scan -- npm/**, packaging/** (all extensions), engine_py/**/*.py,
 # engine_py/README.md. Excludes scripts/**, tests/**, and **/tests/**.
-# Waiver filtering happens INSIDE this function (§2.2, MAJOR-9б).
+# Waiver filtering happens INSIDE this function (§2.2, MAJOR-9b).
 # ---------------------------------------------------------------------------
 def _is_within_a_tests_dir(rel_parts: tuple[str, ...]) -> bool:
     return "tests" in rel_parts[:-1]

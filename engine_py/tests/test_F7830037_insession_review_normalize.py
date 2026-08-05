@@ -340,7 +340,7 @@ def test_ac4_normalize_empty_placeholder(tmp_path):
 
 
 # ─── AC5 (backend-scoped retry preserved for subprocess) — REMOVED by GH1399 ─
-# GH1399 spec rev2 §1c-ОТМЕНА п.1 cancels this decision explicitly.
+# GH1399 spec rev2 §1c-ОТМЕНА item 1 cancels this decision explicitly.
 # test_ac5_subprocess_retry_unchanged asserted that with
 # backend="claude-subprocess" a non-conformant response still costs exactly one
 # invoke_llm_subprocess call and dies with E_REVIEW_FORMAT_DRIFT — the
