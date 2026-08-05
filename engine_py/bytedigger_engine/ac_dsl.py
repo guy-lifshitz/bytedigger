@@ -179,9 +179,9 @@ def parse_ac_checks(spec_text: str) -> dict[str, CheckSpec]:
         # bare yaml: everything after the header line
         yaml_text = "\n".join(lines[header_line_idx + 1:end_idx])
 
-    # lazy import: PyYAML отсутствует в чистых uvx-окружениях (canary.sh гоняет
-    # spec-тесты через `uvx --from pytest`); top-level import ронял collection
-    # 12 модулей через цепочку phase_45_spec → ac_dsl
+    # lazy import: PyYAML is absent in clean uvx environments (canary.sh runs
+    # spec tests via `uvx --from pytest`); a top-level import used to break collection
+    # of 12 modules through the phase_45_spec -> ac_dsl chain
     import yaml
 
     try:

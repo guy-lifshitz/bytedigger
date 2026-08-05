@@ -632,7 +632,7 @@ def _fake_completed(returncode, stdout, stderr=""):
 # ─── AC15: _baseline_delta wiring — unconditional argv flag + parity_block ──
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac15_baseline_delta_wiring_passes_flag_and_sets_parity_block(tmp_path, monkeypatch) -> None:
     import workflows._baseline_delta as bd_mod  # exists today, but not yet wired
 
@@ -688,7 +688,7 @@ def test_ac15_baseline_delta_wiring_passes_flag_and_sets_parity_block(tmp_path, 
 # ─── AC16: E_CORPUS_PARITY / HAL_CORPUS_PARITY_ENFORCE registered; phase_5 wired ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac16_error_code_flag_and_phase5_mapping_registered() -> None:
     assert "E_CORPUS_PARITY" in error_codes.ERROR_CODES, (
         f"expected E_CORPUS_PARITY registered, got sample="
@@ -788,7 +788,7 @@ def test_ac18_kill_switch_with_require_corpus_parity_is_counted_not_silent(tmp_p
 # ─── AC19: would_block not masked by a stale `verdict` reading (gate M2) ────
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac19_would_block_not_masked_and_fails_closed_on_missing_delta_verdict(
     tmp_path, monkeypatch,
 ) -> None:
@@ -847,7 +847,7 @@ def test_ac19_would_block_not_masked_and_fails_closed_on_missing_delta_verdict(
 # ─── AC20: phase_5 reachability on a GREEN group (gate M1 — blocker) ────────
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac20_run_baseline_delta_gate_call_not_nested_in_fail_only_branch() -> None:
     """§2.3 (gate M1): the existing call sits inside
     `if dt_result.exit_code != 0 or dt_result.n_failed > 0:` — on a fully GREEN
@@ -914,7 +914,7 @@ def test_ac20_run_baseline_delta_gate_call_not_nested_in_fail_only_branch() -> N
 # ─── AC21: name-selective cfg.flag — GREEN keyed on the wrong name must fail (M6) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac21_parity_block_is_name_selective_both_directions(tmp_path, monkeypatch) -> None:
     import workflows._baseline_delta as bd_mod  # exists today, but not yet wired
 
@@ -1162,7 +1162,7 @@ def test_ac25_porcelain_z_parsing_handles_spaces_and_staged_renames(tmp_path) ->
 # ─── AC27: phase_5 positive whitelist — every enclosing If mentions ONLY stdout_path (N1) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac27_phase5_reachability_whitelist_only_stdout_path_condition() -> None:
     """§2.3 rev2-N1 (gate N1): AC20's negative check (call not nested inside ONE
     specific fail-only If) can be silently defeated by relocating the call under
@@ -1490,7 +1490,7 @@ def test_ac23a_collect_corpus_source_pinned_by_ref_kind(tmp_path) -> None:
 # ─── AC19a: emitted verdict event carries only_in_base + declared_removal_count (rev2-m5) ─
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac19a_verdict_event_carries_only_in_base_and_declared_removal_count(
     tmp_path, monkeypatch,
 ) -> None:
@@ -1538,7 +1538,7 @@ def test_ac19a_verdict_event_carries_only_in_base_and_declared_removal_count(
 # ═══ AC31 — flow-blind hole in AC20/AC27: preceding-sibling continue/break/return (§4.1) ═══
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac31_call_not_bypassed_by_preceding_sibling_continue_break_return() -> None:
     """§4.1 (Opus-named remaining hole, rev5 WHITELIST): AC20/AC27 only inspect
     ANCESTOR `If` nodes of the run_baseline_delta_gate call. Both are blind to
@@ -2387,9 +2387,9 @@ def test_ac39_corpus_parity_enforce_flag_no_longer_affects_exit_code(tmp_path) -
 # ─── AC40: delta FAIL + parity_block both reported, not `elif`-masked ───────
 
 
-@pytest.mark.skip(reason="hal#1145 Ф1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Ф1 ships the additive module only; wiring existing product files belongs to Ф B. Re-enable in Ф B — this AC is the wiring's proof.")
+@pytest.mark.skip(reason="hal#1145 phase-1 declared gap: asserts wiring in workflows/phase_5_implement.py (UUT-B). Phase 1 ships the additive module only; wiring existing product files belongs to phase B. Re-enable in phase B — this AC is the wiring's proof.")
 def test_ac40_delta_and_parity_block_both_reported_not_elif_masked(tmp_path) -> None:
-    """§10 'Взято в этот шип из MINOR': today's phase_5_implement.py keys
+    """§10 'Taken into this ship from MINOR': today's phase_5_implement.py keys
 
         if _bd.get("parity_block"):
             parity_blocks.append(...)
@@ -2479,7 +2479,7 @@ def test_ac40_delta_and_parity_block_both_reported_not_elif_masked(tmp_path) -> 
 
 
 def test_ac41_stale_base_error_description_drops_false_freshness_window_claim() -> None:
-    """§10 'Взято в этот шип из MINOR': `error_codes.ERROR_CODES['E_STALE_BASE']`
+    """§10 'Taken into this ship from MINOR': `error_codes.ERROR_CODES['E_STALE_BASE']`
     currently reads '...older than the configured freshness window...' — there
     is no freshness WINDOW; the real mechanism is git ancestry / merge-base.
     A correct fix does not resurrect a false rationale for a correct behavior.

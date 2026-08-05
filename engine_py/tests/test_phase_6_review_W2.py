@@ -206,11 +206,11 @@ def test_write_review_artifact_retry_uses_raise_not_assert():
 
     Verified via source inspection — robust regardless of test runner flags.
 
-    GH1399 (§1a строка 14, §1c-ОТМЕНА п.6): вторая половина утверждения —
-    «в функции ОБЯЗАН присутствовать `raise AssertionError`» — была про
-    retry-shape ветку, а её GH1399 удаляет целиком. Отменяется только это
-    требование присутствия; несущее «в проде нет голого `assert`, съедаемого
-    `python -O`» сохраняется и продолжает проверяться.
+    GH1399 (§1a line 14, §1c-ОТМЕНА item 6): the second half of the claim —
+    "the function MUST contain a `raise AssertionError`" — was about the
+    retry-shape branch, and GH1399 removes that branch entirely. Only that
+    presence requirement is cancelled; the load-bearing "production contains no bare
+    `assert`, which `python -O` eats" is preserved and still checked.
     """
     from bytedigger_engine.workflows import phase_6_review as m
 
@@ -222,7 +222,7 @@ def test_write_review_artifact_retry_uses_raise_not_assert():
         "must be replaced with 'raise AssertionError(...)' (survives python -O)"
     )
 
-    # Несущее в СИЛЬНОЙ форме: ни одного голого `assert` в проде функции.
+    # The load-bearing claim in its STRONG form: not one bare `assert` in the production function.
     assert not re.search(r"^\s*assert\s", source, re.MULTILINE), (
         "_write_review_artifact contains a bare `assert` statement — "
         "stripped under `python -O`; use `raise AssertionError(...)`"

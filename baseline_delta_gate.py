@@ -73,10 +73,10 @@ def parse_pytest_fails(text: str) -> list:
 
 
 def normalize_bun_fail_id(name: str) -> str:
-    """Идентичность bun-красного без wall-clock: срезает ОДИН хвостовой суффикс длительности.
+    """Identity of a bun red without wall-clock: strips ONE trailing duration suffix.
 
-    Если после среза не остаётся ничего (строка была одной длительностью), возвращается
-    исходное имя — пустая идентичность матчилась бы с любой другой пустой (fail-closed).
+    If nothing is left after stripping (the string was a single duration), the original
+    name is returned — an empty identity would match any other empty one (fail-closed).
     """
     stripped = _BUN_DURATION_RE.sub("", name).strip()
     return stripped if stripped else name.strip()

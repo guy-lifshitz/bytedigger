@@ -53,10 +53,10 @@ def test_write_fix_artifact_registered_via_step_factory_with_retry_policy_1():
     )
 
 
-# СНЯТО GH1399 (§1c-ОТМЕНА): test_write_review_artifact_terminal_drift_is_recoverable_false
-# 291189A0 — терминальность пост-ретрайного дрейфа: ретрай-ветка удалена GH1399,
-# у решения исчез предмет. Свойство «двойного ретрая нет» сохраняется в СИЛЬНОЙ форме
-# и ассертится GH1399 AC8 (отсутствие retry_from_step).
+# REMOVED by GH1399 (§1c-ОТМЕНА): test_write_review_artifact_terminal_drift_is_recoverable_false
+# 291189A0 — the terminality of post-retry drift: the retry branch was deleted by GH1399,
+# so the decision lost its subject. The property "there is no double retry" is preserved in its STRONG
+# form and is asserted by GH1399 AC8 (the absence of retry_from_step).
 
 
 def test_write_fix_artifact_terminal_no_marker_is_recoverable_false(tmp_path, monkeypatch):

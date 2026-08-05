@@ -791,9 +791,9 @@ def test_phase_5_implement_red_retry_passes_allowed_tools(tmp_path):
     )
 
 
-# СНЯТО GH1399 (§1c-ОТМЕНА): test_phase_6_review_review_retry_passes_allowed_tools
-# Контракт allowed_tools ретрай-вызова phase_6_review: вызов удалён GH1399.
-# Остальные строки call-path-матрицы не затронуты.
+# REMOVED by GH1399 (§1c-ОТМЕНА): test_phase_6_review_review_retry_passes_allowed_tools
+# The allowed_tools contract of the phase_6_review retry call: the call was deleted by GH1399.
+# The other rows of the call-path matrix are unaffected.
 
 
 def test_phase_6_review_fix_retry_passes_allowed_tools(tmp_path):
