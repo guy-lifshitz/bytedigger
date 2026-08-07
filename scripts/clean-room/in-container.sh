@@ -144,7 +144,14 @@ case "$MODE" in
     bytedigger-engine doctor
 
     step "full test suite"
-    python3 -m pytest tests/ -q -p no:cacheprovider --timeout=180
+    # `-rs` prints the reason for every skip. This lane's corpus arrives through
+    # `git archive` — tracked files only, no `.git` — so tests whose subject is
+    # the index skip here BY DESIGN. Without `-rs` that shows up only as the
+    # skipped counter moving (68 -> 69), which is a number, not a fact: nobody
+    # reading the log can tell which check did not run or why. Same idiom as
+    # ci.yml:142. `-rfEs`, not `-rs`: `-r` REPLACES the default `fE`, so a bare
+    # `-rs` would buy skip reasons at the cost of the FAILED/ERROR summary.
+    python3 -m pytest tests/ -q -rfEs -p no:cacheprovider --timeout=180
     ;;
 
   expect-fail:bd102)
