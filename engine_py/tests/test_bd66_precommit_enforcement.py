@@ -1,4 +1,4 @@
-"""RED tests for bd#66 — pre-commit lint enforcement layer (round 2).
+"""RED tests for bd#66 — pre-commit lint enforcement layer (round 3).
 
 Spec: SHARED/memory/Decisions/2026-08-07_bd66_precommit_enforcement_layer_spec.md
 (Class: SYSTEMATIC — Principle C, codified-but-not-enforced.)
@@ -19,29 +19,41 @@ implicit are resolved here and are the RED-side contract GREEN must satisfy):
      --show-toplevel`); staged paths from the index — including the unborn-HEAD
      case, which is exactly the state AC5/AC10 commit from.
   3. §2.1a — the driver directory defaults to `precommit_lints.DEFAULT_LINT_DIR`
-     (the directory of the registry module itself). `BD66_LINT_DIR` is an
-     OVERRIDE on top of that canon (§1h), never a precondition: unset or empty
-     means "canon", it never means "nothing to check". AC11 (refuse with the
-     variable deleted) and AC12 (pass with the variable deleted) are the pair
-     that pins this; AC7 does NOT pin it — AC7 runs through the override.
+     (`os.path.realpath` of the registry module's own directory). `BD66_LINT_DIR`
+     is an OVERRIDE on top of that canon (§1h), never a precondition: unset or
+     empty means "canon", it never means "nothing to check". The KILLING PAIR is
+     AC6c and AC12, not AC11/AC12: AC11 takes its refusal from the PLAN branch,
+     so it does not pin the PRE-PASS on the canonical path. AC6c demands a
+     PRE-PASS refusal with the variable deleted, AC12 a pass with the variable
+     deleted. A gate on `BD66_LINT_DIR` anywhere in the layer — including the
+     `if override: prepass(...)` shape of round 2, which passed every AC and
+     never refused in the real repository — dies on AC6c. AC7 does NOT pin this;
+     AC7 runs through the override.
   4. The registry is read from the `precommit_lints` MODULE at call time
      (`precommit_lints.DECLARED_ABSENT`, and the name lists through
      `build_lint_commands`) — not snapshotted into module-level constants of
      `precommit_enforce` at import time. §1g: one canonical source.
-  5. `DECLARED_ABSENT` licenses a name to have NO driver on disk; it does not
-     suppress a driver that IS on disk. §2.1: driver presence is evaluated ONCE,
-     in the registry pre-pass — a driver that vanishes after that is outcome 3
+  5. §2.1 outcome 0 — `DECLARED_ABSENT` LICENSES a name to have no driver on
+     disk (the planned command is then SKIPPED) and does NOT suppress a driver
+     that IS on disk: a present driver runs even for a declared name. AC5/AC10
+     ride exactly that clause. Driver presence is evaluated ONCE, in the registry
+     pre-pass — a driver that vanishes after that is outcome 3
      (`BD66-REFUSE-DRIVER-ERROR`), not outcome 1. AC9 pins that cite.
   6. §2.1 — the pre-pass is REGISTRY-scoped and runs BEFORE `nothing_to_lint`:
      it sweeps SPEC_LINTS+TEST_LINTS+TS_TEST_LINTS regardless of what is staged.
-     AC6b pins this (a plan-scoped implementation returns 0 there).
+     AC6b pins this (a plan-scoped implementation returns 0 there), AC6c pins it
+     end to end through a real `git commit` on the canonical path.
   7. §2.2 closes both ways: a `DECLARED_ABSENT` entry matching no registry name
-     refuses too, same token. AC13 pins it.
-  8. §2.3 — `githooks/pre-commit` is mode 0o755 (git silently SKIPS a
-     non-executable hook, which would read as a green pass with no check at
-     all), and `precommit_enforce.py` bootstraps its own `sys.path`; no fixture
-     here exports PYTHONPATH, so a GREEN leaning on an inherited PYTHONPATH
-     fails exactly as it would in a bare developer clone.
+     refuses too, same token. AC13 pins it. §2.1: the pre-pass ACCUMULATES and
+     prints every violator without an early exit, so AC13 also asserts that an
+     innocent, properly declared name is NOT named.
+  8. §2.3 — `githooks/pre-commit` carries the exec bit; the working-tree
+     assertion is `mode & 0o111` (a clone made under umask 077 legitimately
+     yields 0o700), while the exact `100755` is asserted against the VERSIONED
+     mode via `git ls-files -s`. Git silently SKIPS a non-executable hook, which
+     would read as a green pass with no check at all. `precommit_enforce.py`
+     bootstraps its own `sys.path`; no fixture here exports PYTHONPATH, so a
+     GREEN leaning on an inherited PYTHONPATH fails as in a bare clone.
   9. Exit codes: 0 clean, 1 refusal. Tokens `BD66-REFUSE-VIOLATION`,
      `BD66-REFUSE-MISSING-DRIVER`, `BD66-REFUSE-DRIVER-ERROR`. The
      driver-error line reports the exit code as `rc=<n>` on the SAME line as
@@ -49,7 +61,18 @@ implicit are resolved here and are the RED-side contract GREEN must satisfy):
  10. The installer reads the current value with `git config --get --local
      core.hooksPath`: a developer's global `core.hooksPath` must neither pass
      for an installation (false `--check` rc=0) nor trigger the foreign-value
-     refusal. AC3b pins both halves.
+     refusal. AC3b pins both halves. §2.1 argument edges: no flags behaves as
+     `--check`; `--install --check` together is a usage error, rc=2; `--root` on
+     a non-git directory is rc=1 with NO write anywhere. AC14 pins those three.
+ 11. Every assertion that a lint name appears in the output matches an EXACT
+     token (`_output_names_lint`, boundaries on `[0-9A-Za-z_-]`), so `phantom-lint`
+     cannot be satisfied by a printed `phantom-lint-2`.
+
+Registry patching (MINOR-3 of the round-2 gate): whenever a test replaces one of
+the name lists, it also sets `DECLARED_ABSENT` to exactly the names of the
+PATCHED registry minus the intended violator. Otherwise the real names it just
+removed are left orphaned in `DECLARED_ABSENT` and BOTH pre-pass branches fire
+at once, so the AC no longer isolates the branch it claims to exercise.
 
 §1q collectability: nothing that is absent pre-GREEN is imported at module
 scope. `precommit_enforce` is imported INSIDE each test body; the installer and
@@ -87,22 +110,31 @@ Pre-GREEN PASS/FAIL — every AC FAILs today:
   - AC5 FAIL: no installer and no githooks/pre-commit, so `git commit` is
     unguarded — it SUCCEEDS and a commit object appears. This is the forcing
     assertion of the lot.
-  - AC6 FAIL: ImportError on bytedigger_engine.precommit_enforce.
-  - AC6b FAIL: same ImportError; post-GREEN a plan-scoped pre-pass returns 0.
+  - AC6 FAIL: assertion — engine_py/bytedigger_engine/precommit_enforce.py does
+    not exist (asserted before the import, so the failure is an assertion and
+    not an import accident).
+  - AC6b FAIL: same missing-module assertion; post-GREEN a plan-scoped pre-pass
+    returns 0 here.
+  - AC6c FAIL: precommit_enforce.py does not exist, so there is nothing to copy
+    into the materialised package; and with no installer/hook the `git commit`
+    would be unguarded. This is the AC that kills every `BD66_LINT_DIR` gate.
   - AC7 FAIL: precommit_lints has no DECLARED_ABSENT attribute (0 names
     declared, denominator 12) and the enforcement layer does not exist.
-  - AC8 FAIL: ImportError on bytedigger_engine.precommit_enforce.
-  - AC9 FAIL: ImportError on bytedigger_engine.precommit_enforce.
+  - AC8 FAIL: assertion — precommit_enforce.py does not exist.
+  - AC9 FAIL: assertion — precommit_enforce.py does not exist.
   - AC10 FAIL: no installer to install a hook with, so the arrange step cannot
     even establish the guarded repo the AC is about.
   - AC11 FAIL: precommit_enforce.py cannot be copied — it does not exist.
   - AC12 FAIL: precommit_lints has no DEFAULT_LINT_DIR and no enforcement layer.
-  - AC13 FAIL: ImportError on bytedigger_engine.precommit_enforce.
+  - AC13 FAIL: assertion — precommit_enforce.py does not exist.
+  - AC14 FAIL: no installer, so the no-flag call exits 2 instead of 1/0 and the
+    `--install --check` usage error is never raised.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -141,6 +173,37 @@ _GIT_ENV_KEYS = (
     "GIT_CONFIG_SYSTEM",
     "GIT_CONFIG_NOSYSTEM",
 )
+
+
+_NAME_CHAR = r"[0-9A-Za-z_\-]"
+
+
+def _output_names_lint(output: str, name: str) -> bool:
+    """True iff `name` appears in `output` as a WHOLE token.
+
+    Off-by-substring guard: a plain `name in output` lets a refusal that names
+    `phantom-lint-2` satisfy an assertion about `phantom-lint`. Boundaries are
+    the lint-name alphabet itself (`[0-9A-Za-z_-]`), not `\\b`, because `\\b`
+    matches on either side of a hyphen and would keep the bug alive.
+    """
+    pattern = rf"(?<!{_NAME_CHAR}){re.escape(name)}(?!{_NAME_CHAR})"
+    return re.search(pattern, output) is not None
+
+
+def _declared_for(spec_lints, test_lints, ts_test_lints, violators=()):
+    """DECLARED_ABSENT consistent with a PATCHED registry (gate MINOR-3).
+
+    Every name of the patched registry except the intended violators is declared
+    absent, and nothing else is — so the forward branch (name without driver and
+    without declaration) and the reverse branch (§2.2, an orphaned declaration)
+    cannot both fire, and each AC exercises exactly the one branch it names.
+    """
+    excluded = set(violators)
+    return [
+        n
+        for n in [*spec_lints, *test_lints, *ts_test_lints]
+        if n not in excluded
+    ]
 
 
 def _hermetic_git_env(tmp_path: Path) -> dict:
@@ -253,22 +316,38 @@ def _run_installer(args: list[str], env: dict) -> subprocess.CompletedProcess:
 
 
 def _assert_hook_is_executable(ac: str) -> None:
-    """§2.3: `githooks/pre-commit` must exist and be mode 0o755.
+    """§2.3: `githooks/pre-commit` must exist and be executable.
 
     Git SILENTLY skips a hook without the exec bit — the commit would then
     succeed with no check performed at all, and AC5 would be green for the one
-    reason the whole lot exists to prevent. Asserted where AC1 (install) and
-    AC5 (a real refused commit) can both see it.
+    reason the whole lot exists to prevent.
+
+    Two different modes, deliberately asserted differently:
+      - WORKING TREE: `mode & 0o111` only. A clone taken under `umask 077` gets
+        0o700, which is a correct checkout of a 100755 blob; demanding exactly
+        0o755 would red a correct GREEN on someone else's machine.
+      - VERSIONED: exactly `100755` via `git ls-files -s`, which is the fact
+        GREEN actually controls and the one that survives a fresh clone.
     """
     assert HOOK_FILE.is_file(), (
         f"bd#66 {ac}: {HOOK_FILE} must exist and be a versioned file "
         f"(spec §2.3). Pre-GREEN it does not exist — FAIL expected here."
     )
     mode = stat.S_IMODE(HOOK_FILE.stat().st_mode)
-    assert mode == 0o755, (
-        f"bd#66 {ac}: {HOOK_FILE} must be mode 0o755, got {mode:#o}. Git "
+    assert mode & 0o111, (
+        f"bd#66 {ac}: {HOOK_FILE} must carry the exec bit, got {mode:#o}. Git "
         f"silently SKIPS a non-executable hook, so a wrong mode reads as a "
         f"passing commit with no enforcement whatsoever."
+    )
+    listed = _git(
+        ["ls-files", "-s", "--", "githooks/pre-commit"], REPO_ROOT, dict(os.environ)
+    )
+    fields = listed.stdout.split()
+    assert fields[:1] == ["100755"], (
+        f"bd#66 {ac}: githooks/pre-commit must be VERSIONED with mode 100755 "
+        f"(`git ls-files -s` said {listed.stdout.strip()!r}). A 100644 blob is "
+        f"checked out non-executable in every fresh clone, and git then skips "
+        f"the hook without a word."
     )
 
 
@@ -285,6 +364,23 @@ def _materialize_layer(repo: Path) -> None:
         PACKAGE_DIR, repo / "engine_py" / "bytedigger_engine", target_is_directory=True
     )
     os.symlink(GITHOOKS_DIR, repo / "githooks", target_is_directory=True)
+
+
+def _materialize_package_copy(clone: Path) -> Path:
+    """Copy the two production modules into `clone/engine_py/bytedigger_engine`.
+
+    A COPY, not a symlink of the package directory: AC11 and AC6c both write
+    next to the registry (a driver, an appended registry line), and the real
+    tree must never be written to. The copy still IS the production source —
+    a stub cannot stand in for it, because the file copied is whatever GREEN
+    writes.
+    """
+    pkg = clone / "engine_py" / "bytedigger_engine"
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "__init__.py").write_text("")
+    shutil.copy2(PACKAGE_DIR / "precommit_lints.py", pkg / "precommit_lints.py")
+    shutil.copy2(ENFORCE_MODULE, pkg / "precommit_enforce.py")
+    return pkg
 
 
 def _commit(repo: Path, env: dict, message: str = "bd66 fixture commit"):
@@ -579,9 +675,20 @@ def test_ac6_undeclared_name_without_driver_refuses(tmp_path, monkeypatch, capsy
     driver on disk or an entry in DECLARED_ABSENT. Adding a 13th name without a
     driver must refuse the commit rather than read as an enabled gate.
 
-    Pre-GREEN: FAIL — ImportError, bytedigger_engine.precommit_enforce does not
-    exist.
+    DECLARED_ABSENT is set consistently with the PATCHED registry (gate
+    MINOR-3): every patched name except `phantom-lint`, and nothing the patch
+    removed. Otherwise the displaced real TEST_LINTS names would sit orphaned in
+    DECLARED_ABSENT, the §2.2 reverse branch would fire at the same time, and
+    this AC would no longer isolate the forward branch it is about.
+
+    Pre-GREEN: FAIL — the assertion below fires:
+    bytedigger_engine/precommit_enforce.py does not exist.
     """
+    assert ENFORCE_MODULE.is_file(), (
+        f"bd#66 AC6: {ENFORCE_MODULE} must exist (spec §4.3). Pre-GREEN it does "
+        f"not — FAIL expected here, as an assertion and not an import accident."
+    )
+
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
     _stage_test_file(repo, env)
@@ -593,9 +700,18 @@ def test_ac6_undeclared_name_without_driver_refuses(tmp_path, monkeypatch, capsy
     monkeypatch.setenv("BD66_LINT_DIR", str(driver_dir))
     monkeypatch.chdir(repo)
 
-    monkeypatch.setattr(precommit_lints, "TEST_LINTS", ["phantom-lint"], raising=True)
+    patched_tests = ["phantom-lint"]
+    monkeypatch.setattr(precommit_lints, "TEST_LINTS", patched_tests, raising=True)
     monkeypatch.setattr(
-        precommit_lints, "DECLARED_ABSENT", list(ALL_REGISTRY_NAMES), raising=False
+        precommit_lints,
+        "DECLARED_ABSENT",
+        _declared_for(
+            precommit_lints.SPEC_LINTS,
+            patched_tests,
+            precommit_lints.TS_TEST_LINTS,
+            violators=["phantom-lint"],
+        ),
+        raising=False,
     )
 
     from bytedigger_engine import precommit_enforce  # noqa: PLC0415
@@ -610,9 +726,10 @@ def test_ac6_undeclared_name_without_driver_refuses(tmp_path, monkeypatch, capsy
     assert REFUSE_MISSING_DRIVER in output, (
         f"bd#66 AC6: expected {REFUSE_MISSING_DRIVER} in the output, got {output!r}."
     )
-    assert "phantom-lint" in output, (
-        f"bd#66 AC6: the refusal must name the offending lint 'phantom-lint', "
-        f"got {output!r}."
+    assert _output_names_lint(output, "phantom-lint"), (
+        f"bd#66 AC6: the refusal must name the offending lint 'phantom-lint' as "
+        f"a whole token (a printed 'phantom-lint-2' does not count), got "
+        f"{output!r}."
     )
 
 
@@ -634,9 +751,17 @@ def test_ac6b_prepass_is_registry_scoped_with_nothing_classifiable_staged(
     be inert for 10 of the 12 names, and a new name would keep reading as an
     enabled gate — the exact danger the issue body names.
 
-    Pre-GREEN: FAIL — ImportError, bytedigger_engine.precommit_enforce does not
-    exist.
+    As in AC6, DECLARED_ABSENT matches the PATCHED registry minus the intended
+    violator (gate MINOR-3), so only the forward pre-pass branch can fire.
+
+    Pre-GREEN: FAIL — the assertion below fires:
+    bytedigger_engine/precommit_enforce.py does not exist.
     """
+    assert ENFORCE_MODULE.is_file(), (
+        f"bd#66 AC6b: {ENFORCE_MODULE} must exist (spec §4.3). Pre-GREEN it "
+        f"does not — FAIL expected here, as an assertion not an import accident."
+    )
+
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
     _stage_readme(repo, env)
@@ -648,11 +773,18 @@ def test_ac6b_prepass_is_registry_scoped_with_nothing_classifiable_staged(
     monkeypatch.setenv("BD66_LINT_DIR", str(driver_dir))
     monkeypatch.chdir(repo)
 
+    patched_specs = ["phantom-spec-lint"]
+    monkeypatch.setattr(precommit_lints, "SPEC_LINTS", patched_specs, raising=True)
     monkeypatch.setattr(
-        precommit_lints, "SPEC_LINTS", ["phantom-spec-lint"], raising=True
-    )
-    monkeypatch.setattr(
-        precommit_lints, "DECLARED_ABSENT", list(ALL_REGISTRY_NAMES), raising=False
+        precommit_lints,
+        "DECLARED_ABSENT",
+        _declared_for(
+            patched_specs,
+            precommit_lints.TEST_LINTS,
+            precommit_lints.TS_TEST_LINTS,
+            violators=["phantom-spec-lint"],
+        ),
+        raising=False,
     )
 
     from bytedigger_engine import precommit_enforce  # noqa: PLC0415
@@ -680,8 +812,9 @@ def test_ac6b_prepass_is_registry_scoped_with_nothing_classifiable_staged(
         f"bd#66 AC6b: expected {REFUSE_MISSING_DRIVER} in the output, got "
         f"{output!r}."
     )
-    assert "phantom-spec-lint" in output, (
-        f"bd#66 AC6b: the refusal must name 'phantom-spec-lint', got {output!r}."
+    assert _output_names_lint(output, "phantom-spec-lint"), (
+        f"bd#66 AC6b: the refusal must name 'phantom-spec-lint' as a whole "
+        f"token, got {output!r}."
     )
 
 
@@ -765,9 +898,14 @@ def test_ac8_driver_exiting_two_refuses(tmp_path, monkeypatch, capsys):
     Fail-closed: the load-bearing assertion is the non-zero return, not a
     logged message — a driver whose contract broke must not be read as a pass.
 
-    Pre-GREEN: FAIL — ImportError, bytedigger_engine.precommit_enforce does not
-    exist.
+    Pre-GREEN: FAIL — the assertion below fires:
+    bytedigger_engine/precommit_enforce.py does not exist.
     """
+    assert ENFORCE_MODULE.is_file(), (
+        f"bd#66 AC8: {ENFORCE_MODULE} must exist (spec §4.3). Pre-GREEN it does "
+        f"not — FAIL expected here, as an assertion and not an import accident."
+    )
+
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
     _stage_test_file(repo, env)
@@ -823,9 +961,22 @@ def test_ac9_driver_missing_at_run_time_refuses(tmp_path, monkeypatch, capsys):
     emptied so the pre-pass has nothing else to say. No sleeps, no contended
     resource, no timing window.
 
-    Pre-GREEN: FAIL — ImportError, bytedigger_engine.precommit_enforce does not
-    exist.
+    Cite (§2.1, "the plan's commands are executed SEQUENTIALLY, in the order
+    returned by build_lint_commands; there is no parallelism"): the deletion is
+    ordered only because `driver-a-lint` precedes `vanishing-lint` in the patched
+    TEST_LINTS, and build_lint_commands emits per staged file in list order.
+    DECLARED_ABSENT is emptied to match the patched registry exactly — both
+    patched names have a driver at pre-pass time, so neither pre-pass branch can
+    fire and the only possible refusal comes from execution.
+
+    Pre-GREEN: FAIL — the assertion below fires:
+    bytedigger_engine/precommit_enforce.py does not exist.
     """
+    assert ENFORCE_MODULE.is_file(), (
+        f"bd#66 AC9: {ENFORCE_MODULE} must exist (spec §4.3). Pre-GREEN it does "
+        f"not — FAIL expected here, as an assertion and not an import accident."
+    )
+
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
     _stage_test_file(repo, env)
@@ -848,6 +999,18 @@ def test_ac9_driver_missing_at_run_time_refuses(tmp_path, monkeypatch, capsys):
         precommit_lints, "TEST_LINTS", ["driver-a-lint", "vanishing-lint"], raising=True
     )
     monkeypatch.setattr(precommit_lints, "DECLARED_ABSENT", [], raising=False)
+
+    ordered = [
+        c["lint"]
+        for c in precommit_lints.build_lint_commands(
+            [], ["test_x.py"], str(driver_dir)
+        )
+    ]
+    assert ordered == ["driver-a-lint", "vanishing-lint"], (
+        f"bd#66 AC9 arrange (§2.1 sequential order): build_lint_commands must "
+        f"emit the deleting driver BEFORE the vanishing one, got {ordered!r}. "
+        f"Without that order the pre-staged vanish is not deterministic."
+    )
 
     from bytedigger_engine import precommit_enforce  # noqa: PLC0415
 
@@ -918,8 +1081,12 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
 
     Expected: rc=1 and `BD66-REFUSE-VIOLATION`. The implementation
     `if not os.environ.get("BD66_LINT_DIR"): return 0` passes AC12 and dies
-    here; that pair is what makes the override an override rather than a
-    precondition.
+    here, so this AC pins the PLAN branch on the canonical path.
+
+    It does NOT pin the PRE-PASS on the canonical path — the round-2 gate found
+    exactly that hole: `if override: prepass(...)` satisfies this AC through the
+    plan branch while the pre-pass never runs in the real repository. AC6c is
+    the AC that closes it.
 
     The module is run BY PATH in a subprocess with no PYTHONPATH (§2.3), so it
     must bootstrap its own sys.path — and the copy's engine root, inserted at
@@ -943,11 +1110,7 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     env.pop("BD66_LINT_DIR", None)
 
     clone = _init_repo(tmp_path, env, name="clone")
-    pkg = clone / "engine_py" / "bytedigger_engine"
-    pkg.mkdir(parents=True)
-    (pkg / "__init__.py").write_text("")
-    shutil.copy2(PACKAGE_DIR / "precommit_lints.py", pkg / "precommit_lints.py")
-    shutil.copy2(ENFORCE_MODULE, pkg / "precommit_enforce.py")
+    pkg = _materialize_package_copy(clone)
 
     # Format-independent edit of the COPY: rebind DECLARED_ABSENT after the
     # original definition so the name we are about to give a driver to is no
@@ -1004,11 +1167,17 @@ def test_ac12_real_registry_with_env_override_deleted_returns_zero(
     Pre-GREEN: FAIL — precommit_lints exports neither DEFAULT_LINT_DIR nor
     DECLARED_ABSENT, and the enforcement layer does not exist.
     """
-    assert getattr(precommit_lints, "DEFAULT_LINT_DIR", None) == str(PACKAGE_DIR), (
+    default_lint_dir = getattr(precommit_lints, "DEFAULT_LINT_DIR", None)
+    expected_lint_dir = os.path.realpath(str(PACKAGE_DIR))
+    assert default_lint_dir is not None and (
+        os.path.realpath(str(default_lint_dir)) == expected_lint_dir
+    ), (
         f"bd#66 AC12 (§2.1a): precommit_lints.DEFAULT_LINT_DIR must be the "
-        f"registry module's own directory {str(PACKAGE_DIR)!r}, got "
-        f"{getattr(precommit_lints, 'DEFAULT_LINT_DIR', None)!r}. This is the "
-        f"single canonical source the layer defaults to."
+        f"registry module's own directory {expected_lint_dir!r}, got "
+        f"{default_lint_dir!r}. This is the single canonical source the layer "
+        f"defaults to. §1j: BOTH sides go through os.path.realpath, because on "
+        f"macOS /tmp is a symlink to /private/tmp and comparing an unexpanded "
+        f"path with an expanded one would red a correct GREEN."
     )
 
     env = _hermetic_git_env(tmp_path)
@@ -1045,9 +1214,21 @@ def test_ac13_declared_absent_entry_matching_no_registry_name_refuses(
     Without this half, a rename silently strips a name of its driver
     requirement: the old entry keeps licensing an absence nobody looks for.
 
-    Pre-GREEN: FAIL — ImportError, bytedigger_engine.precommit_enforce does not
-    exist.
+    The registry itself is NOT patched here, and all 12 real names stay declared,
+    so `stale-renamed-lint` is the ONLY violator. §2.1 says the pre-pass
+    accumulates and prints every violator, which makes the negative assertion
+    meaningful: an innocent, properly declared name must NOT be named in the
+    refusal. A pre-pass that dumps the whole registry on any failure passes the
+    positive assertion and dies here.
+
+    Pre-GREEN: FAIL — the assertion below fires:
+    bytedigger_engine/precommit_enforce.py does not exist.
     """
+    assert ENFORCE_MODULE.is_file(), (
+        f"bd#66 AC13: {ENFORCE_MODULE} must exist (spec §4.3). Pre-GREEN it "
+        f"does not — FAIL expected here, as an assertion not an import accident."
+    )
+
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
     _stage_readme(repo, env)
@@ -1083,7 +1264,215 @@ def test_ac13_declared_absent_entry_matching_no_registry_name_refuses(
         f"bd#66 AC13: expected {REFUSE_MISSING_DRIVER} in the output, got "
         f"{output!r}."
     )
-    assert "stale-renamed-lint" in output, (
+    assert _output_names_lint(output, "stale-renamed-lint"), (
         f"bd#66 AC13: the refusal must name the orphaned declaration "
-        f"'stale-renamed-lint', got {output!r}."
+        f"'stale-renamed-lint' as a whole token, got {output!r}."
+    )
+    innocent = "forbidden-import-lint"
+    assert innocent in ALL_REGISTRY_NAMES, (
+        f"bd#66 AC13 arrange: {innocent!r} must be a real, properly declared "
+        f"registry name for the negative assertion to mean anything."
+    )
+    assert not _output_names_lint(output, innocent), (
+        f"bd#66 AC13: the pre-pass accumulates and prints exactly the violators "
+        f"(§2.1); {innocent!r} is declared absent and is not one, yet it appears "
+        f"in the refusal. output={output!r}"
+    )
+
+
+# ─── AC6c: the PRE-PASS refuses a real commit on the CANONICAL path ───────────
+
+
+def test_ac6c_prepass_refuses_real_commit_on_canonical_path(tmp_path, monkeypatch):
+    """AC6c (§2.1a, the killing half of the AC6c/AC12 pair): the registry
+    pre-pass must refuse an actual `git commit` when the driver directory is
+    resolved from the CANON, with `BD66_LINT_DIR` deleted from the environment.
+
+    Fixture (AC11's, end to end): the package is materialised as a COPY under
+    tmp_path, `BD66_LINT_DIR` and `PYTHONPATH` are both deleted, the COPIED
+    registry gets `phantom-canon-lint` appended to TEST_LINTS — no driver, and
+    not in DECLARED_ABSENT — the hook is installed with the REAL installer, and
+    the ONLY staged path is `README.md`, which classifies as nothing at all.
+
+    Expected: `git commit` rc != 0, NO commit object in the object database, and
+    the output carries `BD66-REFUSE-MISSING-DRIVER` and `phantom-canon-lint`.
+
+    This is what round 2 could not see. That construction —
+
+        override = os.environ.get("BD66_LINT_DIR")
+        lint_dir = override or DEFAULT_LINT_DIR
+        if override:            # pre-pass gated on the override
+            rc = prepass(present)
+            if rc: return rc
+        ... plan ...
+
+    passed all fifteen ACs and never refused in the real repository, because the
+    variable is not set in production and AC11's refusal came from the PLAN
+    branch. Here there is no plan at all (README.md only) and no override, so
+    the ONLY thing that can produce a refusal is the pre-pass running on the
+    canonical path. §2.1a: a gate on `BD66_LINT_DIR` is forbidden on EVERY
+    stretch of the layer, not just at the entry to `main`.
+
+    §1l: the load-bearing assertion is the production side-effect — whether a
+    commit object exists in the git object database — not the printed token.
+
+    Pre-GREEN: FAIL — precommit_enforce.py does not exist (asserted first), and
+    with no installer and no hook the commit would be entirely unguarded.
+    """
+    assert ENFORCE_MODULE.is_file(), (
+        f"bd#66 AC6c: {ENFORCE_MODULE} must exist to be copied into the "
+        f"materialised package. Pre-GREEN it does not — FAIL expected here."
+    )
+
+    env = _hermetic_git_env(tmp_path)
+    monkeypatch.delenv("BD66_LINT_DIR", raising=False)
+    env.pop("BD66_LINT_DIR", None)
+    env.pop("PYTHONPATH", None)
+
+    clone = _init_repo(tmp_path, env, name="canon-clone")
+    pkg = _materialize_package_copy(clone)
+
+    # Append to the COPY only: a 13th name with no driver, deliberately absent
+    # from DECLARED_ABSENT. Format-independent, so a reformatting of the real
+    # registry cannot silently defuse this fixture.
+    with (pkg / "precommit_lints.py").open("a") as fh:
+        fh.write('\nTEST_LINTS = list(TEST_LINTS) + ["phantom-canon-lint"]\n')
+
+    assert "phantom-canon-lint" not in list(
+        getattr(precommit_lints, "DECLARED_ABSENT", [])
+    ), (
+        "bd#66 AC6c arrange: 'phantom-canon-lint' must NOT be declared absent — "
+        "the whole point is an undeclared name with no driver."
+    )
+    assert not (pkg / "phantom-canon-lint.py").exists(), (
+        "bd#66 AC6c arrange: no driver may exist for 'phantom-canon-lint'."
+    )
+
+    os.symlink(GITHOOKS_DIR, clone / "githooks", target_is_directory=True)
+    install = _run_installer(["--install", "--root", str(clone)], env)
+    assert install.returncode == 0, (
+        f"bd#66 AC6c arrange: the REAL installer must install the hook, got "
+        f"rc={install.returncode} stderr={install.stderr!r}. Pre-GREEN "
+        f"{INSTALLER} does not exist — FAIL expected here."
+    )
+    _assert_hook_is_executable("AC6c")
+
+    _stage_readme(clone, env)
+    staged = _git(["diff", "--cached", "--name-only"], clone, env).stdout.split()
+    assert staged == ["README.md"], (
+        f"bd#66 AC6c arrange: exactly one staged path, README.md, so the plan is "
+        f"empty and only the pre-pass can refuse; got {staged!r}."
+    )
+    assert "BD66_LINT_DIR" not in env and "PYTHONPATH" not in env, (
+        "bd#66 AC6c arrange: neither BD66_LINT_DIR nor PYTHONPATH may reach the "
+        "commit's environment; the fixture leaked one of them."
+    )
+
+    result = _commit(clone, env)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0, (
+        f"bd#66 AC6c: `git commit` must be REFUSED — an undeclared registry name "
+        f"has no driver in DEFAULT_LINT_DIR and BD66_LINT_DIR is unset. rc=0 "
+        f"here means the pre-pass is gated on the override and never runs in the "
+        f"real repository. output={output!r}"
+    )
+    assert not _has_commit(clone, env), (
+        f"bd#66 AC6c: no commit object may exist after the pre-pass refuses; "
+        f"`git rev-parse --verify HEAD` resolved (rev-list count="
+        f"{_commit_count(clone, env)!r}). Printing a verdict and committing "
+        f"anyway is the exact defect this lot removes. output={output!r}"
+    )
+    assert REFUSE_MISSING_DRIVER in output, (
+        f"bd#66 AC6c: expected {REFUSE_MISSING_DRIVER} in the commit output, got "
+        f"{output!r}."
+    )
+    assert _output_names_lint(output, "phantom-canon-lint"), (
+        f"bd#66 AC6c: the refusal must name 'phantom-canon-lint' as a whole "
+        f"token, got {output!r}."
+    )
+
+
+# ─── AC14: installer argument edges ───────────────────────────────────────────
+
+
+def test_ac14_installer_argument_edges(tmp_path):
+    """AC14 (§2.1, "argument edges stated explicitly"), three of them:
+
+      - NO flags behaves exactly as `--check`: rc=1 before an installation and
+        rc=0 after one. A bare invocation must never install by accident.
+      - `--install --check` together is a USAGE error, rc=2 — distinct from both
+        the success (0) and the refusal (1) codes, so a caller cannot read a
+        malformed invocation as a verdict.
+      - `--root` pointing at a non-git directory is rc=1 and writes NOTHING:
+        neither a local value (there is no repository to hold one) nor a global
+        one. The global side is asserted twice — through `git config --global`
+        and by reading the config FILE — because an installer that falls back to
+        the global scope on a missing repo would silently reconfigure a
+        developer's machine.
+
+    Pre-GREEN: FAIL — no installer exists, so the bare call exits 2 instead of
+    1-then-0 and the usage error is never raised.
+    """
+    env = _hermetic_git_env(tmp_path)
+    repo = _init_repo(tmp_path, env)
+
+    bare_before = _run_installer(["--root", str(repo)], env)
+    assert bare_before.returncode == 1, (
+        f"bd#66 AC14: with no flags the installer must behave as `--check` and "
+        f"return 1 before installation, got {bare_before.returncode}. "
+        f"stderr={bare_before.stderr!r}"
+    )
+    rc_local, _ = _local_hooks_path(repo, env)
+    assert rc_local != 0, (
+        "bd#66 AC14: a bare (check-like) invocation must not install anything, "
+        "yet core.hooksPath was written."
+    )
+
+    installed = _run_installer(["--install", "--root", str(repo)], env)
+    assert installed.returncode == 0, (
+        f"bd#66 AC14: --install must succeed, got {installed.returncode}. "
+        f"stderr={installed.stderr!r}"
+    )
+
+    bare_after = _run_installer(["--root", str(repo)], env)
+    assert bare_after.returncode == 0, (
+        f"bd#66 AC14: with no flags the installer must behave as `--check` and "
+        f"return 0 after installation, got {bare_after.returncode}. "
+        f"stderr={bare_after.stderr!r}"
+    )
+
+    both = _run_installer(["--install", "--check", "--root", str(repo)], env)
+    assert both.returncode == 2, (
+        f"bd#66 AC14: `--install --check` together is a usage error and must "
+        f"return 2, got {both.returncode}. stdout={both.stdout!r} "
+        f"stderr={both.stderr!r}"
+    )
+
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    outside = _run_installer(["--install", "--root", str(plain)], env)
+    assert outside.returncode == 1, (
+        f"bd#66 AC14: `--root` on a non-git directory must return 1, got "
+        f"{outside.returncode}. stdout={outside.stdout!r} "
+        f"stderr={outside.stderr!r}"
+    )
+    assert not (plain / ".git").exists(), (
+        "bd#66 AC14: the installer must not create a repository under a --root "
+        "that is not one."
+    )
+    local_after = _git(["config", "--get", "--local", "core.hooksPath"], plain, env)
+    assert local_after.returncode != 0, (
+        f"bd#66 AC14: no LOCAL core.hooksPath may exist under a non-git --root, "
+        f"got rc={local_after.returncode} value={local_after.stdout.strip()!r}."
+    )
+    global_after = _git(["config", "--get", "--global", "core.hooksPath"], tmp_path, env)
+    assert global_after.returncode != 0, (
+        f"bd#66 AC14: the installer must NOT fall back to the GLOBAL scope when "
+        f"--root is not a repository, got {global_after.stdout.strip()!r}."
+    )
+    global_text = Path(env["GIT_CONFIG_GLOBAL"]).read_text()
+    assert "hooksPath" not in global_text, (
+        f"bd#66 AC14: the global config file must be untouched, got "
+        f"{global_text!r}."
     )
