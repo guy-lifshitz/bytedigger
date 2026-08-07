@@ -1,9 +1,10 @@
 """bd#66 — the pre-commit lint enforcement layer.
 
-Invoked by `githooks/pre-commit` BY PATH (never with `-m`), so `__package__` is
-None and no relative import may be used here. The module bootstraps its own
-`sys.path` from `__file__` and never relies on an inherited `PYTHONPATH`: a bare
-developer clone has none.
+A plain library module. The executable entry point is `scripts/precommit_enforce_cli.py`,
+which `githooks/pre-commit` execs; the path bootstrap lives there, outside the package.
+bd#44 forbids the installed package from touching `sys.path` (AC7) or importing a
+sibling by bare name (AC11), and a lot about rules that are declared but not enforced
+does not get to weaken a neighbouring rule in order to ship.
 
 Order is fixed (spec §2.1): the REGISTRY pre-pass first, the staged-file plan
 second. The pre-pass runs on every commit, docs-only included, and is never
@@ -27,11 +28,7 @@ import os
 import subprocess
 import sys
 
-_ENGINE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ENGINE_ROOT not in sys.path:
-    sys.path.insert(0, _ENGINE_ROOT)
-
-from bytedigger_engine import precommit_lints  # noqa: E402
+from bytedigger_engine import precommit_lints
 
 REFUSE_VIOLATION = "BD66-REFUSE-VIOLATION"
 REFUSE_MISSING_DRIVER = "BD66-REFUSE-MISSING-DRIVER"
@@ -212,7 +209,3 @@ def main(argv=None) -> int:
         _report(violations)
         return 1
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

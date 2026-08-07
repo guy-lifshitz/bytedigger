@@ -156,6 +156,7 @@ ENGINE_ROOT = PACKAGE_DIR.parent
 REPO_ROOT = ENGINE_ROOT.parent
 
 INSTALLER = REPO_ROOT / "scripts" / "install_git_hooks.py"
+ENFORCE_CLI = REPO_ROOT / "scripts" / "precommit_enforce_cli.py"
 GITHOOKS_DIR = REPO_ROOT / "githooks"
 HOOK_FILE = GITHOOKS_DIR / "pre-commit"
 
@@ -364,6 +365,9 @@ def _materialize_layer(repo: Path) -> None:
         PACKAGE_DIR, repo / "engine_py" / "bytedigger_engine", target_is_directory=True
     )
     os.symlink(GITHOOKS_DIR, repo / "githooks", target_is_directory=True)
+    os.symlink(
+        REPO_ROOT / "scripts", repo / "scripts", target_is_directory=True
+    )
 
 
 def _materialize_package_copy(clone: Path) -> Path:
@@ -380,6 +384,11 @@ def _materialize_package_copy(clone: Path) -> Path:
     (pkg / "__init__.py").write_text("")
     shutil.copy2(PACKAGE_DIR / "precommit_lints.py", pkg / "precommit_lints.py")
     shutil.copy2(ENFORCE_MODULE, pkg / "precommit_enforce.py")
+    # The executable entry point lives OUTSIDE the package (bd#44 AC7/AC11
+    # forbid the package from path-hacking), so the copy must carry it too.
+    scripts = clone / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ENFORCE_CLI, scripts / "precommit_enforce_cli.py")
     return pkg
 
 
@@ -1125,7 +1134,7 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     _stage_test_file(clone, env)
 
     result = subprocess.run(
-        [sys.executable, str(pkg / "precommit_enforce.py")],
+        [sys.executable, str(clone / "scripts" / "precommit_enforce_cli.py")],
         cwd=str(clone),
         env=env,
         capture_output=True,
