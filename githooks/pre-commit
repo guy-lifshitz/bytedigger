@@ -1,0 +1,6 @@
+#!/bin/sh
+# bd#66 — pre-commit enforcement layer (spec §2.3).
+# `exec` propagates the layer's exit code verbatim: nothing sits between the
+# refusal and `git commit` that could swallow it. The module is run BY PATH,
+# not with `-m`: in a developer clone the package need not be installed.
+exec python3 "$(git rev-parse --show-toplevel)/engine_py/bytedigger_engine/precommit_enforce.py"
