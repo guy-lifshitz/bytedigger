@@ -141,6 +141,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from bytedigger_engine import precommit_lints
 
 # ─── shared helpers ────────────────────────────────────────────────────────────
@@ -323,12 +325,17 @@ def _assert_hook_is_executable(ac: str) -> None:
     succeed with no check performed at all, and AC5 would be green for the one
     reason the whole lot exists to prevent.
 
-    Two different modes, deliberately asserted differently:
-      - WORKING TREE: `mode & 0o111` only. A clone taken under `umask 077` gets
-        0o700, which is a correct checkout of a 100755 blob; demanding exactly
-        0o755 would red a correct GREEN on someone else's machine.
-      - VERSIONED: exactly `100755` via `git ls-files -s`, which is the fact
-        GREEN actually controls and the one that survives a fresh clone.
+    WORKING TREE mode only: `mode & 0o111`. A clone taken under `umask 077` gets
+    0o700, which is a correct checkout of a 100755 blob; demanding exactly 0o755
+    would red a correct GREEN on someone else's machine.
+
+    The VERSIONED mode (`100755` in the index) is a different fact about a
+    different corpus, and it lives in AC15 rather than here. The clean-room lane
+    ships the tree through `git archive` — tracked files only, no `.git` — so
+    `git ls-files` has nothing to answer from. Folding a "if there is an index"
+    condition into this helper would have kept the run green while the check
+    quietly did not happen; AC15 skips with a stated reason instead, so its
+    absence is a line in the report rather than silence.
     """
     assert HOOK_FILE.is_file(), (
         f"bd#66 {ac}: {HOOK_FILE} must exist and be a versioned file "
@@ -340,15 +347,12 @@ def _assert_hook_is_executable(ac: str) -> None:
         f"silently SKIPS a non-executable hook, so a wrong mode reads as a "
         f"passing commit with no enforcement whatsoever."
     )
-    listed = _git(
-        ["ls-files", "-s", "--", "githooks/pre-commit"], REPO_ROOT, dict(os.environ)
-    )
-    fields = listed.stdout.split()
-    assert fields[:1] == ["100755"], (
-        f"bd#66 {ac}: githooks/pre-commit must be VERSIONED with mode 100755 "
-        f"(`git ls-files -s` said {listed.stdout.strip()!r}). A 100644 blob is "
-        f"checked out non-executable in every fresh clone, and git then skips "
-        f"the hook without a word."
+
+
+def _repo_has_index() -> bool:
+    """True when the corpus under test carries a git index to interrogate."""
+    return (
+        _git(["rev-parse", "--git-dir"], REPO_ROOT, dict(os.environ)).returncode == 0
     )
 
 
@@ -1484,4 +1488,43 @@ def test_ac14_installer_argument_edges(tmp_path):
     assert "hooksPath" not in global_text, (
         f"bd#66 AC14: the global config file must be untouched, got "
         f"{global_text!r}."
+    )
+
+
+# ─── AC15: the hook is VERSIONED executable, or the check is visibly absent ────
+
+
+def test_ac15_hook_is_versioned_with_mode_100755():
+    """§2.3: `githooks/pre-commit` must be recorded in the index as `100755`.
+
+    This is the fact GREEN actually controls and the only one that survives a
+    fresh clone: a 100644 blob is checked out non-executable everywhere, and git
+    then skips the hook without a word — enforcement that reads as a passing
+    commit, which is the exact defect this lot exists to remove.
+
+    It is a separate AC because it interrogates a different corpus. The
+    clean-room lane ships the tree with `git archive` (tracked files only, no
+    `.git`), so there is no index to ask. In that corpus this AC SKIPS with the
+    reason printed, rather than being hidden inside a condition in the shared
+    helper — an unperformed check has to be a visible fact, the same way a zero
+    finding has to carry its denominator.
+    """
+    if not _repo_has_index():
+        pytest.skip(
+            "bd#66 AC15: no git index in this corpus — the lane ships the tree "
+            "via `git archive` (tracked files only, no .git), so the VERSIONED "
+            "mode of githooks/pre-commit cannot be read here. The working-tree "
+            "exec bit is still asserted by AC1/AC5/AC6c; only the index-mode "
+            "half is unavailable, and this line is the record that it did not run."
+        )
+
+    listed = _git(
+        ["ls-files", "-s", "--", "githooks/pre-commit"], REPO_ROOT, dict(os.environ)
+    )
+    fields = listed.stdout.split()
+    assert fields[:1] == ["100755"], (
+        f"bd#66 AC15: githooks/pre-commit must be VERSIONED with mode 100755 "
+        f"(`git ls-files -s` said {listed.stdout.strip()!r}). A 100644 blob is "
+        f"checked out non-executable in every fresh clone, and git then skips "
+        f"the hook without a word."
     )
