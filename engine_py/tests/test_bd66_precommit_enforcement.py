@@ -47,13 +47,20 @@ implicit are resolved here and are the RED-side contract GREEN must satisfy):
      refuses too, same token. AC13 pins it. §2.1: the pre-pass ACCUMULATES and
      prints every violator without an early exit, so AC13 also asserts that an
      innocent, properly declared name is NOT named.
-  8. §2.3 — `githooks/pre-commit` carries the exec bit; the working-tree
-     assertion is `mode & 0o111` (a clone made under umask 077 legitimately
-     yields 0o700), while the exact `100755` is asserted against the VERSIONED
-     mode via `git ls-files -s`. Git silently SKIPS a non-executable hook, which
-     would read as a green pass with no check at all. `precommit_enforce.py`
-     bootstraps its own `sys.path`; no fixture here exports PYTHONPATH, so a
-     GREEN leaning on an inherited PYTHONPATH fails as in a bare clone.
+  8. §2.3 — `githooks/pre-commit` carries the exec bit. Two facts about two
+     corpora, asserted in two places. WORKING TREE, `mode & 0o111`, in the
+     shared helper called by AC1/AC5/AC6c: a clone made under umask 077
+     legitimately yields 0o700, so an exact mode would red a correct GREEN.
+     VERSIONED, exactly `100755` via `git ls-files -s`, in AC15 — separate
+     because a `git archive` corpus has no index to read, and AC15 SKIPS there
+     with a printed reason rather than hiding the condition inside the helper.
+     Git silently SKIPS a non-executable hook, which would read as a green pass
+     with no check at all.
+     The executable entry point is `scripts/precommit_enforce_cli.py`, which
+     carries the `sys.path` bootstrap; the package module never touches
+     `sys.path` (bd#44 AC7) and imports its sibling namespaced (bd#44 AC11). No
+     fixture exports PYTHONPATH, so a GREEN leaning on an inherited one fails as
+     in a bare clone.
   9. Exit codes: 0 clean, 1 refusal. Tokens `BD66-REFUSE-VIOLATION`,
      `BD66-REFUSE-MISSING-DRIVER`, `BD66-REFUSE-DRIVER-ERROR`. The
      driver-error line reports the exit code as `rc=<n>` on the SAME line as
@@ -129,6 +136,10 @@ Pre-GREEN PASS/FAIL — every AC FAILs today:
   - AC13 FAIL: assertion — precommit_enforce.py does not exist.
   - AC14 FAIL: no installer, so the no-flag call exits 2 instead of 1/0 and the
     `--install --check` usage error is never raised.
+  - AC15 FAIL: githooks/pre-commit is not tracked pre-GREEN, so `git ls-files -s`
+    returns an empty string and `[] != ["100755"]`. In a `git archive` corpus the
+    AC skips instead, and the skip is the record that the index-mode half did not
+    run.
 """
 
 from __future__ import annotations
@@ -349,11 +360,22 @@ def _assert_hook_is_executable(ac: str) -> None:
     )
 
 
-def _repo_has_index() -> bool:
-    """True when the corpus under test carries a git index to interrogate."""
-    return (
-        _git(["rev-parse", "--git-dir"], REPO_ROOT, dict(os.environ)).returncode == 0
-    )
+def _corpus_is_archive_tree() -> bool:
+    """True only for a corpus that GENUINELY has no index: a `git archive` tree.
+
+    The distinction is the whole point. "No index" and "an index I could not
+    read" must not look alike: a `rev-parse` that fails because of dubious
+    ownership, an inherited `GIT_DIR`, or a `REPO_ROOT` that drifted into
+    site-packages is a broken environment, and letting it skip would let the
+    check disappear exactly when something is wrong — the failure mode this
+    whole layer exists to remove.
+
+    So the predicate is positive and narrow: the hook file is present (it is a
+    tracked file, so `git archive` ships it) AND there is no `.git` at all. Every
+    other shape — `.git` present but unreadable, hook file missing — falls
+    through to the assertion and fails loudly.
+    """
+    return HOOK_FILE.is_file() and not (REPO_ROOT / ".git").exists()
 
 
 def _materialize_layer(repo: Path) -> None:
@@ -1509,10 +1531,10 @@ def test_ac15_hook_is_versioned_with_mode_100755():
     helper — an unperformed check has to be a visible fact, the same way a zero
     finding has to carry its denominator.
     """
-    if not _repo_has_index():
+    if _corpus_is_archive_tree():
         pytest.skip(
-            "bd#66 AC15: no git index in this corpus — the lane ships the tree "
-            "via `git archive` (tracked files only, no .git), so the VERSIONED "
+            "bd#66 AC15: this corpus is a `git archive` tree — tracked files "
+            "only, no .git at all, so the VERSIONED "
             "mode of githooks/pre-commit cannot be read here. The working-tree "
             "exec bit is still asserted by AC1/AC5/AC6c; only the index-mode "
             "half is unavailable, and this line is the record that it did not run."
