@@ -1,0 +1,7 @@
+#!/bin/sh
+# bd#66 — pre-commit enforcement layer (spec §2.3).
+# `exec` propagates the layer's exit code verbatim: nothing sits between the
+# refusal and `git commit` that could swallow it. The shim, not the package
+# module, is the entry point — the package may not path-hack (bd#44 AC7/AC11),
+# so the bootstrap lives in scripts/ instead.
+exec python3 "$(git rev-parse --show-toplevel)/scripts/precommit_enforce_cli.py"

@@ -7,6 +7,30 @@ TS_TEST_LINTS = ["one-sided-predicate-lint"]
 # bd#79: runs over any staged text file, not only specs and tests.
 TEXT_LINTS = ["cyrillic-prose-lint"]
 
+# bd#66 §2.1a — the canonical driver directory: the registry's own directory.
+# realpath, not abspath: on macOS /tmp is a symlink to /private/tmp, and
+# comparing an unexpanded path with an expanded one would red a correct layer.
+DEFAULT_LINT_DIR = os.path.dirname(os.path.realpath(__file__))
+
+# bd#66 §2.2 — names licensed to have no driver on disk. The enforced invariant
+# is: every registry name must have either a driver in the lint directory or an
+# entry here. A declaration licenses an absence; it does not suppress a driver
+# that IS present. An entry matching no registry name is itself a refusal.
+DECLARED_ABSENT = [
+    "scope-inverse-lint",
+    "helper-extraction-lint",
+    "spec-cite-lint",
+    "spec-coverage-lint",
+    "token-consistency-lint",
+    "presence-triad-lint",
+    "format-conversion-lint",
+    "closure-evidence-lint",
+    "mutation-two-sidedness-lint",
+    "forbidden-import-lint",
+    "stub-passability-lint",
+    "one-sided-predicate-lint",
+]
+
 _TS_TEST_SUFFIXES = (".test.ts", ".test.js", ".spec.ts", ".spec.js")
 
 # bd#79: where each driver actually lives, when that is not the caller's
@@ -30,7 +54,11 @@ _NON_TEXT_SUFFIXES = (
 )
 
 def is_spec_file(path: str) -> bool:
-    return os.path.basename(path).endswith("_spec.md")
+    # bd#81: case-insensitive. The repository's five frozen lot specs are named
+    # `*_SPEC.md`, so a lowercase-only match measured the spec corpus at zero
+    # when it is five -- and that measurement is what put the nine SPEC_LINTS
+    # out of scope.
+    return os.path.basename(path).lower().endswith("_spec.md")
 
 def is_test_file(path: str) -> bool:
     base = os.path.basename(path)
