@@ -84,6 +84,21 @@ def _all_registry_names():
     ]
 
 
+def _isolate_registry(monkeypatch, **lanes):
+    """Empty EVERY name list the registry declares, then install `lanes`.
+
+    Zeroing three lists by name is what this fix is about one level up: #80's
+    fourth lane leaked into AC3 and AC4 the moment the layer started
+    discovering lanes instead of enumerating them. A fixture that enumerates
+    is the same defect wearing test clothes.
+    """
+    for attr in dir(precommit_lints):
+        if attr.endswith("_LINTS") and isinstance(getattr(precommit_lints, attr), list):
+            monkeypatch.setattr(precommit_lints, attr, [], raising=True)
+    for attr, names in lanes.items():
+        monkeypatch.setattr(precommit_lints, attr, list(names), raising=False)
+
+
 # ─── AC1-AC2: the collision, and the mechanism that makes it a CI failure ───
 
 def test_ac1_no_registry_name_can_legally_be_a_module_in_the_driver_directory():
@@ -137,9 +152,7 @@ def test_ac3_prepass_finds_a_driver_in_the_directory_the_registry_declares(
     driver_home.mkdir()
     (driver_home / "declared-elsewhere-lint.py").write_text("", encoding="utf-8")
 
-    monkeypatch.setattr(precommit_lints, "SPEC_LINTS", [], raising=True)
-    monkeypatch.setattr(precommit_lints, "TEST_LINTS", ["declared-elsewhere-lint"], raising=True)
-    monkeypatch.setattr(precommit_lints, "TS_TEST_LINTS", [], raising=True)
+    _isolate_registry(monkeypatch, TEST_LINTS=["declared-elsewhere-lint"])
     monkeypatch.setattr(precommit_lints, "DECLARED_ABSENT", [], raising=False)
     monkeypatch.setattr(
         precommit_lints, "LINT_DRIVER_DIRS",
@@ -160,9 +173,7 @@ def test_ac3_prepass_finds_a_driver_in_the_directory_the_registry_declares(
 
 def test_ac4_prepass_still_refuses_a_driverless_undeclared_name(tmp_path, monkeypatch):
     """The fix must not buy AC3's pass by making absence unobservable."""
-    monkeypatch.setattr(precommit_lints, "SPEC_LINTS", [], raising=True)
-    monkeypatch.setattr(precommit_lints, "TEST_LINTS", ["nowhere-at-all-lint"], raising=True)
-    monkeypatch.setattr(precommit_lints, "TS_TEST_LINTS", [], raising=True)
+    _isolate_registry(monkeypatch, TEST_LINTS=["nowhere-at-all-lint"])
     monkeypatch.setattr(precommit_lints, "DECLARED_ABSENT", [], raising=False)
     monkeypatch.setattr(precommit_lints, "LINT_DRIVER_DIRS", {}, raising=False)
 
@@ -183,10 +194,7 @@ def test_ac5_a_name_list_the_layer_never_heard_of_is_still_swept(tmp_path, monke
     never swept is never marked present, and run_plan skips exactly those --
     so the lint reads as enabled and cannot fire.
     """
-    monkeypatch.setattr(precommit_lints, "SPEC_LINTS", [], raising=True)
-    monkeypatch.setattr(precommit_lints, "TEST_LINTS", [], raising=True)
-    monkeypatch.setattr(precommit_lints, "TS_TEST_LINTS", [], raising=True)
-    monkeypatch.setattr(precommit_lints, "FUTURE_LINTS", ["phantom-future-lint"], raising=False)
+    _isolate_registry(monkeypatch, FUTURE_LINTS=["phantom-future-lint"])
     monkeypatch.setattr(precommit_lints, "DECLARED_ABSENT", [], raising=False)
     monkeypatch.setattr(precommit_lints, "LINT_DRIVER_DIRS", {}, raising=False)
 

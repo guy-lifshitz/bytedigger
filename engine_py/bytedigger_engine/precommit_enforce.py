@@ -79,15 +79,12 @@ def driver_path(name, lint_dir):
     globs out of the package. So a real driver has to live elsewhere, and the
     layer has to be told where rather than assume.
 
-    The fallback below exists only because this branch predates #80, which
-    adds `precommit_lints.driver_path` reading the same mapping. Delete it at
-    merge, once the registry always carries the resolver.
+    One resolver, owned by the registry. The branch-independence fallback that
+    stood here while #80 was unmerged is gone: `precommit_lints.driver_path` is
+    on `main`, and a second implementation of the same rule is how the two
+    would drift apart.
     """
-    resolve = getattr(precommit_lints, "driver_path", None)
-    if resolve is not None:
-        return resolve(name, lint_dir)
-    dirs = getattr(precommit_lints, "LINT_DRIVER_DIRS", {})
-    return os.path.join(dirs.get(name, lint_dir), name + ".py")
+    return precommit_lints.driver_path(name, lint_dir)
 
 
 def registry_prepass(lint_dir):
@@ -236,6 +233,11 @@ def main(argv=None) -> int:
         classified["tests"],
         lint_dir,
         ts_tests=classified["ts_tests"],
+        # bd#81: the text lane is planned too. The pre-pass already sweeps the
+        # name and requires its driver; planning nothing for it would leave the
+        # lint declared, required to exist, and unable to run — the same silence
+        # this layer removes, one step further along.
+        texts=classified["texts"],
     )
     violations = run_plan(commands, present, root)
     if violations:

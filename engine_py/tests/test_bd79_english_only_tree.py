@@ -195,6 +195,30 @@ def test_ac7_driver_exit_ladder_is_zero_one_two(tmp_path):
     )
 
 
+def test_ac7b_a_named_file_is_resolved_against_the_working_directory(tmp_path):
+    """bd#81: the per-file lane runs from the repository, not from the driver.
+
+    The pre-commit hook execs the driver with `cwd` set to the repository being
+    committed to and hands it repo-relative paths. Anchoring those on the
+    driver's own directory resolved them against a different tree, so every
+    staged file came back as an unreadable path and exited 2 — a lint that
+    refuses every commit while never reading a single byte of what it lints.
+    """
+    (tmp_path / "clean.txt").write_text("all ascii here\n", encoding="utf-8")
+    (tmp_path / "dirty.txt").write_text("prose " + _SAMPLE + "\n", encoding="utf-8")
+
+    # Relative paths, from a working directory that is NOT the driver's.
+    ok = _run([_DRIVER, "clean.txt"], cwd=tmp_path)
+    assert ok.returncode == 0, (
+        f"a relative path must resolve against the cwd, got rc={ok.returncode}: "
+        f"{ok.stdout + ok.stderr}"
+    )
+
+    bad = _run([_DRIVER, "dirty.txt"], cwd=tmp_path)
+    assert bad.returncode == 1, f"expected a violation, got rc={bad.returncode}"
+    assert "dirty.txt:1:7" in bad.stdout
+
+
 # ─── AC8: the name is in the registry and the registry can build its command ─
 
 def test_ac8_registry_declares_the_lint_and_resolves_a_driver_that_exists():

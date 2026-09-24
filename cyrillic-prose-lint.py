@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -43,8 +44,9 @@ def main() -> int:
     )
     parser.add_argument("files", nargs="*", metavar="FILE",
                         help="Files to lint (default: the whole tracked tree).")
-    parser.add_argument("--root", metavar="PATH", default=str(Path(__file__).resolve().parent),
-                        help="Repository root (default: the directory holding this driver).")
+    parser.add_argument("--root", metavar="PATH", default=None,
+                        help="Repository root. Defaults to the working directory when FILEs "
+                             "are named, and to the directory holding this driver otherwise.")
     parser.add_argument("--json", action="store_true", dest="json_output",
                         help="Emit JSON output instead of text.")
 
@@ -53,9 +55,17 @@ def main() -> int:
     except SystemExit:
         return 2
 
+    # bd#81: a named FILE is relative to the WORKING DIRECTORY, not to wherever
+    # this driver happens to live. The pre-commit hook runs the driver from the
+    # repository being committed to and hands it repo-relative paths; anchoring
+    # those on the driver's own directory resolved them against the wrong tree
+    # and exited 2 on every one of them. The tree scan keeps the driver's own
+    # repository as its default, which is the only sensible corpus for it.
+    root = args.root or (os.getcwd() if args.files else str(Path(__file__).resolve().parent))
+
     try:
-        violations = (scan_paths(args.files, args.root) if args.files
-                      else scan_tree(args.root))
+        violations = (scan_paths(args.files, root) if args.files
+                      else scan_tree(root))
     except OSError as exc:
         # Fail CLOSED. A lint that cannot open its input has not checked it.
         print(f"ERROR: {exc}", file=sys.stderr)

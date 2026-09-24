@@ -277,16 +277,27 @@ def _stage_test_file(repo: Path, env: dict, name: str = "test_x.py") -> Path:
     return target
 
 
-def _stage_readme(repo: Path, env: dict) -> Path:
-    """Stage ONLY `README.md` — a path that classifies as nothing at all.
+#: The one staged path used wherever an AC needs an EMPTY plan.
+#:
+#: This was `README.md` until bd#79 (#80) added the `TEXT_LINTS` lane, which
+#: classifies every non-binary path — so a markdown file now lands in a bucket
+#: and `nothing_to_lint` is False. The ACs that use this are about the pre-pass
+#: running when the PLAN is empty, and that state is still perfectly reachable;
+#: it is now reached with a path the text lane does not claim. A binary suffix
+#: is the honest choice: `is_text_file` excludes it by design, not by accident.
+UNCLASSIFIABLE_PATH = "logo.png"
+
+
+def _stage_unclassifiable(repo: Path, env: dict) -> Path:
+    """Stage ONLY a path that classifies as nothing at all.
 
     `classify_staged` puts it in no bucket, so `nothing_to_lint` is True and the
     plan is empty. Any refusal observed after this staging came from the
     registry pre-pass, which is precisely what AC6b/AC13 separate.
     """
-    target = repo / "README.md"
-    target.write_text("# bd66 fixture\n")
-    assert _git(["add", "README.md"], repo, env).returncode == 0
+    target = repo / UNCLASSIFIABLE_PATH
+    target.write_bytes(b"\x89PNG\r\n\x1a\n bd66 fixture")
+    assert _git(["add", UNCLASSIFIABLE_PATH], repo, env).returncode == 0
     return target
 
 
@@ -415,6 +426,16 @@ def _materialize_package_copy(clone: Path) -> Path:
     scripts = clone / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ENFORCE_CLI, scripts / "precommit_enforce_cli.py")
+
+    # bd#81: a driver the registry declares OUTSIDE DEFAULT_LINT_DIR must travel
+    # with the copy. The copied registry recomputes its repo root as `clone`, so
+    # a declared driver absent there is a real BD66-REFUSE-MISSING-DRIVER that
+    # fires before the AC under test is reached. Derived from the mapping rather
+    # than named, so the next declared driver needs no fixture edit.
+    for name, declared_dir in getattr(precommit_lints, "LINT_DRIVER_DIRS", {}).items():
+        destination = clone / os.path.relpath(declared_dir, REPO_ROOT)
+        destination.mkdir(parents=True, exist_ok=True)
+        _exit_driver(destination, name, 0)
     return pkg
 
 
@@ -776,7 +797,7 @@ def test_ac6b_prepass_is_registry_scoped_with_nothing_classifiable_staged(
 ):
     """AC6b (§2.1, "the pre-pass is REGISTRY-scoped, not plan-scoped"):
     `phantom-spec-lint` is added to SPEC_LINTS, has no driver and is not
-    declared absent, and the ONLY staged path is `README.md` — which
+    declared absent, and the ONLY staged path is an unclassifiable one — which
     `classify_staged` puts in no bucket at all, so `nothing_to_lint` is True and
     the plan is empty.
 
@@ -799,7 +820,7 @@ def test_ac6b_prepass_is_registry_scoped_with_nothing_classifiable_staged(
 
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
-    _stage_readme(repo, env)
+    _stage_unclassifiable(repo, env)
 
     driver_dir = tmp_path / "drivers"
     driver_dir.mkdir()
@@ -825,12 +846,12 @@ def test_ac6b_prepass_is_registry_scoped_with_nothing_classifiable_staged(
     from bytedigger_engine import precommit_enforce  # noqa: PLC0415
 
     staged = _git(["diff", "--cached", "--name-only"], repo, env).stdout.split()
-    assert staged == ["README.md"], (
-        f"bd#66 AC6b arrange: exactly one staged path, README.md, is required "
+    assert staged == [UNCLASSIFIABLE_PATH], (
+        f"bd#66 AC6b arrange: exactly one staged path, {UNCLASSIFIABLE_PATH}, is required "
         f"so that nothing classifies as a spec; got {staged!r}."
     )
     assert precommit_lints.nothing_to_lint(precommit_lints.classify_staged(staged)), (
-        "bd#66 AC6b arrange: README.md must classify as nothing to lint, so a "
+        f"bd#66 AC6b arrange: {UNCLASSIFIABLE_PATH} must classify as nothing to lint, so a "
         "plan-scoped implementation genuinely has an empty plan here."
     )
 
@@ -1192,7 +1213,7 @@ def test_ac12_real_registry_with_env_override_deleted_returns_zero(
 ):
     """AC12 (§2.1a, other side of the pair): `BD66_LINT_DIR` is DELETED, the
     REAL repository registry is in force (12 names, 0 drivers, 12 declared
-    absent) and the only staged path is `README.md`.
+    absent) and the only staged path is an unclassifiable one.
 
     Expected rc=0: the registry pre-pass DID run — it runs on every commit,
     docs-only included (§2.1) — and had nothing to refuse, and there is no plan
@@ -1217,7 +1238,7 @@ def test_ac12_real_registry_with_env_override_deleted_returns_zero(
 
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
-    _stage_readme(repo, env)
+    _stage_unclassifiable(repo, env)
 
     _apply_git_env(monkeypatch, env)
     monkeypatch.delenv("BD66_LINT_DIR", raising=False)
@@ -1266,7 +1287,7 @@ def test_ac13_declared_absent_entry_matching_no_registry_name_refuses(
 
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
-    _stage_readme(repo, env)
+    _stage_unclassifiable(repo, env)
 
     driver_dir = tmp_path / "drivers"
     driver_dir.mkdir()
@@ -1327,7 +1348,7 @@ def test_ac6c_prepass_refuses_real_commit_on_canonical_path(tmp_path, monkeypatc
     tmp_path, `BD66_LINT_DIR` and `PYTHONPATH` are both deleted, the COPIED
     registry gets `phantom-canon-lint` appended to TEST_LINTS — no driver, and
     not in DECLARED_ABSENT — the hook is installed with the REAL installer, and
-    the ONLY staged path is `README.md`, which classifies as nothing at all.
+    the ONLY staged path classifies as nothing at all.
 
     Expected: `git commit` rc != 0, NO commit object in the object database, and
     the output carries `BD66-REFUSE-MISSING-DRIVER` and `phantom-canon-lint`.
@@ -1343,7 +1364,7 @@ def test_ac6c_prepass_refuses_real_commit_on_canonical_path(tmp_path, monkeypatc
 
     passed all fifteen ACs and never refused in the real repository, because the
     variable is not set in production and AC11's refusal came from the PLAN
-    branch. Here there is no plan at all (README.md only) and no override, so
+    branch. Here there is no plan at all (one unclassifiable path) and no override, so
     the ONLY thing that can produce a refusal is the pre-pass running on the
     canonical path. §2.1a: a gate on `BD66_LINT_DIR` is forbidden on EVERY
     stretch of the layer, not just at the entry to `main`.
@@ -1392,10 +1413,10 @@ def test_ac6c_prepass_refuses_real_commit_on_canonical_path(tmp_path, monkeypatc
     )
     _assert_hook_is_executable("AC6c")
 
-    _stage_readme(clone, env)
+    _stage_unclassifiable(clone, env)
     staged = _git(["diff", "--cached", "--name-only"], clone, env).stdout.split()
-    assert staged == ["README.md"], (
-        f"bd#66 AC6c arrange: exactly one staged path, README.md, so the plan is "
+    assert staged == [UNCLASSIFIABLE_PATH], (
+        f"bd#66 AC6c arrange: exactly one staged path, {UNCLASSIFIABLE_PATH}, so the plan is "
         f"empty and only the pre-pass can refuse; got {staged!r}."
     )
     assert "BD66_LINT_DIR" not in env and "PYTHONPATH" not in env, (
