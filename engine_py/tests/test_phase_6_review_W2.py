@@ -206,7 +206,7 @@ def test_write_review_artifact_retry_uses_raise_not_assert():
 
     Verified via source inspection — robust regardless of test runner flags.
 
-    GH1399 (§1a line 14, §1c-ОТМЕНА item 6): the second half of the claim —
+    GH1399 (§1a line 14, §1c-CANCELLATION item 6): the second half of the claim —
     "the function MUST contain a `raise AssertionError`" — was about the
     retry-shape branch, and GH1399 removes that branch entirely. Only that
     presence requirement is cancelled; the load-bearing "production contains no bare

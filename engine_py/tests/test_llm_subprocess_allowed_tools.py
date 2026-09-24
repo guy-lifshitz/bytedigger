@@ -791,7 +791,7 @@ def test_phase_5_implement_red_retry_passes_allowed_tools(tmp_path):
     )
 
 
-# REMOVED by GH1399 (§1c-ОТМЕНА): test_phase_6_review_review_retry_passes_allowed_tools
+# REMOVED by GH1399 (§1c-CANCELLATION): test_phase_6_review_review_retry_passes_allowed_tools
 # The allowed_tools contract of the phase_6_review retry call: the call was deleted by GH1399.
 # The other rows of the call-path matrix are unaffected.
 

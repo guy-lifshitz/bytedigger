@@ -2030,7 +2030,7 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         # postcondition is `_is_review_conformant(result)` for ALL inputs, body
         # preserved verbatim), so no paid retry can add anything: the retry
         # branch, its E_REVIEW_FORMAT_DRIFT outcomes and the retry-model choice
-        # are removed with it (§1c-ОТМЕНА). Backend is reported, not consulted.
+        # are removed with it (§1c-CANCELLATION). Backend is reported, not consulted.
         content = _normalize_to_aggregated_findings(content)
         _emit_safe("review_stdout_normalized_deterministic",
                    {"phase": 6, "backend": _resolve_backend(None, os.environ)[0],
