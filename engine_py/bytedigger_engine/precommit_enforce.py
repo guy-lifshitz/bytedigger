@@ -50,12 +50,44 @@ def resolve_lint_dir():
 
 
 def registry_names():
-    """The three name lists, read from the MODULE at call time (§1g)."""
-    return (
-        list(precommit_lints.SPEC_LINTS)
-        + list(precommit_lints.TEST_LINTS)
-        + list(precommit_lints.TS_TEST_LINTS)
-    )
+    """Every name the registry declares, read from the MODULE at call time (§1g).
+
+    bd#81: the lists are DISCOVERED, not enumerated. A hand-written list of
+    lanes was the bug — #80 adds a fourth (`TEXT_LINTS`), a name in it was
+    never swept, so it was never required to have a driver, and `run_plan`
+    skips exactly the names the pre-pass did not mark present. The lint would
+    have read as enabled and been unable to fire: this layer's own subject,
+    reproduced one level up inside the layer.
+    """
+    names = []
+    for attr in sorted(dir(precommit_lints)):
+        if not attr.endswith("_LINTS"):
+            continue
+        value = getattr(precommit_lints, attr)
+        if isinstance(value, list):
+            names.extend(value)
+    return names
+
+
+def driver_path(name, lint_dir):
+    """Where `name`'s driver is looked for (bd#81).
+
+    `lint_dir` is the default; a name whose directory the registry declares in
+    `LINT_DRIVER_DIRS` is resolved there instead. The default directory is the
+    package, and no registry name can legally hold a module there: every name
+    is hyphenated, and `ci.yml`'s import smoke imports every `*.py` stem it
+    globs out of the package. So a real driver has to live elsewhere, and the
+    layer has to be told where rather than assume.
+
+    The fallback below exists only because this branch predates #80, which
+    adds `precommit_lints.driver_path` reading the same mapping. Delete it at
+    merge, once the registry always carries the resolver.
+    """
+    resolve = getattr(precommit_lints, "driver_path", None)
+    if resolve is not None:
+        return resolve(name, lint_dir)
+    dirs = getattr(precommit_lints, "LINT_DRIVER_DIRS", {})
+    return os.path.join(dirs.get(name, lint_dir), name + ".py")
 
 
 def registry_prepass(lint_dir):
@@ -74,7 +106,8 @@ def registry_prepass(lint_dir):
     violations = []
 
     for name in names:
-        found = os.path.isfile(os.path.join(lint_dir, name + ".py"))
+        path = driver_path(name, lint_dir)
+        found = os.path.isfile(path)
         present[name] = found
         if not found and name not in declared_set:
             violations.append(
@@ -82,7 +115,7 @@ def registry_prepass(lint_dir):
                 "in DECLARED_ABSENT".format(
                     token=REFUSE_MISSING_DRIVER,
                     name=name,
-                    path=os.path.join(lint_dir, name + ".py"),
+                    path=path,
                 )
             )
 

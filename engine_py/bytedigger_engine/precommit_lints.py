@@ -54,7 +54,11 @@ _NON_TEXT_SUFFIXES = (
 )
 
 def is_spec_file(path: str) -> bool:
-    return os.path.basename(path).endswith("_spec.md")
+    # bd#81: case-insensitive. The repository's five frozen lot specs are named
+    # `*_SPEC.md`, so a lowercase-only match measured the spec corpus at zero
+    # when it is five -- and that measurement is what put the nine SPEC_LINTS
+    # out of scope.
+    return os.path.basename(path).lower().endswith("_spec.md")
 
 def is_test_file(path: str) -> bool:
     base = os.path.basename(path)
