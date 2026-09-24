@@ -183,7 +183,7 @@ def test_ac1_invoke_review_llm_includes_write_in_allowed_tools(tmp_path):
 # ── AC2: conformance-retry callsite passes allowed_tools containing "Write" ────
 
 
-# REMOVED by GH1399 (§1c-ОТМЕНА): test_ac2_conformance_retry_includes_write_in_allowed_tools
+# REMOVED by GH1399 (§1c-CANCELLATION): test_ac2_conformance_retry_includes_write_in_allowed_tools
 # CF838E6F AC2 — the allowed_tools of the retry call: the call itself was deleted by GH1399.
 # The other CF838E6F ACs do not concern the retry and remain in force.
 

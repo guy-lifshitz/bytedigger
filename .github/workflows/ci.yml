@@ -165,6 +165,40 @@ jobs:
       - name: pytest — engine test suite (hermetic, no dbos, no network)
         run: python -m pytest tests/ -q -p no:cacheprovider --timeout=120
 
+  # bd#79: the tree is English-only. The git hook that refuses a Cyrillic
+  # commit subject is inert until someone installs it, so CI is the only
+  # enforcement that is live on merge. Stock python3, no install step -- the
+  # lint imports nothing outside the standard library.
+  language:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The subject check needs the PR's commits, and a depth-1 checkout
+          # has none of them to read. A check with an empty corpus reports
+          # success, which is worse than not having it.
+          fetch-depth: 0
+
+      - name: no unlicensed Cyrillic in any tracked file
+        run: python3 cyrillic-prose-lint.py
+
+      - name: commit subjects on this pull request are English
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # %s is the subject alone; the body may legitimately quote a Cyrillic
+          # token the commit is removing.
+          mapfile -t subjects < <(git log --format=%s "$BASE_SHA..$HEAD_SHA")
+          if [ ${#subjects[@]} -eq 0 ]; then
+            echo "no commits in $BASE_SHA..$HEAD_SHA" >&2
+            exit 1
+          fi
+          python3 scripts/commit_subject_lint.py --subjects "${subjects[@]}"
+
   manifests:
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# bd#79 commit-msg hook: refuse a commit subject that is not English.
+#
+# `exec` so the lint's exit code propagates verbatim — a hook that ends on any
+# other statement can report a violation and still return 0, which is the
+# "printed a verdict but accepted the commit" shape bd#66 is about.
+#
+# Inert until `core.hooksPath` points at this directory; `scripts/install_git_hooks.py`
+# (#78) is what does that. CI runs the same lint over a pull request's commits,
+# so the check is live on merge whether or not the hook is installed.
+set -euo pipefail
+repo_root="$(git rev-parse --show-toplevel)"
+exec python3 "$repo_root/scripts/commit_subject_lint.py" "$1"

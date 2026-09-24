@@ -27,6 +27,7 @@ PRE-GREEN (`bea3f68`):
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import sys
@@ -308,10 +309,21 @@ def test_ac12_driver_is_outside_the_package_and_the_library_has_no_path_hacks():
 
     library = package / "cyrillic_scan.py"
     assert library.is_file(), f"{library} does not exist"
-    source = library.read_text(encoding="utf-8")
-    assert "sys.path" not in source, (
+
+    # By AST, not by substring: the module's own prose explains why the
+    # bootstrap is not here, and a substring check would fire on that sentence
+    # while missing `getattr(sys, "path")`.
+    tree = ast.parse(library.read_text(encoding="utf-8"))
+    touches_path = [
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr == "path"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "sys"
+    ]
+    assert not touches_path, (
         "bd#44 AC7 forbids sys.path calls inside the package; the bootstrap "
-        "belongs in the root driver"
+        f"belongs in the root driver. Offending line(s): {touches_path}"
     )
 
 

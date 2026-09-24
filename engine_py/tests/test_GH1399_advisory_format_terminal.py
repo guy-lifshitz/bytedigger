@@ -14,7 +14,13 @@ terminates in `E_REVIEW_FORMAT_DRIFT` (recoverable=False).
 
 ★ §1d DISCREPANCY WITH THE FROZEN SPEC — MEASURED, NOT INFERRED.
 
-The spec (§"ДВА ЭКЗЕМПЛЯРА" and AC5) states that in `phase_5_integrity`
+GH1399's spec is a HAL document and its section titles are Russian; they are
+named here in English (bd#79). Unlike §1a/§1c/§1d those two sections carry no
+number, so the mapping is the only way back: "TWO COPIES" is the section on
+the two normalization call-sites, "PROHIBITION" the one forbidding a
+synthesized VERDICT.
+
+The spec (§"TWO COPIES" and AC5) states that in `phase_5_integrity`
 "there is NO retry at all (:557-566 goes to recoverable=False without a single
 attempt)". That is FALSE as of this commit. Lines 557-566 are the *classify*
 step, which sits DOWNSTREAM of `_invoke_integrity_llm`, and that step already
@@ -31,7 +37,7 @@ what remains open there is only the prohibition side (AC6/AC7).
 
 A naive "normalize both call-sites" implementation of GH1399 could still
 synthesize a VERDICT there, which would be a safety regression (§1l / the
-spec's "ЗАПРЕТ" section). AC5-AC8 pin that this stays correct.
+spec's "PROHIBITION" section). AC5-AC8 pin that this stays correct.
 
 Per §1q: UUTs are imported INSIDE each test body (local `import phase_6_review
 as p6` / `import phase_5_integrity as p5`), never at module top level. No
@@ -884,7 +890,7 @@ def test_ac6_integrity_never_synthesizes_a_verdict(tmp_path, monkeypatch):
     assert re.findall(_SYNTHESIS_PATTERN, _MUTANT_SRC), (
         "AC6: guard is BLIND — the synthesis pattern found nothing in a mutant "
         "that literally fabricates a verdict on the UNKNOWN path. This is the "
-        "exact fail-open the spec's ЗАПРЕТ section forbids; fix the pattern."
+        "exact fail-open the spec's PROHIBITION section forbids; fix the pattern."
     )
     assert not re.findall(_SYNTHESIS_PATTERN, 'common = {"verdict": _parse_verdict(raw)}'), (
         "AC6: guard fires on the sanctioned _parse_verdict derivation — not specific."
@@ -1187,7 +1193,7 @@ def test_1n_closed_error_code_set_with_remedy_per_code():
     assert _CLASS_REGISTRY["E_INTEGRITY_NO_MARKER"]["remedy"] == "re-ask", (
         "§1n: E_INTEGRITY_NO_MARKER must NEVER be remedied by normalization — "
         "that fabricates a VERDICT for the anti-assertion-gaming gate and "
-        "turns fail-closed into fail-open (spec ЗАПРЕТ / AC6)."
+        "turns fail-closed into fail-open (spec PROHIBITION / AC6)."
     )
 
     # Closure scan: no unregistered code may be emitted at a chokepoint.

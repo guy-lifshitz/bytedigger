@@ -25,11 +25,12 @@ bun test scripts/ts/__tests__
 
 ## What CI checks
 
-Every PR runs three jobs, and all must pass:
+Every PR runs four jobs, and all must pass:
 
 - **engine** -- packaging sanity: `pip install -e ".[test]"` works, every shipped module compiles and imports with no `dbos` extra installed, the packaged module list matches `core_manifest.json`, and `run.py --help` runs.
 - **pytest** -- builds a wheel, installs it, and runs the full engine test suite against the installed wheel (not the source tree).
 - **manifests** -- version parity: every version declaration in the repo matches the canonical one, and the parity script's own tests pass.
+- **language** -- the tree is English-only: no Cyrillic in any tracked file outside the declared allowlist, and no Cyrillic in the subject of any commit the PR adds.
 
 The "imports clean without dbos" check matters most: the core is meant to run on a bare Python install, and CI is what keeps it that way. If your change needs a new dependency, put it behind an optional extra and bring it up in the PR.
 
@@ -60,6 +61,8 @@ declarations; `scripts/version_parity.py --list-declarations` is the authoritati
 - Match the surrounding code; don't reformat things you didn't change.
 - Keep the core free of dependencies (see above).
 - Small, focused PRs get reviewed and merged much faster than big ones.
+- English only -- code, comments, docstrings, assert messages, commit subjects, PR titles and bodies. `python3 cyrillic-prose-lint.py` is what CI runs; run it before you push.
+  Cyrillic that is *behaviour* rather than prose (a detection pattern, a multibyte fixture) belongs in `engine_py/bytedigger_engine/cyrillic_scan.py::ALLOWLIST`, with a reason and an exact character budget -- not translated into something that can no longer match.
 
 ## Questions
 

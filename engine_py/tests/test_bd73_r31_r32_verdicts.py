@@ -132,7 +132,7 @@ def test_ac8_r32_states_that_it_corroborates_rather_than_checks():
 
     doc = inspect.getdoc(_bd_l3()._r32) or ""
     low = doc.lower()
-    assert "corroborat" in low or "подтвержд" in low, (
+    assert "corroborat" in low, (
         "the R3.2 docstring must state that on a real log this is a "
         "confirmation and a regression guard, not an independent check"
     )
