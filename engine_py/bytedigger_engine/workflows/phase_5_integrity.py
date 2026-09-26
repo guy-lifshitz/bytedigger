@@ -85,7 +85,6 @@ Verdict markers (last-marker-wins via rfind):
 """
 from __future__ import annotations
 
-import dataclasses
 import json
 import re
 import subprocess
@@ -105,7 +104,11 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
 )
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
-from bytedigger_engine.config_provider import get_config, int_value, timeout_policy_path  # noqa: E402  GH285 C2  GH892
+from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  GH786 / bd#84
+    resolve_integrity_verdict_retries,
+    reroll_until_verdict,
+)
+from bytedigger_engine.config_provider import get_config, timeout_policy_path  # noqa: E402  GH285 C2  GH892
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
 
 
@@ -136,25 +139,6 @@ def _resolve_integrity_timeout_sec(cfg: dict | None) -> int:
     return resolve_timeout_sec("integrity.llm", cfg, policy=_timeout_policy())
 
 
-def _resolve_integrity_verdict_retries(cfg: dict[str, Any] | None) -> int:
-    """GH786: bounded completeness-retry count for Step 2.
-
-    Resolution order: env HAL_INTEGRITY_VERDICT_RETRY_MAX > cfg
-    ["integrity_verdict_retry_max"] > default 1. Routed through the config
-    seam (get_config().int_value) so the OSS core stays host-decoupled — no
-    direct os.environ / HAL_* read (core-boundary lint). Result clamped >= 0;
-    env "0" disables retry. Non-int env propagates ValueError per the seam's
-    int_value contract (same as timeout_ms).
-    """
-    cfg = cfg or {}
-    default = 1
-    raw = cfg.get("integrity_verdict_retry_max")
-    if raw is not None:
-        try:
-            default = max(0, int(raw))
-        except (TypeError, ValueError):
-            default = 1
-    return max(0, int_value("HAL_INTEGRITY_VERDICT_RETRY_MAX", default))
 DEFAULT_PRE_RED_REF = "HEAD~1"
 DEFAULT_DIFF_PATTERNS = ("*test*", "*spec*", "*.test.*")
 
@@ -467,24 +451,11 @@ def _invoke_integrity_llm(ctx, prev) -> StepResult:
     # Reuses _parse_verdict as the sole completeness oracle (never a new/
     # looser recognizer). GH705 invariant preserved: every attempt re-sends
     # the IDENTICAL prompt/stable_prefix (pure re-roll, no prompt mutation).
-    max_retries = _resolve_integrity_verdict_retries(cfg)
-    retries_performed = 0
-    result = _attempt()
-    while True:
-        if result.status != "ok":
-            # Different failure class (subprocess/timeout/error) — passthrough,
-            # no completeness retry (AC8).
-            return result
-        raw = (result.data or {}).get("raw_response") or ""
-        complete = _parse_verdict(raw) != VERDICT_UNKNOWN
-        if complete or retries_performed >= max_retries:
-            break
-        retries_performed += 1
-        result = _attempt()
-
-    data = dict(result.data or {})
-    data["verdict_completeness_retries"] = retries_performed
-    return dataclasses.replace(result, data=data)
+    return reroll_until_verdict(
+        _attempt,
+        lambda raw: _parse_verdict(raw) != VERDICT_UNKNOWN,
+        resolve_integrity_verdict_retries(cfg),
+    )
 
 
 # ─── Step 3: classify verdict + HARD GATE ────────────────────────────────────
@@ -494,8 +465,9 @@ def _parse_verdict(raw: str) -> str:
     """Standalone-line regex match; last winning line's marker is returned.
 
     Routes through lib/verdict_parse.py P1 (EEFD480F) — single-source of truth.
-    Markers embedded in prose, block-quotes, or headings are ignored.
-    Last standalone-line match wins by position.
+    Markers embedded in prose or block-quotes are ignored; markdown dressing
+    (bold, a whole-line code span, a short `## VERDICT: X` heading) is
+    normalized away first (bd#84). Last standalone-line match wins by position.
     """
     return last_standalone_line_verdict(
         raw,

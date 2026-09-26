@@ -307,6 +307,7 @@ def test_ac4_canonicalizes_finding_headers(line, expected):
         "### HIGH — n/a",
         "### MEDIUM — None.",
         "### LOW — none identified",
+        "## SEVERITY: HIGH - already parses (GH970), kept byte-identical",
     ],
 )
 def test_ac4_leaves_other_lines_untouched(line):

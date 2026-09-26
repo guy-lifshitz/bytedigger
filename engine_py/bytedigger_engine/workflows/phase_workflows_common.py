@@ -18,11 +18,13 @@ their respective phase module or a future Stage 1/2 package.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, Callable
 
 # ── path bootstrap (mirrors phase_5_implement / phase_6_review) ──────────────
 # Insert lib/ and lib/plugins/ so sibling imports (bounded_spawn, lib.git_port,
@@ -34,6 +36,7 @@ from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
+from bytedigger_engine.config_provider import int_value  # noqa: E402  GH786 retry knob
 
 logger = logging.getLogger(__name__)
 
@@ -567,3 +570,49 @@ def _paths_have_staged_changes(git_cwd: str, paths: list[str], timeout: int = 30
     if r.returncode == 1:
         return True
     return True  # ambiguous rc → fail-toward-commit
+
+
+def resolve_integrity_verdict_retries(cfg: dict[str, Any] | None) -> int:
+    """GH786: bounded same-prompt re-roll count for the integrity gates.
+
+    Shared by phase_5_integrity and phase_6_fix_integrity (bd#84). Resolution
+    order: env HAL_INTEGRITY_VERDICT_RETRY_MAX > cfg["integrity_verdict_retry_max"]
+    > default 1. Routed through the config seam (int_value) so the OSS core
+    stays host-decoupled. Result clamped >= 0; env "0" disables retry.
+    Non-int env propagates ValueError per the seam's int_value contract.
+    """
+    cfg = cfg or {}
+    default = 1
+    raw = cfg.get("integrity_verdict_retry_max")
+    if raw is not None:
+        try:
+            default = max(0, int(raw))
+        except (TypeError, ValueError):
+            default = 1
+    return max(0, int_value("HAL_INTEGRITY_VERDICT_RETRY_MAX", default))
+
+
+def reroll_until_verdict(
+    attempt: Callable[[], StepResult],
+    has_verdict: Callable[[str], bool],
+    max_retries: int,
+) -> StepResult:
+    """GH786 / bd#84: a missing verdict marker is re-rolled, not terminal.
+
+    Calls ``attempt`` (which must re-send the IDENTICAL prompt — a pure
+    re-roll, GH705) until an ok reply's ``raw_response`` satisfies
+    ``has_verdict`` or ``max_retries`` re-rolls are spent. A non-ok result
+    (subprocess/timeout/error) is a different failure class and is returned
+    as is. The ok result carries ``data["verdict_completeness_retries"]``.
+    """
+    retries = 0
+    result = attempt()
+    while True:
+        if result.status != "ok":
+            return result
+        raw = (result.data or {}).get("raw_response") or ""
+        if has_verdict(raw) or retries >= max_retries:
+            break
+        retries += 1
+        result = attempt()
+    return dataclasses.replace(result, data={**(result.data or {}), "verdict_completeness_retries": retries})

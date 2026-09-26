@@ -8,16 +8,29 @@ from __future__ import annotations
 import re
 from typing import Sequence
 
+from bytedigger_engine.lib.llm_output_normalize import normalize_model_output
+
+# A token directly followed by one of these is one option of a choice list
+# (`VERDICT: PASS | FAIL`, `VERDICT: PASS or VERDICT: FAIL`, `SHIP / REVISE`)
+# — typically the model echoing the prompt's schema — never a verdict (bd#84).
+_CHOICE_SEP_RE = re.compile(r"[ \t]*(?:\||/|\bor\b)", re.IGNORECASE)
+
 
 def _normalize(raw):
-    """CRLF/CR → LF so trailing-/leading-anchor regexes match uniformly (7C80A9CE).
+    """Model-output normalization before any anchored parse (bd#84 chokepoint).
 
-    Defensive on falsy input (None/"" pass through unchanged) so callers may
-    normalise before their own truthiness guard without a TypeError.
+    Delegates to llm_output_normalize.normalize_model_output: CRLF/CR → LF
+    (7C80A9CE), plus markdown dressing (emphasis, whole-line code spans,
+    short headings) stripped outside fenced code. Defensive on falsy input
+    (None/"" pass through unchanged) so callers may normalise before their
+    own truthiness guard without a TypeError. Idempotent.
     """
-    if not raw:
-        return raw
-    return raw.replace("\r\n", "\n").replace("\r", "\n")
+    return normalize_model_output(raw)
+
+
+def _is_choice(raw: str, token_end: int) -> bool:
+    """True when the token ending at ``token_end`` is followed by a choice separator."""
+    return _CHOICE_SEP_RE.match(raw, token_end) is not None
 
 
 def last_standalone_line_verdict(
@@ -46,6 +59,10 @@ def last_standalone_line_verdict(
         and '**Verdict: spec_change**' all match; 'VERDICT: SPEC_CHANGED extra'
         does NOT (next char 'D' is alnum → boundary fails).
         The head anchor is unchanged; mid-prose occurrences are still rejected.
+
+    Input is normalized first (bd#84), so `**VERDICT: FAIL**`, a line that is
+    one code span, and a short `## VERDICT: FAIL` heading all match. A token
+    followed by a choice separator (`VERDICT: PASS | FAIL`) is skipped.
     """
     raw = _normalize(raw)
     if not raw or not tokens:
@@ -68,7 +85,8 @@ def last_standalone_line_verdict(
 
     last = None
     for m in rx.finditer(raw):
-        last = m
+        if not _is_choice(raw, m.end(1)):
+            last = m
     if last is None:
         return fallback
     return last.group(1).upper()
@@ -84,34 +102,41 @@ def verdict_under_heading(
 ) -> str:
     """P3 — heading-anchored verdict.
 
-    Matches the pattern:
-        ^##\\s*{heading}\\s*\\n+\\s*(<token>)\\b
-    with MULTILINE|IGNORECASE.  Uses .search so occurrences before the
-    heading are ignored.  Applies aliases dict after upper(); fallback on
-    empty/no-match.
+    After normalization (bd#84) a `## Verdict` heading of any level reads as a
+    bare `Verdict` line. Two shapes anchor a verdict, case-insensitively:
+
+        Verdict[:]            (own line)  → first token on the next non-blank line
+        Verdict: <token>      (one line)
+
+    The token may carry trailing prose (`REVISE — the rest can ship as-is`),
+    but a token followed by a choice separator (`SHIP | REVISE`, the prompt's
+    schema echoed back) does not count. Text before the heading is ignored.
+    Aliases apply after upper(). When several Verdict sections resolve to
+    different tokens the answer is ambiguous → fallback (fail-closed).
     """
     raw = _normalize(raw)
-    if not raw:
+    if not raw or not tokens:
         return fallback
 
     sorted_tokens = sorted(tokens, key=len, reverse=True)
     alt = "|".join(re.escape(t) for t in sorted_tokens)
+    h = re.escape(heading)
     pattern = (
-        r"^##\s*"
-        + re.escape(heading)
-        + r"\s*\n+\s*("
-        + alt
-        + r")\b"
+        rf"^[ \t]*{h}[ \t]*(?::[ \t]*\n|\n)\s*({alt})\b"
+        rf"|^[ \t]*{h}[ \t]*:[ \t]*({alt})\b"
     )
     rx = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
 
-    m = rx.search(raw)
-    if not m:
+    found: set[str] = set()
+    for m in rx.finditer(raw):
+        group = 1 if m.group(1) is not None else 2
+        if _is_choice(raw, m.end(group)):
+            continue
+        token = m.group(group).upper()
+        found.add(aliases.get(token, token) if aliases else token)
+    if len(found) != 1:
         return fallback
-    token = m.group(1).upper()
-    if aliases and token in aliases:
-        return aliases[token]
-    return token
+    return found.pop()
 
 
 def last_line_anchored_marker(raw, markers, fallback):
@@ -129,6 +154,10 @@ def last_line_anchored_marker(raw, markers, fallback):
     ⊃ 'STATUS: DONE'), the FIRST marker in the markers list wins.  This is
     load-bearing for DONE_WITH_CONCERNS vs DONE disambiguation in phase_2/3/7.
 
+    Input is normalized first (bd#84): `**VERDICT: FAIL**`, `` `VERDICT: FAIL` ``
+    and a short `## STATUS: DONE` heading all anchor. A marker followed by a
+    choice separator (`STATUS: DONE | STATUS: BLOCKED`) is skipped.
+
     If no marker matches, returns fallback (may be None).
     """
     raw = _normalize(raw)
@@ -136,7 +165,7 @@ def last_line_anchored_marker(raw, markers, fallback):
     best_value = fallback
     for marker, value in markers:
         pattern = re.compile(rf"^\s*{re.escape(marker)}", re.IGNORECASE | re.MULTILINE)
-        ms = list(pattern.finditer(raw))
+        ms = [m for m in pattern.finditer(raw or "") if not _is_choice(raw, m.end())]
         if ms:
             pos = ms[-1].start()
             if pos > best_pos:
