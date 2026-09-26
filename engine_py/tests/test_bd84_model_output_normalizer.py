@@ -908,3 +908,33 @@ def test_rv4_new_finding_after_evidence_is_still_recovered():
     text = "### SEVERITY: LOW — a\n> f.py:1: x\n**HIGH — b**\n> f.py:2: y"
     assert canonicalize_severity_headers(text) == "### SEVERITY: LOW — a\n> f.py:1: x\n### SEVERITY: HIGH — b\n> f.py:2: y"
 
+
+# ─── Review round 5: every dressed Verdict section must be one clean verdict ─
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "### Verdict\nREVISE | SHIP\n### Verdict\nSHIP\n",
+        "### Verdict\nREVISE / SHIP\n\nsee above\n\n### Verdict\nAPPROVED\n",
+        "**Verdict:** REVISE | SHIP\n\nNotes...\n\n**Verdict:** SHIP\n",
+        "## Verdict\n\n- REVISE items below\n\n**Verdict:** PASS.\n",
+        "**Verdict:** PASS — no wait, REVISE.\n",
+    ],
+)
+def test_rv5_ambiguous_dressed_sections_never_ship(raw):
+    from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
+
+    got = verdict_under_heading(raw, _SPEC_TOKENS, aliases={"PASS": "SHIP", "APPROVED": "SHIP"}, fallback="UNKNOWN")
+    assert got == "UNKNOWN"
+
+
+def test_rv5_deeper_heading_does_not_release_a_findings_evidence(tmp_path, monkeypatch):
+    code = _code_py(tmp_path)
+    body = (
+        "### SEVERITY: HIGH — command injection\n#### Details\nUser input reaches the shell.\n"
+        f"### LOW — naming nit\n> {code}:2: os.system(user_input)\n\nVERDICT: FAIL\n"
+    )
+    res = _aggregate(tmp_path, {"b": body}, monkeypatch)
+    assert res.data["verdict"] == "FAIL"
+

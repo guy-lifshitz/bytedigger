@@ -178,21 +178,24 @@ def canonicalize_severity_headers(text: str) -> str:
     lines = text.split("\n")
     fenced = fence_mask(lines)
     candidate: list[str | None] = []
-    awaiting_evidence = False  # a canonical finding above has no evidence line yet
+    # Heading level of a canonical finding above that has no evidence line
+    # yet (0 = none open). Only a heading at that level or higher closes it.
+    open_level = 0
     for line, f in zip(lines, fenced):
         if f:
             candidate.append(None)
             continue
+        level = len(line.lstrip()) - len(line.lstrip().lstrip("#"))
         if SEVERITY_HDR_LINE_RE.match(line):
             candidate.append(None)
-            awaiting_evidence = True
+            open_level = level
             continue
         new = _canonical_severity_line(line)
         # Anything between a finding header and its evidence belongs to that
         # finding: splitting it off would take the finding's evidence along.
-        candidate.append(None if awaiting_evidence else new)
-        if _EVIDENCE_LINE_RE.match(line) or (not new and line.lstrip().startswith("#")):
-            awaiting_evidence = False
+        candidate.append(None if open_level else new)
+        if _EVIDENCE_LINE_RE.match(line) or (not new and 0 < level <= open_level):
+            open_level = 0
 
     def has_evidence(i: int) -> bool:
         for j in range(i + 1, len(lines)):

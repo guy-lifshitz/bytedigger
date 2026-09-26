@@ -165,15 +165,17 @@ def verdict_under_heading(
         ^##\\s*{heading}\\s*\\n+\\s*(<token>)\\b
     with MULTILINE|IGNORECASE; text before the heading is ignored.
 
-    Normalized reading, only when the plain one finds nothing, and only for
-    a heading line that was markdown-dressed (`### Verdict`, `**Verdict:**`,
-    `## Verdict: REVISE`): the token sits on the next non-blank line or the
-    same line, and must end its line or be followed by punctuation or a dash
-    gloss (`REVISE (two gaps)`, `SHIP, minor nits`, `REVISE — the rest can
-    ship`); a token that opens a sentence (`Verdict: pass rate is 60%`,
-    `Approved-by-author …`, `PASS or not`) does not count. An undressed
-    `Verdict: SHIP.` line is prose, as before. Sections that disagree →
-    fallback.
+    Normalized reading, only when the plain one finds nothing: every Verdict
+    heading line that was markdown-dressed (`### Verdict`, `**Verdict:**`,
+    `## Verdict: REVISE`) is a section, and each must hold one clean verdict
+    — the token on the same line or the next non-blank one, ending its line
+    or followed by punctuation or a dash gloss (`REVISE (two gaps)`,
+    `SHIP, minor nits`, `REVISE — the rest can ship`). A section that opens
+    with a sentence (`pass rate is 60%`, `Approved-by-author …`), a bullet,
+    a choice list, or a gloss naming another verdict in capitals
+    (`PASS — no wait, REVISE`) makes the answer ambiguous, as do sections
+    that disagree → fallback. An undressed `Verdict: SHIP.` line is prose, as
+    before.
 
     In both readings a choice list (`SHIP | REVISE`) where the verdict would
     be → fallback. Aliases apply after upper().
@@ -184,30 +186,42 @@ def verdict_under_heading(
     alt = _token_alt(tokens)
     h = re.escape(heading)
     plain_rx = re.compile(rf"^##\s*{h}\s*\n+\s*({alt})\b", re.MULTILINE | re.IGNORECASE)
-    token_end = r"(?=[ \t]*$|[ \t]*(?:[—–:,;(]|--|-[ \t])|[.!](?:[ \t]|$))"
-    loose_rx = re.compile(rf"^[ \t]*{h}[ \t]*(?::|\n)\s*({alt}){token_end}", re.MULTILINE | re.IGNORECASE)
-    # Dressing that wraps the heading itself: a `#` marker, or emphasis / a
-    # code span opening the line right before the heading word.
+    # Normalized reading: a dressed Verdict heading line (`### Verdict`,
+    # `**Verdict:**`, `## Verdict: REVISE`) — the dressing must wrap the
+    # heading itself: a `#` marker, or emphasis / a code span right before it.
     dressed_rx = re.compile(rf"^[ ]{{0,3}}(?:#{{1,6}}[ \t]+|(?:\*\*|__|`)+[ \t]*){h}\b", re.IGNORECASE)
+    anchor_rx = re.compile(rf"^[ \t]*{h}[ \t]*(?::[ \t]*(.*))?$", re.IGNORECASE)
+    token_end = r"(?=[ \t]*$|[ \t]*(?:[—–:,;(]|--|-[ \t])|[.!](?:[ \t]|$))"
+    token_rx = re.compile(rf"[ \t]*({alt}){token_end}(.*)$", re.IGNORECASE)
+    other_token_rx = re.compile(rf"(?<![A-Za-z0-9_])(?:{alt})(?![A-Za-z0-9_])")  # case-sensitive: UPPERCASE only
     choice_rx = _choice_rx(tokens)
 
     def resolve(token: str) -> str:
         token = token.upper()
         return aliases.get(token, token) if aliases else token
 
-    def token_of(text: str, m: re.Match[str]) -> str:
-        return fallback if _is_choice(text, m.end(1), choice_rx) else resolve(m.group(1))
-
     first = plain_rx.search(raw)
     if first:
-        return token_of(raw, first)
-    stripped = normalize_model_output(raw)
+        return fallback if _is_choice(raw, first.end(1), choice_rx) else resolve(first.group(1))
+
+    def section_verdict(rest: str) -> str:
+        """One dressed Verdict section → its token, or fallback when the
+        section is not one clean verdict (a sentence, a bullet, a choice
+        list, or a gloss naming another verdict: `PASS — no wait, REVISE`)."""
+        m = token_rx.match(rest)
+        if not m or _is_choice(rest, m.end(1), choice_rx) or other_token_rx.search(m.group(2)):
+            return fallback
+        return resolve(m.group(1))
+
     plain_lines = raw.split("\n")
-    found = {
-        token_of(stripped, m)
-        for m in loose_rx.finditer(stripped)
-        if dressed_rx.match(plain_lines[stripped.count("\n", 0, m.start())])
-    }
+    lines = normalize_model_output(raw).split("\n")  # line-preserving
+    found: set[str] = set()
+    for i, line in enumerate(lines):
+        m = anchor_rx.match(line)
+        if not m or not dressed_rx.match(plain_lines[i]):
+            continue
+        rest = m.group(1) or next((ln for ln in lines[i + 1:] if ln.strip()), "")
+        found.add(section_verdict(rest))
     return found.pop() if len(found) == 1 else fallback
 
 
