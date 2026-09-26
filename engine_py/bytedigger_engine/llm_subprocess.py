@@ -1298,6 +1298,7 @@ def _dispatch_backend(
     idle_timeout_sec: int | float | None,
     stable_prefix: str = "",
     injections: "Sequence[InjectedBlock] | None" = None,
+    fresh_session: bool = False,
 ) -> StepResult:
     """GH1169 §2.2.1 extraction of the GH334 §2.2 two-branch dispatch tail.
 
@@ -1307,8 +1308,9 @@ def _dispatch_backend(
 
     GH334 §2.2: CONDITIONAL threading — only pass `stable_prefix` when
     non-empty, so strict-signature backends/test-doubles lacking the param
-    stay call-compatible (back-compat byte-identity). Explicit two-branch
-    dispatch (not a dict-splat) so mypy sees typed kwargs against the
+    stay call-compatible (back-compat byte-identity). bd#82 extends the same
+    rule to `fresh_session`, passed only to `warm_resume` backends; the
+    required keywords stay explicit so mypy checks them against the
     LLMBackend protocol.
 
     bd#10 (AUTHORSHIP_SPEC.md): this is the chokepoint every backend passes
@@ -1352,35 +1354,28 @@ def _dispatch_backend(
     inject_refusal = _injection_refusal(injections, prompt, step_name)
     if inject_refusal is not None:
         return inject_refusal
+    # GH334 §2.2: optional kwargs go only to backends that can take them —
+    # `stable_prefix` when non-empty, `fresh_session` (bd#82) to `warm_resume`
+    # backends — so strict-signature backends and test doubles stay compatible.
+    optional: dict[str, typing.Any] = {}
     if stable_prefix:
-        result = _BACKENDS[resolved_backend](
-            prompt=prompt,
-            model=model,
-            timeout_sec=timeout_sec,
-            step_name=step_name,
-            extra_data=extra_data,
-            allowed_tools=allowed_tools,
-            run_ctx=run_ctx,
-            hard_gate=hard_gate,
-            gate_label=gate_label,
-            straggler_cfg=straggler_cfg,
-            idle_timeout_sec=idle_timeout_sec,
-            stable_prefix=stable_prefix,
-        )
-    else:
-        result = _BACKENDS[resolved_backend](
-            prompt=prompt,
-            model=model,
-            timeout_sec=timeout_sec,
-            step_name=step_name,
-            extra_data=extra_data,
-            allowed_tools=allowed_tools,
-            run_ctx=run_ctx,
-            hard_gate=hard_gate,
-            gate_label=gate_label,
-            straggler_cfg=straggler_cfg,
-            idle_timeout_sec=idle_timeout_sec,
-        )
+        optional["stable_prefix"] = stable_prefix
+    if "warm_resume" in _backend_capabilities(resolved_backend):
+        optional["fresh_session"] = fresh_session
+    result = _BACKENDS[resolved_backend](
+        prompt=prompt,
+        model=model,
+        timeout_sec=timeout_sec,
+        step_name=step_name,
+        extra_data=extra_data,
+        allowed_tools=allowed_tools,
+        run_ctx=run_ctx,
+        hard_gate=hard_gate,
+        gate_label=gate_label,
+        straggler_cfg=straggler_cfg,
+        idle_timeout_sec=idle_timeout_sec,
+        **optional,
+    )
     _emit_attestation(
         resolved_backend,
         prompt=prompt,
@@ -1477,6 +1472,7 @@ def invoke_llm_subprocess(
     backend: str | None = None,
     stable_prefix: str = "",
     injections: "Sequence[InjectedBlock] | None" = None,
+    fresh_session: bool = False,
 ) -> StepResult:
     """Run ``command`` with ``prompt`` on stdin, return a StepResult.
 
@@ -1682,6 +1678,7 @@ def invoke_llm_subprocess(
         idle_timeout_sec=idle_timeout_sec,
         stable_prefix=stable_prefix,
         injections=injections,
+        fresh_session=fresh_session or hard_gate,
     )
 
     # GH1169 §2.2 — one-shot backend fallback: an agent-sdk step that timed
@@ -1710,6 +1707,7 @@ def invoke_llm_subprocess(
             idle_timeout_sec=idle_timeout_sec,
             stable_prefix=stable_prefix,
             injections=injections,
+            fresh_session=fresh_session or hard_gate,
         )
 
     return result

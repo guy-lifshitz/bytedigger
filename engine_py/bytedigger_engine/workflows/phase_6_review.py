@@ -1010,6 +1010,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         allowed_tools=["Read", "Grep", "Glob", "Write"],
         straggler_cfg=straggler_cfg,
         stable_prefix=prev.data.get("stable_prefix", ""),
+        fresh_session=True,  # bd#82: a reviewer must not resume an earlier transcript
     )
     return result
 
@@ -2770,18 +2771,24 @@ def _run_satisfaction_evaluators_parallel(
     with concurrent.futures.ThreadPoolExecutor(max_workers=n) as executor:
         futures = [
             executor.submit(
+                # bd#82 (HAL #1898): the worker does not inherit the parent's
+                # thread-local step context — carry it across explicitly.
+                telemetry_ctx.run_with_current_run,
+                telemetry_ctx.get_current_run(),
                 invoke_llm_subprocess,
                 prompt=prompt,
                 model=model,
                 timeout_sec=timeout_sec,
-                step_name="invoke_satisfaction_llm",
+                # Static submit-index suffix, before any "." (agent_sdk keys
+                # sessions on the part before it): one name per evaluator.
+                step_name=f"invoke_satisfaction_llm_eval{i}",
                 extra_data=extra_data,
                 hard_gate=True,
                 gate_label="satisfaction",
                 allowed_tools=["Read"],
                 stable_prefix=stable_prefix,
             )
-            for _ in range(n)
+            for i in range(n)
         ]
     return [f.result() for f in futures]
 
@@ -5112,6 +5119,7 @@ def _invoke_decorr_llm(ctx, prev) -> StepResult:
         timeout_sec=_resolve_review_timeout_sec(cfg),
         step_name="invoke_decorr_llm",
         hard_gate=False,
+        fresh_session=True,  # bd#82: a judge must not resume its earlier verdict
     )
     if result.status != "ok" or not isinstance(result.data, dict):
         error_code = result.error_code or "E_DECORR_INVOKE_FAILED"

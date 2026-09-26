@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, TypeVar
+
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -63,6 +65,35 @@ def set_current_run_from(prev: _RunCtx, *, step_name: str) -> None:
         event_log=prev.event_log, run_id=prev.run_id,
         step_name=step_name, phase=prev.phase, tier=prev.tier, cycle=prev.cycle,
     )
+
+
+def run_with_current_run(
+    prev: "_RunCtx | None", fn: Callable[..., _T], /, *args: Any,
+    ctx_step_name: str | None = None, **kwargs: Any,
+) -> _T:
+    """bd#82 (port of HAL #1898): the one sanctioned way to carry the step
+    context across a thread-pool boundary. Runs INSIDE the worker thread.
+
+    `prev` is the parent's context, captured with `get_current_run()` at submit
+    time. The slot is cleared first (a reused pool thread must never hand `fn`
+    a foreign run's leftover), `prev` is re-published through
+    `set_current_run_from` (under `ctx_step_name` when given) unless it is
+    None, and the slot is always cleared afterwards, whether `fn` returns or
+    raises. `prev` and `fn` are positional-only so a callee's own `prev=`/`fn=`
+    keywords pass through `**kwargs`; `ctx_step_name` is not `step_name` for the
+    same reason (`invoke_llm_subprocess` takes a `step_name`).
+
+    Thread-boundary use only: the `finally` clears rather than restores, so
+    calling this on the thread that owns the current step would wipe it."""
+    clear_current_run()
+    try:
+        if prev is not None:
+            set_current_run_from(
+                prev, step_name=prev.step_name if ctx_step_name is None else ctx_step_name,
+            )
+        return fn(*args, **kwargs)
+    finally:
+        clear_current_run()
 
 
 def clear_current_run() -> None:
