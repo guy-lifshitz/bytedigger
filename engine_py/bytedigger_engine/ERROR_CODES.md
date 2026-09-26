@@ -19,6 +19,11 @@
 - `E_CANARY_EVENTS_MISSING` — phase_5_integration_canary: expected canary events.jsonl not found
 - `E_CANARY_NO_MATCH` — phase_5_integration_canary: expected event pattern not found in canary run
 
+## E_CAPABILITY
+
+- `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED` — conformance/bd_l3: a backend declared runtime capability enforcement and the SAME invocation recorded a capability escape — the claim is refuted by its own evidence (bd#63 R3.5)
+- `E_CAPABILITY_ESCAPE` — llm_subprocess: an adapter reported a tool head outside the step's declared capability set (bd#10 R3.6)
+
 ## E_CLARIFY
 
 - `E_CLARIFY_BLOCKED` — phase_3_clarify: subagent returned BLOCKED verdict, cannot proceed
@@ -36,7 +41,6 @@
 ## E_CORPUS
 
 - `E_CORPUS_DIVERGENCE` — lib/corpus_parity: current test corpus diverges from the baseline snapshot beyond the declared removal allowance (GH1338)
-- `E_CORPUS_PARITY` — phase_5_implement: baseline-delta verdict BLOCKED — stale base or test-corpus divergence (GH1338)
 - `E_CORPUS_UNKNOWN` — lib/corpus_parity: corpus-parity precondition could not be evaluated — baseline or current corpus data unavailable (GH1338)
 
 ## E_CTX
@@ -99,6 +103,10 @@
 
 - `E_FRESHNESS_UNKNOWN` — lib/corpus_parity: base freshness could not be determined — merge-base/ancestry check failed or is unavailable (GH1338)
 
+## E_GATE
+
+- `E_GATE_INDETERMINATE` — conformance/bd_l2: a gate raised and was recorded as absent rather than failed; a gate that cannot reach a verdict fails closed (bd#9 R2.4 / ADV-5)
+
 ## E_GIT
 
 - `E_GIT_BAD_STATE` — phase_5_implement: git working tree in an unexpected/bad state
@@ -135,6 +143,10 @@
 ## E_HARD
 
 - `E_HARD_GATE_MODEL_DOWNGRADE` — llm_subprocess: hard-gated model downgraded below the configured floor
+
+## E_INJECT
+
+- `E_INJECT_UNATTRIBUTED` — llm_subprocess: an injected prompt block lacked a source identifier, or its content was absent from the assembled prompt (bd#10 R3.2)
 
 ## E_INSUFFICIENT
 
@@ -195,6 +207,10 @@
 - `E_MISSING_REVIEW_DOC_PATH` — anti_hallucination helper/semantic_verifier: review doc path not supplied
 - `E_MISSING_SCRATCHPAD` — phase_6_review: expected scratchpad artifact for review was not found
 
+## E_MODEL
+
+- `E_MODEL_PIN_MISMATCH` — llm_subprocess: the adapter reported a model of a different family from the dispatched request (bd#10 R3.3)
+
 ## E_NO
 
 - `E_NO_ROLE_FILES` — phase_6_review: no reviewer role files found to drive the fan-out
@@ -202,6 +218,14 @@
 ## E_NOT
 
 - `E_NOT_REGISTERED` — run.py: requested phase/workflow name not registered in the runner
+
+## E_ORACLE
+
+- `E_ORACLE_AMENDMENT_UNREASONED` — conformance/oracle: oracle-phase re-entry amended the frozen set with an absent/empty reason (bd#8 R1.5)
+- `E_ORACLE_INDETERMINATE` — conformance/oracle: freeze or verify could not read a declared member, the document directory, or the event log (bd#8)
+- `E_ORACLE_MUTATED` — conformance/oracle: recomputed oracle digest or scope digest differs from the frozen one (bd#8 R1.4)
+- `E_ORACLE_UNFROZEN` — conformance/oracle: implementing phase found no freeze event in its event log, or one whose run_id contradicts it (bd#8)
+- `E_ORACLE_VACUOUS` — conformance/bd_l2: the oracle substitutes the subject of its own assertions (mocks its UUT) and so constrains nothing (bd#9 R2.2 / ADV-3)
 
 ## E_ORCHESTRATOR
 
@@ -215,10 +239,6 @@
 - `E_POST_FIX_TYPECHECK_PATH_ESCAPE` — phase_6_review: post-fix typecheck target path escaped allowed scope
 - `E_POST_FIX_TYPECHECK_REGRESSION` — phase_6_review: post-fix typecheck introduced a new regression
 
-## E_PROTECTED
-
-- `E_PROTECTED_OVER_BUDGET` — memory_compact: protected anchor block alone exceeds the configured memory_md_bytes_max budget
-
 ## E_PYTEST
 
 - `E_PYTEST_MISSING` — phase_5_implement: pytest binary not available on this host
@@ -231,21 +251,17 @@
 - `E_RED_CRASHED` — phase_5_implement: RED test run crashed (signal / zero tests executed / test-executable error) without reporting any assertion failure
 - `E_RED_EMPTY_FILES` — phase_5_implement: RED test files were empty/contained no tests
 - `E_RED_FIXTURE_SCHEMA_DRIFT` — phase_5_implement: RED fixture CREATE TABLE columns are not a subset of the spec's Data-Model Ground Truth reference DDL (GH891 fixture-fiction class)
-- `E_RED_FIXTURE_SCHEMA_NOT_COMPARABLE` — phase_5_implement: the spec's Data-Model Ground Truth reference DDL for this table could not be derived in full (unbalanced parens, an unrecognised element, or sqlite3 itself rejects the body) — comparison against the fixture is not performed, and that is reported rather than silently skipped (GH1350)
-- `E_RED_FIXTURE_SCHEMA_UNPARSEABLE` — phase_5_implement: a RED fixture's CREATE TABLE column list could not be parsed (unbalanced parens) — distinct from E_RED_FIXTURE_SCHEMA_DRIFT since nothing was compared (GH1350)
 - `E_RED_LINT_BAD_JSON` — phase_5_implement: RED lint tool emitted malformed JSON output
 - `E_RED_LINT_F1` — phase_5_implement: RED lint flagged an F1-class stub-passability violation
 - `E_RED_LINT_FAIL_CAP2` — phase_5_implement: RED lint preflight retry cap exhausted, still failing
 - `E_RED_LINT_PATH_ESCAPE` — phase_5_implement: RED lint target path escaped the allowed scope
 - `E_RED_LINT_SEMGREP_MISSING` — phase_5_implement: semgrep binary unavailable for RED lint step
-- `E_RED_LINT_TARGET_UNREADABLE` — phase_5_implement: RED lint target could not be read, so 'no violations' is not established for it (GH1373 rev3)
 - `E_RED_LINT_TIMEOUT` — phase_5_implement: RED lint subprocess timed out
 - `E_RED_MASS_DELETION` — phase_5_implement: RED diff mass-deleted a pre-existing file beyond threshold (GH282 guard)
 - `E_RED_NOT_EXECUTABLE` — phase_5_implement: RED test file could not be executed at all
 - `E_RED_NOT_FAILING` — phase_5_implement: RED tests unexpectedly passed instead of failing
 - `E_RED_NO_MARKER` — phase_5_implement: RED subagent output missing required completion marker
 - `E_RED_NO_PATHS` — phase_5_implement: no RED test file paths were supplied to verify
-- `E_RED_ONE_SIDED_PREDICATE` — phase_5_implement: RED test contains a one-sided negative code-exit predicate with no live positive control in the same test block (Rule P, GH1373)
 - `E_RED_PYTEST_TIMEOUT` — phase_5_implement: RED pytest subprocess timed out
 - `E_RED_SCOPE_VIOLATION` — phase_5_implement: RED diff touched files outside declared scope
 - `E_RED_STUB_PASSABLE` — phase_5_implement: RED test mocks its own UUT, making it vacuously passable
@@ -376,6 +392,10 @@
 
 - `E_STEP_TIMEOUT` — contracts/dbos_setup: a DBOS workflow step exceeded its configured timeout
 
+## E_SUPPRESSION
+
+- `E_SUPPRESSION_UNBOUNDED` — conformance/bd_l2: a tolerated known failure lacks an owner reference or a live expiry date (bd#9 R2.5 / ADV-6)
+
 ## E_SYNTHESIZER
 
 - `E_SYNTHESIZER_BLOCKED` — phase_7_synthesize: synthesizer subagent returned BLOCKED verdict
@@ -385,6 +405,10 @@
 ## E_TEST
 
 - `E_TEST_RUNNER_MISSING` — phase_5_implement: configured test runner binary was not found
+
+## E_TOOL
+
+- `E_TOOL_RESTRICTION_UNSUPPORTED` — llm_subprocess: a hard gate's allowed_tools cannot be enforced by the resolved backend (bd#82)
 
 ## E_VALIDATION
 

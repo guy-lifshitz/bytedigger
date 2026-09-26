@@ -121,6 +121,12 @@ FLAGS: dict[str, dict] = {
         "module": "skip_logic.py",
         "description": "Kill-switch for GH531 frozen-spec short-circuit (phase_1 self-skip + SIMPLE relax); '0' restores pre-GH531 behavior.",
     },
+    "HAL_IN_SESSION_ENFORCES_TOOLS": {
+        "kind": "flag",
+        "default": None,
+        "module": "llm_subprocess.py",
+        "description": "bd#82: the claude-in-session servicer declares it enforces each request's allowed_tools; exactly '1' grants the tool_allowlist capability, so in-session hard gates with a tool list are dispatched instead of refused.",
+    },
     "HAL_RED_PREFLIGHT_DELTA_RETRY": {
         "kind": "gate",
         "default": "1",

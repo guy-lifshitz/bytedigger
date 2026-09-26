@@ -406,6 +406,10 @@
 
 - `E_TEST_RUNNER_MISSING` — phase_5_implement: configured test runner binary was not found
 
+## E_TOOL
+
+- `E_TOOL_RESTRICTION_UNSUPPORTED` — llm_subprocess: a hard gate's allowed_tools cannot be enforced by the resolved backend (bd#82)
+
 ## E_VALIDATION
 
 - `E_VALIDATION_EXECUTION_FAILURE` — phase pipeline: validator failed to execute (zero tool calls / inputs not read) after retry budget — infra failure, NOT a test gap

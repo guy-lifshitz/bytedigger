@@ -180,6 +180,13 @@ def _hal_directed_repair_default_off(monkeypatch):
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
 
 
+@pytest.fixture(autouse=True)
+def _hal_in_session_enforces_tools_unset(monkeypatch):
+    """bd#82: HAL_IN_SESSION_ENFORCES_TOOLS is a servicer declaration; an exported
+    value in the developer's shell must not flip in-session enforcement in tests."""
+    monkeypatch.delenv("HAL_IN_SESSION_ENFORCES_TOOLS", raising=False)
+
+
 _STATE_LOG_ENV_SEAMS = {
     "HAL_REJECT_LOG": "reject-reasons.jsonl",
     "HAL_REWORK_LOG": "build-rework-log.jsonl",

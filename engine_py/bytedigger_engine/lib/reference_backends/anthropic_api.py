@@ -291,7 +291,7 @@ def register() -> None:
         "anthropic-api",
         anthropic_api_backend,
         manifest_source="api_text_response",
-        capabilities=frozenset(),
+        capabilities=frozenset({"no_tools"}),
         overwrite=True,
     )
 

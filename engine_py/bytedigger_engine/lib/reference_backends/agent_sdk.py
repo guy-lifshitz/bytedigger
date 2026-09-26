@@ -40,9 +40,10 @@ import sys
 import time
 import urllib.request
 from collections import deque
+from typing import Any
 
 from bytedigger_engine.contracts import StepResult
-from bytedigger_engine.llm_subprocess import register_backend, _emit_safe
+from bytedigger_engine.llm_subprocess import available_tools, register_backend, _emit_safe
 from bytedigger_engine.telemetry_ctx import _RunCtx
 
 from .pydantic_openai import _extract_usage_tokens
@@ -316,6 +317,19 @@ def _effective_idle_gap(idle_timeout: float, t0: float, outer_timeout_sec: float
 # Backend handler
 # ---------------------------------------------------------------------------
 
+def _tool_options(allowed_tools: "list[str] | None") -> dict[str, Any]:
+    """bd#82: in the SDK `allowed_tools` only auto-approves and `tools` sets what
+    is available. A restricted role gets both, and `dontAsk` denies anything not
+    pre-approved — never bypassPermissions. `None` keeps the unrestricted worker."""
+    if allowed_tools is None:
+        return {"allowed_tools": [], "permission_mode": "bypassPermissions"}
+    return {
+        "tools": available_tools(allowed_tools),
+        "allowed_tools": list(allowed_tools),
+        "permission_mode": "dontAsk",
+    }
+
+
 def agent_sdk_backend(
     *,
     prompt: str,
@@ -323,7 +337,7 @@ def agent_sdk_backend(
     timeout_sec: int | float,
     step_name: str,
     extra_data: dict[str, object] | None = None,
-    allowed_tools: object = None,
+    allowed_tools: "list[str] | None" = None,
     run_ctx: _RunCtx | None = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
@@ -362,6 +376,7 @@ def agent_sdk_backend(
 
     key = _session_key(run_ctx, step_name)
     resume_sid = _should_resume(key) if key is not None else None
+    tool_options = _tool_options(allowed_tools)
 
     pre = _snapshot_pre_state(root)
     t0 = time.monotonic()
@@ -418,23 +433,22 @@ def agent_sdk_backend(
 
             # GH933: try with stderr callback (new SDK); fall back if the
             # options constructor rejects the kwarg (old SDK, duck-typed).
+            option_kwargs: dict[str, Any] = {
+                "model": model, "resume": resume_this, "cwd": root,
+                "stderr": _on_stderr, **tool_options,
+            }
             try:
-                options = claude_agent_sdk.ClaudeAgentOptions(
-                    model=model,
-                    resume=resume_this,
-                    allowed_tools=allowed_tools or [],
-                    permission_mode="bypassPermissions",
-                    cwd=root,
-                    stderr=_on_stderr,
-                )
-            except TypeError:
-                options = claude_agent_sdk.ClaudeAgentOptions(
-                    model=model,
-                    resume=resume_this,
-                    allowed_tools=allowed_tools or [],
-                    permission_mode="bypassPermissions",
-                    cwd=root,
-                )
+                options = claude_agent_sdk.ClaudeAgentOptions(**option_kwargs)
+            except TypeError as exc:
+                # bd#82: only the old-SDK `stderr` rejection is retried; an SDK too
+                # old for `tools`/`dontAsk` cannot restrict a role and must say so.
+                if "stderr" not in str(exc):
+                    raise RuntimeError(
+                        f"claude-agent-sdk cannot build restricted options ({exc}); "
+                        "upgrade to claude-agent-sdk>=0.2.120"
+                    ) from exc
+                del option_kwargs["stderr"]
+                options = claude_agent_sdk.ClaudeAgentOptions(**option_kwargs)
             result_cls = getattr(claude_agent_sdk, "ResultMessage", None)
             result_msg: object = None
             agen = claude_agent_sdk.query(prompt=prompt, options=options)
@@ -735,7 +749,7 @@ def register() -> None:
         "agent-sdk",
         agent_sdk_backend,
         manifest_source="git_diff",
-        capabilities=frozenset(),
+        capabilities=frozenset({"tool_allowlist"}),
         overwrite=True,
     )
 

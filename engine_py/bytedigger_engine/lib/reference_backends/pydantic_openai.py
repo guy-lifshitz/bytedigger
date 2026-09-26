@@ -40,6 +40,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from bytedigger_engine.contracts import StepResult
@@ -493,6 +494,25 @@ def _is_git_repo(root: str) -> bool:
 # Backend handler
 # ---------------------------------------------------------------------------
 
+# bd#82: which registered tool each allowlist entry enables. A patterned entry
+# (`Bash(x:*)`, `Write(src/*)`) enables nothing — the pattern cannot be honored.
+_TOOLS_BY_ENTRY: dict[str, tuple[str, ...]] = {
+    "Write": ("write_file",),
+    "Edit": ("edit_file",),
+    "Bash": ("bash", "run_tests"),
+}
+
+
+def _policy_tools(
+    allowed_tools: "list[str] | None", tools: tuple[Callable[..., str], ...],
+) -> list[Callable[..., str]]:
+    """The subset of *tools* the caller's allowlist permits; `None` permits all."""
+    if allowed_tools is None:
+        return list(tools)
+    enabled = {name for entry in allowed_tools for name in _TOOLS_BY_ENTRY.get(entry, ())}
+    return [tool for tool in tools if tool.__name__ in enabled]
+
+
 def pydantic_openai_backend(
     *,
     prompt: str,
@@ -500,7 +520,7 @@ def pydantic_openai_backend(
     timeout_sec: int | float,
     step_name: str,
     extra_data: dict[str, object] | None = None,
-    allowed_tools: object = None,
+    allowed_tools: "list[str] | None" = None,
     run_ctx: object = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
@@ -559,6 +579,21 @@ def pydantic_openai_backend(
         )
 
     deployment = os.environ.get("PYDANTIC_BACKEND_DEPLOYMENT") or model
+    if hard_gate and deployment != model:
+        # bd#82: the chokepoint checked the gate floor against `model`; a
+        # deployment override would run the gate on a model nobody checked.
+        return StepResult(
+            status="error",
+            data=None,
+            duration_ms=0,
+            step_name=step_name,
+            error=(
+                f"hard gate pinned to {model!r} would run on deployment {deployment!r} "
+                "(PYDANTIC_BACKEND_DEPLOYMENT); refusing an unchecked model"
+            ),
+            error_code="E_HARD_GATE_MODEL_DOWNGRADE",
+            recoverable=False,
+        )
 
     from pydantic_ai import Agent, UsageLimits
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -576,29 +611,28 @@ def pydantic_openai_backend(
 
     cancel_event = threading.Event()
 
-    @agent.tool_plain
     def write_file(path: str, content: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_write_file(root, path, content)
 
-    @agent.tool_plain
     def edit_file(path: str, old: str, new: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_edit_file(root, path, old, new)
 
-    @agent.tool_plain
     def run_tests(command: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_run_tests(root, command, cancel_event=cancel_event)
 
-    @agent.tool_plain
     def bash(command: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_bash(root, command, cancel_event=cancel_event)
+
+    for tool in _policy_tools(allowed_tools, (write_file, edit_file, run_tests, bash)):
+        agent.tool_plain(tool)
 
     usage_limits = UsageLimits(request_limit=50)
 
@@ -729,7 +763,7 @@ def register() -> None:
         "pydantic-openai",
         pydantic_openai_backend,
         manifest_source="git_diff",
-        capabilities=frozenset(),
+        capabilities=frozenset({"tool_allowlist"}),
         overwrite=True,
     )
 
