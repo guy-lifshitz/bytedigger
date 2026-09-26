@@ -1,0 +1,15 @@
+### SEVERITY: HIGH — INCORRECTSliceCalculation
+> util.py:15| return items[len(items) - n - 1:]
+The slice operation will start from the incorrect index. It should be `items[-n:]` to correctly get the last n items of the list.
+
+### SEVERITY: MEDIUM — CatchAllException
+> util.py:8| except Exception:
+This line catches all exceptions, which can hide bugs and make debugging difficult. Consider catching specific exceptions instead.
+
+### SEVERITY: LOW — DivisionByZeroInMean
+> util.py:19| return sum(xs) / len(xs)
+If the list `xs` is empty, this function will raise a `ZeroDivisionError`. You should handle this case to avoid errors.
+
+After all findings:
+
+`VERDICT: FAIL`

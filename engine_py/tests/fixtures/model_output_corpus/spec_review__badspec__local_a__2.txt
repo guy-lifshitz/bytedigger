@@ -1,0 +1,20 @@
+## Review
+
+### Analysis
+The specification for `clamp(x, lo, hi)` is mostly well-defined for the standard operational logic, but it fails the requirement for unambiguous acceptance criteria in its handling of edge cases.
+
+**Strengths:**
+* **AC1, AC2, and AC3** are clear, mathematically precise, and easily testable via unit tests. They cover the three fundamental states of a clamping function.
+
+**Weaknesses:**
+* **AC4 is ambiguous:** The term "appropriately" is subjective and not testable. A developer might implement this by swapping `lo` and `hi`, while another might implement it by raising a `ValueError`, and a third might return `None`. To be a valid spec, the behavior for an invalid range (e.g., `lo > hi`) must be explicitly defined.
+* **Missing Type Constraints:** The spec does not define how the function should behave if types are mismatched (e.g., `x` is a float but `lo` is a string) or if non-numeric types are passed. While often handled by the language's runtime, a robust spec should define the expected behavior/exception for invalid input types.
+
+### Recommendations
+1. **Redefine AC4:** Replace "handles invalid ranges appropriately" with a specific requirement. 
+   * *Example:* "AC4: Raises `ValueError` if `lo > hi`."
+2. **Define Type Expectations:** Add an AC regarding input types.
+   * *Example:* "AC5: Raises `TypeError` if any argument is not a numeric type (int or float)."
+
+## Verdict
+**REVISE**

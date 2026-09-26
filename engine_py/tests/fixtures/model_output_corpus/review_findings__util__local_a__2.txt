@@ -1,0 +1,9 @@
+### SEVERITY: MEDIUM — Incorrect slicing logic in last_n
+> util.py:15: return items[len(items) - n - 1:]
+The slicing calculation is incorrect and returns $n+1$ elements instead of $n$. For example, if `n` is 1, the slice starts at index `len(items) - 2`, which includes both the last two elements. The correct implementation should use `items[-n:]` or `items[len(items)-n:]`.
+
+### SEVERITY: MEDIUM — Potential ZeroDivisionError in mean
+> util.py:19: return sum(xs) / len(xs)
+The function does not handle the case where the input list `xs` is empty, which will result in a `ZeroDivisionError` because `len(xs)` will be zero.
+
+VERDICT: FAIL

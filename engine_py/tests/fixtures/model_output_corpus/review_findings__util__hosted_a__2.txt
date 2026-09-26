@@ -1,0 +1,11 @@
+### SEVERITY: HIGH — Off-by-one error in last_n slicing
+> util.py:15: `return items[len(items) - n - 1:]`
+
+The function returns n+1 items instead of n. For example, with items=[1,2,3,4,5] and n=1, it returns [4,5] instead of [5]. The extra `-1` should be removed; the correct slice is `items[len(items) - n:]` or the simpler `items[-n:]`.
+
+### SEVERITY: HIGH — Division by zero in mean
+> util.py:19: `return sum(xs) / len(xs)`
+
+The function crashes with `ZeroDivisionError` when called with an empty list. This is a valid edge case that should either be handled (return 0 or None) or documented as a precondition.
+
+VERDICT: FAIL

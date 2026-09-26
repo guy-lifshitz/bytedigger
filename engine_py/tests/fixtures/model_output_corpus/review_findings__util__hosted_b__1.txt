@@ -1,0 +1,13 @@
+### HIGH — Off-by-one slicing error in last_n
+> util.py:15: `    return items[len(items) - n - 1:]`
+The docstring says this should return the last n items, but the slice index computes `len(items) - n - 1`, which is one too far back, so it returns n+1 items instead of n. For example, `last_n([1,2,3,4,5], 2)` returns `[3,4,5]` instead of `[4,5]`. It also mishandles `n=0`: instead of returning `[]`, it returns the last element (since `len(items)-1` is used as start). The correct slice should be `items[len(items) - n:]` (with consideration for `n <= 0`).
+
+### MEDIUM — Bare except swallows all errors and hides misconfiguration
+> util.py:8: `    except Exception:`
+Catching all exceptions and silently returning `{}` masks real problems such as malformed JSON, permission errors, or a typo'd path, making failures silent and hard to debug. At minimum this should catch specific expected exceptions (e.g. `FileNotFoundError`, `json.JSONDecodeError`) and/or log the error before falling back to a default.
+
+### MEDIUM — Division by zero in mean
+> util.py:19: `    return sum(xs) / len(xs)`
+If `xs` is empty, `len(xs)` is 0 and this raises `ZeroDivisionError` instead of returning a sensible value (e.g. `0`, `None`, or raising a clearer domain-specific error). Callers have no way to know this function is unsafe for empty input without reading the source.
+
+VERDICT: FAIL

@@ -1,0 +1,30 @@
+# Audit Report: RED Test File for `clamp(x, lo, hi)`
+
+## Critical Issues Found
+
+**1. AC1 Test Mocks the Unit Under Test** ❌
+```python
+def test_ac1_below():
+    with mock.patch.object(mathx, "clamp", return_value=0):
+        assert mathx.clamp(-5, 0, 10) == 0
+```
+This test patches `mathx.clamp` itself and asserts the mock returns 0. It doesn't test the actual implementation—it tests that a mock works. **Violates rule: "if a test mocks the unit under test" → reject.**
+
+**2. AC2 Assertion is Too Weak** ❌
+```python
+def test_ac2_above(): assert mathx.clamp(15, 0, 10) >= 0
+```
+AC2 requires returning `hi` (10), but the assertion `>= 0` passes for any value from 0 to infinity. A buggy implementation returning 999, 42, or even 100 would pass. The assertion should be `== 10`.
+
+**3. AC4 Completely Uncovered** ❌
+No test exists for: "raises ValueError when lo > hi." This acceptance criterion has zero coverage.
+
+## Summary
+- ✗ AC1: Mocked—doesn't test implementation
+- ✗ AC2: Assertion too weak (>= instead of ==)
+- ✗ AC3: ✓ Properly covered
+- ✗ AC4: No test written
+
+---
+
+`VERDICT: FAIL`

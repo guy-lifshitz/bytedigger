@@ -1,0 +1,34 @@
+## Review: `clamp(x, lo, hi)` Spec
+
+### Analysis
+
+The four acceptance criteria are **testable and unambiguous** for the happy path and error case. Each has a clear condition and expected behavior:
+- AC1–3 specify three mutually exclusive ranges with distinct outputs
+- AC4 defines a single exception condition
+
+### Gaps and Ambiguities
+
+1. **Type constraints undefined**: Can `x`, `lo`, `hi` be any comparable type (int, float, strings)? Or only numbers? If mixed types (e.g., `clamp(5, 3.0, 10)`) are passed, what's the expected behavior? The spec assumes comparison works but doesn't say what to do if it fails.
+
+2. **Floating-point edge cases**: How should the function handle `float('nan')` or `float('inf')`? Comparisons with NaN are non-intuitive in Python and could violate the acceptance criteria in unexpected ways. This should either be called out as unsupported or explicitly handled.
+
+3. **None or missing values**: Should the function validate that inputs are not None?
+
+### What's Working Well
+
+- Boundary behavior is well-defined (inclusive at lo and hi per AC3)
+- Error case is explicit and testable
+- The spec covers the complete input space (x < lo, x > hi, lo ≤ x ≤ hi, invalid lo/hi)
+
+---
+
+## Verdict
+
+**REVISE**
+
+Add a "Constraints" section specifying:
+- Accepted input types (e.g., "any numeric type" or "any comparable types")
+- How to handle incompatible types (raise TypeError or implicit coercion?)
+- Behavior with NaN or infinity (unsupported, return as-is, or raise?)
+
+These clarifications are small but essential before implementation to avoid ambiguous edge cases.

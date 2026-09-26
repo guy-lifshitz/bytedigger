@@ -1,0 +1,17 @@
+## Review: `clamp(x, lo, hi)`
+
+**AC1/AC2/AC3 coverage** — Together these three cover the full ordering of x relative to [lo, hi] and are mutually exclusive at the boundaries (`x == lo` and `x == hi` both fall under AC3's inclusive `<=`). No gap or overlap there.
+
+**AC4 ambiguity** — Undefined interaction with AC1–3: if `lo > hi`, does the ValueError check happen before any comparison of x, or could an implementation return a result for some x before checking the ordering of lo/hi? Spec should state precedence explicitly, e.g. "AC4 takes priority over AC1–AC3 regardless of x."
+
+**Missing case: `lo == hi`** — Not explicitly covered. It falls under AC3 (since `lo <= x <= hi` becomes `x == lo == hi`), and for other x it's covered by AC1/AC2, but it's worth stating explicitly since it's an easy edge case to get wrong (e.g., someone might build a check that treats `lo == hi` as degenerate and errors — spec should confirm it's valid input, not an error).
+
+**Untested/unspecified behavior:**
+- Type contract: are x, lo, hi expected to be numeric (int/float)? What happens with mixed types (`int` vs `float`), NaN, or non-comparable types? No AC addresses this.
+- Return type: does `clamp` preserve the type of `x`, or the type of `lo`/`hi` when clamping occurs? E.g. `clamp(1, 0.0, 5.0)` — does it return `1` or `0.0`-typed boundary? Unspecified.
+- No AC for the exact exception message/content of AC4 — acceptable if only the exception type matters, but worth confirming that's intentional.
+
+**Testability** — AC1–AC3 are directly testable with straightforward parametrized cases. AC4 is testable but should specify whether it's checked for all x or only reachable/asserted regardless of x's value.
+
+## Verdict
+REVISE — clarify AC4's precedence over AC1–AC3, confirm `lo == hi` is valid (not an error), and specify the expected return type when boundary clamping occurs with mixed numeric types.

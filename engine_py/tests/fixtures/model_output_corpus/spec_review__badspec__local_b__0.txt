@@ -1,0 +1,41 @@
+## Review of `clamp(x, lo, hi)` in `mathx.py`
+
+### Overview
+The specification for the `clamp` function outlines its behavior based on input values and valid ranges. The acceptance criteria (AC1-AC3) cover the core functionality well. However, AC4 introduces a requirement that needs more detail to ensure it is testable and unambiguous.
+
+### Detailed Review
+
+#### Acceptance Criteria Analysis
+1. **AC1: returns `lo` when `x < lo`.**
+   - This ensures that if `x` is less than the lower bound (`lo`), the function will return the lower bound.
+   
+2. **AC2: returns `hi` when `x > hi`.**
+   - Ensures that if `x` is greater than the upper bound (`hi`), the function will return the upper bound.
+
+3. **AC3: returns `x` when `lo <= x <= hi`.**
+   - This covers the case where `x` lies within the inclusive range of `lo` and `hi`.
+
+4. **AC4: handles invalid ranges appropriately.**
+   - This criterion is broad and needs more detail to ensure it can be tested effectively.
+
+### Suggested Improvements
+To make AC4 testable and unambiguous, we need to specify how "invalid ranges" should be handled. For instance, what happens if `lo` is greater than `hi`? Should the function raise an exception or return a default value?
+
+#### Revised Acceptance Criteria
+
+1. **AC1: returns `lo` when `x < lo`.**
+   - This ensures that if `x` is less than the lower bound (`lo`), the function will return the lower bound.
+   
+2. **AC2: returns `hi` when `x > hi`.**
+   - Ensures that if `x` is greater than the upper bound (`hi`), the function will return the upper bound.
+
+3. **AC3: returns `x` when `lo <= x <= hi`.**
+   - This covers the case where `x` lies within the inclusive range of `lo` and `hi`.
+
+4. **AC4: raises a ValueError if `lo > hi`, indicating an invalid input range.**
+   - Ensures that any attempt to clamp with an invalid range will result in a clear error message.
+
+### Verdict
+REVISE
+
+The revised spec now includes specific handling for invalid ranges, making the criteria more testable and unambiguous.

@@ -1,0 +1,13 @@
+### HIGH — Off-by-one error in slice calculation
+> util.py:15: return items[len(items) - n - 1:]
+This should be `items[len(items) - n:]`. The extra `-1` causes the function to return one more item than requested (n+1 items instead of n). For example, `last_n([1,2,3,4,5], 2)` returns `[3,4,5]` (3 items) instead of `[4,5]`.
+
+### MEDIUM — Negative/zero n not handled, and empty list crashes on division
+> util.py:19: return sum(xs) / len(xs)
+`mean([])` raises `ZeroDivisionError` since `len(xs)` is 0; there's no guard for an empty input list, which will propagate an unhandled exception to callers.
+
+### LOW — Silently swallows all exceptions
+> util.py:8: except Exception:
+Catching bare `Exception` and silently discarding it (just `pass`) hides real problems such as malformed JSON, permission errors, or unexpected I/O failures, making debugging difficult and masking bugs that should surface to the caller.
+
+VERDICT: FAIL

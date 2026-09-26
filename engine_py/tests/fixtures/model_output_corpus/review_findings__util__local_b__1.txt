@@ -1,0 +1,15 @@
+### SEVERITY: HIGH — INCOMPLETE_SLICE
+> util.py:15: return items[len(items) - n - 1:]
+The slice index is incorrect. It should be `items[-n:]` to correctly get the last `n` items of the list.
+
+### SEVERITY: MEDIUM — HANDLED_EXCEPTION_NOT_LOGGED
+> util.py:9: pass
+The exception that occurs during file opening and JSON loading is caught but not logged or handled properly. Consider logging the error for debugging purposes.
+
+### SEVERITY: LOW — POTENTIAL_FLOAT_DIVISION_BY_ZERO
+> util.py:19: return sum(xs) / len(xs)
+If `xs` is an empty list, this function will raise a `ZeroDivisionError`. You might want to handle this case explicitly.
+
+---
+
+VERDICT: FAIL

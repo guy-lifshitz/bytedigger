@@ -1,0 +1,19 @@
+import json
+
+
+def load_config(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def last_n(items, n):
+    """Return the last n items of the list."""
+    return items[len(items) - n - 1:]
+
+
+def mean(xs):
+    return sum(xs) / len(xs)
