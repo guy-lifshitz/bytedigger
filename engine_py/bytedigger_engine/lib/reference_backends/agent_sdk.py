@@ -376,8 +376,9 @@ def agent_sdk_backend(
         )
 
     # bd#82: a fresh session (every hard gate, and judges that ask) neither
-    # reads, writes nor invalidates the warm-session cache.
-    key = None if fresh_session else _session_key(run_ctx, step_name)
+    # reads, writes nor invalidates the warm-session cache. A gate is fresh here
+    # too, so a registration that omits `warm_resume` cannot make it resume.
+    key = None if (fresh_session or hard_gate) else _session_key(run_ctx, step_name)
     resume_sid = _should_resume(key) if key is not None else None
     tool_options = _tool_options(allowed_tools)
 

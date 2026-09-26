@@ -1361,7 +1361,8 @@ def _dispatch_backend(
     if stable_prefix:
         optional["stable_prefix"] = stable_prefix
     if "warm_resume" in _backend_capabilities(resolved_backend):
-        optional["fresh_session"] = fresh_session
+        # bd#82: resolved here, so no dispatch path can forget that a gate is fresh.
+        optional["fresh_session"] = fresh_session or hard_gate
     result = _BACKENDS[resolved_backend](
         prompt=prompt,
         model=model,
@@ -1661,8 +1662,8 @@ def invoke_llm_subprocess(
     # 68E964FB: registry dispatch — replaces the hardcoded if/else tail.
     # _BACKENDS keys == _KNOWN_BACKENDS (single source); unknown backend already
     # returned above so this lookup is always key-safe. GH1169 §2.2.1: the
-    # two-branch stable_prefix threading is now the extracted _dispatch_backend
-    # helper (GH334 §2.2 back-compat preserved verbatim).
+    # conditional stable_prefix threading lives in the extracted _dispatch_backend
+    # helper (GH334 §2.2 back-compat preserved).
     result = _dispatch_backend(
         resolved_backend,
         prompt=prompt,
@@ -1678,7 +1679,7 @@ def invoke_llm_subprocess(
         idle_timeout_sec=idle_timeout_sec,
         stable_prefix=stable_prefix,
         injections=injections,
-        fresh_session=fresh_session or hard_gate,
+        fresh_session=fresh_session,
     )
 
     # GH1169 §2.2 — one-shot backend fallback: an agent-sdk step that timed
@@ -1707,7 +1708,7 @@ def invoke_llm_subprocess(
             idle_timeout_sec=idle_timeout_sec,
             stable_prefix=stable_prefix,
             injections=injections,
-            fresh_session=fresh_session or hard_gate,
+            fresh_session=fresh_session,
         )
 
     return result
@@ -2441,6 +2442,11 @@ def register_backend(
     (_KNOWN_BACKENDS, _ALLOWED_MANIFEST_SOURCES) so the fail-loud guard
     (E_LLM_BACKEND_UNKNOWN) and manifest-source validation accept the new
     backend at runtime — fixing the import-time frozen-snapshot gap.
+
+    Capability tokens are promises the dispatcher acts on: `tool_allowlist`
+    (enforces `allowed_tools`), `no_tools` (text-only), and `warm_resume` —
+    the impl keeps sessions across calls AND accepts a `fresh_session: bool`
+    keyword, which is True for every hard gate (bd#82).
     """
     global _KNOWN_BACKENDS, _ALLOWED_MANIFEST_SOURCES
     if not isinstance(name, str) or not name:

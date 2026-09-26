@@ -32,27 +32,29 @@ Issue: #82 (part 2 of 4). Class: SYSTEMATIC. Chokepoint: `llm_subprocess.invoke_
    - The chokepoint resolves the value and forwards it on every dispatch: both `stable_prefix`
      branches and the GH1169 hang fallback. Production gates pass a `stable_prefix`, so both
      branches matter.
+   - The rule is resolved inside `_dispatch_backend`, so no dispatch path can drop it.
+   - agent-sdk also treats a hard gate as fresh itself, so a registration that omits
+     `warm_resume` cannot make a gate resume.
    - agent-sdk declares `warm_resume`. With a fresh session it neither reads nor writes the
      session cache, and it never invalidates it, even when the call fails. There is no resume,
      and the worker's own warm session survives.
 2. **Non-gate judges are fresh.** Phase 6 `_invoke_review_llm` and the decorrelated verifier
    `_invoke_decorr_llm` pass `fresh_session=True`.
-3. **`telemetry_ctx.run_with_current_run(prev, fn, /, *args, ctx_step_name=None, **kwargs)`**
+3. **`telemetry_ctx.run_with_current_run(prev, fn, /, *args, **kwargs)`**
    (port of HAL #1898).
    - The parent captures `get_current_run()` at submit time. The wrapper runs in the worker: it
-     clears the slot, re-publishes `prev` through `set_current_run_from` (under `ctx_step_name`
-     when given), runs `fn`, and always clears the slot in `finally`.
+     clears the slot, re-publishes `prev` through `set_current_run_from`, runs `fn`, and always
+     clears the slot in `finally`.
+   - HAL's `ctx_step_name` override is left out; nothing here needs it.
    - `prev is None` leaves the slot empty. `prev` and `fn` are positional-only.
    - `contextvars` was rejected: pool threads start with an empty context.
-4. **The satisfaction pool uses the wrapper.** Worker *i* gets
-   `step_name=invoke_satisfaction_llm_eval{i}`, with the index fixed at submit time.
-   - Results come back in submit order.
-   - No `ctx_step_name` is passed, so the telemetry slot keeps the parent's step name (as
-     HAL ruled).
-   - If every evaluator fails, the returned result is `results[0]`. Its step name is static
-     either way: `..._eval0` for a dispatched call, or the parent's step name for a
-     pre-dispatch refusal. So the retry-cap and rework keys in `engine.py` stay stable across
-     cycles.
+4. **The satisfaction pool uses the wrapper.** Every evaluator keeps the registered step name
+   `invoke_satisfaction_llm`, and the telemetry slot keeps the parent's step name.
+   - HAL gave each evaluator its own name (`_eval{i}`) so the three would not share a warm
+     session. Here every gate is fresh (clause 1), so a per-evaluator name would isolate
+     nothing.
+   - It would also split the step's name: all-fail results and attestations would carry
+     `_eval0`, while telemetry and refusals would carry the registered name.
 5. **Enforcement pin.** In `workflows/`:
    - every `.submit(` call passes `telemetry_ctx.run_with_current_run` first, with a
      non-literal `prev`;
@@ -74,11 +76,20 @@ Test file `engine_py/tests/test_bd82_fresh_sessions_thread_ctx.py`.
 
 | Clause | ACs |
 |---|---|
-| 1 | F1 (resume leg), F2, F2b, F3, F4, F4b, F5, F6b, F6d, F7, F8 |
+| 1 | F1 (resume leg), F2, F2b, F2c, F3, F4, F4b, F5, F6b, F6d, F7, F8 |
 | 2 | F6, F6c |
-| 3 | T1, T2, T3, T3b, T4, T5, T7 |
+| 3 | T1, T3, T3b, T4, T5, T7 |
 | 4 | T6 |
 | 5 | T9 |
+
+## Accepted residuals (follow-ups)
+
+- **Warm resume is still the default for non-gate calls.** A new non-gate judge must ask for
+  `fresh_session=True`. Making resume opt-in for writer roles would close this class of bug;
+  it belongs with the per-role policy of PR4.
+- **Event sinks see concurrent emits.** Evaluator threads now emit into the run's event sink at
+  the same time. The default `EventLog` is safe here (one `O_APPEND` write per event), but the
+  `EventSink` seam makes no thread-safety promise.
 
 ## Sibling tests (must stay green)
 
