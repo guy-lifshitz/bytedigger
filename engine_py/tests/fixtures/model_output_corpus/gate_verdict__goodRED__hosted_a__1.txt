@@ -1,0 +1,22 @@
+# AUDIT: `clamp(x, lo, hi)` RED TEST
+
+**Coverage Check:**
+- AC1 (x < lo → return lo): ✓ `test_ac1_below` with clamp(-5, 0, 10) == 0
+- AC2 (x > hi → return hi): ✓ `test_ac2_above` with clamp(15, 0, 10) == 10
+- AC3 (lo ≤ x ≤ hi → return x): ✓ `test_ac3_inside` (middle) + `test_ac3_edges` (boundaries at 0 and 10)
+- AC4 (lo > hi → ValueError): ✓ `test_ac4_bad_range` with pytest.raises
+
+**Mocking Check:** No mocks—tests directly call `clamp()`. ✓
+
+**Assertion Strength:**
+- All assertions use exact equality (`==`) or exception matching (`pytest.raises`), which will fail if the implementation returns any wrong value. The compound assertion in `test_ac3_edges` requires both boundary cases to pass. ✓
+
+**Completeness:**
+- All 4 ACs covered
+- Boundary cases for AC3 included (x at lo, x at hi, x in middle)
+- Error path tested
+- No gaps
+
+**Minor Note:** `test_ac3_edges` uses a compound assertion (`and`), which slightly reduces debuggability if one fails, but both assertions must pass for the test to pass, so strength is not compromised.
+
+VERDICT: PASS

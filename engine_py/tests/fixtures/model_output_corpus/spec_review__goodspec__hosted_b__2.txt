@@ -1,0 +1,22 @@
+## Review: `clamp(x, lo, hi)` in `mathx.py`
+
+**Coverage of type space**: ACs 1–3 partition the ordered case (`lo <= hi`) completely and without overlap — every x falls into exactly one of "below lo," "above hi," or "in range." Good.
+
+**Gaps and ambiguities:**
+
+1. **Boundary equality is untested implicitly.** AC1/AC2 use strict `<`/`>`, and AC3 uses `<=`/`>=`, so `x == lo` and `x == hi` are covered by AC3 only — that's consistent, not ambiguous, but worth flagging as the reviewer should confirm no off-by-one slip (e.g. AC1 firing on `x == lo`) during implementation review.
+
+2. **AC4 conflicts with AC1–3 when `lo > hi`.** As written, AC1–3 don't exclude `lo > hi` — if x is, say, greater than both, AC1 says "return lo" is false, AC2 says "return hi" — actually AC2 could fire since `x > hi` is true even when `lo > hi`. So AC2 and AC4 both claim to govern that case. The spec needs an explicit precedence statement: "AC4 is checked first; AC1–3 only apply when `lo <= hi`."
+
+3. **`lo == hi` case is unaddressed.** Not a bug given AC3, but worth an explicit example/test case since it's easy to mishandle in implementation (should just always return `lo`/`hi`).
+
+4. **Type of `x`, `lo`, `hi` unspecified.** Are floats, ints, and mixed types all in scope? Does `NaN` need handling (comparisons with NaN are always False in Python, which would silently fall through all three ACs and hit no branch — undefined behavior)? At minimum state expected input types and whether NaN is out of scope.
+
+5. **Return type not specified.** Should `clamp` preserve the type of `x` (e.g., return `lo` even if `lo` is an `int` and `x` was a `float`)? Trivial but worth one line so tests aren't ambiguous.
+
+6. **Exception message/content for AC4 unspecified.** Not strictly required for testability (ValueError type is enough), but if downstream code depends on message content, say so — otherwise leave silent, which is fine.
+
+The most important fix is #2 — as written, two ACs both claim authority over the same input, which makes the spec not unambiguous.
+
+## Verdict
+REVISE — resolve the AC2/AC4 precedence conflict for `lo > hi` inputs (item 2) before freezing; items 3–6 are minor clarifications worth a one-line addition each but not blocking.

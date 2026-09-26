@@ -1,0 +1,24 @@
+## Review: `clamp(x, lo, hi)` specification
+
+**AC1, AC2, AC3: ✓ Testable and Clear**
+These criteria are well-defined. Each specifies an input condition and an expected output. A test can unambiguously verify whether the function behaves correctly.
+
+**AC4: ✗ Ambiguous and Untestable**
+"Handles invalid ranges appropriately" fails the test requirement because:
+- **"Invalid ranges"** is undefined. Does lo > hi? lo == hi? Non-numeric inputs? All of the above?
+- **"Appropriately"** is subjective and unverifiable. Does it mean: raise an exception (which one?), return None, return a default value, or silently accept it?
+
+Without specifics, a reviewer cannot objectively verify whether this criterion is met, and a developer cannot implement it without guessing at intent.
+
+**Additional ambiguities:**
+- No mention of data types. Are x, lo, hi always numbers? What about NaN or infinity?
+- No clarification of the edge case where lo == hi (likely covered by AC3, but worth stating).
+
+## Verdict
+**REVISE**
+
+Rewrite AC4 with concrete, testable behavior. Examples:
+- *"Raises `ValueError` if lo > hi"*
+- *"Raises `TypeError` if x, lo, or hi are not numeric"*
+
+Or if invalid ranges are acceptable, remove AC4 and instead clarify the valid input domain in a precondition.

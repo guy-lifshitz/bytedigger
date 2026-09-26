@@ -1,0 +1,13 @@
+## Audit Report
+
+**AC1 (x < lo → returns lo)**: ❌ **REJECT** — `test_ac1_below()` mocks the unit under test. It replaces the real `clamp` function with a mock returning 0, then asserts the mock return value. This doesn't test the actual function behavior; it tests that `mock.patch` works. The mock prevents any validation of the real implementation.
+
+**AC2 (x > hi → returns hi)**: ❌ **REJECT** — `test_ac2_above()` has a critically weak assertion: `assert mathx.clamp(15, 0, 10) >= 0`. This checks only that the result is ≥ 0, not that it equals 10 (the expected hi value). A broken implementation returning 15, 500, or any positive number would pass. The test does not fail on a wrong implementation.
+
+**AC3 (lo ≤ x ≤ hi → returns x)**: ✅ **PASS** — `test_ac3_inside()` correctly asserts `== 7`, the exact expected value.
+
+**AC4 (lo > hi → raises ValueError)**: ❌ **REJECT** — Completely uncovered. No test verifies that a ValueError is raised when the bounds are inverted.
+
+---
+
+**VERDICT: FAIL**

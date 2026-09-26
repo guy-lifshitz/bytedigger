@@ -1,0 +1,22 @@
+# Spec Review: `clamp(x, lo, hi)`
+
+## Analysis
+
+**Strengths:**
+- All four ACs are testable with concrete examples (e.g., AC1: `clamp(5, 10, 20) → 10`)
+- The three main cases (below, above, within range) are well-covered
+- Boundary conditions are implicitly handled in AC3 with the inclusive range `lo <= x <= hi`
+- Error case (inverted bounds) is specified
+
+**Minor gaps:**
+- **Type assumptions:** The spec implicitly assumes x, lo, hi are comparable (typically numbers), but doesn't state this. For clarity, consider: "x, lo, hi: numeric values or comparable objects"
+- **Error specificity:** AC4 says "raises ValueError" but doesn't specify whether the exception is raised eagerly (on entry) or lazily (during comparison). For this simple function, either is fine, but documenting the expected timing would remove ambiguity.
+- **Error message:** Not specified whether testers should validate the error message content, only the exception type.
+
+**Assessment:** These gaps are minor and don't block testing. The implementation can make reasonable choices on all of them.
+
+## Verdict
+
+SHIP
+
+The acceptance criteria are testable and unambiguous enough to implement and verify confidently. The core logic cases are complete, and the error case is defined.

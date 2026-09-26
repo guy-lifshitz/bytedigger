@@ -1,0 +1,9 @@
+### SEVERITY: HIGH — Off-by-one error in `last_n` slice calculation
+> util.py:15: return items[len(items) - n - 1:]
+The function subtracts one extra element from the starting index. For example, `last_n([0,1,2,3,4], 2)` should return `[3,4]` but returns `[2,3,4]` instead. The `-1` should be removed; the correct slice should be `items[len(items) - n:]` or equivalently `items[-n:]`.
+
+### SEVERITY: MEDIUM — Division by zero on empty input
+> util.py:19: return sum(xs) / len(xs)
+The `mean()` function crashes with `ZeroDivisionError` if called with an empty list. While the precondition may be that the input is always non-empty, this should either be documented, validated, or handled gracefully.
+
+VERDICT: FAIL

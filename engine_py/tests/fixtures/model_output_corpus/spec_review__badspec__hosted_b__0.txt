@@ -1,0 +1,22 @@
+## Review
+
+AC1–AC3 are testable and unambiguous: given concrete `x, lo, hi` values, each has a single determinable expected output, including the boundary cases (`x == lo`, `x == hi` are covered by AC3's inclusive bounds).
+
+AC4 is not testable. "Handles invalid ranges appropriately" doesn't specify:
+- What counts as an invalid range (presumably `lo > hi`, but that's not stated).
+- What "appropriately" means — raise an exception (which one?), swap `lo`/`hi`, return `x` unchanged, return `lo`, return `None`?
+
+A reviewer or test-writer cannot derive a single expected behavior from this criterion, so it can't be turned into a pass/fail test case as written.
+
+Also worth flagging: no criterion specifies behavior for non-comparable or NaN-like inputs (e.g., mixed types, `float('nan')`), though that may be out of scope depending on the intended use — worth an explicit statement either way (e.g., "type/NaN handling is out of scope for v1").
+
+**Suggested fix for AC4**, e.g.:
+> AC4: raises `ValueError` when `lo > hi`.
+
+or, if swap-on-invalid is the intended design:
+> AC4: when `lo > hi`, treats the effective bounds as `(hi, lo)` (i.e., swaps them) before applying AC1–AC3.
+
+Either is fine — the point is the spec must commit to one behavior.
+
+## Verdict
+REVISE — AC4 must specify the exact invalid-range condition and the exact required behavior before this can be implemented or tested unambiguously.

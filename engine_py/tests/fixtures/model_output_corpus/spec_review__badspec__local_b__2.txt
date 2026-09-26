@@ -1,0 +1,33 @@
+## Review of `clamp(x, lo, hi)` Specification
+
+### Overview
+The specification for the function `clamp(x, lo, hi)` in `mathx.py` outlines the behavior under various conditions and includes acceptance criteria (AC1-AC4). The goal is to ensure that the implementation correctly constrains the input value `x` within the specified lower (`lo`) and upper (`hi`) bounds.
+
+### Review Details
+
+#### AC1: returns lo when x < lo.
+- **Review**: This condition ensures that if `x` is less than `lo`, the function will return `lo`. However, it does not specify what happens in cases where the order of `lo` and `hi` is reversed. If `hi` is less than `lo`, this could lead to unexpected behavior.
+
+#### AC2: returns hi when x > hi.
+- **Review**: Similar to AC1, this condition ensures that if `x` is greater than `hi`, the function will return `hi`. It also does not address the scenario where `lo` and `hi` are in a reversed order. This could result in incorrect behavior.
+
+#### AC3: returns x when lo <= x <= hi.
+- **Review**: This condition ensures that if `x` is within the bounds defined by `lo` and `hi`, it will return `x`. However, this alone does not handle the case where `lo > hi`.
+
+#### AC4: handles invalid ranges appropriately.
+- **Review**: This acceptance criterion suggests that the function should manage cases where the range is invalid (e.g., when `lo` > `hi`). While this is a good starting point, it doesn't specify how the function should behave in such scenarios. For example, it could raise an error or return a default value.
+
+### Recommendations
+
+1. **Clarify Range Order**: The specification should explicitly state whether the order of `lo` and `hi` matters. If they are interchangeable, this needs to be clearly documented.
+2. **Error Handling for Invalid Ranges**: Define how the function should handle cases where `lo > hi`. This could include raising a specific exception or returning a default value.
+
+### Updated Acceptance Criteria
+
+1. **AC1**: returns lo when x < lo and lo <= hi.
+2. **AC2**: returns hi when x > hi and lo <= hi.
+3. **AC3**: returns x when lo <= x <= hi and lo <= hi.
+4. **AC4 (Revised)**: If lo > hi, the function should raise a specific exception or return a default value.
+
+### Verdict
+REVISE

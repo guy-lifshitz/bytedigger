@@ -1,0 +1,12 @@
+### Audit Report
+
+**CRITICAL FAILURE: Mocking the Unit Under Test**
+In `test_ac1_below`, the implementation of `mathx.clamp` is mocked using `mock.patch.object`. A test that mocks the very function it is intended to validate is logically void; it will pass even if the underlying implementation is broken or non-existent, as the return value is hardcoded by the mock.
+
+**CRITICAL FAILURE: Weak Assertions**
+In `test_ac2_above`, the assertion `assert mathx.clamp(15, 0, 10) >= 0` is insufficiently strict. It would pass even if the function incorrectly returned `15` or any other value greater than or equal to `0`. To satisfy AC2, the assertion must explicitly check for equality with `hi` (i.e., `== 10`).
+
+**CRITICAL FAILURE: Uncovered Acceptance Criterion**
+AC4 (`raises ValueError when lo > hi`) is entirely absent from the test suite. There is no verification that the function handles invalid bounds correctly, leaving a significant edge case untested.
+
+**VERDICT: FAIL**

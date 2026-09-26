@@ -1,0 +1,19 @@
+Audit of test_mathx.py against the spec:
+
+**AC1 (x < lo → returns lo):** `test_ac1_below` patches `mathx.clamp` itself with `mock.patch.object(mathx, "clamp", return_value=0)`, then calls the mocked function and asserts it returns 0. This mocks the unit under test — it can never fail regardless of the real implementation. It is not testing `clamp` at all; it's testing the mock. This is a critical violation.
+
+**AC2 (x > hi → returns hi):** `test_ac2_above` asserts `mathx.clamp(15, 0, 10) >= 0`. This assertion is far too weak — it would pass for a broken implementation returning `15`, `0`, `1`, or any non-negative value. It does not verify the return value equals `hi` (10). Fails to actually check AC2.
+
+**AC3 (lo <= x <= hi → returns x):** `test_ac3_inside` asserts `mathx.clamp(7, 0, 10) == 7`. This is a sound, tight assertion. AC3 is adequately covered.
+
+**AC4 (lo > hi → raises ValueError):** No test exists for this criterion at all. Completely uncovered.
+
+**Summary of defects:**
+- AC1: test mocks the unit under test, making it vacuous.
+- AC2: assertion too weak to catch wrong implementations.
+- AC3: adequate.
+- AC4: no test present — uncovered acceptance criterion.
+
+This test file fails to honestly validate the spec on three of four criteria.
+
+VERDICT: FAIL

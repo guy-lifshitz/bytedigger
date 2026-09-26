@@ -1,0 +1,23 @@
+## Audit Results
+
+**Coverage Analysis:**
+
+| AC | Test | Status |
+|---|---|---|
+| AC1: x < lo → return lo | `test_ac1_below()` clamp(-5, 0, 10) == 0 | ✓ Covered |
+| AC2: x > hi → return hi | `test_ac2_above()` clamp(15, 0, 10) == 10 | ✓ Covered |
+| AC3: lo ≤ x ≤ hi → return x | `test_ac3_inside()` + `test_ac3_edges()` covering interior and boundaries (x=0, x=10) | ✓ Covered |
+| AC4: lo > hi → ValueError | `test_ac4_bad_range()` with pytest.raises | ✓ Covered |
+
+**Assertion Strength:**
+- All assertions use exact equality (`==`) comparisons or `pytest.raises` context manager
+- Will fail correctly if implementation returns wrong value, wrong type, or missing exception
+- No weak assertions (e.g., truthiness checks or loose comparisons)
+
+**Mocking Audit:**
+- No mocks detected; tests directly invoke `clamp()` from the real module
+
+**Issues Found:**
+- None. All criteria are explicitly tested with strong, non-mocking assertions.
+
+VERDICT: PASS

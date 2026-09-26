@@ -1,0 +1,22 @@
+# Audit Report
+
+**Acceptance Criterion Coverage:**
+- AC1 (x < lo returns lo): ✓ Covered by `test_ac1_below()` with clamp(-5, 0, 10) == 0
+- AC2 (x > hi returns hi): ✓ Covered by `test_ac2_above()` with clamp(15, 0, 10) == 10
+- AC3 (lo ≤ x ≤ hi returns x): ✓ Covered by `test_ac3_inside()` (interior: 7) and `test_ac3_edges()` (boundaries: 0 and 10)
+- AC4 (lo > hi raises ValueError): ✓ Covered by `test_ac4_bad_range()` with proper pytest.raises assertion
+
+**Mock Audit:**
+No mocks detected. Tests directly invoke the unit under test. ✓
+
+**Assertion Strength:**
+- `test_ac1_below()`, `test_ac2_above()`, `test_ac3_inside()`: Exact equality assertions (`==`). Would fail if clamp returned any incorrect value. ✓
+- `test_ac3_edges()`: Compound assertion with logical AND; both equalities must hold. Strong. ✓
+- `test_ac4_bad_range()`: `pytest.raises(ValueError)` precisely validates exception type. ✓
+
+All assertions are sufficiently strict to reject wrong implementations (e.g., would catch returning wrong boundary values, missing exception, off-by-one logic).
+
+**Completeness:**
+Boundary cases (x = lo, x = hi) and interior case explicitly tested alongside below/above cases. No gaps in the spec surface.
+
+VERDICT: PASS
