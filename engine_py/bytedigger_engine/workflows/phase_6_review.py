@@ -1010,6 +1010,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         allowed_tools=["Read", "Grep", "Glob", "Write"],
         straggler_cfg=straggler_cfg,
         stable_prefix=prev.data.get("stable_prefix", ""),
+        fresh_session=True,  # bd#82: a reviewer must not resume an earlier transcript
     )
     return result
 
@@ -2767,9 +2768,14 @@ def _run_satisfaction_evaluators_parallel(
     GH705: stable_prefix threaded through the shipped {prompt, stable_prefix}
     caching seam — prompt stays full/byte-identical.
     """
+    # bd#82 (HAL #1898): pool workers do not inherit the parent's thread-local
+    # step context — capture it here and carry it across explicitly.
+    parent_ctx = telemetry_ctx.get_current_run()
     with concurrent.futures.ThreadPoolExecutor(max_workers=n) as executor:
         futures = [
             executor.submit(
+                telemetry_ctx.run_with_current_run,
+                parent_ctx,
                 invoke_llm_subprocess,
                 prompt=prompt,
                 model=model,
@@ -5112,6 +5118,7 @@ def _invoke_decorr_llm(ctx, prev) -> StepResult:
         timeout_sec=_resolve_review_timeout_sec(cfg),
         step_name="invoke_decorr_llm",
         hard_gate=False,
+        fresh_session=True,  # bd#82: a judge must not resume its earlier verdict
     )
     if result.status != "ok" or not isinstance(result.data, dict):
         error_code = result.error_code or "E_DECORR_INVOKE_FAILED"
