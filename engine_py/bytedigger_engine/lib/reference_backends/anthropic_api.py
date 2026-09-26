@@ -75,22 +75,32 @@ def _resolve_model_id(model: str) -> str:
 # Named sourceable helpers: reasoning-effort → thinking body (§2.2 / §2.3, GH #329)
 # ---------------------------------------------------------------------------
 
-def _resolve_thinking(model, step_name, hard_gate):
+# bd#82: "no effort was passed" — resolve it here, as before (direct calls).
+_EFFORT_UNSET = object()
+
+
+def _resolve_thinking(model, step_name, hard_gate, effort=_EFFORT_UNSET):
     """Return an Anthropic `thinking` param dict for the resolved effort level, or None.
 
-    hard_gate True → None (model-default; parity with claude-subprocess `if not hard_gate`).
+    bd#82: an `effort` passed by the chokepoint (already gate-aware) wins. A direct
+    call keeps the old rule: hard_gate True → None (model-default; parity with
+    claude-subprocess `if not hard_gate`).
     Effort level None / '' / unrecognized → None (inert-by-default → body byte-identical).
     """
-    if hard_gate:
+    if effort is not _EFFORT_UNSET:
+        level = effort
+    elif hard_gate:
         return None
-    level = _load_effort(model, step_name)
+    else:
+        level = _load_effort(model, step_name)
     budget = _EFFORT_TO_BUDGET.get(level) if level else None
     if budget is None:
         return None
     return {"type": "enabled", "budget_tokens": budget}
 
 
-def _build_request_body(prompt, model_id, *, model, step_name, hard_gate, stable_prefix: str = ""):
+def _build_request_body(prompt, model_id, *, model, step_name, hard_gate, stable_prefix: str = "",
+                        effort=_EFFORT_UNSET):
     # GH334 §2.5: order-preserving cache-breakpoint split. Non-empty +
     # substring-of-prompt → ordered content blocks [before, stable_prefix
     # (cache_control:ephemeral), after], omitting empty before/after blocks.
@@ -117,7 +127,7 @@ def _build_request_body(prompt, model_id, *, model, step_name, hard_gate, stable
         "max_tokens": _DEFAULT_MAX_TOKENS,
         "messages": [{"role": "user", "content": content}],
     }
-    thinking = _resolve_thinking(model, step_name, hard_gate)
+    thinking = _resolve_thinking(model, step_name, hard_gate, effort)
     if thinking is not None:
         body["thinking"] = thinking
         # Anthropic: max_tokens must exceed budget_tokens; keep output headroom.
@@ -143,6 +153,7 @@ def anthropic_api_backend(
     straggler_cfg: object = None,
     idle_timeout_sec: object = None,
     stable_prefix: str = "",
+    effort: object = _EFFORT_UNSET,
 ) -> StepResult:
     """Anthropic Messages API backend handler.
 
@@ -173,6 +184,7 @@ def anthropic_api_backend(
         step_name=step_name,
         hard_gate=hard_gate,
         stable_prefix=stable_prefix,
+        effort=effort,
     )
     headers = {
         "x-api-key": api_key,
@@ -291,7 +303,7 @@ def register() -> None:
         "anthropic-api",
         anthropic_api_backend,
         manifest_source="api_text_response",
-        capabilities=frozenset({"no_tools"}),
+        capabilities=frozenset({"no_tools", "effort"}),
         overwrite=True,
     )
 

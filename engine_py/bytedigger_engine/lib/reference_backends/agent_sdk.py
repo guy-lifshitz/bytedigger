@@ -345,6 +345,7 @@ def agent_sdk_backend(
     idle_timeout_sec: object = None,
     stable_prefix: str = "",
     fresh_session: bool = False,
+    effort: str | None = None,
 ) -> StepResult:
     """Warm-session agentic backend via `claude-agent-sdk` (resume semantics)."""
     if not _deps_importable():
@@ -441,6 +442,8 @@ def agent_sdk_backend(
                 "model": model, "resume": resume_this, "cwd": root,
                 "stderr": _on_stderr, **tool_options,
             }
+            if effort:  # bd#82: the chokepoint's resolved effort, native SDK field
+                option_kwargs["effort"] = effort
             try:
                 options = claude_agent_sdk.ClaudeAgentOptions(**option_kwargs)
             except TypeError as exc:
@@ -753,7 +756,7 @@ def register() -> None:
         "agent-sdk",
         agent_sdk_backend,
         manifest_source="git_diff",
-        capabilities=frozenset({"tool_allowlist", "warm_resume"}),
+        capabilities=frozenset({"tool_allowlist", "warm_resume", "effort"}),
         overwrite=True,
     )
 

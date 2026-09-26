@@ -84,6 +84,8 @@ _DEFAULT_BACKEND = "agent-sdk"
 _BACKEND_ENV_VAR = "HAL_RUNNER_BACKEND"
 _GATE_FLOOR_ENV_VAR = "HAL_GATE_MODEL_FLOOR"
 _IN_SESSION_ENFORCES_TOOLS_ENV_VAR = "HAL_IN_SESSION_ENFORCES_TOOLS"
+_IN_SESSION_APPLIES_EFFORT_ENV_VAR = "HAL_IN_SESSION_APPLIES_EFFORT"
+_ROLES = ("judge", "worker")
 
 # 4C03CCED Ship 1C: backend → manifest-source capability map.
 # A backend registered here can produce a worker_written_paths manifest sourced
@@ -109,7 +111,7 @@ _ALLOWED_MANIFEST_SOURCES: frozenset[str] = frozenset(_BACKEND_MANIFEST_SOURCE.v
 # argument (lib/reference_backends/anthropic_api.py:139,149) must NOT declare
 # it, so the attestation records "not-enforced" rather than an overclaim.
 _BACKEND_CAPABILITIES: dict[str, frozenset[str]] = {
-    "claude-subprocess": frozenset({"manifest", "progress_since", "abort", "tool_allowlist"}),
+    "claude-subprocess": frozenset({"manifest", "progress_since", "abort", "tool_allowlist", "effort"}),
     "claude-in-session": frozenset({"manifest"}),
 }
 
@@ -623,11 +625,13 @@ class _StragglerWatchdog:
 def _resolve_backend(
     kwarg: str | None,
     env: "Mapping[str, str]",
+    role: str | None = None,
 ) -> "tuple[str, str]":
-    """Resolve the runner backend from kwarg > env > default precedence.
+    """Resolve the runner backend: kwarg > HAL_RUNNER_BACKEND_<ROLE> (bd#82,
+    when a role is given) > HAL_RUNNER_BACKEND > default.
 
     Returns ``(resolved_backend, source)`` where source is one of
-    ``"kwarg"``, ``"env"``, or ``"default"``.
+    ``"kwarg"``, ``"env-role"``, ``"env"``, or ``"default"``.
 
     4C03CCED Ship 1A: selector-only; dispatch branching lives in Ship 1B+.
     """
@@ -636,6 +640,10 @@ def _resolve_backend(
         if stripped:
             return (stripped, "kwarg")
         # empty after strip → fall through to env
+    if role is not None:
+        role_val = (env.get(f"{_BACKEND_ENV_VAR}_{role.upper()}") or "").strip()
+        if role_val:
+            return (role_val, "env-role")
     env_val = env.get(_BACKEND_ENV_VAR)
     if env_val is not None:
         stripped_env = env_val.strip()
@@ -726,6 +734,7 @@ def _invoke_in_session(
     straggler_cfg: "dict | None" = None,
     idle_timeout_sec: "int | float | None" = None,
     stable_prefix: str = "",
+    effort: "str | None" = None,
 ) -> StepResult:
     """In-session dispatch path (4C03CCED Ship 1B — G3 file-protocol).
 
@@ -775,6 +784,7 @@ def _invoke_in_session(
         "prompt": prompt,
         "step_name": step_name,
         "allowed_tools": list(allowed_tools) if allowed_tools is not None else None,
+        "effort": effort,  # bd#82: applied by a servicer that declared it
         "model": model,
         "cwd": os.getcwd(),
         "timeout_sec": timeout_sec,
@@ -1052,11 +1062,15 @@ def _backend_capabilities(resolved_backend: str) -> "frozenset[str]":
     """Registered capabilities, plus the in-session servicer's declaration.
 
     bd#82: claude-in-session is serviced outside this engine, so it cannot
-    enforce a tool list itself; the servicer opts in with exactly
-    HAL_IN_SESSION_ENFORCES_TOOLS=1, which grants `tool_allowlist`."""
+    enforce a tool list or apply effort itself; the servicer opts in with
+    exactly HAL_IN_SESSION_ENFORCES_TOOLS=1 (grants `tool_allowlist`) and
+    HAL_IN_SESSION_APPLIES_EFFORT=1 (grants `effort`)."""
     caps = _BACKEND_CAPABILITIES.get(resolved_backend) or frozenset()
-    if resolved_backend == "claude-in-session" and config_provider.flag(_IN_SESSION_ENFORCES_TOOLS_ENV_VAR):
-        caps = caps | {"tool_allowlist"}
+    if resolved_backend == "claude-in-session":
+        if config_provider.flag(_IN_SESSION_ENFORCES_TOOLS_ENV_VAR):
+            caps = caps | {"tool_allowlist"}
+        if config_provider.flag(_IN_SESSION_APPLIES_EFFORT_ENV_VAR):
+            caps = caps | {"effort"}
     return caps
 
 
@@ -1112,6 +1126,40 @@ def _tool_restriction_refusal(
         recoverable=False,
     )
 
+
+
+def _effort_not_applied(
+    resolved_backend: str,
+    *,
+    effort: str,
+    hard_gate: bool,
+    step_name: str,
+    run_ctx: "_RunCtx | None",
+) -> "StepResult | None":
+    """bd#82: a resolved effort the backend cannot apply. A hard gate (whose
+    effort is an operator's by_model pin) is refused before dispatch; a worker
+    is dispatched and the gap is recorded."""
+    event = "gate_effort_refused" if hard_gate else "effort_not_applied"
+    payload = {"backend": resolved_backend, "step_name": step_name, "effort": effort}
+    if run_ctx is not None and run_ctx.event_log is not None:
+        _emit_safe(run_ctx.event_log, event, payload, run_ctx.run_id)
+    if not hard_gate:
+        logger.warning("%s: %s", event, payload)
+        return None
+    return StepResult(
+        status="error",
+        data=None,
+        duration_ms=0,
+        step_name=step_name,
+        error=(
+            f"backend {resolved_backend!r} cannot apply the pinned gate effort {effort!r}; "
+            "refusing to run the gate at a different effort — select a backend that "
+            "declares effort, or, for claude-in-session, have the servicer declare it "
+            f"with {_IN_SESSION_APPLIES_EFFORT_ENV_VAR}=1"
+        ),
+        error_code="E_GATE_EFFORT_UNSUPPORTED",
+        recoverable=False,
+    )
 
 def _observed(result: StepResult, key: str) -> object:
     """bd#10 `[bd10:5]` / `[bd10:12]`: what the adapter REPORTED for *key*, or
@@ -1318,9 +1366,11 @@ def _dispatch_backend(
     THE ORDER OF OPERATIONS IS THE CONTRACT:
 
       1. Refuse BEFORE dispatching, without calling the backend at all: the
-         hard-gate model floor, then a tool list the backend cannot enforce
-         (bd#82 — here, so every dispatch, the GH1169 fallback included, is
-         held to both), then invalid `injections`.
+         hard-gate model floor, then a tool list the backend cannot enforce,
+         then a gate effort pin it cannot apply (bd#82 — here, so every
+         dispatch, the GH1169 fallback included, is held to all three), then
+         invalid `injections`. Effort is resolved here, after GH375 tier
+         rebinding, so a rebound model gets its own effort.
       2. A refusal emits NOTHING (`[bd10:27]`): an attestation exists IF AND
          ONLY IF a dispatch occurred, because a record of an invocation that
          never happened reads as a fact and ends enquiry.
@@ -1351,6 +1401,15 @@ def _dispatch_backend(
     )
     if tool_err is not None:
         return tool_err
+    effort = _load_effort_gate(model) if hard_gate else _load_effort(model, step_name)
+    caps = _backend_capabilities(resolved_backend)
+    if effort and "effort" not in caps:
+        effort_err = _effort_not_applied(
+            resolved_backend, effort=effort, hard_gate=hard_gate, step_name=step_name,
+            run_ctx=run_ctx,
+        )
+        if effort_err is not None:
+            return effort_err
     inject_refusal = _injection_refusal(injections, prompt, step_name)
     if inject_refusal is not None:
         return inject_refusal
@@ -1360,7 +1419,9 @@ def _dispatch_backend(
     optional: dict[str, typing.Any] = {}
     if stable_prefix:
         optional["stable_prefix"] = stable_prefix
-    if "warm_resume" in _backend_capabilities(resolved_backend):
+    if effort and "effort" in caps:
+        optional["effort"] = effort
+    if "warm_resume" in caps:
         # bd#82: resolved here, so no dispatch path can forget that a gate is fresh.
         optional["fresh_session"] = fresh_session or hard_gate
     result = _BACKENDS[resolved_backend](
@@ -1475,6 +1536,7 @@ def invoke_llm_subprocess(
     injections: "Sequence[InjectedBlock] | None" = None,
     fresh_session: bool = False,
     tier_rebind: bool = True,
+    role: str | None = None,
 ) -> StepResult:
     """Run ``command`` with ``prompt`` on stdin, return a StepResult.
 
@@ -1575,9 +1637,15 @@ def invoke_llm_subprocess(
     scope. New phases SHOULD NOT pass ``--output-format`` themselves.
     """
     run_ctx = telemetry_ctx.get_current_run()
+    # bd#82: the role only routes the call; hard_gate alone decides the gate rules.
+    if role is not None and role not in _ROLES:
+        raise ValueError(f"invoke_llm_subprocess: role must be one of {_ROLES}, got {role!r}")
+    effective_role = role or ("judge" if hard_gate else "worker")
     # 4C03CCED Ship 1A: backend selector gate — runs before hard_gate check so
     # unknown backends fail-closed immediately and resolver telemetry always fires.
-    resolved_backend, resolved_source = _resolve_backend(backend, config_provider.env_mapping())
+    resolved_backend, resolved_source = _resolve_backend(
+        backend, config_provider.env_mapping(), role=effective_role,
+    )
     emit_resolver_resolved(
         "invoke_llm_subprocess_backend",
         resolved_source,
@@ -1598,6 +1666,7 @@ def invoke_llm_subprocess(
             "backend": resolved_backend,
             "source": resolved_source,
             "step_name": step_name,
+            "role": effective_role,
         }, run_ctx.run_id)
     if resolved_backend not in _KNOWN_BACKENDS:
         return StepResult(
@@ -1716,6 +1785,10 @@ def invoke_llm_subprocess(
     return result
 
 
+# bd#82: "no effort was passed" — the handler resolves it itself (direct calls).
+_EFFORT_UNSET = object()
+
+
 def _invoke_subprocess(
     *,
     prompt: str,
@@ -1730,6 +1803,7 @@ def _invoke_subprocess(
     straggler_cfg: "dict | None" = None,
     idle_timeout_sec: "int | float | None" = None,
     stable_prefix: str = "",
+    effort: "str | None | object" = _EFFORT_UNSET,
 ) -> StepResult:
     """Claude-subprocess backend handler (68E964FB: extracted from inline tail).
 
@@ -1778,7 +1852,11 @@ def _invoke_subprocess(
     # spawn keeps CLI-default effort UNLESS an explicit per-model pin (GH439,
     # claude.effort.by_model[family]) overrides it. Inert when claude.effort is
     # unset (both paths no-op via _apply_effort).
-    if not hard_gate:
+    # bd#82: the chokepoint passes the effort it resolved; a direct call
+    # resolves it here, as before.
+    if isinstance(effort, str) or effort is None:
+        effective_command = _apply_effort(effective_command, effort)
+    elif not hard_gate:
         effective_command = _apply_effort(effective_command, _load_effort(model, step_name))
     else:
         effective_command = _apply_effort(effective_command, _load_effort_gate(model))
@@ -2448,7 +2526,8 @@ def register_backend(
     Capability tokens are promises the dispatcher acts on: `tool_allowlist`
     (enforces `allowed_tools`), `no_tools` (text-only), and `warm_resume` —
     the impl keeps sessions across calls AND accepts a `fresh_session: bool`
-    keyword, which is True for every hard gate (bd#82).
+    keyword, which is True for every hard gate (bd#82); `effort` — the impl
+    accepts an `effort: str` keyword and applies it (bd#82).
     """
     global _KNOWN_BACKENDS, _ALLOWED_MANIFEST_SOURCES
     if not isinstance(name, str) or not name:

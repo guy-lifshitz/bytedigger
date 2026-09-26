@@ -978,7 +978,8 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     # CF2EE8ED §3.2: claude-in-session lacks 'abort' capability. If org_config
     # requests straggler_abort under in-session backend, WARN loudly and
     # auto-degrade. Ratified 2026-05-24.
-    if cfg.get("straggler_abort") and _resolve_backend(None, os.environ)[0] == "claude-in-session":
+    # bd#82: the reviewer is a judge — check the backend judges actually run on.
+    if cfg.get("straggler_abort") and _resolve_backend(None, os.environ, role="judge")[0] == "claude-in-session":
         logger.warning(
             "straggler_abort=true under claude-in-session backend is unsupported "
             "(no 'abort' capability); auto-degrading to straggler_abort=false for "
@@ -1019,6 +1020,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         straggler_cfg=straggler_cfg,
         stable_prefix=prev.data.get("stable_prefix", ""),
         fresh_session=True,  # bd#82: a reviewer must not resume an earlier transcript
+        role="judge",
     )
     return result
 
@@ -5184,6 +5186,7 @@ def _invoke_decorr_llm(ctx, prev) -> StepResult:
         step_name="invoke_decorr_llm",
         hard_gate=False,
         fresh_session=True,  # bd#82: a judge must not resume its earlier verdict
+        role="judge",
     )
     if result.status != "ok" or not isinstance(result.data, dict):
         error_code = result.error_code or "E_DECORR_INVOKE_FAILED"
