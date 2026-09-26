@@ -2281,7 +2281,9 @@ def _verify_spec_cite_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
         # must NOT inflate the repair/error findings count.
         # bd#87: one finding per distinct evidence line (N symbols cited
         # against one missing file are one defect).
-        evidence = dict.fromkeys(_cite_finding_evidence(u) for u in _parse_cite_blocking(proc.stdout))
+        evidence = list(dict.fromkeys(
+            _cite_finding_evidence(u) for u in _parse_cite_blocking(proc.stdout)
+        ))
         cite_findings = [
             {
                 "path": str(spec_path),

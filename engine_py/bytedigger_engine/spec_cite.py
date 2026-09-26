@@ -589,10 +589,16 @@ BLOCKING_STATUSES = frozenset({"unresolved_symbol", "missing_file", "no_citation
 _ANCHORED_CITATION_RE = re.compile(r"[\w./-]+\.(?:py|ts|tsx|js|sh|md|yml):(?:\d|\")")
 
 # A source file in a language this lint does not index: a spec targeting it
-# is out of the lint's reach, not blind.
-_OTHER_SOURCE_FILE_RE = re.compile(
-    r"[\w./-]+\.(?:go|rs|java|kt|kts|rb|c|h|cc|cpp|hpp|cs|swift|php|scala|m|mm|lua|dart|ex|exs|zig)\b"
+# is out of the lint's reach, not blind. Anything in _CODE_EXTS is excluded,
+# so extending the indexed set can never leave an extension in both.
+_OTHER_SOURCE_EXTS = tuple(
+    e for e in (
+        "go", "rs", "java", "kt", "kts", "rb", "c", "h", "cc", "cpp", "hpp", "cs",
+        "swift", "php", "scala", "m", "mm", "lua", "dart", "ex", "exs", "zig",
+    )
+    if f".{e}" not in _CODE_EXTS
 )
+_OTHER_SOURCE_FILE_RE = re.compile(r"[\w./-]+\.(?:" + "|".join(_OTHER_SOURCE_EXTS) + r")\b")
 
 
 def _is_blind(spec_text: str, citations: list[Citation]) -> bool:
