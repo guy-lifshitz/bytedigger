@@ -25,7 +25,7 @@ The spec (§"TWO COPIES" and AC5) states that in `phase_5_integrity`
 attempt)". That is FALSE as of this commit. Lines 557-566 are the *classify*
 step, which sits DOWNSTREAM of `_invoke_integrity_llm`, and that step already
 carries GH786's bounded completeness re-ask (phase_5_integrity.py:468-490,
-budget from `_resolve_integrity_verdict_retries`, default 1, env
+budget from `phase_workflows_common.resolve_integrity_verdict_retries`, default 1, env
 HAL_INTEGRITY_VERDICT_RETRY_MAX). The spec measured the wrong function.
 
 Consequence for the AC table: AC5's stated reddening condition ("a refusal without
@@ -793,7 +793,7 @@ def test_ac5_integrity_reasks_before_failing(tmp_path, monkeypatch):
     """AC5: SHIELD: green before the change; pins behaviour GREEN must not break.
 
     With two consecutive VERDICT-less replies and the default retry budget
-    (`_resolve_integrity_verdict_retries` default=1), `invoke_llm_subprocess`
+    (`phase_workflows_common.resolve_integrity_verdict_retries` default=1), `invoke_llm_subprocess`
     must be called exactly twice before the run terminates with
     E_INTEGRITY_NO_MARKER — GH786's bounded re-ask loop already exists.
     """

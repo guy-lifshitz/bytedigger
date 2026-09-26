@@ -162,8 +162,8 @@ from bytedigger_engine.lib.plugins.review_schema import (  # noqa: E402  812D250
     SEVERITY_HDR_LINE_RE,  # GH970: tolerant SEVERITY-header parse
     SEVERITY_HDR_MULTILINE_RE,  # GH970
     lint_role_report,  # GH970 D2: malformed-header lint
+    canonicalize_severity_headers,  # bd#84
 )
-from bytedigger_engine.lib.llm_output_normalize import canonicalize_severity_headers  # noqa: E402  bd#84
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402  DD34EEBF: scratchpad ref persistence
 from bytedigger_engine.reject_log import record_satisfaction_reject  # noqa: E402  EECA708D
 from bytedigger_engine.net_new_delta import delta_verdict  # noqa: E402  GH316 post-fix typecheck gate

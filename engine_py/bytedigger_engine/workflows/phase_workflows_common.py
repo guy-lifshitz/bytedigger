@@ -595,19 +595,21 @@ def resolve_integrity_verdict_retries(cfg: dict[str, Any] | None) -> int:
 def reroll_until_verdict(
     attempt: Callable[[], StepResult],
     has_verdict: Callable[[str], bool],
-    max_retries: int,
+    cfg: dict[str, Any] | None,
 ) -> StepResult:
     """GH786 / bd#84: a missing verdict marker is re-rolled, not terminal.
 
     Calls ``attempt`` (which must re-send the IDENTICAL prompt — a pure
     re-roll, GH705) until an ok reply's ``raw_response`` satisfies
-    ``has_verdict`` or ``max_retries`` re-rolls are spent. A non-ok result
+    ``has_verdict`` or the ``resolve_integrity_verdict_retries(cfg)`` budget
+    is spent. A non-ok result
     (subprocess/timeout/error) is a different failure class and ends the
     loop. The returned result carries ``verdict_completeness_retries`` and,
     once a reply was re-rolled, ``discarded_raw_responses`` (the replies
     without a verdict, oldest first) so their analysis is not lost; each
     re-roll also emits ``integrity_verdict_reroll``.
     """
+    max_retries = resolve_integrity_verdict_retries(cfg)
     discarded: list[str] = []
     result = attempt()
     while result.status == "ok":

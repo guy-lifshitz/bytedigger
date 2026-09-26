@@ -283,7 +283,7 @@ def test_ac3_status_choice_list_ignored_superset_marker_kept():
     ],
 )
 def test_ac4_canonicalizes_finding_headers(line, expected):
-    from bytedigger_engine.lib.llm_output_normalize import canonicalize_severity_headers  # noqa: PLC0415
+    from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
 
     assert canonicalize_severity_headers(line) == expected
 
@@ -315,13 +315,13 @@ def test_ac4_canonicalizes_finding_headers(line, expected):
     ],
 )
 def test_ac4_leaves_other_lines_untouched(line):
-    from bytedigger_engine.lib.llm_output_normalize import canonicalize_severity_headers  # noqa: PLC0415
+    from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
 
     assert canonicalize_severity_headers(line) == line
 
 
 def test_ac4_fenced_lines_untouched_rest_rewritten():
-    from bytedigger_engine.lib.llm_output_normalize import canonicalize_severity_headers  # noqa: PLC0415
+    from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
 
     text = "```md\n### HIGH — inside a fence\n```\n### LOW — outside\n> f.py:1: x"
     assert canonicalize_severity_headers(text) == (
@@ -679,6 +679,6 @@ def test_rv_error_on_retry_keeps_retry_count(tmp_path, monkeypatch):
     ],
 )
 def test_rv_real_findings_are_not_placeholders(line, expected):
-    from bytedigger_engine.lib.llm_output_normalize import canonicalize_severity_headers  # noqa: PLC0415
+    from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
 
     assert canonicalize_severity_headers(line) == expected

@@ -15,7 +15,8 @@ from bytedigger_engine.lib.llm_output_normalize import normalize_model_output
 # `SHIP / REVISE`) — typically the model echoing the prompt's schema — never
 # a verdict (bd#84). A separator followed by prose is a gloss and does not
 # count: `VERDICT: ASSERTION_GAMING / assertEqual removed` is a verdict.
-_CHOICE_SEP = r"[ \t]*(?:\||/|\bor\b)[ \t]*(?:[A-Za-z][A-Za-z _]*:[ \t]*)?"
+_CHOICE_SEP_CORE = r"(?:\||/|\bor\b)"
+_CHOICE_SEP = rf"[ \t]*{_CHOICE_SEP_CORE}[ \t]*(?:[A-Za-z][A-Za-z _]*:[ \t]*)?"
 
 
 def _normalize(raw):
@@ -30,11 +31,17 @@ def _normalize(raw):
     return normalize_model_output(raw)
 
 
+def _token_alt(tokens: Sequence[str]) -> str:
+    """Regex alternation of ``tokens``, longest first so a token never
+    shadows a longer one it prefixes (`DONE` vs `DONE_WITH_CONCERNS`).
+    Builds a pattern; parses no model text — verdict-anchor: exempt."""
+    return "|".join(re.escape(t) for t in sorted(tokens, key=len, reverse=True))
+
+
 def _choice_rx(options: Sequence[str]) -> re.Pattern[str]:
     """Compile the choice-list matcher for ``options`` (builds a pattern; parses
     no model text — verdict-anchor: exempt)."""
-    alt = "|".join(re.escape(o) for o in sorted(options, key=len, reverse=True))
-    return re.compile(_CHOICE_SEP + rf"(?:{alt})(?![A-Za-z0-9_])", re.IGNORECASE)
+    return re.compile(_CHOICE_SEP + rf"(?:{_token_alt(options)})(?![A-Za-z0-9_])", re.IGNORECASE)
 
 
 def _is_choice(raw: str, token_end: int, choice_rx: re.Pattern[str]) -> bool:
@@ -74,8 +81,7 @@ def last_standalone_line_verdict(
     if not raw or not tokens:
         return fallback
 
-    sorted_tokens = sorted(tokens, key=len, reverse=True)
-    alt = "|".join(re.escape(t) for t in sorted_tokens)
+    alt = _token_alt(tokens)
     if allow_trailing:
         tail = r")(?=$|[^A-Za-z0-9]).*$"
     else:
@@ -127,23 +133,19 @@ def verdict_under_heading(
     if not raw or not tokens:
         return fallback
 
-    sorted_tokens = sorted(tokens, key=len, reverse=True)
-    alt = "|".join(re.escape(t) for t in sorted_tokens)
+    alt = _token_alt(tokens)
     h = re.escape(heading)
-    token_end = r"(?=[ \t]*(?:$|[—–-][ \t]|[.!][ \t]*$|(?:\||/|or\b)))"
-    pattern = (
-        rf"^[ \t]*{h}[ \t]*(?::[ \t]*\n|\n)\s*({alt}){token_end}"
-        rf"|^[ \t]*{h}[ \t]*:[ \t]*({alt}){token_end}"
-    )
-    rx = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
+    # The token ends its line, opens a dash gloss, or opens a choice list
+    # (rejected below by _is_choice) — never a sentence (`pass rate is …`).
+    token_end = rf"(?=[ \t]*(?:$|[—–-][ \t]|[.!][ \t]*$|{_CHOICE_SEP_CORE}))"
+    rx = re.compile(rf"^[ \t]*{h}[ \t]*(?::|\n)\s*({alt}){token_end}", re.MULTILINE | re.IGNORECASE)
     choice_rx = _choice_rx(tokens)
 
     found: set[str] = set()
     for m in rx.finditer(raw):
-        group = 1 if m.group(1) is not None else 2
-        if _is_choice(raw, m.end(group), choice_rx):
+        if _is_choice(raw, m.end(1), choice_rx):
             continue
-        token = m.group(group).upper()
+        token = m.group(1).upper()
         found.add(aliases.get(token, token) if aliases else token)
     if len(found) != 1:
         return fallback
@@ -213,8 +215,7 @@ def find_last_standalone_marker(
     if not raw or not tokens:
         return None
 
-    sorted_tokens = sorted(tokens, key=len, reverse=True)
-    alt = "|".join(re.escape(t) for t in sorted_tokens)
+    alt = _token_alt(tokens)
     pattern = r"^(" + alt + r")" + re.escape(suffix) + r"\s*$"
     rx = re.compile(pattern, re.MULTILINE)
 

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 
+from bytedigger_engine.lib.llm_output_normalize import fence_mask, strip_emphasis
+
 # ── PER_ROLE_SCHEMA_TEMPLATE ──────────────────────────────────────────────────
 # Verbatim move from workflows/phase_6_review.py lines 854-869 (pre-Ship-B).
 # Do NOT compress — content must be byte-equivalent to what was inline.
@@ -94,7 +96,8 @@ ROLE_FINDINGS_COUNT_MARKER_RE: re.Pattern[str] = re.compile(
 # PER_ROLE_SCHEMA_TEMPLATE above; ## and #### are also accepted so a
 # well-formed-but-off-prescription header is not structurally invisible to
 # the aggregator). Group contract: group(1)=severity, group(2)=title.
-SEVERITY_HDR_CORE: str = r"#{2,4}\s+SEVERITY:\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*[—-]\s*(.+?)\s*$"
+SEVERITY_LEVELS: str = "CRITICAL|HIGH|MEDIUM|LOW"
+SEVERITY_HDR_CORE: str = rf"#{{2,4}}\s+SEVERITY:\s*({SEVERITY_LEVELS})\s*[—-]\s*(.+?)\s*$"
 SEVERITY_HDR_LINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE, re.IGNORECASE)
 SEVERITY_HDR_MULTILINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE, re.IGNORECASE | re.MULTILINE)
 
@@ -105,7 +108,7 @@ SEVERITY_HDR_MULTILINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE
 # parse under SEVERITY_HDR_LINE_RE — these findings are structurally invisible
 # to the aggregator.
 SEVERITY_MALFORMED_LINE_RE: re.Pattern[str] = re.compile(
-    r"^\s*(?:#{1,6}\s*|\*{1,2}\s*)?SEVERITY\s*:?\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*[—-]",
+    rf"^\s*(?:#{{1,6}}\s*|\*{{1,2}}\s*)?SEVERITY\s*:?\s*({SEVERITY_LEVELS})\s*[—-]",
     re.IGNORECASE,
 )
 
@@ -119,3 +122,69 @@ def lint_role_report(content: str) -> list[str]:
         if SEVERITY_MALFORMED_LINE_RE.match(stripped) and not SEVERITY_HDR_LINE_RE.match(stripped):
             flagged.append(stripped)
     return flagged
+
+
+# ── canonicalize_severity_headers — bd#84 ────────────────────────────────────
+# Models drop the `SEVERITY:` word or wrap the header in bold; such findings
+# were structurally invisible (counted as zero → a false clean review). The
+# aggregator rewrites finding-shaped lines to the canonical header before
+# parsing, with the model-output dressing rules of llm_output_normalize.
+#
+# Finding-shaped lines: a `##`-`####` heading (the GH970 range — `#` and
+# `#####` stay invisible) or a line that opens with bold.
+_SEVERITY_HEADING_RE = re.compile(r"^[ ]{0,3}#{2,4}[ \t]+(.*?)[ \t]*$")
+_BOLD_LEAD_RE = re.compile(r"^[ ]{0,3}(\*\*.*?)[ \t]*$")
+_SEVERITY_TEXT_RE = re.compile(
+    r"^(?:(?P<word>SEVERITY)[ \t]*:?[ \t]*)?"
+    rf"(?P<level>{SEVERITY_LEVELS})\b"
+    r"(?:[ \t]*[—–][ \t]*|[ \t]+-[ \t]+|[ \t]*:[ \t]*)"
+    r"(?P<title>\S.*?)[ \t]*$",
+    re.IGNORECASE,
+)
+# `### Critical — No critical issues found` / `### LOW — None.` report the
+# absence of findings. Whole-title match only: `None of the error paths are
+# tested` is a real finding.
+_PLACEHOLDER_TITLE_RE = re.compile(
+    r"^(?:(?:none|nothing|(?:no|0|zero)\s+(?:\w+\s+){0,2}(?:issues?|findings?|problems?|bugs?))"
+    r"(?:\s+(?:found|identified|reported|to\s+report))?|n/?a)[.!]?$",
+    re.IGNORECASE,
+)
+
+
+def _canonical_severity_line(line: str) -> str:
+    if SEVERITY_HDR_LINE_RE.match(line):
+        return line  # already parses (GH970 form) — keep byte-identical
+    m = _SEVERITY_HEADING_RE.match(line) or _BOLD_LEAD_RE.match(line)
+    if not m:
+        return line
+    t = _SEVERITY_TEXT_RE.match(strip_emphasis(m.group(1)))
+    if not t:
+        return line
+    level = t.group("level")
+    # Without the SEVERITY word only an UPPERCASE level marks a finding:
+    # `### High — Summary of review` and `## Low - priority items` are titles.
+    if not t.group("word") and level != level.upper():
+        return line
+    title = t.group("title").strip().strip("*_").strip()
+    if not title or _PLACEHOLDER_TITLE_RE.match(title):
+        return line
+    return f"### SEVERITY: {level.upper()} — {title}"
+
+
+def canonicalize_severity_headers(text: str) -> str:
+    """Rewrite finding-shaped lines to ``### SEVERITY: <LEVEL> — <title>``.
+
+    A finding-shaped line is a ``##``-``####`` heading (the GH970 tolerance
+    of ``SEVERITY_HDR_CORE``; ``#`` and ``#####`` stay invisible) or a line
+    that opens with bold, whose text starts with ``SEVERITY[:] <level>`` (any
+    case) or an UPPERCASE level, then a dash or colon and a real title:
+    ``### HIGH — t``, ``**SEVERITY: LOW** — t``, ``#### Severity: critical: t``.
+    A line that already parses under ``SEVERITY_HDR_LINE_RE`` is left as is,
+    as are placeholders (``— none found``), fenced lines and plain body lines.
+    """
+    if not text:
+        return text
+    lines = text.split("\n")
+    return "\n".join(
+        line if f else _canonical_severity_line(line) for line, f in zip(lines, fence_mask(lines))
+    )

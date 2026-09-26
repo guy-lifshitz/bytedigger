@@ -10,21 +10,15 @@ This module is the single place that strips that dressing. Parsers stay
 strict about *structure* (line anchors, last-wins, choice lists); they no
 longer need to know about markdown.
 
-Two entry points:
-
-- ``normalize_model_output`` — for verdict/marker parsers. Line-preserving.
-- ``canonicalize_severity_headers`` — for the review aggregator. Rewrites a
-  finding-shaped heading or bold line into the canonical
-  ``### SEVERITY: <LEVEL> — <title>`` form; every other line is untouched.
-
-Both leave fenced code blocks byte-identical: code in a reply is quoted
-material, never the reply's own verdict or finding.
+Entry point: ``normalize_model_output`` (line-preserving; fenced code blocks
+stay byte-identical — code in a reply is quoted material, never the reply's
+own verdict). ``fence_mask`` and ``strip_emphasis`` are shared with
+``review_schema.canonical.canonicalize_severity_headers``, which applies the
+same dressing rules to finding headers.
 """
 from __future__ import annotations
 
 import re
-
-from bytedigger_engine.lib.plugins.review_schema.canonical import SEVERITY_HDR_LINE_RE
 
 _FENCE_OPEN_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})[^`]*$")
 _CODE_SPAN_LINE_RE = re.compile(r"^([ \t]*)`([^`\n]+)`[ \t]*$")
@@ -37,27 +31,6 @@ _HEADING_RE = re.compile(r"^[ ]{0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 # line-anchored parsers keep ignoring it.
 _MAX_MARKER_HEADING_WORDS = 2
 
-# Finding-shaped lines: a `##`-`####` heading (the GH970 range — `#` and
-# `#####` stay invisible) or a line that opens with bold.
-_SEVERITY_HEADING_RE = re.compile(r"^[ ]{0,3}#{2,4}[ \t]+(.*?)[ \t]*$")
-_BOLD_LEAD_RE = re.compile(r"^[ ]{0,3}(\*\*.*?)[ \t]*$")
-_SEVERITY_TEXT_RE = re.compile(
-    r"^(?:(?P<word>SEVERITY)[ \t]*:?[ \t]*)?"
-    r"(?P<level>CRITICAL|HIGH|MEDIUM|LOW)\b"
-    r"(?:[ \t]*[—–][ \t]*|[ \t]+-[ \t]+|[ \t]*:[ \t]*)"
-    r"(?P<title>\S.*?)[ \t]*$",
-    re.IGNORECASE,
-)
-# `### Critical — No critical issues found` / `### LOW — None.` report the
-# absence of findings. Whole-title match only: `None of the error paths are
-# tested` is a real finding.
-_PLACEHOLDER_TITLE_RE = re.compile(
-    r"^(?:(?:none|nothing|(?:no|0|zero)\s+(?:\w+\s+){0,2}(?:issues?|findings?|problems?|bugs?))"
-    r"(?:\s+(?:found|identified|reported|to\s+report))?|n/?a)[.!]?$",
-    re.IGNORECASE,
-)
-
-
 def _unwrap_bold_underscore(m: re.Match[str]) -> str:
     # verdict-anchor: exempt — part of the normalizer itself.
     inner = m.group(1)
@@ -65,7 +38,7 @@ def _unwrap_bold_underscore(m: re.Match[str]) -> str:
     return inner if re.search(r"\W", inner) else m.group(0)
 
 
-def _strip_emphasis(text: str) -> str:
+def strip_emphasis(text: str) -> str:
     text = _BOLD_STAR_RE.sub(r"\1", text)
     return _BOLD_UNDERSCORE_RE.sub(_unwrap_bold_underscore, text)
 
@@ -73,10 +46,9 @@ def _strip_emphasis(text: str) -> str:
 def _normalize_line(line: str, *, unwrap_code_span: bool = False) -> str:
     while True:
         before = line
-        m = _CODE_SPAN_LINE_RE.match(line)
-        if m and unwrap_code_span:
+        if unwrap_code_span and (m := _CODE_SPAN_LINE_RE.match(line)):
             line = m.group(1) + m.group(2)
-        line = _strip_emphasis(line)
+        line = strip_emphasis(line)
         m = _HEADING_RE.match(line)
         if m and len(m.group(1).split()) <= _MAX_MARKER_HEADING_WORDS:
             line = m.group(1)
@@ -85,7 +57,7 @@ def _normalize_line(line: str, *, unwrap_code_span: bool = False) -> str:
             return line
 
 
-def _fence_mask(lines: list[str]) -> list[bool]:
+def fence_mask(lines: list[str]) -> list[bool]:
     """Per line: True when it belongs to a fenced code block (delimiters included).
 
     A fence closes on a line of the same character, at least as long as the
@@ -145,46 +117,7 @@ def normalize_model_output(raw: str | None) -> str | None:
     if not raw:
         return raw
     lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    fenced = _fence_mask(lines)
+    fenced = fence_mask(lines)
     out = [line if f else _normalize_line(line) for line, f in zip(lines, fenced)]
     _unwrap_final_code_span(out, fenced)
     return "\n".join(out)
-
-
-def _canonical_severity_line(line: str) -> str:
-    if SEVERITY_HDR_LINE_RE.match(line):
-        return line  # already parses (GH970 form) — keep byte-identical
-    m = _SEVERITY_HEADING_RE.match(line) or _BOLD_LEAD_RE.match(line)
-    if not m:
-        return line
-    t = _SEVERITY_TEXT_RE.match(_strip_emphasis(m.group(1)))
-    if not t:
-        return line
-    level = t.group("level")
-    # Without the SEVERITY word only an UPPERCASE level marks a finding:
-    # `### High — Summary of review` and `## Low - priority items` are titles.
-    if not t.group("word") and level != level.upper():
-        return line
-    title = t.group("title").strip().strip("*_").strip()
-    if not title or _PLACEHOLDER_TITLE_RE.match(title):
-        return line
-    return f"### SEVERITY: {level.upper()} — {title}"
-
-
-def canonicalize_severity_headers(text: str) -> str:
-    """Rewrite finding-shaped lines to ``### SEVERITY: <LEVEL> — <title>``.
-
-    A finding-shaped line is a ``##``-``####`` heading (the GH970 tolerance
-    of ``SEVERITY_HDR_CORE``; ``#`` and ``#####`` stay invisible) or a line
-    that opens with bold, whose text starts with ``SEVERITY[:] <level>`` (any
-    case) or an UPPERCASE level, then a dash or colon and a real title:
-    ``### HIGH — t``, ``**SEVERITY: LOW** — t``, ``#### Severity: critical: t``.
-    A line that already parses under ``SEVERITY_HDR_LINE_RE`` is left as is,
-    as are placeholders (``— none found``), fenced lines and plain body lines.
-    """
-    if not text:
-        return text
-    lines = text.split("\n")
-    return "\n".join(
-        line if f else _canonical_severity_line(line) for line, f in zip(lines, _fence_mask(lines))
-    )

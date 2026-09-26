@@ -70,7 +70,6 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
 from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  bd#84
-    resolve_integrity_verdict_retries,
     reroll_until_verdict,
 )
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
@@ -603,12 +602,14 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
         )
 
     cfg = ctx.org_config or {}
+    model = _resolve_model(cfg, "fix_integrity_model", _default_model())
+    timeout_sec = _resolve_integrity_timeout_sec(cfg)
 
     def _attempt() -> StepResult:
         return invoke_llm_subprocess(
             prompt=prev.data["prompt"],
-            model=_resolve_model(cfg, "fix_integrity_model", _default_model()),
-            timeout_sec=_resolve_integrity_timeout_sec(cfg),
+            model=model,
+            timeout_sec=timeout_sec,
             step_name="invoke_fix_integrity_llm",
             extra_data={
                 "doc_path": prev.data["doc_path"],
@@ -625,7 +626,7 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
     return reroll_until_verdict(
         _attempt,
         lambda raw: _parse_verdict(raw) != VERDICT_UNKNOWN,
-        resolve_integrity_verdict_retries(cfg),
+        cfg,
     )
 
 

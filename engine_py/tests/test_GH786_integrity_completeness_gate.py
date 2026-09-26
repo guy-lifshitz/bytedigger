@@ -8,7 +8,7 @@ UUT: `_invoke_integrity_llm(ctx, prev)` in
 `SYSTEM/cli/build/engine_py/workflows/phase_5_integrity.py`.
 GREEN will wrap the single `invoke_llm_subprocess` call in a bounded retry
 loop gated by `_parse_verdict(raw) != VERDICT_UNKNOWN` (a new, not-yet-existing
-resolver `_resolve_integrity_verdict_retries(cfg)` bounds the loop) and will
+resolver `phase_workflows_common.resolve_integrity_verdict_retries(cfg)` bounds the loop) and will
 add a new additive field `data["verdict_completeness_retries"]`.
 
 Per §1q: UUTs are imported INSIDE each test body, never at module top level.

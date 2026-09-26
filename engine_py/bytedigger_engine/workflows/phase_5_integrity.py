@@ -105,7 +105,6 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
 from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  GH786 / bd#84
-    resolve_integrity_verdict_retries,
     reroll_until_verdict,
 )
 from bytedigger_engine.config_provider import get_config, timeout_policy_path  # noqa: E402  GH285 C2  GH892
@@ -454,7 +453,7 @@ def _invoke_integrity_llm(ctx, prev) -> StepResult:
     return reroll_until_verdict(
         _attempt,
         lambda raw: _parse_verdict(raw) != VERDICT_UNKNOWN,
-        resolve_integrity_verdict_retries(cfg),
+        cfg,
     )
 
 
