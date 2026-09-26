@@ -23,6 +23,7 @@ from bytedigger_engine.package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
 from . import anthropic_oauth
 from .anthropic_oauth import OAUTH_BETA_HEADER
 from .pydantic_openai import (
+    _policy_tools,
     _extract_usage_tokens,
     _is_git_repo,
     _kill_active_procs,
@@ -61,7 +62,7 @@ def pydantic_anthropic_backend(
     timeout_sec: int | float,
     step_name: str,
     extra_data: dict[str, object] | None = None,
-    allowed_tools: object = None,
+    allowed_tools: "list[str] | None" = None,
     run_ctx: object = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
@@ -134,29 +135,28 @@ def pydantic_anthropic_backend(
 
     cancel_event = threading.Event()
 
-    @agent.tool_plain  # type: ignore[untyped-decorator]
     def write_file(path: str, content: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_write_file(root, path, content)
 
-    @agent.tool_plain  # type: ignore[untyped-decorator]
     def edit_file(path: str, old: str, new: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_edit_file(root, path, old, new)
 
-    @agent.tool_plain  # type: ignore[untyped-decorator]
     def run_tests(command: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_run_tests(root, command, cancel_event=cancel_event)
 
-    @agent.tool_plain  # type: ignore[untyped-decorator]
     def bash(command: str) -> str:
         if cancel_event.is_set():
             return "error: run cancelled (timeout)"
         return _tool_bash(root, command, cancel_event=cancel_event)
+
+    for tool in _policy_tools(allowed_tools, (write_file, edit_file, run_tests, bash)):
+        agent.tool_plain(tool)
 
     usage_limits = UsageLimits(request_limit=50)
 
@@ -287,7 +287,7 @@ def register() -> None:
         "pydantic-anthropic",
         pydantic_anthropic_backend,
         manifest_source="git_diff",
-        capabilities=frozenset(),
+        capabilities=frozenset({"tool_allowlist"}),
         overwrite=True,
     )
 

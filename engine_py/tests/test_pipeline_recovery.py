@@ -165,6 +165,7 @@ def cycle_aware_validator_stub(verdicts: list[str], git_cwd: str | None = None) 
         "claude-subprocess",
         _CycleAwareBackend(verdicts, git_cwd),
         manifest_source="harness_tool_record",
+        capabilities=frozenset({"tool_allowlist"}),  # bd#82: stands in for an enforcing backend
         overwrite=True,
     )
 

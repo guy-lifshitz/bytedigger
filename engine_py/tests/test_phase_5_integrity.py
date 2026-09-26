@@ -55,6 +55,7 @@ def _reset_backends_integrity(monkeypatch):
         _DEFAULT_INTEGRITY_BACKEND,
         _PassthroughBackend(),
         manifest_source="harness_tool_record",
+        capabilities=frozenset({"tool_allowlist"}),  # bd#82: stands in for an enforcing backend
         overwrite=True,
     )
     yield
@@ -155,17 +156,20 @@ _MARKER_BACKEND = "p5i-marker"
 
 def _register_echo(payload: str, name: str = _ECHO_BACKEND) -> str:
     """Register an echo backend and return the backend name for HAL_RUNNER_BACKEND."""
-    register_backend(name, _EchoBackend(payload), manifest_source="harness_tool_record", overwrite=True)
+    register_backend(name, _EchoBackend(payload), manifest_source="harness_tool_record",
+                     capabilities={"tool_allowlist"}, overwrite=True)  # bd#82
     return name
 
 
 def _register_passthrough(name: str = _PASS_BACKEND) -> str:
-    register_backend(name, _PassthroughBackend(), manifest_source="harness_tool_record", overwrite=True)
+    register_backend(name, _PassthroughBackend(), manifest_source="harness_tool_record",
+                     capabilities={"tool_allowlist"}, overwrite=True)  # bd#82
     return name
 
 
 def _register_fail(exit_code: int = 9, name: str = _FAIL_BACKEND) -> str:
-    register_backend(name, _FailBackend(exit_code), manifest_source="harness_tool_record", overwrite=True)
+    register_backend(name, _FailBackend(exit_code), manifest_source="harness_tool_record",
+                     capabilities={"tool_allowlist"}, overwrite=True)  # bd#82
     return name
 
 
@@ -727,7 +731,9 @@ def test_per_step_command_falls_back_to_global(tmp_path):
     eng.register("p5i", phase_5_integrity_workflow())
     result, _ = eng.execute(
         "p5i",
-        make_ctx(scratchpad, git_cwd=str(repo), model="sonnet"),
+        # bd#82: the integrity gate's floor is checked before dispatch on every
+        # backend, so the global fallback model must meet it.
+        make_ctx(scratchpad, git_cwd=str(repo), model="opus"),
     )
     assert result.status == "ok"
 

@@ -10,9 +10,12 @@ The engine lives in `engine_py/` and is plain Python (3.9+), no runtime dependen
 
 ```bash
 cd engine_py
-pip install -e ".[test]"
+pip install -e ".[test]" "claude-agent-sdk==0.2.120"
 python -m pytest tests/ -q
 ```
+
+`claude-agent-sdk` is not a declared dependency; a few tests drive the real SDK transport to
+the argv it would spawn (nothing is spawned), and CI pins the same version.
 
 The suite is hermetic -- no network, no dbos, no API keys needed. If a test wants any of those, that's a bug.
 

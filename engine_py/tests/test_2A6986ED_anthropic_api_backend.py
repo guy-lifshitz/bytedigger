@@ -131,7 +131,7 @@ def test_ac1_backend_registered_in_known_backends():
 
 def test_ac2_manifest_source_and_capabilities():
     """AC2: _BACKEND_MANIFEST_SOURCE["anthropic-api"]=="api_text_response"
-    AND _BACKEND_CAPABILITIES["anthropic-api"]==frozenset().
+    AND _BACKEND_CAPABILITIES["anthropic-api"]==frozenset({"no_tools"}) (bd#82).
 
     Pre-GREEN FAIL: ImportError from _import_backend().
     """
@@ -141,8 +141,8 @@ def test_ac2_manifest_source_and_capabilities():
         f"AC2: _BACKEND_MANIFEST_SOURCE['anthropic-api'] must be 'api_text_response'; "
         f"got {llm_subprocess._BACKEND_MANIFEST_SOURCE.get('anthropic-api')!r}"
     )
-    assert llm_subprocess._BACKEND_CAPABILITIES.get("anthropic-api") == frozenset(), (
-        f"AC2: _BACKEND_CAPABILITIES['anthropic-api'] must be frozenset(); "
+    assert llm_subprocess._BACKEND_CAPABILITIES.get("anthropic-api") == frozenset({"no_tools"}), (
+        f"AC2: _BACKEND_CAPABILITIES['anthropic-api'] must be frozenset({'no_tools'}) (bd#82); "
         f"got {llm_subprocess._BACKEND_CAPABILITIES.get('anthropic-api')!r}"
     )
 

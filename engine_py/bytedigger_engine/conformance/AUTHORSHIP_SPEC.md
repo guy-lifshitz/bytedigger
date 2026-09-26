@@ -622,6 +622,10 @@ Normative for this lot:
   `lib/reference_backends/anthropic_api.py:139,149` **accepts and ignores** `allowed_tools`, so an
   engine claiming enforcement uniformly would be claiming it for an adapter that has none.
   Asserted non-uniformly across **two** backends in one test, one of each value.
+  *bd#82 amendment:* the closed set is now `{"runtime-allowlist", "no-tools", "not-enforced"}`.
+  `"no-tools"` comes from a `"no_tools"` capability token declared by a text-only backend
+  (`anthropic-api`): no tool can be called, so nothing is left to enforce, and it still does not
+  claim `"runtime-allowlist"`.
 - **AC-C3** **ADV-10 / R3.6.** `capability_escapes(observed_tools, declared)` returns the sorted,
   deduplicated tool heads in `observed_tools` that are outside `declared`; a non-empty result
   yields `StepResult(status="error", error_code="E_CAPABILITY_ESCAPE", recoverable=False)`.

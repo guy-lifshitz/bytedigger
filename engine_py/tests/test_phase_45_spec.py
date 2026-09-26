@@ -294,7 +294,7 @@ def _register_stub(backend: Any, manifest_source: str = "harness_tool_record") -
         "claude-subprocess",
         backend,
         manifest_source=manifest_source,
-        capabilities=frozenset({"manifest", "progress_since", "abort"}),
+        capabilities=frozenset({"manifest", "progress_since", "abort", "tool_allowlist"}),
         overwrite=True,
     )
 

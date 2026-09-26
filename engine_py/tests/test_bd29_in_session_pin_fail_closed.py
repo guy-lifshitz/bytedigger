@@ -230,8 +230,10 @@ def test_ac6_hard_gate_drift_still_handled_by_its_own_guard(tmp_path, monkeypatc
     (02FF48F4). The flip has no right to replace its refusal code with its own —
     otherwise two guards on one path start arguing about the error code.
     """
+    # bd#82: a below-floor pin is now refused before dispatch (AC6b), so the drift
+    # this leg measures needs an opus-floor pin to reach the in-session round trip.
     result, _log = _drive_in_session(
-        tmp_path, monkeypatch, dispatched_model="haiku", hard_gate=True,
+        tmp_path, monkeypatch, dispatched_model="haiku", pinned_model="opus", hard_gate=True,
     )
 
     assert result.status == "error", (
@@ -254,3 +256,22 @@ def test_ac6_hard_gate_drift_still_handled_by_its_own_guard(tmp_path, monkeypatc
         f"E_MODEL_PIN_MISMATCH (the chokepoint overwrites E_HARD_GATE_MODEL_DOWNGRADE), "
         f"got {result.error_code!r}"
     )
+
+
+def test_ac6b_below_floor_hard_gate_refused_before_the_request(tmp_path, monkeypatch):
+    """bd#82: the gate floor is checked in the chokepoint before dispatch, for every
+    backend — a sonnet-pinned in-session gate never hands a request to the servicer."""
+    request_dir = tmp_path / "requests"
+    monkeypatch.setenv("HAL_RUNNER_REQUEST_DIR", str(request_dir))
+    log = _FakeEventLog()
+    telemetry_ctx.set_current_run(
+        event_log=log, run_id="RUN-BD29", step_name="invoke_step", phase="phase_5",
+    )
+
+    result = invoke_llm_subprocess(
+        prompt="do the thing", model="sonnet", timeout_sec=5, step_name="invoke_step",
+        hard_gate=True, backend="claude-in-session",
+    )
+
+    assert result.error_code == "E_HARD_GATE_MODEL_DOWNGRADE"
+    assert list(request_dir.rglob("*.req.json")) == []

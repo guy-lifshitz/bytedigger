@@ -99,6 +99,7 @@ ERROR_CODES: dict[str, str] = {
     "E_GREEN_WATCHDOG": "phase_5_implement: GREEN watchdog detected stalled subprocess",
     "E_GREEN_WATCHDOG_ESCALATE": "phase_5_implement: GREEN watchdog escalated after repeated stalls",
     "E_HARD_GATE_MODEL_DOWNGRADE": "llm_subprocess: hard-gated model downgraded below the configured floor",
+    "E_TOOL_RESTRICTION_UNSUPPORTED": "llm_subprocess: a hard gate's allowed_tools cannot be enforced by the resolved backend (bd#82)",
     "E_INJECT_UNATTRIBUTED": "llm_subprocess: an injected prompt block lacked a source identifier, or its content was absent from the assembled prompt (bd#10 R3.2)",
     "E_INSUFFICIENT_FANOUT": "phase_6_review: reviewer fan-out produced fewer results than required",
     "E_INTEGRITY_ASSERTION_GAMING": "phase_5_integrity: RED/GREEN diff appears to game assertions",

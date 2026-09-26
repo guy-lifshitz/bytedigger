@@ -54,6 +54,7 @@ from bytedigger_engine.lib.llm_provider import _claude_model_family  # bd#10 AC-
 from bytedigger_engine.conformance.attest import (  # bd#10: the attestation seam (R3.1-R3.6)
     EVENT_TYPE as _ATTEST_EVENT_TYPE,
     InjectedBlock,
+    _declared_head,
     capability_escapes,
     hash_text,
 )
@@ -82,6 +83,7 @@ _WARNED_MCP_LOSSES: set[tuple[str, str]] = set()
 _DEFAULT_BACKEND = "agent-sdk"
 _BACKEND_ENV_VAR = "HAL_RUNNER_BACKEND"
 _GATE_FLOOR_ENV_VAR = "HAL_GATE_MODEL_FLOOR"
+_IN_SESSION_ENFORCES_TOOLS_ENV_VAR = "HAL_IN_SESSION_ENFORCES_TOOLS"
 
 # 4C03CCED Ship 1C: backend → manifest-source capability map.
 # A backend registered here can produce a worker_written_paths manifest sourced
@@ -1046,11 +1048,69 @@ def _injection_refusal(
     return None
 
 
+def _backend_capabilities(resolved_backend: str) -> "frozenset[str]":
+    """Registered capabilities, plus the in-session servicer's declaration.
+
+    bd#82: claude-in-session is serviced outside this engine, so it cannot
+    enforce a tool list itself; the servicer opts in with exactly
+    HAL_IN_SESSION_ENFORCES_TOOLS=1, which grants `tool_allowlist`."""
+    caps = _BACKEND_CAPABILITIES.get(resolved_backend) or frozenset()
+    if resolved_backend == "claude-in-session" and config_provider.flag(_IN_SESSION_ENFORCES_TOOLS_ENV_VAR):
+        caps = caps | {"tool_allowlist"}
+    return caps
+
+
 def _capability_enforcement(resolved_backend: str) -> str:
     """bd#10 AC-C2 (R3.5): who enforces the declared capability set, read from
-    the `tool_allowlist` capability token rather than from the backend name."""
-    caps = _BACKEND_CAPABILITIES.get(resolved_backend) or frozenset()
-    return "runtime-allowlist" if "tool_allowlist" in caps else "not-enforced"
+    the `tool_allowlist` capability token rather than from the backend name.
+    bd#82: a text-only backend (`no_tools`) has nothing to enforce."""
+    caps = _backend_capabilities(resolved_backend)
+    if "tool_allowlist" in caps:
+        return "runtime-allowlist"
+    return "no-tools" if "no_tools" in caps else "not-enforced"
+
+
+def available_tools(allowed_tools: "list[str]") -> "list[str]":
+    """bd#82: the tool names a backend makes available for *allowed_tools* —
+    each entry's base name (`"Bash(x:*)"` → `"Bash"`), order kept, duplicates
+    dropped. The entries themselves stay the approve list."""
+    return list(dict.fromkeys(_declared_head(entry) for entry in allowed_tools))
+
+
+def _tool_restriction_refusal(
+    resolved_backend: str,
+    *,
+    hard_gate: bool,
+    allowed_tools: "list[str] | None",
+    step_name: str,
+    run_ctx: "_RunCtx | None",
+) -> "StepResult | None":
+    """bd#82: a tool list the resolved backend cannot enforce. A hard gate is
+    refused before dispatch; a worker is dispatched and the gap is recorded."""
+    if allowed_tools is None or _capability_enforcement(resolved_backend) != "not-enforced":
+        return None
+    event = "tool_restriction_refused" if hard_gate else "tool_restriction_not_enforced"
+    payload = {"backend": resolved_backend, "step_name": step_name,
+               "allowed_tools": list(allowed_tools)}
+    if run_ctx is not None and run_ctx.event_log is not None:
+        _emit_safe(run_ctx.event_log, event, payload, run_ctx.run_id)
+    if not hard_gate:
+        logger.warning("%s: %s", event, payload)
+        return None
+    return StepResult(
+        status="error",
+        data=None,
+        duration_ms=0,
+        step_name=step_name,
+        error=(
+            f"backend {resolved_backend!r} cannot enforce allowed_tools={list(allowed_tools)!r}; "
+            "refusing to run a hard gate with an unenforced tool list — select a backend "
+            "that declares tool_allowlist, or, for claude-in-session, have the servicer "
+            f"declare enforcement with {_IN_SESSION_ENFORCES_TOOLS_ENV_VAR}=1"
+        ),
+        error_code="E_TOOL_RESTRICTION_UNSUPPORTED",
+        recoverable=False,
+    )
 
 
 def _observed(result: StepResult, key: str) -> object:
@@ -1255,8 +1315,10 @@ def _dispatch_backend(
     through, so R3.1-R3.6 are recorded and adjudicated HERE and in no adapter.
     THE ORDER OF OPERATIONS IS THE CONTRACT:
 
-      1. Validate `injections` BEFORE dispatching. A refusal returns without
-         calling the backend at all.
+      1. Refuse BEFORE dispatching, without calling the backend at all: the
+         hard-gate model floor, then a tool list the backend cannot enforce
+         (bd#82 — here, so every dispatch, the GH1169 fallback included, is
+         held to both), then invalid `injections`.
       2. A refusal emits NOTHING (`[bd10:27]`): an attestation exists IF AND
          ONLY IF a dispatch occurred, because a record of an invocation that
          never happened reads as a fact and ends enquiry.
@@ -1272,6 +1334,21 @@ def _dispatch_backend(
     unchanged. `None` ("channel unused") and `()` ("channel used, zero blocks")
     are both legal and both record `[]` (AC-I2).
     """
+    if hard_gate:
+        gate_err = _assert_hard_gate_opus(
+            _build_claude_argv(model),
+            step_name=step_name,
+            gate_label=gate_label or step_name,
+            run_ctx=run_ctx,
+        )
+        if gate_err is not None:
+            return gate_err
+    tool_err = _tool_restriction_refusal(
+        resolved_backend, hard_gate=hard_gate, allowed_tools=allowed_tools,
+        step_name=step_name, run_ctx=run_ctx,
+    )
+    if tool_err is not None:
+        return tool_err
     inject_refusal = _injection_refusal(injections, prompt, step_name)
     if inject_refusal is not None:
         return inject_refusal
@@ -1663,7 +1740,8 @@ def _invoke_subprocess(
     """
     # Build the base argv from the model string (25e75663 §1.2 / §2.4).
     base_argv = _build_claude_argv(model)
-    # (existing claude-subprocess path: if hard_gate → ... → Popen ...)
+    # bd#82: _dispatch_backend already checked the floor before dispatch;
+    # this repeat guards direct callers of the handler.
     if hard_gate:
         gate_err = _assert_hard_gate_opus(
             base_argv,
@@ -1688,8 +1766,12 @@ def _invoke_subprocess(
     effective_command = effective_command + list(_subagent_forward_flags())
     output_format_auto_injected = True
     # 845F2C2C Layer 3: per-phase --allowed-tools profile injection.
+    # bd#82: --allowed-tools only approves; --tools narrows what is available.
     if allowed_tools is not None:
-        effective_command = effective_command + ["--allowed-tools", " ".join(allowed_tools)]
+        effective_command = effective_command + [
+            "--allowed-tools", " ".join(allowed_tools),
+            "--tools", ",".join(available_tools(allowed_tools)),
+        ]
     # 32ED59E2: auto-inject reasoning-effort from config for non-gate delegations.
     # hard_gate: no longer a blanket exemption — the Opus correctness-validation
     # spawn keeps CLI-default effort UNLESS an explicit per-model pin (GH439,
