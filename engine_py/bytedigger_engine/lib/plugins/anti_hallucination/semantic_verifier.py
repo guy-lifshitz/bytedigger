@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -25,7 +24,7 @@ SEMANTIC_VERIFIER_OPUS_TIMEOUT_SEC = 120
 # CLI's default advances, an unrecognised id is SILENTLY downgraded to the
 # session default instead of erroring — which sent the whole haiku-tier verifier
 # fleet to Opus 4.8 (2026-06-20 runaway, ~$270). Aliases never go stale; anything
-# outside this set is rejected fail-closed before a subprocess is spawned.
+# outside this set is rejected fail-closed before the model is called.
 _ACCEPTED_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
 
 VERDICT_REPRODUCED = "REPRODUCED"
@@ -131,7 +130,7 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
     if model not in _ACCEPTED_MODEL_ALIASES:
         # Fail closed. An unrecognised --model value is silently downgraded to
         # the session default by the CLI (often a pricier model). Refuse to
-        # spawn rather than burn an unintended model tier.
+        # call the model rather than burn an unintended tier.
         raise ValueError(
             f"semantic_verifier: refusing to spawn verifier — model {model!r} "
             f"is not an accepted tier alias {sorted(_ACCEPTED_MODEL_ALIASES)}. "
@@ -174,23 +173,33 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
 
     # bd#82: through the chokepoint like every other model call — the configured
     # backend, a read-only tool set, a fresh session per finding, attested and
-    # observed. Called as a module attribute so tests can patch the seam.
+    # observed. Called as a module attribute so tests can patch the seam. No tier
+    # rebinding: the alias guard above is what stops a stale versioned id, and the
+    # opus escalation must actually reach opus.
     try:
         result = llm_subprocess.invoke_llm_subprocess(
             prompt=full_prompt,
             model=model,
             timeout_sec=timeout,
-            step_name="semantic_verify",
+            step_name="verify_findings_semantic",
             allowed_tools=["Read", "Grep", "Glob"],
             fresh_session=True,
+            tier_rebind=False,
         )
     except OSError as exc:
+        logger.warning("semantic_verify: verifier call raised for %s:%s",
+                       finding.get("file"), finding.get("line"), exc_info=True)
         return f"UNVERIFIED:\nreason: agent_error {_sanitise_for_unverified_block(str(exc))}\n"
     if result.status != "ok":
+        log = logger.error if result.error_code == "E_CAPABILITY_ESCAPE" else logger.warning
+        log("semantic_verify: finding %s:%s -> %s %s", finding.get("file"), finding.get("line"),
+            result.error_code, result.error)
         if result.error_code in ("E_LLM_TIMEOUT", "E_LLM_API_TIMEOUT"):
             return "UNVERIFIED:\nreason: agent_timeout\n"
-        tail = _sanitise_for_unverified_block((result.error or "")[-200:])
-        return f"UNVERIFIED:\nreason: agent_error {tail}\n"
+        # The code first, then the head of the message — chokepoint errors lead
+        # with their cause and end with stream tails.
+        detail = _sanitise_for_unverified_block(f"{result.error_code or ''} {result.error or ''}")
+        return f"UNVERIFIED:\nreason: agent_error {detail[:200]}\n"
     raw = result.data.get("raw_response") if isinstance(result.data, dict) else None
     if not isinstance(raw, str) or not raw.strip():
         return "UNVERIFIED:\nreason: empty_response\n"

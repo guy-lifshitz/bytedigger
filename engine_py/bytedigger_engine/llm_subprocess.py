@@ -1474,6 +1474,7 @@ def invoke_llm_subprocess(
     stable_prefix: str = "",
     injections: "Sequence[InjectedBlock] | None" = None,
     fresh_session: bool = False,
+    tier_rebind: bool = True,
 ) -> StepResult:
     """Run ``command`` with ``prompt`` on stdin, return a StepResult.
 
@@ -1643,7 +1644,8 @@ def invoke_llm_subprocess(
     # hard_gate-EXEMPT: hard-gated steps keep their pinned (opus) model, so
     # _assert_hard_gate_opus remains the critical-phase floor (E_HARD_GATE_MODEL_DOWNGRADE).
     # DOWNGRADE-ONLY: never upgrades a cheaper pin (haiku-pinned SIMPLE RED/GREEN stay haiku).
-    if not hard_gate:
+    # bd#82: tier_rebind=False keeps a caller's alias-guarded pin (the semantic verifier).
+    if tier_rebind and not hard_gate:
         _tier = run_ctx.tier if run_ctx is not None else None
         if _tier is not None:
             _tier_model = _load_tier_model(_tier)
