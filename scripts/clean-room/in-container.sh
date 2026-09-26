@@ -137,6 +137,10 @@ case "$MODE" in
     pip install -U pip
     # [security] carries semgrep, part of the closure set above.
     pip install -e ".[test,security]"
+    # bd#82: the real-SDK ACs drive claude_agent_sdk's transport to the argv it
+    # would spawn (nothing is spawned). Not a declared dependency; pinned to the
+    # same version as ci.yml and CONTRIBUTING.
+    pip install "claude-agent-sdk==0.2.120"
     step "bd#102 closure set present and documented"
     assert_closure_set_on_path
 
