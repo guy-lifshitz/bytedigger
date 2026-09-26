@@ -185,6 +185,7 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
             allowed_tools=["Read", "Grep", "Glob"],
             fresh_session=True,
             tier_rebind=False,
+            role="judge",
         )
     except OSError as exc:
         logger.warning("semantic_verify: verifier call raised for %s:%s",

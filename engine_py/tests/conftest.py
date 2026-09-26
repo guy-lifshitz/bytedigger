@@ -181,10 +181,22 @@ def _hal_directed_repair_default_off(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _hal_in_session_enforces_tools_unset(monkeypatch):
-    """bd#82: HAL_IN_SESSION_ENFORCES_TOOLS is a servicer declaration; an exported
-    value in the developer's shell must not flip in-session enforcement in tests."""
-    monkeypatch.delenv("HAL_IN_SESSION_ENFORCES_TOOLS", raising=False)
+def _bd82_env_and_effort_hermetic(monkeypatch, tmp_path):
+    """bd#82: servicer declarations and per-role backends exported in the
+    developer's shell (any of the HAL_/BD_/BYTEDIGGER_ spellings) must not change
+    test outcomes, and neither may the developer's own models config — it can pin
+    effort, which now decides whether a gate is dispatched. Every test sees what
+    CI sees: no models config. Tests that need one patch the path themselves.
+    Works because every reader looks up config_provider.models_config_path at
+    call time; a reader that imports the function directly would bypass it."""
+    for name in ("IN_SESSION_ENFORCES_TOOLS", "IN_SESSION_APPLIES_EFFORT",
+                 "RUNNER_BACKEND_JUDGE", "RUNNER_BACKEND_WORKER"):
+        for prefix in ("HAL_", "BD_", "BYTEDIGGER_"):
+            monkeypatch.delenv(prefix + name, raising=False)
+    from bytedigger_engine import config_provider  # noqa: PLC0415
+
+    missing = tmp_path / "bd82-no-models-config.json"
+    monkeypatch.setattr(config_provider, "models_config_path", lambda: missing)
 
 
 _STATE_LOG_ENV_SEAMS = {

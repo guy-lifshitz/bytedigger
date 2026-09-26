@@ -431,7 +431,8 @@ def test_ac8_builtin_regression_after_register_reset_cycle():
     # `capability_enforcement: "runtime-allowlist"` is derived from. The expected
     # value is UPDATED, not weakened: this stays an exact frozenset equality, so a
     # reset that fails to restore the defaults still fails here.
-    expected_caps = frozenset({"manifest", "progress_since", "abort", "tool_allowlist"})
+    # bd#82: `effort` joined too — the handler applies the chokepoint's resolved effort.
+    expected_caps = frozenset({"manifest", "progress_since", "abort", "tool_allowlist", "effort"})
     actual_caps = llm_subprocess._BACKEND_CAPABILITIES.get("claude-subprocess")
     assert actual_caps == expected_caps, (
         f"_BACKEND_CAPABILITIES['claude-subprocess'] must equal {expected_caps!r} after reset; "

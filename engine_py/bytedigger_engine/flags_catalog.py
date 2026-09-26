@@ -127,6 +127,24 @@ FLAGS: dict[str, dict] = {
         "module": "llm_subprocess.py",
         "description": "bd#82: the claude-in-session servicer declares it enforces each request's allowed_tools; exactly '1' grants the tool_allowlist capability, so in-session hard gates with a tool list are dispatched instead of refused.",
     },
+    "HAL_IN_SESSION_APPLIES_EFFORT": {
+        "kind": "flag",
+        "default": None,
+        "module": "llm_subprocess.py",
+        "description": "bd#82: the claude-in-session servicer declares it applies each request's effort; exactly '1' grants the effort capability, so in-session hard gates under a gate effort pin are dispatched instead of refused.",
+    },
+    "HAL_RUNNER_BACKEND_JUDGE": {
+        "kind": "str",
+        "default": None,
+        "module": "llm_subprocess.py",
+        "description": "bd#82: backend for judge calls (hard gates, reviewers, verifiers); overrides HAL_RUNNER_BACKEND for that role.",
+    },
+    "HAL_RUNNER_BACKEND_WORKER": {
+        "kind": "str",
+        "default": None,
+        "module": "llm_subprocess.py",
+        "description": "bd#82: backend for worker calls; overrides HAL_RUNNER_BACKEND for that role.",
+    },
     "HAL_RED_PREFLIGHT_DELTA_RETRY": {
         "kind": "gate",
         "default": "1",
