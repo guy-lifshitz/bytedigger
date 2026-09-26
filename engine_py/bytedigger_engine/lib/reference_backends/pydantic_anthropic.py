@@ -62,7 +62,7 @@ def pydantic_anthropic_backend(
     timeout_sec: int | float,
     step_name: str,
     extra_data: dict[str, object] | None = None,
-    allowed_tools: object = None,
+    allowed_tools: "list[str] | None" = None,
     run_ctx: object = None,
     hard_gate: bool = False,
     gate_label: str | None = None,

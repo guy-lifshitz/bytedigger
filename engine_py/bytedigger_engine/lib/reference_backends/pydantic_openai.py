@@ -503,11 +503,13 @@ _TOOLS_BY_ENTRY: dict[str, tuple[str, ...]] = {
 }
 
 
-def _policy_tools(allowed_tools: object, tools: tuple[Callable[..., str], ...]) -> list[Callable[..., str]]:
+def _policy_tools(
+    allowed_tools: "list[str] | None", tools: tuple[Callable[..., str], ...],
+) -> list[Callable[..., str]]:
     """The subset of *tools* the caller's allowlist permits; `None` permits all."""
     if allowed_tools is None:
         return list(tools)
-    enabled = {name for entry in allowed_tools for name in _TOOLS_BY_ENTRY.get(entry, ())}  # type: ignore[attr-defined]
+    enabled = {name for entry in allowed_tools for name in _TOOLS_BY_ENTRY.get(entry, ())}
     return [tool for tool in tools if tool.__name__ in enabled]
 
 
@@ -518,7 +520,7 @@ def pydantic_openai_backend(
     timeout_sec: int | float,
     step_name: str,
     extra_data: dict[str, object] | None = None,
-    allowed_tools: object = None,
+    allowed_tools: "list[str] | None" = None,
     run_ctx: object = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
@@ -577,6 +579,21 @@ def pydantic_openai_backend(
         )
 
     deployment = os.environ.get("PYDANTIC_BACKEND_DEPLOYMENT") or model
+    if hard_gate and deployment != model:
+        # bd#82: the chokepoint checked the gate floor against `model`; a
+        # deployment override would run the gate on a model nobody checked.
+        return StepResult(
+            status="error",
+            data=None,
+            duration_ms=0,
+            step_name=step_name,
+            error=(
+                f"hard gate pinned to {model!r} would run on deployment {deployment!r} "
+                "(PYDANTIC_BACKEND_DEPLOYMENT); refusing an unchecked model"
+            ),
+            error_code="E_HARD_GATE_MODEL_DOWNGRADE",
+            recoverable=False,
+        )
 
     from pydantic_ai import Agent, UsageLimits
     from pydantic_ai.models.openai import OpenAIChatModel

@@ -54,6 +54,7 @@ from bytedigger_engine.lib.llm_provider import _claude_model_family  # bd#10 AC-
 from bytedigger_engine.conformance.attest import (  # bd#10: the attestation seam (R3.1-R3.6)
     EVENT_TYPE as _ATTEST_EVENT_TYPE,
     InjectedBlock,
+    _declared_head,
     capability_escapes,
     hash_text,
 )
@@ -1054,10 +1055,7 @@ def _backend_capabilities(resolved_backend: str) -> "frozenset[str]":
     enforce a tool list itself; the servicer opts in with exactly
     HAL_IN_SESSION_ENFORCES_TOOLS=1, which grants `tool_allowlist`."""
     caps = _BACKEND_CAPABILITIES.get(resolved_backend) or frozenset()
-    if (
-        resolved_backend == "claude-in-session"
-        and config_provider.env_mapping().get(_IN_SESSION_ENFORCES_TOOLS_ENV_VAR) == "1"
-    ):
+    if resolved_backend == "claude-in-session" and config_provider.flag(_IN_SESSION_ENFORCES_TOOLS_ENV_VAR):
         caps = caps | {"tool_allowlist"}
     return caps
 
@@ -1076,7 +1074,7 @@ def available_tools(allowed_tools: "list[str]") -> "list[str]":
     """bd#82: the tool names a backend makes available for *allowed_tools* —
     each entry's base name (`"Bash(x:*)"` → `"Bash"`), order kept, duplicates
     dropped. The entries themselves stay the approve list."""
-    return list(dict.fromkeys(entry.split("(", 1)[0] for entry in allowed_tools))
+    return list(dict.fromkeys(_declared_head(entry) for entry in allowed_tools))
 
 
 def _tool_restriction_refusal(
@@ -1089,19 +1087,16 @@ def _tool_restriction_refusal(
 ) -> "StepResult | None":
     """bd#82: a tool list the resolved backend cannot enforce. A hard gate is
     refused before dispatch; a worker is dispatched and the gap is recorded."""
-    if allowed_tools is None:
+    if allowed_tools is None or _capability_enforcement(resolved_backend) != "not-enforced":
         return None
-    caps = _backend_capabilities(resolved_backend)
-    if caps & {"tool_allowlist", "no_tools"}:
-        return None
+    event = "tool_restriction_refused" if hard_gate else "tool_restriction_not_enforced"
     payload = {"backend": resolved_backend, "step_name": step_name,
                "allowed_tools": list(allowed_tools)}
-    if not hard_gate:
-        if run_ctx is not None and run_ctx.event_log is not None:
-            _emit_safe(run_ctx.event_log, "tool_restriction_not_enforced", payload, run_ctx.run_id)
-        return None
     if run_ctx is not None and run_ctx.event_log is not None:
-        _emit_safe(run_ctx.event_log, "tool_restriction_refused", payload, run_ctx.run_id)
+        _emit_safe(run_ctx.event_log, event, payload, run_ctx.run_id)
+    if not hard_gate:
+        logger.warning("%s: %s", event, payload)
+        return None
     return StepResult(
         status="error",
         data=None,
@@ -1109,7 +1104,9 @@ def _tool_restriction_refusal(
         step_name=step_name,
         error=(
             f"backend {resolved_backend!r} cannot enforce allowed_tools={list(allowed_tools)!r}; "
-            "refusing to run a hard gate with an unenforced tool list"
+            "refusing to run a hard gate with an unenforced tool list — select a backend "
+            "that declares tool_allowlist, or, for claude-in-session, have the servicer "
+            f"declare enforcement with {_IN_SESSION_ENFORCES_TOOLS_ENV_VAR}=1"
         ),
         error_code="E_TOOL_RESTRICTION_UNSUPPORTED",
         recoverable=False,
@@ -1318,8 +1315,10 @@ def _dispatch_backend(
     through, so R3.1-R3.6 are recorded and adjudicated HERE and in no adapter.
     THE ORDER OF OPERATIONS IS THE CONTRACT:
 
-      1. Validate `injections` BEFORE dispatching. A refusal returns without
-         calling the backend at all.
+      1. Refuse BEFORE dispatching, without calling the backend at all: the
+         hard-gate model floor, then a tool list the backend cannot enforce
+         (bd#82 — here, so every dispatch, the GH1169 fallback included, is
+         held to both), then invalid `injections`.
       2. A refusal emits NOTHING (`[bd10:27]`): an attestation exists IF AND
          ONLY IF a dispatch occurred, because a record of an invocation that
          never happened reads as a fact and ends enquiry.
@@ -1335,6 +1334,21 @@ def _dispatch_backend(
     unchanged. `None` ("channel unused") and `()` ("channel used, zero blocks")
     are both legal and both record `[]` (AC-I2).
     """
+    if hard_gate:
+        gate_err = _assert_hard_gate_opus(
+            _build_claude_argv(model),
+            step_name=step_name,
+            gate_label=gate_label or step_name,
+            run_ctx=run_ctx,
+        )
+        if gate_err is not None:
+            return gate_err
+    tool_err = _tool_restriction_refusal(
+        resolved_backend, hard_gate=hard_gate, allowed_tools=allowed_tools,
+        step_name=step_name, run_ctx=run_ctx,
+    )
+    if tool_err is not None:
+        return tool_err
     inject_refusal = _injection_refusal(injections, prompt, step_name)
     if inject_refusal is not None:
         return inject_refusal
@@ -1628,23 +1642,6 @@ def invoke_llm_subprocess(
             (run_ctx.step_name if run_ctx is not None else None) or step_name
         )
         return watchdog_err
-    # bd#82: the gate floor and the tool restriction are decided here, before
-    # dispatch, for every backend — the floor first.
-    if hard_gate:
-        gate_err = _assert_hard_gate_opus(
-            _build_claude_argv(model),
-            step_name=step_name,
-            gate_label=gate_label or step_name,
-            run_ctx=run_ctx,
-        )
-        if gate_err is not None:
-            return gate_err
-    tool_err = _tool_restriction_refusal(
-        resolved_backend, hard_gate=hard_gate, allowed_tools=allowed_tools,
-        step_name=step_name, run_ctx=run_ctx,
-    )
-    if tool_err is not None:
-        return tool_err
     # GH375: tier-aware model dispatch — ONE layer for all phases + backends.
     # hard_gate-EXEMPT: hard-gated steps keep their pinned (opus) model, so
     # _assert_hard_gate_opus remains the critical-phase floor (E_HARD_GATE_MODEL_DOWNGRADE).
@@ -1743,7 +1740,8 @@ def _invoke_subprocess(
     """
     # Build the base argv from the model string (25e75663 §1.2 / §2.4).
     base_argv = _build_claude_argv(model)
-    # (existing claude-subprocess path: if hard_gate → ... → Popen ...)
+    # bd#82: _dispatch_backend already checked the floor before dispatch;
+    # this repeat guards direct callers of the handler.
     if hard_gate:
         gate_err = _assert_hard_gate_opus(
             base_argv,

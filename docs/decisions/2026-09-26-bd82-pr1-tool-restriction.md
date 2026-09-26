@@ -46,6 +46,9 @@ Issue: #82 (P1, part 1 of 4). Class: SYSTEMATIC. Chokepoint: `llm_subprocess.inv
    (never emitted when the backend enforces, or when `allowed_tools is None`).
    Capabilities are read from the registry, never keyed on a backend name: a stub
    registered over `claude-subprocess` without `tool_allowlist` is refused like any other.
+   The one name-keyed rule is the in-session servicer declaration below. The GH1169
+   agent-sdk → claude-subprocess hang fallback is a second dispatch and is held to the same
+   check against its target.
    **claude-in-session** is serviced outside this repository, so it declares neither by
    default and its hard gates with a tool list are refused. The servicer opts in by setting
    `HAL_IN_SESSION_ENFORCES_TOOLS=1`, a declaration that it enforces the request's
@@ -59,6 +62,11 @@ Issue: #82 (P1, part 1 of 4). Class: SYSTEMATIC. Chokepoint: `llm_subprocess.inv
    written (previously its post-check returned `E_MODEL_PIN_MISMATCH` after the round trip).
    A floor refusal is now returned before dispatch, so no `model_invocation_attested`
    event is written for it (it never was for in-session or reference backends).
+7b. **Model the gate actually runs.** A backend that can run a different model than the one
+   the chokepoint checked refuses the gate itself: `pydantic-openai` with
+   `PYDANTIC_BACKEND_DEPLOYMENT` differing from `model` → `E_HARD_GATE_MODEL_DOWNGRADE`.
+7c. **Old SDK.** An installed `claude-agent-sdk` that rejects `tools`/`dontAsk` fails the call
+   with an upgrade hint (`>=0.2.120`); only the historical `stderr` rejection is retried.
 8. **Registries.** `E_TOOL_RESTRICTION_UNSUPPORTED` is registered in `error_codes.py` and
    both `ERROR_CODES.md` copies; `HAL_IN_SESSION_ENFORCES_TOOLS` is catalogued in
    `flags_catalog.py` and reset by the test conftest; `"no-tools"` joins the closed enforcement set in
@@ -84,7 +92,9 @@ dispatches.
 | 4 pydantic | AC7, AC8, AC9 (both flavors), AC9b, AC9c, AC10 |
 | 5 anthropic-api | AC11 |
 | 6 refusal | AC12, AC12b, AC13, AC13b, AC13c, AC14, AC14b, AC15, AC16 |
-| 7 floor | AC17, AC18, AC19, AC22, AC23 |
+| 7 floor | AC17, AC18, AC19, AC22, AC23, AC26 |
+| 6 fallback | AC25 |
+| 7c old SDK | AC27 |
 | 8 registry | AC24 |
 
 ## Test migration (existing pins a correct GREEN changes)
@@ -102,6 +112,15 @@ dispatches.
   `test_phase_5_integrity.py`) declare `tool_allowlist`, added to any capability set they
   already declare — a stub stands in for an enforcing backend. No name-keyed exemption in the
   engine.
+
+## Known limit
+
+`--tools` / `tools=` narrow the built-in tool set. With a patterned approve entry (e.g.
+`Bash(graphify-shim.sh:*)`), `permissions.allow` rules from the user's or project's settings
+files can still widen what that available tool may run, on agent-sdk and claude-subprocess
+alike (the latter predates this change). Isolating setting sources for restricted roles is a
+follow-up; a role without a patterned entry is unaffected, since no rule can make an
+unavailable tool available.
 
 ## Out of scope (later PRs of #82)
 

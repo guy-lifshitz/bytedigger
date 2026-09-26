@@ -633,3 +633,65 @@ def test_ac24_error_code_registered():
     pkg = Path(error_codes.__file__).parent
     for doc in (pkg / "ERROR_CODES.md", pkg.parent / "ERROR_CODES.md"):
         assert "`E_TOOL_RESTRICTION_UNSUPPORTED`" in doc.read_text(), doc
+
+
+# ─── review follow-ups ────────────────────────────────────────────────────────
+
+
+def test_ac25_hang_fallback_target_held_to_the_tool_restriction(tmp_path):
+    """The GH1169 agent-sdk → claude-subprocess re-dispatch is a second dispatch:
+    a target that cannot enforce the list is refused like a first one."""
+    log = _event_log(tmp_path)
+
+    def _hung(**kwargs):
+        return StepResult(status="error", data={"hang_attempts": 1}, duration_ms=1,
+                          step_name=kwargs["step_name"], error="hung",
+                          error_code="E_LLM_API_TIMEOUT")
+
+    register_backend("agent-sdk", _hung, manifest_source="harness_tool_record",
+                     capabilities={"tool_allowlist"}, overwrite=True)
+    fallback_calls = _register_stub_over("claude-subprocess")
+
+    res = _invoke("agent-sdk", hard_gate=True, allowed_tools=["Read"])
+
+    assert res.error_code == "E_TOOL_RESTRICTION_UNSUPPORTED"
+    assert fallback_calls == []
+    assert "tool_restriction_refused" in _types(log)
+
+
+def test_ac26_pydantic_openai_deployment_override_refused_for_gate(monkeypatch, tmp_path):
+    """The floor was checked against `model`; a deployment override would run the
+    gate on a model nobody checked."""
+    monkeypatch.setenv("PYDANTIC_BACKEND_DEPLOYMENT", "gpt-4o-mini")
+    _install_fake_pydantic_openai(monkeypatch)
+    from bytedigger_engine.lib.reference_backends import pydantic_openai  # noqa: PLC0415
+
+    res = pydantic_openai.pydantic_openai_backend(
+        prompt="p", model="opus", timeout_sec=30, step_name="bd82",
+        extra_data={"workspace_root": str(_repo(tmp_path))}, allowed_tools=["Read"],
+        hard_gate=True,
+    )
+
+    assert res.error_code == "E_HARD_GATE_MODEL_DOWNGRADE"
+
+
+def test_ac27_agent_sdk_too_old_for_tools_fails_loud(monkeypatch, tmp_path):
+    """An SDK that rejects `tools` must not be retried as if it rejected `stderr`,
+    and the failure names the upgrade."""
+    import claude_agent_sdk  # noqa: PLC0415
+
+    real_options = claude_agent_sdk.ClaudeAgentOptions
+
+    def _options(**kwargs):
+        if "tools" in kwargs:
+            raise TypeError("unexpected keyword argument 'tools'")
+        return real_options(**kwargs)
+
+    seen = _agent_sdk_capture(monkeypatch)
+    monkeypatch.setattr(claude_agent_sdk, "ClaudeAgentOptions", _options)
+
+    res = _run_agent_sdk(tmp_path, ["Read"])
+
+    assert res.status == "error"
+    assert "claude-agent-sdk>=0.2.120" in (res.error or ""), res.error
+    assert seen == []
