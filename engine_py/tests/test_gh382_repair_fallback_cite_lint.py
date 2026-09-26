@@ -359,7 +359,9 @@ def test_b2_cross_line_symbol_reuse_planned_set_downgrades_all_exit_0(tmp_path: 
 
     spec_text = (
         "Call `shared_sym` from `a/b.py` to process the request.\n"
-        "CREATE `shared_sym` in `a/c.py` for the new pipeline.\n"
+        # bd#87: the file must be declared (line-leading CREATE + path); a
+        # symbol-first CREATE line no longer exempts an absent file.
+        "CREATE `a/c.py` with `shared_sym` for the new pipeline.\n"
     )
     spec_path = tmp_path / "spec.md"
     spec_path.write_text(spec_text)
@@ -368,7 +370,7 @@ def test_b2_cross_line_symbol_reuse_planned_set_downgrades_all_exit_0(tmp_path: 
     assert exit_code == 0, f"B2: expected exit 0, got {exit_code}; findings={findings!r}"
     shared = [f for f in findings if f.symbol == "shared_sym"]
     assert len(shared) == 2, f"B2: expected 2 findings for 'shared_sym'; got {findings!r}"
-    assert all(f.status in ("new_symbol", "missing_file") for f in shared), (
+    assert all(f.status in ("new_symbol", "planned_file") for f in shared), (
         f"B2: ALL findings for a planned symbol must downgrade; got {shared!r}"
     )
     assert not any(f.status == "unresolved_symbol" for f in shared), (
