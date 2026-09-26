@@ -90,17 +90,18 @@ dispatches.
 ## Test migration (existing pins a correct GREEN changes)
 
 - `test_2A6986ED_anthropic_api_backend.py:144` — capabilities become `frozenset({"no_tools"})`.
-- `test_bd29_in_session_pin_fail_closed.py` AC6 — a sonnet in-session gate is now refused
-  pre-dispatch with `E_HARD_GATE_MODEL_DOWNGRADE`; the pin moves to that code (the test itself
-  asks for this decision once the defect is fixed).
-- `test_phase_5_integrity.py:715-732` — its stub gate runs on `model="sonnet"`; the floor now
-  refuses it, so the test uses an opus-floor model.
-- Stub backends registered under `claude-subprocess` (or any name) that receive hard gates with
-  a tool list (`test_phase_45_spec.py` `_register_stub`, `test_pipeline_recovery.py`,
-  `test_phase_6_fix_integrity.py`, `test_phase_5_integrity.py`, `test_frozen_skip_gh531.py`,
-  `test_phase_5_implement_B7442146.py`, phase_6 satisfaction tests) declare
-  `tool_allowlist` (added to any capability set they already declare) — a stub stands in for an enforcing backend. No
-  name-keyed exemption in the engine.
+- `test_bd29_in_session_pin_fail_closed.py` AC6 — its sonnet-pinned gate is now refused
+  pre-dispatch, so the drift it measures moves to an opus pin (same measurement,
+  `E_MODEL_PIN_MISMATCH` still overwrites the guard's code — the pre-existing defect it pins);
+  the new AC6b pins the pre-dispatch refusal of a sonnet in-session gate with no request written.
+- `test_phase_5_integrity.py:715-732` and `test_phase_6_fix_integrity.py` (`_STUB_MODEL`) — their
+  stub gates run on below-floor or unknown model names; the floor now refuses them, so they use
+  `opus`.
+- Stub backends that receive hard gates with a tool list (`test_phase_45_spec.py`
+  `_register_stub`, `test_pipeline_recovery.py`, `test_phase_6_fix_integrity.py`,
+  `test_phase_5_integrity.py`) declare `tool_allowlist`, added to any capability set they
+  already declare — a stub stands in for an enforcing backend. No name-keyed exemption in the
+  engine.
 
 ## Out of scope (later PRs of #82)
 

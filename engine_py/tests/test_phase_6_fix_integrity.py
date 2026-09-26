@@ -35,7 +35,9 @@ from bytedigger_engine.workflows.phase_6_fix_integrity import (  # noqa: E402
 
 # ─── stub backend (R2: replaces echo_stub/fail_stub shell subprocesses) ────────
 
-_STUB_MODEL = "fix-integrity-stub"
+# bd#82: the fix-integrity gate floor is checked before dispatch on every
+# backend, so the stub is dispatched under an opus-floor model name.
+_STUB_MODEL = "opus"
 
 
 class _TextBackend:
@@ -75,6 +77,7 @@ def _register_text_stub(text: str) -> None:
         "claude-subprocess",
         _TextBackend(text),
         manifest_source="harness_tool_record",
+        capabilities=frozenset({"tool_allowlist"}),  # bd#82: stands in for an enforcing backend
         overwrite=True,
     )
 

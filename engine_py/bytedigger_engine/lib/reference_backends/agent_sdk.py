@@ -40,9 +40,10 @@ import sys
 import time
 import urllib.request
 from collections import deque
+from typing import Any
 
 from bytedigger_engine.contracts import StepResult
-from bytedigger_engine.llm_subprocess import register_backend, _emit_safe
+from bytedigger_engine.llm_subprocess import available_tools, register_backend, _emit_safe
 from bytedigger_engine.telemetry_ctx import _RunCtx
 
 from .pydantic_openai import _extract_usage_tokens
@@ -316,6 +317,20 @@ def _effective_idle_gap(idle_timeout: float, t0: float, outer_timeout_sec: float
 # Backend handler
 # ---------------------------------------------------------------------------
 
+def _tool_options(allowed_tools: object) -> dict[str, Any]:
+    """bd#82: in the SDK `allowed_tools` only auto-approves and `tools` sets what
+    is available. A restricted role gets both, and `dontAsk` denies anything not
+    pre-approved — never bypassPermissions. `None` keeps the unrestricted worker."""
+    if allowed_tools is None:
+        return {"allowed_tools": [], "permission_mode": "bypassPermissions"}
+    entries = list(allowed_tools)  # type: ignore[call-overload]
+    return {
+        "tools": available_tools(entries),
+        "allowed_tools": entries,
+        "permission_mode": "dontAsk",
+    }
+
+
 def agent_sdk_backend(
     *,
     prompt: str,
@@ -362,6 +377,7 @@ def agent_sdk_backend(
 
     key = _session_key(run_ctx, step_name)
     resume_sid = _should_resume(key) if key is not None else None
+    tool_options = _tool_options(allowed_tools)
 
     pre = _snapshot_pre_state(root)
     t0 = time.monotonic()
@@ -422,18 +438,16 @@ def agent_sdk_backend(
                 options = claude_agent_sdk.ClaudeAgentOptions(
                     model=model,
                     resume=resume_this,
-                    allowed_tools=allowed_tools or [],
-                    permission_mode="bypassPermissions",
                     cwd=root,
                     stderr=_on_stderr,
+                    **tool_options,
                 )
             except TypeError:
                 options = claude_agent_sdk.ClaudeAgentOptions(
                     model=model,
                     resume=resume_this,
-                    allowed_tools=allowed_tools or [],
-                    permission_mode="bypassPermissions",
                     cwd=root,
+                    **tool_options,
                 )
             result_cls = getattr(claude_agent_sdk, "ResultMessage", None)
             result_msg: object = None
@@ -735,7 +749,7 @@ def register() -> None:
         "agent-sdk",
         agent_sdk_backend,
         manifest_source="git_diff",
-        capabilities=frozenset(),
+        capabilities=frozenset({"tool_allowlist"}),
         overwrite=True,
     )
 

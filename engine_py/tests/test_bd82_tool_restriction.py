@@ -113,6 +113,11 @@ def _sdk_argv(options):
         SubprocessCLITransport,
     )
 
+    import dataclasses  # noqa: PLC0415
+
+    # The transport resolves the CLI binary on connect(); name one so the argv
+    # can be built without spawning anything.
+    options = dataclasses.replace(options, cli_path="/nonexistent/claude")
     return SubprocessCLITransport(prompt="p", options=options)._build_command()
 
 
