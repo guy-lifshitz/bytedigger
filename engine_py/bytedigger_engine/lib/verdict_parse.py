@@ -23,9 +23,9 @@ from bytedigger_engine.lib.llm_output_normalize import normalize_model_output
 
 T = TypeVar("T")
 
-# Markdown dressing on a heading line: a `#` heading marker, emphasis, or a
-# code span. P3's loose reading only recovers dressed Verdict headings.
-_DRESSING_RE = re.compile(r"^[ ]{0,3}#|\*\*|__|`")
+# A decisive position held by a choice list: the answer is ambiguous and no
+# further reading may replace it.
+_AMBIGUOUS = object()
 
 # Choice list: the token, then one or more `<sep> [PREFIX:] <option>` runs
 # that END the line (`VERDICT: PASS | FAIL`, `VERDICT: PASS or VERDICT: FAIL`,
@@ -59,14 +59,18 @@ def _readings(plain: str) -> Iterator[str]:
         yield stripped
 
 
-def _first_found(plain: str, parse: Callable[[str], T], fallback: T) -> T:
-    """bd#84: plain reading first; the normalized reading only on a miss."""
+def _first_found(plain: str, parse: Callable[[str], object], fallback: T) -> T:
+    """bd#84: plain reading first; the normalized reading only when the plain
+    one matched nothing. A choice list at the decisive position (``parse``
+    returns ``_AMBIGUOUS``) ends the search with ``fallback``."""
     if not plain:
         return fallback
     for text in _readings(plain):
         found = parse(text)
-        if found != fallback:
-            return found
+        if found is _AMBIGUOUS:
+            return fallback
+        if found is not None:
+            return found  # type: ignore[return-value]
     return fallback
 
 
@@ -135,13 +139,13 @@ def last_standalone_line_verdict(
     rx = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
     choice_rx = _choice_rx(tokens)
 
-    def parse(text: str) -> str:
+    def parse(text: str) -> object:
         last = None
         for m in rx.finditer(text):
             last = m
-        if last is None or _is_choice(text, last.end(1), choice_rx):
-            return fallback
-        return last.group(1).upper()
+        if last is None:
+            return None
+        return _AMBIGUOUS if _is_choice(text, last.end(1), choice_rx) else last.group(1).upper()
 
     return _first_found(raw, parse, fallback)
 
@@ -182,6 +186,9 @@ def verdict_under_heading(
     plain_rx = re.compile(rf"^##\s*{h}\s*\n+\s*({alt})\b", re.MULTILINE | re.IGNORECASE)
     token_end = r"(?=[ \t]*$|[ \t]*(?:[—–:,;(]|--|-[ \t])|[.!](?:[ \t]|$))"
     loose_rx = re.compile(rf"^[ \t]*{h}[ \t]*(?::|\n)\s*({alt}){token_end}", re.MULTILINE | re.IGNORECASE)
+    # Dressing that wraps the heading itself: a `#` marker, or emphasis / a
+    # code span opening the line right before the heading word.
+    dressed_rx = re.compile(rf"^[ ]{{0,3}}(?:#{{1,6}}[ \t]+|(?:\*\*|__|`)+[ \t]*){h}\b", re.IGNORECASE)
     choice_rx = _choice_rx(tokens)
 
     def resolve(token: str) -> str:
@@ -199,7 +206,7 @@ def verdict_under_heading(
     found = {
         token_of(stripped, m)
         for m in loose_rx.finditer(stripped)
-        if _DRESSING_RE.search(plain_lines[stripped.count("\n", 0, m.start())])
+        if dressed_rx.match(plain_lines[stripped.count("\n", 0, m.start())])
     }
     return found.pop() if len(found) == 1 else fallback
 
@@ -235,7 +242,7 @@ def last_line_anchored_marker(raw, markers, fallback):
         for marker, value in markers
     ]
 
-    def parse(text: str):
+    def parse(text: str) -> object:
         # offset -> (first-listed value, end of the longest marker at that offset)
         at: dict[int, tuple[object, int]] = {}
         for pattern, value in patterns:
@@ -243,9 +250,9 @@ def last_line_anchored_marker(raw, markers, fallback):
                 first_value, longest_end = at.get(m.start(), (value, m.end()))
                 at[m.start()] = (first_value, max(longest_end, m.end()))
         if not at:
-            return fallback
+            return None
         value, longest_end = at[max(at)]
-        return fallback if _is_choice(text, longest_end, choice_rx) else value
+        return _AMBIGUOUS if _is_choice(text, longest_end, choice_rx) else value
 
     return _first_found(raw, parse, fallback)
 

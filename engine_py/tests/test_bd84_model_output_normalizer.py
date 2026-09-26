@@ -843,3 +843,68 @@ def test_rv3_recovered_findings_keep_the_override_off(tmp_path, monkeypatch):
     res = _aggregate(tmp_path, {"a": body}, monkeypatch)
     assert p6._review_all_findings_suspect(res.data["verdict"], res.data["aggregated_content"]) is False
 
+
+# ─── Review round 4: a choice list ends the parse; heading dressing only ─────
+
+
+@pytest.mark.parametrize(
+    "raw, parser, expected_not",
+    [
+        ("Analysis...\nVERDICT: ASSERTION_GAMING / SPEC_CHANGE\n\n## VERDICT: NO_CHANGES\n", "p1", "NO_CHANGES"),
+        ("VERDICT: ASSERTION_GAMING or NO_CHANGES\n\n`VERDICT: NO_CHANGES`\n", "p1", "NO_CHANGES"),
+        ("Findings: line 12 crashes.\nVERDICT: FAIL/PARTIAL\n\n**VERDICT: PASS**\n", "p2", "PASS"),
+        ("VERDICT: FAIL | PASS\n# VERDICT: PASS\n", "p2", "PASS"),
+    ],
+)
+def test_rv4_choice_list_is_not_reread(raw, parser, expected_not):
+    from bytedigger_engine.lib.verdict_parse import (  # noqa: PLC0415
+        last_line_anchored_marker,
+        last_standalone_line_verdict,
+    )
+
+    if parser == "p1":
+        got = last_standalone_line_verdict(raw, _INTEGRITY_TOKENS, fallback="UNKNOWN", allow_trailing=True)
+    else:
+        markers = [("VERDICT: PASS", "PASS"), ("VERDICT: PARTIAL", "PARTIAL"), ("VERDICT: FAIL", "FAIL")]
+        got = last_line_anchored_marker(raw, markers, "UNKNOWN")
+    assert got == "UNKNOWN" and got != expected_not
+
+
+def test_rv4_status_choice_list_is_not_reread():
+    from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
+
+    markers = [("STATUS: DONE", "DONE"), ("STATUS: BLOCKED", "BLOCKED"), ("STATUS: NEEDS_CONTEXT", "NC")]
+    raw = "STATUS: BLOCKED / STATUS: NEEDS_CONTEXT\n**STATUS: DONE**\n"
+    assert last_line_anchored_marker(raw, markers, "UNKNOWN") == "UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Verdict: SHIP (per `review-1.md`) — but this round the fix regressed AC2; needs another pass.\n",
+        "Verdict: PASS, see __init__.py for the one remaining crash.\n",
+    ],
+)
+def test_rv4_markup_elsewhere_on_the_line_is_not_dressing(raw):
+    from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
+
+    got = verdict_under_heading(raw, _SPEC_TOKENS, aliases={"PASS": "SHIP", "APPROVED": "SHIP"}, fallback="UNKNOWN")
+    assert got == "UNKNOWN"
+
+
+def test_rv4_heading_cannot_steal_a_findings_evidence(tmp_path, monkeypatch):
+    code = _code_py(tmp_path)
+    body = (
+        "### SEVERITY: HIGH — command injection\nUser input reaches the shell.\n"
+        f"### LOW — naming nit\n> {code}:2: os.system(user_input)\n\nVERDICT: FAIL\n"
+    )
+    res = _aggregate(tmp_path, {"b": body}, monkeypatch)
+    assert res.data["verdict"] == "FAIL"
+
+
+def test_rv4_new_finding_after_evidence_is_still_recovered():
+    from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
+
+    text = "### SEVERITY: LOW — a\n> f.py:1: x\n**HIGH — b**\n> f.py:2: y"
+    assert canonicalize_severity_headers(text) == "### SEVERITY: LOW — a\n> f.py:1: x\n### SEVERITY: HIGH — b\n> f.py:2: y"
+
