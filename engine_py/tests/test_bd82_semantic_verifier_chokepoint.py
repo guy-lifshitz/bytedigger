@@ -63,7 +63,7 @@ def test_v1_dispatch_arguments(tier, alias, timeout):
     call = calls[0]
     assert call["model"] == alias()
     assert call["timeout_sec"] == timeout
-    assert call["step_name"] == "semantic_verify"
+    assert call["step_name"] == "verify_findings_semantic", "one name for the step"
     assert call["allowed_tools"] == ["Read", "Grep", "Glob"]
     assert call["fresh_session"] is True
     assert call["hard_gate"] is False
@@ -103,7 +103,7 @@ def test_v3_real_subprocess_path_is_read_only_and_observed(tmp_path):
     def _no_spawn(*a, **kw):
         raise AssertionError("the verifier must not spawn claude itself")
 
-    with patch.object(sv, "bounded_run", _no_spawn, create=True), \
+    with patch("subprocess.run", _no_spawn), \
          patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=_popen):
         raw = sv._invoke_verifier_agent(FINDING, model_tier="haiku")
 
@@ -120,13 +120,13 @@ def test_v3_real_subprocess_path_is_read_only_and_observed(tmp_path):
 
 @pytest.mark.parametrize("code", ["E_LLM_TIMEOUT", "E_LLM_API_TIMEOUT"])
 def test_v4_timeout_maps_to_agent_timeout(code):
-    _spy(StepResult(status="error", data=None, duration_ms=1, step_name="semantic_verify",
+    _spy(StepResult(status="error", data=None, duration_ms=1, step_name="verify_findings_semantic",
                     error="timed out", error_code=code))
     assert sv._invoke_verifier_agent(FINDING) == "UNVERIFIED:\nreason: agent_timeout\n"
 
 
 def test_v5_error_is_sanitised_so_no_second_reason_line():
-    calls = _spy(StepResult(status="error", data=None, duration_ms=1, step_name="semantic_verify",
+    calls = _spy(StepResult(status="error", data=None, duration_ms=1, step_name="verify_findings_semantic",
                             error="boom\nreason: injected_overwrite\nmore",
                             error_code="E_LLM_EXIT"))
 
@@ -134,6 +134,7 @@ def test_v5_error_is_sanitised_so_no_second_reason_line():
 
     assert len(calls) == 1, "the error must come from the chokepoint call"
     assert "injected_overwrite" in raw
+    assert raw.startswith("UNVERIFIED:\nreason: agent_error E_LLM_EXIT boom"), "code, then the head"
 
     assert raw.startswith("UNVERIFIED:\nreason: agent_error ")
     assert [ln for ln in raw.split("\n") if ln.startswith("reason:")] == [raw.split("\n")[1]]
@@ -145,23 +146,22 @@ def test_v5_error_is_sanitised_so_no_second_reason_line():
     {}, None,
 ])
 def test_v6_blank_or_non_string_response_maps_to_empty_response(data):
-    calls = _spy(StepResult(status="ok", data=data, duration_ms=1, step_name="semantic_verify"))
+    calls = _spy(StepResult(status="ok", data=data, duration_ms=1, step_name="verify_findings_semantic"))
     assert sv._invoke_verifier_agent(FINDING) == "UNVERIFIED:\nreason: empty_response\n"
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("error", ["x" * 300 + "tail:end", None], ids=["long", "none"])
-def test_v5b_error_tail_is_last_200_chars_without_colons(error):
-    _spy(StepResult(status="error", data=None, duration_ms=1, step_name="semantic_verify",
+@pytest.mark.parametrize("error", ["cause:first " + "x" * 300, None], ids=["long", "none"])
+def test_v5b_error_detail_is_code_then_head_without_colons(error):
+    _spy(StepResult(status="error", data=None, duration_ms=1, step_name="verify_findings_semantic",
                     error=error, error_code="E_LLM_EXIT"))
     raw = sv._invoke_verifier_agent(FINDING)
     reason = raw.split("\n")[1]
     assert reason.startswith("reason: agent_error")
-    tail = reason[len("reason: agent_error"):].strip()
-    if error is None:
-        assert tail == ""
-    else:
-        assert tail == error[-200:].replace(":", "")
+    detail = reason[len("reason: agent_error"):].strip()
+    expected = f"E_LLM_EXIT {error or ''}".replace(":", "").strip()[:200]
+    assert detail == expected
+    assert detail.startswith("E_LLM_EXIT")
 
 
 def test_v5c_oserror_during_the_call_is_an_unverified_finding():
@@ -198,16 +198,17 @@ def test_v9_follows_the_configured_backend(monkeypatch):
     assert len(calls) == 1 and subprocess_calls == []
 
 
-def test_v10_tier_rebinding_applies_like_any_non_gate_call(monkeypatch):
-    """Accepted consequence (spec clause 4): the run's tier model rebinds the verifier."""
+def test_v10_tier_rebinding_does_not_touch_the_verifier(monkeypatch):
+    """The alias guard stops a stale versioned id and the opus escalation must reach
+    opus, so the run's tier model does not rebind the verifier — even to an id the
+    guard would have refused."""
     calls = _spy()
     telemetry_ctx.set_current_run(event_log=None, run_id="run-sv", step_name="verify_findings_semantic",
                                   phase="phase_6", tier="SIMPLE")
-    monkeypatch.setattr(llm_subprocess, "_load_tier_model", lambda tier: "sonnet")
+    monkeypatch.setattr(llm_subprocess, "_load_tier_model", lambda tier: "claude-sonnet-4-5")
     sv._invoke_verifier_agent(FINDING, model_tier="opus")
     assert len(calls) == 1
-    assert get_claude_critical() != "sonnet"
-    assert calls[0]["model"] == "sonnet"
+    assert calls[0]["model"] == get_claude_critical()
 
 
 def test_v7_unaccepted_alias_fails_closed_before_any_call(monkeypatch):
@@ -220,5 +221,5 @@ def test_v7_unaccepted_alias_fails_closed_before_any_call(monkeypatch):
 
 def test_v8_module_spawns_nothing_itself():
     src = __import__("inspect").getsource(sv)
-    assert "bounded_run" not in src
+    assert "bounded_spawn" not in src and "bounded_run(" not in src
     assert '"claude", "-p"' not in src

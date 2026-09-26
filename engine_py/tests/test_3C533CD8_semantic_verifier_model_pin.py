@@ -4,11 +4,11 @@ ACs covered:
   AC1 — opus-tier: the chokepoint is called with model == get_claude_critical() alias
   AC2 — haiku-tier: the chokepoint is called with model == get_claude_fallback() alias
   AC3 — fail-closed: stale versioned id raises ValueError BEFORE the chokepoint is called
+  AC4 — _ACCEPTED_MODEL_ALIASES == frozenset({"opus","sonnet","haiku"})
 
 bd#82 PR3: the verifier no longer spawns `claude -p` through bounded_run; it calls
 llm_subprocess.invoke_llm_subprocess, so these ACs read the chokepoint's `model`
 keyword instead of the argv passed to bounded_run. The assertions are unchanged.
-  AC4 — _ACCEPTED_MODEL_ALIASES == frozenset({"opus","sonnet","haiku"})
 
 Pre-GREEN FAIL reasoning (per §1l / stub-passability):
   AC1/AC2: assert the chokepoint receives model=<alias>. If the
