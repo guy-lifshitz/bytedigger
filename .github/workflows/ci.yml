@@ -107,7 +107,7 @@ jobs:
 
       - name: install wheel — no dbos
         run: |
-          pip install --quiet dist/*.whl pytest pytest-timeout pyyaml  # pyyaml: lazy import in ac_dsl.py
+          pip install --quiet dist/*.whl pytest pytest-timeout pyyaml claude-agent-sdk==0.2.120  # pyyaml: lazy import in ac_dsl.py; claude-agent-sdk: bd#82 real-SDK argv ACs
           python -c "import bytedigger_engine; from bytedigger_engine import engine, event_log, workflows; print('OK: wheel imports')"
 
       # bd#48: eight GH1338 ACs drive a REAL `bun test` (§4) and deliberately
