@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import time
@@ -54,7 +53,7 @@ except ImportError:  # pragma: no cover — engine_py layout always provides it
     EventLog = None  # type: ignore[assignment,misc]
 
 from bytedigger_engine.lib.verdict_parse import find_last_standalone_marker  # type: ignore[import]  # noqa: E402
-from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
+from bytedigger_engine import llm_subprocess  # noqa: E402  bd#82: the one model-call chokepoint
 from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_fallback  # type: ignore[import]  # noqa: E402
 
 
@@ -119,7 +118,7 @@ def _sanitise_for_unverified_block(text: str) -> str:
 
 
 def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
-    """Invoke independent verifier subagent. Returns raw stdout.
+    """Invoke the independent verifier through the chokepoint. Returns its raw response text.
 
     On timeout/error returns a synthetic UNVERIFIED: block per W14 spec §4.
     """
@@ -171,32 +170,31 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
         "4. Do NOT spawn nested subagents. Do NOT modify files."
     )
 
-    cmd = ["claude", "-p", "--model", model, "--max-turns", "10"]
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
+    # bd#82: through the chokepoint like every other model call — the configured
+    # backend, a read-only tool set, a fresh session per finding, attested and
+    # observed. Called as a module attribute so tests can patch the seam.
     try:
-        result = bounded_run(
-            cmd,
-            input=full_prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
+        result = llm_subprocess.invoke_llm_subprocess(
+            prompt=full_prompt,
+            model=model,
+            timeout_sec=timeout,
+            step_name="semantic_verify",
+            allowed_tools=["Read", "Grep", "Glob"],
+            fresh_session=True,
         )
-        if result.returncode == 124:
+    except OSError as exc:
+        return f"UNVERIFIED:\nreason: agent_error {_sanitise_for_unverified_block(str(exc))}\n"
+    if result.status != "ok":
+        if result.error_code in ("E_LLM_TIMEOUT", "E_LLM_API_TIMEOUT"):
             return "UNVERIFIED:\nreason: agent_timeout\n"
-        if result.returncode != 0:
-            stderr_tail = _sanitise_for_unverified_block(
-                (result.stderr or "")[-200:]
-            )
-            return f"UNVERIFIED:\nreason: agent_error {stderr_tail}\n"
-        stdout = result.stdout or ""
-        if not stdout.strip():
-            return "UNVERIFIED:\nreason: empty_response\n"
-        return stdout
-    except (OSError, FileNotFoundError) as exc:
-        sanitised = _sanitise_for_unverified_block(str(exc))
-        return f"UNVERIFIED:\nreason: agent_error {sanitised}\n"
+        tail = _sanitise_for_unverified_block((result.error or "")[-200:])
+        return f"UNVERIFIED:\nreason: agent_error {tail}\n"
+    raw = result.data.get("raw_response") if isinstance(result.data, dict) else None
+    if not isinstance(raw, str) or not raw.strip():
+        return "UNVERIFIED:\nreason: empty_response\n"
+    return raw
 
 
 # ──────────────────────────────────────────────────────────────────────────────
