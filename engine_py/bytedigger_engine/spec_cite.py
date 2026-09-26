@@ -6,6 +6,8 @@ Public API:
   scan_citations(spec_text) -> list[Citation]
   check_citation(cit, repo_root, declared=..., repo_index=...) -> Finding
   lint_spec(spec_path, repo_root) -> tuple[int, list[Finding]]
+  declared_introduced_symbols(spec_text) -> set[str]
+  BLOCKING_STATUSES — Finding statuses that make lint_spec exit 1
 
 Part of 52151A8F — spec-cite-lint.
 """
@@ -46,11 +48,12 @@ _NEW_CONTEXT_RE = re.compile(
 )
 
 
-# Matches a CREATE: declaration line (GH631 §2.1): optional list-bullet prefix,
-# "CREATE:", then a code-file path (optionally backtick-quoted), optional
-# trailing " (comment)".
+# Matches a CREATE declaration line (GH631 §2.1): optional list-bullet prefix,
+# "CREATE:" or (bd#87) colon-less "CREATE " — case-sensitive, so prose
+# "Create ..." is not a declaration — then a code-file path (optionally
+# backtick-quoted), optional trailing " (comment)".
 _CREATE_LINE_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?CREATE:\s*`?(?P<path>" + _CODE_FILE_RE.pattern + r")`?"
+    r"^\s*(?:[-*]\s*)?CREATE(?::\s*|\s+)`?(?P<path>" + _CODE_FILE_RE.pattern + r")`?"
 )
 
 # Matches the heading of a "Files this spec CREATES" section (GH631 §2.1.b).
@@ -111,7 +114,7 @@ class Citation:
 class Finding:
     file: str
     symbol: str
-    status: str  # "resolved" | "unresolved_symbol" | "missing_file" | "new_symbol" | "planned_file" | "wrong_file"
+    status: str  # "resolved" | "unresolved_symbol" | "missing_file" | "new_symbol" | "planned_file" | "wrong_file" | "no_citations"
 
 
 def _is_valid_symbol(token: str) -> bool:
@@ -189,6 +192,58 @@ def scan_citations(spec_text: str) -> list[Citation]:
 _SIG_PREFIX_RE = re.compile(r"^([A-Za-z_][\w.-]*)\s*\(")
 
 
+# bd#87 op1 (ported from HAL #1893 §2.1): declarative introduced-symbol
+# allowlist — an `INTRODUCES:` line, or bullets under a
+# "Symbols this spec INTRODUCES" heading.
+_INTRODUCES_LINE_RE = re.compile(r"^\s*(?:[-*]\s*)?INTRODUCES:(?P<rest>.*)$")
+_INTRODUCES_HEADING_RE = re.compile(r"(?i)^#{1,6}\s*Symbols this spec INTRODUCES")
+_BULLET_RE = re.compile(r"^\s*[-*]\s")
+
+
+def _backtick_symbols(text: str) -> set[str]:
+    """Backtick tokens in text that name a symbol: a valid symbol token
+    (trailing `()` stripped) or the leading identifier of a signature."""
+    symbols: set[str] = set()
+    for t in _BACKTICK_RE.findall(text):
+        if _is_valid_symbol(t):
+            symbols.add(t.removesuffix("()"))
+            continue
+        sm = _SIG_PREFIX_RE.match(t)
+        if sm:
+            symbols.add(sm.group(1))
+    return symbols
+
+
+def declared_introduced_symbols(spec_text: str) -> set[str]:
+    """Return the symbols a spec explicitly declares it introduces (bd#87).
+
+    Two forms, both walked through _iter_scannable_lines (neither works
+    inside a non-python fence): an `INTRODUCES:` line, and bullet lines in
+    the body of a "Symbols this spec INTRODUCES" section (until the next
+    line starting with `#`). Tokens come only from backticks. A section
+    body line carrying a code-file path is a citation, never a declaration,
+    and is skipped whole — otherwise a last-in-document section would
+    allowlist a typo cited below it."""
+    introduced: set[str] = set()
+    in_section = False
+    for _line_no, line in _iter_scannable_lines(spec_text):
+        m = _INTRODUCES_LINE_RE.match(line)
+        if m:
+            introduced |= _backtick_symbols(m.group("rest"))
+            continue
+        if _INTRODUCES_HEADING_RE.match(line):
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if line.startswith("#"):
+            in_section = False
+            continue
+        if _BULLET_RE.match(line) and not _CODE_FILE_RE.search(line):
+            introduced |= _backtick_symbols(line)
+    return introduced
+
+
 def new_marked_symbols(spec_text: str) -> set[str]:
     """Return symbols marked as new/planned by _NEW_CONTEXT_RE (GH1005 §2.2),
     independent of any code-file token on the same line. For each scannable
@@ -197,15 +252,8 @@ def new_marked_symbols(spec_text: str) -> set[str]:
     leading identifier group) is added."""
     marked: set[str] = set()
     for _line_no, line in _iter_scannable_lines(spec_text):
-        if not _NEW_CONTEXT_RE.search(line):
-            continue
-        for t in _BACKTICK_RE.findall(line):
-            if _is_valid_symbol(t):
-                marked.add(t.removesuffix("()"))
-                continue
-            sm = _SIG_PREFIX_RE.match(t)
-            if sm:
-                marked.add(sm.group(1))
+        if _NEW_CONTEXT_RE.search(line):
+            marked |= _backtick_symbols(line)
     return marked
 
 
@@ -516,6 +564,21 @@ def planned_symbols(citations: list[Citation], findings: list[Finding]) -> set[s
     return planned
 
 
+# bd#87 op3: statuses that make lint_spec exit 1. missing_file is a cited
+# file that neither exists nor is declared by a CREATE line/section (an
+# invented path); no_citations means the lint saw no code reference at all
+# (e.g. a spec wrapped whole in a markdown fence) — blind is not clean.
+BLOCKING_STATUSES = frozenset({"unresolved_symbol", "missing_file", "no_citations"})
+
+
+def _is_blind(spec_text: str) -> bool:
+    """True when spec_text is not blank but no scannable line references a
+    code file — nothing for the lint (or any path citation) to check."""
+    if not spec_text.strip():
+        return False
+    return not any(_CODE_FILE_RE.search(line) for _n, line in _iter_scannable_lines(spec_text))
+
+
 def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
     """Lint a spec file: scan citations, check each, return (exit_code, findings).
 
@@ -526,9 +589,12 @@ def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
     CREATE/MODIFY-cited (planned) on another. exit_code is computed AFTER
     the downgrade.
 
-    exit_code = 1 if any finding has status="unresolved_symbol", else 0.
-    missing_file, new_symbol, and planned_file findings are advisory (do not
-    raise exit_code to 1).
+    bd#87: symbols a spec declares it introduces (see
+    ``declared_introduced_symbols``) are downgraded the same way. A blind
+    spec (see ``_is_blind``) gets one "no_citations" finding.
+
+    exit_code = 1 if any finding's status is in BLOCKING_STATUSES, else 0.
+    new_symbol, planned_file, wrong_file, and resolved are advisory.
     """
     spec_text = spec_path.read_text(encoding="utf-8", errors="replace")
     citations = scan_citations(spec_text)
@@ -541,13 +607,16 @@ def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
     planned = planned_symbols(citations, findings)
     declared_syms = declared_symbols(spec_text)
     new_marked = new_marked_symbols(spec_text)  # GH1005 §2.3
+    introduced = declared_introduced_symbols(spec_text)  # bd#87 op2
     for f in findings:
         if f.status in ("unresolved_symbol", "wrong_file") and (  # GH796: + "wrong_file"
             f.symbol in planned
             or _symbol_declared(f.symbol, declared_syms)
             or f.symbol.removesuffix("()") in new_marked  # GH1005 §2.3
+            or f.symbol.removesuffix("()") in introduced  # bd#87 op2
         ):
             f.status = "new_symbol"
-    has_unresolved = any(f.status == "unresolved_symbol" for f in findings)
-    exit_code = 1 if has_unresolved else 0
+    if _is_blind(spec_text):
+        findings.append(Finding(file="", symbol="", status="no_citations"))
+    exit_code = 1 if any(f.status in BLOCKING_STATUSES for f in findings) else 0
     return exit_code, findings
