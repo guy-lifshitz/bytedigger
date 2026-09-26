@@ -1,0 +1,19 @@
+Audit of test_mathx.py against the spec:
+
+**AC1 (returns lo when x < lo):** `test_ac1_below` calls `clamp(-5, 0, 10) == 0`. Strong equality assertion, correct case (x below lo), would fail against a broken/no-op implementation. Covered.
+
+**AC2 (returns hi when x > hi):** `test_ac2_above` calls `clamp(15, 0, 10) == 10`. Same pattern, correct. Covered.
+
+**AC3 (returns x when lo <= x <= hi):** `test_ac3_inside` checks an interior point (7), and `test_ac3_edges` checks both boundary values (0 and 10) combined into one assertion. This gives interior + both edges. Adequate coverage, though combining two edge checks into a single `assert a and b` is a minor style weakness (a failure won't tell you which edge failed) — not a correctness gap, just a diagnostics one.
+
+**AC4 (raises ValueError when lo > hi):** `test_ac4_bad_range` uses `pytest.raises(ValueError)` around `clamp(1, 10, 0)` where lo=10 > hi=0. Correct trigger condition, correct exception type, no unit-under-test mocking. Covered.
+
+**Mocking check:** No mocks anywhere; `clamp` is imported and called directly. No violation.
+
+**Assertion strength check:** All assertions are exact equality or exception-type checks — none use weak patterns like `assertTrue(result is not None)` or tautologies. Each would fail against a plausibly-wrong implementation (e.g., an identity function, a swapped lo/hi, or a no-op that never raises).
+
+**Gaps considered:** No test for x exactly equal to lo or hi as a lower/upper-inequality boundary — but that's exactly what `test_ac3_edges` provides. No test for lo == hi (degenerate valid range) — not required by any AC, so not a gap. No AC is missing a test.
+
+All four ACs are covered by tests with strong, correct assertions and no mocking of the unit under test. The only nitpick (combined assertion in `test_ac3_edges` reducing failure diagnostics) is not sufficient grounds for rejection.
+
+VERDICT: PASS

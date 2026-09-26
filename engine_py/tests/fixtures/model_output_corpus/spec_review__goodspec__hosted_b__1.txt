@@ -1,0 +1,20 @@
+## Review
+
+The four criteria cover the ordering cases but leave gaps around boundaries, types, and equal-endpoint handling.
+
+**Issues:**
+
+1. **NaN/non-comparable input unspecified.** If `x`, `lo`, or `hi` can be `float('nan')`, all comparisons (`<`, `>`, `<=`) are false, so no AC branch fires and behavior is undefined. Needs an explicit AC or an input-domain restriction (e.g., "inputs are finite numbers").
+
+2. **`lo == hi` case not explicit.** AC3 technically covers it (`lo <= x <= hi` collapses to `x == lo == hi`), but it's worth calling out explicitly since it's an edge a test suite should exercise deliberately, not incidentally.
+
+3. **AC4 ordering vs. AC1–3 not specified.** If `lo > hi`, does the function check that *before* evaluating AC1–3, or could `x < lo` short-circuit into returning `lo` first? As written, a test could satisfy AC1 and AC4 with contradictory implementations. State that the `lo > hi` check takes precedence over all others.
+
+4. **Type contract missing.** Are `x`, `lo`, `hi` required to be the same numeric type (int/float)? Mixed int/float behavior (return type) isn't specified — e.g., does `clamp(1, 0.5, 5)` return `1` (int) or is it coerced? Not strictly required for correctness, but worth a line if tests will assert exact type/equality.
+
+5. **AC4 doesn't specify exception message/content**, which is fine (ValueError alone is typically sufficient for testability), but confirm no message-content test is expected.
+
+Items 1 and 3 are the ones that actually block unambiguous test-writing; 2, 4, 5 are hardening suggestions.
+
+## Verdict
+REVISE — add an explicit precedence rule for AC4 vs. AC1–3, and specify behavior (or an explicit exclusion) for NaN/non-comparable inputs. The rest can ship as-is once those two are addressed.

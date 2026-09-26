@@ -1,0 +1,17 @@
+## Review
+
+**AC1, AC2, and AC3:** These criteria are clear, mathematically sound, and easily testable via unit tests. They cover the standard functional requirements of a clamp operation.
+
+**AC4:** This criterion is **ambiguous and untestable**. 
+*   "Invalid ranges" is not defined. Does this mean `lo > hi`, or does it include cases where inputs are non-numeric?
+*   "Appropriately" is not a technical specification. A developer does not know whether the function should raise a `ValueError`, swap the bounds, return `None`, or return `x`. 
+
+To meet the requirement for unambiguous acceptance criteria, AC4 must be replaced with a specific behavioral definition.
+
+## Verdict
+**REVISE**
+
+**Required Changes:**
+Replace **AC4** with a concrete instruction. For example:
+*   "Raises `ValueError` if `lo > hi`." 
+*   OR "If `lo > hi`, the function shall swap `lo` and `hi` before processing."

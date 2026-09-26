@@ -1,0 +1,14 @@
+Audit:
+
+1. **AC1 (returns lo when x < lo)**: Covered by `test_ac1_below()`.
+2. **AC2 (returns hi when x > hi)**: Covered by `test_ac2_above()`.
+3. **AC3 (returns x when lo <= x <= hi)**:
+   - Partially covered by `test_ac3_inside()` and `test_ac3_edges()`. However, the edge cases should be tested separately for completeness.
+4. **AC4 (raises ValueError when lo > hi)**: Covered by `test_ac4_bad_range()`.
+
+Issues found:
+
+- Test `test_ac3_edges()` is not fully compliant with AC3 as it combines two separate conditions into one assertion. It would be better to test the low and high edges separately.
+- There are no tests that directly check the behavior of `clamp(x, lo, hi)` when `lo <= x <= hi`.
+
+VERDICT: FAIL

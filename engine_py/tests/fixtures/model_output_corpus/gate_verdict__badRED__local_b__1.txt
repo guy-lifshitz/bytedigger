@@ -1,0 +1,11 @@
+The RED test file does not fully cover the spec for the `clamp` function. Specifically:
+
+- **AC1** is only partially tested by `test_ac1_below`, but it should explicitly check that `mathx.clamp(-5, 0, 10)` returns `0`.
+- **AC2** and **AC4** are not covered at all.
+- **AC3** is tested with a weak assertion (`>= 0`), which does not ensure the function returns exactly `7`.
+
+Additionally, using a mock to override the behavior of `clamp` in `test_ac1_below` is inappropriate as it defeats the purpose of testing.
+
+Given these issues:
+
+VERDICT: FAIL

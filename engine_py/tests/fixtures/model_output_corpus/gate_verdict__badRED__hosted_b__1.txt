@@ -1,0 +1,13 @@
+Audit findings:
+
+1. **AC1 test is invalid — mocks the unit under test.** `test_ac1_below` patches `mathx.clamp` itself with `mock.patch.object(mathx, "clamp", return_value=0)`, then calls the mocked function. This can never fail regardless of the real implementation; it tests the mock, not the code. This is disqualifying on its own.
+
+2. **AC2 test uses a weak assertion.** `assert mathx.clamp(15, 0, 10) >= 0` would pass for `clamp` returning `10` (correct), but also for `0`, `5`, `15` unclamped, or any non-negative garbage. It does not pin the required return value (`10`), so a wrong implementation (e.g., one that just returns `x` or `0`) would not be caught.
+
+3. **AC4 is completely uncovered.** No test exercises `lo > hi` or checks that `ValueError` is raised. A missing acceptance criterion is an automatic reject.
+
+4. **AC3 test (`test_ac3_inside`) is acceptable** — exact equality on an in-range value is a reasonably strong check, though it's only one boundary case (no test at `x == lo` or `x == hi` edges, which would strengthen AC3 confidence, but this is a minor gap not a blocker).
+
+Given the mock-of-unit-under-test, the weak AC2 assertion, and the fully missing AC4, this test file does not honestly or fully cover the spec.
+
+VERDICT: FAIL

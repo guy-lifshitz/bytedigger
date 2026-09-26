@@ -1,0 +1,32 @@
+## Review of Spec: `clamp(x, lo, hi)` in `mathx.py`
+
+### Analysis
+
+The specification provided for the `clamp` function appears to be clear and concise but could benefit from some additional details to ensure it is fully testable and unambiguous.
+
+1. **AC1: returns lo when x < lo.**
+   - This criteria is well-defined.
+   
+2. **AC2: returns hi when x > hi.**
+   - This criteria is also well-defined.
+   
+3. **AC3: returns x when lo <= x <= hi.**
+   - This criteria is straightforward and unambiguous.
+
+4. **AC4: raises ValueError when lo > hi.**
+   - This criteria ensures that the function handles invalid input gracefully, which is important for robustness.
+
+### Suggestions
+
+- It might be beneficial to include an example or two within the acceptance criteria to further clarify how the function behaves in different scenarios.
+  
+  For instance:
+  - **Example:** `clamp(10, 5, 20)` should return `10` because \(5 \leq 10 \leq 20\).
+  - **Example:** `clamp(-5, -10, -1)` should return `-10` because \(-10 < -5\).
+
+- Consider adding a note or comment in the function documentation to explain why raising `ValueError` is necessary for invalid input parameters. This can help other developers understand the rationale behind this decision.
+
+### Verdict
+SHIP
+
+The acceptance criteria are clear and comprehensive, ensuring that the implementation will be testable and unambiguous. The inclusion of examples would further enhance clarity.

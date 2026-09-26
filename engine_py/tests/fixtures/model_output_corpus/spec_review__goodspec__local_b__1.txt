@@ -1,0 +1,20 @@
+## Review of `clamp(x, lo, hi)` in `mathx.py`
+
+### Acceptance Criteria Analysis
+
+1. **AC1**: "returns `lo` when `x < lo`."
+   - This criterion ensures that if the input value `x` is less than the lower bound `lo`, the function will return `lo`. This is clear and unambiguous.
+
+2. **AC2**: "returns `hi` when `x > hi`."
+   - Similar to AC1, this criterion ensures that for values of `x` greater than the upper bound `hi`, the function returns `hi`. This is also well-defined.
+
+3. **AC3**: "returns `x` when `lo <= x <= hi`."
+   - This criterion specifies that if the input value `x` lies within the range defined by `lo` and `hi`, the function should return `x` itself. It is clear and unambiguous as well.
+
+4. **AC4**: "raises `ValueError` when `lo > hi`."
+   - This acceptance criteria ensures that the function will raise an exception if the lower bound exceeds the upper bound, which is a necessary check to prevent invalid arguments from being processed. This is crucial for ensuring the integrity of the function's operation.
+
+### Verdict
+SHIP
+
+The spec meets all the requirements for being testable and unambiguous. The acceptance criteria cover the expected behavior in various scenarios, including edge cases where `x` falls outside or within the specified bounds, as well as an invalid condition for the input parameters (`lo > hi`).

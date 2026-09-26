@@ -1,0 +1,21 @@
+# Review: `clamp(x, lo, hi)` Spec
+
+## Strengths
+
+All four acceptance criteria are **testable and unambiguous**:
+- AC1–AC3 use clear comparison operators and specify exact return values
+- AC4 precisely names the exception type and triggering condition
+- Boundaries are explicit: AC3 covers `lo <= x <= hi` (inclusive), leaving no gaps or overlaps with AC1–AC2
+
+## Issues
+
+**Type and value handling are underspecified:**
+1. **Type scope**: Does `clamp` support only numeric types (int, float)? Does it work with any comparable types (strings, custom objects)? The spec should clarify.
+2. **lo == hi**: AC4 requires ValueError only when `lo > hi`. When `lo == hi`, the function should return that single value—but this boundary case deserves explicit testing to avoid a false sense of completeness.
+3. **Special float values**: If floats are in scope, how should NaN or infinity be handled? Should `clamp(float('nan'), 0, 1)` raise, return NaN, or behave otherwise?
+
+**Recommendation**: Add a line clarifying type scope (e.g., "Accepts int and float arguments") and optionally add AC5: "returns lo when lo == hi and lo <= x <= hi" to make the degenerate case explicit.
+
+## Verdict
+
+**SHIP** — The core logic is testable and unambiguous. Type/edge-case clarity would be nice but isn't a blocker; these can be addressed during code review or in a follow-up spec if the function's scope expands.

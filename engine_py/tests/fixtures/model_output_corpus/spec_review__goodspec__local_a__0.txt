@@ -1,0 +1,19 @@
+## Review
+
+The specification is nearly complete, but it contains a logical ambiguity regarding rule precedence.
+
+**Ambiguity Found:**
+There is a conflict between **AC4** and **AC1/AC2** when the input parameters satisfy both conditions. 
+
+For example, consider the call `clamp(5, 10, 2)`:
+- According to **AC1**, since $x < lo$ ($5 < 10$), the function should return $lo$ (10).
+- According to **AC4**, since $lo > hi$ ($10 > 2$), the function should raise a `ValueError`.
+
+The specification does not define which behavior takes precedence. While an implementation might naturally check for valid bounds before applying clamping logic, a formal specification must explicitly state the order of operations or ensure that the conditions are mutually exclusive to be truly unambiguous.
+
+**Recommendation:**
+Explicitly state the order of evaluation. For example: 
+"First, validate that $lo \le hi$; if not, raise `ValueError`. If valid, proceed to evaluate clamping logic."
+
+## Verdict
+REVISE

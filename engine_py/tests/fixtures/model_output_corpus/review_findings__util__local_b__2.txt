@@ -1,0 +1,11 @@
+### SEVERITY: HIGH — LAST_INDEX_ERROR
+> util.py:15: return items[len(items) - n - 1:]
+This code may raise an `IndexError` if the list has fewer than `n` elements. The slice operation should be adjusted to safely handle this case.
+
+### SEVERITY: MEDIUM — UNHANDLED_EXCEPTION
+> util.py:9: except Exception:
+This broad exception handling can hide unexpected errors. It's better to catch specific exceptions or log the error before returning an empty dictionary.
+
+After all findings, end with one line:
+
+`VERDICT: FAIL`

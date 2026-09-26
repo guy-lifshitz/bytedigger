@@ -1,0 +1,13 @@
+### HIGH — Off-by-one error in last_n slicing
+> util.py:15: return items[len(items) - n - 1:]
+This function should return the last n items, but the slice index subtracts an extra 1, so it returns n+1 items instead of n. For example, `last_n([1,2,3,4,5], 2)` returns `[3,4,5]` instead of `[4,5]`. The correct slice is `items[len(items) - n:]` (or simply `items[-n:]`).
+
+### MEDIUM — Silent exception swallowing hides all errors
+> util.py:8: except Exception:
+Catching every exception (including file-not-found, permission errors, and malformed JSON) and silently returning an empty dict makes configuration failures invisible. A missing or corrupted config file will silently fall back to `{}` instead of alerting the caller, which can cause confusing downstream behavior. At minimum, log the exception or narrow the catch to expected exceptions (`FileNotFoundError`, `json.JSONDecodeError`).
+
+### LOW — mean() divides by zero on empty input
+> util.py:19: return sum(xs) / len(xs)
+If `xs` is an empty list, `len(xs)` is 0 and this raises `ZeroDivisionError` with no guard or meaningful error message. Depending on expected usage, consider explicitly handling the empty case (e.g., raising a clear `ValueError` or returning `None`/`0`).
+
+VERDICT: FAIL

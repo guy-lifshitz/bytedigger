@@ -1,0 +1,28 @@
+## Review of `clamp(x, lo, hi)` Spec in `mathx.py`
+
+### Testable and Unambiguous Acceptance Criteria
+
+The acceptance criteria (AC1-AC4) provided for the function `clamp(x, lo, hi)` are clear and testable:
+
+- **AC1**: returns `lo` when `x < lo`.
+- **AC2**: returns `hi` when `x > hi`.
+- **AC3**: returns `x` when `lo <= x <= hi`.
+- **AC4**: raises `ValueError` when `lo > hi`.
+
+These criteria effectively cover the expected behavior of the function, including edge cases and error handling.
+
+### Additional Considerations
+
+1. **Parameter Validation**:
+   - The spec focuses on the return values but does not mention any checks for invalid input types (e.g., non-numeric inputs). It would be wise to include a check at the beginning of the function to ensure that `x`, `lo`, and `hi` are numeric.
+
+2. **Error Message**:
+   - The error message in AC4 could be more specific, providing a clear indication of what went wrong (e.g., "Invalid input: lo > hi").
+
+3. **Edge Cases**:
+   - While the provided criteria cover most cases, it might be useful to consider additional edge cases such as `x` being exactly equal to `lo` or `hi`, ensuring consistency in behavior.
+
+### Verdict
+SHIP
+
+The acceptance criteria are clear and testable, covering all expected behaviors of the function. With minor enhancements (parameter validation and a more specific error message), this spec is ready for implementation.

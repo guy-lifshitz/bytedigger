@@ -1,0 +1,14 @@
+**Audit:**
+
+- AC1 (below): `test_ac1_below` covers it with a strict equality check. OK.
+- AC2 (above): `test_ac2_above` covers it. OK.
+- AC3 (inside + edges): `test_ac3_inside` and `test_ac3_edges` cover interior and boundary values. OK.
+- AC4 (lo > hi raises ValueError): `test_ac4_bad_range` covers it. OK.
+
+No test mocks the unit under test — `clamp` is imported and called directly. All assertions use exact equality or `pytest.raises`, which are strong enough to fail against wrong implementations (e.g., an implementation that doesn't clamp, or that swaps lo/hi behavior, or that fails to validate lo>hi will all fail these tests).
+
+One minor gap: `test_ac3_edges` uses `and` inside a single `assert`, which is acceptable but slightly weakens failure diagnostics (won't say which side failed) — not a coverage or correctness issue, just a style nit. Not sufficient grounds for rejection.
+
+All four acceptance criteria are covered, assertions are precise (exact equality, not weak range/truthy checks), and no mocking of the unit under test occurs.
+
+VERDICT: PASS

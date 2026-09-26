@@ -1,0 +1,27 @@
+## Review: `clamp(x, lo, hi)` Spec
+
+### Assessment by Acceptance Criterion
+
+**AC1–AC3**: Clear and testable. Each specifies an input condition (x < lo, x > hi, lo ≤ x ≤ hi) and an expected output with no ambiguity.
+
+**AC4**: **Not testable as written.** The phrase "handles invalid ranges appropriately" leaves critical questions unanswered:
+- What defines an "invalid range"? (e.g., lo > hi? lo == hi? lo or hi is NaN or infinity?)
+- What does "appropriately" mean? Raise an error? Return a specific value? Return unchanged x? Silent behavior is undefined.
+
+Without specifics, reviewers and implementers have no objective way to verify correctness.
+
+### What's Missing
+
+The spec should define edge cases:
+- Behavior when `lo > hi` (the most critical invalid case)
+- Behavior when values are equal (`lo == hi`)
+- Handling of NaN, infinity, or None if applicable to your use case
+- Whether type constraints exist (int/float/both)
+
+### Verdict
+
+**REVISE** — AC4 must be split into explicit, testable criteria. Replace it with concrete examples:
+- "Raises ValueError when lo > hi" (or specify the actual behavior)
+- "Returns lo when lo == hi, regardless of x" (or your intended behavior)
+
+AC1–AC3 are ship-ready; AC4 blocks you.

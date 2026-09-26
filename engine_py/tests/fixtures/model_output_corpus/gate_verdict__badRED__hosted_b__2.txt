@@ -1,0 +1,13 @@
+Audit findings:
+
+1. **AC1 (below range) — test mocks the unit under test.** `test_ac1_below` patches `mathx.clamp` itself with `mock.patch.object(mathx, "clamp", return_value=0)`, then calls the mocked version. This asserts nothing about the real implementation; it would pass even if `clamp` were deleted or completely broken. This is a fatal violation — the test cannot fail against a wrong implementation.
+
+2. **AC2 (above range) — assertion too weak.** `assert mathx.clamp(15, 0, 10) >= 0` only checks non-negativity. A buggy implementation returning `15`, `1`, or any non-negative number (including a completely wrong passthrough) satisfies this. It must assert `== 10`.
+
+3. **AC3 (inside range) — adequately covered.** `assert mathx.clamp(7, 0, 10) == 7` correctly pins the exact expected value.
+
+4. **AC4 (lo > hi raises ValueError) — completely missing.** No test exercises this branch at all. An implementation that never raises would pass the whole suite.
+
+Summary: 1 of 4 ACs (AC3) is properly covered; AC1 is faked via self-mocking, AC2 is a weak tautology-like assertion, and AC4 is absent entirely. This test file must be rejected.
+
+VERDICT: FAIL

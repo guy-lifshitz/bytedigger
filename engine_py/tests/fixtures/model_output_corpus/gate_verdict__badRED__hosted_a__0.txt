@@ -1,0 +1,17 @@
+## Audit
+
+**test_ac1_below()**: 🚫 **CRITICAL VIOLATION**
+- Mocks the unit under test (`mathx.clamp`) with `mock.patch.object(mathx, "clamp", return_value=0)`. This isn't testing the implementation; it replaces the function entirely. The test would pass even if `clamp` doesn't exist or is completely broken.
+
+**test_ac2_above()**: 🚫 **WEAK ASSERTION**
+- Assertion `>= 0` is too permissive. AC2 requires `clamp(15, 0, 10)` to return `hi` (specifically 10). The test passes if the function returns 15, 0, 100, or any value ≥ 0—including a broken implementation that just returns x unchanged. Should assert `== 10`.
+
+**test_ac3_inside()**: ✓ 
+- Correctly asserts that `clamp(7, 0, 10) == 7`.
+
+**AC4 Coverage**: 🚫 **MISSING**
+- No test exists for AC4 (ValueError when lo > hi). Complete gap in test coverage.
+
+---
+
+VERDICT: FAIL

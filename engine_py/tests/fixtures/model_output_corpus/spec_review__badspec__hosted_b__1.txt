@@ -1,0 +1,21 @@
+## Review: `clamp(x, lo, hi)` spec
+
+AC1–AC3 are testable and unambiguous: given concrete x/lo/hi, expected output is deterministic. No issues there.
+
+AC4 fails the bar. "Handles invalid ranges appropriately" is not testable — it doesn't say what an invalid range is (presumably `lo > hi`), doesn't specify behavior (raise? swap lo/hi? return x unchanged? return lo?), and "appropriately" gives a test writer nothing to assert against. Two engineers could implement conflicting behaviors and both would satisfy this AC as written.
+
+Also unspecified, worth resolving before freezing:
+- Type mix (e.g., `x` int, `lo`/`hi` float) — likely fine if silently allowed, but not stated.
+- Boundary behavior when `lo == hi` is implied consistent by AC3 but worth confirming it's not treated as "invalid."
+
+Suggested rewrite for AC4, e.g.:
+> AC4: raises `ValueError` when `lo > hi`.
+
+or, if swap semantics are intended:
+> AC4: when `lo > hi`, treats them as swapped (behaves as `clamp(x, hi, lo)`).
+
+Either is fine — but the spec must pick one.
+
+## Verdict
+
+REVISE — AC4 is not testable as written; it needs a concrete, single behavior for `lo > hi` before this can be frozen.

@@ -1,0 +1,19 @@
+## Review: `clamp(x, lo, hi)`
+
+AC1–AC3 are testable and unambiguous — clear inputs, clear expected outputs, boundary behavior (`<=`) is explicit.
+
+AC4 is not acceptance-worthy as written:
+- "invalid ranges" is undefined — presumably `lo > hi`, but it's not stated.
+- "handles appropriately" specifies no observable behavior. Does it raise `ValueError`? Swap `lo`/`hi`? Return `x` unchanged? Return `lo`? A test cannot be written against this criterion.
+- No guidance on other edge cases: `lo == hi`, non-numeric types, NaN inputs.
+
+Recommend replacing AC4 with something concrete, e.g.:
+- AC4: raises `ValueError` when `lo > hi`.
+
+or, if swap semantics are intended:
+- AC4: when `lo > hi`, they are swapped before clamping (i.e., behaves as `clamp(x, hi, lo)`).
+
+Either is fine — but the spec must pick one and state the exact observable behavior.
+
+## Verdict
+REVISE — AC4 must specify a concrete, testable behavior for `lo > hi` before this spec is frozen.

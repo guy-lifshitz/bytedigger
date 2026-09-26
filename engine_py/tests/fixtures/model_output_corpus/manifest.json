@@ -1,0 +1,377 @@
+{
+  "source": "Real replies from four models (two local open-weight: local_a, local_b; two hosted: hosted_a, hosted_b), three samples per prompt. gate_verdict: audit a RED file, end with `VERDICT: PASS|FAIL`. spec_review: review a spec, `## Verdict` section with SHIP|REVISE. review_findings: review util.py, findings as `### SEVERITY: <LEVEL> — <title>`. stated_verdict is the verdict the reply actually states (read by hand), not the task's expected answer.",
+  "cases": [
+    {
+      "file": "gate_verdict__badRED__hosted_a__0.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_a",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__hosted_a__1.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_a",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__hosted_a__2.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_a",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__hosted_b__0.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__hosted_b__1.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__hosted_b__2.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__local_a__0.txt",
+      "kind": "gate_verdict",
+      "model": "local_a",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__local_a__1.txt",
+      "kind": "gate_verdict",
+      "model": "local_a",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__local_a__2.txt",
+      "kind": "gate_verdict",
+      "model": "local_a",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__local_b__0.txt",
+      "kind": "gate_verdict",
+      "model": "local_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__local_b__1.txt",
+      "kind": "gate_verdict",
+      "model": "local_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__badRED__local_b__2.txt",
+      "kind": "gate_verdict",
+      "model": "local_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__goodRED__hosted_a__0.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_a",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__hosted_a__1.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_a",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__hosted_a__2.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_a",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__hosted_b__0.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_b",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__hosted_b__1.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_b",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__hosted_b__2.txt",
+      "kind": "gate_verdict",
+      "model": "hosted_b",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__local_a__0.txt",
+      "kind": "gate_verdict",
+      "model": "local_a",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__local_a__1.txt",
+      "kind": "gate_verdict",
+      "model": "local_a",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__local_a__2.txt",
+      "kind": "gate_verdict",
+      "model": "local_a",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__local_b__0.txt",
+      "kind": "gate_verdict",
+      "model": "local_b",
+      "stated_verdict": "PASS"
+    },
+    {
+      "file": "gate_verdict__goodRED__local_b__1.txt",
+      "kind": "gate_verdict",
+      "model": "local_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "gate_verdict__goodRED__local_b__2.txt",
+      "kind": "gate_verdict",
+      "model": "local_b",
+      "stated_verdict": "FAIL"
+    },
+    {
+      "file": "review_findings__util__hosted_a__0.txt",
+      "kind": "review_findings",
+      "model": "hosted_a",
+      "planted_bugs_reported": 2,
+      "finding_headers": 2
+    },
+    {
+      "file": "review_findings__util__hosted_a__1.txt",
+      "kind": "review_findings",
+      "model": "hosted_a",
+      "planted_bugs_reported": 2,
+      "finding_headers": 2
+    },
+    {
+      "file": "review_findings__util__hosted_a__2.txt",
+      "kind": "review_findings",
+      "model": "hosted_a",
+      "planted_bugs_reported": 2,
+      "finding_headers": 2
+    },
+    {
+      "file": "review_findings__util__hosted_b__0.txt",
+      "kind": "review_findings",
+      "model": "hosted_b",
+      "planted_bugs_reported": 3,
+      "finding_headers": 3
+    },
+    {
+      "file": "review_findings__util__hosted_b__1.txt",
+      "kind": "review_findings",
+      "model": "hosted_b",
+      "planted_bugs_reported": 3,
+      "finding_headers": 3
+    },
+    {
+      "file": "review_findings__util__hosted_b__2.txt",
+      "kind": "review_findings",
+      "model": "hosted_b",
+      "planted_bugs_reported": 3,
+      "finding_headers": 3
+    },
+    {
+      "file": "review_findings__util__local_a__0.txt",
+      "kind": "review_findings",
+      "model": "local_a",
+      "planted_bugs_reported": 2,
+      "finding_headers": 2
+    },
+    {
+      "file": "review_findings__util__local_a__1.txt",
+      "kind": "review_findings",
+      "model": "local_a",
+      "planted_bugs_reported": 2,
+      "finding_headers": 2
+    },
+    {
+      "file": "review_findings__util__local_a__2.txt",
+      "kind": "review_findings",
+      "model": "local_a",
+      "planted_bugs_reported": 2,
+      "finding_headers": 2
+    },
+    {
+      "file": "review_findings__util__local_b__0.txt",
+      "kind": "review_findings",
+      "model": "local_b",
+      "planted_bugs_reported": 3,
+      "finding_headers": 3
+    },
+    {
+      "file": "review_findings__util__local_b__1.txt",
+      "kind": "review_findings",
+      "model": "local_b",
+      "planted_bugs_reported": 3,
+      "finding_headers": 3
+    },
+    {
+      "file": "review_findings__util__local_b__2.txt",
+      "kind": "review_findings",
+      "model": "local_b",
+      "planted_bugs_reported": 2,
+      "finding_headers": 2
+    },
+    {
+      "file": "spec_review__badspec__hosted_a__0.txt",
+      "kind": "spec_review",
+      "model": "hosted_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__hosted_a__1.txt",
+      "kind": "spec_review",
+      "model": "hosted_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__hosted_a__2.txt",
+      "kind": "spec_review",
+      "model": "hosted_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__hosted_b__0.txt",
+      "kind": "spec_review",
+      "model": "hosted_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__hosted_b__1.txt",
+      "kind": "spec_review",
+      "model": "hosted_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__hosted_b__2.txt",
+      "kind": "spec_review",
+      "model": "hosted_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__local_a__0.txt",
+      "kind": "spec_review",
+      "model": "local_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__local_a__1.txt",
+      "kind": "spec_review",
+      "model": "local_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__local_a__2.txt",
+      "kind": "spec_review",
+      "model": "local_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__local_b__0.txt",
+      "kind": "spec_review",
+      "model": "local_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__local_b__1.txt",
+      "kind": "spec_review",
+      "model": "local_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__badspec__local_b__2.txt",
+      "kind": "spec_review",
+      "model": "local_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__goodspec__hosted_a__0.txt",
+      "kind": "spec_review",
+      "model": "hosted_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__goodspec__hosted_a__1.txt",
+      "kind": "spec_review",
+      "model": "hosted_a",
+      "stated_verdict": "SHIP"
+    },
+    {
+      "file": "spec_review__goodspec__hosted_a__2.txt",
+      "kind": "spec_review",
+      "model": "hosted_a",
+      "stated_verdict": "SHIP"
+    },
+    {
+      "file": "spec_review__goodspec__hosted_b__0.txt",
+      "kind": "spec_review",
+      "model": "hosted_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__goodspec__hosted_b__1.txt",
+      "kind": "spec_review",
+      "model": "hosted_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__goodspec__hosted_b__2.txt",
+      "kind": "spec_review",
+      "model": "hosted_b",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__goodspec__local_a__0.txt",
+      "kind": "spec_review",
+      "model": "local_a",
+      "stated_verdict": "REVISE"
+    },
+    {
+      "file": "spec_review__goodspec__local_a__1.txt",
+      "kind": "spec_review",
+      "model": "local_a",
+      "stated_verdict": "SHIP"
+    },
+    {
+      "file": "spec_review__goodspec__local_a__2.txt",
+      "kind": "spec_review",
+      "model": "local_a",
+      "stated_verdict": "SHIP"
+    },
+    {
+      "file": "spec_review__goodspec__local_b__0.txt",
+      "kind": "spec_review",
+      "model": "local_b",
+      "stated_verdict": "SHIP"
+    },
+    {
+      "file": "spec_review__goodspec__local_b__1.txt",
+      "kind": "spec_review",
+      "model": "local_b",
+      "stated_verdict": "SHIP"
+    },
+    {
+      "file": "spec_review__goodspec__local_b__2.txt",
+      "kind": "spec_review",
+      "model": "local_b",
+      "stated_verdict": "SHIP"
+    }
+  ]
+}

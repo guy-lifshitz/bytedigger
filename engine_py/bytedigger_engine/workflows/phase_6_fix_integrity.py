@@ -69,6 +69,9 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
 )
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
+from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  bd#84
+    reroll_until_verdict,
+)
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402  GH886 Change 2 sentinel
@@ -599,18 +602,31 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
         )
 
     cfg = ctx.org_config or {}
-    return invoke_llm_subprocess(
-        prompt=prev.data["prompt"],
-        model=_resolve_model(cfg, "fix_integrity_model", _default_model()),
-        timeout_sec=_resolve_integrity_timeout_sec(cfg),
-        step_name="invoke_fix_integrity_llm",
-        extra_data={
-            "doc_path": prev.data["doc_path"],
-            "diff_path": prev.data["diff_path"],
-        },
-        hard_gate=True,
-        gate_label="fix_integrity",
-        allowed_tools=["Read"],
+    model = _resolve_model(cfg, "fix_integrity_model", _default_model())
+    timeout_sec = _resolve_integrity_timeout_sec(cfg)
+
+    def _attempt() -> StepResult:
+        return invoke_llm_subprocess(
+            prompt=prev.data["prompt"],
+            model=model,
+            timeout_sec=timeout_sec,
+            step_name="invoke_fix_integrity_llm",
+            extra_data={
+                "doc_path": prev.data["doc_path"],
+                "diff_path": prev.data["diff_path"],
+            },
+            hard_gate=True,
+            gate_label="fix_integrity",
+            allowed_tools=["Read"],
+        )
+
+    # bd#84: a reply without a standalone verdict is re-rolled with the
+    # identical prompt (same budget as phase_5_integrity, GH786) instead of
+    # going straight to the terminal E_FIX_INTEGRITY_NO_MARKER.
+    return reroll_until_verdict(
+        _attempt,
+        lambda raw: _parse_verdict(raw) != VERDICT_UNKNOWN,
+        cfg,
     )
 
 

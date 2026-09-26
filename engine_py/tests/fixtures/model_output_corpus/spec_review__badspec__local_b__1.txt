@@ -1,0 +1,32 @@
+## Review of Spec: `clamp(x, lo, hi)` in `mathx.py`
+
+### Acceptance Criteria Analysis
+
+1. **AC1**: "returns lo when x < lo."
+   - This criterion is clear and testable.
+   
+2. **AC2**: "returns hi when x > hi."
+   - This criterion is also clear and testable.
+
+3. **AC3**: "returns x when lo <= x <= hi."
+   - This criterion is clear and testable as well.
+
+4. **AC4**: "handles invalid ranges appropriately."
+   - The term "invalid ranges" can be ambiguous without further clarification. For instance, what constitutes an invalid range? Is it a case where `lo > hi`, or could it include other scenarios?
+
+### Suggested Clarification for AC4
+
+To ensure the spec is unambiguous and testable, you should define exactly which conditions constitute an "invalid range" and specify how the function should handle these cases. For example:
+
+- If `lo > hi`: The function should raise a ValueError or return None (or another appropriate default value).
+- Any other unspecified scenarios should also be addressed.
+
+### Revised Acceptance Criteria
+
+1. **AC1**: "returns lo when x < lo."
+2. **AC2**: "returns hi when x > hi."
+3. **AC3**: "returns x when lo <= x <= hi."
+4. **AC4 (Revised)**: "If `lo` is greater than `hi`, the function raises a ValueError with the message 'Invalid range: lower bound greater than upper bound'. For any other invalid input, the function returns None."
+
+### Verdict
+REVISE

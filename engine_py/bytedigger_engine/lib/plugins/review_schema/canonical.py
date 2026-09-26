@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 
+from bytedigger_engine.lib.llm_output_normalize import fence_mask, strip_emphasis
+
 # ── PER_ROLE_SCHEMA_TEMPLATE ──────────────────────────────────────────────────
 # Verbatim move from workflows/phase_6_review.py lines 854-869 (pre-Ship-B).
 # Do NOT compress — content must be byte-equivalent to what was inline.
@@ -94,7 +96,8 @@ ROLE_FINDINGS_COUNT_MARKER_RE: re.Pattern[str] = re.compile(
 # PER_ROLE_SCHEMA_TEMPLATE above; ## and #### are also accepted so a
 # well-formed-but-off-prescription header is not structurally invisible to
 # the aggregator). Group contract: group(1)=severity, group(2)=title.
-SEVERITY_HDR_CORE: str = r"#{2,4}\s+SEVERITY:\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*[—-]\s*(.+?)\s*$"
+SEVERITY_LEVELS: str = "CRITICAL|HIGH|MEDIUM|LOW"
+SEVERITY_HDR_CORE: str = rf"#{{2,4}}\s+SEVERITY:\s*({SEVERITY_LEVELS})\s*[—-]\s*(.+?)\s*$"
 SEVERITY_HDR_LINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE, re.IGNORECASE)
 SEVERITY_HDR_MULTILINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE, re.IGNORECASE | re.MULTILINE)
 
@@ -105,7 +108,7 @@ SEVERITY_HDR_MULTILINE_RE: re.Pattern[str] = re.compile(r"^" + SEVERITY_HDR_CORE
 # parse under SEVERITY_HDR_LINE_RE — these findings are structurally invisible
 # to the aggregator.
 SEVERITY_MALFORMED_LINE_RE: re.Pattern[str] = re.compile(
-    r"^\s*(?:#{1,6}\s*|\*{1,2}\s*)?SEVERITY\s*:?\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*[—-]",
+    rf"^\s*(?:#{{1,6}}\s*|\*{{1,2}}\s*)?SEVERITY\s*:?\s*({SEVERITY_LEVELS})\s*[—-]",
     re.IGNORECASE,
 )
 
@@ -119,3 +122,92 @@ def lint_role_report(content: str) -> list[str]:
         if SEVERITY_MALFORMED_LINE_RE.match(stripped) and not SEVERITY_HDR_LINE_RE.match(stripped):
             flagged.append(stripped)
     return flagged
+
+
+# ── canonicalize_severity_headers — bd#84 ────────────────────────────────────
+# Models drop the `SEVERITY:` word or wrap the header in bold; such findings
+# were structurally invisible (counted as zero → a false clean review). The
+# aggregator rewrites finding-shaped lines to the canonical header before
+# parsing, with the model-output dressing rules of llm_output_normalize.
+#
+# Finding-shaped lines: a `##`-`####` heading (the GH970 range — `#` and
+# `#####` stay invisible) or a line that opens with bold.
+_SEVERITY_HEADING_RE = re.compile(r"^[ ]{0,3}#{2,4}[ \t]+(.*?)[ \t]*$")
+_BOLD_LEAD_RE = re.compile(r"^[ ]{0,3}(\*\*.*?)[ \t]*$")
+_SEVERITY_TEXT_RE = re.compile(
+    r"^(?:(?P<word>SEVERITY)[ \t]*:?[ \t]*)?"
+    rf"(?P<level>{SEVERITY_LEVELS})\b"
+    r"(?:[ \t]*[—–][ \t]*|[ \t]+-[ \t]+|[ \t]*:[ \t]*)"
+    r"(?P<title>\S.*?)[ \t]*$",
+    re.IGNORECASE,
+)
+# The per-role schema's evidence line (`> path:line: <verbatim code>`). A
+# heading counts as a finding only when its block carries one: tallies,
+# summaries and "none found" headings never do.
+_EVIDENCE_LINE_RE = re.compile(r"^>\s+(?:[A-Za-z]:)?[^:]+:\d+:")
+
+
+def _canonical_severity_line(line: str) -> str | None:
+    """The canonical header for a finding-shaped ``line``, else None."""
+    m = _SEVERITY_HEADING_RE.match(line) or _BOLD_LEAD_RE.match(line)
+    t = m and _SEVERITY_TEXT_RE.match(strip_emphasis(m.group(1)))
+    if not t:
+        return None
+    title = t.group("title").strip().strip("*_").strip()
+    return f"### SEVERITY: {t.group('level').upper()} — {title}" if title else None
+
+
+def canonicalize_severity_headers(text: str) -> str:
+    """Rewrite finding-shaped lines to ``### SEVERITY: <LEVEL> — <title>``.
+
+    A finding-shaped line is a ``##``-``####`` heading (the GH970 tolerance
+    of ``SEVERITY_HDR_CORE``; ``#`` and ``#####`` stay invisible) or a line
+    that opens with bold, whose text starts with ``[SEVERITY[:]] <level>``,
+    then a dash or colon and a title: ``### HIGH — t``, ``**SEVERITY: LOW** — t``,
+    ``#### Severity: critical: t``. It is rewritten only when its block (up to
+    the next heading or finding-shaped line) carries a ``> path:line:``
+    evidence line, so tallies (``**HIGH:** 2``), summaries and "none found"
+    headings stay as written. Between a canonical finding header and its
+    evidence line nothing is rewritten: it belongs to that finding, and
+    splitting it off would take the finding's evidence along. Lines that
+    already parse under ``SEVERITY_HDR_LINE_RE``, fenced lines and body lines
+    are untouched.
+    """
+    if not text:
+        return text
+    lines = text.split("\n")
+    fenced = fence_mask(lines)
+    candidate: list[str | None] = []
+    # Heading level of a canonical finding above that has no evidence line
+    # yet (0 = none open). Only a heading at that level or higher closes it.
+    open_level = 0
+    for line, f in zip(lines, fenced):
+        if f:
+            candidate.append(None)
+            continue
+        level = len(line.lstrip()) - len(line.lstrip().lstrip("#"))
+        if SEVERITY_HDR_LINE_RE.match(line):
+            candidate.append(None)
+            open_level = level
+            continue
+        new = _canonical_severity_line(line)
+        # Anything between a finding header and its evidence belongs to that
+        # finding: splitting it off would take the finding's evidence along.
+        candidate.append(None if open_level else new)
+        if _EVIDENCE_LINE_RE.match(line) or (not new and 0 < level <= open_level):
+            open_level = 0
+
+    def has_evidence(i: int) -> bool:
+        for j in range(i + 1, len(lines)):
+            if fenced[j]:
+                continue
+            if candidate[j] or lines[j].lstrip().startswith("#"):
+                return False
+            if _EVIDENCE_LINE_RE.match(lines[j]):
+                return True
+        return False
+
+    return "\n".join(
+        new if new and has_evidence(i) else line
+        for i, (line, new) in enumerate(zip(lines, candidate))
+    )

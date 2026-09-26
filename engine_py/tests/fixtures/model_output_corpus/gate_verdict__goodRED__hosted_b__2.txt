@@ -1,0 +1,15 @@
+Audit against each acceptance criterion:
+
+- **AC1** (`x < lo` → `lo`): `test_ac1_below` covers `-5, 0, 10 → 0`. Adequate.
+- **AC2** (`x > hi` → `hi`): `test_ac2_above` covers `15, 0, 10 → 10`. Adequate.
+- **AC3** (`lo <= x <= hi` → `x`): `test_ac3_inside` (interior point) plus `test_ac3_edges` (both boundary values `lo` and `hi`). Together these confirm identity behavior at the interior and both edges, which is enough to catch an off-by-one on either boundary.
+- **AC4** (`lo > hi` → raises `ValueError`): `test_ac4_bad_range` covers it directly with `pytest.raises`.
+
+Other checks:
+- No test mocks or stubs `clamp` itself or any internal collaborator — all assertions call the real function directly against concrete expected values (`==`), not weakened to type checks, truthiness, or "no exception raised."
+- `test_ac3_edges` uses a compound `assert a and b`, which is a minor style smell (a failure won't tell you which boundary broke), but it does not weaken the test's ability to fail on a wrong implementation — both sides must independently evaluate true, so it's still a valid, sufficiently strict check. Not a rejection-worthy issue, just a readability nit.
+- All four ACs have at least one direct, concrete assertion; no criterion is silently uncovered.
+
+No gate-worthy defects found.
+
+VERDICT: PASS

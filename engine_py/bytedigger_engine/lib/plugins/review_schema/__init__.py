@@ -12,6 +12,7 @@ Re-exports all public symbols for convenient import:
         SEVERITY_HDR_MULTILINE_RE,
         SEVERITY_MALFORMED_LINE_RE,
         lint_role_report,
+        canonicalize_severity_headers,
     )
 """
 from .canonical import PER_ROLE_SCHEMA_TEMPLATE  # noqa: F401
@@ -24,3 +25,4 @@ from .canonical import SEVERITY_HDR_LINE_RE  # noqa: F401
 from .canonical import SEVERITY_HDR_MULTILINE_RE  # noqa: F401
 from .canonical import SEVERITY_MALFORMED_LINE_RE  # noqa: F401
 from .canonical import lint_role_report  # noqa: F401
+from .canonical import canonicalize_severity_headers  # noqa: F401

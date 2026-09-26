@@ -1,0 +1,19 @@
+## Review: `clamp(x, lo, hi)` Spec
+
+**AC1–AC3: Solid.** Each criterion is testable with a concrete assertion (`clamp(5, 10, 20) == 10`, etc.) and unambiguous about the expected behavior.
+
+**AC4: Blocks the spec.** This criterion fails on both counts:
+- **Ambiguity on "invalid ranges"**: Does this mean `lo > hi`? `lo == hi`? Non-numeric types? The spec doesn't define it.
+- **Ambiguity on "appropriately"**: Should an invalid range raise an exception, swap the bounds, clamp to a default, or silently return a special value? None of these are specified.
+
+Without knowing the intended behavior for invalid inputs, a developer cannot implement correctly and a tester cannot verify the implementation. AC4 as written is not testable.
+
+**Minor gaps** (less critical but worth clarifying):
+- No mention of type constraints (e.g., numeric types, or does it support any comparable objects?).
+- No specification for `None`/null inputs or out-of-domain values.
+
+## Verdict
+
+**REVISE**
+
+Rewrite AC4 to specify what happens when `lo > hi` (e.g., "raises `ValueError` when lo > hi") and define other edge cases. Keep AC1–AC3 as-is.

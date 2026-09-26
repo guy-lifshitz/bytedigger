@@ -1,0 +1,11 @@
+**Audit Report:**
+
+*   **Coverage Analysis:**
+    *   **AC1 (x < lo):** Covered by `test_ac1_below`.
+    *   **AC2 (x > hi):** Covered by `test_ac2_above`.
+    *   **AC3 (lo <= x <= hi):** Covered by both `test_ac3_inside` (mid-range) and `test_ac3_edges` (boundary conditions).
+    *   **AC4 (lo > hi):** Covered by `test_ac4_bad_range`.
+*   **Mocking Check:** No mocks are present; the tests directly invoke the target function.
+*   **Assertion Strength:** All assertions use explicit equality checks or `pytest.raises` for exception handling. The use of `and` in `test_ac3_edges` is functionally sound as it will fail if either boundary condition fails to return the expected value.
+
+VERDICT: PASS
