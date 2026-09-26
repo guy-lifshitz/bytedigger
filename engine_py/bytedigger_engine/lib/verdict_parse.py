@@ -9,8 +9,10 @@ through ``llm_output_normalize.normalize_model_output``, which strips the
 markdown dressing (bold, short headings, a final code span) that made clear
 answers parse as UNKNOWN. The normalized pass can turn UNKNOWN into a
 verdict; it can never change a verdict the plain reading already found.
-In both passes a token that is one option of a choice list
-(`VERDICT: PASS | FAIL`, the prompt's schema echoed back) is not a verdict.
+In both passes a choice list (`VERDICT: PASS | FAIL`, `FAIL/PARTIAL`, the
+prompt's schema echoed back) where the decisive verdict would be makes the
+answer ambiguous → fallback; the search never steps back past it to an
+earlier (possibly preliminary) verdict.
 """
 from __future__ import annotations
 
@@ -20,6 +22,10 @@ from typing import Callable, Iterator, Sequence, TypeVar
 from bytedigger_engine.lib.llm_output_normalize import normalize_model_output
 
 T = TypeVar("T")
+
+# Markdown dressing on a heading line: a `#` heading marker, emphasis, or a
+# code span. P3's loose reading only recovers dressed Verdict headings.
+_DRESSING_RE = re.compile(r"^[ ]{0,3}#|\*\*|__|`")
 
 # Choice list: the token, then one or more `<sep> [PREFIX:] <option>` runs
 # that END the line (`VERDICT: PASS | FAIL`, `VERDICT: PASS or VERDICT: FAIL`,
@@ -97,8 +103,8 @@ def last_standalone_line_verdict(
         ^[ \\t]*(?:\\*\\*|__)?[ \\t]*{prefix}[ \\t]*(<token>)[ \\t]*(?:\\*\\*|__)?[ \\t]*$
     with IGNORECASE|MULTILINE.  Tokens sorted longest-first to prevent
     prefix-shadowing.  Last match wins.  Returns match.group(1).upper()
-    or fallback when no match. Plain reading first, then the normalized one
-    (bd#84, see module docstring); choice-list options are skipped.
+    or fallback when no match, or when the last match opens a choice list.
+    Plain reading first, then the normalized one (bd#84, module docstring).
 
     allow_trailing=False (default): the token must be followed only by
         optional whitespace/bold-close then EOL.
@@ -132,9 +138,10 @@ def last_standalone_line_verdict(
     def parse(text: str) -> str:
         last = None
         for m in rx.finditer(text):
-            if not _is_choice(text, m.end(1), choice_rx):
-                last = m
-        return fallback if last is None else last.group(1).upper()
+            last = m
+        if last is None or _is_choice(text, last.end(1), choice_rx):
+            return fallback
+        return last.group(1).upper()
 
     return _first_found(raw, parse, fallback)
 
@@ -154,16 +161,18 @@ def verdict_under_heading(
         ^##\\s*{heading}\\s*\\n+\\s*(<token>)\\b
     with MULTILINE|IGNORECASE; text before the heading is ignored.
 
-    Normalized reading, only when the plain one finds nothing: the heading
-    may be of any level or bare (`### Verdict`, `**Verdict:**`), or carry the
-    token on its own line (`Verdict: REVISE`). The token must end its line or
-    be followed by punctuation or a dash gloss (`REVISE (two gaps)`,
-    `SHIP, minor nits`, `REVISE — the rest can ship`); a token that opens a
-    sentence (`Verdict: pass rate is 60%`, `Approved-by-author …`,
-    `PASS or not`) does not count. Verdict sections that disagree → fallback.
+    Normalized reading, only when the plain one finds nothing, and only for
+    a heading line that was markdown-dressed (`### Verdict`, `**Verdict:**`,
+    `## Verdict: REVISE`): the token sits on the next non-blank line or the
+    same line, and must end its line or be followed by punctuation or a dash
+    gloss (`REVISE (two gaps)`, `SHIP, minor nits`, `REVISE — the rest can
+    ship`); a token that opens a sentence (`Verdict: pass rate is 60%`,
+    `Approved-by-author …`, `PASS or not`) does not count. An undressed
+    `Verdict: SHIP.` line is prose, as before. Sections that disagree →
+    fallback.
 
-    In both readings a choice-list option (`SHIP | REVISE`) is skipped.
-    Aliases apply after upper().
+    In both readings a choice list (`SHIP | REVISE`) where the verdict would
+    be → fallback. Aliases apply after upper().
     """
     raw = _normalize(raw)
     if not raw or not tokens:
@@ -179,13 +188,19 @@ def verdict_under_heading(
         token = token.upper()
         return aliases.get(token, token) if aliases else token
 
-    def tokens_in(text: str, rx: re.Pattern[str]) -> list[str]:
-        return [resolve(m.group(1)) for m in rx.finditer(text) if not _is_choice(text, m.end(1), choice_rx)]
+    def token_of(text: str, m: re.Match[str]) -> str:
+        return fallback if _is_choice(text, m.end(1), choice_rx) else resolve(m.group(1))
 
-    plain = tokens_in(raw, plain_rx)
-    if plain:
-        return plain[0]
-    found = set(tokens_in(normalize_model_output(raw), loose_rx))
+    first = plain_rx.search(raw)
+    if first:
+        return token_of(raw, first)
+    stripped = normalize_model_output(raw)
+    plain_lines = raw.split("\n")
+    found = {
+        token_of(stripped, m)
+        for m in loose_rx.finditer(stripped)
+        if _DRESSING_RE.search(plain_lines[stripped.count("\n", 0, m.start())])
+    }
     return found.pop() if len(found) == 1 else fallback
 
 
@@ -204,10 +219,10 @@ def last_line_anchored_marker(raw, markers, fallback):
     the markers list wins.  This is load-bearing for DONE_WITH_CONCERNS vs
     DONE disambiguation in phase_2/3/7.
 
-    bd#84: plain reading first, then the normalized one. An occurrence that
-    opens a choice list (`STATUS: DONE | STATUS: BLOCKED`) is skipped; the
-    decision is taken on the longest marker at that offset, so a skipped
-    `STATUS: DONE_WITH_CONCERNS` option does not resurface as `STATUS: DONE`.
+    bd#84: plain reading first, then the normalized one. When the last
+    occurrence opens a choice list (`STATUS: DONE | STATUS: BLOCKED`) the
+    answer is ambiguous → fallback. The check uses the longest marker at that
+    offset, so `STATUS: DONE_WITH_CONCERNS | …` is not read as `STATUS: DONE`.
 
     If no marker matches, returns fallback (may be None).
     """
@@ -227,11 +242,10 @@ def last_line_anchored_marker(raw, markers, fallback):
             for m in pattern.finditer(text):
                 first_value, longest_end = at.get(m.start(), (value, m.end()))
                 at[m.start()] = (first_value, max(longest_end, m.end()))
-        for pos in sorted(at, reverse=True):
-            value, longest_end = at[pos]
-            if not _is_choice(text, longest_end, choice_rx):
-                return value
-        return fallback
+        if not at:
+            return fallback
+        value, longest_end = at[max(at)]
+        return fallback if _is_choice(text, longest_end, choice_rx) else value
 
     return _first_found(raw, parse, fallback)
 

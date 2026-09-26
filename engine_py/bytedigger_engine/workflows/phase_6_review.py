@@ -267,6 +267,10 @@ VERDICT_SUSPECT = "SUSPECT"  # 21792EE7: all findings filtered → could be fabr
 # bd#84: audit line written when a role parsed zero findings without declaring
 # PASS. Its presence keeps the all-findings-suspect satisfaction override off.
 ZERO_FINDINGS_AUDIT_WARNING = "⚠ AUDIT WARNING: zero parsed findings from a role that did not declare PASS"
+# bd#84: audit line written when finding headers were rewritten to the
+# canonical form. Such findings are recovered, not reviewer-certified, so
+# they too keep the all-findings-suspect satisfaction override off.
+CANONICALIZED_AUDIT_NOTE = "⚠ AUDIT NOTE: finding headers rewritten to the canonical ### SEVERITY: form"
 SUSPECT_FINDINGS_SECTION_HEADER = "## Suspect Findings"  # 4B9DF7D3: single-source — review-doc section written by aggregation (L1508) AND read by the satisfaction override gate
 
 FIX_COMPLETE = "COMPLETE"
@@ -1673,16 +1677,20 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
                 ],
             })
 
-    # Dedup by (severity, normalized_title); first-seen wins. Track cross-role
-    # overlaps for annotation.
+    # Dedup by (severity, normalized_title); first-seen wins, except that a
+    # verified copy replaces a quote-suspect one (bd#84: a suspect duplicate
+    # must never hide a verified finding). Track cross-role overlaps.
     seen: dict[tuple[str, str], dict] = {}
     overlaps: dict[tuple[str, str], list[str]] = {}
     for f in all_findings:
         key = (f["severity"], _normalize_finding_title(f["title"]))
-        if key in seen:
-            overlaps.setdefault(key, []).append(f["role"])
-        else:
+        if key not in seen:
             seen[key] = f
+            continue
+        kept = seen[key]
+        if kept.get("verify_status", "").startswith("suspect") and f.get("verify_status", "").startswith("verified"):
+            seen[key], f = f, kept
+        overlaps.setdefault(key, []).append(f["role"])
 
     # Sort dedup'd findings by severity, then original order (insertion order
     # of dict preserves first-seen which already encodes role-file order).
@@ -1834,6 +1842,8 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         )
     if _zero_findings_roles:
         out.append(f"{ZERO_FINDINGS_AUDIT_WARNING} — roles: {', '.join(_zero_findings_roles)}")
+    if _canonicalized_total:
+        out.append(f"{CANONICALIZED_AUDIT_NOTE}: {_canonicalized_total}")
     out.append("")
     _emit_safe("review_findings_audit", findings_audit)
 
@@ -1869,7 +1879,8 @@ def _review_all_findings_suspect(review_verdict: object, review_doc_text: str) -
 
     bd#84: a review whose SUSPECT verdict comes (also) from a role that lost
     its findings on format is not "all findings ungroundable" — those
-    findings were never checked — so the override stays off. Read from the
+    findings were never checked — and neither is one whose findings were
+    recovered by header canonicalization; the override stays off. Read from the
     review doc like the section header: every failure mode of that read (no
     doc, empty doc, a role body echoing the warning) keeps the override off.
     """
@@ -1877,6 +1888,7 @@ def _review_all_findings_suspect(review_verdict: object, review_doc_text: str) -
         review_verdict == VERDICT_SUSPECT
         and SUSPECT_FINDINGS_SECTION_HEADER in review_doc_text
         and ZERO_FINDINGS_AUDIT_WARNING not in review_doc_text
+        and CANONICALIZED_AUDIT_NOTE not in review_doc_text
     )
 
 

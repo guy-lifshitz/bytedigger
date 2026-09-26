@@ -167,17 +167,27 @@ def canonicalize_severity_headers(text: str) -> str:
     ``#### Severity: critical: t``. It is rewritten only when its block (up to
     the next heading or finding-shaped line) carries a ``> path:line:``
     evidence line, so tallies (``**HIGH:** 2``), summaries and "none found"
-    headings stay as written. Lines that already parse under
+    headings stay as written. A bold line inside a block already opened by a
+    finding header belongs to that finding and is not split off (it would
+    take the finding's evidence with it). Lines that already parse under
     ``SEVERITY_HDR_LINE_RE``, fenced lines and body lines are untouched.
     """
     if not text:
         return text
     lines = text.split("\n")
     fenced = fence_mask(lines)
-    candidate = [
-        None if f or SEVERITY_HDR_LINE_RE.match(line) else _canonical_severity_line(line)
-        for line, f in zip(lines, fenced)
-    ]
+    candidate: list[str | None] = []
+    in_finding = False  # inside a finding block opened by a canonical header
+    for line, f in zip(lines, fenced):
+        new = None if f or SEVERITY_HDR_LINE_RE.match(line) else _canonical_severity_line(line)
+        is_heading = not f and line.lstrip().startswith("#")
+        if new and not is_heading and in_finding:
+            new = None  # a bold line inside a finding block is part of that finding
+        candidate.append(new)
+        if not f and SEVERITY_HDR_LINE_RE.match(line):
+            in_finding = True
+        elif is_heading:
+            in_finding = new is not None
 
     def has_evidence(i: int) -> bool:
         for j in range(i + 1, len(lines)):

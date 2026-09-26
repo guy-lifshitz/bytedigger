@@ -164,7 +164,7 @@ _SPEC_TOKENS = ("SHIP", "PASS", "APPROVED", "REVISE")
     [
         ("### Verdict\nSHIP", "SHIP"),
         ("## Verdict\n\n**REVISE**\n\nbecause", "REVISE"),
-        ("Verdict\nREVISE", "REVISE"),
+        ("Verdict\nREVISE", "UNKNOWN"),  # undressed: prose, as before
         ("**Verdict:**\nSHIP", "SHIP"),
         ("## Verdict: REVISE", "REVISE"),
         ("Intro says REVISE.\n## Verdict\nSHIP", "SHIP"),
@@ -173,7 +173,8 @@ _SPEC_TOKENS = ("SHIP", "PASS", "APPROVED", "REVISE")
         ("## Verdict\nSHIP | REVISE", "UNKNOWN"),
         ("Verdict: SHIP | REVISE", "UNKNOWN"),
         ("    ## Verdict\n    SHIP | REVISE", "UNKNOWN"),
-        ("## Verdict\nSHIP | REVISE\n\nreview...\n\n## Verdict\nREVISE", "REVISE"),
+        # A choice list where the verdict would be is ambiguous — never skipped.
+        ("## Verdict\nSHIP | REVISE\n\nreview...\n\n## Verdict\nREVISE", "UNKNOWN"),
         # The plain `## Verdict` reading wins as before bd#84 (fail-closed here).
         ("### Verdict\nSHIP\n\n## Verdict\nREVISE", "REVISE"),
         # Only the normalized reading sees these; they disagree → fallback.
@@ -696,7 +697,7 @@ def test_rv_error_on_retry_keeps_retry_count(tmp_path, monkeypatch):
         (
             "STATUS: BLOCKED\n...\nSTATUS: DONE_WITH_CONCERNS | STATUS: BLOCKED",
             [("STATUS: DONE_WITH_CONCERNS", "DWC"), ("STATUS: DONE", "DONE"), ("STATUS: BLOCKED", "BLOCKED")],
-            "BLOCKED",
+            "UNKNOWN",
         ),
     ],
 )
@@ -710,9 +711,11 @@ def test_rv2_marker_gloss_and_quotes(raw, markers, expected):
     "raw, expected",
     [
         ("## Verdict\n\nREVISE (two blocking gaps)", "REVISE"),
-        ("Verdict: SHIP, minor nits", "SHIP"),
-        ("Verdict: SHIP -- nits", "SHIP"),
-        ("Verdict: REVISE: gap 3", "REVISE"),
+        ("**Verdict:** SHIP, minor nits", "SHIP"),
+        ("**Verdict:** SHIP -- nits", "SHIP"),
+        ("## Verdict: SHIP -- nits", "UNKNOWN"),  # long heading: a section title
+        ("### Verdict\nREVISE: gap 3", "REVISE"),
+        ("Verdict: SHIP, minor nits", "UNKNOWN"),  # undressed line: prose
         ("Verdict: PASS or not, see gap 3", "UNKNOWN"),
         ("Verdict: Approved / pending the fixes below", "UNKNOWN"),
     ],
@@ -752,3 +755,91 @@ def test_rv2_canonicalized_headers_are_counted(tmp_path, monkeypatch):
     case = next(c for c in _cases("review_findings") if c["model"] == "hosted_b")
     res = _aggregate(tmp_path, {"code-reviewer": _text(case)}, monkeypatch)
     assert res.data["findings_audit"]["canonicalized_headers"] == case["finding_headers"]
+
+
+# ─── Review round 3: never more permissive than the pre-bd84 parse ───────────
+
+
+@pytest.mark.parametrize(
+    "raw, markers",
+    [
+        (
+            "First pass looked fine.\nVERDICT: PASS\n\nBut then line 12 breaks.\nVERDICT: FAIL/PARTIAL\n",
+            [("VERDICT: PASS", "PASS"), ("VERDICT: PARTIAL", "PARTIAL"), ("VERDICT: FAIL", "FAIL")],
+        ),
+        ("VERDICT: PASS\nretest...\nVERDICT: FAIL / PASS\n", _GATE_MARKERS),
+        (
+            "STATUS: DONE\n...\nSTATUS: BLOCKED | STATUS: NEEDS_CONTEXT\n",
+            [("STATUS: DONE", "DONE"), ("STATUS: BLOCKED", "BLOCKED"), ("STATUS: NEEDS_CONTEXT", "NC")],
+        ),
+    ],
+)
+def test_rv3_trailing_choice_list_never_falls_back_to_earlier_pass(raw, markers):
+    from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
+
+    assert last_line_anchored_marker(raw, markers, "UNKNOWN") == "UNKNOWN"
+
+
+def test_rv3_integrity_trailing_choice_is_not_skipped():
+    from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
+
+    raw = (
+        "Preliminary read:\nVERDICT: NO_CHANGES\n\nOn closer inspection the assertion was weakened.\n"
+        "VERDICT: ASSERTION_GAMING / SPEC_CHANGE\n"
+    )
+    assert last_standalone_line_verdict(raw, _INTEGRITY_TOKENS, fallback="UNKNOWN", allow_trailing=True) == "UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Verdict: SHIP (after the gaps close)\n\n## Verdict\nREVISE | SHIP\n",
+        "## Verdict\nREVISE / SHIP\n\n## Verdict\nSHIP\n",
+        "Summary of the author's claim:\nVerdict: approved, pending the AC3 rewrite which is still missing.\n",
+        "## Verdict\nThe spec needs work.\n\nVerdict: SHIP.\n",
+        "## Verdict\n\n- REVISE items below\n\nVerdict: PASS.\n",
+    ],
+)
+def test_rv3_heading_verdict_never_ships_what_main_did_not(raw):
+    from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
+
+    got = verdict_under_heading(raw, _SPEC_TOKENS, aliases={"PASS": "SHIP", "APPROVED": "SHIP"}, fallback="UNKNOWN")
+    assert got != "SHIP"
+
+
+def _code_py(tmp_path: Path) -> str:
+    code = tmp_path / "code.py"
+    code.write_text("import os\nos.system(user_input)\n", encoding="utf-8")
+    return str(code)
+
+
+def test_rv3_suspect_duplicate_never_hides_verified_finding(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
+
+    code = _code_py(tmp_path)
+    roles = {
+        "a": "**HIGH — command injection**\n> nonexistent/file.py:2: os.system(user_input)\n\nVERDICT: FAIL\n",
+        "b": f"### SEVERITY: HIGH — command injection\n> {code}:2: os.system(user_input)\n\nVERDICT: FAIL\n",
+    }
+    res = _aggregate(tmp_path, roles, monkeypatch)
+    assert res.data["verdict"] == "FAIL"
+    assert p6._review_all_findings_suspect(res.data["verdict"], res.data["aggregated_content"]) is False
+
+
+def test_rv3_bold_line_cannot_steal_a_findings_evidence(tmp_path, monkeypatch):
+    code = _code_py(tmp_path)
+    body = (
+        "### SEVERITY: HIGH — command injection\nuser input reaches the shell.\n"
+        f"**LOW — naming nit**\n> {code}:2: os.system(user_input)\n\nVERDICT: FAIL\n"
+    )
+    res = _aggregate(tmp_path, {"b": body}, monkeypatch)
+    assert res.data["verdict"] == "FAIL"
+
+
+def test_rv3_recovered_findings_keep_the_override_off(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
+
+    body = "**HIGH — none of the input paths reach the shell**\n> src/app.py:2: run(x)\n\nVERDICT: PASS\n"
+    res = _aggregate(tmp_path, {"a": body}, monkeypatch)
+    assert p6._review_all_findings_suspect(res.data["verdict"], res.data["aggregated_content"]) is False
+
