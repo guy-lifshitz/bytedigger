@@ -141,34 +141,20 @@ _SEVERITY_TEXT_RE = re.compile(
     r"(?P<title>\S.*?)[ \t]*$",
     re.IGNORECASE,
 )
-# `### Critical — No critical issues found` / `### LOW — None.` report the
-# absence of findings. Whole-title match only: `None of the error paths are
-# tested` is a real finding.
-_PLACEHOLDER_TITLE_RE = re.compile(
-    r"^(?:(?:none|nothing|(?:no|0|zero)\s+(?:\w+\s+){0,2}(?:issues?|findings?|problems?|bugs?))"
-    r"(?:\s+(?:found|identified|reported|to\s+report))?|n/?a)[.!]?$",
-    re.IGNORECASE,
-)
+# The per-role schema's evidence line (`> path:line: <verbatim code>`). A
+# heading counts as a finding only when its block carries one: tallies,
+# summaries and "none found" headings never do.
+_EVIDENCE_LINE_RE = re.compile(r"^>\s+(?:[A-Za-z]:)?[^:]+:\d+:")
 
 
-def _canonical_severity_line(line: str) -> str:
-    if SEVERITY_HDR_LINE_RE.match(line):
-        return line  # already parses (GH970 form) — keep byte-identical
+def _canonical_severity_line(line: str) -> str | None:
+    """The canonical header for a finding-shaped ``line``, else None."""
     m = _SEVERITY_HEADING_RE.match(line) or _BOLD_LEAD_RE.match(line)
-    if not m:
-        return line
-    t = _SEVERITY_TEXT_RE.match(strip_emphasis(m.group(1)))
+    t = m and _SEVERITY_TEXT_RE.match(strip_emphasis(m.group(1)))
     if not t:
-        return line
-    level = t.group("level")
-    # Without the SEVERITY word only an UPPERCASE level marks a finding:
-    # `### High — Summary of review` and `## Low - priority items` are titles.
-    if not t.group("word") and level != level.upper():
-        return line
+        return None
     title = t.group("title").strip().strip("*_").strip()
-    if not title or _PLACEHOLDER_TITLE_RE.match(title):
-        return line
-    return f"### SEVERITY: {level.upper()} — {title}"
+    return f"### SEVERITY: {t.group('level').upper()} — {title}" if title else None
 
 
 def canonicalize_severity_headers(text: str) -> str:
@@ -176,15 +162,34 @@ def canonicalize_severity_headers(text: str) -> str:
 
     A finding-shaped line is a ``##``-``####`` heading (the GH970 tolerance
     of ``SEVERITY_HDR_CORE``; ``#`` and ``#####`` stay invisible) or a line
-    that opens with bold, whose text starts with ``SEVERITY[:] <level>`` (any
-    case) or an UPPERCASE level, then a dash or colon and a real title:
-    ``### HIGH — t``, ``**SEVERITY: LOW** — t``, ``#### Severity: critical: t``.
-    A line that already parses under ``SEVERITY_HDR_LINE_RE`` is left as is,
-    as are placeholders (``— none found``), fenced lines and plain body lines.
+    that opens with bold, whose text starts with ``[SEVERITY[:]] <level>``,
+    then a dash or colon and a title: ``### HIGH — t``, ``**SEVERITY: LOW** — t``,
+    ``#### Severity: critical: t``. It is rewritten only when its block (up to
+    the next heading or finding-shaped line) carries a ``> path:line:``
+    evidence line, so tallies (``**HIGH:** 2``), summaries and "none found"
+    headings stay as written. Lines that already parse under
+    ``SEVERITY_HDR_LINE_RE``, fenced lines and body lines are untouched.
     """
     if not text:
         return text
     lines = text.split("\n")
+    fenced = fence_mask(lines)
+    candidate = [
+        None if f or SEVERITY_HDR_LINE_RE.match(line) else _canonical_severity_line(line)
+        for line, f in zip(lines, fenced)
+    ]
+
+    def has_evidence(i: int) -> bool:
+        for j in range(i + 1, len(lines)):
+            if fenced[j]:
+                continue
+            if candidate[j] or lines[j].lstrip().startswith("#"):
+                return False
+            if _EVIDENCE_LINE_RE.match(lines[j]):
+                return True
+        return False
+
     return "\n".join(
-        line if f else _canonical_severity_line(line) for line, f in zip(lines, fence_mask(lines))
+        new if new and has_evidence(i) else line
+        for i, (line, new) in enumerate(zip(lines, candidate))
     )

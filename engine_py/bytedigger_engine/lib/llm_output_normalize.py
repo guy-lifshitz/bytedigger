@@ -22,6 +22,7 @@ import re
 
 _FENCE_OPEN_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})[^`]*$")
 _CODE_SPAN_LINE_RE = re.compile(r"^([ \t]*)`([^`\n]+)`[ \t]*$")
+_HTML_COMMENT_RE = re.compile(r"^\s*<!--.*-->\s*$")
 _BOLD_STAR_RE = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*")
 _BOLD_UNDERSCORE_RE = re.compile(r"__(?=\S)(.+?)(?<=\S)__")
 _HEADING_RE = re.compile(r"^[ ]{0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
@@ -81,25 +82,21 @@ def fence_mask(lines: list[str]) -> list[bool]:
 
 
 def _unwrap_final_code_span(lines: list[str], fenced: list[bool]) -> None:
-    """Unwrap the reply's last non-blank line when it is exactly one code span.
+    """Unwrap the reply's last content line when it is exactly one code span.
 
-    Models often close with `` `VERDICT: FAIL` ``. A code span anywhere else
-    is quoted material (an example, the expected output), and so is a final
-    one whose key (text before its first colon) already opens an earlier
-    plain line: `VERDICT: FAIL` … `` `VERDICT: PASS` `` keeps FAIL.
+    Models often close with `` `VERDICT: FAIL` ``; a code span anywhere else
+    is quoted material (an example, the expected output) and stays wrapped.
+    Trailing HTML comments (`<!-- role-findings-count: N -->`) are not
+    content. The parsers read the reply as written first, so this only
+    matters when no plain verdict line exists at all.
     verdict-anchor: exempt — part of the normalizer itself.
     """
-    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    last = next(
+        (i for i in range(len(lines) - 1, -1, -1) if lines[i].strip() and not _HTML_COMMENT_RE.match(lines[i])),
+        None,
+    )
     if last is None or fenced[last]:
         return
-    m = _CODE_SPAN_LINE_RE.match(lines[last])
-    if not m:
-        return
-    inner = m.group(2)
-    if ":" in inner:
-        key = inner.split(":", 1)[0].strip().lower() + ":"
-        if any(not fenced[i] and lines[i].lstrip().lower().startswith(key) for i in range(last)):
-            return
     lines[last] = _normalize_line(lines[last], unwrap_code_span=True)
 
 
@@ -110,8 +107,8 @@ def normalize_model_output(raw: str | None) -> str | None:
     blocks are kept verbatim, delimiters included, so a second pass never
     reaches fenced content. Outside fences each line is normalized to a
     fixed point: paired ``**``/``__`` emphasis is removed and a short heading
-    (at most two words) loses its ``#`` marker. The final line is unwrapped
-    when it is exactly one code span (see ``_unwrap_final_code_span``).
+    (at most two words) loses its ``#`` marker. The last content line is
+    unwrapped when it is exactly one code span (``_unwrap_final_code_span``).
     Idempotent.
     """
     if not raw:

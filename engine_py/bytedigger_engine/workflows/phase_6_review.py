@@ -1550,13 +1550,15 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     # GH970 D2: deterministic malformed-SEVERITY-header lint accumulators.
     _malformed_total: int = 0
     _malformed_roles: set[str] = set()
-    # bd#84: roles that parsed zero findings without declaring PASS.
+    # bd#84: roles that parsed zero findings without declaring PASS, and the
+    # number of finding headers rewritten to the canonical form.
     _zero_findings_roles: list[str] = []
+    _canonicalized_total: int = 0
     for rf in role_files:
         slug = _slug_from_role_filename(rf)
         try:
             content = rf.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             logger.warning("phase_6_review: cannot read role file %s: %s", rf, exc)
             _emit_safe("role_report_unreadable", {"phase": "phase_6_review", "role": slug, "error": str(exc)})
             content = "(failed to read role file)"
@@ -1566,6 +1568,9 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         # real finding is not dropped on format. The embedded role body, the
         # self-count and the GH970 lint keep reading the raw text.
         canonical = canonicalize_severity_headers(content)
+        if canonical != content:
+            # Format drift stays visible: the reviewer wrote non-canonical headers.
+            _canonicalized_total += sum(a != b for a, b in zip(content.split("\n"), canonical.split("\n")))
         role_findings = _parse_role_findings(canonical)
         all_findings.extend({**f, "role": slug} for f in role_findings)
         # 906E37DC: per-file audit counts (same content the parser saw).
@@ -1805,6 +1810,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         ),
         "malformed_headers": _malformed_total,  # GH970 D2
         "zero_findings_roles": _zero_findings_roles,  # bd#84
+        "canonicalized_headers": _canonicalized_total,  # bd#84
     }
     out.append("## Findings Audit")
     out.append(
@@ -1863,7 +1869,9 @@ def _review_all_findings_suspect(review_verdict: object, review_doc_text: str) -
 
     bd#84: a review whose SUSPECT verdict comes (also) from a role that lost
     its findings on format is not "all findings ungroundable" — those
-    findings were never checked — so the override stays off.
+    findings were never checked — so the override stays off. Read from the
+    review doc like the section header: every failure mode of that read (no
+    doc, empty doc, a role body echoing the warning) keeps the override off.
     """
     return (
         review_verdict == VERDICT_SUSPECT

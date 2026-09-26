@@ -174,8 +174,10 @@ _SPEC_TOKENS = ("SHIP", "PASS", "APPROVED", "REVISE")
         ("Verdict: SHIP | REVISE", "UNKNOWN"),
         ("    ## Verdict\n    SHIP | REVISE", "UNKNOWN"),
         ("## Verdict\nSHIP | REVISE\n\nreview...\n\n## Verdict\nREVISE", "REVISE"),
-        # Conflicting Verdict sections fail closed.
-        ("### Verdict\nSHIP\n\n## Verdict\nREVISE", "UNKNOWN"),
+        # The plain `## Verdict` reading wins as before bd#84 (fail-closed here).
+        ("### Verdict\nSHIP\n\n## Verdict\nREVISE", "REVISE"),
+        # Only the normalized reading sees these; they disagree → fallback.
+        ("### Verdict\nSHIP\n\n### Verdict\nREVISE", "UNKNOWN"),
         ("## Verdict\nSHIP\n\n## Verdict\n**SHIP**", "SHIP"),
         ("## Verdict\nPASS\n\n## Verdict\nSHIP", "SHIP"),
         # A second token in prose is not a choice list.
@@ -273,59 +275,73 @@ def test_ac3_status_choice_list_ignored_superset_marker_kept():
 # ─── AC4: severity-header canonicalization ───────────────────────────────────
 
 
+_EVIDENCE = "\n> util.py:15: return items[len(items) - n - 1:]"
+
+
 @pytest.mark.parametrize(
     "line, expected",
     [
         ("### HIGH — Off-by-one in last_n", "### SEVERITY: HIGH — Off-by-one in last_n"),
+        ("### High — Off-by-one in last_n", "### SEVERITY: HIGH — Off-by-one in last_n"),
         ("## **MEDIUM** - Bare except", "### SEVERITY: MEDIUM — Bare except"),
         ("#### Severity: critical: data loss", "### SEVERITY: CRITICAL — data loss"),
+        ("### Critical: SQL injection in login", "### SEVERITY: CRITICAL — SQL injection in login"),
+        ("**SEVERITY: LOW** — bold line", "### SEVERITY: LOW — bold line"),
+        ("**HIGH — SQL injection**", "### SEVERITY: HIGH — SQL injection"),
+        ("### HIGH — None of the error paths are tested", "### SEVERITY: HIGH — None of the error paths are tested"),
         ("### SEVERITY: HIGH — already canonical", "### SEVERITY: HIGH — already canonical"),
+        ("## SEVERITY: HIGH - already parses (GH970)", "## SEVERITY: HIGH - already parses (GH970)"),
     ],
 )
 def test_ac4_canonicalizes_finding_headers(line, expected):
     from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
 
-    assert canonicalize_severity_headers(line) == expected
+    assert canonicalize_severity_headers(line + _EVIDENCE) == expected + _EVIDENCE
 
 
 @pytest.mark.parametrize(
     "line",
     [
         "HIGH - this is prose, not a heading",
-        "> util.py:15: return items[len(items) - n - 1:]",
         "### Summary",
         "Confidence: HIGH",
         "### High-level summary",
         "## Low-hanging fruit",
-        "### Critical: none",
         "Severity: HIGH — body field under a real header",
         "# SEVERITY: HIGH — single hash stays invisible (GH970)",
         "##### SEVERITY: HIGH — five hashes stay invisible (GH970)",
         "### HIGH —",
-        "### Critical — No critical issues found",
-        "### HIGH — 0 findings",
-        "### High — Summary of review",
-        "## Low - priority items",
-        "### Critical: SQL injection in login",
-        "### Critical — none found",
-        "### HIGH — n/a",
-        "### MEDIUM — None.",
-        "### LOW — none identified",
-        "## SEVERITY: HIGH - already parses (GH970), kept byte-identical",
     ],
 )
 def test_ac4_leaves_other_lines_untouched(line):
     from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
 
-    assert canonicalize_severity_headers(line) == line
+    assert canonicalize_severity_headers(line + _EVIDENCE) == line + _EVIDENCE
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "**HIGH:** 2\nThe off-by-one and the division are described below in prose.",
+        "### HIGH: 2 findings\n### HIGH — Off-by-one\nprose only, no quote",
+        "## HIGH — Summary\nTwo blocking issues.",
+        "### Critical — No critical issues found",
+        "### LOW: (none)",
+        "### MEDIUM — No issues found in auth module\n\n## Next section\n> util.py:1: import json",
+    ],
+)
+def test_ac4_headers_without_evidence_are_not_findings(text):
+    from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
+
+    assert canonicalize_severity_headers(text) == text
 
 
 def test_ac4_fenced_lines_untouched_rest_rewritten():
     from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
 
-    text = "```md\n### HIGH — inside a fence\n```\n### LOW — outside\n> f.py:1: x"
+    text = "```md\n### HIGH — inside a fence\n> f.py:1: x\n```\n### LOW — outside\n> f.py:1: x"
     assert canonicalize_severity_headers(text) == (
-        "```md\n### HIGH — inside a fence\n```\n### SEVERITY: LOW — outside\n> f.py:1: x"
+        "```md\n### HIGH — inside a fence\n> f.py:1: x\n```\n### SEVERITY: LOW — outside\n> f.py:1: x"
     )
 
 
@@ -668,17 +684,71 @@ def test_rv_error_on_retry_keeps_retry_count(tmp_path, monkeypatch):
     assert res.data["discarded_raw_responses"] == ["prose only"]
 
 
+# ─── Review round 2: the tolerance never overrides a plain reading ───────────
+
+
 @pytest.mark.parametrize(
-    "line, expected",
+    "raw, markers, expected",
     [
-        ("### HIGH — None of the error paths are tested", "### SEVERITY: HIGH — None of the error paths are tested"),
-        ("### HIGH — N/A handling drops rows", "### SEVERITY: HIGH — N/A handling drops rows"),
-        ("### CRITICAL: SQL injection in login", "### SEVERITY: CRITICAL — SQL injection in login"),
-        ("**SEVERITY: LOW** — bold line", "### SEVERITY: LOW — bold line"),
-        ("**HIGH — SQL injection**", "### SEVERITY: HIGH — SQL injection"),
+        ("VERDICT: FAIL / PASS once line 12 is fixed", _GATE_MARKERS, "FAIL"),
+        ("STATUS: DONE / BLOCKED on nothing", [("STATUS: DONE", "DONE"), ("STATUS: BLOCKED", "BLOCKED")], "DONE"),
+        ("VERDICT: FAIL\n\nExpected once fixed:\n`VERDICT: PASS`", _GATE_MARKERS, "FAIL"),
+        (
+            "STATUS: BLOCKED\n...\nSTATUS: DONE_WITH_CONCERNS | STATUS: BLOCKED",
+            [("STATUS: DONE_WITH_CONCERNS", "DWC"), ("STATUS: DONE", "DONE"), ("STATUS: BLOCKED", "BLOCKED")],
+            "BLOCKED",
+        ),
     ],
 )
-def test_rv_real_findings_are_not_placeholders(line, expected):
-    from bytedigger_engine.lib.plugins.review_schema import canonicalize_severity_headers  # noqa: PLC0415
+def test_rv2_marker_gloss_and_quotes(raw, markers, expected):
+    from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
-    assert canonicalize_severity_headers(line) == expected
+    assert last_line_anchored_marker(raw, markers, "UNKNOWN") == expected
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("## Verdict\n\nREVISE (two blocking gaps)", "REVISE"),
+        ("Verdict: SHIP, minor nits", "SHIP"),
+        ("Verdict: SHIP -- nits", "SHIP"),
+        ("Verdict: REVISE: gap 3", "REVISE"),
+        ("Verdict: PASS or not, see gap 3", "UNKNOWN"),
+        ("Verdict: Approved / pending the fixes below", "UNKNOWN"),
+    ],
+)
+def test_rv2_heading_verdict_punctuation(raw, expected):
+    from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
+
+    got = verdict_under_heading(raw, _SPEC_TOKENS, aliases={"PASS": "SHIP", "APPROVED": "SHIP"}, fallback="UNKNOWN")
+    assert got == expected
+
+
+def test_rv2_tally_line_is_not_a_finding(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
+
+    body = "# r Review\n\n**HIGH:** 2\n\nThe off-by-one and the division are real bugs.\n\nVERDICT: FAIL\n"
+    res = _aggregate(tmp_path, {"code-reviewer": body}, monkeypatch)
+    assert res.data["verdict"] == "SUSPECT"
+    assert res.data["suspect_findings"] == []
+    assert p6._review_all_findings_suspect("SUSPECT", res.data["aggregated_content"]) is False
+
+
+def test_rv2_code_span_verdict_before_selfcount_trailer(tmp_path, monkeypatch):
+    body = "# r Review\n\nNo issues.\n\n`VERDICT: PASS`\n<!-- role-findings-count: 0 -->\n"
+    res = _aggregate(tmp_path, {"code-reviewer": body}, monkeypatch)
+    assert res.data["verdict"] == "PASS"
+
+
+def test_rv2_undecodable_role_file_is_suspect(tmp_path, monkeypatch):
+    reviews = tmp_path / "reviews"
+    reviews.mkdir(parents=True)
+    (reviews / "role-garbled.md").write_bytes(b"\xff\xfe VERDICT: PASS \x80")
+    res = _aggregate(tmp_path, {"code-reviewer": "# ok\n\nVERDICT: PASS\n"}, monkeypatch)
+    assert res.data["verdict"] == "SUSPECT"
+
+
+def test_rv2_canonicalized_headers_are_counted(tmp_path, monkeypatch):
+    case = next(c for c in _cases("review_findings") if c["model"] == "hosted_b")
+    res = _aggregate(tmp_path, {"code-reviewer": _text(case)}, monkeypatch)
+    assert res.data["findings_audit"]["canonicalized_headers"] == case["finding_headers"]
