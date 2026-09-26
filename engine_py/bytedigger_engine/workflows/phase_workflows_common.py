@@ -602,17 +602,28 @@ def reroll_until_verdict(
     Calls ``attempt`` (which must re-send the IDENTICAL prompt — a pure
     re-roll, GH705) until an ok reply's ``raw_response`` satisfies
     ``has_verdict`` or ``max_retries`` re-rolls are spent. A non-ok result
-    (subprocess/timeout/error) is a different failure class and is returned
-    as is. The ok result carries ``data["verdict_completeness_retries"]``.
+    (subprocess/timeout/error) is a different failure class and ends the
+    loop. The returned result carries ``verdict_completeness_retries`` and,
+    once a reply was re-rolled, ``discarded_raw_responses`` (the replies
+    without a verdict, oldest first) so their analysis is not lost; each
+    re-roll also emits ``integrity_verdict_reroll``.
     """
-    retries = 0
+    discarded: list[str] = []
     result = attempt()
-    while True:
-        if result.status != "ok":
-            return result
+    while result.status == "ok":
         raw = (result.data or {}).get("raw_response") or ""
-        if has_verdict(raw) or retries >= max_retries:
+        if has_verdict(raw) or len(discarded) >= max_retries:
             break
-        retries += 1
+        discarded.append(raw)
+        _emit_safe("integrity_verdict_reroll", {
+            "step": result.step_name,
+            "attempt": len(discarded),
+            "discarded_excerpt": raw[-300:],
+        })
         result = attempt()
-    return dataclasses.replace(result, data={**(result.data or {}), "verdict_completeness_retries": retries})
+    if result.status != "ok" and not discarded:
+        return result
+    data = {**(result.data or {}), "verdict_completeness_retries": len(discarded)}
+    if discarded:
+        data["discarded_raw_responses"] = discarded
+    return dataclasses.replace(result, data=data)

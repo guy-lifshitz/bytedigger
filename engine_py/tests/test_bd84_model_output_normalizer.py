@@ -302,7 +302,11 @@ def test_ac4_canonicalizes_finding_headers(line, expected):
         "# SEVERITY: HIGH — single hash stays invisible (GH970)",
         "##### SEVERITY: HIGH — five hashes stay invisible (GH970)",
         "### HIGH —",
-        "**SEVERITY: LOW** — bold body line, not a heading (GH970 lint flags it)",
+        "### Critical — No critical issues found",
+        "### HIGH — 0 findings",
+        "### High — Summary of review",
+        "## Low - priority items",
+        "### Critical: SQL injection in login",
         "### Critical — none found",
         "### HIGH — n/a",
         "### MEDIUM — None.",
@@ -418,7 +422,7 @@ def test_ac6_clean_review_stays_pass(tmp_path, monkeypatch):
 
 
 def test_ac6_explicit_zero_selfcount_stays_pass(tmp_path, monkeypatch):
-    body = "# code-reviewer Review\n\nVERDICT: PARTIAL\n<!-- role-findings-count: 0 -->\n"
+    body = "# code-reviewer Review\n\nVERDICT: PASS\n<!-- role-findings-count: 0 -->\n"
     res = _aggregate(tmp_path, {"code-reviewer": body}, monkeypatch)
     assert res.data["verdict"] == "PASS"
 
@@ -551,3 +555,130 @@ def test_ac7_exhausted_reroll_still_no_marker(tmp_path, monkeypatch):
     out = _classify_fix_diff_verdict(None, res)
     assert out.status == "error"
     assert out.error_code == "E_FIX_INTEGRITY_NO_MARKER"
+
+
+# ─── Review round: silent-failure findings ───────────────────────────────────
+
+_INTEGRITY_TOKENS = ("ASSERTION_GAMING", "LEGITIMATE_REFACTOR", "SPEC_CHANGE", "NO_CHANGES")
+
+
+def test_rv_gloss_after_slash_is_not_a_choice_list():
+    """A separator counts as a choice only when another token follows it."""
+    from bytedigger_engine.lib.verdict_parse import (  # noqa: PLC0415
+        last_line_anchored_marker,
+        last_standalone_line_verdict,
+    )
+
+    raw = "a.py:\nVERDICT: LEGITIMATE_REFACTOR\nb.py:\nVERDICT: ASSERTION_GAMING / assertEqual removed"
+    assert last_standalone_line_verdict(raw, _INTEGRITY_TOKENS, fallback="UNKNOWN", allow_trailing=True) == "ASSERTION_GAMING"
+    status = [("STATUS: DONE_WITH_CONCERNS", "DWC"), ("STATUS: DONE", "DONE")]
+    assert last_line_anchored_marker("STATUS: DONE_WITH_CONCERNS / flaky test in foo", status, None) == "DWC"
+    raw = "VERDICT: PASS for module a\n...\nVERDICT: FAIL / 2 high findings"
+    assert last_line_anchored_marker(raw, _GATE_MARKERS, "UNKNOWN") == "FAIL"
+    raw = "VERDICT: PASS\n\nWait, re-running.\nVERDICT: FAIL or flaky"
+    assert last_line_anchored_marker(raw, _GATE_MARKERS, "UNKNOWN") == "FAIL"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Verdict: pass rate is 60%, too low.",
+        "**Verdict:** Pass for sections 1-3; section 4 must be revised.",
+        "Verdict: Approved with changes required below.",
+        "### Verdict\nApproved-by-author assumptions are unverified; REVISE",
+        "Verdict: pass on structure; see gaps.\n\n```python\ndef f():\n    pass\n\n## Verdict\n\nREVISE",
+    ],
+)
+def test_rv_p3_prose_after_token_is_not_a_verdict(raw):
+    from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
+
+    got = verdict_under_heading(raw, _SPEC_TOKENS, aliases={"PASS": "SHIP", "APPROVED": "SHIP"}, fallback="UNKNOWN")
+    assert got != "SHIP"
+
+
+def test_rv_quoted_code_span_does_not_override_plain_verdict():
+    from bytedigger_engine.lib.verdict_parse import (  # noqa: PLC0415
+        last_line_anchored_marker,
+        last_standalone_line_verdict,
+    )
+
+    raw = "VERDICT: FAIL\n\nOnce fixed, the expected output is:\n`VERDICT: PASS`"
+    assert last_line_anchored_marker(raw, _GATE_MARKERS, "UNKNOWN") == "FAIL"
+    raw = "VERDICT: ASSERTION_GAMING\n\nIf the hunk in b.py is reverted this would be:\n`VERDICT: SPEC_CHANGE`"
+    assert last_standalone_line_verdict(raw, _INTEGRITY_TOKENS, fallback="UNKNOWN", allow_trailing=True) == "ASSERTION_GAMING"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "# r Review\n\n## VERDICT: FAIL — 2 high findings\n",
+        "```markdown\n# r Review\n### HIGH — bug\n**VERDICT: FAIL**\n```\n",
+        "# r Review\n\nVERDICT: FAIL\n<!-- role-findings-count: 0 -->\n",
+        "# r Review\n\nVERDICT: PARTIAL\n<!-- role-findings-count: 0 -->\n",
+        "# r Review\n\nThe first issue is in last_n where",
+    ],
+)
+def test_rv_zero_findings_without_a_pass_is_suspect(body, tmp_path, monkeypatch):
+    res = _aggregate(tmp_path, {"code-reviewer": body}, monkeypatch)
+    assert res.data["verdict"] == "SUSPECT"
+
+
+def test_rv_unreadable_role_file_is_suspect(tmp_path, monkeypatch):
+    events: list = []
+    (tmp_path / "reviews" / "role-broken.md").mkdir(parents=True)
+    res = _aggregate(tmp_path, {"code-reviewer": "# ok\n\nVERDICT: PASS\n"}, monkeypatch, events)
+    assert res.data["verdict"] == "SUSPECT"
+    assert any(name == "review_zero_findings_suspect" for name, _ in events)
+
+
+def test_rv_zero_findings_role_blocks_the_all_suspect_override(tmp_path, monkeypatch):
+    """Role A declares FAIL in prose; role B has only an uncitable finding.
+    The review must not look 'all findings suspect' to the satisfaction override."""
+    from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
+
+    events: list = []
+    roles = {
+        "code-reviewer": _PROSE_FAIL,
+        "silent-failure-hunter": (
+            "# silent-failure-hunter Review\n\n### SEVERITY: HIGH — t\n"
+            "> /nonexistent/bd84.py:1: x = 1\n\nVERDICT: PARTIAL\n"
+        ),
+    }
+    res = _aggregate(tmp_path, roles, monkeypatch, events)
+    assert res.data["verdict"] == "SUSPECT"
+    assert any(name == "review_zero_findings_suspect" for name, _ in events)
+    assert p6._review_all_findings_suspect("SUSPECT", res.data["aggregated_content"]) is False
+
+
+def test_rv_reroll_keeps_discarded_replies(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows.phase_6_fix_integrity import _invoke_fix_integrity_llm  # noqa: PLC0415
+
+    _fake_invoke(monkeypatch, ["ASSERTION_GAMING analysis without a marker", "VERDICT: SPEC_CHANGE"])
+    res = _invoke_fix_integrity_llm(_fix_ctx(tmp_path), _fix_prev(tmp_path))
+    assert res.data["discarded_raw_responses"] == ["ASSERTION_GAMING analysis without a marker"]
+
+
+def test_rv_error_on_retry_keeps_retry_count(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows.phase_6_fix_integrity import _invoke_fix_integrity_llm  # noqa: PLC0415
+
+    _fake_invoke(monkeypatch, ["prose only"], error_on_call=2)
+    res = _invoke_fix_integrity_llm(_fix_ctx(tmp_path), _fix_prev(tmp_path))
+    assert res.status == "error"
+    assert res.data["verdict_completeness_retries"] == 1
+    assert res.data["discarded_raw_responses"] == ["prose only"]
+
+
+@pytest.mark.parametrize(
+    "line, expected",
+    [
+        ("### HIGH — None of the error paths are tested", "### SEVERITY: HIGH — None of the error paths are tested"),
+        ("### HIGH — N/A handling drops rows", "### SEVERITY: HIGH — N/A handling drops rows"),
+        ("### CRITICAL: SQL injection in login", "### SEVERITY: CRITICAL — SQL injection in login"),
+        ("**SEVERITY: LOW** — bold line", "### SEVERITY: LOW — bold line"),
+        ("**HIGH — SQL injection**", "### SEVERITY: HIGH — SQL injection"),
+    ],
+)
+def test_rv_real_findings_are_not_placeholders(line, expected):
+    from bytedigger_engine.lib.llm_output_normalize import canonicalize_severity_headers  # noqa: PLC0415
+
+    assert canonicalize_severity_headers(line) == expected

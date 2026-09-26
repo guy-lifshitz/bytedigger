@@ -10,10 +10,12 @@ from typing import Sequence
 
 from bytedigger_engine.lib.llm_output_normalize import normalize_model_output
 
-# A token directly followed by one of these is one option of a choice list
-# (`VERDICT: PASS | FAIL`, `VERDICT: PASS or VERDICT: FAIL`, `SHIP / REVISE`)
-# — typically the model echoing the prompt's schema — never a verdict (bd#84).
-_CHOICE_SEP_RE = re.compile(r"[ \t]*(?:\||/|\bor\b)", re.IGNORECASE)
+# A token followed by a separator and ANOTHER option is one entry of a choice
+# list (`VERDICT: PASS | FAIL`, `VERDICT: PASS or VERDICT: FAIL`,
+# `SHIP / REVISE`) — typically the model echoing the prompt's schema — never
+# a verdict (bd#84). A separator followed by prose is a gloss and does not
+# count: `VERDICT: ASSERTION_GAMING / assertEqual removed` is a verdict.
+_CHOICE_SEP = r"[ \t]*(?:\||/|\bor\b)[ \t]*(?:[A-Za-z][A-Za-z _]*:[ \t]*)?"
 
 
 def _normalize(raw):
@@ -28,9 +30,16 @@ def _normalize(raw):
     return normalize_model_output(raw)
 
 
-def _is_choice(raw: str, token_end: int) -> bool:
-    """True when the token ending at ``token_end`` is followed by a choice separator."""
-    return _CHOICE_SEP_RE.match(raw, token_end) is not None
+def _choice_rx(options: Sequence[str]) -> re.Pattern[str]:
+    """Compile the choice-list matcher for ``options`` (builds a pattern; parses
+    no model text — verdict-anchor: exempt)."""
+    alt = "|".join(re.escape(o) for o in sorted(options, key=len, reverse=True))
+    return re.compile(_CHOICE_SEP + rf"(?:{alt})(?![A-Za-z0-9_])", re.IGNORECASE)
+
+
+def _is_choice(raw: str, token_end: int, choice_rx: re.Pattern[str]) -> bool:
+    """True when the token ending at ``token_end`` is one option of a choice list."""
+    return choice_rx.match(raw, token_end) is not None
 
 
 def last_standalone_line_verdict(
@@ -43,26 +52,23 @@ def last_standalone_line_verdict(
 ) -> str:
     """P1 — strict standalone-line verdict (92C57E96 model, generalised).
 
-    Matches lines of the form:
-        ^[ \\t]*(?:\\*\\*|__)?[ \\t]*{prefix}[ \\t]*(<token>)[ \\t]*(?:\\*\\*|__)?[ \\t]*$
-    with IGNORECASE|MULTILINE.  Tokens sorted longest-first to prevent
-    prefix-shadowing.  Last match wins.  Returns match.group(1).upper()
-    or fallback when no match.
+    Input is normalized first (bd#84): emphasis (`**VERDICT: FAIL**`,
+    `__VERDICT: X__`), a short `## VERDICT: FAIL` heading and a final
+    whole-line code span are stripped before matching. Then lines of the form
+        ^[ \\t]*{prefix}[ \\t]*(<token>)[ \\t]*$
+    match, with IGNORECASE|MULTILINE. Tokens sorted longest-first to prevent
+    prefix-shadowing. Last match wins. Returns match.group(1).upper() or
+    fallback when no match. A token that is one option of a choice list
+    (`VERDICT: PASS | FAIL`) is skipped.
 
-    allow_trailing=False (default): byte-identical to prior behavior — the
-        token must be followed only by optional whitespace/bold-close then EOL.
+    allow_trailing=False (default): the token must be followed only by
+        optional whitespace then EOL.
     allow_trailing=True: after the captured token, accept an alphanumeric
-        boundary (next char must be EOL or a non-[A-Za-z0-9] char — underscore
-        is allowed so `__`-bold close passes), then an optional `**`/`__`
-        emphasis close, then arbitrary trailing text to EOL.
-        E.g. 'VERDICT: SPEC_CHANGE — prose', '__VERDICT: LEGITIMATE_REFACTOR__',
-        and '**Verdict: spec_change**' all match; 'VERDICT: SPEC_CHANGED extra'
-        does NOT (next char 'D' is alnum → boundary fails).
-        The head anchor is unchanged; mid-prose occurrences are still rejected.
-
-    Input is normalized first (bd#84), so `**VERDICT: FAIL**`, a line that is
-    one code span, and a short `## VERDICT: FAIL` heading all match. A token
-    followed by a choice separator (`VERDICT: PASS | FAIL`) is skipped.
+        boundary (next char must be EOL or a non-[A-Za-z0-9] char), then
+        arbitrary trailing text to EOL. E.g. 'VERDICT: SPEC_CHANGE — prose'
+        matches; 'VERDICT: SPEC_CHANGED extra' does NOT (next char 'D' is
+        alnum → boundary fails). The head anchor is unchanged; mid-prose
+        occurrences are still rejected.
     """
     raw = _normalize(raw)
     if not raw or not tokens:
@@ -71,11 +77,11 @@ def last_standalone_line_verdict(
     sorted_tokens = sorted(tokens, key=len, reverse=True)
     alt = "|".join(re.escape(t) for t in sorted_tokens)
     if allow_trailing:
-        tail = r")(?=$|[^A-Za-z0-9])(?:\*\*|__)?[ \t]*.*$"
+        tail = r")(?=$|[^A-Za-z0-9]).*$"
     else:
-        tail = r")[ \t]*(?:\*\*|__)?[ \t]*$"
+        tail = r")[ \t]*$"
     pattern = (
-        r"^[ \t]*(?:\*\*|__)?[ \t]*"
+        r"^[ \t]*"
         + re.escape(prefix)
         + r"[ \t]*("
         + alt
@@ -83,9 +89,10 @@ def last_standalone_line_verdict(
     )
     rx = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
 
+    choice_rx = _choice_rx(tokens)
     last = None
     for m in rx.finditer(raw):
-        if not _is_choice(raw, m.end(1)):
+        if not _is_choice(raw, m.end(1), choice_rx):
             last = m
     if last is None:
         return fallback
@@ -108,9 +115,11 @@ def verdict_under_heading(
         Verdict[:]            (own line)  → first token on the next non-blank line
         Verdict: <token>      (one line)
 
-    The token may carry trailing prose (`REVISE — the rest can ship as-is`),
-    but a token followed by a choice separator (`SHIP | REVISE`, the prompt's
-    schema echoed back) does not count. Text before the heading is ignored.
+    The token must end its line or be followed by a dash gloss
+    (`REVISE — the rest can ship as-is`); a token that merely opens a
+    sentence (`Verdict: pass rate is 60%`, `Approved-by-author …`) does not
+    count, nor does one option of a choice list (`SHIP | REVISE`, the
+    prompt's schema echoed back). Text before the heading is ignored.
     Aliases apply after upper(). When several Verdict sections resolve to
     different tokens the answer is ambiguous → fallback (fail-closed).
     """
@@ -121,16 +130,18 @@ def verdict_under_heading(
     sorted_tokens = sorted(tokens, key=len, reverse=True)
     alt = "|".join(re.escape(t) for t in sorted_tokens)
     h = re.escape(heading)
+    token_end = r"(?=[ \t]*(?:$|[—–-][ \t]|[.!][ \t]*$|(?:\||/|or\b)))"
     pattern = (
-        rf"^[ \t]*{h}[ \t]*(?::[ \t]*\n|\n)\s*({alt})\b"
-        rf"|^[ \t]*{h}[ \t]*:[ \t]*({alt})\b"
+        rf"^[ \t]*{h}[ \t]*(?::[ \t]*\n|\n)\s*({alt}){token_end}"
+        rf"|^[ \t]*{h}[ \t]*:[ \t]*({alt}){token_end}"
     )
     rx = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
+    choice_rx = _choice_rx(tokens)
 
     found: set[str] = set()
     for m in rx.finditer(raw):
         group = 1 if m.group(1) is not None else 2
-        if _is_choice(raw, m.end(group)):
+        if _is_choice(raw, m.end(group), choice_rx):
             continue
         token = m.group(group).upper()
         found.add(aliases.get(token, token) if aliases else token)
@@ -154,24 +165,33 @@ def last_line_anchored_marker(raw, markers, fallback):
     ⊃ 'STATUS: DONE'), the FIRST marker in the markers list wins.  This is
     load-bearing for DONE_WITH_CONCERNS vs DONE disambiguation in phase_2/3/7.
 
-    Input is normalized first (bd#84): `**VERDICT: FAIL**`, `` `VERDICT: FAIL` ``
-    and a short `## STATUS: DONE` heading all anchor. A marker followed by a
-    choice separator (`STATUS: DONE | STATUS: BLOCKED`) is skipped.
+    Input is normalized first (bd#84): `**VERDICT: FAIL**`, a final
+    `` `VERDICT: FAIL` `` line and a short `## STATUS: DONE` heading all
+    anchor. An occurrence that is one option of a choice list
+    (`STATUS: DONE | STATUS: BLOCKED`) is skipped; the decision is taken on
+    the longest marker at that offset, so a skipped `STATUS: DONE_WITH_CONCERNS`
+    option does not resurface as its prefix `STATUS: DONE`.
 
     If no marker matches, returns fallback (may be None).
     """
     raw = _normalize(raw)
-    best_pos = -1
-    best_value = fallback
+    if not raw:
+        return fallback
+    # Choice options: every full marker plus its token part (`VERDICT: PASS` → `PASS`).
+    options = {m for m, _ in markers} | {m.rsplit(":", 1)[1].strip() for m, _ in markers if ":" in m}
+    choice_rx = _choice_rx([o for o in options if o])
+    # offset -> (first-listed value, end of the longest marker at that offset)
+    at: dict[int, tuple[object, int]] = {}
     for marker, value in markers:
         pattern = re.compile(rf"^\s*{re.escape(marker)}", re.IGNORECASE | re.MULTILINE)
-        ms = [m for m in pattern.finditer(raw or "") if not _is_choice(raw, m.end())]
-        if ms:
-            pos = ms[-1].start()
-            if pos > best_pos:
-                best_pos = pos
-                best_value = value
-    return best_value
+        for m in pattern.finditer(raw):
+            first_value, longest_end = at.get(m.start(), (value, m.end()))
+            at[m.start()] = (first_value, max(longest_end, m.end()))
+    for pos in sorted(at, reverse=True):
+        value, longest_end = at[pos]
+        if not _is_choice(raw, longest_end, choice_rx):
+            return value
+    return fallback
 
 
 def find_last_standalone_marker(

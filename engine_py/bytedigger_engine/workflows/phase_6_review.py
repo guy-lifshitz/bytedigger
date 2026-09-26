@@ -264,6 +264,9 @@ VERDICT_PARTIAL = "PARTIAL"
 VERDICT_FAIL = "FAIL"
 VERDICT_UNKNOWN = "UNKNOWN"
 VERDICT_SUSPECT = "SUSPECT"  # 21792EE7: all findings filtered → could be fabrication, not clean
+# bd#84: audit line written when a role parsed zero findings without declaring
+# PASS. Its presence keeps the all-findings-suspect satisfaction override off.
+ZERO_FINDINGS_AUDIT_WARNING = "⚠ AUDIT WARNING: zero parsed findings from a role that did not declare PASS"
 SUSPECT_FINDINGS_SECTION_HEADER = "## Suspect Findings"  # 4B9DF7D3: single-source — review-doc section written by aggregation (L1508) AND read by the satisfaction override gate
 
 FIX_COMPLETE = "COMPLETE"
@@ -1547,13 +1550,15 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     # GH970 D2: deterministic malformed-SEVERITY-header lint accumulators.
     _malformed_total: int = 0
     _malformed_roles: set[str] = set()
-    # bd#84: roles that parsed zero findings yet declare FAIL/PARTIAL.
+    # bd#84: roles that parsed zero findings without declaring PASS.
     _zero_findings_roles: list[str] = []
     for rf in role_files:
         slug = _slug_from_role_filename(rf)
         try:
             content = rf.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            logger.warning("phase_6_review: cannot read role file %s: %s", rf, exc)
+            _emit_safe("role_report_unreadable", {"phase": "phase_6_review", "role": slug, "error": str(exc)})
             content = "(failed to read role file)"
         role_sections.append((slug, content.rstrip()))
         # bd#84: finding-shaped headers without the SEVERITY: word (or with
@@ -1561,27 +1566,27 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         # real finding is not dropped on format. The embedded role body, the
         # self-count and the GH970 lint keep reading the raw text.
         canonical = canonicalize_severity_headers(content)
-        for f in _parse_role_findings(canonical):
-            all_findings.append({**f, "role": slug})
+        role_findings = _parse_role_findings(canonical)
+        all_findings.extend({**f, "role": slug} for f in role_findings)
         # 906E37DC: per-file audit counts (same content the parser saw).
-        _parsed_blocks_this_role = len(list(_AGG_SEVERITY_HDR_RE.finditer(canonical)))
+        _parsed_blocks_this_role = len(role_findings)
         _total_parsed_blocks += _parsed_blocks_this_role
         _m = list(_ROLE_SELFCOUNT_RE.finditer(content))
         _selfcount_this_role = int(_m[-1].group(1)) if _m else None
         if _selfcount_this_role is not None:
             _self_reported_total += _selfcount_this_role
             _any_selfcount = True
-        # bd#84: zero findings on a review that itself says FAIL/PARTIAL is a
-        # parse miss, not a clean review. An explicit self-count of 0 is the
-        # reviewer's own structured "nothing found" and is trusted.
-        if (
-            _parsed_blocks_this_role == 0
-            and _selfcount_this_role != 0
-            and _parse_review_verdict(content) in (VERDICT_FAIL, VERDICT_PARTIAL)
+        # bd#84: zero parsed findings is clean only when the role says PASS
+        # and does not self-report findings. FAIL/PARTIAL, a missing or
+        # unparseable verdict (truncated, fenced, unreadable) or a non-zero
+        # self-count mean findings were lost on format.
+        if _parsed_blocks_this_role == 0 and (
+            _parse_review_verdict(content) != VERDICT_PASS or (_selfcount_this_role or 0) > 0
         ):
             _zero_findings_roles.append(slug)
-        # GH970 D2: lines that look like a SEVERITY header but don't parse.
-        _malformed = lint_role_report(content)
+        # GH970 D2: lines that look like a SEVERITY header but don't parse —
+        # checked after canonicalization, so only truly invisible ones count.
+        _malformed = lint_role_report(canonical)
         if _malformed:
             _emit_safe("role_report_malformed", {
                 "phase": "phase_6_review",
@@ -1693,8 +1698,17 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
 
     findings_count = len(verified_findings)
     filtered_count = len(suspect_findings)  # 1F39FB1A: "filtered" = suspect count (same audit role)
+    if _zero_findings_roles:
+        _emit_safe("review_zero_findings_suspect", {
+            "phase": "phase_6_review",
+            "roles": _zero_findings_roles,
+        })
     if counts["CRITICAL"] > 0 or counts["HIGH"] > 0:
         verdict = VERDICT_FAIL
+    elif _zero_findings_roles:
+        # bd#84: a role's findings were lost on format — its severity is
+        # unknown, so neither PARTIAL nor PASS may stand in for it.
+        verdict = VERDICT_SUSPECT
     elif counts["MEDIUM"] > 0 or counts["LOW"] > 0:
         verdict = VERDICT_PARTIAL
     elif findings_count == 0 and filtered_count > 0:
@@ -1702,15 +1716,6 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         # distinguishes this from PASS (genuinely no findings). Preserves 21792EE7 fix-3
         # semantics — soft-tag doesn't collapse the SUSPECT verdict path.
         verdict = VERDICT_SUSPECT
-    elif _zero_findings_roles:
-        # bd#84: nothing parsed, but a reviewer declared FAIL/PARTIAL — never
-        # report that as clean. No Suspect Findings section is rendered, so
-        # the satisfaction override (all-findings-suspect) stays ineligible.
-        verdict = VERDICT_SUSPECT
-        _emit_safe("review_zero_findings_suspect", {
-            "phase": "phase_6_review",
-            "roles": _zero_findings_roles,
-        })
     else:
         verdict = VERDICT_PASS
 
@@ -1822,10 +1827,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             f"Roles: {', '.join(sorted(_malformed_roles))}"
         )
     if _zero_findings_roles:
-        out.append(
-            "⚠ AUDIT WARNING: role(s) declared FAIL/PARTIAL but no finding parsed — "
-            f"review verdict is SUSPECT, not PASS. Roles: {', '.join(_zero_findings_roles)}"
-        )
+        out.append(f"{ZERO_FINDINGS_AUDIT_WARNING} — roles: {', '.join(_zero_findings_roles)}")
     out.append("")
     _emit_safe("review_findings_audit", findings_audit)
 
@@ -1854,6 +1856,20 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
 
 
 # ─── Step 4: write review artifact ───────────────────────────────────────────
+
+
+def _review_all_findings_suspect(review_verdict: object, review_doc_text: str) -> bool:
+    """4B9DF7D3 override precondition: every finding was quote-suspect.
+
+    bd#84: a review whose SUSPECT verdict comes (also) from a role that lost
+    its findings on format is not "all findings ungroundable" — those
+    findings were never checked — so the override stays off.
+    """
+    return (
+        review_verdict == VERDICT_SUSPECT
+        and SUSPECT_FINDINGS_SECTION_HEADER in review_doc_text
+        and ZERO_FINDINGS_AUDIT_WARNING not in review_doc_text
+    )
 
 
 def _render_fix_doc(verified_findings: list, verdict: str = "", suspect_findings: list | None = None) -> str:
@@ -3245,10 +3261,7 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
         review_doc_text = Path(prev.data.get("review_doc_path") or "").read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError, TypeError):
         review_doc_text = ""
-    all_findings_suspect = (
-        prev.data.get("review_verdict") == VERDICT_SUSPECT
-        and SUSPECT_FINDINGS_SECTION_HEADER in review_doc_text
-    )
+    all_findings_suspect = _review_all_findings_suspect(prev.data.get("review_verdict"), review_doc_text)
     passed, reason_code = _deterministic_satisfaction_override(
         passed,
         reason_code,
