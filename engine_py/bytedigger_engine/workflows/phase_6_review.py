@@ -2768,27 +2768,26 @@ def _run_satisfaction_evaluators_parallel(
     GH705: stable_prefix threaded through the shipped {prompt, stable_prefix}
     caching seam — prompt stays full/byte-identical.
     """
+    # bd#82 (HAL #1898): pool workers do not inherit the parent's thread-local
+    # step context — capture it here and carry it across explicitly.
+    parent_ctx = telemetry_ctx.get_current_run()
     with concurrent.futures.ThreadPoolExecutor(max_workers=n) as executor:
         futures = [
             executor.submit(
-                # bd#82 (HAL #1898): the worker does not inherit the parent's
-                # thread-local step context — carry it across explicitly.
                 telemetry_ctx.run_with_current_run,
-                telemetry_ctx.get_current_run(),
+                parent_ctx,
                 invoke_llm_subprocess,
                 prompt=prompt,
                 model=model,
                 timeout_sec=timeout_sec,
-                # Static submit-index suffix, before any "." (agent_sdk keys
-                # sessions on the part before it): one name per evaluator.
-                step_name=f"invoke_satisfaction_llm_eval{i}",
+                step_name="invoke_satisfaction_llm",
                 extra_data=extra_data,
                 hard_gate=True,
                 gate_label="satisfaction",
                 allowed_tools=["Read"],
                 stable_prefix=stable_prefix,
             )
-            for i in range(n)
+            for _ in range(n)
         ]
     return [f.result() for f in futures]
 

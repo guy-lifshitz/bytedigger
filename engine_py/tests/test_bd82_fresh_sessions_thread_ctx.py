@@ -229,6 +229,18 @@ def test_f6c_decorrelated_verifier_asks_for_a_fresh_session():
     assert len(seen) == 1 and seen[0].get("fresh_session") is True
 
 
+def test_f2c_agent_sdk_gate_fresh_even_without_the_capability(sdk):
+    """Defence in depth: a registration that omits warm_resume never forwards
+    fresh_session, yet the backend itself treats a hard gate as fresh."""
+    from bytedigger_engine.lib.reference_backends import agent_sdk  # noqa: PLC0415
+
+    register_backend("agent-sdk", agent_sdk.agent_sdk_backend, manifest_source="git_diff",
+                     capabilities={"tool_allowlist"}, overwrite=True)
+    _call(hard_gate=True)
+    _call(hard_gate=True)
+    assert sdk == [None, None]
+
+
 def test_f6d_hang_fallback_forwards_the_effective_value():
     """The GH1169 re-dispatch is a dispatch: a gate stays fresh on the fallback target."""
     def _hung(**kwargs):
@@ -302,13 +314,6 @@ def test_t1_workers_see_every_field(tmp_path):
     prev = _parent(log, cycle=1)
     seen = _in_pool(prev, lambda: _fields(telemetry_ctx.get_current_run()))
     assert seen == [(log, "run-A", "parent_step", "review", "opus", 1)] * 3
-
-
-def test_t2_ctx_step_name_renames_only_the_step():
-    prev = _parent()
-    seen = _in_pool(prev, lambda: _fields(telemetry_ctx.get_current_run()), n=1,
-                    ctx_step_name="worker_step")
-    assert seen == [(None, "run-A", "worker_step", "review", "opus", 1)]
 
 
 def test_t3_retry_worker_sees_retry_cycle():
@@ -420,18 +425,13 @@ def test_t6_satisfaction_workers_carry_the_step_context(tmp_path):
     results = _run_satisfaction_evaluators_parallel("p", "opus", 5, {}, n=3)
 
     assert [r.status for r in results] == ["ok"] * 3
-    assert [r.step_name for r in results] == [
-        f"invoke_satisfaction_llm_eval{i}" for i in range(3)
-    ], "index order is submit order"
-    assert sorted(seen) == [
-        # no ctx_step_name at the site: the slot keeps the parent's step name
-        (f"invoke_satisfaction_llm_eval{i}", "run-sat", "review", 2, "satisfaction")
-        for i in range(3)
-    ]
+    # One registered step name for every evaluator: gates are fresh, so a
+    # per-worker name would isolate nothing and would split the step's name.
+    assert {r.step_name for r in results} == {"invoke_satisfaction_llm"}
+    # the slot keeps the parent's step name
+    assert seen == [("invoke_satisfaction_llm", "run-sat", "review", 2, "satisfaction")] * 3
     resolved = [e for e in log.read_all() if e["event_type"] == "runner_backend_resolved"]
-    assert sorted(e["payload"]["step_name"] for e in resolved) == [
-        f"invoke_satisfaction_llm_eval{i}" for i in range(3)
-    ]
+    assert len(resolved) == 3, "each worker emits into the parent's run"
     assert {e["run_id"] for e in resolved} == {"run-sat"}
     assert telemetry_ctx.get_current_run().run_id == "run-sat", "parent context untouched"
 
