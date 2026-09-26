@@ -1,17 +1,21 @@
 """RED tests for 3C533CD8 — semantic_verifier model-pin fail-closed.
 
 ACs covered:
-  AC1 — opus-tier: bounded_run called with --model == get_claude_critical() alias
-  AC2 — haiku-tier: bounded_run called with --model == get_claude_fallback() alias
-  AC3 — fail-closed: stale versioned id raises ValueError BEFORE bounded_run is called
+  AC1 — opus-tier: the chokepoint is called with model == get_claude_critical() alias
+  AC2 — haiku-tier: the chokepoint is called with model == get_claude_fallback() alias
+  AC3 — fail-closed: stale versioned id raises ValueError BEFORE the chokepoint is called
+
+bd#82 PR3: the verifier no longer spawns `claude -p` through bounded_run; it calls
+llm_subprocess.invoke_llm_subprocess, so these ACs read the chokepoint's `model`
+keyword instead of the argv passed to bounded_run. The assertions are unchanged.
   AC4 — _ACCEPTED_MODEL_ALIASES == frozenset({"opus","sonnet","haiku"})
 
 Pre-GREEN FAIL reasoning (per §1l / stub-passability):
-  AC1/AC2: assert the cmd list passed to bounded_run contains --model <alias>. If the
+  AC1/AC2: assert the chokepoint receives model=<alias>. If the
   production code used a hardcoded versioned id (e.g. "claude-opus-4-7"), the assert
   would fail because the received id != get_claude_critical(). Fails today only if prod
   regresses to hardcoded id.
-  AC3: assert ValueError raised AND bounded_run not called when get_claude_critical()
+  AC3: assert ValueError raised AND the chokepoint not called when get_claude_critical()
   returns a stale id. Fails if fail-closed guard is absent from prod.
   AC4: assert alias set membership contract. Fails if the constant diverges.
 
@@ -56,16 +60,14 @@ _MINIMAL_FINDING = {
     "claim": "index out of bounds on depth-3 path",
 }
 
-# Benign mock return value for bounded_run.
-# The function reads: result.returncode, result.stdout, result.stderr.
-# returncode=0 + non-empty stdout → function returns stdout (no error path).
-def _make_bounded_run_mock() -> MagicMock:
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = "REFUTED:\nreason: no bug\nrationale: code is fine\n"
-    mock_result.stderr = ""
-    br = MagicMock(return_value=mock_result)
-    return br
+# Benign chokepoint result: ok with a verdict in raw_response.
+def _make_invoke_mock() -> MagicMock:
+    from bytedigger_engine.contracts import StepResult
+
+    return MagicMock(return_value=StepResult(
+        status="ok", data={"raw_response": "REFUTED:\nreason: no bug\nrationale: code is fine\n"},
+        duration_ms=0, step_name="semantic_verify",
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -73,42 +75,32 @@ def _make_bounded_run_mock() -> MagicMock:
 # ---------------------------------------------------------------------------
 
 def test_ac1_opus_tier_uses_get_claude_critical() -> None:
-    """AC1: _invoke_verifier_agent with model_tier='opus' must call bounded_run
-    with --model <value returned by get_claude_critical()>.
+    """AC1: _invoke_verifier_agent with model_tier='opus' must call the chokepoint
+    with model=<value returned by get_claude_critical()>.
 
     That value must also be in _ACCEPTED_MODEL_ALIASES (alias, not versioned id).
 
     Pre-GREEN FAIL: if prod hardcodes a versioned id like 'claude-opus-4-7' instead
-    of calling get_claude_critical(), the --model value != the alias, assertion fails.
+    of calling get_claude_critical(), the model value != the alias, assertion fails.
     """
-    br_mock = _make_bounded_run_mock()
+    br_mock = _make_invoke_mock()
     expected_model = semantic_verifier.get_claude_critical()
 
-    with patch.object(semantic_verifier, "bounded_run", br_mock):
+    with patch.object(semantic_verifier.llm_subprocess, "invoke_llm_subprocess", br_mock):
         _invoke_verifier_agent(_MINIMAL_FINDING, model_tier="opus")
 
     assert br_mock.called, (
-        "AC1: bounded_run was not called at all for model_tier='opus'"
+        "AC1: the chokepoint was not called at all for model_tier='opus'"
     )
 
-    call_args = br_mock.call_args
-    cmd_list = call_args[0][0]  # first positional arg is the cmd list
-
-    assert "--model" in cmd_list, (
-        f"AC1: '--model' flag not found in cmd list: {cmd_list!r}"
-    )
-    model_idx = cmd_list.index("--model")
-    assert model_idx + 1 < len(cmd_list), (
-        f"AC1: '--model' flag has no following value in cmd list: {cmd_list!r}"
-    )
-    actual_model = cmd_list[model_idx + 1]
+    actual_model = br_mock.call_args.kwargs["model"]
 
     assert actual_model == expected_model, (
-        f"AC1: --model value {actual_model!r} != get_claude_critical() {expected_model!r}. "
+        f"AC1: model value {actual_model!r} != get_claude_critical() {expected_model!r}. "
         "Production code must use get_claude_critical(), not a hardcoded versioned id."
     )
     assert actual_model in _ACCEPTED_MODEL_ALIASES, (
-        f"AC1: --model value {actual_model!r} is not in _ACCEPTED_MODEL_ALIASES "
+        f"AC1: model value {actual_model!r} is not in _ACCEPTED_MODEL_ALIASES "
         f"{sorted(_ACCEPTED_MODEL_ALIASES)} — must be an alias, not a versioned id."
     )
 
@@ -118,65 +110,55 @@ def test_ac1_opus_tier_uses_get_claude_critical() -> None:
 # ---------------------------------------------------------------------------
 
 def test_ac2_haiku_tier_uses_get_claude_fallback() -> None:
-    """AC2: _invoke_verifier_agent with model_tier='haiku' must call bounded_run
-    with --model <value returned by get_claude_fallback()>.
+    """AC2: _invoke_verifier_agent with model_tier='haiku' must call the chokepoint
+    with model=<value returned by get_claude_fallback()>.
 
     That value must also be in _ACCEPTED_MODEL_ALIASES.
 
     Pre-GREEN FAIL: if prod hardcodes a versioned id or uses get_claude_critical()
-    unconditionally, the --model value != get_claude_fallback() alias.
+    unconditionally, the model value != get_claude_fallback() alias.
     """
-    br_mock = _make_bounded_run_mock()
+    br_mock = _make_invoke_mock()
     expected_model = semantic_verifier.get_claude_fallback()
 
-    with patch.object(semantic_verifier, "bounded_run", br_mock):
+    with patch.object(semantic_verifier.llm_subprocess, "invoke_llm_subprocess", br_mock):
         _invoke_verifier_agent(_MINIMAL_FINDING, model_tier="haiku")
 
     assert br_mock.called, (
-        "AC2: bounded_run was not called at all for model_tier='haiku'"
+        "AC2: the chokepoint was not called at all for model_tier='haiku'"
     )
 
-    call_args = br_mock.call_args
-    cmd_list = call_args[0][0]
-
-    assert "--model" in cmd_list, (
-        f"AC2: '--model' flag not found in cmd list: {cmd_list!r}"
-    )
-    model_idx = cmd_list.index("--model")
-    assert model_idx + 1 < len(cmd_list), (
-        f"AC2: '--model' flag has no following value in cmd list: {cmd_list!r}"
-    )
-    actual_model = cmd_list[model_idx + 1]
+    actual_model = br_mock.call_args.kwargs["model"]
 
     assert actual_model == expected_model, (
-        f"AC2: --model value {actual_model!r} != get_claude_fallback() {expected_model!r}. "
+        f"AC2: model value {actual_model!r} != get_claude_fallback() {expected_model!r}. "
         "Production code must use get_claude_fallback() for non-opus tier."
     )
     assert actual_model in _ACCEPTED_MODEL_ALIASES, (
-        f"AC2: --model value {actual_model!r} is not in _ACCEPTED_MODEL_ALIASES "
+        f"AC2: model value {actual_model!r} is not in _ACCEPTED_MODEL_ALIASES "
         f"{sorted(_ACCEPTED_MODEL_ALIASES)} — must be an alias, not a versioned id."
     )
 
 
 # ---------------------------------------------------------------------------
-# AC3 — fail-closed: stale versioned id raises ValueError before bounded_run
+# AC3 — fail-closed: stale versioned id raises ValueError before the chokepoint
 # ---------------------------------------------------------------------------
 
 def test_ac3_fail_closed_stale_id_raises_before_spawn() -> None:
     """AC3: when get_claude_critical() returns a stale versioned id (e.g.
     'claude-opus-4-7') that is NOT in _ACCEPTED_MODEL_ALIASES, _invoke_verifier_agent
-    must raise ValueError BEFORE spawning (bounded_run must NOT be called).
+    must raise ValueError BEFORE spawning (the chokepoint must NOT be called).
 
-    This is the fail-closed guard: an unrecognised --model value would be silently
+    This is the fail-closed guard: an unrecognised model value would be silently
     downgraded by the CLI to the session default (the 2026-06-20 runaway incident).
     Refusing to spawn is the only safe behaviour.
 
     Pre-GREEN FAIL: if the fail-closed guard is absent, the function spawns with the
-    stale id (no ValueError) and bounded_run IS called — both assertions fail.
+    stale id (no ValueError) and the chokepoint IS called — both assertions fail.
     """
     import pytest
 
-    br_mock = _make_bounded_run_mock()
+    br_mock = _make_invoke_mock()
     stale_id = "claude-opus-4-7"
 
     # Verify the stale id is indeed NOT in the alias set (test pre-condition).
@@ -185,13 +167,13 @@ def test_ac3_fail_closed_stale_id_raises_before_spawn() -> None:
         f"_ACCEPTED_MODEL_ALIASES {sorted(_ACCEPTED_MODEL_ALIASES)}"
     )
 
-    with patch.object(semantic_verifier, "bounded_run", br_mock):
+    with patch.object(semantic_verifier.llm_subprocess, "invoke_llm_subprocess", br_mock):
         with patch.object(semantic_verifier, "get_claude_critical", return_value=stale_id):
             with pytest.raises(ValueError) as exc_info:
                 _invoke_verifier_agent(_MINIMAL_FINDING, model_tier="opus")
 
     assert not br_mock.called, (
-        "AC3: bounded_run was called even though model id is not an accepted alias. "
+        "AC3: the chokepoint was called even though model id is not an accepted alias. "
         "The fail-closed guard must raise ValueError BEFORE spawning, not after."
     )
     assert stale_id in str(exc_info.value), (
