@@ -112,7 +112,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from bytedigger_engine import telemetry_ctx
+from bytedigger_engine import config_provider, telemetry_ctx
 from bytedigger_engine.contracts import RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, STRAGGLER_PATIENCE_SEC, STRAGGLER_POLL_INTERVAL_SEC, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason, _resolve_backend
 
@@ -979,7 +979,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     # requests straggler_abort under in-session backend, WARN loudly and
     # auto-degrade. Ratified 2026-05-24.
     # bd#82: the reviewer is a judge — check the backend judges actually run on.
-    if cfg.get("straggler_abort") and _resolve_backend(None, os.environ, role="judge")[0] == "claude-in-session":
+    if cfg.get("straggler_abort") and _resolve_backend(None, config_provider.env_mapping(), role="judge")[0] == "claude-in-session":
         logger.warning(
             "straggler_abort=true under claude-in-session backend is unsupported "
             "(no 'abort' capability); auto-degrading to straggler_abort=false for "
@@ -2104,7 +2104,7 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         # are removed with it (§1c-CANCELLATION). Backend is reported, not consulted.
         content = _normalize_to_aggregated_findings(content)
         _emit_safe("review_stdout_normalized_deterministic",
-                   {"phase": 6, "backend": _resolve_backend(None, os.environ)[0],
+                   {"phase": 6, "backend": _resolve_backend(None, config_provider.env_mapping(), role="judge")[0],
                     "bytes": len(content.encode("utf-8"))})
     # ─────────────────────────────────────────────────────────────────────────
 

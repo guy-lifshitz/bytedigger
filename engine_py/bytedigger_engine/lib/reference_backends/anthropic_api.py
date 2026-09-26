@@ -19,7 +19,7 @@ import urllib.request
 from urllib.request import Request
 
 from bytedigger_engine.contracts import StepResult
-from bytedigger_engine.llm_subprocess import register_backend, _load_effort
+from bytedigger_engine.llm_subprocess import _EFFORT_UNSET, register_backend, _load_effort
 
 # ---------------------------------------------------------------------------
 # Module-level constants (§2.1)
@@ -74,10 +74,6 @@ def _resolve_model_id(model: str) -> str:
 # ---------------------------------------------------------------------------
 # Named sourceable helpers: reasoning-effort → thinking body (§2.2 / §2.3, GH #329)
 # ---------------------------------------------------------------------------
-
-# bd#82: "no effort was passed" — resolve it here, as before (direct calls).
-_EFFORT_UNSET = object()
-
 
 def _resolve_thinking(model, step_name, hard_gate, effort=_EFFORT_UNSET):
     """Return an Anthropic `thinking` param dict for the resolved effort level, or None.
@@ -303,7 +299,8 @@ def register() -> None:
         "anthropic-api",
         anthropic_api_backend,
         manifest_source="api_text_response",
-        capabilities=frozenset({"no_tools", "effort"}),
+        # bd#82: effort only at the levels with a thinking budget.
+        capabilities=frozenset({"no_tools", *(f"effort:{level}" for level in _EFFORT_TO_BUDGET)}),
         overwrite=True,
     )
 

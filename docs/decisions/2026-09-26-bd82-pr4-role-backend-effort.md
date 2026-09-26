@@ -48,11 +48,15 @@ Issue: #82 (part 4 of 4). Class: SYSTEMATIC. Chokepoint: `llm_subprocess.invoke_
      otherwise.
    - It is resolved after GH375 tier rebinding, so a rebound model gets its own effort. It is
      also resolved on the GH1169 fallback dispatch.
-   - It is passed as `effort=` only when it has a value, and only to backends that declare the
-     new capability `effort` (the same rule as `stable_prefix`):
+   - It is passed as `effort=` only to backends that declare the new capability `effort`, even
+     when it resolved to `None`, so the handler never reads the config a second time:
      - claude-subprocess: `--effort`;
      - agent-sdk: the SDK's native `ClaudeAgentOptions.effort`;
-     - anthropic-api: its thinking budget, now for gates too when a gate pin is set.
+     - anthropic-api: its thinking budget, now for gates too when a gate pin is set. It declares
+       only the levels it has a budget for (`effort:low`, `effort:medium`, `effort:high`).
+       A backend may declare `effort:<level>` tokens instead of `effort`, and a level it
+       doesn't list counts as unappliable. The chokepoint decides this before dispatch, never
+       inside the adapter after the call is attested.
    - The passed value always wins. When a backend is called directly without it:
      - claude-subprocess resolves effort itself, as today;
      - anthropic-api keeps its old rule (non-gate effort, none for a gate), so GH329 stays valid;
@@ -66,8 +70,9 @@ Issue: #82 (part 4 of 4). Class: SYSTEMATIC. Chokepoint: `llm_subprocess.invoke_
    - a hard gate is refused before dispatch with `E_GATE_EFFORT_UNSUPPORTED`
      (`recoverable=False`) and a `gate_effort_refused` event. The event payload is `backend`,
      `step_name` and `effort`;
-   - a worker is dispatched, and `effort_not_applied` (same payload) is emitted and logged as a
-     warning.
+   - a worker is dispatched, and `effort_not_applied` (same payload) is emitted on every call.
+     It is logged as a warning once per (backend, level) per process, because the gap is a
+     property of the configuration, not of the call.
    - **Order in `_dispatch_backend`:** model floor → tool restriction → effort → injections.
    - **Consequence, accepted by the user:** a configured gate pin (`claude.effort.by_model`)
      refuses opus gates on claude-in-session until the servicer sets
@@ -110,6 +115,15 @@ change test outcomes. Tests that need a config patch the path themselves.
   file.
 - GH439 and 32ED59E2 pin the effort lines inside `_invoke_subprocess`. The direct-call
   resolution stays there, so they are unaffected.
+
+## Known limits
+
+- **Adapter identity uses the global backend.** `engine.py:1341` (bd#18 AC-E2b) resolves with
+  no role, so under per-role routing it names the global backend. `runner_backend_resolved`,
+  which carries the role, is the accurate per-call record. The closed `source` set in
+  `EMISSIONS_SPEC.md` is about that adapter identity, which never produces `"env-role"`.
+- **Old SDKs fail on effort.** An installed claude-agent-sdk without `ClaudeAgentOptions.effort`
+  fails calls that carry an effort, with the PR1 upgrade hint (`>=0.2.120`).
 
 ## Out of scope
 

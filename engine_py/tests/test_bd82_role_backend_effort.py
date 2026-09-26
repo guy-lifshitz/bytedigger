@@ -34,6 +34,7 @@ def _reset(monkeypatch):
     for var in ("HAL_RUNNER_BACKEND_JUDGE", "HAL_RUNNER_BACKEND_WORKER"):
         monkeypatch.delenv(var, raising=False)
     telemetry_ctx.clear_current_run()
+    llm_subprocess._WARNED_EFFORT_NOT_APPLIED.clear()
     yield
     telemetry_ctx.clear_current_run()
     reset_backends()
@@ -261,8 +262,11 @@ def test_e1_capabilities_declared():
 
     agent_sdk.register()
     anthropic_api.register()
-    for name in ("claude-subprocess", "agent-sdk", "anthropic-api"):
+    for name in ("claude-subprocess", "agent-sdk"):
         assert "effort" in llm_subprocess._BACKEND_CAPABILITIES[name], name
+    # anthropic-api applies only the levels it has a thinking budget for
+    assert {"effort:low", "effort:medium", "effort:high"} <= llm_subprocess._BACKEND_CAPABILITIES["anthropic-api"]
+    assert "effort" not in llm_subprocess._BACKEND_CAPABILITIES["anthropic-api"]
     assert "effort" not in llm_subprocess._BACKEND_CAPABILITIES["claude-in-session"]
 
 
@@ -572,3 +576,43 @@ def test_e8_error_code_registered():
     pkg = Path(error_codes.__file__).parent
     for doc in (pkg / "ERROR_CODES.md", pkg.parent / "ERROR_CODES.md"):
         assert "`E_GATE_EFFORT_UNSUPPORTED`" in doc.read_text(), doc
+
+
+@pytest.mark.parametrize(("hard_gate", "event"), [(True, "gate_effort_refused"),
+                                                (False, "effort_not_applied")])
+def test_e11_level_the_backend_cannot_apply_is_decided_before_dispatch(
+        hard_gate, event, monkeypatch, tmp_path):
+    """anthropic-api has no thinking budget for `max`: the chokepoint refuses the
+    gate (no request, no attestation) and records a worker's gap."""
+    from bytedigger_engine.lib.reference_backends import anthropic_api  # noqa: PLC0415
+
+    log = _event_log(tmp_path)
+    _models(monkeypatch, tmp_path, {"by_model": {"opus": "max"}} if hard_gate else "max")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    anthropic_api.register()
+    posted: list[dict] = []
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _urlopen(req, timeout=None):
+        posted.append(json.loads(req.data))
+        return _Resp(json.dumps({"content": [{"type": "text", "text": "ok"}],
+                                 "usage": {"input_tokens": 1, "output_tokens": 1},
+                                 "model": "claude-opus"}).encode())
+
+    monkeypatch.setattr(anthropic_api.urllib.request, "urlopen", _urlopen)
+
+    res = _invoke(backend="anthropic-api", hard_gate=hard_gate, allowed_tools=())
+
+    types_ = [e["event_type"] for e in log.read_all()]
+    assert event in types_
+    if hard_gate:
+        assert res.error_code == "E_GATE_EFFORT_UNSUPPORTED"
+        assert posted == [] and "model_invocation_attested" not in types_
+    else:
+        assert len(posted) == 1 and "thinking" not in posted[0]

@@ -86,6 +86,8 @@ _GATE_FLOOR_ENV_VAR = "HAL_GATE_MODEL_FLOOR"
 _IN_SESSION_ENFORCES_TOOLS_ENV_VAR = "HAL_IN_SESSION_ENFORCES_TOOLS"
 _IN_SESSION_APPLIES_EFFORT_ENV_VAR = "HAL_IN_SESSION_APPLIES_EFFORT"
 _ROLES = ("judge", "worker")
+# bd#82: "no effort was passed" — a handler called directly resolves it itself.
+_EFFORT_UNSET = object()
 
 # 4C03CCED Ship 1C: backend → manifest-source capability map.
 # A backend registered here can produce a worker_written_paths manifest sourced
@@ -1127,6 +1129,18 @@ def _tool_restriction_refusal(
     )
 
 
+def _applies_effort(caps: "frozenset[str]", effort: str) -> bool:
+    """bd#82: `effort` = the backend applies any level; `effort:<level>` = only
+    the levels it lists (a thinking-budget map, say). Checked before dispatch,
+    so a level the backend would drop is refused or recorded here, never inside
+    the adapter after the invocation is attested."""
+    return "effort" in caps or f"effort:{effort}" in caps
+
+
+# One warning per (backend, level) per process: the gap is a configuration
+# fact, not a per-call event (the event still records every call).
+_WARNED_EFFORT_NOT_APPLIED: set[tuple[str, str]] = set()
+
 
 def _effort_not_applied(
     resolved_backend: str,
@@ -1144,7 +1158,9 @@ def _effort_not_applied(
     if run_ctx is not None and run_ctx.event_log is not None:
         _emit_safe(run_ctx.event_log, event, payload, run_ctx.run_id)
     if not hard_gate:
-        logger.warning("%s: %s", event, payload)
+        if (resolved_backend, effort) not in _WARNED_EFFORT_NOT_APPLIED:
+            _WARNED_EFFORT_NOT_APPLIED.add((resolved_backend, effort))
+            logger.warning("%s: %s", event, payload)
         return None
     return StepResult(
         status="error",
@@ -1403,7 +1419,8 @@ def _dispatch_backend(
         return tool_err
     effort = _load_effort_gate(model) if hard_gate else _load_effort(model, step_name)
     caps = _backend_capabilities(resolved_backend)
-    if effort and "effort" not in caps:
+    takes_effort = any(cap == "effort" or cap.startswith("effort:") for cap in caps)
+    if effort and not _applies_effort(caps, effort):
         effort_err = _effort_not_applied(
             resolved_backend, effort=effort, hard_gate=hard_gate, step_name=step_name,
             run_ctx=run_ctx,
@@ -1419,7 +1436,7 @@ def _dispatch_backend(
     optional: dict[str, typing.Any] = {}
     if stable_prefix:
         optional["stable_prefix"] = stable_prefix
-    if effort and "effort" in caps:
+    if takes_effort:  # None included: the handler must not re-resolve it
         optional["effort"] = effort
     if "warm_resume" in caps:
         # bd#82: resolved here, so no dispatch path can forget that a gate is fresh.
@@ -1785,10 +1802,6 @@ def invoke_llm_subprocess(
     return result
 
 
-# bd#82: "no effort was passed" — the handler resolves it itself (direct calls).
-_EFFORT_UNSET = object()
-
-
 def _invoke_subprocess(
     *,
     prompt: str,
@@ -1854,8 +1867,8 @@ def _invoke_subprocess(
     # unset (both paths no-op via _apply_effort).
     # bd#82: the chokepoint passes the effort it resolved; a direct call
     # resolves it here, as before.
-    if isinstance(effort, str) or effort is None:
-        effective_command = _apply_effort(effective_command, effort)
+    if effort is not _EFFORT_UNSET:
+        effective_command = _apply_effort(effective_command, effort)  # type: ignore[arg-type]
     elif not hard_gate:
         effective_command = _apply_effort(effective_command, _load_effort(model, step_name))
     else:
@@ -2527,7 +2540,9 @@ def register_backend(
     (enforces `allowed_tools`), `no_tools` (text-only), and `warm_resume` —
     the impl keeps sessions across calls AND accepts a `fresh_session: bool`
     keyword, which is True for every hard gate (bd#82); `effort` — the impl
-    accepts an `effort: str` keyword and applies it (bd#82).
+    accepts an `effort: str | None` keyword (None: nothing configured) and
+    applies any level; `effort:<level>` — the same, for the listed levels only
+    (bd#82).
     """
     global _KNOWN_BACKENDS, _ALLOWED_MANIFEST_SOURCES
     if not isinstance(name, str) or not name:
