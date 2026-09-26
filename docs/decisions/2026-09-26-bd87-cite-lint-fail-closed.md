@@ -52,11 +52,19 @@ and like the existing disjuncts it downgrades `wrong_file` too.
 - `BLOCKING_STATUSES = frozenset({"unresolved_symbol", "missing_file", "no_citations"})`,
   public, and `lint_spec`'s exit code is `1` iff any finding's status is in it.
 - **Blindness** appends `Finding(file="", symbol="", status="no_citations")`. The lint is blind
-  when the spec text is not blank and no scannable line (per `_iter_scannable_lines`) contains a
-  `_CODE_FILE_RE` match — the lint saw no code reference at all. A spec that references code
-  only in forms this lint does not pair (`<path>:"snippet"`, `<path>:<line>` without a backtick
-  symbol) is not blind: those forms belong to the citation verifier, and rule 5 of the writer
-  contract steers toward them. A blank spec is not this gate's concern (spec completeness owns
+  when the spec text is not blank, it produced no (file, symbol) citation, and no scannable line
+  (per `_iter_scannable_lines`) carries an anchored citation `<path>:<line>` or
+  `<path>:"snippet"` — nothing in the spec is checkable by any gate. Anchored citations are not
+  blind: they belong to the citation verifier, and rule 5 of the writer contract steers toward
+  them. A bare path mention ("modify `x.py`") checks nothing and does not count (review finding
+  after GREEN, AC21). A source file in a language this lint does not index (`.go`, `.rs`,
+  `.java`, ...) makes the spec out of reach, not blind (AC23): the lint cannot check it, and
+  failing every spec of a Go project would be a false positive, not fail-closed.
+- `scan_citations` drops `_CODE_FILE_RE` tokens that are not files: a capitalized,
+  directory-less `X.js` product name (`Node.js`) and URL tails starting with `//` (AC24).
+  Harmless while `missing_file` was advisory; blocking now.
+- `declared_created_files` walks `_iter_scannable_lines`: a `CREATE:` line quoted in a
+  non-python fence declares nothing (AC25). A blank spec is not this gate's concern (spec completeness owns
   it).
 - `missing_file` becomes blocking. A file is exempt only when declared: a `CREATE:` line or the
   body of a "Files this spec CREATES" section (both already parsed by
@@ -70,16 +78,23 @@ and like the existing disjuncts it downgrades `wrong_file` too.
 
 ### op4 — consumers in `phase_45_spec.py`
 
-- `_parse_cite_unresolved` keeps every finding whose status is in `BLOCKING_STATUSES` (imported,
+- `_parse_cite_unresolved` is renamed `_parse_cite_blocking` and keeps every finding whose status is in `BLOCKING_STATUSES` (imported,
   not re-listed), so the rc==1 branch gets non-empty findings and directed repair runs for the
   new failure kinds too, instead of "(no unresolved citation parsed)".
 - New pure helper `_cite_finding_evidence(finding)` renders the evidence line per status
   (`unresolved_symbol` keeps its current text; `missing_file` names the file and says it does
   not exist and is not declared by a CREATE line; `no_citations` says the lint found no
-  citations to check). Used by both rc==1 consumers (`_verify_spec_cite_lint` and
-  `_collect_spec_gate_findings`), replacing their inline strings.
+  citations to check; any other status is named as such, never called "unresolved"). Used by
+  both rc==1 consumers (`_verify_spec_cite_lint` and
+  `_collect_spec_gate_findings`), replacing their inline strings. Both consumers keep one finding
+  per distinct evidence line; `missing_file` evidence names only the file, so N symbols cited
+  against one invented path are one finding (AC27).
 - `_emit_cite_status_telemetry` gains a `no_citations` count.
-- `_grounded_citation_contract` gains rule 10: introduced symbols are listed as bullets under
+- `_collect_spec_gate_findings`: rc==1 with no parseable blocking finding still yields one
+  `E_SPEC_CITE_LINT_FAIL` finding (before this lot it yielded none and the batch passed;
+  `_verify_spec_cite_lint` already failed in that case).
+- `_grounded_citation_contract` gains rule 10 (the example lines are written bare, exactly as the
+  parsers read them — AC26): introduced symbols are listed as bullets under
   `## Symbols this spec INTRODUCES` or on an `INTRODUCES: \`sym\`` line; files that do not exist
   yet are declared with `CREATE: path`. The allowlist is the enforcement; the prompt is the hint.
 
@@ -119,10 +134,20 @@ declaring the file (`CREATE \`a/c.py\` ...`) and accepting `planned_file` in its
 - A spec that references only non-code files (`.md`, `.json`, `.yaml`) is blind by this
   definition and fails. Such a spec has nothing for this lint to verify; failing loudly is the
   intended trade.
-- `declared_created_files` does not skip fences, and a "Files this spec CREATES" section placed
-  last runs to EOF, so a fenced example `CREATE:` line or a citation line in that section's body
-  still exempts its path from `missing_file`. Narrowing that parser changes GH631 semantics and
+- A "Files this spec CREATES" section placed last runs to EOF, so a citation line in that
+  section's body still exempts its path from `missing_file` (the fence case is fixed, AC25). Narrowing that parser changes GH631 semantics and
   is left to a follow-up; HAL #1893 op3 already avoids it for its own exemption.
+- An invented path mentioned without a symbol or an anchor is not looked up (only
+  (file, symbol) pairs produce `missing_file`). Checking every bare path mention would flag
+  basenames and paths relative to other roots across ordinary prose; left to a follow-up.
+- The INTRODUCES allowlist is spec-wide, not per-file, as in the upstream design: a declared
+  symbol cited against an existing file is downgraded there too. `new_marked_symbols` already
+  has the same scope.
+- The `INTRODUCES:` line form reads every backtick symbol on the line, even with a file path on
+  it; the keyword makes the declaration explicit (as upstream), unlike a section body line.
+- A `#` comment inside a python fence in the INTRODUCES section body ends the section early
+  (fail-closed direction: later bullets are not allowlisted).
+- `_inphase_unresolved_symbols` (the warn-only re-prompt) still lists only unresolved symbols.
 - Blindness is all-or-nothing: one prose line outside a fence that names a code file (a
   preamble in front of a fenced spec body) makes the spec "not blind", and the fenced body is
   still unchecked. Unwrapping the fence is the P3 normalizer's job (#84); this rule only
@@ -152,11 +177,19 @@ Every `lint_spec` AC uses a hermetic fixture repo under `tmp_path` (one `mod.py`
 | AC13 | symbol-first line `CREATE \`new_fn\` in \`pkg/new_mod.py\`` does not declare the file → exit 1, `missing_file` | op3 | FAIL |
 | AC13b | lowercase prose `Create \`pkg/new_mod.py\` with \`new_fn\`` is not a declaration → exit 1, `missing_file` | op3 | FAIL |
 | AC14 | `BLOCKING_STATUSES == {"unresolved_symbol","missing_file","no_citations"}` | op3 | FAIL |
-| AC15 | `_parse_cite_unresolved` on JSON with one finding of each status keeps exactly the three blocking ones | op4 | FAIL |
+| AC15 | `_parse_cite_blocking` on JSON with one finding of each status keeps exactly the three blocking ones | op4 | FAIL |
 | AC16 | `_cite_finding_evidence`: `no_citations` text mentions "no citations"; `missing_file` names the file and "CREATE"; `unresolved_symbol` keeps "unresolved citation: symbol" | op4 | FAIL |
 | AC17 | `_grounded_citation_contract()` contains "Symbols this spec INTRODUCES", "INTRODUCES:" and still rule 9 | op4 | FAIL |
 | AC18 | `_collect_spec_gate_findings` with `bounded_run` stubbed (cite rc=1, `no_citations` JSON) → its spec-cite-lint finding's evidence mentions no citations | op4 | FAIL |
 | AC19 | `_verify_spec_cite_lint` with the driver present and rc=1 `missing_file` JSON → `attempt_directed_repair` is called with a non-empty finding naming the file, the error names the file, and the telemetry payload has `no_citations` | op4 | FAIL |
+| AC21 | a spec whose only code references are a bare path mention and a `CREATE:` line → exit 1, `no_citations` | op3 | FAIL (added after review) |
+| AC22 | preflight with cite rc=1 and unparseable stdout → one `E_SPEC_CITE_LINT_FAIL` finding | op4 | FAIL (added after review) |
+| AC16b | `_cite_finding_evidence` on an unknown status names it and does not say "unresolved" | op4 | FAIL (added after review) |
+| AC23 | `Change \`Handler\` in \`server/main.go\`` → exit 0, no findings | op3 | FAIL (added after review) |
+| AC24 | `Node.js` and `https://example.com/app.js` on citation lines are not cited files | op3 | FAIL (added after review) |
+| AC25 | a `CREATE:` line inside a markdown fence does not declare the path → `missing_file` | op3 | FAIL (added after review) |
+| AC26 | rule 10's example lines appear bare and parse as declarations | op4 | FAIL (added after review) |
+| AC27 | three symbols cited against one missing file → one preflight finding | op4 | FAIL (added after review) |
 | AC20 | snippet-only spec (`mod.py:"def existing_helper"`, no backtick symbol) → exit 0, no findings | op3 | PASS (pin) |
 
 Siblings run in full after GREEN: every `engine_py/tests` file that mentions `cite`

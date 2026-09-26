@@ -81,11 +81,13 @@ def _norm_path(p: str) -> str:
 def declared_created_files(spec_text: str) -> set[str]:
     """Return the set of normalized file paths declared as CREATE targets
     (GH631 §2.2): matched from `CREATE:` lines and from the body of a
-    "Files this spec CREATES" section (until the next `#` heading)."""
+    "Files this spec CREATES" section (until the next `#` heading). Lines
+    inside a non-python fence are skipped (bd#87)."""
     declared: set[str] = set()
-    lines = spec_text.splitlines()
     in_creates_section = False
-    for line in lines:
+    # bd#87: fence-aware, like every other declaration parser — a CREATE
+    # line quoted in an example fence declares nothing.
+    for _line_no, line in _iter_scannable_lines(spec_text):
         m = _CREATE_LINE_RE.match(line)
         if m:
             declared.add(_norm_path(m.group("path")))
@@ -161,6 +163,16 @@ def _iter_scannable_lines(spec_text: str) -> Iterator[tuple[int, str]]:
         yield line_no, line
 
 
+# bd#87: `_CODE_FILE_RE` tokens that are not files — a product name such as
+# `Node.js` (capitalized, no directory) or a URL tail (`//host/app.js`). With
+# missing_file blocking, pairing them with a line's symbols would fail the spec.
+_PRODUCT_NAME_RE = re.compile(r"[A-Z][A-Za-z0-9]*\.js")
+
+
+def _is_file_token(token: str) -> bool:
+    return not token.startswith("//") and not _PRODUCT_NAME_RE.fullmatch(token)
+
+
 def scan_citations(spec_text: str) -> list[Citation]:
     """Scan spec_text and return one Citation per (file, symbol) pair per line.
 
@@ -174,7 +186,7 @@ def scan_citations(spec_text: str) -> list[Citation]:
     """
     citations: list[Citation] = []
     for line_no, line in _iter_scannable_lines(spec_text):
-        files = _CODE_FILE_RE.findall(line)
+        files = [f for f in _CODE_FILE_RE.findall(line) if _is_file_token(f)]
         raw_tokens = _BACKTICK_RE.findall(line)
         symbols = [t for t in raw_tokens if _is_valid_symbol(t)]
         if not files or not symbols:
@@ -571,12 +583,29 @@ def planned_symbols(citations: list[Citation], findings: list[Finding]) -> set[s
 BLOCKING_STATUSES = frozenset({"unresolved_symbol", "missing_file", "no_citations"})
 
 
-def _is_blind(spec_text: str) -> bool:
-    """True when spec_text is not blank but no scannable line references a
-    code file — nothing for the lint (or any path citation) to check."""
-    if not spec_text.strip():
+# A `<path>:<line>` or `<path>:"snippet"` anchor — the forms the phase_45
+# citation verifier checks (mirrors its _CITATION_RE extensions), so a spec
+# citing only in those forms is not blind.
+_ANCHORED_CITATION_RE = re.compile(r"[\w./-]+\.(?:py|ts|tsx|js|sh|md|yml):(?:\d|\")")
+
+# A source file in a language this lint does not index: a spec targeting it
+# is out of the lint's reach, not blind.
+_OTHER_SOURCE_FILE_RE = re.compile(
+    r"[\w./-]+\.(?:go|rs|java|kt|kts|rb|c|h|cc|cpp|hpp|cs|swift|php|scala|m|mm|lua|dart|ex|exs|zig)\b"
+)
+
+
+def _is_blind(spec_text: str, citations: list[Citation]) -> bool:
+    """True when spec_text is not blank but nothing in it is checkable: no
+    (file, symbol) citation for this lint, no anchored path citation, and no
+    source file in a language outside this lint's reach on a scannable line.
+    A bare path mention of an indexed language checks nothing."""
+    if citations or not spec_text.strip():
         return False
-    return not any(_CODE_FILE_RE.search(line) for _n, line in _iter_scannable_lines(spec_text))
+    return not any(
+        _ANCHORED_CITATION_RE.search(line) or _OTHER_SOURCE_FILE_RE.search(line)
+        for _n, line in _iter_scannable_lines(spec_text)
+    )
 
 
 def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
@@ -616,7 +645,7 @@ def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
             or f.symbol.removesuffix("()") in introduced  # bd#87 op2
         ):
             f.status = "new_symbol"
-    if _is_blind(spec_text):
+    if _is_blind(spec_text, citations):
         findings.append(Finding(file="", symbol="", status="no_citations"))
     exit_code = 1 if any(f.status in BLOCKING_STATUSES for f in findings) else 0
     return exit_code, findings

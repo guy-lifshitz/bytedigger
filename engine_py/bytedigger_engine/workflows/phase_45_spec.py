@@ -669,12 +669,14 @@ def _grounded_citation_contract() -> str:
         "     code labelled NEW (rule 7), with no file: prefix. Citation form is\n"
         "     reserved for EXISTING code you Read this turn.\n"
         # bd#87: the declarative form the cite-lint reads as an allowlist
-        " 10. List every symbol this spec introduces as a backtick bullet under a\n"
-        "     `## Symbols this spec INTRODUCES` heading, or on a line\n"
-        "     `INTRODUCES: `symbol``. Declare every file that does not exist yet\n"
-        "     with a line `CREATE: path/to/file.py`. A cited file that neither\n"
-        "     exists nor is declared fails the cite-lint, and so does a spec\n"
-        "     that references no code file at all.\n"
+        " 10. Declare what this spec introduces, starting each line exactly as\n"
+        "     shown (no bold, no backticks around the keyword):\n"
+        "         INTRODUCES: `symbol`\n"
+        "         CREATE: path/to/file.py\n"
+        "     or list introduced symbols as backtick bullets under a\n"
+        "     \"## Symbols this spec INTRODUCES\" heading. A cited file that\n"
+        "     neither exists nor is declared fails the cite-lint, and so does a\n"
+        "     spec with no checkable citation at all.\n"
     )
 
 
@@ -2064,7 +2066,7 @@ def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
 # ─── 09EE3939: spec_cite_lint wiring (citation-existence subprocess gate, #269) ───
 
 
-def _parse_cite_unresolved(stdout: str) -> list[dict[str, Any]]:
+def _parse_cite_blocking(stdout: str) -> list[dict[str, Any]]:
     """Pure helper (§1aa, GH689): parse spec-cite-lint.py's ``--json`` stdout
     and return only the blocking findings (bd#87: every status in
     ``spec_cite.BLOCKING_STATUSES``, not just ``unresolved_symbol``).
@@ -2096,11 +2098,16 @@ def _cite_finding_evidence(finding: dict[str, Any]) -> str:
     if status == "missing_file":
         return (
             f"cited file {finding.get('file')!r} does not exist and is not declared "
-            f"by a CREATE line (symbol {finding.get('symbol')!r})"
+            f"by a CREATE line"
+        )
+    if status == "unresolved_symbol":
+        return (
+            f"unresolved citation: symbol {finding.get('symbol')!r} not found in "
+            f"{finding.get('file')}"
         )
     return (
-        f"unresolved citation: symbol {finding.get('symbol')!r} not found in "
-        f"{finding.get('file')}"
+        f"blocking cite finding (status={status!r}): symbol "
+        f"{finding.get('symbol')!r} in {finding.get('file')!r}"
     )
 
 
@@ -2108,7 +2115,7 @@ def _parse_cite_status_counts(stdout: str) -> dict[str, int]:
     """Pure helper (§1aa, GH799): parse spec-cite-lint.py's ``--json`` stdout
     and return a per-status finding count (e.g. {"wrong_file": 3, ...}).
 
-    Fail-soft, mirroring _parse_cite_unresolved: malformed/empty/None input,
+    Fail-soft, mirroring _parse_cite_blocking: malformed/empty/None input,
     or a non-dict parse result, returns {} instead of raising — telemetry must
     never crash the gate (§1n OWN-all).
     """
@@ -2272,15 +2279,17 @@ def _verify_spec_cite_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
         # GH689: parse --json stdout and keep only blocking entries —
         # advisory statuses (new_symbol/planned_file/resolved/wrong_file)
         # must NOT inflate the repair/error findings count.
-        unresolved = _parse_cite_unresolved(proc.stdout)
+        # bd#87: one finding per distinct evidence line (N symbols cited
+        # against one missing file are one defect).
+        evidence = dict.fromkeys(_cite_finding_evidence(u) for u in _parse_cite_blocking(proc.stdout))
         cite_findings = [
             {
                 "path": str(spec_path),
                 "line": None,
                 "rule": "spec_cite_lint",
-                "evidence": _cite_finding_evidence(u),
+                "evidence": ev,
             }
-            for u in unresolved
+            for ev in evidence
         ]
         first = cite_findings[0]["evidence"] if cite_findings else "(no blocking citation parsed)"
         # 457DC7DC GH371 §2.2: directed-repair pre-stage before the unchanged
@@ -2400,12 +2409,16 @@ def _collect_spec_gate_findings(
     except FileNotFoundError:
         cite_proc = None
     if cite_proc is not None and cite_proc.returncode == 1:
-        for u in _parse_cite_unresolved(cite_proc.stdout):
+        # bd#87: rc=1 is a failure even when --json does not parse.
+        evidence = list(dict.fromkeys(
+            _cite_finding_evidence(u) for u in _parse_cite_blocking(cite_proc.stdout)
+        ))
+        for ev in evidence or ["rc=1 with no blocking finding parsed from --json output"]:
             findings.append({
                 "path": str(spec_path),
                 "line": None,
                 "rule": "spec-cite-lint",
-                "evidence": _cite_finding_evidence(u),
+                "evidence": ev,
                 "error_code": "E_SPEC_CITE_LINT_FAIL",
                 "recoverable": False,
             })

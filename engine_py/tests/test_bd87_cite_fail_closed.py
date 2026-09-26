@@ -217,7 +217,7 @@ def test_ac15_parse_keeps_every_blocking_status() -> None:
     stdout = json.dumps({
         "findings": [{"file": "a.py", "symbol": "s", "status": s} for s in statuses],
     })
-    kept = sorted(f["status"] for f in phase_45_spec._parse_cite_unresolved(stdout))
+    kept = sorted(f["status"] for f in phase_45_spec._parse_cite_blocking(stdout))
     assert kept == ["missing_file", "no_citations", "unresolved_symbol"], kept
 
 
@@ -312,3 +312,88 @@ def test_ac19_cite_gate_repairs_and_reports_missing_file(tmp_path: Path, monkeyp
     assert "nothere/ghost.py" in repair_calls[0]["findings"][0]["evidence"], repair_calls
     advisory = [p for e, p in emitted if e == "spec_cite_advisory"]
     assert advisory and "no_citations" in advisory[0], emitted
+
+
+def test_ac21_path_only_mention_is_blind(tmp_path: Path) -> None:
+    rc, findings = _lint(tmp_path, "Modify `engine/fake_mod.py` to add retry.\nCREATE: pkg/x.py\n")
+    assert rc == 1, f"AC21: expected exit 1, got {rc}; {findings!r}"
+    assert [f.status for f in findings] == ["no_citations"], findings
+
+
+def test_ac22_preflight_unparseable_rc1_still_blocks(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# spec\n", encoding="utf-8")
+
+    def _fake(cmd, **kwargs):
+        if "spec-cite-lint" in " ".join(str(c) for c in cmd):
+            return _FakeProc(1, "not json")
+        return _FakeProc(0)
+
+    ctx = _FakeCtx()
+    with patch.object(phase_45_spec, "bounded_run", side_effect=_fake):
+        findings = phase_45_spec._collect_spec_gate_findings(
+            ctx, _prev(spec_path), str(spec_path), str(tmp_path), ctx.org_config, str(tmp_path),
+        )
+    cite = [f for f in findings if f["rule"] == "spec-cite-lint"]
+    assert len(cite) == 1 and cite[0]["error_code"] == "E_SPEC_CITE_LINT_FAIL", findings
+
+
+def test_ac16b_unknown_status_is_not_called_unresolved() -> None:
+    text = phase_45_spec._cite_finding_evidence({"file": "a.py", "symbol": "s", "status": "weird"})
+    assert "unresolved" not in text and "weird" in text, text
+
+
+def test_ac23_other_language_target_is_not_blind(tmp_path: Path) -> None:
+    rc, findings = _lint(tmp_path, "Change `Handler` in `server/main.go` to retry.\n")
+    assert (rc, findings) == (0, []), f"AC23: got {rc}; {findings!r}"
+
+
+def test_ac24_product_names_and_urls_are_not_cited_files(tmp_path: Path) -> None:
+    spec = (
+        "Like Node.js, call `existing_helper` in `mod.py`.\n"
+        "See https://example.com/app.js for `existing_helper` in `mod.py`.\n"
+    )
+    rc, findings = _lint(tmp_path, spec)
+    assert rc == 0, f"AC24: expected exit 0, got {rc}; {findings!r}"
+    assert {f.file for f in findings} == {"mod.py"}, findings
+
+
+def test_ac25_fenced_create_line_does_not_declare(tmp_path: Path) -> None:
+    spec = (
+        "```markdown\n"
+        "CREATE: pkg/new.py\n"
+        "```\n"
+        "Use `existing_helper` in `pkg/new.py`.\n"
+    )
+    rc, findings = _lint(tmp_path, spec)
+    assert rc == 1, f"AC25: expected exit 1, got {rc}; {findings!r}"
+    assert _statuses(findings, "existing_helper") == {"missing_file"}, findings
+
+
+def test_ac26_rule_10_examples_parse_as_declarations() -> None:
+    contract = phase_45_spec._grounded_citation_contract()
+    lines = [ln.strip() for ln in contract.splitlines()]
+    assert "INTRODUCES: `symbol`" in lines, contract
+    assert "CREATE: path/to/file.py" in lines, contract
+    assert spec_cite.declared_introduced_symbols("INTRODUCES: `symbol`\n") == {"symbol"}
+    assert spec_cite.declared_created_files("CREATE: path/to/file.py\n") == {"path/to/file.py"}
+
+
+def test_ac27_one_missing_file_is_one_repair_finding(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# spec\n", encoding="utf-8")
+    cite_json = json.dumps({"findings": [
+        {"file": "nope.py", "symbol": s, "status": "missing_file"} for s in ("a", "b", "c")
+    ]})
+
+    def _fake(cmd, **kwargs):
+        if "spec-cite-lint" in " ".join(str(c) for c in cmd):
+            return _FakeProc(1, cite_json)
+        return _FakeProc(0)
+
+    ctx = _FakeCtx()
+    with patch.object(phase_45_spec, "bounded_run", side_effect=_fake):
+        findings = phase_45_spec._collect_spec_gate_findings(
+            ctx, _prev(spec_path), str(spec_path), str(tmp_path), ctx.org_config, str(tmp_path),
+        )
+    assert len([f for f in findings if f["rule"] == "spec-cite-lint"]) == 1, findings
