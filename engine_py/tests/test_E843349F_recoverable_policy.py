@@ -157,7 +157,7 @@ def test_e843349f_ac3_resolve_policy_complex_integrity_terminal(monkeypatch):
 #
 # (build_class, gate, expected_slot, expected_cycle_cap)
 
-_ALL_18_MATRIX_CELLS = [
+_ALL_MATRIX_CELLS = [
     # green_lint
     ("SIMPLE",   "green_lint",           "recoverable_twice", 2),
     ("FEATURE",  "green_lint",           "recoverable_once",  1),
@@ -178,21 +178,27 @@ _ALL_18_MATRIX_CELLS = [
     ("SIMPLE",   "red_runtime",          "recoverable_once",  1),
     ("FEATURE",  "red_runtime",          "recoverable_once",  1),
     ("COMPLEX",  "red_runtime",          "terminal",          0),
-    # spec_retry — GH625 §2.5 recalibration: all classes -> recoverable_once/1
-    ("SIMPLE",   "spec_retry",           "recoverable_once",  1),
-    ("FEATURE",  "spec_retry",           "recoverable_once",  1),
-    ("COMPLEX",  "spec_retry",           "recoverable_once",  1),
+    # bd#85: spec_retry split into spec_gates + spec_review; satisfaction fix loop
+    ("SIMPLE",   "spec_gates",           "recoverable_once",  1),
+    ("FEATURE",  "spec_gates",           "recoverable_once",  1),
+    ("COMPLEX",  "spec_gates",           "recoverable_once",  1),
+    ("SIMPLE",   "spec_review",          "recoverable_once",  1),
+    ("FEATURE",  "spec_review",          "recoverable_once",  1),
+    ("COMPLEX",  "spec_review",          "recoverable_once",  1),
+    ("SIMPLE",   "satisfaction",         "recoverable_twice", 2),
+    ("FEATURE",  "satisfaction",         "recoverable_twice", 2),
+    ("COMPLEX",  "satisfaction",         "recoverable_twice", 2),
 ]
 
-assert len(_ALL_18_MATRIX_CELLS) == 18, (
-    f"AC4 forcing function: expected exactly 18 cells, got {len(_ALL_18_MATRIX_CELLS)}"
+assert len(_ALL_MATRIX_CELLS) == 24, (
+    f"AC4 forcing function: expected exactly 24 cells, got {len(_ALL_MATRIX_CELLS)}"
 )
 
 
 @pytest.mark.parametrize(
     "build_class,gate,expected_slot,expected_cycle_cap",
-    _ALL_18_MATRIX_CELLS,
-    ids=[f"{bc}-{g}" for bc, g, _s, _c in _ALL_18_MATRIX_CELLS],
+    _ALL_MATRIX_CELLS,
+    ids=[f"{bc}-{g}" for bc, g, _s, _c in _ALL_MATRIX_CELLS],
 )
 def test_e843349f_ac4_all_18_matrix_cells(
     build_class: str,

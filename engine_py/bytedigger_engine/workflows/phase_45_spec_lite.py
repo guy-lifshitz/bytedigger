@@ -1233,6 +1233,20 @@ def _step_detect_frozen_spec_lite(ctx, prev) -> StepResult:
     )
 
 
+def _verify_spec_lint_terminal(ctx, prev) -> StepResult:
+    """bd#85: lite keeps a spec lint FAIL terminal.
+
+    Full phase 4.5 retries the writer on a lint FAIL, bounded by the
+    ``spec_gates`` budget. Lite's loop body rebuilds its data, so that budget
+    never accrues here and a failing lint would spin until the loop ceiling,
+    whose exit carries no error code. Lite is slated for removal (#89).
+    """
+    result = _verify_spec_lint(ctx, prev)
+    if result.status == "error" and result.recoverable:
+        return replace(result, recoverable=False)
+    return result
+
+
 def build_review_loop_contract() -> LoopStepContract:
     """350956CC: declarative review-cycle loop replaces the engine
     E_VALIDATION_RETRY hand-rolled retry. Body = the 7 existing steps in
@@ -1254,7 +1268,7 @@ def build_review_loop_contract() -> LoopStepContract:
             StepContract(name="maybe_write_spec_rewrite", execute=_maybe_write_spec_rewrite),
             StepContract(name="verify_spec_completeness", execute=_verify_spec_completeness),
             StepContract(name="verify_spec_cite_prelint", execute=_verify_spec_cite_prelint),
-            StepContract(name="verify_spec_lint", execute=_verify_spec_lint),
+            StepContract(name="verify_spec_lint", execute=_verify_spec_lint_terminal),
             StepContract(name="build_review_prompt", execute=_build_review_prompt),
             StepContract(name="invoke_review_llm", execute=_invoke_review_llm, resume_sentinel=True),
             StepContract(name="write_review_doc", execute=_write_review_doc),

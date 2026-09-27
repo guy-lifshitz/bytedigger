@@ -437,14 +437,14 @@ def test_ac11_telemetry_payload_has_exactly_seven_keys_incl_attempts(monkeypatch
     )
 
 
-def test_ac17_spec_retry_revise_cap_pin(monkeypatch):
-    """AC17 (Opus cycle 3 pin, spec §2.3a/§2.5): phase_45 spec_retry revise
+def test_ac17_spec_review_revise_cap_pin(monkeypatch):
+    """AC17 (Opus cycle 3 pin, spec §2.3a/§2.5): phase_45 spec_review revise
     gate still terminates at its policy cap under attempts-based semantics.
-    GH625 §2.5 recalibration: spec_retry is now recoverable_once/cap=1 for
+    GH625 §2.5 recalibration (bd#85: spec_retry split, the reviewer spends spec_review): recoverable_once/cap=1 for
     all build classes.
 
     At attempts=0 (no seed / fresh gate), the retry branch grants a retry
-    and records gate_attempts["spec_retry"]==1 in data. At attempts=1
+    and records gate_attempts["spec_review"]==1 in data. At attempts=1
     (cap reached), outcome=cap: status='error', recoverable False, terminal
     error_code, no retry_from_step in data."""
     captured: list[tuple[str, dict]] = []
@@ -454,10 +454,10 @@ def test_ac17_spec_retry_revise_cap_pin(monkeypatch):
 
     monkeypatch.setattr(_telemetry_ctx, "emit_safe", _fake_emit)
 
-    # attempts=0 (no seed) -> grants retry, records gate_attempts["spec_retry"]==1
+    # attempts=0 (no seed) -> grants retry, records gate_attempts["spec_review"]==1
     retry_result = RecoverableGateMixin.gated_step_result(
         build_class="SIMPLE",
-        gate="spec_retry",
+        gate="spec_review",
         cycle=1,
         retry_from_step_idx=0,
         error_code="E_SPEC_RETRY",
@@ -471,21 +471,21 @@ def test_ac17_spec_retry_revise_cap_pin(monkeypatch):
         f"got {retry_result.recoverable!r}"
     )
     assert isinstance(retry_result.data, dict)
-    assert retry_result.data.get("gate_attempts", {}).get("spec_retry") == 1, (
-        f"AC17 FAIL: expected gate_attempts['spec_retry']==1 after retry, "
+    assert retry_result.data.get("gate_attempts", {}).get("spec_review") == 1, (
+        f"AC17 FAIL: expected gate_attempts['spec_review']==1 after retry, "
         f"got {retry_result.data.get('gate_attempts')!r}"
     )
 
     # attempts=1 (seeded, == cap) -> cap reached: terminal, no retry_from_step
     cap_result = RecoverableGateMixin.gated_step_result(
         build_class="SIMPLE",
-        gate="spec_retry",
+        gate="spec_review",
         cycle=2,
         retry_from_step_idx=0,
         error_code="E_SPEC_RETRY",
         error_msg="spec needs revision",
         step_name="revise_spec",
-        forwarded_data={"gate_attempts": {"spec_retry": 1}},
+        forwarded_data={"gate_attempts": {"spec_review": 1}},
         terminal_error_code="E_SPEC_RETRY_FAIL_CAP2",
     )
     assert cap_result.status == "error", f"AC17 FAIL: expected status='error', got {cap_result.status!r}"

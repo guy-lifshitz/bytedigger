@@ -21,7 +21,9 @@ Gate = Literal[
     "watchdog_post_commit",
     "review_timeout",
     "red_runtime",
-    "spec_retry",
+    "spec_gates",
+    "spec_review",
+    "satisfaction",
     "red_lint_preflight",
     "validation_execution",
     "red_crashed",
@@ -65,12 +67,20 @@ _POLICY_MATRIX: dict[tuple[BuildClass, Gate], RecoverablePolicy] = {
     ("SIMPLE",   "red_runtime"):          RecoverablePolicy("recoverable_once",  1),
     ("FEATURE",  "red_runtime"):          RecoverablePolicy("recoverable_once",  1),
     ("COMPLEX",  "red_runtime"):          RecoverablePolicy("terminal",          0),
-    # spec_retry: all classes get recoverable_once (1) — GH625 attempts-based
-    # accounting means cycle_cap is now the real retry budget (no longer
-    # inflated to offset the shared cycle counter); one real retry per class.
-    ("SIMPLE",   "spec_retry"):           RecoverablePolicy("recoverable_once",  1),
-    ("FEATURE",  "spec_retry"):           RecoverablePolicy("recoverable_once",  1),
-    ("COMPLEX",  "spec_retry"):           RecoverablePolicy("recoverable_once",  1),
+    # bd#85: the deterministic spec gates and the spec reviewer spend separate
+    # budgets, so a lint retry never uses up the reviewer's retry. One real
+    # retry each (GH625 attempts-based accounting).
+    ("SIMPLE",   "spec_gates"):           RecoverablePolicy("recoverable_once",  1),
+    ("FEATURE",  "spec_gates"):           RecoverablePolicy("recoverable_once",  1),
+    ("COMPLEX",  "spec_gates"):           RecoverablePolicy("recoverable_once",  1),
+    ("SIMPLE",   "spec_review"):          RecoverablePolicy("recoverable_once",  1),
+    ("FEATURE",  "spec_review"):          RecoverablePolicy("recoverable_once",  1),
+    ("COMPLEX",  "spec_review"):          RecoverablePolicy("recoverable_once",  1),
+    # satisfaction: bd#85 — a satisfaction FAIL runs the phase 6 fix step again
+    # with the evaluator's findings; two fix loops before the gate is terminal.
+    ("SIMPLE",   "satisfaction"):         RecoverablePolicy("recoverable_twice", 2),
+    ("FEATURE",  "satisfaction"):         RecoverablePolicy("recoverable_twice", 2),
+    ("COMPLEX",  "satisfaction"):         RecoverablePolicy("recoverable_twice", 2),
     # red_lint_preflight: terminal RED-lint findings (stub/1q/suite/collect-probe)
     # get a findings-driven delta-retry budget before capping (GH602).
     ("SIMPLE",   "red_lint_preflight"):   RecoverablePolicy("recoverable_twice", 2),

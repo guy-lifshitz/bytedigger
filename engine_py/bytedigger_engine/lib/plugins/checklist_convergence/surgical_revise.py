@@ -23,7 +23,7 @@ from collections.abc import Mapping, Sequence
 
 from bytedigger_engine.lib import authored_boundary
 
-from .restricted_writer_prompt import _render_findings
+from .restricted_writer_prompt import _render_findings, _verbatim_label
 
 # 0b95d45a (P7): the spec is the authorization source for
 # `security-lint-pragma-allow:`; a revise that adds its own allow line
@@ -42,8 +42,12 @@ def build_surgical_revise_prompt(
     spec: str,
     findings: Sequence[Mapping[str, str]],
     verbatim_reviewer_context: str | None = None,
+    findings_source: str = "reviewer",
 ) -> str:
     """Return the surgical-patch REVISE prompt.
+
+    ``findings_source`` names who raised the findings in the prompt text
+    ("reviewer" by default; bd#85 passes "spec gate" for a gate retry).
 
     Instructs the writer to respond with ONLY one fenced ```json array of
     `{"finding_id", "old", "new"}` patch objects — `old` must be a verbatim,
@@ -55,11 +59,11 @@ def build_surgical_revise_prompt(
         clamped = verbatim_reviewer_context.encode("utf-8")[:4096].decode(
             "utf-8", errors="ignore"
         )
-        verbatim_block = f"REVIEWER VERDICT (verbatim, for context):\n{clamped}\n\n"
+        verbatim_block = f"{_verbatim_label(findings_source)} (verbatim, for context):\n{clamped}\n\n"
     else:
         verbatim_block = ""
     return (
-        "You are revising a spec to address reviewer findings on cycle >=2.\n"
+        f"You are revising a spec to address {findings_source} findings on cycle >=2.\n"
         "\n"
         "OUTPUT CONTRACT (HARD):\n"
         "- Respond with ONLY ONE fenced ```json code block containing a JSON"

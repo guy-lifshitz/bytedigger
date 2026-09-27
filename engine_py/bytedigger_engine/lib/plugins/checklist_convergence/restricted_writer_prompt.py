@@ -22,12 +22,21 @@ def _render_findings(findings: Sequence[Mapping[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _verbatim_label(findings_source: str) -> str:
+    """Heading of the verbatim-context block for who raised the findings."""
+    return "REVIEWER VERDICT" if findings_source == "reviewer" else f"{findings_source.upper()} FINDINGS"
+
+
 def build_writer_prompt(
     spec: str,
     findings: Sequence[Mapping[str, str]],
     verbatim_reviewer_context: str | None = None,
+    findings_source: str = "reviewer",
 ) -> str:
     """Return the restricted cycle-2 writer prompt.
+
+    ``findings_source`` names who raised the findings ("reviewer" by default,
+    byte-identical output; bd#85 passes "spec gate" for a gate retry).
 
     The prompt instructs the writer to modify ONLY items flagged by cycle-1
     findings, with no new scope additions.
@@ -40,11 +49,12 @@ def build_writer_prompt(
     findings_block = _render_findings(findings)
     if verbatim_reviewer_context:
         clamped = verbatim_reviewer_context.encode("utf-8")[:4096].decode("utf-8", errors="ignore")
-        verbatim_block = f"REVIEWER VERDICT (verbatim, for context):\n{clamped}\n\n"
+        verbatim_block = f"{_verbatim_label(findings_source)} (verbatim, for context):\n{clamped}\n\n"
     else:
         verbatim_block = ""
+    heading = "CYCLE-1 REVIEWER FINDINGS" if findings_source == "reviewer" else f"{findings_source.upper()} FINDINGS"
     return (
-        "You are revising a spec to address reviewer findings on cycle 1.\n"
+        f"You are revising a spec to address {findings_source} findings on cycle 1.\n"
         "\n"
         "CONSTRAINTS (HARD - violations will be flagged by the reviewer):\n"
         "- ONLY modify lines that directly address one of the cycle-1 findings below.\n"
@@ -56,7 +66,7 @@ def build_writer_prompt(
         "- You may NOT introduce content the reviewer hasn't asked for.\n"
         "\n"
         f"{verbatim_block}"
-        "CYCLE-1 REVIEWER FINDINGS:\n"
+        f"{heading}:\n"
         f"{findings_block}\n"
         "\n"
         "ORIGINAL SPEC:\n"

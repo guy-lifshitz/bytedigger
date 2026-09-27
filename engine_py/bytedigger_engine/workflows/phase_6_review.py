@@ -100,6 +100,7 @@ Outputs:
 from __future__ import annotations
 
 import concurrent.futures
+import functools
 import json
 import logging
 import os
@@ -113,6 +114,7 @@ import time
 from pathlib import Path
 
 from bytedigger_engine import config_provider, telemetry_ctx
+from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin
 from bytedigger_engine.contracts import RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, STRAGGLER_PATIENCE_SEC, STRAGGLER_POLL_INTERVAL_SEC, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason, _resolve_backend
 
@@ -2191,6 +2193,10 @@ def _verify_findings_semantic(ctx, prev) -> StepResult:
 
 
 def _build_fix_prompt(ctx, prev) -> StepResult:
+    # bd#85: a satisfaction fix loop re-enters here with the engine's retry
+    # initial_data, which is a plain dict rather than a StepResult.
+    if isinstance(prev, dict):
+        prev = StepResult(status="ok", data=prev, duration_ms=0, step_name="satisfaction_fix_loop")
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
             status="error", data=None, duration_ms=0,
@@ -2228,6 +2234,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
 
     fix_doc_path = scratchpad / FIX_DOC_RELPATH
     verdict = prev.data["verdict"]
+    sat_loop = prev.data.get("fix_loop_source") == SATISFACTION_FIX_LOOP_SOURCE
 
     parts: list[str] = []
     role = _maybe_role_template(ctx)
@@ -2252,6 +2259,16 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
     parts.append(f"REVIEW FINDINGS (read this file — fix every finding): {review_fix_doc_path}")
     parts.append(f"REVIEW VERDICT: {verdict}")
     parts.append("")
+    if sat_loop:
+        parts.append(
+            f"SATISFACTION FINDINGS (cycle {prev.data.get('cycle', '?')}) — the satisfaction "
+            "evaluator rejected the previous fix. Fix every item below as well as any open "
+            "review finding:"
+        )
+        parts.append(str(prev.data.get("findings") or "(no findings text captured)"))
+        if prev.data.get("satisfaction_doc_path"):
+            parts.append(f"SATISFACTION REPORT (read this file): {prev.data['satisfaction_doc_path']}")
+        parts.append("")
     # 65EA1B86: inline HEAD content of in-scope test files so the fix-worker
     # does not re-derive assertions from spec ACs alone (012F2C02 RCA-3.1).
     _inline_block, _inline_n, _inline_b = _inline_inscope_test_files(ctx, scratchpad)
@@ -2260,6 +2277,15 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         parts.append("")
     if _inline_n > 0:
         _emit_safe("fix_prompt_test_files_inlined", {"count": _inline_n, "bytes": _inline_b})
+    # bd#85: a satisfaction loop may not skip, and its scope includes the
+    # evaluator's findings; the review-driven prompt is unchanged.
+    early_return_rule = "" if sat_loop else (
+        "  - EARLY-RETURN: if review verdict is PASS (no findings), DO NOT touch\n"
+        "    any file. Engine runs the test suite to verify; emit FIX SKIPPED.\n"
+    )
+    filed_findings = "filed findings (review or satisfaction)" if sat_loop else "filed findings"
+    skipped_marker = "" if sat_loop else "  FIX SKIPPED  — review verdict PASS, no findings to fix.\n"
+    complete_markers = "FIX COMPLETE" if sat_loop else "FIX COMPLETE or FIX SKIPPED"
     parts.append(
         "RULES (Boy Scout + Test Integrity):\n"
         "  - Every finding passed confidence ≥80 — they are all real. Fix all.\n"
@@ -2271,15 +2297,14 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         "    authoritative — do not revert assertion changes from recent\n"
         "    commits. If a finding requires reverting a test assertion,\n"
         "    emit FIX BLOCKED with diagnosis.\n"
-        "  - EARLY-RETURN: if review verdict is PASS (no findings), DO NOT touch\n"
-        "    any file. Engine runs the test suite to verify; emit FIX SKIPPED.\n"
+        f"{early_return_rule}"
         "  - Iteration cap: 40 tool calls after the second verification PASS.\n"
         "    Exceeding the cap = emit FIX BLOCKED with diagnosis.\n"
     )
     parts.append(
         "ANTI-FABRICATION — producer rules in injection/producer-rules.md\n"
         "(## Anti-Fabrication — Producer Rules) apply. Surface-specific for FIX-WORKER:\n"
-        "  - Fix ONLY filed findings. Each Edit maps to a specific finding\n"
+        f"  - Fix ONLY {filed_findings}. Each Edit maps to a specific finding\n"
         "    ID/title. No adjacent improvements, no `while we are here`.\n"
         "  - RESOLVED requires the same command/tool the review used to now\n"
         "    succeed. Did-not-change-production-code-path = NOT RESOLVED.\n"
@@ -2289,7 +2314,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         "\n"
         "OUTPUT: end your response with EXACTLY one of:\n"
         "  FIX COMPLETE — [N] of [N] findings fixed. Files: [path1, path2, ...]\n"
-        "  FIX SKIPPED  — review verdict PASS, no findings to fix.\n"
+        f"{skipped_marker}"
         "  FIX BLOCKED  — [N] of [M] findings fixed. Diagnosis: [root cause].\n"
         "                 Remaining: [list]"
     )
@@ -2301,7 +2326,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         '  {"fix_complete": true, "remaining": []}\n'
         "  ```\n"
         "\n"
-        "Set fix_complete=true iff your marker is FIX COMPLETE or FIX SKIPPED. If FIX BLOCKED,\n"
+        f"Set fix_complete=true iff your marker is {complete_markers}. If FIX BLOCKED,\n"
         'set fix_complete=false and remaining to a list of {"file": "<path>", "issue": "<what still needs fixing>"} objects.\n'
         "This block is the AUTHORITATIVE gate signal — the engine reads it, not the FIX marker line.\n"
         "The FIX marker line stays for human audit. Both the marker line and this block are required."
@@ -3382,7 +3407,7 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
             # score_only_below_threshold
             error_msg = f"satisfaction score {score} < threshold {threshold}"
         record_satisfaction_reject(reason_code, error_msg, score, threshold, axes_text=body)
-        return StepResult(
+        failed = StepResult(
             status="error", data={**common_data, "invalidate_cycle_sentinels_on_fail": True}, duration_ms=0,
             step_name="write_satisfaction_doc",
             error=error_msg,
@@ -3390,11 +3415,94 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
                         else "E_SATISFACTION_BELOW_THRESHOLD"),
             recoverable=False,
         )
+        # A missing AC checklist is an evaluator-format failure, not failing ACs.
+        if reason_code not in _SATISFACTION_FIX_LOOP_REASONS or (
+                reason_code == "ac_checklist_fail" and not ac_detail.get("failed")):
+            return failed
+        return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
+            structured.fixes_required if structured is not None else [], error_msg))
     return StepResult(
         status="ok",
         data=common_data,
         duration_ms=0,
         step_name="write_satisfaction_doc",
+    )
+
+
+# ─── bd#85: satisfaction FAIL → fix loop ─────────────────────────────────────
+# Reason codes that name work a fix worker can do. Evaluator-format failures
+# (no_signals, structured_only_no_score, drift_*) stay terminal: a fix worker
+# cannot repair the evaluator's output.
+_SATISFACTION_FIX_LOOP_REASONS = frozenset({
+    "concurring_fail", "score_only_below_threshold", "ac_checklist_fail",
+})
+_FIX_LOOP_TARGET_STEP = "build_fix_prompt"
+SATISFACTION_FIX_LOOP_SOURCE = "satisfaction"
+
+
+def _render_satisfaction_findings(fixes: list, fallback: str) -> str:
+    lines = []
+    for fix in fixes:
+        if isinstance(fix, dict):
+            lines.append(f"- {fix.get('file', '?')}: {fix.get('issue', '')}")
+        else:
+            lines.append(f"- {fix}")
+    return "\n".join(lines) if lines else fallback
+
+
+@functools.cache
+def _fix_step_index(workflow_name: "str | None") -> "int | None":
+    """Index of the fix step in the workflow that is running, or None when that
+    workflow has no fix step (the SIMPLE fast path)."""
+    if workflow_name != "phase_6_review":
+        return None
+    names = [s.name for s in phase_6_review_workflow().steps]
+    return names.index(_FIX_LOOP_TARGET_STEP)
+
+
+def _satisfaction_fix_loop(ctx, prev, failed: StepResult, findings: str) -> StepResult:
+    """Turn a satisfaction FAIL into a retry of the fix step, carrying the
+    evaluator's findings, under the ``satisfaction`` budget.
+
+    Attempts are the engine cycle minus one: nothing else in phase 6 advances
+    the cycle, and the steps between the fix prompt and this gate rebuild
+    their data, so a threaded counter would be lost. Without a step context
+    (or outside a workflow that has a fix step) the gate fails closed and
+    returns ``failed`` unchanged.
+    """
+    run = telemetry_ctx.get_current_run()
+    target = _fix_step_index(run.phase) if run is not None else None
+    if run is None or target is None:
+        _emit_safe("satisfaction_fix_loop_unavailable", {
+            "reason": "no_step_context" if run is None else "no_fix_step",
+            "phase": run.phase if run is not None else None,
+        })
+        return failed
+    review_doc_path = prev.data.get("review_doc_path") or ""
+    review_fix_doc_path = prev.data.get("review_fix_doc_path")
+    if not review_fix_doc_path and review_doc_path:
+        candidate = Path(review_doc_path).parent / Path(REVIEW_FIX_DOC_RELPATH).name
+        review_fix_doc_path = str(candidate) if candidate.is_file() else review_doc_path
+    forwarded = {
+        **(failed.data or {}),
+        "spec_path": prev.data.get("spec_path"),
+        "review_doc_path": review_doc_path,
+        "review_fix_doc_path": review_fix_doc_path,
+        "fix_doc_path": prev.data.get("fix_doc_path"),
+        "verdict": prev.data.get("review_verdict") or "FAIL",
+        "fix_loop_source": SATISFACTION_FIX_LOOP_SOURCE,
+        "findings": findings,
+        "gate_attempts": {"satisfaction": max(run.cycle - 1, 0)},
+    }
+    return RecoverableGateMixin.gated_step_result(
+        build_class=(ctx.org_config or {}).get("complexity"),
+        gate="satisfaction",
+        cycle=run.cycle,
+        retry_from_step_idx=target,
+        error_code=failed.error_code or "E_SATISFACTION_BELOW_THRESHOLD",
+        error_msg=failed.error or "",
+        step_name=failed.step_name,
+        forwarded_data=forwarded,
     )
 
 
@@ -3505,6 +3613,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             score_i = None
             structured_i = None
             ac_verdict_i = None
+            ac_detail_i = {}
 
         evals.append({
             "index": i,
@@ -3513,6 +3622,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             "status": status,
             "error_code": entry.get("error_code"),
             "ac_verdict": ac_verdict_i,
+            "ac_failed": list(ac_detail_i.get("failed", [])),
         })
 
     # GH388: majority checklist-fail over valid (status=="ok") evaluators. Skip verdicts
@@ -3718,7 +3828,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
                 f"missing or failing the AC checklist (majority)"
             )
             record_satisfaction_reject("ac_checklist_fail", error_msg, score_out, threshold, axes_text=composite_text)
-            return StepResult(
+            failed = StepResult(
                 status="error",
                 data={**common_data, "invalidate_cycle_sentinels_on_fail": True},
                 duration_ms=0,
@@ -3727,6 +3837,11 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
                 error_code="E_SATISFACTION_AC_CHECKLIST",
                 recoverable=False,
             )
+            ac_failed = sorted({ac for e in evals for ac in e["ac_failed"]})
+            if not ac_failed:
+                return failed  # every failing evaluator left out the checklist: format
+            return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
+                fixes, error_msg + f"; failing ACs: {', '.join(ac_failed)}"))
         # Build descriptive error message
         if n_valid >= 2:
             error_msg = (
@@ -3757,7 +3872,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             error_msg = (
                 "satisfaction evaluator omitted SCORE and structured verdict — invalid evaluation"
             )
-        return StepResult(
+        failed = StepResult(
             status="error",
             data={**common_data, "invalidate_cycle_sentinels_on_fail": True},
             duration_ms=0,
@@ -3766,6 +3881,12 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             error_code="E_SATISFACTION_BELOW_THRESHOLD",
             recoverable=False,
         )
+        # Only a majority FAIL that names fixes is work for a fix worker; one
+        # valid evaluator is degraded (E_REVIEW_DEGRADED above), and a FAIL with
+        # no fixes listed is an evaluator-format failure.
+        if n_valid < 2 or not fixes:
+            return failed
+        return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(fixes, error_msg))
     return StepResult(
         status="ok",
         data=common_data,

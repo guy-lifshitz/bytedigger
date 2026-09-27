@@ -51,6 +51,26 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   stay distinguishable to a caller. It checks that a document *documents* its quantifiers; it does not verify
   that the fixtures a document cites exist or discriminate, which does not mechanise. Nothing consumes it yet.
   (#39)
+- **A driver seam that resumes a task instead of restarting it.** `run.py --task-begin PHASES --run-id ID
+  --event-log PATH` reads the run's event log and answers where the task continues: resume at the failed
+  phase, stop (a human is needed: `escalate`, `E_RED_WORKTREE_DIRTY`, `E_SPEC_DEFECT_BUDGET`), reroute to
+  `phase_45_spec` (`E_SPEC_DEFECT`), or done. It also admits one run under a per-task cap (default 3 runs /
+  $60, `--task-max-runs`, `--task-max-cost-usd`) and refuses with `E_TASK_CAP_REACHED`. `--task-reset REASON`
+  is the operator escape. `templates/driver-resume.sh` is a driver built on it that keeps one run id per task,
+  so finished phases and steps are served from the engine's caches. `workflow_finished` now carries
+  `error_code` on `error` and `escalate`. (#85)
+
+### Changed
+
+- **A gate failure retries its step with the findings instead of ending the phase.** (#85)
+  - The deterministic spec gates and the spec reviewer spend separate budgets (`spec_gates`,
+    `spec_review`, one retry each), so a lint retry no longer uses up the reviewer's retry.
+  - Spec lint, cite-lint and preflight-batch findings now send the writer back with those findings instead
+    of stopping the phase. Infrastructure failures (driver missing, timeout, blind cite-lint) stay terminal,
+    and `phase_45_spec_lite` keeps lint terminal.
+  - A satisfaction FAIL in `phase_6_review` re-runs the fix step with the evaluator's findings, up to two
+    times. Evaluator-format failures and a degraded review stay terminal.
+  - A terminal exit now invalidates the step sentinels of every cycle, not only the last.
 
 ### Fixed
 
