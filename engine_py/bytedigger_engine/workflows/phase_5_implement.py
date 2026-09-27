@@ -110,6 +110,7 @@ from bytedigger_engine.config_provider import get_config, int_value, timeout_pol
 from bytedigger_engine.config_provider import env_mapping, foreign_state_dirname  # noqa: E402  GH1123 4D604942 — canonical foreign-state dirname seam (§1g)
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402  GH1123 4D604942 — checkpoint patch artifact
 from bytedigger_engine import flags_catalog  # noqa: E402  GH529
+from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine.suite_safety import scan_suite_safety
 from bytedigger_engine.stub_passability import scan_stub_passability
 from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema
@@ -1231,6 +1232,10 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     if arch_path.is_file():
         parts.append(f"ARCHITECTURE (read this file): {arch_path}")
     parts.append("")
+    facts = spec_facts_block(ctx, scratchpad, spec_path, "red")
+    if facts:
+        parts.append(facts)
+        parts.append("")
     if spec_path.is_file():
         try:
             spec_text = spec_path.read_text(encoding="utf-8", errors="replace")
@@ -5713,6 +5718,10 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
         "Do NOT trust the report summary."
     )
     parts.append("")
+    facts = spec_facts_block(ctx, scratchpad, spec_path, "gate")
+    if facts:
+        parts.append(facts)
+        parts.append("")
     parts.append(
         "FOUR-STEP AUDIT:\n"
         "  1. Forward map: every spec scenario → matching test\n"
@@ -6463,6 +6472,10 @@ def _build_green_prompt(ctx, prev) -> StepResult:
     parts.append(f"RED WORKER REPORT (lists test files to satisfy): {red_log}")
     parts.append(f"OPUS VALIDATION (verdict PASS — proceed): {validation_doc}")
     parts.append("")
+    facts = spec_facts_block(ctx, scratchpad, spec_path, "green")
+    if facts:
+        parts.append(facts)
+        parts.append("")
     parts.append(
         "RULES (Boy Scout):\n"
         "  - Apply Boy Scout Rule to EVERY file you touch — clean dead imports,\n"

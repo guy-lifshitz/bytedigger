@@ -304,7 +304,17 @@ def test_228ab822_prompt_body_stays_under_6kb(tmp_path):
     Current size at time of writing (RED): ~2000 bytes (preservation
     guard — PASSES today; would FAIL if GREEN bloats the prompt).
     """
+    # bd#86: the fact block is repo data with its own cap (facts_pack.RENDER_CAP), not
+    # rule text; this guard measures rule bloat, so the block is measured on its own.
+    from bytedigger_engine import facts_pack  # noqa: PLC0415
+
     prompt = _build_prompt(tmp_path)
+    if facts_pack.FACTS_HEADER in prompt:
+        start = prompt.index(facts_pack.FACTS_HEADER)
+        end = prompt.find("\n\n", start)
+        block = prompt[start:end if end != -1 else len(prompt)]
+        assert len(block) <= facts_pack.RENDER_CAP
+        prompt = prompt.replace(block, "")
     # Flake-hardening: the prompt embeds the resolved scratchpad absolute path ~8×.
     # Under concurrent pytest load tmp dirs get longer, inflating the byte count over
     # the cap. This guard measures RULE-CONTENT bloat, not env path length — normalize

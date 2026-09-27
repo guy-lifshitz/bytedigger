@@ -16,6 +16,7 @@
     "scope_inverse.py",
     "spec_class.py",
     "spec_cite.py",
+    "facts_pack.py",
     "telemetry_ctx.py",
     "corpus_extract.py",
     "llm_subprocess.py",

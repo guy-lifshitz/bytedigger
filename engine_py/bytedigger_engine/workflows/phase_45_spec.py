@@ -134,6 +134,7 @@ from bytedigger_engine.spec_coverage import scan_spec_coverage, scan_error_taxon
 from bytedigger_engine.token_consistency import scan_token_consistency  # noqa: E402  GH559
 from bytedigger_engine.presence_triad import scan_presence_triad  # noqa: E402  GH559
 from bytedigger_engine.format_conversion_cases import scan_format_conversion  # noqa: E402  GH559
+from bytedigger_engine import facts_pack, spec_cite  # noqa: E402  bd#86
 from bytedigger_engine import ac_dsl  # noqa: E402  GH517 A2 — module-attr import so monkeypatch(ac_dsl, "admit", ...) works
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib.git_port import git_read  # noqa: E402
@@ -1161,6 +1162,15 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     decision_block = _read_decision_doc_block(ctx.org_config)
     if decision_block:
         parts.append(decision_block)
+        parts.append("")
+    # bd#86: repo facts for what the request, architecture and decision doc
+    # name — collected before the writer runs, so it cites what exists. A frozen
+    # spec has no writer (invoke_spec_llm skips), so nothing is collected for it.
+    facts = "" if _prev_fields.get("is_frozen") else facts_pack.facts_block_for(
+        ctx, scratchpad, "\n".join((ctx.question or "", arch_text or "", decision_block)), "spec",
+    )
+    if facts:
+        parts.append(facts)
         parts.append("")
     # A813CA08: anti-fabrication contract for `<path>:<line>` citations.
     # Lives BEFORE the OUTPUT schema so the writer reads the grounding rules
@@ -3606,6 +3616,126 @@ def _retry_pending_misses(
     return retry_findings
 
 
+_REALITY_STATUSES = frozenset({"unresolved_symbol", "missing_file"})
+
+
+def _reality_blocking(spec_text: str, repo_root: Path) -> list[spec_cite.Finding]:
+    """R1 findings. An abbreviated path (a `/`-aligned suffix of a repo code file) is
+    rewritten to that file's repo path and the text is linted again, so it gets every
+    downgrade `lint_spec` gives a resolved path; only a path that matches no repo file
+    stays `missing_file`. (Resolving abbreviated paths inside `spec_cite.check_citation`
+    would give cite-lint the same leniency; that is bd#87's module.)"""
+    _rc, findings = spec_cite.lint_spec_text(spec_text, repo_root)
+    missing = sorted({f.file for f in findings if f.status == "missing_file"})
+    rel_paths = [p.relative_to(repo_root).as_posix() for p in spec_cite._iter_code_files(repo_root)] if missing else []
+    rewrites = {
+        path: full for path in missing
+        if (full := next((r for r in rel_paths if r.endswith("/" + spec_cite._norm_path(path))), None))
+    }
+    for path, full in rewrites.items():
+        spec_text = re.sub(r"(?<![\w./-])" + re.escape(path) + r"(?![\w/-])", full, spec_text)
+    if rewrites:
+        _rc, findings = spec_cite.lint_spec_text(spec_text, repo_root)
+    return [f for f in findings if f.status in _REALITY_STATUSES]
+
+
+def _verify_spec_reality(ctx: WorkflowContext, prev: Any) -> StepResult:
+    """bd#86: the spec-vs-reality gate. Unlike every other spec gate it also
+    runs on a frozen spec — the decision-doc path had no check against the
+    repo at all.
+
+    R1: every cited symbol and file exists (`spec_cite.lint_spec` in process,
+    no driver). R2: at least one acceptance criterion is anchored in something
+    real, not only in mocks (`facts_pack.unanchored_criteria`).
+
+    Not frozen: a `spec_gates` retry of the writer with the findings. Frozen:
+    terminal — the spec is human-owned and re-copying it cannot change the result.
+    """
+    step = "verify_spec_reality"
+    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
+        return StepResult(
+            status="error", data=None, duration_ms=0, step_name=step,
+            error="prev step did not produce data", error_code="E_MISSING_PREV_DATA",
+        )
+    if not get_config().gate_enabled("HAL_SPEC_REALITY_GATE"):
+        _emit_safe("gate_disabled", {
+            "gate": "spec_reality", "step": step, "reason": "kill_switch",
+            "detail": "HAL_SPEC_REALITY_GATE=0",
+        })
+        return StepResult(status="skip", data={**prev.data}, duration_ms=0, step_name=step)
+    spec_path = prev.data.get("spec_path")
+    if not spec_path:
+        _emit_safe("spec_reality_checked", {"status": "skipped", "reason": "no_spec_path"})
+        return StepResult(
+            status="ok", data={**prev.data, "spec_reality_skipped": "no_spec_path"},
+            duration_ms=0, step_name=step,
+        )
+    frozen = bool(prev.data.get("is_frozen"))
+    repo_root, root_source = resolve_project_root(ctx.org_config or {})
+    try:
+        spec_text = Path(spec_path).read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return StepResult(
+            status="error", data={**prev.data}, duration_ms=0, step_name=step,
+            error=f"spec_reality: cannot read {spec_path}: {exc}",
+            error_code="E_SPEC_REALITY_FAIL", recoverable=False,
+        )
+
+    # A root that fell back to the cwd is a guess: every citation would read as missing,
+    # and on a frozen spec that is terminal. R1 needs a known root; R2 does not.
+    r1_skipped = "repo_root_from_cwd" if root_source == "cwd" else None
+    blocking = [] if r1_skipped else _reality_blocking(spec_text, repo_root)
+    findings: list[str] = []
+    if blocking:
+        # the near-name hints cost a repo read; only unresolved symbols use them
+        unresolved = any(f.status == "unresolved_symbol" for f in blocking)
+        names = facts_pack.defined_names(repo_root) if unresolved else []
+        for f in blocking:
+            line = _cite_finding_evidence({"status": f.status, "file": f.file, "symbol": f.symbol})
+            near = facts_pack.near_names(f.symbol, names) if f.status == "unresolved_symbol" else []
+            findings.append(line + (f" (near: {', '.join(near)})" if near else ""))
+    mock_only = facts_pack.unanchored_criteria(spec_text, repo_root)
+    for crit in mock_only:
+        mocked = ", ".join(f"`{t}`" for t in crit["mocked"]) or "no real anchor"
+        findings.append(
+            f"{crit['id']}: every reference is mocked ({mocked}) — tie it to a real "
+            f"code path, fixture or data shape"
+        )
+    findings = list(dict.fromkeys(findings))
+    _emit_safe("spec_reality_checked", {
+        "frozen": frozen, "r1": len(blocking), "r2": len(mock_only),
+        "repo_root": str(repo_root), "root_source": root_source, "r1_skipped": r1_skipped,
+        # cite-lint skips frozen specs; a frozen spec that cites no code is reported, not failed
+        "blind": spec_cite._is_blind(spec_text, spec_cite.scan_citations(spec_text)),
+        "status": "fail" if findings else "ok",
+    })
+    if not findings:
+        return StepResult(status="ok", data={**prev.data}, duration_ms=0, step_name=step)
+
+    rendered = "\n".join(f"- {f}" for f in findings)
+    message = (
+        f"spec does not match the repo at {repo_root} ({root_source}) — {len(findings)} "
+        f"finding(s) in {spec_path}:\n{rendered}"
+    )
+    forwarded = {**prev.data, "spec_reality_findings": findings}
+    if frozen:
+        return StepResult(
+            status="error", data=forwarded, duration_ms=0, step_name=step,
+            error=message, error_code="E_SPEC_REALITY_FAIL", recoverable=False,
+        )
+    return _spec_gate_retry(
+        findings=rendered,
+        build_class=_build_class(ctx),
+        cycle=int(prev.data.get("cycle", 1)),
+        retry_from_step_idx=0,
+        error_code="E_SPEC_REALITY_FAIL",
+        error_msg=message,
+        step_name=step,
+        forwarded_data=forwarded,
+        terminal_error_code="E_SPEC_REALITY_FAIL",
+    )
+
+
 def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
     """Pre-Opus regex scan of the just-written spec for fabricated `<path>:<line>`
     citations. ERROR (missing file or out-of-range line) short-circuits to a
@@ -4806,6 +4936,7 @@ def phase_45_spec_workflow() -> WorkflowDefinition:
             StepContract(name="verify_spec_coverage", execute=lambda ctx, prev: _verify_spec_coverage(ctx, prev)),
             StepContract(name="verify_spec_lint_batch", execute=lambda ctx, prev: _verify_spec_lint_batch(ctx, prev)),
             StepContract(name="verify_spec_ac_dsl", execute=lambda ctx, prev: _verify_spec_ac_dsl(ctx, prev)),
+            StepContract(name="verify_spec_reality", execute=lambda ctx, prev: _verify_spec_reality(ctx, prev)),
             StepContract(name="build_review_prompt", execute=lambda ctx, prev: _build_review_prompt(ctx, prev)),
             StepContract(name="invoke_review_llm", execute=lambda ctx, prev: _invoke_review_llm(ctx, prev), resume_sentinel=True),
             StepContract(name="write_review_doc", execute=lambda ctx, prev: _write_review_doc(ctx, prev)),

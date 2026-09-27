@@ -377,6 +377,7 @@
 - `E_SPEC_LINT_UNAVAILABLE` — phase_45_spec: spec lint driver missing in bootstrap — fail-closed (GH594)
 - `E_SPEC_LINT_UNEXPECTED_RC` — phase_45_spec: spec lint subprocess exited with an unexpected return code
 - `E_SPEC_PREFLIGHT_BATCH` — phase_45_spec: spec pre-flight gate-batch reported findings (GH747)
+- `E_SPEC_REALITY_FAIL` — phase_45_spec: the spec cites a symbol or file that does not exist, or every acceptance criterion only asserts on mocks (bd#86)
 - `E_SPEC_REENTRY` — phase_45_spec: spec re-entry AC (§1ab/§1ac) check found a gap
 - `E_SPEC_REENTRY_FATAL` — phase_45_spec: spec re-entry AC check failed fatally after retries exhausted
 - `E_SPEC_REVISE_EXHAUSTED` — phase_45_spec: spec revise-retry budget was exhausted without approval

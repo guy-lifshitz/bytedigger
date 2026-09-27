@@ -221,6 +221,7 @@ ERROR_CODES: dict[str, str] = {
     "E_SPEC_CITATION_FATAL": "phase_45_spec: spec citation lint failed fatally after retries exhausted",
     "E_SPEC_CITATION_MALFORMED": "phase_45_spec: spec citation reference was malformed",
     "E_SPEC_CITE_LINT_FAIL": "phase_45_spec: spec cite-lint step reported findings",
+    "E_SPEC_REALITY_FAIL": "phase_45_spec: the spec cites a symbol or file that does not exist, or every acceptance criterion only asserts on mocks (bd#86)",
     "E_SPEC_CITE_LINT_TIMEOUT": "phase_45_spec: spec cite-lint subprocess timed out",
     "E_SPEC_CITE_LINT_UNAVAILABLE": "phase_45_spec: spec cite-lint driver missing in bootstrap — fail-closed (GH594)",
     "E_SPEC_CITE_LINT_UNEXPECTED_RC": "phase_45_spec: spec cite-lint subprocess exited with an unexpected return code",

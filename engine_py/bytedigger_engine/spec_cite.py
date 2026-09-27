@@ -6,6 +6,7 @@ Public API:
   scan_citations(spec_text) -> list[Citation]
   check_citation(cit, repo_root, declared=..., repo_index=...) -> Finding
   lint_spec(spec_path, repo_root) -> tuple[int, list[Finding]]
+  lint_spec_text(spec_text, repo_root) -> tuple[int, list[Finding]]
   declared_introduced_symbols(spec_text) -> set[str]
   BLOCKING_STATUSES — Finding statuses that make lint_spec exit 1
 
@@ -16,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from collections.abc import Iterator, Set as AbstractSet
+from collections.abc import Iterable, Iterator, Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -479,19 +480,27 @@ def _repo_symbol_index(repo_root: Path) -> frozenset[str]:
     cached = _REPO_INDEX_CACHE.get(key)
     if cached is not None:
         return cached
-    tokens: set[str] = set()
+    texts: list[str] = []
     for path in _iter_code_files(repo_root):
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            texts.append(path.read_text(encoding="utf-8", errors="replace"))
         except OSError:
             continue
+    index = _index_tokens(texts)
+    _REPO_INDEX_CACHE[key] = index
+    return index
+
+
+def _index_tokens(texts: Iterable[str]) -> frozenset[str]:
+    """The identifier tokens of `texts`: each `a.b.c` token whole AND component-wise.
+    Uncached, for callers that must see the repo as it is now (bd#86 fact pack)."""
+    tokens: set[str] = set()
+    for text in texts:
         for tok in _IDENT_TOKEN_RE.findall(text):
             tokens.add(tok)
             if "." in tok:
                 tokens.update(tok.split("."))
-    index = frozenset(tokens)
-    _REPO_INDEX_CACHE[key] = index
-    return index
+    return frozenset(tokens)
 
 
 def _symbol_in_repo(symbol: str, index: AbstractSet[str]) -> bool:
@@ -631,7 +640,11 @@ def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
     exit_code = 1 if any finding's status is in BLOCKING_STATUSES, else 0.
     new_symbol, planned_file, wrong_file, and resolved are advisory.
     """
-    spec_text = spec_path.read_text(encoding="utf-8", errors="replace")
+    return lint_spec_text(spec_path.read_text(encoding="utf-8", errors="replace"), repo_root)
+
+
+def lint_spec_text(spec_text: str, repo_root: Path) -> tuple[int, list[Finding]]:
+    """`lint_spec` on spec text instead of a file (bd#86: the reality gate lints a rewritten text)."""
     citations = scan_citations(spec_text)
     declared = declared_created_files(spec_text)
     repo_index = _repo_symbol_index(repo_root)  # GH796 §2.4: computed once
