@@ -440,6 +440,14 @@ class TestS4SiblingBaseline:
         _git(repo, "commit", "-q", "-m", "no conftest")
         red_sha = _git(repo, "rev-parse", "HEAD").strip()
         monkeypatch.setenv("PYTHONPATH", str(repo))
+        # A console-script-like entry (as a venv `pytest` binary): unlike
+        # `python -m`, it does not put the cwd (the worktree) on sys.path.
+        entry = tmp_path / "pytest_entry.py"
+        entry.write_text("import sys, pytest\nsys.exit(pytest.main())\n")
+        prefix = [sys.executable, str(entry), "--tb=no", "-q", "-rfE",
+                  "--continue-on-collection-errors", "-p", "no:cacheprovider"]
+        monkeypatch.setattr(_p5, "_runner_for_path",
+                            lambda p, git_cwd=None: {"kind": "py", "argv_prefix": list(prefix)})
         ids = _p5._red_commit_baseline_fail_ids(
             ["tests/test_s.py"], red_sha, str(repo), _SRC, str(tmp_path / "cache"))
         assert ids == frozenset({"tests/test_s.py::test_a", "tests/test_s.py::test_c"})
