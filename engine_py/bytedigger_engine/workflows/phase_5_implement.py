@@ -2646,11 +2646,12 @@ def _emit_red_outcome_telemetry(kind: str, argv: list[str], git_cwd: str) -> Non
         logger.warning("red_test_outcome telemetry failed for group %s: %s", kind, e)
 
 
-def _run_red_group(group: dict[str, Any], ctx: WorkflowContext, prev: StepResult, git_cwd: str) -> "tuple[StepResult | None, str | None, str | None]":
+def _run_red_group(group: dict[str, Any], ctx: WorkflowContext, prev: StepResult, git_cwd: str) -> "tuple[StepResult | None, str | None, str | None, int | None]":
     """Per-group loop body (block 4). Returns
-    (early_result_or_None, passing_kind_or_None, group_stdout_or_None).
+    (early_result_or_None, passing_kind_or_None, group_stdout_or_None, returncode_or_None).
     An early_result must be propagated unchanged by the caller; passing_kind is
-    appended to passing_groups; group_stdout updates last_stdout when not None."""
+    appended to passing_groups; group_stdout updates last_stdout when not None;
+    returncode (bd#88) tells the baseline recorder whether the run completed."""
     argv = group["argv"]
     kind = group["kind"]
     try:
@@ -2667,14 +2668,14 @@ def _run_red_group(group: dict[str, Any], ctx: WorkflowContext, prev: StepResult
                 error=f"pytest binary missing: {e}",
                 error_code="E_PYTEST_MISSING",
                 recoverable=False,
-            ), None, None
+            ), None, None, None
         return StepResult(
             status="error", data=None, duration_ms=0,
             step_name="verify_red_fails_mechanically",
             error=f"{argv[0]} binary missing: {e}",
             error_code="E_TEST_RUNNER_MISSING",
             recoverable=False,
-        ), None, None
+        ), None, None, None
     if proc.returncode == 124:
         # Mirror the FileNotFoundError branching: pytest keeps historical code.
         if kind == "py":
@@ -2683,13 +2684,13 @@ def _run_red_group(group: dict[str, Any], ctx: WorkflowContext, prev: StepResult
                 step_name="verify_red_fails_mechanically",
                 error=f"pytest exceeded 120s timeout running red_test_paths",
                 error_code="E_RED_PYTEST_TIMEOUT",
-            ), None, None
+            ), None, None, None
         return StepResult(
             status="error", data=None, duration_ms=0,
             step_name="verify_red_fails_mechanically",
             error=f"{argv[0]} exceeded 120s timeout running red_test_paths",
             error_code="E_RED_TEST_RUNNER_TIMEOUT",
-        ), None, None
+        ), None, None, None
     _emit_red_outcome_telemetry(kind, argv, git_cwd)
     last_stdout = proc.stdout
     # GH1095 §2.2: crash-shape gate. Placed strictly AFTER the rc==124
@@ -2737,7 +2738,7 @@ def _run_red_group(group: dict[str, Any], ctx: WorkflowContext, prev: StepResult
                 f"executing assertions (reason={crash})"
             ),
         )
-        return _crash_result, None, last_stdout
+        return _crash_result, None, last_stdout, proc.returncode
     if proc.returncode == 0:
         # A11B364A / GH1097 §2.3: an `sh` suite with an absent/miswired exit guard
         # exits 0 while reporting FAIL lines — that is a genuine RED, not a fake one.
@@ -2753,8 +2754,8 @@ def _run_red_group(group: dict[str, Any], ctx: WorkflowContext, prev: StepResult
                 "exit_code": proc.returncode, "n_passed": _n_pass, "n_failed": _n_fail,
             }, severity="warning")
         else:
-            return None, kind, last_stdout
-    return None, None, last_stdout
+            return None, kind, last_stdout, proc.returncode
+    return None, None, last_stdout, proc.returncode
 
 
 def _decide_red_verdict(ctx: WorkflowContext, prev: StepResult, git_cwd: str, red_test_paths: list[str], plan: dict[str, Any], passing_groups: list[str], last_stdout: str) -> StepResult:
@@ -2833,15 +2834,15 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
     # group = fake RED for that language → error. Track per-group results.
     passing_groups: list[str] = []
     last_stdout = ""
-    py_stdouts: list[str] = []
+    py_runs: list[tuple[int, str]] = []
     for group in plan["groups"]:
-        early_group, passing_kind, group_stdout = _run_red_group(group, ctx, prev, git_cwd)
+        early_group, passing_kind, group_stdout, group_rc = _run_red_group(group, ctx, prev, git_cwd)
         if early_group is not None:
             return early_group
         if group_stdout is not None:
             last_stdout = group_stdout
-            if group["kind"] == "py":
-                py_stdouts.append(group_stdout)
+            if group["kind"] == "py" and group_rc is not None:
+                py_runs.append((group_rc, group_stdout))
         if passing_kind is not None:
             passing_groups.append(passing_kind)
     verdict = _decide_red_verdict(
@@ -2854,7 +2855,7 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
         py_paths = [p for g in plan["groups"] if g["kind"] == "py" for p in g.get("paths", [])]
         if py_paths:
             _record_red_baseline(_baseline_cache_dir(ctx), prev.data.get("red_commit_sha"),
-                                 git_cwd, py_paths, py_stdouts)
+                                 git_cwd, py_paths, py_runs)
     return verdict
 
 
@@ -3889,14 +3890,32 @@ def _baseline_cache_path(cache_dir: str, red_sha: str) -> Path:
     return Path(cache_dir) / f"{red_sha}.pytest.json"
 
 
+def _baseline_fails_path(cache_dir: str, red_sha: str) -> Path:
+    """`<sha>.<suite>.fails` — the naming `baseline_delta_gate.py` resolves
+    for `--base-sha/--cache-dir`."""
+    return Path(cache_dir) / f"{red_sha}.pytest.fails"
+
+
+def _emit_baseline_unavailable(step: str, reason: str) -> None:
+    _emit_safe("red_commit_baseline_unavailable", {
+        "phase": 5, "step": step, "reason": reason,
+    }, severity="warning")
+
+
 def _read_baseline_cache(cache_dir: str | None, red_sha: str) -> tuple[set[str], set[str]]:
     """(covered realpaths, fail ids); empty on a missing or corrupt cache."""
     if not cache_dir:
         return set(), set()
+    path = _baseline_cache_path(cache_dir, red_sha)
     try:
-        data = json.loads(_baseline_cache_path(cache_dir, red_sha).read_text())
+        data = json.loads(path.read_text())
         return set(data["covered"]), set(data["fail_ids"])
-    except (OSError, ValueError, KeyError, TypeError):
+    except FileNotFoundError:
+        return set(), set()
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        _emit_safe("red_commit_baseline_cache_corrupt", {
+            "phase": 5, "path": str(path), "error": f"{type(e).__name__}: {e}",
+        }, severity="warning")
         return set(), set()
 
 
@@ -3908,7 +3927,7 @@ def _write_baseline_cache(cache_dir: str, red_sha: str, covered: set[str], fail_
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
     atomic_write(_baseline_cache_path(cache_dir, red_sha),
                  json.dumps({"covered": sorted(covered), "fail_ids": sorted(fail_ids)}))
-    atomic_write(Path(cache_dir) / f"{red_sha}.pytest.fails",
+    atomic_write(_baseline_fails_path(cache_dir, red_sha),
                  "".join(f"{i}\n" for i in sorted(fail_ids)))
 
 
@@ -3927,26 +3946,30 @@ def _cached_baseline_fail_ids(cache_dir: str | None, red_sha: str, paths: list[s
 
 
 def _record_red_baseline(cache_dir: str | None, red_sha: str | None, git_cwd: str,
-                         py_paths: list[str], py_stdouts: list[str]) -> None:
-    """Record the RED run's own fail ids as the red_sha baseline of the RED paths."""
-    ids = frozenset().union(*(parse_pytest_fail_ids(s) for s in py_stdouts)) if py_stdouts else frozenset()
+                         py_paths: list[str], py_runs: list[tuple[int, str]]) -> None:
+    """Record the RED run's own fail ids as the red_sha baseline of the RED paths.
+
+    Only a completed run counts (`run_fail_ids`): an interrupted or partial
+    run would cover paths whose tests never ran."""
+    per_run = [run_fail_ids(rc, text) for rc, text in py_runs]
     reason = None
     if not red_sha:
         reason = "no_red_sha"
     elif not cache_dir:
         reason = "no_scratchpad"
-    elif not ids:
+    elif not per_run or any(ids is None for ids in per_run):
+        reason = "unreliable_run"
+    elif not any(per_run):
         reason = "no_fail_ids"
     if reason is None:
         try:
             _write_baseline_cache(cache_dir, red_sha,
-                                  {_realpath_under(p, git_cwd) for p in py_paths}, set(ids))
+                                  {_realpath_under(p, git_cwd) for p in py_paths},
+                                  set().union(*per_run))
             return
         except OSError as e:
             reason = f"cache_write_failed: {e}"
-    _emit_safe("red_commit_baseline_unavailable", {
-        "phase": 5, "step": "verify_red_fails_mechanically", "reason": reason,
-    }, severity="warning")
+    _emit_baseline_unavailable("verify_red_fails_mechanically", reason)
 
 
 def _git_toplevel(git_cwd: str) -> str | None:
@@ -3983,14 +4006,16 @@ def _read_text_or_empty(path: str | None) -> str:
         return ""
     try:
         return Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except (OSError, TypeError, ValueError):  # unreadable or not a real path (stub results)
         return ""
 
 
-def _worktree_pythonpath(wt: str) -> str:
+def _worktree_pythonpath(wt: str, wt_cwd: str) -> str:
     """Worktree first, so imports resolve to red_sha code ahead of an editable
-    install or a working-tree PYTHONPATH entry."""
-    entries = [str(Path(wt) / "src"), wt]
+    install or a working-tree PYTHONPATH entry (package root = git_cwd's
+    counterpart, plus the repo top; each with its `src/` layout)."""
+    roots = dict.fromkeys([wt_cwd, wt])  # ordered, deduped when git_cwd is the top
+    entries = [e for root in roots for e in (os.path.join(root, "src"), root)]
     existing = env_mapping().get("PYTHONPATH")
     if existing:
         entries.append(existing)
@@ -4021,9 +4046,7 @@ def _red_commit_baseline_fail_ids(paths: list[str], red_sha: str, git_cwd: str,
         return frozenset(fail_ids)
 
     def _unavailable(reason: str) -> None:
-        _emit_safe("red_commit_baseline_unavailable", {
-            "phase": 5, "step": "red_commit_baseline_fail_ids", "reason": reason,
-        }, severity="warning")
+        _emit_baseline_unavailable("red_commit_baseline_fail_ids", reason)
 
     top = _git_toplevel(git_cwd)
     if top is None:
@@ -4036,10 +4059,15 @@ def _red_commit_baseline_fail_ids(paths: list[str], red_sha: str, git_cwd: str,
             _unavailable(f"path_outside_repo: {real}")
             return None
         rels[real] = rel
-    present = [
-        real for real, rel in rels.items()
-        if git_port.git_read(["cat-file", "-e", f"{red_sha}:{rel}"], cwd=git_cwd, timeout=30).returncode == 0
-    ]
+    # One listing answers "present at red_sha?" for every path; a git failure
+    # (bad sha, timeout) is unavailable — never mistaken for "absent".
+    listing = git_port.git_read(["ls-tree", "-r", "-z", "--name-only", red_sha, "--", *rels.values()],
+                                cwd=top, timeout=30)
+    if listing.returncode != 0:
+        _unavailable(f"ls_tree_failed: rc={listing.returncode} {(listing.stderr or '')[-300:]}")
+        return None
+    at_red = set(listing.stdout.split("\0"))
+    present = [real for real, rel in rels.items() if rel in at_red]
     new_ids: set[str] = set()
     if present:
         runner = _runner_for_path(present[0], git_cwd=git_cwd)  # venv of git_cwd, not the worktree
@@ -4059,9 +4087,11 @@ def _red_commit_baseline_fail_ids(paths: list[str], red_sha: str, git_cwd: str,
                 _unavailable(f"worktree_add_failed: {(r.stderr or '')[-500:]}")
                 return None
             worktree_added = True
-            argv = (["env", f"PYTHONPATH={_worktree_pythonpath(wt)}"] + runner["argv_prefix"]
-                    + ["--rootdir", wt] + [rels[real] for real in present])
-            result = run_test_command(argv, wt, timeout=_BASELINE_RUN_TIMEOUT_SEC)
+            # Mirror git_cwd's position inside the repo (a package in a subdir).
+            wt_cwd = os.path.normpath(os.path.join(wt, os.path.relpath(os.path.realpath(git_cwd), top)))
+            argv = (["env", f"PYTHONPATH={_worktree_pythonpath(wt, wt_cwd)}"] + runner["argv_prefix"]
+                    + ["--rootdir", wt] + [os.path.join(wt, rels[real]) for real in present])
+            result = run_test_command(argv, wt_cwd, timeout=_BASELINE_RUN_TIMEOUT_SEC)
             ids = run_fail_ids(result.exit_code, _read_text_or_empty(result.stdout_path))
             if ids is None:
                 _unavailable(f"unreliable_run: exit_code={result.exit_code}")
@@ -4073,12 +4103,15 @@ def _red_commit_baseline_fail_ids(paths: list[str], red_sha: str, git_cwd: str,
         finally:
             if worktree_added:
                 try:
-                    git_write_port.git_op_capture(
+                    rm = git_write_port.git_op_capture(
                         ["git", "worktree", "remove", "--force", wt], cwd=git_cwd, timeout=60,
                     )
-                except Exception:  # noqa: BLE001
-                    _emit_safe("red_commit_baseline_worktree_remove_failed", {"phase": 5, "worktree": wt},
-                               severity="error")
+                    rm_error = None if rm.returncode == 0 else (rm.stderr or "")[-500:]
+                except Exception as e:  # noqa: BLE001
+                    rm_error = f"{type(e).__name__}: {e}"
+                if rm_error is not None:
+                    _emit_safe("red_commit_baseline_worktree_remove_failed",
+                               {"phase": 5, "worktree": wt, "error": rm_error}, severity="error")
             shutil.rmtree(parent, ignore_errors=True)
     fail_ids |= new_ids
     if cache_dir:
@@ -4411,11 +4444,17 @@ def _verify_green_passing(ctx, prev) -> StepResult:
 
     failing_groups: list[str] = []
     failing_group_tails: list[dict] = []  # AEC7E800: capture stdout tails for feedback
-    current_failed_total: int = 0  # 585E30E3-P2 Edit A: accumulate failures across groups
+    current_failed_total: int = 0  # failure count across groups (telemetry: current_failed)
     red_current_ids: set[str] = set()  # bd#88: failing RED test ids (py groups)
     baseline_delta_blocks: list = []  # GH561 §1r lane-2 warn-only baseline-delta gate
     red_sha = (prev.data.get("red_commit_sha") or cfg.get("red_commit_sha")) if isinstance(prev.data, dict) else None
     cache_dir = _baseline_cache_dir(ctx)  # bd#88: red_sha baseline cache
+    # bd#88: the lane-2 gate compares py groups against the RED run's ids when
+    # they were recorded; otherwise it keeps its own default baseline.
+    red_fails_kwargs = (
+        {"base_sha": red_sha, "cache_dir": cache_dir}
+        if red_sha and cache_dir and _baseline_fails_path(cache_dir, red_sha).is_file() else {}
+    )
     for group in plan["groups"]:
         argv = group["argv"]
         kind = group["kind"]
@@ -4448,15 +4487,9 @@ def _verify_green_passing(ctx, prev) -> StepResult:
         )
         if dt_result.exit_code != 0 or dt_result.n_failed > 0:
             failing_groups.append(kind)
-            current_failed_total += dt_result.n_failed  # 585E30E3-P2 Edit A
+            current_failed_total += dt_result.n_failed
             # AEC7E800: capture stdout tail for test-failure feedback loop
-            group_stdout_tail = ""
-            try:
-                if dt_result.stdout_path:
-                    with open(dt_result.stdout_path, encoding="utf-8", errors="replace") as _f:
-                        group_stdout_tail = _f.read()
-            except Exception:
-                pass
+            group_stdout_tail = _read_text_or_empty(getattr(dt_result, "stdout_path", None))
             failing_group_tails.append({"group": kind, "tail": group_stdout_tail})
             if kind == "py":
                 red_current_ids |= parse_pytest_fail_ids(group_stdout_tail)
@@ -4465,7 +4498,7 @@ def _verify_green_passing(ctx, prev) -> StepResult:
                 _bd = run_baseline_delta_gate(
                     dt_result.stdout_path, "pytest" if kind == "py" else "bun",
                     git_cwd, 5, step, _emit_safe,
-                    base_sha=red_sha, cache_dir=cache_dir,
+                    **(red_fails_kwargs if kind == "py" else {}),
                 )
                 if _bd.get("would_block"):
                     baseline_delta_blocks.append({"group": kind, "n_new_fails": _bd.get("n_new_fails")})
@@ -4487,9 +4520,10 @@ def _verify_green_passing(ctx, prev) -> StepResult:
             sib_plan = _infer_test_command_for_paths(new_sib, git_cwd=git_cwd)
             if not sib_plan.get("skipped"):
                 sib_current = _run_plan_fail_ids(sib_plan, git_cwd)
+                # No failing sibling -> nothing can be new; skip the worktree run.
                 sib_baseline = (
                     _red_commit_baseline_fail_ids(new_sib, red_sha, git_cwd, git_cwd_source, cache_dir)
-                    if sib_current is not None else None
+                    if sib_current else None
                 )
                 sib_verdict = id_delta_verdict(sib_baseline, sib_current or frozenset(),
                                                enforce=enforce_delta, fail_closed=True)

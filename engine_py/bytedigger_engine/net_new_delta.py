@@ -1,6 +1,6 @@
 """net_new_delta.py — pure delta-verdict helper for 585E30E3 P2 shadow-mode gate.
 
-Mirrors reproducibility.py / suite_safety.py shape: stdlib-only, no side-effects.
+Mirrors reproducibility.py / suite_safety.py shape: no side-effects.
 All functions are pure; no I/O, no subprocess, no telemetry. Count-based
 (585E30E3) and id-based (bd#88) verdicts.
 """
@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Iterator
+
+from bytedigger_engine.lib.corpus_parity import normalize_ci_line
 
 
 @dataclass(frozen=True)
@@ -82,22 +85,22 @@ def delta_verdict(
 
 # ─── bd#88: delta by test ID ──────────────────────────────────────────────────
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# The id runs to the " - " message separator, so parametrized ids with spaces
+# survive. Single source for the engine and baseline_delta_gate.py.
 _PYTEST_FAIL_LINE_RE = re.compile(r"^(?:FAILED|ERROR)\s+(.+?)(?:\s+-\s.*)?$")
 
 
-def parse_pytest_fail_ids(text: str) -> frozenset[str]:
-    """Node ids from pytest's short summary (``FAILED <id>`` / ``ERROR <id>``).
-
-    ANSI colour codes are stripped; the id runs up to the `` - `` message
-    separator, so parametrized ids containing spaces survive.
-    """
-    ids: set[str] = set()
+def iter_pytest_fail_ids(text: str) -> Iterator[str]:
+    """Node ids from pytest's short summary (``FAILED <id>`` / ``ERROR <id>``),
+    in output order, after CI-line normalization (ANSI, ``::group::``)."""
     for line in text.splitlines():
-        m = _PYTEST_FAIL_LINE_RE.match(_ANSI_RE.sub("", line).strip())
+        m = _PYTEST_FAIL_LINE_RE.match(normalize_ci_line(line))
         if m:
-            ids.add(m.group(1))
-    return frozenset(ids)
+            yield m.group(1)
+
+
+def parse_pytest_fail_ids(text: str) -> frozenset[str]:
+    return frozenset(iter_pytest_fail_ids(text))
 
 
 def run_fail_ids(exit_code: int, text: str) -> frozenset[str] | None:
@@ -116,9 +119,17 @@ def run_fail_ids(exit_code: int, text: str) -> frozenset[str] | None:
     return None
 
 
-def _covered(fail_id: str, baseline_ids: frozenset[str]) -> bool:
-    # A file-level id (collection error at RED) covers every test id in that file.
-    return fail_id in baseline_ids or any(fail_id.startswith(b + "::") for b in baseline_ids)
+def covered_by_baseline(fail_id: str, baseline_ids: "frozenset[str] | set[str]") -> bool:
+    """True when the baseline holds this id or one of its ``::`` prefixes —
+    a file-level id (collection error at RED) covers every test in that file."""
+    if fail_id in baseline_ids:
+        return True
+    i = fail_id.find("::")
+    while i != -1:
+        if fail_id[:i] in baseline_ids:
+            return True
+        i = fail_id.find("::", i + 2)
+    return False
 
 
 @dataclass(frozen=True)
@@ -147,7 +158,7 @@ def id_delta_verdict(
         new_ids = tuple(sorted(current_ids)) if fail_closed else ()
         cls = "baseline_unavailable"
     else:
-        new_ids = tuple(sorted(i for i in current_ids if not _covered(i, baseline_ids)))
+        new_ids = tuple(sorted(i for i in current_ids if not covered_by_baseline(i, baseline_ids)))
         if not current_ids:
             cls = "clean"
         elif new_ids:

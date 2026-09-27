@@ -80,6 +80,7 @@ def _seed_cache(tmp_path: Path, red_sha: str, covered: list[str], fail_ids: list
     (d / f"{red_sha}.pytest.json").write_text(json.dumps({
         "covered": [str(Path(p).resolve()) for p in covered], "fail_ids": fail_ids,
     }))
+    (d / f"{red_sha}.pytest.fails").write_text("".join(f"{i}\n" for i in fail_ids))
     return d
 
 
@@ -215,7 +216,7 @@ class TestS2IdHelpers:
 
 class TestS3RedRunRecordsBaseline:
     def _drive(self, monkeypatch, tmp_path, stdout, verdict_status="ok", red_sha="redsha",
-               passing_kind=None, verdict_sha=None):
+               passing_kind=None, verdict_sha=None, red_rc=None):
         red = tmp_path / "tests" / "test_red.py"
         red.parent.mkdir(parents=True, exist_ok=True)
         red.write_text("# red\n")
@@ -223,7 +224,8 @@ class TestS3RedRunRecordsBaseline:
         monkeypatch.setattr(_p5, "_verify_red_dirty_tree_guard", lambda *a, **k: None)
         monkeypatch.setattr(_p5, "_infer_test_command_for_paths", lambda paths, git_cwd=None: {
             "groups": [{"kind": "py", "argv": ["pytest", str(red)], "paths": [str(red)]}]})
-        monkeypatch.setattr(_p5, "_run_red_group", lambda g, c, p, cwd: (None, passing_kind, stdout))
+        rc = red_rc if red_rc is not None else (1 if "failed" in stdout else 0)
+        monkeypatch.setattr(_p5, "_run_red_group", lambda g, c, p, cwd: (None, passing_kind, stdout, rc))
         monkeypatch.setattr(_p5, "_decide_red_verdict", lambda ctx, prev, *a: StepResult(
             status=verdict_status,
             data={**prev.data, **({"red_commit_sha": verdict_sha} if verdict_sha else {})},
@@ -270,6 +272,24 @@ class TestS3RedRunRecordsBaseline:
         assert r.status == "ok"
         assert not (tmp_path / "sp" / "baseline" / "redsha.pytest.json").exists()
         assert any(e["type"] == "red_commit_baseline_unavailable" for e in events)
+
+    def test_not_recorded_from_interrupted_run(self, monkeypatch, tmp_path):
+        """rc 2 (interrupted / pytest.exit) after some failures: a partial run
+        must not claim coverage of tests that never ran."""
+        events = _events(monkeypatch)
+        self._drive(monkeypatch, tmp_path,
+                    "FAILED tests/test_red.py::test_one - x\n!!! Interrupted !!!\n1 failed\n", red_rc=2)
+        assert not (tmp_path / "sp" / "baseline" / "redsha.pytest.json").exists()
+        assert any(e["payload"].get("reason") == "unreliable_run"
+                   for e in events if e["type"] == "red_commit_baseline_unavailable")
+
+    def test_corrupt_cache_is_reported(self, monkeypatch, tmp_path):
+        events = _events(monkeypatch)
+        d = tmp_path / "sp" / "baseline"
+        d.mkdir(parents=True)
+        (d / "redsha.pytest.json").write_text("{not json")
+        assert _p5._cached_baseline_fail_ids(str(d), "redsha", [str(tmp_path / "x.py")]) is None
+        assert any(e["type"] == "red_commit_baseline_cache_corrupt" for e in events)
 
     def test_not_recorded_without_red_sha(self, monkeypatch, tmp_path):
         r, _ = self._drive(monkeypatch, tmp_path, "FAILED tests/test_red.py::a - x\n1 failed\n", red_sha=None)
@@ -452,6 +472,51 @@ class TestS4SiblingBaseline:
             ["tests/test_s.py"], red_sha, str(repo), _SRC, str(tmp_path / "cache"))
         assert ids == frozenset({"tests/test_s.py::test_a", "tests/test_s.py::test_c"})
 
+    def test_bad_red_sha_is_unavailable_not_absent(self, red_repo, tmp_path, monkeypatch):
+        repo, _, _ = red_repo
+        events = _events(monkeypatch)
+        cache = tmp_path / "cache"
+        ids = _p5._red_commit_baseline_fail_ids(
+            ["tests/test_s.py"], "0" * 40, str(repo), _SRC, str(cache))
+        assert ids is None
+        assert not (cache / f"{'0' * 40}.pytest.json").exists()
+        assert any(e["type"] == "red_commit_baseline_unavailable" for e in events)
+
+    def test_package_in_subdirectory(self, tmp_path, monkeypatch):
+        """git_cwd below the repo top (engine_py/-style layout), no conftest:
+        the worktree run imports the red_sha package from git_cwd's counterpart."""
+        repo = tmp_path / "mono"
+        pkg = repo / "pkg"
+        (pkg / "tests").mkdir(parents=True)
+        _git(repo, "init", "-q")
+        _git(repo, "config", "user.email", "t@example.com")
+        _git(repo, "config", "user.name", "t")
+        (pkg / "mod.py").write_text("A = 0\n")
+        (pkg / "tests" / "test_p.py").write_text(
+            "import mod\ndef test_a():\n    assert mod.A == 1\ndef test_c():\n    assert False\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "red")
+        red_sha = _git(repo, "rev-parse", "HEAD").strip()
+        (pkg / "mod.py").write_text("A = 1\n")
+        monkeypatch.setenv("PYTHONPATH", str(pkg))
+        entry = tmp_path / "pytest_entry.py"
+        entry.write_text("import sys, pytest\nsys.exit(pytest.main())\n")
+        prefix = [sys.executable, str(entry), "--tb=no", "-q", "-rfE",
+                  "--continue-on-collection-errors", "-p", "no:cacheprovider"]
+        monkeypatch.setattr(_p5, "_runner_for_path",
+                            lambda p, git_cwd=None: {"kind": "py", "argv_prefix": list(prefix)})
+        ids = _p5._red_commit_baseline_fail_ids(
+            ["tests/test_p.py"], red_sha, str(pkg), _SRC, str(tmp_path / "cache"))
+        plan = {"groups": [{"kind": "py", "argv": prefix + [str(pkg / "tests" / "test_p.py")],
+                            "paths": [str(pkg / "tests" / "test_p.py")]}]}
+        current = _p5._run_plan_fail_ids(plan, str(pkg))
+        # red_sha code (A == 0) was imported: test_a fails at the baseline only;
+        # test_c fails on both sides under the identical id.
+        assert len(current) == 1
+        (c_id,) = current
+        assert c_id.endswith("test_p.py::test_c")
+        assert ids == frozenset({c_id, c_id.replace("test_c", "test_a")})
+
     def test_stash_baseline_removed(self):
         assert not hasattr(_p5, "_compute_baseline_failed")
         assert not hasattr(_p5, "_run_plan_failed_total")
@@ -482,6 +547,14 @@ class TestS5VerifyGreen:
             sib_baseline=frozenset({"tests/test_foo.py::test_a"}),
         )
         assert _p5._verify_green_passing(_ctx(tmp_path), _prev([red])).status == "ok"
+
+    def test_clean_siblings_skip_the_baseline(self, monkeypatch, tmp_path):
+        red, sib, plans, baseline_calls, _ = _wire_verify_green(
+            monkeypatch, tmp_path, red_fails=[],
+            sib_current=frozenset(), sib_baseline=frozenset({"x"}),
+        )
+        assert _p5._verify_green_passing(_ctx(tmp_path), _prev([red])).status == "ok"
+        assert plans == [[sib]] and baseline_calls == []
 
     def test_sibling_baseline_unavailable_fails_closed(self, monkeypatch, tmp_path):
         red, *_ = _wire_verify_green(
@@ -565,7 +638,7 @@ class TestS5VerifyGreen:
         (relative) git_cwd: guard fires, no worktree, no stash, untracked intact."""
         red, sib, *_ = _wire_verify_green(
             monkeypatch, tmp_path, red_fails=[],
-            sib_current=frozenset(), sib_baseline=frozenset(),
+            sib_current=frozenset({"tests/test_foo.py::test_a"}), sib_baseline=frozenset(),
         )
         monkeypatch.setattr(_p5, "_red_commit_baseline_fail_ids", _REAL_BASELINE)
         _git(tmp_path, "init", "-q")

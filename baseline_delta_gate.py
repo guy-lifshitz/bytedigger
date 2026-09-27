@@ -38,6 +38,7 @@ from bytedigger_engine.known_reds_ledger import (  # noqa: E402
     scope_enforced,
 )
 from bytedigger_engine.config_provider import foreign_state_dirname  # noqa: E402
+from bytedigger_engine.net_new_delta import covered_by_baseline, iter_pytest_fail_ids  # noqa: E402  bd#88
 from bytedigger_engine.lib.corpus_parity import (  # noqa: E402  (GH1338 §2.2, §10 rev4)
     BLOCKED_BY_ORDER,
     RunEvidence,
@@ -47,7 +48,6 @@ from bytedigger_engine.lib.corpus_parity import (  # noqa: E402  (GH1338 §2.2, 
     parse_run_evidence,
 )
 
-_PYTEST_FAIL_RE = re.compile(r"^(FAILED|ERROR)\s+(\S+)")
 _BUN_FAIL_RE = re.compile(r"^\s*\(fail\)\s*(.+)$")
 _BUN_DURATION_RE = re.compile(r"\s*\[\d+(?:\.\d+)?\s*(?:ms|s)\]\s*$")
 
@@ -58,18 +58,9 @@ _DEFAULT_CACHE_DIR = str(Path.cwd() / foreign_state_dirname() / "baseline-cache"
 
 
 def parse_pytest_fails(text: str) -> list:
-    """Extract dedup, order-preserving list of pytest fail node-ids."""
-    seen = set()
-    result = []
-    for line in text.splitlines():
-        m = _PYTEST_FAIL_RE.match(normalize_ci_line(line))
-        if not m:
-            continue
-        nodeid = m.group(2)
-        if nodeid not in seen:
-            seen.add(nodeid)
-            result.append(nodeid)
-    return result
+    """Extract dedup, order-preserving list of pytest fail node-ids (the id
+    grammar is the engine's, bd#88)."""
+    return list(dict.fromkeys(iter_pytest_fail_ids(text)))
 
 
 def normalize_bun_fail_id(name: str) -> str:
@@ -267,7 +258,8 @@ def evaluate(current: list, baseline: list, rows: list) -> dict:
     new_fails = []
 
     for fail_id in current:
-        if fail_id in baseline_set:
+        # A file-level baseline id (collection error) covers that file's tests.
+        if covered_by_baseline(fail_id, baseline_set):
             baseline_matched.append(fail_id)
             continue
         matched = match_ledger(fail_id, rows)
