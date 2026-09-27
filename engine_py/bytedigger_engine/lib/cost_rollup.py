@@ -38,6 +38,24 @@ def _add_row(bucket: dict[str, Any], tokens_in: Any, tokens_out: Any, cost_usd: 
     bucket["cost_usd"] += _num(cost_usd)
 
 
+def run_cost(rows: list[dict], run_id: str) -> tuple[float, int]:
+    """Known spend of ``run_id`` over already-parsed event rows, and the number
+    of cost-bearing calls that reported no ``cost_usd`` (bd#85). Same events
+    and fields as ``compute_cost_rollup``."""
+    known, unknown = 0.0, 0
+    for row in rows:
+        if not isinstance(row, dict) or row.get("run_id") != run_id:
+            continue
+        if row.get("event_type") not in _ROLLUP_EVENT_TYPES:
+            continue
+        usd = (row.get("payload") or {}).get("cost_usd")
+        if isinstance(usd, (int, float)):
+            known += usd
+        else:
+            unknown += 1
+    return known, unknown
+
+
 def compute_cost_rollup(events_path: Path | str, run_id: str) -> dict:
     """Aggregate token-cost telemetry for one run_id from a JSONL events file."""
     rollup: dict[str, Any] = {

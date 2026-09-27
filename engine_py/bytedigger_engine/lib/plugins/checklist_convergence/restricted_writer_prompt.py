@@ -22,6 +22,11 @@ def _render_findings(findings: Sequence[Mapping[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _verbatim_label(findings_source: str) -> str:
+    """Heading of the verbatim-context block for who raised the findings."""
+    return "REVIEWER VERDICT" if findings_source == "reviewer" else f"{findings_source.upper()} FINDINGS"
+
+
 def build_writer_prompt(
     spec: str,
     findings: Sequence[Mapping[str, str]],
@@ -44,8 +49,7 @@ def build_writer_prompt(
     findings_block = _render_findings(findings)
     if verbatim_reviewer_context:
         clamped = verbatim_reviewer_context.encode("utf-8")[:4096].decode("utf-8", errors="ignore")
-        label = "REVIEWER VERDICT" if findings_source == "reviewer" else f"{findings_source.upper()} FINDINGS"
-        verbatim_block = f"{label} (verbatim, for context):\n{clamped}\n\n"
+        verbatim_block = f"{_verbatim_label(findings_source)} (verbatim, for context):\n{clamped}\n\n"
     else:
         verbatim_block = ""
     heading = "CYCLE-1 REVIEWER FINDINGS" if findings_source == "reviewer" else f"{findings_source.upper()} FINDINGS"

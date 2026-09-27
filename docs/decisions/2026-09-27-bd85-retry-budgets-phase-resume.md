@@ -204,10 +204,11 @@ TaskBegin`** returns `allowed`, `action`, `resume_from`, `completed`, `runs`, `c
   - Order: the cost cap is checked first and always applies. A credited paused row then
     waives only the runs cap and the charge.
 - **Cost.**
-  - It is summed from the rows already read, over the same events and fields as
-    `compute_cost_rollup`.
+  - It is `cost_rollup.run_cost` over the rows already read: the same events and fields
+    as `compute_cost_rollup`, plus the count of calls with no cost.
   - A missing log is a first run and costs $0.
-  - A log that exists but cannot be read gives `E_TASK_COST_UNREADABLE`.
+  - A log that exists but cannot be read, or holds a malformed line, gives
+    `E_TASK_COST_UNREADABLE` (read with `EventLog.read_all`, which fails on a malformed line).
   - Rows with no `cost_usd` are counted in `cost_unknown_calls`.
 - **Ledger.**
   - The ledger is `task-runs-<run_id>.json` in `state_dir`, written atomically under an

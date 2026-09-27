@@ -100,6 +100,7 @@ Outputs:
 from __future__ import annotations
 
 import concurrent.futures
+import functools
 import json
 import logging
 import os
@@ -2276,6 +2277,15 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         parts.append("")
     if _inline_n > 0:
         _emit_safe("fix_prompt_test_files_inlined", {"count": _inline_n, "bytes": _inline_b})
+    # bd#85: a satisfaction loop may not skip, and its scope includes the
+    # evaluator's findings; the review-driven prompt is unchanged.
+    early_return_rule = "" if sat_loop else (
+        "  - EARLY-RETURN: if review verdict is PASS (no findings), DO NOT touch\n"
+        "    any file. Engine runs the test suite to verify; emit FIX SKIPPED.\n"
+    )
+    filed_findings = "filed findings (review or satisfaction)" if sat_loop else "filed findings"
+    skipped_marker = "" if sat_loop else "  FIX SKIPPED  — review verdict PASS, no findings to fix.\n"
+    complete_markers = "FIX COMPLETE" if sat_loop else "FIX COMPLETE or FIX SKIPPED"
     parts.append(
         "RULES (Boy Scout + Test Integrity):\n"
         "  - Every finding passed confidence ≥80 — they are all real. Fix all.\n"
@@ -2287,19 +2297,15 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         "    authoritative — do not revert assertion changes from recent\n"
         "    commits. If a finding requires reverting a test assertion,\n"
         "    emit FIX BLOCKED with diagnosis.\n"
-        + ("" if sat_loop else
-           "  - EARLY-RETURN: if review verdict is PASS (no findings), DO NOT touch\n"
-           "    any file. Engine runs the test suite to verify; emit FIX SKIPPED.\n")
-        + "  - Iteration cap: 40 tool calls after the second verification PASS.\n"
+        f"{early_return_rule}"
+        "  - Iteration cap: 40 tool calls after the second verification PASS.\n"
         "    Exceeding the cap = emit FIX BLOCKED with diagnosis.\n"
     )
     parts.append(
         "ANTI-FABRICATION — producer rules in injection/producer-rules.md\n"
         "(## Anti-Fabrication — Producer Rules) apply. Surface-specific for FIX-WORKER:\n"
-        + ("  - Fix ONLY filed findings (review or satisfaction). Each Edit maps to a specific finding\n"
-           if sat_loop else
-           "  - Fix ONLY filed findings. Each Edit maps to a specific finding\n")
-        + "    ID/title. No adjacent improvements, no `while we are here`.\n"
+        f"  - Fix ONLY {filed_findings}. Each Edit maps to a specific finding\n"
+        "    ID/title. No adjacent improvements, no `while we are here`.\n"
         "  - RESOLVED requires the same command/tool the review used to now\n"
         "    succeed. Did-not-change-production-code-path = NOT RESOLVED.\n"
         "  - No test changes to silence a finding (only valid reason is SPEC\n"
@@ -2308,8 +2314,8 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         "\n"
         "OUTPUT: end your response with EXACTLY one of:\n"
         "  FIX COMPLETE — [N] of [N] findings fixed. Files: [path1, path2, ...]\n"
-        + ("" if sat_loop else "  FIX SKIPPED  — review verdict PASS, no findings to fix.\n")
-        + "  FIX BLOCKED  — [N] of [M] findings fixed. Diagnosis: [root cause].\n"
+        f"{skipped_marker}"
+        "  FIX BLOCKED  — [N] of [M] findings fixed. Diagnosis: [root cause].\n"
         "                 Remaining: [list]"
     )
     parts.append(
@@ -2320,9 +2326,8 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         '  {"fix_complete": true, "remaining": []}\n'
         "  ```\n"
         "\n"
-        + ("Set fix_complete=true iff your marker is FIX COMPLETE. If FIX BLOCKED,\n" if sat_loop else
-           "Set fix_complete=true iff your marker is FIX COMPLETE or FIX SKIPPED. If FIX BLOCKED,\n")
-        + 'set fix_complete=false and remaining to a list of {"file": "<path>", "issue": "<what still needs fixing>"} objects.\n'
+        f"Set fix_complete=true iff your marker is {complete_markers}. If FIX BLOCKED,\n"
+        'set fix_complete=false and remaining to a list of {"file": "<path>", "issue": "<what still needs fixing>"} objects.\n'
         "This block is the AUTHORITATIVE gate signal — the engine reads it, not the FIX marker line.\n"
         "The FIX marker line stays for human audit. Both the marker line and this block are required."
     )
@@ -3445,6 +3450,7 @@ def _render_satisfaction_findings(fixes: list, fallback: str) -> str:
     return "\n".join(lines) if lines else fallback
 
 
+@functools.cache
 def _fix_step_index(workflow_name: "str | None") -> "int | None":
     """Index of the fix step in the workflow that is running, or None when that
     workflow has no fix step (the SIMPLE fast path)."""

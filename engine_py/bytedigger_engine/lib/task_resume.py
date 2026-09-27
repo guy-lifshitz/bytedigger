@@ -34,6 +34,7 @@ from typing import Any, Iterator
 
 from bytedigger_engine.event_log import EventLog
 from bytedigger_engine.io_utils import atomic_write
+from bytedigger_engine.lib.cost_rollup import run_cost
 
 try:
     import fcntl
@@ -65,7 +66,6 @@ _STOP_CODES = frozenset({
     "E_RESTART_SHORT_CIRCUIT",
 })
 _REROUTE_CODE = "E_SPEC_DEFECT"
-_COST_EVENT_TYPES = ("subprocess_exited", "runner_result_consumed")
 _RESET_EVENT = "task_cap_reset"
 _DENIED_EVENT = "restart_governor_denied"
 PHASE_REFUSED_EVENT = "phase_refused"  # run.py: an oracle refusal of the phase
@@ -101,22 +101,13 @@ class TaskBegin:
 
 
 def _read_rows(events_path: Path | str) -> list[dict[str, Any]]:
-    path = Path(events_path)
-    if not path.exists():
-        return []
+    """The run log's rows; a missing log is an empty one. A log that cannot be
+    read or holds a malformed line fails closed as ``TaskLogUnreadable``."""
     try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
+        rows = EventLog(events_path).read_all()
+    except (OSError, ValueError) as exc:
         raise TaskLogUnreadable(str(exc)) from exc
-    rows: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
-    return rows
+    return [r for r in rows if isinstance(r, dict)]
 
 
 def _is_stop(status: str | None, code: str | None) -> bool:
@@ -148,8 +139,9 @@ def _plan(rows: list[dict[str, Any]], run_id: str, phases: list[str]) -> ResumeP
     for phase in phases:
         entry = last.get(phase)
         denial = denied.get(phase)
-        if entry is not None and entry[0] > fresh_after and entry[1].get("status") in _DONE_STATUSES \
-                and (denial is None or denial[0] < entry[0]):
+        if (entry is not None and entry[0] > fresh_after
+                and entry[1].get("status") in _DONE_STATUSES
+                and (denial is None or denial[0] < entry[0])):
             completed.append(phase)
             fresh_after = entry[0]
             continue
@@ -206,22 +198,6 @@ def _load_ledger(path: Path) -> dict[str, Any] | None:
     return data
 
 
-def _cost(rows: list[dict[str, Any]], run_id: str) -> tuple[float, int]:
-    """Known spend of the run and the number of calls that reported none.
-    Same rows and fields as ``cost_rollup.compute_cost_rollup``, summed over
-    the rows already read so a second read cannot silently come back empty."""
-    known, unknown = 0.0, 0
-    for r in rows:
-        if r.get("run_id") != run_id or r.get("event_type") not in _COST_EVENT_TYPES:
-            continue
-        usd = (r.get("payload") or {}).get("cost_usd")
-        if isinstance(usd, (int, float)):
-            known += usd
-        else:
-            unknown += 1
-    return known, unknown
-
-
 def begin_task_run(
     state_dir: Path | str,
     run_id: str,
@@ -248,7 +224,7 @@ def begin_task_run(
         except TaskLogUnreadable:
             return TaskBegin(False, "stop", None, [], runs, 0.0, 0, "E_TASK_COST_UNREADABLE")
         plan = _plan(rows, run_id, list(phases))
-        cost, unknown = _cost(rows, run_id)
+        cost, unknown = run_cost(rows, run_id)
 
         def _result(allowed: bool, runs_now: int, code: str | None = None) -> TaskBegin:
             return TaskBegin(allowed, plan.action, plan.resume_from, plan.completed,

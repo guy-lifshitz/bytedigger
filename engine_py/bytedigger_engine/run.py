@@ -100,14 +100,28 @@ def parse_ctx(args) -> WorkflowContext:
     )
 
 
-def _oracle_refusal_result(code: str, message: str) -> StepResult:
+def _oracle_refusal_result(args, run_id: str, code: str, message: str) -> StepResult:
     """`[bd8:6a]`: a refusal is a StepResult, never a raise.
 
     Raising past main()'s try block would be mapped to E_RUNNER (or
     E_FILE_NOT_FOUND) and hide every oracle refusal from the restart governor,
     `--status` and `derive_state`. `recoverable=False` matters too:
     restart_governor exempts recoverable codes from its short-circuit.
+
+    bd#85: every refusal is also recorded as a `phase_refused` row, because it
+    happens outside the engine, after (or instead of) the phase's own
+    workflow_finished row; a driver planning the next run must not take an
+    `ok` row for a phase that was refused.
     """
+    if args.event_log:
+        try:
+            get_event_sink(args.event_log).append(
+                task_resume.PHASE_REFUSED_EVENT,
+                {"workflow": args.workflow, "error_code": code},
+                run_id,
+            )
+        except Exception:  # recording must never change the refusal itself
+            sys.stderr.write("phase_refused event could not be recorded\n")
     return StepResult(
         status="error", data=None, duration_ms=0, step_name="oracle_verify",
         error=message, error_code=code, recoverable=False,
@@ -131,13 +145,13 @@ def _oracle_entry_verify(args, ctx, run_id: str) -> "StepResult | None":
             # `[bd8:9]`/AC-15: absence of a freeze is not permission, and a
             # logless implementing phase is the strongest case of absence.
             return _oracle_refusal_result(
-                "E_ORACLE_UNFROZEN",
+                args, run_id, "E_ORACLE_UNFROZEN",
                 "no oracle freeze for this invocation in the event log"
                 + ("" if args.event_log else " (no --event-log was given)"),
             )
         oracle.verify_against(frozen["payload"], _oracle_scratchpad(ctx))
     except oracle.OracleRefusal as e:
-        return _oracle_refusal_result(e.code, e.message)
+        return _oracle_refusal_result(args, run_id, e.code, e.message)
     return None
 
 
@@ -156,7 +170,7 @@ def _oracle_after_execute(args, ctx, run_id: str, result) -> "StepResult | None"
             frozen = oracle.find_last_freeze(events, run_id)
             if frozen is None:
                 return _oracle_refusal_result(
-                    "E_ORACLE_UNFROZEN",
+                    args, run_id, "E_ORACLE_UNFROZEN",
                     "no oracle freeze for this invocation in the event log",
                 )
             oracle.verify_against(frozen["payload"], scratchpad)
@@ -195,24 +209,8 @@ def _oracle_after_execute(args, ctx, run_id: str, result) -> "StepResult | None"
             event_type = oracle.AMENDED_EVENT
         get_event_sink(args.event_log).append(event_type, payload, run_id)
     except oracle.OracleRefusal as e:
-        return _oracle_refusal_result(e.code, e.message)
+        return _oracle_refusal_result(args, run_id, e.code, e.message)
     return None
-
-
-def _record_phase_refused(args, run_id: str, refusal: StepResult) -> None:
-    """bd#85: an oracle refusal happens outside the engine, after (or instead
-    of) the phase's own workflow_finished row. Record it so a driver planning
-    the next run does not take an `ok` row for a phase that was refused."""
-    if not args.event_log:
-        return
-    try:
-        get_event_sink(args.event_log).append(
-            task_resume.PHASE_REFUSED_EVENT,
-            {"workflow": args.workflow, "error_code": refusal.error_code},
-            run_id,
-        )
-    except Exception:  # telemetry must never change the refusal itself
-        sys.stderr.write("phase_refused event could not be recorded\n")
 
 
 def _task_seam(args) -> int:
@@ -354,7 +352,6 @@ def main() -> int:
         # phase's steps never ran is what distinguishes it from the exit verify.
         _oracle_refusal = _oracle_entry_verify(args, ctx, _resolved_run_id)
         if _oracle_refusal is not None:
-            _record_phase_refused(args, _resolved_run_id, _oracle_refusal)
             print(json.dumps(asdict(_oracle_refusal), default=str))
             return 1
         _ret = execute_durable_workflow(
@@ -387,7 +384,6 @@ def main() -> int:
         _oracle_result = _oracle_after_execute(args, ctx, _resolved_run_id, result)
         if _oracle_result is not None:
             result = _oracle_result
-            _record_phase_refused(args, _resolved_run_id, _oracle_result)
         if args.event_log:
             # GH576 C474E073: PAUSED lane budget exemption — a spend-limit
             # pause refunds the start instead of recording a countable error.

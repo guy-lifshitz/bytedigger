@@ -40,22 +40,26 @@ if [ "$begin_rc" -ne 0 ] && [ "$begin_rc" -ne 1 ]; then
   echo "driver: --task-begin failed (exit $begin_rc): $plan" >&2
   exit 1
 fi
-if ! python3 -c 'import json,sys; json.loads(sys.argv[1])' "$plan" 2>/dev/null; then
+# Parse the plan once into shell variables (plan_<field>).
+if ! fields=$(python3 -c '
+import json, shlex, sys
+d = json.loads(sys.argv[1])
+for k in ("action", "allowed", "resume_from", "error_code", "plan_error_code",
+          "last_status", "cost_unknown_calls"):
+    v = d.get(k)
+    print("plan_" + k + "=" + shlex.quote("" if v is None else str(v)))
+' "$plan" 2>/dev/null); then
   echo "driver: --task-begin did not print a JSON plan: $plan" >&2
   exit 1
 fi
+eval "$fields"
 
-field() {
-  python3 -c 'import json,sys; v=json.loads(sys.argv[1]).get(sys.argv[2]); print("" if v is None else v)' "$plan" "$1"
-}
+action=$plan_action
+resume_from=$plan_resume_from
+why="$plan_error_code $plan_plan_error_code $plan_last_status"
 
-action=$(field action)
-allowed=$(field allowed)
-resume_from=$(field resume_from)
-why="$(field error_code) $(field plan_error_code) $(field last_status)"
-
-if [ "$(field cost_unknown_calls)" != "0" ] && [ -n "$(field cost_unknown_calls)" ]; then
-  echo "driver: warning: $(field cost_unknown_calls) model call(s) reported no cost; the \$ cap only counts known cost" >&2
+if [ -n "$plan_cost_unknown_calls" ] && [ "$plan_cost_unknown_calls" != "0" ]; then
+  echo "driver: warning: $plan_cost_unknown_calls model call(s) reported no cost; the \$ cap only counts known cost" >&2
 fi
 
 case "$action" in
@@ -64,7 +68,7 @@ case "$action" in
     exit 0
     ;;
   resume)
-    if [ "$allowed" != "True" ]; then
+    if [ "$plan_allowed" != "True" ]; then
       echo "driver: task $run_id refused:$why" >&2
       exit 1
     fi

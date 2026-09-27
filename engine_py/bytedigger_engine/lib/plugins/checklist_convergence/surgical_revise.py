@@ -23,7 +23,7 @@ from collections.abc import Mapping, Sequence
 
 from bytedigger_engine.lib import authored_boundary
 
-from .restricted_writer_prompt import _render_findings
+from .restricted_writer_prompt import _render_findings, _verbatim_label
 
 # 0b95d45a (P7): the spec is the authorization source for
 # `security-lint-pragma-allow:`; a revise that adds its own allow line
@@ -59,8 +59,7 @@ def build_surgical_revise_prompt(
         clamped = verbatim_reviewer_context.encode("utf-8")[:4096].decode(
             "utf-8", errors="ignore"
         )
-        label = "REVIEWER VERDICT" if findings_source == "reviewer" else f"{findings_source.upper()} FINDINGS"
-        verbatim_block = f"{label} (verbatim, for context):\n{clamped}\n\n"
+        verbatim_block = f"{_verbatim_label(findings_source)} (verbatim, for context):\n{clamped}\n\n"
     else:
         verbatim_block = ""
     return (
