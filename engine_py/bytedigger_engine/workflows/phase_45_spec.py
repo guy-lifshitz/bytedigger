@@ -3623,21 +3623,19 @@ def _reality_blocking(spec_text: str, repo_root: Path) -> list[spec_cite.Finding
     """R1 findings. An abbreviated path (a `/`-aligned suffix of a repo code file) is
     rewritten to that file's repo path and the text is linted again, so it gets every
     downgrade `lint_spec` gives a resolved path; only a path that matches no repo file
-    stays `missing_file`."""
+    stays `missing_file`. (Resolving abbreviated paths inside `spec_cite.check_citation`
+    would give cite-lint the same leniency; that is bd#87's module.)"""
     _rc, findings = spec_cite.lint_spec_text(spec_text, repo_root)
     missing = sorted({f.file for f in findings if f.status == "missing_file"})
-    if missing:
-        rel_paths = sorted(p.relative_to(repo_root).as_posix() for p in spec_cite._iter_code_files(repo_root))
-        rewrites = {}
-        for path in missing:
-            short = path.removeprefix("./")
-            match = next((r for r in rel_paths if r.endswith("/" + short)), None)
-            if match is not None:
-                rewrites[path] = match
-        for path, full in rewrites.items():
-            spec_text = re.sub(r"(?<![\w./-])" + re.escape(path) + r"(?![\w/-])", full, spec_text)
-        if rewrites:
-            _rc, findings = spec_cite.lint_spec_text(spec_text, repo_root)
+    rel_paths = [p.relative_to(repo_root).as_posix() for p in spec_cite._iter_code_files(repo_root)] if missing else []
+    rewrites = {
+        path: full for path in missing
+        if (full := next((r for r in rel_paths if r.endswith("/" + spec_cite._norm_path(path))), None))
+    }
+    for path, full in rewrites.items():
+        spec_text = re.sub(r"(?<![\w./-])" + re.escape(path) + r"(?![\w/-])", full, spec_text)
+    if rewrites:
+        _rc, findings = spec_cite.lint_spec_text(spec_text, repo_root)
     return [f for f in findings if f.status in _REALITY_STATUSES]
 
 
@@ -3689,7 +3687,9 @@ def _verify_spec_reality(ctx: WorkflowContext, prev: Any) -> StepResult:
     blocking = [] if r1_skipped else _reality_blocking(spec_text, repo_root)
     findings: list[str] = []
     if blocking:
-        names = facts_pack.defined_names(repo_root)
+        # the near-name hints cost a repo read; only unresolved symbols use them
+        unresolved = any(f.status == "unresolved_symbol" for f in blocking)
+        names = facts_pack.defined_names(repo_root) if unresolved else []
         for f in blocking:
             line = _cite_finding_evidence({"status": f.status, "file": f.file, "symbol": f.symbol})
             near = facts_pack.near_names(f.symbol, names) if f.status == "unresolved_symbol" else []
