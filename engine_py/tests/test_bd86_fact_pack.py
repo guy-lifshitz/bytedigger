@@ -27,6 +27,15 @@ def _fp():
     return importlib.import_module("bytedigger_engine.facts_pack")
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_env(monkeypatch):
+    for var in ("GRAPHIFY_OUT", "HAL_FACTS_PACK", "HAL_SPEC_REALITY_GATE"):
+        monkeypatch.delenv(var, raising=False)
+
+
+_SEEDLESS = "Improve the module"
+
+
 # ─── fixtures ─────────────────────────────────────────────────────────────────
 
 
@@ -142,6 +151,12 @@ def test_ac2_symbols_and_unresolved(tmp_path):
     assert pack["version"] == 1
 
 
+def test_ac2b_seed_cap_keeps_function_names():
+    fp = _fp()
+    text = " ".join(f"`E_CODE_{i:02d}`" for i in range(45)) + " `zeta_fn`"
+    assert "zeta_fn" in fp.seed_tokens(text).symbols
+
+
 def test_ac3_existing_tests(tmp_path):
     fp = _fp()
     repo = _repo(tmp_path)
@@ -166,6 +181,16 @@ def test_ac4_graph(tmp_path, monkeypatch):
     assert "caller_fn()" in node["callers"], node
     bare = _repo(tmp_path / "bare")
     assert fp.collect(bare, "Change `existing_helper`")["graph"]["status"] == "absent"
+
+
+def test_ac4b_unreadable_graph(tmp_path):
+    fp = _fp()
+    repo = _repo(tmp_path)
+    (repo / "graphify-out").mkdir()
+    (repo / "graphify-out" / "graph.json").write_text("{not json", encoding="utf-8")
+    pack = fp.collect(repo, "Change `existing_helper`")
+    assert pack["graph"]["status"] == "unreadable", pack["graph"]
+    assert pack["symbols"] and pack["tests"]
 
 
 def test_ac5_known_reds(tmp_path):
@@ -247,6 +272,20 @@ def test_ac8_facts_block_caches(tmp_path, monkeypatch):
     assert collected[0]["audience"] == "red"
 
 
+def test_ac8b_corrupt_cache_is_recollected(tmp_path, monkeypatch):
+    fp = _fp()
+    _record(monkeypatch, fp)
+    repo = _repo(tmp_path)
+    scratch = tmp_path / "s"
+    scratch.mkdir()
+    fp.facts_block(scratch, repo, "Change `existing_helper`", "red")
+    (cache,) = (scratch / "facts").glob("red-*.json")
+    cache.write_text('{"version": 1, "sym', encoding="utf-8")
+    out = fp.facts_block(scratch, repo, "Change `existing_helper`", "red")
+    assert fp.FACTS_HEADER in out
+    json.loads(cache.read_text(encoding="utf-8"))
+
+
 def test_ac9_kill_switch(tmp_path, monkeypatch):
     fp = _fp()
     monkeypatch.setenv("HAL_FACTS_PACK", "0")
@@ -298,11 +337,12 @@ def test_ac12_red_prompt_carries_facts(tmp_path):
     fp = _fp()
     repo = _repo(tmp_path)
     scratch = tmp_path / "s"
-    ctx = _ctx(scratch, repo)
+    ctx = _ctx(scratch, repo, question=_SEEDLESS)
     _write_spec(scratch, _SPEC)
     prompt = _prompt(phase_5_implement._build_red_prompt(ctx, None))
     assert fp.FACTS_HEADER in prompt
-    assert "tests/test_mod.py" in prompt[prompt.index(fp.FACTS_HEADER):]
+    facts = prompt[prompt.index(fp.FACTS_HEADER):]
+    assert "pkg/mod.py:1" in facts and "tests/test_mod.py" in facts
 
 
 def _phase5_prev(scratch: Path, **extra) -> StepResult:
@@ -320,17 +360,17 @@ def test_ac13_validation_prompt_carries_facts(tmp_path):
     fp = _fp()
     repo = _repo(tmp_path)
     scratch = tmp_path / "s"
-    ctx = _ctx(scratch, repo)
+    ctx = _ctx(scratch, repo, question=_SEEDLESS)
     prompt = _prompt(phase_5_implement._build_validation_prompt(ctx, _phase5_prev(scratch)))
     assert fp.FACTS_HEADER in prompt
-    assert "existing_helper" in prompt[prompt.index(fp.FACTS_HEADER):]
+    assert "pkg/mod.py:1" in prompt[prompt.index(fp.FACTS_HEADER):]
 
 
 def test_ac14_green_prompt_carries_facts(tmp_path):
     fp = _fp()
     repo = _repo(tmp_path)
     scratch = tmp_path / "s"
-    ctx = _ctx(scratch, repo)
+    ctx = _ctx(scratch, repo, question=_SEEDLESS)
     val_doc = scratch / "validation" / "validation.md"
     val_doc.parent.mkdir(parents=True, exist_ok=True)
     val_doc.write_text("VERDICT: PASS\n")
@@ -338,6 +378,7 @@ def test_ac14_green_prompt_carries_facts(tmp_path):
         ctx, _phase5_prev(scratch, validation_doc_path=str(val_doc)),
     ))
     assert fp.FACTS_HEADER in prompt
+    assert "pkg/mod.py:1" in prompt[prompt.index(fp.FACTS_HEADER):]
     pack = fp.collect(repo, "x")
     green_lead = fp.render(pack, "green").splitlines()[1]
     assert green_lead in prompt
@@ -347,17 +388,19 @@ def test_ac15_review_prompt_carries_facts(tmp_path):
     fp = _fp()
     repo = _repo(tmp_path)
     scratch = tmp_path / "s"
-    ctx = _ctx(scratch, repo)
+    ctx = _ctx(scratch, repo, question=_SEEDLESS)
     _write_spec(scratch, _SPEC)
     prompt = _prompt(phase_6_review._build_review_prompt(ctx, None))
     assert fp.FACTS_HEADER in prompt
+    assert "pkg/mod.py:1" in prompt[prompt.index(fp.FACTS_HEADER):]
 
 
 # ─── op3: verify_spec_reality ─────────────────────────────────────────────────
 
 
-def _reality(tmp_path, monkeypatch, spec_text: str, *, frozen: bool) -> StepResult:
-    monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda *a, **k: None)
+def _reality(tmp_path, monkeypatch, spec_text: str, *, frozen: bool, events: list | None = None) -> StepResult:
+    sink = events if events is not None else []
+    monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda name, payload: sink.append((name, payload)))
     repo = _repo(tmp_path)
     scratch = tmp_path / "s"
     ctx = _ctx(scratch, repo)
@@ -380,11 +423,31 @@ _GHOST_SPEC = (
 
 
 def test_ac16_nonexistent_symbol_retries_the_writer(tmp_path, monkeypatch):
-    r = _reality(tmp_path, monkeypatch, _GHOST_SPEC, frozen=False)
+    events: list = []
+    r = _reality(tmp_path, monkeypatch, _GHOST_SPEC, frozen=False, events=events)
     assert r.status == "error" and r.error_code == "E_SPEC_REALITY_FAIL", r
     assert r.recoverable is True, r
     assert r.data["retry_source"] == phase_45_spec.SPEC_GATES_RETRY_SOURCE
     assert "ghost_helper" in r.data["findings"]
+    checked = [p for n, p in events if n == "spec_reality_checked"]
+    assert checked and checked[-1]["status"] == "fail", events
+
+
+def test_ac16b_finding_suggests_near_names(tmp_path, monkeypatch):
+    spec = _GHOST_SPEC.replace("`ghost_helper`", "`existing_helpr`")
+    r = _reality(tmp_path, monkeypatch, spec, frozen=True)
+    assert r.error_code == "E_SPEC_REALITY_FAIL", r
+    hit = [f for f in r.data["spec_reality_findings"] if "existing_helpr" in f]
+    assert hit and "near: existing_helper" in hit[0], r.data["spec_reality_findings"]
+
+
+def test_ac16c_abbreviated_path_is_not_invented(tmp_path, monkeypatch):
+    ok = _SPEC.replace("`pkg/mod.py`", "`mod.py`")
+    assert _reality(tmp_path / "a", monkeypatch, ok, frozen=True).status == "ok"
+    bad = _GHOST_SPEC.replace("`pkg/mod.py`", "`mod.py`")
+    r = _reality(tmp_path / "b", monkeypatch, bad, frozen=True)
+    assert r.error_code == "E_SPEC_REALITY_FAIL", r
+    assert any("ghost_helper" in f for f in r.data["spec_reality_findings"])
 
 
 def test_ac17_frozen_spec_is_checked_and_terminal(tmp_path, monkeypatch):
@@ -398,6 +461,7 @@ def test_ac17_frozen_spec_is_checked_and_terminal(tmp_path, monkeypatch):
 def test_ac18_clean_spec_passes(tmp_path, monkeypatch):
     r = _reality(tmp_path, monkeypatch, _SPEC, frozen=True)
     assert r.status == "ok", r
+    assert r.data["is_frozen"] is True and r.data["spec_path"].endswith("build-spec.md")
 
 
 _MOCK_ONLY = (
@@ -444,6 +508,9 @@ def test_ac22_introduced_symbol_anchors_a_mock_criterion(tmp_path):
         "| AC1 | with `existing_helper` mocked, `new_runner` returns 3 |\n"
     )
     assert fp.unanchored_criteria(spec, repo) == []
+    undeclared = spec.split("## Acceptance")[1]
+    got = fp.unanchored_criteria("## Acceptance" + undeclared, repo)
+    assert [g["id"] for g in got] == ["AC1"], got
     mocked = "## Acceptance\n| AC | c |\n|---|---|\n| AC1 | patch `existing_helper`; it returns 3 |\n"
     got = fp.unanchored_criteria(mocked, repo)
     assert [g["id"] for g in got] == ["AC1"], got
@@ -471,3 +538,15 @@ def test_ac25_registries():
     manifest = json.loads((_ENGINE_ROOT / "core_manifest.json").read_text(encoding="utf-8"))
     assert "facts_pack.py" in json.dumps(manifest)
     _fp()
+
+
+def test_ac22b_mock_window(tmp_path):
+    fp = _fp()
+    repo = _repo(tmp_path)
+    head = "## Acceptance\n| AC | c |\n|---|---|\n"
+    # a participle does not reach forward: `other` stays an unmocked, real anchor
+    assert fp.unanchored_criteria(head + "| AC1 | with `existing_helper` mocked, `other` returns 3 |\n", repo) == []
+    got = fp.unanchored_criteria(head + "| AC1 | patch `existing_helper` and assert 3 |\n", repo)
+    assert got and got[0]["mocked"] == ["existing_helper"], got
+    got = fp.unanchored_criteria(head + "| AC1 | `fake_store` holds one row |\n", repo)
+    assert [g["id"] for g in got] == ["AC1"], got
