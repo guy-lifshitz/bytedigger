@@ -601,5 +601,7 @@ def test_ac22b_mock_window(tmp_path):
     # window bounds: four words between verb and token, or a comma, and the token is unmocked
     far = "| AC1 | patch the one real old `existing_helper` to 3 |\n"
     assert fp.unanchored_criteria(head + far, repo) == []
+    near = "| AC1 | patch the real old `existing_helper` to 3 |\n"
+    assert [g["id"] for g in fp.unanchored_criteria(head + near, repo)] == ["AC1"]
     comma = "| AC1 | patch it, then `existing_helper` returns 3 |\n"
     assert fp.unanchored_criteria(head + comma, repo) == []

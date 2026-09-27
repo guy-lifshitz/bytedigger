@@ -115,6 +115,7 @@ from pathlib import Path
 
 from bytedigger_engine import config_provider, telemetry_ctx
 from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin
+from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine.contracts import RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, STRAGGLER_PATIENCE_SEC, STRAGGLER_POLL_INTERVAL_SEC, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason, _resolve_backend
 
@@ -757,6 +758,10 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         parts.append(f"RED WORKER REPORT (read this file for test paths): {red_log}")
     if green_log.is_file():
         parts.append(f"GREEN WORKER REPORT (read this file for impl paths): {green_log}")
+    facts = spec_facts_block(ctx, scratchpad, spec_path, "review")
+    if facts:
+        parts.append("")
+        parts.append(facts)
     # 3F5599A6 D1 (55802041): inject the prior fix-cycle's post-fix pytest
     # report so reviewers see regression evidence instead of re-deriving it.
     _postfix = _load_postfix_pytest_report(scratchpad)

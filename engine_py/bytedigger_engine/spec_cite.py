@@ -6,6 +6,7 @@ Public API:
   scan_citations(spec_text) -> list[Citation]
   check_citation(cit, repo_root, declared=..., repo_index=...) -> Finding
   lint_spec(spec_path, repo_root) -> tuple[int, list[Finding]]
+  lint_spec_text(spec_text, repo_root) -> tuple[int, list[Finding]]
   declared_introduced_symbols(spec_text) -> set[str]
   BLOCKING_STATUSES — Finding statuses that make lint_spec exit 1
 
@@ -631,7 +632,11 @@ def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
     exit_code = 1 if any finding's status is in BLOCKING_STATUSES, else 0.
     new_symbol, planned_file, wrong_file, and resolved are advisory.
     """
-    spec_text = spec_path.read_text(encoding="utf-8", errors="replace")
+    return lint_spec_text(spec_path.read_text(encoding="utf-8", errors="replace"), repo_root)
+
+
+def lint_spec_text(spec_text: str, repo_root: Path) -> tuple[int, list[Finding]]:
+    """`lint_spec` on spec text instead of a file (bd#86: the reality gate lints a rewritten text)."""
     citations = scan_citations(spec_text)
     declared = declared_created_files(spec_text)
     repo_index = _repo_symbol_index(repo_root)  # GH796 §2.4: computed once

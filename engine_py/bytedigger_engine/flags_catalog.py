@@ -205,6 +205,18 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_5_devops_scan.py",
         "description": "Override path for the devops-scan finding allowlist file.",
     },
+    "HAL_FACTS_PACK": {
+        "kind": "gate",
+        "default": "1",
+        "module": "facts_pack.py",
+        "description": "Kill-switch: HAL_FACTS_PACK=0 drops the deterministic fact block from the spec/RED/gate/GREEN/review prompts (bd#86).",
+    },
+    "HAL_SPEC_REALITY_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_45_spec.py",
+        "description": "Kill-switch: HAL_SPEC_REALITY_GATE=0 skips verify_spec_reality, the spec-vs-reality gate that also checks frozen specs (bd#86).",
+    },
     "HAL_SPEC_DELTA_RETRY": {
         "kind": "gate",
         "default": "1",

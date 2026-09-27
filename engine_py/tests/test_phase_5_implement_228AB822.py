@@ -291,7 +291,7 @@ def test_228ab822_prompt_preserves_green_complete_marker(tmp_path):
 # ─── Test 6 (H): prompt body stays under 6KB ─────────────────────────────────
 
 
-def test_228ab822_prompt_body_stays_under_6kb(tmp_path):
+def test_228ab822_prompt_body_stays_under_6kb(tmp_path, monkeypatch):
     """Prompt itself must stay compact. Current prompt is ~2KB (verified
     2026-04-30 — see comment below). 6KB ceiling leaves 3-4KB of headroom
     for the new no-echo / no-narrative / token-budget rules.
@@ -304,6 +304,9 @@ def test_228ab822_prompt_body_stays_under_6kb(tmp_path):
     Current size at time of writing (RED): ~2000 bytes (preservation
     guard — PASSES today; would FAIL if GREEN bloats the prompt).
     """
+    # bd#86: the fact block is repo data with its own 8000-char cap, not rule text;
+    # this guard measures rule bloat, so it runs with the block off.
+    monkeypatch.setenv("HAL_FACTS_PACK", "0")
     prompt = _build_prompt(tmp_path)
     # Flake-hardening: the prompt embeds the resolved scratchpad absolute path ~8×.
     # Under concurrent pytest load tmp dirs get longer, inflating the byte count over
