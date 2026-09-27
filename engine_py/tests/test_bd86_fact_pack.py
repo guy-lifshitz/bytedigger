@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -263,7 +264,7 @@ def test_ac8_facts_block_caches(tmp_path, monkeypatch):
     scratch.mkdir()
     out1 = fp.facts_block(scratch, repo, "Change `existing_helper`", "red")
     assert fp.FACTS_HEADER in out1
-    files = list((scratch / "facts").glob("red-*.json"))
+    files = list((scratch / "facts").glob("*.json"))
     assert len(files) == 1, files
     out2 = fp.facts_block(scratch, repo, "Change `existing_helper`", "red")
     assert out2 == out1
@@ -279,7 +280,7 @@ def test_ac8b_corrupt_cache_is_recollected(tmp_path, monkeypatch):
     scratch = tmp_path / "s"
     scratch.mkdir()
     fp.facts_block(scratch, repo, "Change `existing_helper`", "red")
-    (cache,) = (scratch / "facts").glob("red-*.json")
+    (cache,) = (scratch / "facts").glob("*.json")
     cache.write_text('{"version": 1, "sym', encoding="utf-8")
     out = fp.facts_block(scratch, repo, "Change `existing_helper`", "red")
     assert fp.FACTS_HEADER in out
@@ -605,3 +606,135 @@ def test_ac22b_mock_window(tmp_path):
     assert [g["id"] for g in fp.unanchored_criteria(head + near, repo)] == ["AC1"]
     comma = "| AC1 | patch it, then `existing_helper` returns 3 |\n"
     assert fp.unanchored_criteria(head + comma, repo) == []
+
+
+# ─── review follow-ups (silent-failure audit) ─────────────────────────────────
+
+
+def test_ac8c_cache_follows_repo_edits(tmp_path, monkeypatch):
+    fp = _fp()
+    _record(monkeypatch, fp)
+    repo = _repo(tmp_path)
+    scratch = tmp_path / "s"
+    scratch.mkdir()
+    before = fp.facts_block(scratch, repo, "Change `existing_helper`", "gate")
+    (repo / "tests" / "test_new.py").write_text(
+        "from pkg.mod import existing_helper\n\n\ndef test_new_case():\n    assert existing_helper(0) == 1\n",
+        encoding="utf-8",
+    )
+    after = fp.facts_block(scratch, repo, "Change `existing_helper`", "gate")
+    assert "test_new_case" not in before and "test_new_case" in after
+
+
+def test_ac8d_wrong_shape_cache_is_recollected(tmp_path, monkeypatch):
+    fp = _fp()
+    _record(monkeypatch, fp)
+    repo = _repo(tmp_path)
+    scratch = tmp_path / "s"
+    scratch.mkdir()
+    fp.facts_block(scratch, repo, "Change `existing_helper`", "spec")
+    (cache,) = (scratch / "facts").glob("*.json")
+    cache.write_text('{"version": 1}', encoding="utf-8")
+    assert fp.FACTS_HEADER in fp.facts_block(scratch, repo, "Change `existing_helper`", "spec")
+    assert "graph" in json.loads(cache.read_text(encoding="utf-8"))
+
+
+def test_ac8e_cache_write_failure_keeps_the_block(tmp_path, monkeypatch):
+    fp = _fp()
+    _record(monkeypatch, fp)
+    repo = _repo(tmp_path)
+    scratch = tmp_path / "s"
+    scratch.mkdir()
+    (scratch / "facts").write_text("not a directory", encoding="utf-8")
+    assert fp.FACTS_HEADER in fp.facts_block(scratch, repo, "Change `existing_helper`", "red")
+
+
+def test_ac4c_bad_graph_shape_and_host_pinned_graph(tmp_path, monkeypatch):
+    fp = _fp()
+    repo = _repo(tmp_path, graph=True)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "graph.json").write_text(json.dumps({"nodes": [], "links": []}), encoding="utf-8")
+    monkeypatch.setenv("GRAPHIFY_OUT", str(other))
+    pack = fp.collect(repo, "Change `existing_helper`")
+    assert pack["graph"]["path"].startswith(str(repo)), pack["graph"]
+    (repo / "graphify-out" / "graph.json").write_text(
+        json.dumps({"nodes": [{"id": "a", "label": "existing_helper()"}], "links": ["bad"]}),
+        encoding="utf-8",
+    )
+    pack = fp.collect(repo, "Change `existing_helper`")
+    assert pack["graph"]["status"] == "unreadable" and pack["tests"], pack["graph"]
+    assert "unreadable:" in fp.render(pack, "review")
+
+
+def test_ac5b_unreadable_ledger(tmp_path):
+    fp = _fp()
+    repo = _repo(tmp_path, ledger=_LEDGER)
+    ledger = repo / "known-reds.md"
+    ledger.chmod(0)
+    try:
+        if os.access(ledger, os.R_OK):
+            pytest.skip("running as a user that ignores file modes")
+        pack = fp.collect(repo, "Change `existing_helper`")
+    finally:
+        ledger.chmod(0o644)
+    assert pack["known_reds"]["status"] == "unreadable", pack["known_reds"]
+    assert pack["tests"], "one unreadable section must not lose the rest of the pack"
+
+
+def test_ac17b_frozen_spec_that_cites_nothing_is_visible_not_terminal(tmp_path, monkeypatch):
+    # a docs-only or CI-only frozen spec cites no code; it must reach RED, but not silently
+    blind = (
+        "## Context\nReword `docs/guide.md`.\n\n## Acceptance\n| AC | c |\n|---|---|\n"
+        "| AC1 | the guide names the new flag |\n"
+    )
+    events: list = []
+    r = _reality(tmp_path, monkeypatch, blind, frozen=True, events=events)
+    assert r.status == "ok", r
+    checked = [p for n, p in events if n == "spec_reality_checked"]
+    assert checked and checked[-1]["blind"] is True, events
+
+
+def test_ac17c_cwd_root_does_not_kill_a_frozen_spec(tmp_path, monkeypatch):
+    events: list = []
+    sink = events
+    monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda name, payload: sink.append((name, payload)))
+    monkeypatch.setattr(phase_45_spec, "resolve_project_root", lambda cfg: (tmp_path / "elsewhere", "cwd"))
+    (tmp_path / "elsewhere").mkdir()
+    scratch = tmp_path / "s"
+    ctx = _ctx(scratch, _repo(tmp_path))
+    spec = _write_spec(scratch, _SPEC)
+    prev = StepResult(status="ok", data={"spec_path": str(spec), "is_frozen": True, "cycle": 1},
+                      duration_ms=0, step_name="verify_spec_ac_dsl")
+    r = phase_45_spec._verify_spec_reality(ctx, prev)
+    assert r.status == "ok", r
+    checked = [p for n, p in events if n == "spec_reality_checked"]
+    assert checked[-1]["r1_skipped"] == "repo_root_from_cwd", checked
+
+
+def test_ac22c_wrapped_criterion_keeps_its_anchor(tmp_path):
+    fp = _fp()
+    repo = _repo(tmp_path)
+    spec = (
+        "## Acceptance\n"
+        "- **AC1** — with `existing_helper` mocked,\n"
+        "  `other` returns 3\n"
+    )
+    assert fp.unanchored_criteria(spec, repo) == []
+
+
+def test_ac1b_builtin_calls_are_not_seeds():
+    fp = _fp()
+    seeds = fp.seed_tokens("call len() and print() then run_job() on Node.js")
+    assert seeds.symbols == ("run_job",), seeds
+    assert seeds.files == (), seeds
+
+
+def test_ac11c_frozen_path_collects_no_spec_pack(tmp_path, monkeypatch):
+    fp = _fp()
+    repo = _repo(tmp_path)
+    scratch = tmp_path / "s"
+    ctx = _ctx(scratch, repo)
+    prompt = _prompt(phase_45_spec._build_spec_prompt(ctx, {"cycle": 1, "is_frozen": True}))
+    assert fp.FACTS_HEADER not in prompt
+    assert not (scratch / "facts").exists()

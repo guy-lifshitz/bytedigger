@@ -1164,8 +1164,9 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
         parts.append(decision_block)
         parts.append("")
     # bd#86: repo facts for what the request, architecture and decision doc
-    # name — collected before the writer runs, so it cites what exists.
-    facts = facts_pack.facts_block_for(
+    # name — collected before the writer runs, so it cites what exists. A frozen
+    # spec has no writer (invoke_spec_llm skips), so nothing is collected for it.
+    facts = "" if _prev_fields.get("is_frozen") else facts_pack.facts_block_for(
         ctx, scratchpad, "\n".join((ctx.question or "", arch_text or "", decision_block)), "spec",
     )
     if facts:
@@ -3659,15 +3660,20 @@ def _verify_spec_reality(ctx: WorkflowContext, prev: Any) -> StepResult:
             error="prev step did not produce data", error_code="E_MISSING_PREV_DATA",
         )
     if not get_config().gate_enabled("HAL_SPEC_REALITY_GATE"):
+        _emit_safe("gate_disabled", {
+            "gate": "spec_reality", "step": step, "reason": "kill_switch",
+            "detail": "HAL_SPEC_REALITY_GATE=0",
+        })
         return StepResult(status="skip", data={**prev.data}, duration_ms=0, step_name=step)
     spec_path = prev.data.get("spec_path")
     if not spec_path:
+        _emit_safe("spec_reality_checked", {"status": "skipped", "reason": "no_spec_path"})
         return StepResult(
             status="ok", data={**prev.data, "spec_reality_skipped": "no_spec_path"},
             duration_ms=0, step_name=step,
         )
     frozen = bool(prev.data.get("is_frozen"))
-    repo_root, _source = resolve_project_root(ctx.org_config or {})
+    repo_root, root_source = resolve_project_root(ctx.org_config or {})
     try:
         spec_text = Path(spec_path).read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
@@ -3677,7 +3683,10 @@ def _verify_spec_reality(ctx: WorkflowContext, prev: Any) -> StepResult:
             error_code="E_SPEC_REALITY_FAIL", recoverable=False,
         )
 
-    blocking = _reality_blocking(spec_text, repo_root)
+    # A root that fell back to the cwd is a guess: every citation would read as missing,
+    # and on a frozen spec that is terminal. R1 needs a known root; R2 does not.
+    r1_skipped = "repo_root_from_cwd" if root_source == "cwd" else None
+    blocking = [] if r1_skipped else _reality_blocking(spec_text, repo_root)
     findings: list[str] = []
     if blocking:
         names = facts_pack.defined_names(repo_root)
@@ -3685,7 +3694,8 @@ def _verify_spec_reality(ctx: WorkflowContext, prev: Any) -> StepResult:
             line = _cite_finding_evidence({"status": f.status, "file": f.file, "symbol": f.symbol})
             near = facts_pack.near_names(f.symbol, names) if f.status == "unresolved_symbol" else []
             findings.append(line + (f" (near: {', '.join(near)})" if near else ""))
-    for crit in facts_pack.unanchored_criteria(spec_text, repo_root):
+    mock_only = facts_pack.unanchored_criteria(spec_text, repo_root)
+    for crit in mock_only:
         mocked = ", ".join(f"`{t}`" for t in crit["mocked"]) or "no real anchor"
         findings.append(
             f"{crit['id']}: every reference is mocked ({mocked}) — tie it to a real "
@@ -3693,14 +3703,20 @@ def _verify_spec_reality(ctx: WorkflowContext, prev: Any) -> StepResult:
         )
     findings = list(dict.fromkeys(findings))
     _emit_safe("spec_reality_checked", {
-        "frozen": frozen, "r1": len(blocking), "r2": len(findings) - len(blocking),
+        "frozen": frozen, "r1": len(blocking), "r2": len(mock_only),
+        "repo_root": str(repo_root), "root_source": root_source, "r1_skipped": r1_skipped,
+        # cite-lint skips frozen specs; a frozen spec that cites no code is reported, not failed
+        "blind": spec_cite._is_blind(spec_text, spec_cite.scan_citations(spec_text)),
         "status": "fail" if findings else "ok",
     })
     if not findings:
         return StepResult(status="ok", data={**prev.data}, duration_ms=0, step_name=step)
 
     rendered = "\n".join(f"- {f}" for f in findings)
-    message = f"spec does not match the repo ({len(findings)} finding(s)) in {spec_path}:\n{rendered}"
+    message = (
+        f"spec does not match the repo at {repo_root} ({root_source}) — {len(findings)} "
+        f"finding(s) in {spec_path}:\n{rendered}"
+    )
     forwarded = {**prev.data, "spec_reality_findings": findings}
     if frozen:
         return StepResult(

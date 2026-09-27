@@ -15,6 +15,7 @@ Stdlib only. Spec: docs/decisions/2026-09-27-bd86-fact-pack.md.
 """
 from __future__ import annotations
 
+import builtins
 import difflib
 import hashlib
 import json
@@ -27,6 +28,7 @@ from typing import Any
 
 from bytedigger_engine import known_reds_ledger, spec_cite, telemetry_ctx
 from bytedigger_engine.config_provider import get_config
+from bytedigger_engine.io_utils import atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,9 @@ _PY_TEST_ID_RE = re.compile(r"^\s*(?:async\s+)?def\s+(test_\w+)", re.MULTILINE)
 _JS_TEST_ID_RE = re.compile(r"\b(?:test|it)\(\s*[\"'`]([^\"'`]+)[\"'`]")
 
 
+_BUILTINS = frozenset(dir(builtins))
+
+
 @dataclass(frozen=True)
 class Seeds:
     files: tuple[str, ...]
@@ -91,7 +96,7 @@ def seed_tokens(text: str) -> Seeds:
     """The code files and symbols `text` names: code paths, backtick symbols, bare `name()` calls."""
     files: set[str] = set()
     for m in spec_cite._CODE_FILE_RE.finditer(text):
-        if not m.group(0).startswith("//"):
+        if spec_cite._is_file_token(m.group(0)):
             files.add(_norm_file(m.group(0)))
     symbols: set[str] = set()
     for tok in spec_cite._BACKTICK_RE.findall(text):
@@ -99,7 +104,8 @@ def seed_tokens(text: str) -> Seeds:
         if _is_path(tok) or not spec_cite._is_valid_symbol(tok):
             continue
         symbols.add(tok.removesuffix("()"))
-    symbols.update(_CALL_TOKEN_RE.findall(text))
+    # a bare `len()` / `print()` in prose names nothing in the repo and would match every test
+    symbols.update(t for t in _CALL_TOKEN_RE.findall(text) if t not in _BUILTINS)
     return Seeds(
         files=tuple(sorted(files)[:MAX_SEED_FILES]),
         # all-caps constants (E_*, HAL_*) go last, so the cap drops them before function names
@@ -167,10 +173,12 @@ def near_names(name: str, names: list[str]) -> list[str]:
 
 
 def _graph_path(repo_root: Path, graph_json: Path | None) -> Path | None:
+    """The explicit graph, else the repo's own, else `$GRAPHIFY_OUT` (which a host may pin
+    to another tree, so it never shadows the repo-local graph)."""
     candidates = [graph_json] if graph_json is not None else []
+    candidates.append(repo_root / "graphify-out" / "graph.json")
     if os.environ.get("GRAPHIFY_OUT"):
         candidates.append(Path(os.environ["GRAPHIFY_OUT"]) / "graph.json")
-    candidates.append(repo_root / "graphify-out" / "graph.json")
     return next((p for p in candidates if p is not None and p.is_file()), None)
 
 
@@ -179,11 +187,18 @@ def _graph_facts(repo_root: Path, symbols: tuple[str, ...], graph_json: Path | N
     if path is None:
         return {"status": "absent", "path": None, "nodes": []}
     try:
-        graph = json.loads(path.read_text(encoding="utf-8"))
-        nodes = graph["nodes"]
-        links = graph.get("links") or graph.get("edges") or []
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        return {"status": "unreadable", "path": str(path), "nodes": [], "error": str(exc)}
+        return {"status": "ok", "path": str(path), "nodes": _graph_nodes(path, symbols)}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        logger.warning("facts pack: graph %s unreadable: %s", path, exc)
+        return {"status": "unreadable", "path": str(path), "nodes": [], "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _graph_nodes(path: Path, symbols: tuple[str, ...]) -> list[dict[str, Any]]:
+    graph = json.loads(path.read_text(encoding="utf-8"))
+    nodes = graph["nodes"]
+    links = graph.get("links") or graph.get("edges") or []
+    if not isinstance(nodes, list) or not isinstance(links, list):
+        raise TypeError("graph nodes/links are not lists")
     labels = {n.get("id"): str(n.get("label", "")) for n in nodes if isinstance(n, dict)}
     wanted = {_leaf(s): s for s in symbols}
     out: list[dict[str, Any]] = []
@@ -206,14 +221,18 @@ def _graph_facts(repo_root: Path, symbols: tuple[str, ...], graph_json: Path | N
             "callees": callees[:MAX_GRAPH_EDGES],
         })
     out.sort(key=lambda n: (n["symbol"], n["source"]))
-    return {"status": "ok", "path": str(path), "nodes": out}
+    return out
 
 
 def _known_reds(repo_root: Path, ledger: Path | None, needles: list[str]) -> dict[str, Any]:
     path = ledger if ledger is not None else repo_root / "known-reds.md"
     if not path.is_file():
         return {"status": "absent", "path": str(path), "rows": []}
-    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        logger.warning("facts pack: known-reds ledger %s unreadable: %s", path, exc)
+        return {"status": "unreadable", "path": str(path), "rows": [], "error": f"{type(exc).__name__}: {exc}"}
     rows = [
         {"line": line_no, "cells": cells}
         for line_no, cells in known_reds_ledger.parse_table_rows(text)
@@ -264,7 +283,8 @@ def collect(
             continue
         ids = _PY_TEST_ID_RE.findall(body) if rel.endswith(".py") else _JS_TEST_ID_RE.findall(body)
         tests.append({"file": rel, "references": sorted(refs), "test_ids": ids[:MAX_TEST_IDS]})
-    tests = tests[:MAX_TEST_FILES]
+    # most-referencing files first, so the cap drops incidental matches, not the module's tests
+    tests = sorted(tests, key=lambda t: (-len(t["references"]), t["file"]))[:MAX_TEST_FILES]
 
     needles: list[str] = [str(t["file"]) for t in tests] + list(seeds.files) + list(seeds.symbols)
     return {
@@ -281,6 +301,10 @@ def collect(
 
 def _section(title: str, lines: list[str]) -> list[str]:
     return [f"{title}:"] + ([f"  - {ln}" for ln in lines] or ["  (none)"])
+
+
+def _why(section: dict[str, Any]) -> str:
+    return f": {section['error']}" if section.get("error") else ""
 
 
 def render(pack: dict[str, Any], audience: str) -> str:
@@ -303,12 +327,12 @@ def render(pack: dict[str, Any], audience: str) -> str:
         f"{t['file']} [{', '.join(t['references'])}]: {', '.join(t['test_ids']) or '(no test ids)'}"
         for t in pack["tests"]
     ])
-    lines += _section(f"GRAPH ({graph['status']})", [
+    lines += _section(f"GRAPH ({graph['status']}{_why(graph)})", [
         f"{n['symbol']} @ {n['source']} — callers: {', '.join(n['callers']) or '-'}; "
         f"callees: {', '.join(n['callees']) or '-'}"
         for n in graph["nodes"]
     ])
-    lines += _section(f"KNOWN REDS ({kr['status']})", [
+    lines += _section(f"KNOWN REDS ({kr['status']}{_why(kr)})", [
         f"line {r['line']}: {' | '.join(r['cells'])}" for r in kr["rows"]
     ])
     out: list[str] = []
@@ -342,11 +366,32 @@ def _read_cache(cache: Path) -> dict[str, Any] | None:
     except (OSError, ValueError) as exc:
         logger.warning("facts pack cache %s unreadable, recollecting: %s", cache, exc)
         return None
-    return pack if isinstance(pack, dict) and pack.get("version") == 1 else None
+    if not (isinstance(pack, dict) and pack.get("version") == 1 and _PACK_KEYS <= pack.keys()):
+        logger.warning("facts pack cache %s has the wrong shape, recollecting", cache)
+        return None
+    return pack
+
+
+_PACK_KEYS = frozenset({"seeds", "files", "symbols", "unresolved", "tests", "graph", "known_reds"})
+
+
+def _repo_fingerprint(root: Path) -> str:
+    """Path, size and mtime of every indexed file plus the ledger and graph: the cache key
+    changes when RED, GREEN or a fix edits the repo, so no stage is served stale facts."""
+    h = hashlib.sha256()
+    extra = [root / "known-reds.md", root / "graphify-out" / "graph.json"]
+    for path in [*spec_cite._iter_code_files(root), *extra]:
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        h.update(f"{path}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+    return h.hexdigest()
 
 
 def facts_block(scratchpad: Path | str, repo_root: Path | str, text: str, audience: str) -> str:
-    """The fact block for one prompt, cached per (audience, repo_root, text) under `<scratchpad>/facts/`.
+    """The fact block for one prompt; the pack is cached per (repo_root, repo fingerprint, text)
+    under `<scratchpad>/facts/`, so stages over an unchanged repo share one collection.
 
     Returns "" when HAL_FACTS_PACK=0, and on any failure (logged and emitted as
     `facts_pack_failed`): missing context degrades a prompt, it does not end a build.
@@ -355,17 +400,20 @@ def facts_block(scratchpad: Path | str, repo_root: Path | str, text: str, audien
         return ""
     try:
         root = Path(repo_root).resolve()
-        key = hashlib.sha256(f"{root}\0{text}".encode()).hexdigest()[:16]
-        cache = Path(scratchpad) / "facts" / f"{audience}-{key}.json"
+        key = hashlib.sha256(f"{root}\0{_repo_fingerprint(root)}\0{text}".encode()).hexdigest()[:16]
+        cache = Path(scratchpad) / "facts" / f"{key}.json"  # the pack is audience-independent
         pack = _read_cache(cache)
         cached = pack is not None
         if pack is None:
             pack = collect(root, text)
-            cache.parent.mkdir(parents=True, exist_ok=True)
-            cache.write_text(json.dumps(pack, sort_keys=True, indent=1), encoding="utf-8")
+            try:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write(cache, json.dumps(pack, sort_keys=True, indent=1))
+            except OSError as exc:  # the pack is good; only the cache is lost
+                logger.warning("facts pack cache %s not written: %s", cache, exc)
         block = render(pack, audience)
     except Exception as exc:  # noqa: BLE001 — see docstring
-        logger.warning("facts pack (%s) failed: %s", audience, exc)
+        logger.warning("facts pack (%s) failed", audience, exc_info=True)
         _emit_safe("facts_pack_failed", {"audience": audience, "error": f"{type(exc).__name__}: {exc}"})
         return ""
     _emit_safe("facts_pack_collected", {
@@ -384,7 +432,14 @@ def facts_block_for(ctx: Any, scratchpad: Path | str, text: str, audience: str) 
     """`facts_block` with the repo root resolved the way spec citations resolve it."""
     from bytedigger_engine.lib.project_root import resolve_project_root  # noqa: PLC0415
 
-    root, _source = resolve_project_root(getattr(ctx, "org_config", None) or {})
+    try:
+        root, source = resolve_project_root(getattr(ctx, "org_config", None) or {})
+    except Exception as exc:  # noqa: BLE001 — same degrade contract as facts_block
+        logger.warning("facts pack (%s): repo root unresolved", audience, exc_info=True)
+        _emit_safe("facts_pack_failed", {"audience": audience, "error": f"{type(exc).__name__}: {exc}"})
+        return ""
+    if source == "cwd":
+        logger.warning("facts pack (%s): repo root fell back to the cwd %s", audience, root)
     return facts_block(scratchpad, root, text, audience)
 
 
@@ -392,7 +447,9 @@ def spec_facts_block(ctx: Any, scratchpad: Path | str, spec_path: Path | str, au
     """`facts_block_for` seeded from the feature request and the spec file (the post-spec stages)."""
     try:
         spec_text = Path(spec_path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as exc:
+        logger.warning("facts pack (%s): spec %s unreadable, seeding from the request only: %s",
+                       audience, spec_path, exc)
         spec_text = ""
     return facts_block_for(ctx, scratchpad, f"{getattr(ctx, 'question', '') or ''}\n{spec_text}", audience)
 
@@ -410,6 +467,7 @@ _MOCK_VERB_RE = re.compile(
 )
 _MOCKED_AFTER_RE = re.compile(r"(?i)^\s+(?:is\s+|are\s+)?(?:mocked|patched|stubbed|faked)\b")
 _MOCK_PREFIX_RE = re.compile(r"^(?:mock|fake|stub)_")
+_CONTINUATION_RE = re.compile(r"^\s+(?![-*]\s|\||#|(?:\*\*)?AC[-_ ]?\d)\S")
 _PATCH_TARGET_RE = re.compile(r"patch(?:\.object)?\(\s*[\"']([\w.]+)[\"']")
 
 
@@ -432,11 +490,18 @@ def unanchored_criteria(spec_text: str, repo_root: Path | str) -> list[dict[str,
     an unmocked anchor that exists (repo, CREATE file, INTRODUCES symbol).
     """
     root = Path(repo_root)
-    criteria = [
-        (m.group(1), line_no, line)
-        for line_no, line in spec_cite._iter_scannable_lines(spec_text)
-        if (m := _AC_LINE_RE.match(line))
-    ]
+    criteria: list[tuple[str, int, str]] = []
+    last_line_no = 0
+    for line_no, line in spec_cite._iter_scannable_lines(spec_text):
+        m = _AC_LINE_RE.match(line)
+        if m:
+            criteria.append((m.group(1), line_no, line))
+            last_line_no = line_no
+        elif criteria and last_line_no + 1 == line_no and _CONTINUATION_RE.match(line):
+            # a wrapped list criterion: an indented line right under it belongs to it
+            ac_id, first, text = criteria[-1]
+            criteria[-1] = (ac_id, first, text + " " + line.strip())
+            last_line_no = line_no
     if not criteria:
         return []
     created = spec_cite.declared_created_files(spec_text)
@@ -453,7 +518,8 @@ def unanchored_criteria(spec_text: str, repo_root: Path | str) -> list[dict[str,
         anchors = [(m.start(), m.end(), m.group(1).strip()) for m in spec_cite._BACKTICK_RE.finditer(line)]
         anchors = [a for a in anchors if _is_path(a[2]) or spec_cite._is_valid_symbol(a[2])]
         mocked = {tok for s, e, tok in anchors if _is_mocked(line, s, e, tok)}
-        mocked.update(_PATCH_TARGET_RE.findall(line))
+        for target in _PATCH_TARGET_RE.findall(line):  # `patch("a.b.fetch")` mocks `fetch` too
+            mocked.update((target, _leaf(target)))
         signal = bool(_MOCK_WORD_RE.search(line)) or bool(mocked)
         if not signal:
             return []
