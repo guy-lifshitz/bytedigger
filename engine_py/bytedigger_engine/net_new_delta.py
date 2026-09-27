@@ -1,10 +1,12 @@
 """net_new_delta.py — pure delta-verdict helper for 585E30E3 P2 shadow-mode gate.
 
 Mirrors reproducibility.py / suite_safety.py shape: stdlib-only, no side-effects.
-All functions are pure; no I/O, no subprocess, no telemetry.
+All functions are pure; no I/O, no subprocess, no telemetry. Count-based
+(585E30E3) and id-based (bd#88) verdicts.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -75,4 +77,86 @@ def delta_verdict(
         classification=cls,
         is_regression=is_regression,
         would_block=would_block,
+    )
+
+
+# ─── bd#88: delta by test ID ──────────────────────────────────────────────────
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_PYTEST_FAIL_LINE_RE = re.compile(r"^(?:FAILED|ERROR)\s+(.+?)(?:\s+-\s.*)?$")
+
+
+def parse_pytest_fail_ids(text: str) -> frozenset[str]:
+    """Node ids from pytest's short summary (``FAILED <id>`` / ``ERROR <id>``).
+
+    ANSI colour codes are stripped; the id runs up to the `` - `` message
+    separator, so parametrized ids containing spaces survive.
+    """
+    ids: set[str] = set()
+    for line in text.splitlines():
+        m = _PYTEST_FAIL_LINE_RE.match(_ANSI_RE.sub("", line).strip())
+        if m:
+            ids.add(m.group(1))
+    return frozenset(ids)
+
+
+def run_fail_ids(exit_code: int, text: str) -> frozenset[str] | None:
+    """Fail ids of one pytest run, or None when the run says nothing reliable.
+
+    rc 0 (all passed) and rc 5 (nothing collected) are available; rc 1 is
+    available only when at least one id parsed. Anything else — interrupted,
+    internal/usage error, timeout, a failure with no ids — is unavailable,
+    never "no failures".
+    """
+    if exit_code in (0, 5):
+        return parse_pytest_fail_ids(text)
+    if exit_code == 1:
+        ids = parse_pytest_fail_ids(text)
+        return ids or None
+    return None
+
+
+def _covered(fail_id: str, baseline_ids: frozenset[str]) -> bool:
+    # A file-level id (collection error at RED) covers every test id in that file.
+    return fail_id in baseline_ids or any(fail_id.startswith(b + "::") for b in baseline_ids)
+
+
+@dataclass(frozen=True)
+class IdDeltaVerdict:
+    """Immutable verdict from id_delta_verdict()."""
+
+    new_ids: tuple[str, ...]      # sorted current ids not covered by the baseline
+    classification: str           # "clean" | "preexisting_only" | "net_new_regression" | "baseline_unavailable"
+    baseline_available: bool
+    would_block: bool             # enforce AND new_ids
+
+
+def id_delta_verdict(
+    baseline_ids: frozenset[str] | None,
+    current_ids: frozenset[str],
+    *,
+    enforce: bool,
+    fail_closed: bool,
+) -> IdDeltaVerdict:
+    """Compare failing test ids against the RED-commit baseline.
+
+    With no baseline, ``fail_closed`` decides: every current failure is new
+    (True) or nothing can be called new (False).
+    """
+    if baseline_ids is None:
+        new_ids = tuple(sorted(current_ids)) if fail_closed else ()
+        cls = "baseline_unavailable"
+    else:
+        new_ids = tuple(sorted(i for i in current_ids if not _covered(i, baseline_ids)))
+        if not current_ids:
+            cls = "clean"
+        elif new_ids:
+            cls = "net_new_regression"
+        else:
+            cls = "preexisting_only"
+    return IdDeltaVerdict(
+        new_ids=new_ids,
+        classification=cls,
+        baseline_available=baseline_ids is not None,
+        would_block=enforce and bool(new_ids),
     )

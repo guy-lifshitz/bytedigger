@@ -159,19 +159,20 @@ def test_ac6_check_update_needs_update_in_graph_source_uses_bounded_run():
     )
 
 
-def test_ac6_compute_baseline_failed_in_phase5_uses_bounded_run():
+def test_ac6_red_commit_baseline_in_phase5_uses_git_write_seam():
     engine_py = _engine_py_root()
     filepath = engine_py / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
-    body = _read_function_slice(filepath, "_compute_baseline_failed")
-    # Both stash push (try-body) AND stash pop (finally block) must go through
-    # git_op_capture seam (git_write_port), not bounded_run directly.
+    # bd#88: the stash re-run (_compute_baseline_failed) is gone; its successor
+    # adds and removes a detached worktree. Both writes (add in the try body,
+    # remove in the finally block) go through the git_op_capture seam.
+    body = _read_function_slice(filepath, "_red_commit_baseline_fail_ids")
     count = body.count("git_op_capture(")
     assert count >= 2, (
-        f"_compute_baseline_failed in {filepath} must contain at least 2 "
-        f"git_op_capture( calls (stash push + stash pop finally), found {count}"
+        f"_red_commit_baseline_fail_ids in {filepath} must contain at least 2 "
+        f"git_op_capture( calls (worktree add + worktree remove finally), found {count}"
     )
     assert "timeout=" in body, (
-        f"_compute_baseline_failed in {filepath} does not pass timeout="
+        f"_red_commit_baseline_fail_ids in {filepath} does not pass timeout="
     )
 
 

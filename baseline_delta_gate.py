@@ -396,8 +396,9 @@ def main(argv) -> int:
         )
         return 0
 
-    if not os.path.isfile(args.ledger):
-        return _emit_error(f"ledger not found: {args.ledger}")
+    # bd#88: a missing ledger is an empty ledger — the delta still gets a
+    # verdict. An existing but unreadable ledger stays a driver error below.
+    ledger_source = "file" if os.path.lexists(args.ledger) else "missing"
 
     try:
         today = resolve_today()
@@ -405,8 +406,11 @@ def main(argv) -> int:
         return _emit_error(f"malformed HAL_KNOWN_REDS_TODAY: {exc}")
 
     try:
-        rows = parse_ledger(args.ledger, args.suite, today)
-        expired_ledger_rows = inactive_ledger_rows(args.ledger, args.suite, today)
+        if ledger_source == "missing":
+            rows, expired_ledger_rows = [], []
+        else:
+            rows = parse_ledger(args.ledger, args.suite, today)
+            expired_ledger_rows = inactive_ledger_rows(args.ledger, args.suite, today)
     except OSError as exc:
         return _emit_error(f"ledger unreadable: {exc}")
 
@@ -484,6 +488,7 @@ def main(argv) -> int:
         "current_fail_count": len(current),
         "new_fails": result["new_fails"],
         "ledgered": result["ledgered"],
+        "ledger_source": ledger_source,
         "baseline_matched": result["baseline_matched"],
         "delta_verdict": delta_verdict,
         "verdict": overall_verdict,

@@ -14,8 +14,8 @@ Planned contract (not yet in production):
 For the .py branch, if git_cwd is given:
   1. probe <git_cwd>/.venv/bin/pytest  (.is_file() AND os.access X_OK)
   2. probe <git_cwd>/venv/bin/pytest   (.is_file() AND os.access X_OK)
-  First hit → argv_prefix = [str(that_path), "-x", "--tb=no", "-q"]
-  No hit   → bare fallback: ["python3", "-m", "pytest", "-x", "--tb=no", "-q"]
+  First hit → argv_prefix = [str(that_path), "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"]
+  No hit   → bare fallback: ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"]
 Non-py extensions ignore git_cwd entirely.
 """
 from __future__ import annotations
@@ -50,15 +50,15 @@ def _make_exec_pytest(base: Path) -> Path:
 
 def test_ac1_venv_pytest_preferred(tmp_path):
     """_runner_for_path("x.py", git_cwd=tmp) with tmp/.venv/bin/pytest executable
-    must return argv_prefix == [str(venv_pytest), "-x", "--tb=no", "-q"] EXACTLY."""
+    must return argv_prefix == [str(venv_pytest), "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"] EXACTLY."""
     venv_pytest = _make_exec_pytest(tmp_path / ".venv")
 
     result = _runner_for_path("x.py", git_cwd=str(tmp_path))
 
     assert result is not None, f"expected a runner dict, got None"
     assert result["kind"] == "py"
-    assert result["argv_prefix"] == [str(venv_pytest), "-x", "--tb=no", "-q"], (
-        f"AC1 FAIL: expected [str(venv_pytest), '-x', '--tb=no', '-q'], got {result['argv_prefix']!r}"
+    assert result["argv_prefix"] == [str(venv_pytest), "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"], (
+        f"AC1 FAIL: expected [str(venv_pytest), '--tb=no', '-q', '-rfE', '--continue-on-collection-errors'], got {result['argv_prefix']!r}"
     )
 
 
@@ -71,7 +71,7 @@ def test_ac2_no_venv_bare_fallback(tmp_path):
     result = _runner_for_path("x.py", git_cwd=str(tmp_path))
 
     assert result is not None
-    assert result["argv_prefix"] == ["python3", "-m", "pytest", "-x", "--tb=no", "-q"], (
+    assert result["argv_prefix"] == ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"], (
         f"AC2 FAIL: expected bare argv, got {result['argv_prefix']!r}"
     )
 
@@ -85,7 +85,7 @@ def test_ac3_no_git_cwd_bare_argv():
     result = _runner_for_path("x.py")
 
     assert result is not None
-    assert result["argv_prefix"] == ["python3", "-m", "pytest", "-x", "--tb=no", "-q"], (
+    assert result["argv_prefix"] == ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"], (
         f"AC3 FAIL: backward-compat broken, got {result['argv_prefix']!r}"
     )
 
@@ -121,7 +121,7 @@ def test_ac5_non_executable_falls_back(tmp_path):
     result = _runner_for_path("x.py", git_cwd=str(tmp_path))
 
     assert result is not None
-    assert result["argv_prefix"] == ["python3", "-m", "pytest", "-x", "--tb=no", "-q"], (
+    assert result["argv_prefix"] == ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"], (
         f"AC5 FAIL: non-executable .venv pytest should fall back to bare argv, got {result['argv_prefix']!r}"
     )
 
@@ -188,7 +188,7 @@ def test_ac9_infer_no_git_cwd_bare_argv():
     assert "groups" in result, f"AC9 FAIL: got {result!r}"
     py_group = next((g for g in result["groups"] if g["kind"] == "py"), None)
     assert py_group is not None
-    assert py_group["argv"] == ["python3", "-m", "pytest", "-x", "--tb=no", "-q", "a.py"], (
+    assert py_group["argv"] == ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors", "a.py"], (
         f"AC9 FAIL: backward-compat broken, got {py_group['argv']!r}"
     )
 
@@ -228,7 +228,7 @@ def test_ac11_pytest_is_directory_falls_back(tmp_path):
     result = _runner_for_path("x.py", git_cwd=str(tmp_path))
 
     assert result is not None
-    assert result["argv_prefix"] == ["python3", "-m", "pytest", "-x", "--tb=no", "-q"], (
+    assert result["argv_prefix"] == ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"], (
         f"AC11 FAIL: pytest-as-directory should fall back to bare argv, got {result['argv_prefix']!r}"
     )
 
@@ -239,13 +239,13 @@ def test_ac11_pytest_is_directory_falls_back(tmp_path):
 
 def test_ac12_full_argv_prefix_exact(tmp_path):
     """AC1 scenario: confirm the FULL argv_prefix list is exactly
-    [str(venv_pytest), '-x', '--tb=no', '-q'] — no extra or missing tokens."""
+    [str(venv_pytest), '--tb=no', '-q', '-rfE', '--continue-on-collection-errors'] — no extra or missing tokens."""
     venv_pytest = _make_exec_pytest(tmp_path / ".venv")
 
     result = _runner_for_path("x.py", git_cwd=str(tmp_path))
 
     assert result is not None
-    expected = [str(venv_pytest), "-x", "--tb=no", "-q"]
+    expected = [str(venv_pytest), "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"]
     assert result["argv_prefix"] == expected, (
         f"AC12 FAIL: full argv_prefix mismatch.\n"
         f"  expected: {expected!r}\n"
