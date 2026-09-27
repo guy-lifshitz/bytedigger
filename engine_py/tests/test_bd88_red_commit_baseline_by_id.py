@@ -28,6 +28,7 @@ from bytedigger_engine.workflows import phase_5_implement as _p5
 from bytedigger_engine.workflows import _baseline_delta as _bd
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_REAL_BASELINE = getattr(_p5, "_red_commit_baseline_fail_ids", None)
 _GATE_SCRIPT = _REPO_ROOT / "baseline_delta_gate.py"
 _SRC = "cfg_git_cwd"
 _PY_PREFIX = [sys.executable, "-m", "pytest", "--tb=no", "-q", "-rfE",
@@ -104,9 +105,11 @@ def _wire_verify_green(monkeypatch, tmp_path, *, red_fails, sib_current, sib_bas
 
     monkeypatch.setattr(_p5, "_run_plan_fail_ids", _current)
     baseline_calls: list[list[str]] = []
+    sources: list[str] = []
 
     def _baseline(paths, sha, git_cwd, git_cwd_source, cache_dir):
         baseline_calls.append(sorted(paths))
+        sources.append(git_cwd_source)
         return sib_baseline
 
     monkeypatch.setattr(_p5, "_red_commit_baseline_fail_ids", _baseline)
@@ -116,7 +119,7 @@ def _wire_verify_green(monkeypatch, tmp_path, *, red_fails, sib_current, sib_bas
                             status="error", data=data, duration_ms=0, step_name=step,
                             error=msg, error_code="E_GREEN_NOT_PASSING", recoverable=False))
     monkeypatch.setattr(_p5, "run_baseline_delta_gate", lambda *a, **k: {"skipped": "stub"})
-    return str(red), sib, plans, baseline_calls
+    return str(red), sib, plans, baseline_calls, sources
 
 
 # ─── S1 ───────────────────────────────────────────────────────────────────────
@@ -211,7 +214,8 @@ class TestS2IdHelpers:
 # ─── S3 — RED run records the RED-path baseline ──────────────────────────────
 
 class TestS3RedRunRecordsBaseline:
-    def _drive(self, monkeypatch, tmp_path, stdout, verdict_status="ok", red_sha="redsha"):
+    def _drive(self, monkeypatch, tmp_path, stdout, verdict_status="ok", red_sha="redsha",
+               passing_kind=None, verdict_sha=None):
         red = tmp_path / "tests" / "test_red.py"
         red.parent.mkdir(parents=True, exist_ok=True)
         red.write_text("# red\n")
@@ -219,10 +223,11 @@ class TestS3RedRunRecordsBaseline:
         monkeypatch.setattr(_p5, "_verify_red_dirty_tree_guard", lambda *a, **k: None)
         monkeypatch.setattr(_p5, "_infer_test_command_for_paths", lambda paths, git_cwd=None: {
             "groups": [{"kind": "py", "argv": ["pytest", str(red)], "paths": [str(red)]}]})
-        monkeypatch.setattr(_p5, "_run_red_group", lambda g, c, p, cwd: (None, None, stdout))
+        monkeypatch.setattr(_p5, "_run_red_group", lambda g, c, p, cwd: (None, passing_kind, stdout))
         monkeypatch.setattr(_p5, "_decide_red_verdict", lambda ctx, prev, *a: StepResult(
-            status=verdict_status, data=dict(prev.data), duration_ms=0,
-            step_name="verify_red_fails_mechanically"))
+            status=verdict_status,
+            data={**prev.data, **({"red_commit_sha": verdict_sha} if verdict_sha else {})},
+            duration_ms=0, step_name="verify_red_fails_mechanically"))
         prev = _prev([str(red)], red_sha=red_sha)
         return _p5._verify_red_fails_mechanically(_ctx(tmp_path), prev), red
 
@@ -248,6 +253,23 @@ class TestS3RedRunRecordsBaseline:
     def test_not_recorded_when_verdict_not_ok(self, monkeypatch, tmp_path):
         self._drive(monkeypatch, tmp_path, "5 passed\n", verdict_status="error")
         assert not (tmp_path / "sp" / "baseline" / "redsha.pytest.json").exists()
+
+    def test_not_recorded_on_restore_or_resume(self, monkeypatch, tmp_path):
+        """GH1034 restore / GH483 resume: verdict ok, a group passed, the verdict
+        may carry a new sha — the degenerate stdout must not become a baseline."""
+        r, _ = self._drive(monkeypatch, tmp_path, "3 passed in 0.1s\n",
+                           passing_kind="py", verdict_sha="restoredsha")
+        assert r.status == "ok"
+        base = tmp_path / "sp" / "baseline"
+        assert not (base / "redsha.pytest.json").exists()
+        assert not (base / "restoredsha.pytest.json").exists()
+
+    def test_not_recorded_without_ids(self, monkeypatch, tmp_path):
+        events = _events(monkeypatch)
+        r, _ = self._drive(monkeypatch, tmp_path, "1 failed\n")
+        assert r.status == "ok"
+        assert not (tmp_path / "sp" / "baseline" / "redsha.pytest.json").exists()
+        assert any(e["type"] == "red_commit_baseline_unavailable" for e in events)
 
     def test_not_recorded_without_red_sha(self, monkeypatch, tmp_path):
         r, _ = self._drive(monkeypatch, tmp_path, "FAILED tests/test_red.py::a - x\n1 failed\n", red_sha=None)
@@ -408,6 +430,20 @@ class TestS4SiblingBaseline:
             _p5._red_commit_baseline_fail_ids(["tests/test_s.py"], red_sha, str(repo), _SRC, None)
         assert len(runs) == 2
 
+    def test_worktree_imports_red_sha_code_not_pythonpath_tree(self, red_repo, tmp_path, monkeypatch):
+        """No root conftest; the working tree is on PYTHONPATH. Without the
+        worktree-first PYTHONPATH prefix the baseline would import GREEN code
+        and report {test_b, test_c}."""
+        repo, red_sha, _ = red_repo
+        (repo / "conftest.py").unlink()
+        _git(repo, "rm", "-q", "--cached", "conftest.py")
+        _git(repo, "commit", "-q", "-m", "no conftest")
+        red_sha = _git(repo, "rev-parse", "HEAD").strip()
+        monkeypatch.setenv("PYTHONPATH", str(repo))
+        ids = _p5._red_commit_baseline_fail_ids(
+            ["tests/test_s.py"], red_sha, str(repo), _SRC, str(tmp_path / "cache"))
+        assert ids == frozenset({"tests/test_s.py::test_a", "tests/test_s.py::test_c"})
+
     def test_stash_baseline_removed(self):
         assert not hasattr(_p5, "_compute_baseline_failed")
         assert not hasattr(_p5, "_run_plan_failed_total")
@@ -417,7 +453,7 @@ class TestS4SiblingBaseline:
 
 class TestS5VerifyGreen:
     def test_sibling_swap_blocks_and_scopes_to_siblings(self, monkeypatch, tmp_path):
-        red, sib, plans, baseline_calls = _wire_verify_green(
+        red, sib, plans, baseline_calls, sources = _wire_verify_green(
             monkeypatch, tmp_path, red_fails=[],
             sib_current=frozenset({"tests/test_foo.py::test_b"}),
             sib_baseline=frozenset({"tests/test_foo.py::test_a"}),
@@ -427,6 +463,7 @@ class TestS5VerifyGreen:
         assert r.status == "error"
         assert plans == [[sib]]
         assert baseline_calls == [[sib]]
+        assert sources == ["cfg_git_cwd"]  # the resolver's label, forwarded
         ev = [e for e in events if e["type"] == "verify_green_sibling_delta_verdict"]
         assert ev and ev[0]["payload"]["new_ids"] == ["tests/test_foo.py::test_b"]
 
@@ -507,13 +544,37 @@ class TestS5VerifyGreen:
         assert ev and ev[0]["payload"]["classification"] == "baseline_unavailable"
 
     def test_no_red_sha(self, monkeypatch, tmp_path):
-        red, sib, plans, baseline_calls = _wire_verify_green(
+        red, sib, plans, baseline_calls, _ = _wire_verify_green(
             monkeypatch, tmp_path, red_fails=["tests/test_red.py::test_one"],
             sib_current=frozenset(), sib_baseline=frozenset(), red_sha=None,
         )
         r = _p5._verify_green_passing(_ctx(tmp_path), _prev([red], red_sha=None))
         assert r.status == "error" and r.recoverable is True
         assert plans == [] and baseline_calls == []
+
+    def test_ambient_real_caller_sibling_site_never_writes(self, monkeypatch, tmp_path):
+        """Real caller + real helper at the sibling site with an ambient
+        (relative) git_cwd: guard fires, no worktree, no stash, untracked intact."""
+        red, sib, *_ = _wire_verify_green(
+            monkeypatch, tmp_path, red_fails=[],
+            sib_current=frozenset(), sib_baseline=frozenset(),
+        )
+        monkeypatch.setattr(_p5, "_red_commit_baseline_fail_ids", _REAL_BASELINE)
+        _git(tmp_path, "init", "-q")
+        _git(tmp_path, "config", "user.email", "t@example.com")
+        _git(tmp_path, "config", "user.name", "t")
+        _git(tmp_path, "add", "-A")
+        _git(tmp_path, "commit", "-q", "-m", "base")
+        (tmp_path / "untracked.txt").write_text("precious\n")
+        wt_before = _git(tmp_path, "worktree", "list")
+        monkeypatch.chdir(tmp_path)
+        events = _events(monkeypatch)
+        ctx = _ctx(tmp_path, git_cwd=".")
+        _p5._verify_green_passing(ctx, _prev([red]))
+        assert any(e["type"] == "baseline_skipped_ambient_cwd" for e in events)
+        assert _git(tmp_path, "worktree", "list") == wt_before
+        assert _git(tmp_path, "stash", "list") == ""
+        assert (tmp_path / "untracked.txt").read_text() == "precious\n"
 
     def test_no_git_stash_during_verify_green(self, monkeypatch, tmp_path):
         red, *_ = _wire_verify_green(
