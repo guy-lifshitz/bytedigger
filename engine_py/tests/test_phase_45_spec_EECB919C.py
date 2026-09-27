@@ -403,14 +403,14 @@ def test_ac11_scope_violating_cycle2_returns_fatal(tmp_path) -> None:
     FAILS pre-GREEN: function does not exist.
 
     GH625 §2.5: cap decision now keyed on per-gate gate_attempts, not raw
-    cycle; spec_retry cap is now 1 (recoverable_once). Seed 1 prior attempt
+    cycle; the spec_gates cap is 1 (recoverable_once, bd#85). Seed 1 prior attempt
     (== cap) — prev.data is spread into forwarded_data at
     phase_45_spec.py:1900 `forwarded_data={**prev.data, ...}`, confirmed."""
     from bytedigger_engine.workflows.phase_45_spec import _verify_spec_scope_inverse  # deferred
 
     f = _write(tmp_path, "spec_fatal.md", _SCOPE_VIOLATING)
     ctx = _make_ctx()
-    prev = _make_prev(f, cycle=2, gate_attempts={"spec_retry": 1})
+    prev = _make_prev(f, cycle=2, gate_attempts={"spec_gates": 1})
 
     r = _verify_spec_scope_inverse(ctx, prev)
 

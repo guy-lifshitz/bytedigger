@@ -1003,12 +1003,16 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     # initial_data={"cycle": N, "findings": <raw>} on recoverable retry).
     cycle = 1
     findings: str | None = None
+    _prev_fields: dict[str, Any] = {}
     if isinstance(_prev, dict):
-        cycle = int(_prev.get("cycle", 1))
-        findings = _prev.get("findings")
+        _prev_fields = _prev
     elif isinstance(_prev, StepResult) and isinstance(_prev.data, dict):
-        cycle = int(_prev.data.get("cycle", 1))
-        findings = _prev.data.get("findings")
+        _prev_fields = _prev.data
+    cycle = int(_prev_fields.get("cycle", 1))
+    findings = _prev_fields.get("findings")
+    # bd#85: a spec gate retry carries the gate's own findings; the persisted
+    # review thread belongs to an earlier review cycle and must not replace them.
+    gate_retry = _prev_fields.get("retry_source") == SPEC_GATES_RETRY_SOURCE
 
     scratchpad = _resolve_scratchpad(ctx)
     arch_doc = scratchpad / ARCHITECTURE_DOC_RELPATH
@@ -1023,9 +1027,11 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
         threaded = _prev.get("structured_findings")
     elif isinstance(_prev, StepResult) and isinstance(_prev.data, dict):
         threaded = _prev.data.get("structured_findings")
-    if cycle >= 2 and not threaded and delta_enabled:
+    if cycle >= 2 and not threaded and delta_enabled and not gate_retry:
         threaded = load_findings_thread(scratchpad)  # GH636: recover thread evicted from DBOS operation_outputs on ERROR-retry
-    if cycle >= 2 and threaded and delta_enabled:
+    if gate_retry:
+        structured_findings = None
+    elif cycle >= 2 and threaded and delta_enabled:
         structured_findings = threaded
     elif cycle >= 2 and findings:
         structured_findings = extract_structured_findings(findings)  # status-quo fallback
@@ -1227,7 +1233,10 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             parts.append(f"- FINDING_{fid}: {req}")
     elif cycle >= 2:
         parts.append("")
-        parts.append(f"## REVISION (cycle {cycle} — address reviewer findings)")
+        if gate_retry:
+            parts.append(f"## REVISION (cycle {cycle} — fix the spec gate findings)")
+        else:
+            parts.append(f"## REVISION (cycle {cycle} — address reviewer findings)")
         parts.append("")
         parts.append(findings or "(no findings text captured)")
         parts.append("")
@@ -1639,6 +1648,40 @@ def _write_spec_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
 # ─── 8A9C0F24: spec completeness check (pre-citation, pre-Opus short-circuit) ─
 
 
+SPEC_GATES_RETRY_SOURCE = "spec_gates"
+
+
+def _build_class(ctx: WorkflowContext) -> str:
+    return str((ctx.org_config or {}).get("complexity", "SIMPLE")).upper()
+
+
+def _spec_gate_retry(
+    *,
+    forwarded_data: dict[str, Any],
+    error_msg: str,
+    findings: Any = None,
+    **kwargs: Any,
+) -> StepResult:
+    """bd#85: the one builder of a deterministic spec gate's retry result.
+
+    Every spec gate spends the ``spec_gates`` budget, separate from the
+    reviewer's ``spec_review``. The retry carries this gate's own findings
+    (the error message when the gate has no richer rendering), marks itself
+    ``retry_source="spec_gates"`` so the writer prompt does not replay the
+    persisted review thread, and drops the ``structured_findings`` a prior
+    review cycle threaded through ``prev.data``.
+    """
+    data = {
+        **forwarded_data,
+        "findings": error_msg if findings is None else findings,
+        "retry_source": SPEC_GATES_RETRY_SOURCE,
+        "structured_findings": None,
+    }
+    return RecoverableGateMixin.gated_step_result(
+        gate="spec_gates", forwarded_data=data, error_msg=error_msg, **kwargs,
+    )
+
+
 def _verify_spec_completeness(ctx: WorkflowContext, prev: Any) -> StepResult:
     """Detect stub-spec output (changelog instead of full spec body) BEFORE
     the expensive Opus reviewer fires.  Saves ~123s + ~$1.64 per cycle.
@@ -1689,9 +1732,8 @@ def _verify_spec_completeness(ctx: WorkflowContext, prev: Any) -> StepResult:
     if not spec_path.is_file():
         fwd = prev.data if isinstance(prev.data, dict) else {}
         build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_FILE_MISSING",
@@ -1759,9 +1801,9 @@ def _verify_spec_completeness(ctx: WorkflowContext, prev: Any) -> StepResult:
         )
         if rr.converged and rr.final is not None:
             return rr.final
-    return cast(StepResult, RecoverableGateMixin.gated_step_result(
+    return cast(StepResult, _spec_gate_retry(
+        findings=findings_text,
         build_class=build_class_incomplete,
-        gate="spec_retry",
         cycle=cycle,
         retry_from_step_idx=0,
         error_code="E_SPEC_INCOMPLETE",
@@ -2040,17 +2082,21 @@ def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
         # finding, so the reader named in the message can see what the
         # message text itself omits.
         findings_artifact = _write_spec_lint_findings_artifact(findings, str(spec_path))
-        return StepResult(
-            status="error",
-            data={
+        # bd#85: a lint FAIL retries the writer with these findings under the
+        # spec_gates budget; terminal E_SPEC_LINT_FAIL once the budget is spent.
+        return _spec_gate_retry(
+            build_class=_build_class(ctx),
+            cycle=int(prev.data.get("cycle", 1)),
+            retry_from_step_idx=0,
+            error_code="E_SPEC_LINT_FAIL",
+            error_msg=_spec_lint_fail_message(findings, str(spec_path), findings_artifact),
+            step_name=step,
+            forwarded_data={
                 **prev.data,
                 "spec_lint_findings": findings,
                 "spec_lint_findings_artifact": findings_artifact,
             },
-            duration_ms=0, step_name=step,
-            error=_spec_lint_fail_message(findings, str(spec_path), findings_artifact),
-            error_code="E_SPEC_LINT_FAIL",
-            recoverable=False,
+            terminal_error_code="E_SPEC_LINT_FAIL",
         )
     # Unexpected rc
     return StepResult(
@@ -2309,16 +2355,30 @@ def _verify_spec_cite_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
             )
             if rr.converged and rr.final is not None:
                 return rr.final
-        return StepResult(
-            status="error",
-            data={**prev.data, "spec_cite_lint_findings": cite_findings},
-            duration_ms=0, step_name=step,
-            error=(
-                f"spec_cite_lint detected {len(cite_findings)} blocking citation finding(s) in "
-                f"{spec_path}; first: {first}"
-            ),
+        message = (
+            f"spec_cite_lint detected {len(cite_findings)} blocking citation finding(s) in "
+            f"{spec_path}; first: {first}"
+        )
+        if not cite_findings:
+            # rc=1 with nothing parsed: the lint is blind, a writer retry cannot help.
+            return StepResult(
+                status="error",
+                data={**prev.data, "spec_cite_lint_findings": cite_findings},
+                duration_ms=0, step_name=step,
+                error=message, error_code="E_SPEC_CITE_LINT_FAIL", recoverable=False,
+            )
+        # bd#85: blocking citations retry the writer with every finding under
+        # the spec_gates budget; terminal E_SPEC_CITE_LINT_FAIL once spent.
+        return _spec_gate_retry(
+            findings="\n".join(f"- {f['evidence']}" for f in cite_findings),
+            build_class=_build_class(ctx),
+            cycle=int(prev.data.get("cycle", 1)),
+            retry_from_step_idx=0,
             error_code="E_SPEC_CITE_LINT_FAIL",
-            recoverable=False,
+            error_msg=message,
+            step_name=step,
+            forwarded_data={**prev.data, "spec_cite_lint_findings": cite_findings},
+            terminal_error_code="E_SPEC_CITE_LINT_FAIL",
         )
     if rc == 2:
         # DELIBERATE DIVERGENCE from _verify_spec_lint: graceful (not fail-closed).
@@ -2399,6 +2459,7 @@ def _collect_spec_gate_findings(
                 "evidence": "driver-error rc=2",
                 "error_code": "E_SPEC_LINT_FAIL",
                 "recoverable": False,
+                "infra": True,
             })
 
     # 2. spec_cite_lint driver — never early-returns before this.
@@ -2423,6 +2484,7 @@ def _collect_spec_gate_findings(
                 "evidence": ev,
                 "error_code": "E_SPEC_CITE_LINT_FAIL",
                 "recoverable": False,
+                **({} if evidence else {"infra": True}),
             })
     elif cite_proc is not None and cite_proc.returncode == 2:
         findings.append({
@@ -2432,6 +2494,7 @@ def _collect_spec_gate_findings(
             "evidence": "driver_error",
             "error_code": "E_SPEC_CITE_LINT_UNEXPECTED_RC",
             "recoverable": False,
+            "infra": True,
         })
 
     return findings
@@ -2503,16 +2566,29 @@ def _verify_spec_preflight_batch(ctx: WorkflowContext, prev: Any) -> StepResult:
         if rr.converged and rr.final is not None:
             return rr.final
 
-    return StepResult(
-        status="error",
-        data={"findings": findings},
-        duration_ms=0, step_name=step,
-        error=(
-            f"spec_preflight_batch detected {len(findings)} finding(s) across "
-            f"{len(gates_fired)} gate(s) in {spec_path}"
-        ),
+    message = (
+        f"spec_preflight_batch detected {len(findings)} finding(s) across "
+        f"{len(gates_fired)} gate(s) in {spec_path}"
+    )
+    if any(f.get("infra") for f in findings):
+        # A broken or blind lint driver: a writer retry cannot fix it.
+        return StepResult(
+            status="error", data={**prev.data, "findings": findings},
+            duration_ms=0, step_name=step,
+            error=message, error_code="E_SPEC_PREFLIGHT_BATCH", recoverable=False,
+        )
+    # bd#85: content findings retry the writer under the spec_gates budget.
+    # The list stays under spec_lint_findings, which directed repair re-reads.
+    return _spec_gate_retry(
+        findings="\n".join(f"- [{f['rule']}] {f['evidence']}" for f in findings),
+        build_class=_build_class(ctx),
+        cycle=int(prev.data.get("cycle", 1)),
+        retry_from_step_idx=0,
         error_code="E_SPEC_PREFLIGHT_BATCH",
-        recoverable=False,
+        error_msg=message,
+        step_name=step,
+        forwarded_data={**prev.data, "spec_lint_findings": findings},
+        terminal_error_code="E_SPEC_PREFLIGHT_BATCH",
     )
 
 
@@ -2679,9 +2755,8 @@ def _verify_spec_scope_inverse(ctx: WorkflowContext, prev: Any) -> StepResult:
     cycle = int(prev.data.get("cycle", 1))
     build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
     if not spec_path.is_file():
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_FILE_MISSING",
@@ -2716,9 +2791,9 @@ def _verify_spec_scope_inverse(ctx: WorkflowContext, prev: Any) -> StepResult:
             )
             if rr.converged and rr.final is not None:
                 return rr.final
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
+            findings=rendered,
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_SCOPE_INVERSE",
@@ -2767,9 +2842,8 @@ def _verify_spec_reentry(ctx: WorkflowContext, prev: Any) -> StepResult:
     cycle = int(prev.data.get("cycle", 1))
     build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
     if not spec_path.is_file():
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_FILE_MISSING",
@@ -2819,9 +2893,9 @@ def _verify_spec_reentry(ctx: WorkflowContext, prev: Any) -> StepResult:
         )
         if rr.converged and rr.final is not None:
             return rr.final
-    return cast(StepResult, RecoverableGateMixin.gated_step_result(
+    return cast(StepResult, _spec_gate_retry(
+        findings=rendered,
         build_class=build_class,
-        gate="spec_retry",
         cycle=cycle,
         retry_from_step_idx=0,
         error_code="E_SPEC_REENTRY",
@@ -2865,9 +2939,8 @@ def _verify_spec_helper_extraction(ctx: WorkflowContext, prev: Any) -> StepResul
     cycle = int(prev.data.get("cycle", 1))
     build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
     if not spec_path.is_file():
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_FILE_MISSING",
@@ -2917,9 +2990,9 @@ def _verify_spec_helper_extraction(ctx: WorkflowContext, prev: Any) -> StepResul
         )
         if rr.converged and rr.final is not None:
             return rr.final
-    return cast(StepResult, RecoverableGateMixin.gated_step_result(
+    return cast(StepResult, _spec_gate_retry(
+        findings=rendered,
         build_class=build_class,
-        gate="spec_retry",
         cycle=cycle,
         retry_from_step_idx=0,
         error_code="E_SPEC_HELPER_EXTRACTION",
@@ -2965,9 +3038,8 @@ def _verify_spec_coverage(ctx: WorkflowContext, prev: Any) -> StepResult:
     cycle = int(prev.data.get("cycle", 1))
     build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
     if not spec_path.is_file():
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_FILE_MISSING",
@@ -3003,9 +3075,9 @@ def _verify_spec_coverage(ctx: WorkflowContext, prev: Any) -> StepResult:
             )
             if rr.converged and rr.final is not None:
                 return rr.final
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
+            findings=rendered,
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_COVERAGE",
@@ -3117,9 +3189,8 @@ def _verify_spec_lint_batch(ctx: WorkflowContext, prev: Any) -> StepResult:
         rendered = "; ".join(
             f"L{f['line']} {f['rule_id']}: {f['evidence']}" for f in findings
         )
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_LINT_BATCH",
@@ -3177,9 +3248,8 @@ def _verify_spec_ac_dsl(ctx: WorkflowContext, prev: Any) -> StepResult:
     except Exception as e:  # noqa: BLE001 — driver isolation, fail-open in warn phase
         _emit_safe("spec_ac_dsl_driver_error", {"error": str(e), "spec_path": str(spec_path)})
         if get_config().flag("HAL_AC_DSL_GATE_ENFORCE"):
-            return cast(StepResult, RecoverableGateMixin.gated_step_result(
+            return cast(StepResult, _spec_gate_retry(
                 build_class=build_class,
-                gate="spec_retry",
                 cycle=cycle,
                 retry_from_step_idx=0,
                 error_code="E_SPEC_AC_UNCOMPILABLE",
@@ -3238,9 +3308,8 @@ def _verify_spec_ac_dsl(ctx: WorkflowContext, prev: Any) -> StepResult:
             )
             if rr.converged and rr.final is not None:
                 return rr.final
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_AC_UNCOMPILABLE",
@@ -3541,9 +3610,8 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
     if not spec_path.is_file():
         fwd_cite_missing = prev.data if isinstance(prev.data, dict) else {}
         build_class_cite = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
             build_class=build_class_cite,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_FILE_MISSING",
@@ -3662,9 +3730,9 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
         rendered_findings, was_truncated = _render_citation_findings(findings, cycle)
         fwd_cite = prev.data if isinstance(prev.data, dict) else {}
         build_class_citemal = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
-        return cast(StepResult, RecoverableGateMixin.gated_step_result(
+        return cast(StepResult, _spec_gate_retry(
+            findings=rendered_findings,
             build_class=build_class_citemal,
-            gate="spec_retry",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_SPEC_CITATION_MALFORMED",
@@ -4483,6 +4551,9 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
                 "findings": raw_review,
                 "retry_from_step": 0,
                 "cycle_count": cycle,
+                # bd#85: keep the budgets already spent across this in-process retry.
+                **({"gate_attempts": prev.data["gate_attempts"]}
+                   if isinstance(prev.data.get("gate_attempts"), dict) else {}),
             },
             duration_ms=0,
             step_name="gate_on_review",
@@ -4521,11 +4592,11 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
     # terminal-path boundary-error formatting + abort event when cap reached.
     # Sibling regression guards: 5× boundary tests + test_ac8_abort_emitted_on_revise_at_cap.
     build_class_revise = ((_ctx.org_config if _ctx is not None else None) or {}).get("complexity", "SIMPLE").upper()
-    pol = resolve_policy(build_class_revise, "spec_retry")
+    pol = resolve_policy(build_class_revise, "spec_review")
     # GH625: cap decision must use the gate's own attempts spend, not the
     # shared cycle counter (cycle is eaten by upstream retries/replay too).
     _rf_ga = revise_fwd.get("gate_attempts")
-    attempts = _rf_ga.get("spec_retry", 0) if isinstance(_rf_ga, dict) else 0
+    attempts = _rf_ga.get("spec_review", 0) if isinstance(_rf_ga, dict) else 0
     will_terminate = (pol.slot in ("terminal", "escalate")) or (attempts >= pol.cycle_cap)
 
     if will_terminate:
@@ -4556,7 +4627,7 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
             terminal_data["gate_attempts"] = _rf_ga
         return cast(StepResult, RecoverableGateMixin.gated_step_result(
             build_class=build_class_revise,
-            gate="spec_retry",
+            gate="spec_review",
             cycle=cycle,
             retry_from_step_idx=0,
             error_code="E_VALIDATION_RETRY",
@@ -4590,7 +4661,7 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
 
     return cast(StepResult, RecoverableGateMixin.gated_step_result(
         build_class=build_class_revise,
-        gate="spec_retry",
+        gate="spec_review",
         cycle=cycle,
         retry_from_step_idx=0,
         error_code="E_VALIDATION_RETRY",

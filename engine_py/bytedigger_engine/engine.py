@@ -372,7 +372,11 @@ class WorkflowEngine:
         _emit_status = final_result.status
         if get_config().gate_enabled("HAL_PAUSE_LANE") and is_paused_result(final_result.status, final_result.error_code):
             _emit_status = "paused"
-        self._emit("workflow_finished", {"workflow_name": workflow_name, "status": _emit_status, "wall_ms": wall_ms}, rid)
+        _finished = {"workflow_name": workflow_name, "status": _emit_status, "wall_ms": wall_ms}
+        # bd#85: a driver decides resume / stop / reroute from this row.
+        if _emit_status in ("error", "escalate") and final_result.error_code:
+            _finished["error_code"] = final_result.error_code
+        self._emit("workflow_finished", _finished, rid)
         # DA19030A §2.4: append durable rework summary IMMEDIATELY after workflow_finished.
         # workflow_finished emit is byte-identical to pre-DA19030A (derive_state.py:88 unchanged).
         # GH497 A3: annotate OUTSIDE the try/except above — a telemetry rollup
@@ -785,10 +789,14 @@ class WorkflowEngine:
                 # cycle-keyed sentinels are stale (re-entry over the same
                 # run_id must not replay them). Unlink before returning.
                 if isinstance(result.data, dict) and result.data.get("invalidate_cycle_sentinels_on_fail"):
-                    _removed = invalidate_cycle_sentinels(
-                        context, workflow.steps, cycle, run_id, self._emit,
-                        workflow_name=workflow.name, reason="terminal_fail_state_invalidation",
-                    )
+                    # bd#85: every cycle of this execution is stale, not only the
+                    # last one; a fix loop leaves sentinels behind in cycles 1..N-1.
+                    _removed = []
+                    for _stale_cycle in range(1, cycle + 1):
+                        _removed += invalidate_cycle_sentinels(
+                            context, workflow.steps, _stale_cycle, run_id, self._emit,
+                            workflow_name=workflow.name, reason="terminal_fail_state_invalidation",
+                        )
                     self._emit(
                         "terminal_fail_sentinels_invalidated",
                         {"phase": workflow.name, "step_name": result.step_name,

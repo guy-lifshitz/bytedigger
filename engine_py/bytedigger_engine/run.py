@@ -41,6 +41,7 @@ from bytedigger_engine.lib.dbos_list_runs import list_runs  # noqa: E402
 from bytedigger_engine.lib.dbos_status_run import status_run  # noqa: E402
 from bytedigger_engine.lib.restart_governor import governor_gate, governor_record_result, governor_record_pause, governor_reset, governor_reset_full, scratchpad_dir_from_config  # noqa: E402
 from bytedigger_engine.lib.env_limit import is_paused_result  # noqa: E402
+from bytedigger_engine.lib import task_resume  # noqa: E402
 from bytedigger_engine.config_provider import get_config  # noqa: E402
 from bytedigger_engine import telemetry_ctx  # noqa: E402
 import uuid as _uuid_mod  # noqa: E402
@@ -198,6 +199,28 @@ def _oracle_after_execute(args, ctx, run_id: str, result) -> "StepResult | None"
     return None
 
 
+def _task_seam(args) -> int:
+    """bd#85 driver seam. The ledger lives next to the event log, like the
+    restart governor's state."""
+    if not args.run_id or not args.event_log or (args.task_reset is not None and not args.task_reset.strip()):
+        sys.stderr.write("--task-begin/--task-reset require --run-id and --event-log (and a non-empty reason)\n")
+        return 2
+    state_dir = Path(args.event_log).parent
+    if args.task_reset is not None:
+        task_resume.reset_task_runs(state_dir, args.run_id, args.event_log, args.task_reset)
+        return 0
+    phases = [ph.strip() for ph in args.task_begin.split(",") if ph.strip()]
+    if not phases:
+        sys.stderr.write("--task-begin requires at least one phase\n")
+        return 2
+    begin = task_resume.begin_task_run(
+        state_dir, args.run_id, args.event_log, phases,
+        max_runs=args.task_max_runs, max_cost_usd=args.task_max_cost_usd,
+    )
+    print(json.dumps({"run_id": args.run_id, **asdict(begin)}))
+    return 0 if begin.allowed else 1
+
+
 def main() -> int:
     if sys.argv[1:2] == ["doctor"]:
         from bytedigger_engine.doctor import doctor_main
@@ -220,8 +243,27 @@ def main() -> int:
         dest="restart_reason",
         help="reset restart-governor state with a logged reason (operator escape; requires --workflow)",
     )
+    p.add_argument(
+        "--task-begin",
+        dest="task_begin",
+        metavar="PHASES",
+        help="driver seam: plan where the task resumes (comma-separated phase order) and "
+             "admit one run under the task cap; requires --run-id and --event-log",
+    )
+    p.add_argument(
+        "--task-reset",
+        dest="task_reset",
+        metavar="REASON",
+        help="driver seam: clear the task's run count with a logged reason (operator escape)",
+    )
+    p.add_argument("--task-max-runs", dest="task_max_runs", type=int, default=task_resume.DEFAULT_MAX_RUNS)
+    p.add_argument("--task-max-cost-usd", dest="task_max_cost_usd", type=float,
+                   default=task_resume.DEFAULT_MAX_COST_USD)
     p.add_argument("--neutral", "--no-hal", action="store_true", dest="neutral", help="project-mode: do not register the host (HAL) config provider (neutral defaults)")
     args = p.parse_args()
+
+    if args.task_begin is not None or args.task_reset is not None:
+        return _task_seam(args)
 
     if args.restart_reason is not None and not args.restart_reason.strip():
         sys.stderr.write("--restart-reason requires a non-empty reason\n")

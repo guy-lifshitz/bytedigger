@@ -403,6 +403,12 @@
 - `E_SYNTHESIZER_NEEDS_CONTEXT` — phase_7_synthesize: synthesizer subagent requested more context
 - `E_SYNTHESIZER_NO_MARKER` — phase_7_synthesize: synthesizer output missing required completion marker
 
+## E_TASK
+
+- `E_TASK_CAP_REACHED` — task_resume: the task reached its run or cost cap; the driver must not start another run (bd#85)
+- `E_TASK_COST_UNREADABLE` — task_resume: the event log exists but cannot be read, so the task's spend is unknown; fail closed (bd#85)
+- `E_TASK_LEDGER_CORRUPT` — task_resume: the task run ledger is unreadable or malformed; fail closed (bd#85)
+
 ## E_TEST
 
 - `E_TEST_RUNNER_MISSING` — phase_5_implement: configured test runner binary was not found

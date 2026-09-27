@@ -324,13 +324,13 @@ def test_ac8_abort_emitted_on_revise_at_cap(
     """AC8: phase_45_spec_abort emitted exactly once on REVISE+cycle==cap; cap_reached=True.
 
     GH625: phase_45_spec.py's _gate_on_review (spec_full) now decides cap via
-    per-gate gate_attempts (spec_retry cap=1, recoverable_once), not raw
+    per-gate gate_attempts (spec_review cap=1, recoverable_once, bd#85), not raw
     cycle (phase_45_spec.py:3116); seed 1 prior attempt (== cap) so it still
     terminates. phase_45_spec_lite's _gate_on_review is untouched (still
     `cycle < MAX_REVIEW_CYCLES`), so the seed is a no-op there.
     """
     cap_cycle = MAX_REVIEW_CYCLES
-    _gate_attempts = {"spec_retry": 1} if phase_label == "phase_45_spec" else None
+    _gate_attempts = {"spec_review": 1} if phase_label == "phase_45_spec" else None
     prev = _make_gate_prev(
         tmp_path, VERDICT_REVISE, cycle=cap_cycle, raw_review=_RAW_REVISE,
         gate_attempts=_gate_attempts,
