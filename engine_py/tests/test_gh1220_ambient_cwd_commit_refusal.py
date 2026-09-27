@@ -1046,23 +1046,22 @@ def test_ac15_e_git_cwd_ambient_registered_in_error_codes():
     )
 
 
-def test_ac26_compute_baseline_failed_ambient_skips_stash(tmp_path, monkeypatch):
-    """AC26 (MAJOR-1): `_compute_baseline_failed` with an ambient source ->
-    returns `None`, emits `baseline_skipped_ambient_cwd`, `git stash list` is
-    EMPTY, and the working tree (porcelain + untracked file BYTES) is
-    unchanged. The untracked-file assertion is the point: `-u` destroying
-    untracked files is worse than the stray commit this lot started from.
-    Pre-GREEN FAIL: no source parameter or guard exists on this helper at
-    all (`_compute_baseline_failed(plan, git_cwd)` takes only two params
-    today) -- the call below raises TypeError."""
+def test_ac26_red_commit_baseline_ambient_skips_worktree(tmp_path, monkeypatch):
+    """AC26 (MAJOR-1; retargeted by bd#88 from `_compute_baseline_failed`):
+    `_red_commit_baseline_fail_ids` with an ambient source -> returns `None`,
+    emits `baseline_skipped_ambient_cwd`, adds no worktree, pushes no stash,
+    and leaves the working tree (porcelain + untracked file BYTES) unchanged."""
     captured = _record_events(monkeypatch, p5)
     repo, base_sha = _make_repo_with_base_commit(tmp_path)
     untracked = _write_file(repo, "scratch_untracked_ac26.txt", "precious untracked data\n")
     monkeypatch.chdir(repo)
+    worktrees_before = subprocess.run(
+        ["git", "worktree", "list"], capture_output=True, text=True, cwd=repo, check=True,
+    ).stdout
 
-    plan = {"groups": []}
-
-    result = p5._compute_baseline_failed(plan, str(repo), "cwd")
+    result = p5._red_commit_baseline_fail_ids(
+        ["tests/test_x.py"], base_sha, str(repo), "cwd", None,
+    )
 
     assert result is None, f"expected None on an ambient source; actual {result!r}"
     skip_events = [e for e in captured if e["type"] == "baseline_skipped_ambient_cwd"]
@@ -1070,20 +1069,15 @@ def test_ac26_compute_baseline_failed_ambient_skips_stash(tmp_path, monkeypatch)
         f"expected exactly 1 'baseline_skipped_ambient_cwd' event; actual "
         f"events seen: {[e['type'] for e in captured]!r}"
     )
+    assert subprocess.run(
+        ["git", "worktree", "list"], capture_output=True, text=True, cwd=repo, check=True,
+    ).stdout == worktrees_before, "expected no worktree added against the ambient repo"
     stash_list = subprocess.run(
         ["git", "stash", "list"], capture_output=True, text=True, cwd=repo, check=True,
     ).stdout
-    assert stash_list.strip() == "", (
-        f"expected `git stash list` to be EMPTY (no stash ever pushed); "
-        f"actual {stash_list!r}"
-    )
-    assert untracked.read_text() == "precious untracked data\n", (
-        "expected the untracked file's bytes unchanged -- `git stash push -u` "
-        "must never run against the ambient repo"
-    )
-    assert "scratch_untracked_ac26.txt" in _porcelain(repo), (
-        "expected the untracked file to still show as untracked in porcelain"
-    )
+    assert stash_list.strip() == "", f"expected `git stash list` EMPTY; actual {stash_list!r}"
+    assert untracked.read_text() == "precious untracked data\n"
+    assert "scratch_untracked_ac26.txt" in _porcelain(repo)
 
 
 def test_ac26b_verify_green_passing_ambient_never_stashes_real_caller(tmp_path, monkeypatch):
@@ -1184,15 +1178,12 @@ def test_ac26b_verify_green_passing_ambient_never_stashes_real_caller(tmp_path, 
         f"events seen: {[e['type'] for e in captured]!r} (result={result!r})"
     )
 
-    # ── discriminator 1: the guard's own event, not just 'nothing stashed' ──
-    skip_events = [e for e in captured if e["type"] == "baseline_skipped_ambient_cwd"]
-    assert len(skip_events) == 1, (
-        f"DISCRIMINATOR FAILED: expected exactly 1 'baseline_skipped_ambient_cwd' "
-        f"event -- the empty `git stash list` alone is satisfied equally by "
-        f"'never stashed' (guard fired) and by 'stashed, ran, popped' (guard "
-        f"absent, since _compute_baseline_failed pops in its finally); actual "
-        f"events seen: {[e['type'] for e in captured]!r}"
-    )
+    # ── discriminator 1 RETIRED (bd#88): the RED-group delta no longer runs a
+    #    stash baseline at all — it reads the ids the RED run recorded — so this
+    #    site performs no git write and has no guard event to observe. The
+    #    invariant is strengthened (never stash, ambient or not); the ambient
+    #    guard on the one remaining write (the sibling baseline worktree) is
+    #    pinned at its real caller in test_bd88_red_commit_baseline_by_id.py.
 
     # ── discriminator 2 DROPPED (fixture repair, GH1220): the original intent
     #    was "unguarded code calls run_test_command a SECOND time inside the
@@ -2088,36 +2079,27 @@ def test_ac29_checkpoint_and_autocommit_tail_explicit_source_still_commit(tmp_pa
     )
 
 
-def test_ac30_compute_baseline_failed_explicit_source_still_stashes_computes_and_pops(
+def test_ac30_red_commit_baseline_explicit_source_computes_without_stash(
     tmp_path, monkeypatch,
 ):
-    """AC30: `_compute_baseline_failed` with an EXPLICIT source still
-    stashes, computes and pops -- returns an `int`, and `git stash list` is
-    empty AFTERWARDS (the D4 invariant survives the guard). Pre-GREEN FAIL:
-    no source parameter exists on this helper today (two-arg signature) --
-    the three-arg call below raises TypeError."""
+    """AC30 (retargeted by bd#88): `_red_commit_baseline_fail_ids` with an
+    EXPLICIT source computes a baseline (a frozenset, not None) and leaves
+    the working tree alone: nothing stashed, the dirty file still dirty."""
     _record_events(monkeypatch, p5)
     repo, base_sha = _make_repo_with_base_commit(tmp_path)
     _write_file(repo, "dirty_ac30.txt", "dirty\n")
-    plan = {"groups": []}
 
-    result = p5._compute_baseline_failed(plan, str(repo), "cfg_git_cwd")
-
-    assert isinstance(result, int), (
-        f"expected an int (baseline_failed count) for an explicit source; "
-        f"actual {result!r}"
+    # A path absent at base_sha: covered with no ids, no test run needed.
+    result = p5._red_commit_baseline_fail_ids(
+        ["tests/test_absent.py"], base_sha, str(repo), "cfg_git_cwd", None,
     )
+
+    assert result == frozenset(), f"expected an empty baseline; actual {result!r}"
     stash_list = subprocess.run(
         ["git", "stash", "list"], capture_output=True, text=True, cwd=repo, check=True,
     ).stdout
-    assert stash_list.strip() == "", (
-        f"expected `git stash list` EMPTY afterwards (D4 invariant: never "
-        f"left stashed on exit); actual {stash_list!r}"
-    )
-    assert "dirty_ac30.txt" in _porcelain(repo), (
-        "expected the dirty file to be restored (popped) into the working "
-        f"tree; actual porcelain={_porcelain(repo)!r}"
-    )
+    assert stash_list.strip() == "", f"expected `git stash list` EMPTY; actual {stash_list!r}"
+    assert "dirty_ac30.txt" in _porcelain(repo)
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -2163,7 +2145,7 @@ def test_ac45_guarded_write_sites_covers_all_ten_b1_b10_functions(tmp_path):
         "_attempt_red_cycle_restore",
         "_checkpoint_green_worktree",
         "_autocommit_fix_tail",
-        "_compute_baseline_failed",
+        "_red_commit_baseline_fail_ids",  # bd#88: successor of _compute_baseline_failed
         "_compute_baseline_typecheck_count",
         "_verify_fix_typecheck",
     }

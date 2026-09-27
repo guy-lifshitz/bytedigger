@@ -5,8 +5,8 @@
   FAIL: AC2  _sibling_test_paths not importable
   FAIL: AC3  _sibling_test_paths not importable
   FAIL: AC4  _sibling_test_paths not importable
-  FAIL: AC5  _run_plan_failed_total not importable
-  FAIL: AC6  _run_plan_failed_total not importable
+  RETIRED: AC5 (bd#88 — count helper replaced by _run_plan_fail_ids)
+  RETIRED: AC6 (bd#88)
   FAIL: AC7  verify_green_sibling_delta_verdict never emitted + wrong status (block absent)
   FAIL: AC8  safety case: block absent → status="ok" already today → need to confirm
              the path that WOULD block (sib delta absent → AC7 FAIL proves gate absent)
@@ -196,68 +196,9 @@ class TestAC04SiblingTestPathsNoRedSha:
         )
 
 
-# ─── AC5-AC6: _run_plan_failed_total helper ───────────────────────────────────
-
-class TestAC05RunPlanFailedTotalSumsGroups:
-    # AC5: _run_plan_failed_total sums n_failed across groups on HEAD → returns int
-    def test_ac05_sums_n_failed_across_groups(self, monkeypatch, tmp_path):
-        from bytedigger_engine.workflows.phase_5_implement import _run_plan_failed_total  # type: ignore[attr-defined]
-
-        plan = {
-            "groups": [
-                {"argv": ["pytest", "tests/test_a.py"]},
-                {"argv": ["pytest", "tests/test_b.py"]},
-            ]
-        }
-        call_count = [0]
-
-        def _fake_run(argv, cwd, timeout=120):
-            call_count[0] += 1
-            return _fake_run_result(n_failed=call_count[0])  # 1 then 2 → total 3
-
-        monkeypatch.setattr(_p5, "run_test_command", _fake_run)
-
-        result = _run_plan_failed_total(plan, str(tmp_path))
-
-        assert isinstance(result, int), (
-            f"AC5: _run_plan_failed_total must return int; got {type(result)!r}: {result!r}"
-        )
-        assert result == 3, (
-            f"AC5: expected 1+2=3; got {result}"
-        )
-
-
-class TestAC06RunPlanFailedTotalNoneOnError:
-    # AC6: _run_plan_failed_total returns None on FileNotFoundError AND on timeout sentinel
-    def test_ac06a_returns_none_on_file_not_found(self, monkeypatch, tmp_path):
-        from bytedigger_engine.workflows.phase_5_implement import _run_plan_failed_total  # type: ignore[attr-defined]
-
-        plan = {"groups": [{"argv": ["pytest", "tests/test_x.py"]}]}
-
-        def _raise_fnf(argv, cwd, timeout=120):
-            raise FileNotFoundError("pytest not found")
-
-        monkeypatch.setattr(_p5, "run_test_command", _raise_fnf)
-
-        result = _run_plan_failed_total(plan, str(tmp_path))
-        assert result is None, (
-            f"AC6a: FileNotFoundError → must return None; got {result!r}"
-        )
-
-    def test_ac06b_returns_none_on_timeout_sentinel(self, monkeypatch, tmp_path):
-        from bytedigger_engine.workflows.phase_5_implement import _run_plan_failed_total  # type: ignore[attr-defined]
-
-        plan = {"groups": [{"argv": ["pytest", "tests/test_x.py"]}]}
-
-        def _timeout_result(argv, cwd, timeout=120):
-            return _fake_run_result(n_failed=sys.maxsize, exit_code=124)
-
-        monkeypatch.setattr(_p5, "run_test_command", _timeout_result)
-
-        result = _run_plan_failed_total(plan, str(tmp_path))
-        assert result is None, (
-            f"AC6b: timeout sentinel (exit_code=124 + n_failed=maxsize) → must return None; got {result!r}"
-        )
+# ─── AC5-AC6: retired (bd#88) ──────────────────────────────────────────────────
+# `_run_plan_failed_total` (a failure COUNT) was replaced by `_run_plan_fail_ids`
+# (failing test IDS; None = unavailable), covered in test_bd88_red_commit_baseline_by_id.py.
 
 
 # ─── AC7-AC10: integration via _verify_green_passing ─────────────────────────
@@ -269,8 +210,8 @@ def _common_integration_patches(monkeypatch, tmp_path, prod_file_rel: str,
 
     - git_diff_files → [prod_file_rel] (one changed prod file)
     - _verify_green_passing scoped path → scoped_n_failed failures (default 0 = PASS)
-    - _run_plan_failed_total → sib_current
-    - _compute_baseline_failed → sib_baseline for the sibling plan
+    - _run_plan_fail_ids → sib_current failing ids (bd#88)
+    - _red_commit_baseline_fail_ids → sib_baseline ids at red_sha (bd#88)
     - _infer_test_command_for_paths → minimal fake plan
     """
     # Scoped (red path) plan — used for the _verify_green_passing main loop
@@ -302,16 +243,17 @@ def _common_integration_patches(monkeypatch, tmp_path, prod_file_rel: str,
     # git_diff_files → prod file (triggers sibling expand)
     monkeypatch.setattr(_p5, "git_diff_files", lambda sha, cwd, untracked=True, segment_filter=None: [prod_file_rel])
 
-    # _run_plan_failed_total → sib_current
-    monkeypatch.setattr(_p5, "_run_plan_failed_total", lambda plan, cwd: sib_current)
+    # bd#88: the delta is by test id — n failures become n sibling ids; the
+    # baseline's n ids are the first n of the same series.
+    def _ids(n):
+        return frozenset(f"src/test_foo.py::test_{i}" for i in range(n))
 
-    # _compute_baseline_failed → sib_baseline for sibling plan, 0 for scoped
-    baseline_calls = [0]
-    def _fake_baseline(plan, cwd, source):
-        baseline_calls[0] += 1
-        return sib_baseline
+    # _run_plan_fail_ids → sib_current ids
+    monkeypatch.setattr(_p5, "_run_plan_fail_ids", lambda plan, cwd: _ids(sib_current))
 
-    monkeypatch.setattr(_p5, "_compute_baseline_failed", _fake_baseline)
+    # _red_commit_baseline_fail_ids → sib_baseline ids at red_sha
+    monkeypatch.setattr(_p5, "_red_commit_baseline_fail_ids",
+                        lambda paths, sha, cwd, source, cache_dir: _ids(sib_baseline))
 
     return sib_fake_plan
 
@@ -411,7 +353,7 @@ class TestAC09SiblingExpandFlagOff:
 
         def _run_plan_spy(plan, cwd):
             run_plan_calls[0] += 1
-            return 1
+            return frozenset({"src/test_foo.py::test_0"})
 
         _common_integration_patches(
             monkeypatch, tmp_path,
@@ -420,8 +362,8 @@ class TestAC09SiblingExpandFlagOff:
             sib_baseline=0,
             scoped_n_failed=0,
         )
-        # Override _run_plan_failed_total with spy
-        monkeypatch.setattr(_p5, "_run_plan_failed_total", _run_plan_spy)
+        # Override _run_plan_fail_ids with spy
+        monkeypatch.setattr(_p5, "_run_plan_fail_ids", _run_plan_spy)
 
         captured = _patch_emit(monkeypatch)
 
@@ -439,9 +381,9 @@ class TestAC09SiblingExpandFlagOff:
         assert sib_events == [], (
             f"AC9: flag-off → no verify_green_sibling_delta_verdict emitted; got {sib_events}"
         )
-        # Block skipped: _run_plan_failed_total not called (no sibling test run)
+        # Block skipped: _run_plan_fail_ids not called (no sibling test run)
         assert run_plan_calls[0] == 0, (
-            f"AC9: flag-off → _run_plan_failed_total must not be called; called {run_plan_calls[0]} times"
+            f"AC9: flag-off → _run_plan_fail_ids must not be called; called {run_plan_calls[0]} times"
         )
         # Result must be ok (scoped tests pass, block skipped)
         assert result.status == "ok", (

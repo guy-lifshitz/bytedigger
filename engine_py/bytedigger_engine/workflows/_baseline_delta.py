@@ -16,7 +16,11 @@ from pathlib import Path
 from bytedigger_engine.config_provider import get_config
 
 
-def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=None) -> dict:
+_STDERR_TAIL_CHARS = 2000
+
+
+def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=None,
+                            base_sha=None, cache_dir=None) -> dict:
     cfg = cfg or get_config()
 
     if not cfg.gate_enabled("HAL_BASELINE_DELTA_GATE"):
@@ -38,20 +42,23 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
     # this wiring — never left to the human argv (M5).
     parity_enforced = bool(cfg.flag("HAL_CORPUS_PARITY_ENFORCE"))
 
+    argv = [
+        sys.executable, str(script), "--results", stdout_path, "--suite", suite,
+        "--require-corpus-parity",
+    ]
+    # bd#88: compare against the baseline cached for the RED commit.
+    if base_sha and cache_dir:
+        argv += ["--base-sha", base_sha, "--cache-dir", cache_dir]
     try:
-        proc = subprocess.run(
-            [
-                sys.executable, str(script), "--results", stdout_path, "--suite", suite,
-                "--require-corpus-parity",
-            ],
-            cwd=git_cwd, capture_output=True, text=True, timeout=60,
-        )
+        proc = subprocess.run(argv, cwd=git_cwd, capture_output=True, text=True, timeout=60)
     except (subprocess.TimeoutExpired, OSError):
         emit("baseline_delta_gate_skipped", {"reason": "exec_error"})
         return {"skipped": "exec_error", "would_block": enforced}
 
     if proc.returncode == 2:
-        emit("baseline_delta_gate_skipped", {"reason": "driver_error"})
+        emit("baseline_delta_gate_skipped", {
+            "reason": "driver_error", "stderr": (proc.stderr or "")[-_STDERR_TAIL_CHARS:],
+        })
         return {"skipped": "driver_error", "would_block": enforced}
 
     lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]

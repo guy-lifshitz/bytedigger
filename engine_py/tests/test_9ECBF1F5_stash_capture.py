@@ -10,11 +10,11 @@ Acceptance Criteria tested (§3):
   AC1 — git_op_capture on clean repo → GitResult(rc=0, stdout="", timed_out=False)
   AC2 — git_op_capture(stash pop) on empty-stash repo → rc!=0, does NOT raise
   AC3 — default_git_write() is GitWritePort instance AND has op_capture method
-  AC4 — spy records ["git","stash","push","-u","-m","p2-baseline-585e30e3"] via _compute_baseline_failed
-  AC5 — spy records ["git","stash","pop"] via _compute_baseline_failed finally block
+  AC4 — retired (bd#88: _compute_baseline_failed removed)
+  AC5 — retired (bd#88: _compute_baseline_failed removed)
   AC6 — spy records ["git","stash","push","-u","-m","p2-typecheck-baseline-5c14ef32"] via _compute_baseline_typecheck_count
   AC7 — spy records ["git","stash","pop"] via _compute_baseline_typecheck_count finally block
-  AC8 — clean-tree sentinel: spy records push but NOT pop; helper returns None
+  AC8 — retired (bd#88: _compute_baseline_failed removed)
   AC9 — phase_5_implement.py source has 0 occurrences of bounded_run wrapping ["git","stash"
 
 All AC1–AC9 FAIL today:
@@ -172,60 +172,10 @@ class _CaptureSpy:
         return self._push_result
 
 
-# ─── AC4 — _compute_baseline_failed records stash push via seam ──────────────
-
-
-def test_9ecbf1f5_ac4_baseline_failed_records_stash_push(tmp_path):
-    """Inject spy; _compute_baseline_failed({"groups":[]}, "/tmp") → spy recorded
-    cmd ["git","stash","push","-u","-m","p2-baseline-585e30e3"].
-
-    FAILS today: _compute_baseline_failed calls bounded_run directly, not
-    git_write_port.git_op_capture → spy is never called.
-
-    §1i: spy factory reset in finally (singleton-resource teardown; workflows.md §1i).
-    """
-    push_result = GitResult(returncode=0, stdout="", stderr="", timed_out=False)
-    spy = _CaptureSpy(push_result=push_result)
-    git_write_port.set_default_git_write_factory(lambda: spy)
-    try:
-        p5._compute_baseline_failed({"groups": []}, str(tmp_path), "cfg_git_cwd")
-    finally:
-        git_write_port.reset_default_git_write_factory()
-
-    push_cmd = ["git", "stash", "push", "-u", "-m", "p2-baseline-585e30e3"]
-    assert push_cmd in spy.calls, (
-        f"Expected spy to record {push_cmd!r}; "
-        f"actual recorded calls: {spy.calls!r}.\n"
-        f"GREEN must route the push through git_write_port.git_op_capture."
-    )
-
-
-# ─── AC5 — _compute_baseline_failed records stash pop (finally block) ─────────
-
-
-def test_9ecbf1f5_ac5_baseline_failed_records_stash_pop(tmp_path):
-    """Inject spy; _compute_baseline_failed({"groups":[]}, "/tmp") → spy recorded
-    cmd ["git","stash","pop"] (finally-block pop reached because push succeeded).
-
-    FAILS today: _compute_baseline_failed calls bounded_run directly →
-    spy never called for pop.
-
-    §1i: spy factory reset in finally (workflows.md §1i).
-    """
-    push_result = GitResult(returncode=0, stdout="", stderr="", timed_out=False)
-    spy = _CaptureSpy(push_result=push_result)
-    git_write_port.set_default_git_write_factory(lambda: spy)
-    try:
-        p5._compute_baseline_failed({"groups": []}, str(tmp_path), "cfg_git_cwd")
-    finally:
-        git_write_port.reset_default_git_write_factory()
-
-    pop_cmd = ["git", "stash", "pop"]
-    assert pop_cmd in spy.calls, (
-        f"Expected spy to record {pop_cmd!r}; "
-        f"actual recorded calls: {spy.calls!r}.\n"
-        f"GREEN must route the finally-block pop through git_write_port.git_op_capture."
-    )
+# ─── AC4/AC5/AC8 — retired (bd#88) ────────────────────────────────────────────
+# `_compute_baseline_failed` (the test-count stash re-run) was replaced by
+# `_red_commit_baseline_fail_ids`, which never stashes; its git writes (worktree
+# add/remove) through this seam are covered in test_bd88_red_commit_baseline_by_id.py.
 
 
 # ─── AC6 — _compute_baseline_typecheck_count records typecheck push ───────────
@@ -284,52 +234,6 @@ def test_9ecbf1f5_ac7_baseline_typecheck_records_stash_pop(tmp_path):
         f"Expected spy to record {pop_cmd!r}; "
         f"actual recorded calls: {spy.calls!r}.\n"
         f"GREEN must route the finally-block typecheck pop through git_write_port.git_op_capture."
-    )
-
-
-# ─── AC8 — clean-tree sentinel: push recorded, pop NOT recorded ──────────────
-
-
-def test_9ecbf1f5_ac8_clean_tree_sentinel_no_pop(tmp_path):
-    """Inject spy whose op_capture returns GitResult(0,"No local changes to save","",False)
-    for push; call _compute_baseline_failed({"groups":[]}, "/tmp") →
-      - helper returns None (sentinel branch)
-      - spy recorded ["git","stash","push",...] (push was called)
-      - spy did NOT record any ["git","stash","pop"] (stashed=False branch, pop skipped)
-
-    FAILS today: _compute_baseline_failed calls bounded_run directly →
-    spy never called (push not recorded, behaviour assertion trivially wrong).
-
-    §1i: spy factory reset in finally (workflows.md §1i).
-    """
-    # Sentinel result: rc=0 with "No local changes to save" on stdout
-    sentinel_result = GitResult(
-        returncode=0,
-        stdout="No local changes to save",
-        stderr="",
-        timed_out=False,
-    )
-    spy = _CaptureSpy(push_result=sentinel_result)
-    git_write_port.set_default_git_write_factory(lambda: spy)
-    try:
-        result = p5._compute_baseline_failed({"groups": []}, str(tmp_path), "cfg_git_cwd")
-    finally:
-        git_write_port.reset_default_git_write_factory()
-
-    assert result is None, (
-        f"Helper must return None on clean-tree sentinel; got {result!r}"
-    )
-
-    push_cmd = ["git", "stash", "push", "-u", "-m", "p2-baseline-585e30e3"]
-    assert push_cmd in spy.calls, (
-        f"Push must be recorded even on sentinel branch; calls: {spy.calls!r}"
-    )
-
-    pop_cmd = ["git", "stash", "pop"]
-    assert pop_cmd not in spy.calls, (
-        f"Pop must NOT be recorded when stashed=False (clean-tree branch); "
-        f"calls: {spy.calls!r}.\n"
-        f"GREEN must preserve the 'if stashed:' guard in the finally block."
     )
 
 

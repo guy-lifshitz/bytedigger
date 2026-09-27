@@ -335,7 +335,7 @@ def test_ac9_runner_for_path_falls_back_to_python3_when_no_venv(tmp_path):
     assert result["kind"] == "py"
 
     prefix = result["argv_prefix"]
-    assert prefix == ["python3", "-m", "pytest", "-x", "--tb=no", "-q"], (
+    assert prefix == ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"], (
         f"Expected python3 -m pytest fallback, got {prefix!r}"
     )
 

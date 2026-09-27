@@ -150,7 +150,7 @@ def test_mixed_language_paths_does_not_pytest_everything(tmp_path):
     with patch("bytedigger_engine.workflows.phase_5_implement.subprocess.run", return_value=_stub_proc()) as mrun:
         _verify_red_fails_mechanically(_make_ctx(tmp_path), prev)
 
-    forbidden = ["python3", "-m", "pytest", "-x", "--tb=no", "-q",
+    forbidden = ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors",
                  "scratch/foo.test.ts", "scratch/bar_test.py"]
     runner_basenames = set()
     for call in mrun.call_args_list:

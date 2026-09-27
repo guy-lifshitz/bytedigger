@@ -75,7 +75,7 @@ GUARDED_WRITE_SITES: "dict[str, str]" = {
     "_attempt_red_cycle_restore": "phase_5_implement.py B5 — refuses ambient before `git checkout`",
     "_checkpoint_green_worktree": "phase_5_implement.py B6 — refuses ambient before staging",
     "_autocommit_fix_tail": "phase_6_review.py B7 — refuses ambient before `git add`",
-    "_compute_baseline_failed": "phase_5_implement.py B8 — refuses ambient before `git stash push -u`",
+    "_red_commit_baseline_fail_ids": "phase_5_implement.py B8 — refuses ambient before `git worktree add --detach` (bd#88)",
     "_compute_baseline_typecheck_count": "phase_5_implement.py B9 — refuses ambient before `git stash push -u`",
     "_verify_fix_typecheck": "phase_6_review.py B10 — refuses ambient before `git worktree add --detach`",
 }
