@@ -378,6 +378,7 @@ def test_workflow_definition_shape():
         "verify_spec_coverage",
         "verify_spec_lint_batch",
         "verify_spec_ac_dsl",
+        "verify_spec_reality",
         "build_review_prompt",
         "invoke_review_llm",
         "write_review_doc",
@@ -791,9 +792,10 @@ def test_events_emitted_six_steps(tmp_path):
 
     events = EventLog(log_path).read_all()
     finished = [e for e in events if e["event_type"] == "step_finished"]
-    # 18 + 1 verify_spec_reentry GH823 + 1 verify_spec_helper_extraction GH863 = 20
-    assert len(finished) == 20
-    assert [e["payload"]["status"] for e in finished] == ["ok"] * 20
+    # 18 + 1 verify_spec_reentry GH823 + 1 verify_spec_helper_extraction GH863
+    # + 1 verify_spec_reality bd#86 = 21
+    assert len(finished) == 21
+    assert [e["payload"]["status"] for e in finished] == ["ok"] * 21
     assert [e["payload"]["step_name"] for e in finished] == [
         "detect_frozen_spec",
         "build_spec_prompt",
@@ -811,6 +813,7 @@ def test_events_emitted_six_steps(tmp_path):
         "verify_spec_coverage",
         "verify_spec_lint_batch",
         "verify_spec_ac_dsl",
+        "verify_spec_reality",
         "build_review_prompt",
         "invoke_review_llm",
         "write_review_doc",
@@ -821,8 +824,9 @@ def test_events_emitted_six_steps(tmp_path):
     run = state["runs"]["rid-p45"]
     assert run["workflow_name"] == "phase_45_spec"
     assert run["status"] == "ok"
-    # 18 + 1 verify_spec_reentry GH823 + 1 verify_spec_helper_extraction GH863 = 20
-    assert len(run["steps"]) == 20
+    # 18 + 1 verify_spec_reentry GH823 + 1 verify_spec_helper_extraction GH863
+    # + 1 verify_spec_reality bd#86 = 21
+    assert len(run["steps"]) == 21
 
 
 def test_registry_includes_phase_45_spec():
