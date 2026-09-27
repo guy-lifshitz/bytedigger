@@ -54,19 +54,27 @@ Other budgets and bounds:
 - **Which failures retry.** `E_SPEC_LINT_FAIL`, `E_SPEC_CITE_LINT_FAIL` and
   `E_SPEC_PREFLIGHT_BATCH` go through the helper. At the cap they are terminal with the same
   error code as today. The retry's `error` still contains the finding evidence.
+- **At the cap.** The terminal result sets `invalidate_cycle_sentinels_on_fail` (and so
+  does `_gate_on_review` at its cap). Without it, a driver resume would replay the cached
+  writer and reviewer outputs that just failed and fail again.
 - **Which stay terminal: infrastructure failures.**
-  - lint: driver missing, timeout (rc 124), driver error (rc 2), unexpected rc;
+  - lint: driver missing, timeout (rc 124), driver error (rc 2), rc 1 with nothing on stdout
+    (a crashed driver), unexpected rc;
   - cite-lint: driver missing, timeout, rc 2, unexpected rc, and rc 1 with nothing parsed.
   - The preflight batch marks each finding `infra: True` at the source for a lint rc 2, a
-    cite rc 2, and a cite rc 1 with nothing parsed. If any finding is infra, the batch is
+    lint rc 1 with no output, a cite rc 2, and a cite rc 1 with nothing parsed. If any finding is infra, the batch is
     terminal.
   - The batch keeps its finding list under `spec_lint_findings`, a key that directed repair
     already reads, because `findings` becomes the rendered string.
 - **Findings routing.**
   - The helper sets `retry_source="spec_gates"` and clears `structured_findings`.
-  - On a `spec_gates` retry, `_build_spec_prompt` neither loads the persisted review thread
-    nor takes the structured delta path.
-  - The writer gets the gate findings under a heading that names them as spec gate findings.
+  - On a `spec_gates` retry, `_build_spec_prompt` does not load the persisted review
+    thread. It turns the gate findings (one per line) into structured findings and uses the
+    same patch-in-place path as review findings, labelled "spec gate findings". The spec is
+    therefore patched rather than rewritten, and fixes made for an earlier review survive a
+    gate retry.
+  - Without structured findings, the free-rewrite fallback uses a heading that names them
+    as spec gate findings.
   - A later review REVISE builds its own data without `retry_source`, so reviewer retries
     are unchanged.
 - **Lite workflow stays terminal on lint.** `phase_45_spec_lite` gives its loop body a
@@ -83,9 +91,12 @@ classes.
 
 **Which failures start the loop.** Only those that name work a fix worker can do:
 
-- `concurring_fail`, `score_only_below_threshold` and `ac_checklist_fail` in the
-  single-evaluator path.
-- A multi-evaluator majority FAIL and a multi-evaluator AC-checklist override.
+- `concurring_fail`, `score_only_below_threshold` and `ac_checklist_fail` with failing AC
+  entries, in the single-evaluator path. A missing checklist section is an evaluator-format
+  failure and stays terminal.
+- A multi-evaluator majority FAIL whose evaluators list fixes. A majority FAIL with no fixes
+  listed stays terminal.
+- A multi-evaluator AC-checklist override where some evaluator names failing ACs.
 - A multi-evaluator run with one valid evaluator is degraded, and `E_REVIEW_DEGRADED` is
   checked first, so it stays terminal.
 
@@ -113,7 +124,8 @@ stays terminal.
 **`build_fix_prompt` changes.**
 
 - It accepts a plain-dict `prev`: the engine passes retry `initial_data` as a dict.
-- On a satisfaction retry it adds a "SATISFACTION FINDINGS" section and leaves out the
+- On a satisfaction retry it adds a "SATISFACTION FINDINGS" section, cites the
+  satisfaction report file, and leaves out the
   "review verdict PASS → FIX SKIPPED" early-return rule. The satisfaction prompt contains no
   FIX SKIPPED text at all, including in the structured-output instructions.
 - The fix scope covers the review findings and the satisfaction findings.
@@ -123,7 +135,8 @@ stays terminal.
 - Attempts = engine cycle − 1. Nothing else in phase 6 advances the cycle, and the steps
   between `build_fix_prompt` and the gate rebuild their data.
 - The cycle comes from the engine's step context. With no step context the gate fails
-  closed: the budget counts as spent and the result is today's terminal one.
+  closed: the budget counts as spent and the result is today's terminal one. It also emits
+  `satisfaction_fix_loop_unavailable`, so a lost step context is visible.
 - Satisfaction attempts restart with each process. With a driver the bound is
   (task runs) × 3 satisfaction passes.
 
@@ -140,15 +153,17 @@ event keeps reporting the current cycle.
 #### `lib/task_resume.py`, pure and deterministic
 
 **`plan_resume(events_path, run_id, phases) -> ResumePlan`** returns `action`,
-`resume_from`, `completed`, `last_status` and `last_row`.
+`resume_from`, `completed`, `last_status`, `last_row` and `error_code` (the deciding row's
+code).
 
 - `resume_from` is `None` for `done` and `stop`.
 - `last_status` is the status of the deciding phase's fresh row, or `None` when that phase
   has no fresh row.
 - `last_row` is that row's position in the log, used to consume a paused credit once.
 
-It reads only the authoritative `workflow_finished` rows for `run_id`, together with
-`task_cap_reset` rows. Shadowed zombie rows are ignored, provided `HAL_ENGINE_SHADOW_EMITS`
+It reads only authoritative rows for `run_id`: `workflow_finished`, `task_cap_reset`,
+`restart_governor_denied`, and `phase_refused`. `run.py` writes a `phase_refused` row when
+the oracle refuses a phase, before or after the phase's own `workflow_finished` row. Shadowed zombie rows are ignored, provided `HAL_ENGINE_SHADOW_EMITS`
 stays on.
 
 1. **Rows per phase.** Each phase's row is its last `workflow_finished` row.
@@ -157,7 +172,10 @@ stays on.
    stale.
 3. **Completed phases.** `completed` is the leading run of phases whose fresh row is `ok`
    or `skip`.
+   A phase with a denial or refusal row newer than its `ok` row is not completed.
 4. **The deciding phase** is the first phase not in `completed`:
+   - a denial or refusal row newer than both the phase's own row and the latest reset →
+     `stop`, carrying the deny or refusal code;
    - no phases left → `done`;
    - no row, or only a stale row → `resume` at that phase (this covers a fresh task and the
      state after a reroute);
@@ -172,7 +190,8 @@ stays on.
 
 **`begin_task_run(state_dir, run_id, events_path, phases, max_runs, max_cost_usd) ->
 TaskBegin`** returns `allowed`, `action`, `resume_from`, `completed`, `runs`, `cost_usd`,
-`cost_unknown_calls` and `error_code`.
+`cost_unknown_calls`, `error_code` (why the begin was refused), and `last_status` and
+`plan_error_code` (why the plan decided as it did).
 
 - **Charging.** Only `action == "resume"` is allowed and charged. `done`, `stop` and
   `reroute` record nothing and come back with `allowed=False`.
@@ -185,10 +204,10 @@ TaskBegin`** returns `allowed`, `action`, `resume_from`, `completed`, `runs`, `c
   - Order: the cost cap is checked first and always applies. A credited paused row then
     waives only the runs cap and the charge.
 - **Cost.**
-  - It is `compute_cost_rollup` for the run.
+  - It is summed from the rows already read, over the same events and fields as
+    `compute_cost_rollup`.
   - A missing log is a first run and costs $0.
-  - A log that exists but cannot be read gives `E_TASK_COST_UNREADABLE`. `task_resume`
-    reads the log itself first, because `compute_cost_rollup` swallows read errors.
+  - A log that exists but cannot be read gives `E_TASK_COST_UNREADABLE`.
   - Rows with no `cost_usd` are counted in `cost_unknown_calls`.
 - **Ledger.**
   - The ledger is `task-runs-<run_id>.json` in `state_dir`, written atomically under an
@@ -199,8 +218,9 @@ TaskBegin`** returns `allowed`, `action`, `resume_from`, `completed`, `runs`, `c
 - **What the $60 limits.** It is an admission check between runs, not a limit inside a
   run.
 
-**`reset_task_runs(state_dir, run_id, events_path, reason)`** takes the same lock, deletes
-the ledger, and appends a `task_cap_reset` row with the reason to the event log.
+**`reset_task_runs(state_dir, run_id, events_path, reason)`** takes the same lock, appends
+a `task_cap_reset` row with the reason to the event log, and then deletes the ledger. The
+order means a reset whose row cannot be written keeps the count.
 
 #### CLI
 
@@ -224,10 +244,17 @@ within a run. The task cap limits driver runs of the whole task.
 Usage: `driver-resume.sh RUN_ID PHASES_CSV CTX_JSON EVENT_LOG`.
 
 - The engine command is `$BD_ENGINE_RUN` (default `python3 -m bytedigger_engine.run`).
-- It calls `--task-begin` once and reads the JSON `action`:
+- It calls `--task-begin` once. Any exit code other than 0 or 1, or output that is not JSON,
+  ends the driver with that output.
+- It warns when `cost_unknown_calls > 0`, because the dollar cap counts only known cost.
+- It reads the JSON `action`:
   - `done` → exit 0;
-  - `stop`, `reroute`, or not allowed → exit 1 and run nothing. A reroute needs the driver
-    to set `org_config.phase_reroute`, and the template reports it rather than guessing.
+  - `stop`, `reroute`, or not allowed → exit 1 and run nothing, printing the refusal and
+    plan codes.
+    - A stop prints the `--task-reset` command.
+    - A reroute prints the exact command that runs `resume_from` once with
+      `org_config.phase_reroute` set. After that run, the rerouted phase's row is newer than
+      the defect row, so the next plan resumes the failed phase.
   - `resume` → run each phase from `resume_from` in order with `--workflow`, the same
     `--run-id`, `--ctx` and `--event-log`, stopping at the first failing phase.
 
@@ -253,6 +280,7 @@ Usage: `driver-resume.sh RUN_ID PHASES_CSV CTX_JSON EVENT_LOG`.
 | AC16 | CLI `--task-begin` / `--task-reset` | `test_ac16*` |
 | AC17 | driver template | `test_ac17*` |
 | AC18 | lite keeps lint terminal | `test_ac18*` |
+| AC19 | review fixes: cap invalidates the writer's cache, a crashed lint is terminal, gate retries patch in place, a missing checklist or a fix-less majority FAIL is terminal, the fix prompt cites the satisfaction report, governor denials and oracle refusals stop, the stop reason is reported | `test_ac2b`, `test_ac4b`, `test_ac4d`, `test_ac6b`, `test_ac7`, `test_ac9i`, `test_ac9j`, `test_ac10`, `test_ac14f`–`test_ac14i` |
 
 ## Deliberate sibling updates
 
@@ -280,6 +308,9 @@ Usage: `driver-resume.sh RUN_ID PHASES_CSV CTX_JSON EVENT_LOG`.
   review doc does not name. A satisfaction fix that has to create a file loses it, and the
   loop then ends at the cap. The guard is left unchanged here, because widening what the fix
   worker may create is its own decision.
+- **Retry telemetry inside nested re-runs.** Directed repair and lite's terminal wrapper call
+  a gate that builds a retry result. Each such call emits `recoverable_gate_attempted
+  outcome=retry` although no engine retry follows, so retry counts read high.
 - **Fix commit label.** `_invoke_fix_llm` and `_write_fix_artifact` drop `cycle`, so a
   second fix-loop commit is labelled "fix cycle 1" again. It is cosmetic and left as is.
 

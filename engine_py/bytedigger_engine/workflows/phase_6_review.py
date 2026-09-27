@@ -2265,6 +2265,8 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
             "review finding:"
         )
         parts.append(str(prev.data.get("findings") or "(no findings text captured)"))
+        if prev.data.get("satisfaction_doc_path"):
+            parts.append(f"SATISFACTION REPORT (read this file): {prev.data['satisfaction_doc_path']}")
         parts.append("")
     # 65EA1B86: inline HEAD content of in-scope test files so the fix-worker
     # does not re-derive assertions from spec ACs alone (012F2C02 RCA-3.1).
@@ -3408,7 +3410,9 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
                         else "E_SATISFACTION_BELOW_THRESHOLD"),
             recoverable=False,
         )
-        if reason_code not in _SATISFACTION_FIX_LOOP_REASONS:
+        # A missing AC checklist is an evaluator-format failure, not failing ACs.
+        if reason_code not in _SATISFACTION_FIX_LOOP_REASONS or (
+                reason_code == "ac_checklist_fail" and not ac_detail.get("failed")):
             return failed
         return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
             structured.fixes_required if structured is not None else [], error_msg))
@@ -3429,15 +3433,6 @@ _SATISFACTION_FIX_LOOP_REASONS = frozenset({
 })
 _FIX_LOOP_TARGET_STEP = "build_fix_prompt"
 SATISFACTION_FIX_LOOP_SOURCE = "satisfaction"
-
-
-def _evaluator_fixes(evals: list) -> list:
-    fixes: list = []
-    for e in evals:
-        structured = e.get("structured")
-        if e.get("status") == "ok" and structured is not None:
-            fixes.extend(structured.fixes_required)
-    return fixes
 
 
 def _render_satisfaction_findings(fixes: list, fallback: str) -> str:
@@ -3472,6 +3467,10 @@ def _satisfaction_fix_loop(ctx, prev, failed: StepResult, findings: str) -> Step
     run = telemetry_ctx.get_current_run()
     target = _fix_step_index(run.phase) if run is not None else None
     if run is None or target is None:
+        _emit_safe("satisfaction_fix_loop_unavailable", {
+            "reason": "no_step_context" if run is None else "no_fix_step",
+            "phase": run.phase if run is not None else None,
+        })
         return failed
     review_doc_path = prev.data.get("review_doc_path") or ""
     review_fix_doc_path = prev.data.get("review_fix_doc_path")
@@ -3608,6 +3607,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             score_i = None
             structured_i = None
             ac_verdict_i = None
+            ac_detail_i = {}
 
         evals.append({
             "index": i,
@@ -3616,6 +3616,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             "status": status,
             "error_code": entry.get("error_code"),
             "ac_verdict": ac_verdict_i,
+            "ac_failed": list(ac_detail_i.get("failed", [])),
         })
 
     # GH388: majority checklist-fail over valid (status=="ok") evaluators. Skip verdicts
@@ -3830,8 +3831,11 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
                 error_code="E_SATISFACTION_AC_CHECKLIST",
                 recoverable=False,
             )
+            ac_failed = sorted({ac for e in evals for ac in e["ac_failed"]})
+            if not ac_failed:
+                return failed  # every failing evaluator left out the checklist: format
             return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
-                _evaluator_fixes(evals), error_msg))
+                fixes, error_msg + f"; failing ACs: {', '.join(ac_failed)}"))
         # Build descriptive error message
         if n_valid >= 2:
             error_msg = (
@@ -3871,12 +3875,12 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             error_code="E_SATISFACTION_BELOW_THRESHOLD",
             recoverable=False,
         )
-        # Only a majority FAIL names work for a fix worker. One valid
-        # evaluator is degraded and returned E_REVIEW_DEGRADED above.
-        if n_valid < 2:
+        # Only a majority FAIL that names fixes is work for a fix worker; one
+        # valid evaluator is degraded (E_REVIEW_DEGRADED above), and a FAIL with
+        # no fixes listed is an evaluator-format failure.
+        if n_valid < 2 or not fixes:
             return failed
-        return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
-            _evaluator_fixes(evals), error_msg))
+        return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(fixes, error_msg))
     return StepResult(
         status="ok",
         data=common_data,

@@ -1030,7 +1030,9 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     if cycle >= 2 and not threaded and delta_enabled and not gate_retry:
         threaded = load_findings_thread(scratchpad)  # GH636: recover thread evicted from DBOS operation_outputs on ERROR-retry
     if gate_retry:
-        structured_findings = None
+        # The gate findings go through the same patch-in-place path as review
+        # findings, so a gate retry never rewrites away reviewer-driven fixes.
+        structured_findings = _gate_findings_as_structured(findings)
     elif cycle >= 2 and threaded and delta_enabled:
         structured_findings = threaded
     elif cycle >= 2 and findings:
@@ -1060,6 +1062,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             surgical_prompt = build_surgical_revise_prompt(
                 str(spec_path), spec_text, structured_findings,
                 verbatim_reviewer_context=findings,
+                **({"findings_source": "spec gate"} if gate_retry else {}),
             )
             if high_binding_enabled:
                 prompt = _spec_high_binding_block() + "\n\n" + surgical_prompt + "\n\n" + _get_out_of_role_block()
@@ -1218,6 +1221,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
         restricted_prompt = _restricted_writer_prompt(
             spec=spec_text, findings=structured_findings,
             verbatim_reviewer_context=findings,
+            **({"findings_source": "spec gate"} if gate_retry else {}),
         )
         parts.append("")
         parts.append(restricted_prompt)
@@ -1651,6 +1655,18 @@ def _write_spec_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
 SPEC_GATES_RETRY_SOURCE = "spec_gates"
 
 
+def _gate_findings_as_structured(findings: Any) -> list[dict[str, str]] | None:
+    """One structured finding per non-empty line of a gate's rendered findings."""
+    lines = [ln.strip().lstrip("-").strip() for ln in str(findings or "").splitlines()]
+    items = [ln for ln in lines if ln]
+    if not items:
+        return None
+    return [
+        {"id": f"G{i}", "type": "spec_gate", "evidence": ln, "required_action": ln}
+        for i, ln in enumerate(items, 1)
+    ]
+
+
 def _build_class(ctx: WorkflowContext) -> str:
     return str((ctx.org_config or {}).get("complexity", "SIMPLE")).upper()
 
@@ -1676,6 +1692,9 @@ def _spec_gate_retry(
         "findings": error_msg if findings is None else findings,
         "retry_source": SPEC_GATES_RETRY_SOURCE,
         "structured_findings": None,
+        # At the cap the phase ends; a driver resume must re-run the writer,
+        # not replay the cycle outputs that just failed this gate.
+        "invalidate_cycle_sentinels_on_fail": True,
     }
     return RecoverableGateMixin.gated_step_result(
         gate="spec_gates", forwarded_data=data, error_msg=error_msg, **kwargs,
@@ -2060,6 +2079,18 @@ def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
             error_code="E_SPEC_LINT_DRIVER_ERROR",
             recoverable=False,
         )
+    if rc == 1 and not findings:
+        # bd#85: rc=1 with nothing on stdout is a crashed driver, not spec
+        # findings — a writer retry cannot fix it.
+        return StepResult(
+            status="error",
+            data={**prev.data, "spec_lint_driver_error": (proc.stderr or "")[-200:]},
+            duration_ms=0, step_name=step,
+            error=(f"spec_lint exited 1 with no findings on {spec_path} — failing closed; "
+                   f"stderr: {(proc.stderr or '')[-200:]}"),
+            error_code="E_SPEC_LINT_FAIL",
+            recoverable=False,
+        )
     if rc == 1:
         # 457DC7DC GH371 §2.2: cheap directed-repair pre-stage IN FRONT OF the
         # unchanged terminal return. Non-convergence falls through to today's
@@ -2439,9 +2470,7 @@ def _collect_spec_gate_findings(
     if lint_proc is not None:
         if lint_proc.returncode == 1:
             lines = [ln.strip() for ln in (lint_proc.stdout or "").splitlines() if ln.strip()]
-            if not lines:
-                lines = ["(no findings text)"]
-            for ln in lines:
+            for ln in lines or ["(no findings text)"]:
                 findings.append({
                     "path": str(spec_path),
                     "line": None,
@@ -2449,6 +2478,7 @@ def _collect_spec_gate_findings(
                     "evidence": ln,
                     "error_code": "E_SPEC_LINT_FAIL",
                     "recoverable": False,
+                    **({} if lines else {"infra": True}),
                 })
         elif lint_proc.returncode == 2:
             # Fail CLOSED — a broken driver is a violation, not a silent pass.
@@ -4625,6 +4655,8 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
         # GH625: thread gate_attempts through the terminal path too.
         if isinstance(_rf_ga, dict):
             terminal_data["gate_attempts"] = _rf_ga
+        # bd#85: a driver resume must re-run the writer and the reviewer.
+        terminal_data["invalidate_cycle_sentinels_on_fail"] = True
         return cast(StepResult, RecoverableGateMixin.gated_step_result(
             build_class=build_class_revise,
             gate="spec_review",

@@ -15,6 +15,10 @@ Decision rules (spec: docs/decisions/2026-09-27-bd85-retry-budgets-phase-resume.
   stop-class row → stop; ``E_SPEC_DEFECT`` → reroute to phase_45_spec; any
   other fresh row (error, paused) → resume there. A stop or reroute row older
   than the latest ``task_cap_reset`` row counts as a plain error.
+* A refusal of a phase newer than its row is a stop and the phase is not
+  completed: a restart-governor denial (the governor refuses before the phase
+  runs, so there is no ``workflow_finished`` row) or an oracle refusal that
+  ``run.py`` records as ``phase_refused`` (possibly after an ``ok`` row).
 
 The ledger fails closed (a spend cap), unlike the restart governor, which is a
 waste limiter and fails open.
@@ -30,7 +34,6 @@ from typing import Any, Iterator
 
 from bytedigger_engine.event_log import EventLog
 from bytedigger_engine.io_utils import atomic_write
-from bytedigger_engine.lib.cost_rollup import compute_cost_rollup
 
 try:
     import fcntl
@@ -56,13 +59,16 @@ _DONE_STATUSES = ("ok", "skip")
 _STOP_CODES = frozenset({
     "E_RED_WORKTREE_DIRTY",
     "E_SPEC_DEFECT_BUDGET",
-    # Restart-governor codes are defensive: governor denials emit no workflow_finished.
+    # Defensive: a governor denial is read from its own row (below), but a
+    # phase result carrying these codes also means a human is needed.
     "E_RESTART_CAP",
     "E_RESTART_SHORT_CIRCUIT",
 })
 _REROUTE_CODE = "E_SPEC_DEFECT"
 _COST_EVENT_TYPES = ("subprocess_exited", "runner_result_consumed")
 _RESET_EVENT = "task_cap_reset"
+_DENIED_EVENT = "restart_governor_denied"
+PHASE_REFUSED_EVENT = "phase_refused"  # run.py: an oracle refusal of the phase
 
 
 class TaskLogUnreadable(OSError):
@@ -76,6 +82,7 @@ class ResumePlan:
     completed: list[str] = field(default_factory=list)
     last_status: str | None = None
     last_row: int | None = None
+    error_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +95,9 @@ class TaskBegin:
     cost_usd: float
     cost_unknown_calls: int
     error_code: str | None = None
+    # Why the plan decided as it did: the deciding row's status and code.
+    last_status: str | None = None
+    plan_error_code: str | None = None
 
 
 def _read_rows(events_path: Path | str) -> list[dict[str, Any]]:
@@ -117,35 +127,45 @@ def _is_stop(status: str | None, code: str | None) -> bool:
 
 def _plan(rows: list[dict[str, Any]], run_id: str, phases: list[str]) -> ResumePlan:
     last: dict[str, tuple[int, dict[str, Any]]] = {}
+    denied: dict[str, tuple[int, str | None]] = {}
     last_reset = -1
     for idx, row in enumerate(rows):
         if row.get("run_id") != run_id:
             continue
         payload = row.get("payload") or {}
-        if row.get("event_type") == _RESET_EVENT:
+        kind = row.get("event_type")
+        if kind == _RESET_EVENT:
             last_reset = idx
-        elif row.get("event_type") == "workflow_finished" and payload.get("workflow_name") in phases:
+        elif kind == "workflow_finished" and payload.get("workflow_name") in phases:
             last[payload["workflow_name"]] = (idx, payload)
+        elif kind == _DENIED_EVENT and payload.get("workflow") in phases:
+            denied[payload["workflow"]] = (idx, payload.get("deny_code"))
+        elif kind == PHASE_REFUSED_EVENT and payload.get("workflow") in phases:
+            denied[payload["workflow"]] = (idx, payload.get("error_code"))
 
     completed: list[str] = []
     fresh_after = -1
     for phase in phases:
         entry = last.get(phase)
+        denial = denied.get(phase)
+        if entry is not None and entry[0] > fresh_after and entry[1].get("status") in _DONE_STATUSES \
+                and (denial is None or denial[0] < entry[0]):
+            completed.append(phase)
+            fresh_after = entry[0]
+            continue
+        if denial is not None and denial[0] > max(last_reset, entry[0] if entry else -1):
+            return ResumePlan("stop", None, completed, "denied", denial[0], denial[1])
         if entry is None or entry[0] <= fresh_after:
             return ResumePlan("resume", phase, completed)
         idx, payload = entry
         status = payload.get("status")
-        if status in _DONE_STATUSES:
-            completed.append(phase)
-            fresh_after = idx
-            continue
         code = payload.get("error_code")
         overridden = idx < last_reset
         if _is_stop(status, code) and not overridden:
-            return ResumePlan("stop", None, completed, status, idx)
+            return ResumePlan("stop", None, completed, status, idx, code)
         if code == _REROUTE_CODE and not overridden:
-            return ResumePlan("reroute", REROUTE_TARGET, completed, status, idx)
-        return ResumePlan("resume", phase, completed, status, idx)
+            return ResumePlan("reroute", REROUTE_TARGET, completed, status, idx, code)
+        return ResumePlan("resume", phase, completed, status, idx, code)
     return ResumePlan("done", None, completed)
 
 
@@ -186,12 +206,20 @@ def _load_ledger(path: Path) -> dict[str, Any] | None:
     return data
 
 
-def _unknown_cost_calls(rows: list[dict[str, Any]], run_id: str) -> int:
-    return sum(
-        1 for r in rows
-        if r.get("run_id") == run_id and r.get("event_type") in _COST_EVENT_TYPES
-        and (r.get("payload") or {}).get("cost_usd") is None
-    )
+def _cost(rows: list[dict[str, Any]], run_id: str) -> tuple[float, int]:
+    """Known spend of the run and the number of calls that reported none.
+    Same rows and fields as ``cost_rollup.compute_cost_rollup``, summed over
+    the rows already read so a second read cannot silently come back empty."""
+    known, unknown = 0.0, 0
+    for r in rows:
+        if r.get("run_id") != run_id or r.get("event_type") not in _COST_EVENT_TYPES:
+            continue
+        usd = (r.get("payload") or {}).get("cost_usd")
+        if isinstance(usd, (int, float)):
+            known += usd
+        else:
+            unknown += 1
+    return known, unknown
 
 
 def begin_task_run(
@@ -220,12 +248,11 @@ def begin_task_run(
         except TaskLogUnreadable:
             return TaskBegin(False, "stop", None, [], runs, 0.0, 0, "E_TASK_COST_UNREADABLE")
         plan = _plan(rows, run_id, list(phases))
-        cost = float(compute_cost_rollup(events_path, run_id)["cost_usd"])
-        unknown = _unknown_cost_calls(rows, run_id)
+        cost, unknown = _cost(rows, run_id)
 
         def _result(allowed: bool, runs_now: int, code: str | None = None) -> TaskBegin:
             return TaskBegin(allowed, plan.action, plan.resume_from, plan.completed,
-                             runs_now, cost, unknown, code)
+                             runs_now, cost, unknown, code, plan.last_status, plan.error_code)
 
         if plan.action != "resume":
             return _result(False, runs)
@@ -247,6 +274,7 @@ def reset_task_runs(state_dir: Path | str, run_id: str, events_path: Path | str,
     row also turns an earlier stop or reroute into a plain error."""
     state = Path(state_dir)
     with _locked(state, run_id):
+        # Record first: a reset whose row cannot be written must not drop the count.
+        EventLog(events_path).append(_RESET_EVENT, {"reason": reason}, run_id)
         with contextlib.suppress(FileNotFoundError):
             os.unlink(_ledger_path(state, run_id))
-        EventLog(events_path).append(_RESET_EVENT, {"reason": reason}, run_id)

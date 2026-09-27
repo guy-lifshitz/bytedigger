@@ -199,6 +199,22 @@ def _oracle_after_execute(args, ctx, run_id: str, result) -> "StepResult | None"
     return None
 
 
+def _record_phase_refused(args, run_id: str, refusal: StepResult) -> None:
+    """bd#85: an oracle refusal happens outside the engine, after (or instead
+    of) the phase's own workflow_finished row. Record it so a driver planning
+    the next run does not take an `ok` row for a phase that was refused."""
+    if not args.event_log:
+        return
+    try:
+        get_event_sink(args.event_log).append(
+            task_resume.PHASE_REFUSED_EVENT,
+            {"workflow": args.workflow, "error_code": refusal.error_code},
+            run_id,
+        )
+    except Exception:  # telemetry must never change the refusal itself
+        sys.stderr.write("phase_refused event could not be recorded\n")
+
+
 def _task_seam(args) -> int:
     """bd#85 driver seam. The ledger lives next to the event log, like the
     restart governor's state."""
@@ -338,6 +354,7 @@ def main() -> int:
         # phase's steps never ran is what distinguishes it from the exit verify.
         _oracle_refusal = _oracle_entry_verify(args, ctx, _resolved_run_id)
         if _oracle_refusal is not None:
+            _record_phase_refused(args, _resolved_run_id, _oracle_refusal)
             print(json.dumps(asdict(_oracle_refusal), default=str))
             return 1
         _ret = execute_durable_workflow(
@@ -370,6 +387,7 @@ def main() -> int:
         _oracle_result = _oracle_after_execute(args, ctx, _resolved_run_id, result)
         if _oracle_result is not None:
             result = _oracle_result
+            _record_phase_refused(args, _resolved_run_id, _oracle_result)
         if args.event_log:
             # GH576 C474E073: PAUSED lane budget exemption — a spend-limit
             # pause refunds the start instead of recording a countable error.

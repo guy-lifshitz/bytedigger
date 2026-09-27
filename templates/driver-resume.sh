@@ -28,21 +28,35 @@ event_log=$4
 
 read -r -a engine <<< "${BD_ENGINE_RUN:-python3 -m bytedigger_engine.run}"
 
+set +e
 plan=$("${engine[@]}" --task-begin "$phases_csv" --run-id "$run_id" --event-log "$event_log" \
   --task-max-runs "${BD_TASK_MAX_RUNS:-3}" --task-max-cost-usd "${BD_TASK_MAX_COST_USD:-60}" \
-  | tail -n 1) || true
+  | tail -n 1)
+begin_rc=${PIPESTATUS[0]}
+set -e
+# --task-begin exits 0 (allowed) or 1 (not allowed); anything else is a usage
+# error or a crash, and its output is not a plan.
+if [ "$begin_rc" -ne 0 ] && [ "$begin_rc" -ne 1 ]; then
+  echo "driver: --task-begin failed (exit $begin_rc): $plan" >&2
+  exit 1
+fi
+if ! python3 -c 'import json,sys; json.loads(sys.argv[1])' "$plan" 2>/dev/null; then
+  echo "driver: --task-begin did not print a JSON plan: $plan" >&2
+  exit 1
+fi
 
 field() {
   python3 -c 'import json,sys; v=json.loads(sys.argv[1]).get(sys.argv[2]); print("" if v is None else v)' "$plan" "$1"
 }
 
-if [ -z "$plan" ]; then
-  echo "driver: --task-begin produced no plan" >&2
-  exit 1
-fi
 action=$(field action)
 allowed=$(field allowed)
 resume_from=$(field resume_from)
+why="$(field error_code) $(field plan_error_code) $(field last_status)"
+
+if [ "$(field cost_unknown_calls)" != "0" ] && [ -n "$(field cost_unknown_calls)" ]; then
+  echo "driver: warning: $(field cost_unknown_calls) model call(s) reported no cost; the \$ cap only counts known cost" >&2
+fi
 
 case "$action" in
   done)
@@ -51,16 +65,19 @@ case "$action" in
     ;;
   resume)
     if [ "$allowed" != "True" ]; then
-      echo "driver: task $run_id refused: $(field error_code)" >&2
+      echo "driver: task $run_id refused:$why" >&2
       exit 1
     fi
     ;;
   reroute)
-    echo "driver: task $run_id needs a reroute to $resume_from (set org_config.phase_reroute and rerun)" >&2
+    echo "driver: task $run_id needs a reroute to $resume_from. Run it once with" \
+         "org_config.phase_reroute set in the ctx, then rerun this driver:" >&2
+    echo "  ${engine[*]} --workflow $resume_from --run-id $run_id --ctx <ctx with phase_reroute> --event-log $event_log" >&2
     exit 1
     ;;
   *)
-    echo "driver: task $run_id stopped ($action); a human is needed" >&2
+    echo "driver: task $run_id stopped ($action):$why; a human is needed" \
+         "(fix the cause, then: ${engine[*]} --task-reset <reason> --run-id $run_id --event-log $event_log)" >&2
     exit 1
     ;;
 esac

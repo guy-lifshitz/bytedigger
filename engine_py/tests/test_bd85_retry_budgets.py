@@ -112,6 +112,7 @@ def test_ac2b_review_budget_caps_on_its_own_gate(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda *a, **k: None)
     r = phase_45_spec._gate_on_review(None, _gate_prev(tmp_path, {"spec_review": 1}))
     assert r.recoverable is False and r.error_code == "E_REVIEW_FAILED", r
+    assert r.data.get("invalidate_cycle_sentinels_on_fail") is True
 
 
 def test_ac3_spec_gate_spends_spec_gates_and_marks_its_retry(tmp_path: Path) -> None:
@@ -171,6 +172,8 @@ def test_ac4b_spec_lint_fail_at_cap_is_terminal(tmp_path: Path, monkeypatch) -> 
         r = phase_45_spec._verify_spec_lint(
             _ctx(tmp_path / "s"), _spec_prev(tmp_path, gate_attempts={"spec_gates": 1}))
     assert r.error_code == "E_SPEC_LINT_FAIL" and r.recoverable is False, r
+    assert r.data.get("invalidate_cycle_sentinels_on_fail") is True, (
+        "a driver resume must re-run the writer, not replay the outputs that failed the gate")
 
 
 @pytest.mark.parametrize("proc", [_FakeProc(2, "", "usage"), _FakeProc(124), _FakeProc(3)])
@@ -180,6 +183,14 @@ def test_ac4c_lint_infra_stays_terminal(tmp_path: Path, monkeypatch, proc) -> No
     with patch.object(phase_45_spec, "bounded_run", return_value=proc):
         r = phase_45_spec._verify_spec_lint(_ctx(tmp_path / "s"), _spec_prev(tmp_path))
     assert r.status == "error" and r.recoverable is False, r
+
+
+def test_ac4d_lint_rc1_with_no_findings_is_a_crash(tmp_path: Path, monkeypatch) -> None:
+    _no_repair(monkeypatch)
+    _driver_present(monkeypatch)
+    with patch.object(phase_45_spec, "bounded_run", return_value=_FakeProc(1, "", "Traceback: boom")):
+        r = phase_45_spec._verify_spec_lint(_ctx(tmp_path / "s"), _spec_prev(tmp_path))
+    assert r.recoverable is False and "boom" in (r.error or ""), r
 
 
 def test_ac5_cite_lint_fail_retries_writer_with_findings(tmp_path: Path, monkeypatch) -> None:
@@ -241,6 +252,7 @@ def test_ac6_preflight_content_findings_retry_and_keep_prev_data(tmp_path: Path,
     (_FakeProc(0), _FakeProc(1, "not json")),                    # cite blind
     (_FakeProc(0), _FakeProc(2, "", "usage")),                   # cite driver broken
     (_FakeProc(1, "R7: real finding\n"), _FakeProc(2, "", "u")),  # content mixed with infra
+    (_FakeProc(1, "", "Traceback"), _FakeProc(0)),               # lint crashed, rc 1
 ])
 def test_ac6b_preflight_infra_finding_stays_terminal(tmp_path: Path, monkeypatch, lint, cite) -> None:
     monkeypatch.setenv("HAL_SPEC_PREFLIGHT_BATCH", "1")
@@ -279,6 +291,9 @@ def test_ac7_gate_retry_prompt_uses_gate_findings_not_stale_thread(tmp_path: Pat
     assert "GATE_FINDING_GHOST_PATH" in prompt, "the writer must see the gate findings"
     assert "STALE_REVIEWER_ACTION" not in prompt, "a gate retry must not replay the old review thread"
     assert "address reviewer findings" not in prompt, "gate findings are not reviewer findings"
+    assert "spec gate findings" in prompt
+    assert r.data.get("surgical_revise") is True, (
+        "a gate retry patches the spec in place, so reviewer-driven fixes survive")
 
 
 def test_ac8_frozen_fallback_threads_gate_attempts(tmp_path: Path, monkeypatch) -> None:
@@ -440,6 +455,32 @@ def test_ac9h_review_degraded_stays_terminal(tmp_path: Path, monkeypatch, _clean
     assert r.error_code == "E_REVIEW_DEGRADED" and r.recoverable is False, r
 
 
+def test_ac9i_missing_ac_checklist_is_format_not_work(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
+    monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **k: None)
+    scratch = tmp_path / "scratch"
+    spec = scratch / "specs" / "build-spec.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("## Acceptance Criteria\n1. does X\n", encoding="utf-8")
+    raw = "\n".join([
+        "## Evaluation", "SCORE: 95", "VERDICT: PASS", "",
+        '## satisfaction-output (structured)\n```json\n{"satisfied": true, "fixes_required": []}\n```',
+    ])
+    _under_cycle(1)
+    r = phase_6_review._write_satisfaction_doc(_ctx(scratch, satisfaction_threshold=85), _sat_prev(scratch, raw))
+    assert r.error_code == "E_SATISFACTION_AC_CHECKLIST" and r.recoverable is False, r
+
+
+def test_ac9j_multi_fail_without_fixes_stays_terminal(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
+    monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **k: None)
+    scratch = tmp_path / "scratch"
+    evals = [{"index": i, "status": "ok", "raw_response": "## Evaluation\nSCORE: 40\nVERDICT: FAIL\n"}
+             for i in range(3)]
+    prev = _sat_prev(scratch, is_multi_evaluator=True, evaluator_responses=evals)
+    _under_cycle(1)
+    r = phase_6_review._write_satisfaction_doc(_ctx(scratch, satisfaction_threshold=85), prev)
+    assert r.error_code == "E_SATISFACTION_BELOW_THRESHOLD" and r.recoverable is False, r
+
+
 def test_ac10_fix_prompt_accepts_retry_dict_and_carries_satisfaction(tmp_path: Path) -> None:
     scratch = tmp_path / "scratch"
     reviews = scratch / "reviews"
@@ -452,6 +493,7 @@ def test_ac10_fix_prompt_accepts_retry_dict_and_carries_satisfaction(tmp_path: P
         "spec_path": str(scratch / "specs" / "build-spec.md"),
         "review_doc_path": str(reviews / "build-review.md"),
         "review_fix_doc_path": str(reviews / "build-review-fix.md"),
+        "satisfaction_doc_path": str(reviews / "build-satisfaction.md"),
     }
     r = phase_6_review._build_fix_prompt(_ctx(scratch), prev)
     assert r.status == "ok", r
@@ -460,6 +502,7 @@ def test_ac10_fix_prompt_accepts_retry_dict_and_carries_satisfaction(tmp_path: P
     assert "EARLY-RETURN" not in r.data["prompt"], (
         "a satisfaction loop must not let the worker skip because the review verdict was PASS")
     assert "FIX SKIPPED" not in r.data["prompt"], "no skip marker on a satisfaction loop"
+    assert "build-satisfaction.md" in r.data["prompt"], "the worker must be able to read the evaluator's report"
 
 
 def test_ac11_terminal_exit_invalidates_every_cycle(tmp_path: Path) -> None:

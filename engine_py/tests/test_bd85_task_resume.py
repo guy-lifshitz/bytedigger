@@ -153,6 +153,36 @@ def test_ac14d_reset_unsticks_a_stop(tmp_path: Path) -> None:
     assert (plan.action, plan.resume_from) == ("resume", "phase_1_discovery"), plan
 
 
+def test_ac14f_governor_denial_is_a_stop(tmp_path: Path) -> None:
+    log = _log(tmp_path, _finished("R", "phase_1_discovery", "error", "E_X"),
+               _row("R", "restart_governor_denied",
+                    {"workflow": "phase_1_discovery", "deny_code": "E_RESTART_SHORT_CIRCUIT"}))
+    plan = _tr().plan_resume(log, "R", PHASES)
+    assert (plan.action, plan.error_code) == ("stop", "E_RESTART_SHORT_CIRCUIT"), plan
+    d = _begin(tmp_path, log)
+    assert not d.allowed and d.runs == 0 and d.plan_error_code == "E_RESTART_SHORT_CIRCUIT", d
+
+
+def test_ac14g_oracle_refusal_after_ok_is_not_completed(tmp_path: Path) -> None:
+    log = _log(tmp_path, _finished("R", "phase_1_discovery", "ok"),
+               _row("R", "phase_refused", {"workflow": "phase_1_discovery", "error_code": "E_ORACLE_MUTATED"}))
+    plan = _tr().plan_resume(log, "R", PHASES)
+    assert plan.action == "stop" and plan.completed == [] and plan.error_code == "E_ORACLE_MUTATED", plan
+
+
+def test_ac14h_later_success_clears_a_denial(tmp_path: Path) -> None:
+    log = _log(tmp_path,
+               _row("R", "restart_governor_denied", {"workflow": "phase_1_discovery", "deny_code": "E_RESTART_CAP"}),
+               _finished("R", "phase_1_discovery", "ok"))
+    plan = _tr().plan_resume(log, "R", PHASES)
+    assert (plan.action, plan.resume_from) == ("resume", "phase_45_spec"), plan
+
+
+def test_ac14i_stop_reports_why(tmp_path: Path) -> None:
+    d = _begin(tmp_path, _log(tmp_path, _finished("R", "phase_1_discovery", "error", "E_RED_WORKTREE_DIRTY")))
+    assert d.action == "stop" and d.plan_error_code == "E_RED_WORKTREE_DIRTY" and d.last_status == "error", d
+
+
 # ─── begin_task_run ───────────────────────────────────────────────────────────
 
 
