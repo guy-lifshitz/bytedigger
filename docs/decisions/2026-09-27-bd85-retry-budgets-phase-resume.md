@@ -304,7 +304,7 @@ Usage: `driver-resume.sh RUN_ID PHASES_CSV CTX_JSON EVENT_LOG`.
     (#88).
   - What happens meanwhile: resuming phase 5 over an uncommitted GREEN ends in a terminal
     `E_RED_WORKTREE_DIRTY`, which the driver seam treats as `stop`.
-  - Follow-up: an issue tracks porting GH1626-D and #1018 together, after #88 merges.
+  - Follow-up: #110 tracks porting GH1626-D and #1018 together, after #88 merges.
 - **New files in a satisfaction fix.** The GH947 surface guard deletes new files that the
   review doc does not name. A satisfaction fix that has to create a file loses it, and the
   loop then ends at the cap. The guard is left unchanged here, because widening what the fix
