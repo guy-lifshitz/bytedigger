@@ -333,6 +333,19 @@ def test_ac11_spec_writer_prompt_carries_facts(tmp_path):
     assert prompt.index(fp.FACTS_HEADER) < prompt.index(contract.splitlines()[0])
 
 
+def test_ac11b_restricted_writer_prompt_carries_facts(tmp_path, monkeypatch):
+    fp = _fp()
+    monkeypatch.setenv("HAL_SPEC_DELTA_RETRY", "0")
+    repo = _repo(tmp_path)
+    scratch = tmp_path / "s"
+    ctx = _ctx(scratch, repo)
+    _write_spec(scratch, _SPEC)
+    prev = {"cycle": 2, "findings": "## Findings\n1. cite `existing_helper` precisely\n"}
+    prompt = _prompt(phase_45_spec._build_spec_prompt(ctx, prev))
+    assert "REVISION" in prompt or "FINDING_" in prompt, "not the cycle-2 scaffold"
+    assert fp.FACTS_HEADER in prompt
+
+
 def test_ac12_red_prompt_carries_facts(tmp_path):
     fp = _fp()
     repo = _repo(tmp_path)
@@ -458,6 +471,41 @@ def test_ac17_frozen_spec_is_checked_and_terminal(tmp_path, monkeypatch):
     assert "ghost_helper" in r.error
 
 
+def test_ac16d_abbreviated_path_keeps_lint_downgrades(tmp_path, monkeypatch):
+    head = "## Context\n"
+    tail = "\n## Acceptance\n| AC | c |\n|---|---|\n| AC1 | `existing_helper` in `pkg/mod.py` returns x + 2 |\n"
+    declared = head + "## Symbols this spec INTRODUCES\n- `new_runner`\n\n## Plan\nCall `new_runner` in `mod.py`.\n" + tail
+    assert _reality(tmp_path / "a", monkeypatch, declared, frozen=True).status == "ok"
+    new_ctx = head + "Add `new_runner` in `mod.py`.\n" + tail
+    assert _reality(tmp_path / "b", monkeypatch, new_ctx, frozen=True).status == "ok"
+    undeclared = head + "Call `new_runner` in `mod.py`.\n" + tail
+    r = _reality(tmp_path / "c", monkeypatch, undeclared, frozen=True)
+    assert r.error_code == "E_SPEC_REALITY_FAIL", r
+    assert any("new_runner" in f for f in r.data["spec_reality_findings"]), r.data
+
+
+def test_ac16e_unreadable_spec_is_terminal(tmp_path, monkeypatch):
+    monkeypatch.setattr(phase_45_spec, "_emit_safe", lambda *a, **k: None)
+    repo = _repo(tmp_path)
+    scratch = tmp_path / "s"
+    ctx = _ctx(scratch, repo)
+    prev = StepResult(status="ok", data={
+        "spec_path": str(scratch / "specs" / "missing.md"), "is_frozen": False, "cycle": 1,
+    }, duration_ms=0, step_name="verify_spec_ac_dsl")
+    r = phase_45_spec._verify_spec_reality(ctx, prev)
+    assert r.status == "error" and r.error_code == "E_SPEC_REALITY_FAIL", r
+    assert r.recoverable is False
+
+
+def test_ac16f_lint_spec_delegates_to_text(tmp_path):
+    from bytedigger_engine import spec_cite  # noqa: PLC0415
+
+    repo = _repo(tmp_path)
+    spec = tmp_path / "spec.md"
+    spec.write_text(_GHOST_SPEC, encoding="utf-8")
+    assert spec_cite.lint_spec(spec, repo) == spec_cite.lint_spec_text(_GHOST_SPEC, repo)
+
+
 def test_ac18_clean_spec_passes(tmp_path, monkeypatch):
     r = _reality(tmp_path, monkeypatch, _SPEC, frozen=True)
     assert r.status == "ok", r
@@ -550,3 +598,8 @@ def test_ac22b_mock_window(tmp_path):
     assert got and got[0]["mocked"] == ["existing_helper"], got
     got = fp.unanchored_criteria(head + "| AC1 | `fake_store` holds one row |\n", repo)
     assert [g["id"] for g in got] == ["AC1"], got
+    # window bounds: four words between verb and token, or a comma, and the token is unmocked
+    far = "| AC1 | patch the one real old `existing_helper` to 3 |\n"
+    assert fp.unanchored_criteria(head + far, repo) == []
+    comma = "| AC1 | patch it, then `existing_helper` returns 3 |\n"
+    assert fp.unanchored_criteria(head + comma, repo) == []
