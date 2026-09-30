@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -217,6 +218,72 @@ def _verify_no_cross_tree_edits(worktree_root: Path) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 4b. _filter_cross_tree_to_worker_manifest  (GH1562 — bound the revert to
+#     this build's OWN worker manifest, never subtract from the unbounded
+#     dirty tree; C8E48307 §2.2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _filter_cross_tree_to_worker_manifest(
+    main_repo_root: Path, files: list[str], result: "StepResult"
+) -> "tuple[list[str], list[str], str]":
+    """Partition repo-relative <files> into (owned, refused, manifest_source).
+
+    owned   — files the worker manifest proves THIS build wrote inside main_repo_root
+    refused — everything else (another process's uncommitted work)
+    Fail-closed: an absent/malformed/empty manifest refuses EVERY file.
+    Never raises.
+    """
+    # N4: function-level import — phase_workflows_common is a core module
+    # imported standalone by several tests; do not widen its module-level
+    # import graph.
+    from bytedigger_engine.llm_subprocess import manifest_from_result, _ManifestError  # noqa: PLC0415
+
+    def _refused_reason(exc: Exception) -> str:
+        name = exc.__class__.__name__
+        if name == "_ManifestMalformedError":
+            return "unavailable:malformed"
+        if name == "_ManifestInvalidSourceError":
+            return "unavailable:bad_source"
+        return "unavailable:missing"
+
+    try:
+        manifest, manifest_source = manifest_from_result(result)
+    except _ManifestError as exc:  # missing | malformed | bad_source
+        return [], list(files), _refused_reason(exc)
+    except Exception:  # noqa: BLE001 — outer belt: wrapper contract at :282 never raises
+        return [], list(files), "unavailable:unknown"
+
+    resolved_entries: list[str] = []
+    for entry in manifest:
+        try:
+            if os.path.isabs(entry):
+                resolved_entries.append(os.path.realpath(entry))
+            else:
+                resolved_entries.append(os.path.realpath(os.path.join(str(main_repo_root), entry)))
+        except (OSError, ValueError, TypeError):
+            # Defensive belt (§2.2 D4): a non-str entry never reaches here (the
+            # whole manifest is rejected first by _validate_manifest_or_raise);
+            # kept for a well-formed str entry with an embedded NUL, which
+            # makes os.path.realpath raise ValueError.
+            continue
+
+    owned: list[str] = []
+    refused: list[str] = []
+    for p in files:
+        try:
+            resolved_p = os.path.realpath(os.path.join(str(main_repo_root), p))
+        except (OSError, ValueError, TypeError):
+            refused.append(p)
+            continue
+        if resolved_p in resolved_entries:
+            owned.append(p)
+        else:
+            refused.append(p)
+
+    return owned, refused, manifest_source
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 5. _revert_cross_tree_modifications  (phase_5 version: error="timeout")
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -239,6 +306,8 @@ def _revert_cross_tree_modifications(main_repo_root: Path, files: list[str]) -> 
           "results": [{"file": str, "reverted": bool, "error": str|None}, ...],
           "reverted_count": int,
           "failed_count": int,
+          "refused_count": int,  # GH1562 — always 0 here; manifest filtering
+          "refused_files": [],   # happens only at the wrapper level (§2.4)
         }
     """
     results: list[dict] = []
@@ -273,6 +342,8 @@ def _revert_cross_tree_modifications(main_repo_root: Path, files: list[str]) -> 
         "results": results,
         "reverted_count": reverted_count,
         "failed_count": failed_count,
+        "refused_count": 0,
+        "refused_files": [],
     }
 
 
@@ -310,15 +381,37 @@ def _maybe_emit_cross_tree_warning(result: StepResult, worktree_root: Path) -> S
     # Best-effort auto-revert. Wrapper never raises.
     if main_repo_root is None:  # DC1CB656: type-safety (boy-scout)
         return result
+    # GH1562 (C8E48307): bound the revert to this build's OWN worker
+    # manifest — never subtract from the unbounded dirty tree. Detection
+    # observability above stays unfiltered; only the mutation narrows.
+    owned, refused, manifest_source = _filter_cross_tree_to_worker_manifest(
+        Path(main_repo_root), list(files), result,
+    )
+    if refused:
+        result.data["cross_tree_refused_files"] = list(refused)
+        result.metadata["cross_tree_refused_files"] = list(refused)
+        _emit_safe(
+            "cross_tree_revert_refused",
+            {
+                "step": result.step_name,
+                "main_repo_root": main_repo_root,
+                "refused_files": list(refused),
+                "refused_count": len(refused),
+                "manifest_source": manifest_source,
+            },
+            severity="warning",
+        )
+    if not owned:
+        return result
     try:
-        revert = _revert_cross_tree_modifications(Path(main_repo_root), list(files))
+        revert = _revert_cross_tree_modifications(Path(main_repo_root), owned)
     except Exception as exc:  # noqa: BLE001
         _emit_safe(
             "cross_tree_revert_failed",
             {
                 "step": result.step_name,
                 "exception": exc.__class__.__name__,
-                "files": list(files),
+                "files": list(owned),
             },
         )
         return result
@@ -328,7 +421,7 @@ def _maybe_emit_cross_tree_warning(result: StepResult, worktree_root: Path) -> S
             "step": result.step_name,
             "main_repo_root": main_repo_root,
             "worktree_root": str(worktree_root),
-            "files": list(files),
+            "files": list(owned),
             "reverted_count": revert.get("reverted_count", 0),
             "failed_count": revert.get("failed_count", 0),
         },

@@ -124,6 +124,7 @@ from bytedigger_engine.lib import git_port  # noqa: E402  164E4EFA — rc-aware 
 from bytedigger_engine.lib import interpreter  # noqa: E402  GH1626 C — canonical project-interpreter resolver (§1g)
 from bytedigger_engine.lib import dirty_tree_guard  # noqa: E402  GH961 §2.2 — pre-RED-gate dirty-prod-tree guard
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
+from bytedigger_engine.lib.baseline_tree import baseline_tree  # noqa: E402  GH1612-B — canonical worktree-baseline provider (D1)
 from bytedigger_engine.lib import red_write_boundary  # noqa: E402  GH1179 6B28230E — post-RED write-boundary gate
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
@@ -174,9 +175,9 @@ from bytedigger_engine.lib import step_sentinel as _step_sentinel  # noqa: E402 
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 def _default_red_model() -> str:
     return get_claude_primary()
@@ -4502,58 +4503,111 @@ def _red_commit_baseline_fail_ids(paths: list[str], red_sha: str, git_cwd: str,
 # ─── 5C14EF32 baseline helper (typecheck) ──
 
 
+def _tree_identical_to_head_for_paths(paths: list[str], git_cwd: str) -> bool:
+    """D2.1 (GH1612-B) — is every entry of *paths* identical to HEAD, WITHOUT
+    paying for a worktree checkout? A plain READ via `git_port.git_read` —
+    never a mechanism that leaves a stack entry behind, and never the write
+    port a `worktree add` failure fixture answers with a bare success.
+    """
+    try:
+        res = git_port.git_read(
+            ["diff", "--quiet", "HEAD", "--", *paths],
+            cwd=git_cwd, timeout=30,
+        )
+    except Exception:
+        return False
+    return res.returncode == 0
+
+
 def _compute_baseline_typecheck_count(
     resolved_paths: list[str], git_cwd: str, git_cwd_source: str,
 ) -> int | None:
-    """Stash the working tree, run mypy on the pre-branch baseline for the given
-    resolved paths, return the total findings count, then pop the stash.
+    """Run mypy on the pre-branch (HEAD) baseline for the given resolved
+    paths, inside a DETACHED WORKTREE (GH1612-B, D2) — never on the live
+    checkout. Returns the total findings count.
 
     Returns:
-        int   — total mypy findings on the baseline (may be 0 when all paths are
-                newly-added and vanish after stash, or when mypy reports none).
-        None  — baseline unavailable: stash reported no local changes, or any
-                failure of stash/mypy/pop is swallowed and returns None. Also
-                returned, with a `baseline_skipped_ambient_cwd` event, when
-                `git_cwd_source` is ambient (GH1220 B9).
+        int   — total mypy findings on the baseline (may be 0 when all paths
+                are newly-added and absent at HEAD, or when mypy reports
+                none).
+        None  — baseline unavailable: the tree is identical to HEAD (D2.1, no
+                worktree paid for), the worktree checkout could not be
+                created (`baseline_tree_unavailable` event, D5/AC5), an
+                in-scope path could not be mapped into the worktree
+                (`baseline_tree_path_unmappable` event, D2.2), or the mypy
+                run itself failed/timed out. Also returned, with a
+                `baseline_skipped_ambient_cwd` event, when `git_cwd_source`
+                is ambient (GH1220 B9).
 
     `git_cwd_source` is threaded from the caller — never re-resolved inside
     (§1g/A3.1).
 
-    D4 invariant: working tree is NEVER left stashed on exit — the finally block
-    always attempts git stash pop (with its own inner try/except so a raising pop
-    cannot escape this helper).
+    GH1612-B (D2): rebuilt on the canonical `lib.baseline_tree` provider —
+    every push/preflight/restore leg of the mechanism this helper used to run
+    on the live checkout is gone; a kill mid-measurement can no longer leave
+    an entry behind, because none is ever created (AC3).
     """
-    stashed = False
-    try:
-        if is_ambient_git_cwd(git_cwd_source):
-            _emit_safe("baseline_skipped_ambient_cwd", {
-                "phase": 5, "step": "compute_baseline_typecheck_count", "source": git_cwd_source,
-            })
-            return None
-        r = git_write_port.git_op_capture(
-            ["git", "stash", "push", "-u", "-m", "p2-typecheck-baseline-5c14ef32"],
-            cwd=git_cwd,
-            timeout=30,
+    if is_ambient_git_cwd(git_cwd_source):
+        _emit_safe("baseline_skipped_ambient_cwd", {
+            "phase": 5, "step": "compute_baseline_typecheck_count", "source": git_cwd_source,
+        })
+        return None
+
+    # D2.2 — resolve the worktree-relative form of every path UP FRONT, pure
+    # Python arithmetic, no git call and no worktree checkout paid for yet.
+    # A path outside `git_cwd` (or a macOS /var<->/private/var realpath
+    # mismatch) cannot be mapped at all: that is a BROKEN measurement, never
+    # a baseline of 0 (AC18) — distinct from a path legitimately absent at
+    # HEAD because it is newly added (AC4, handled once inside the worktree).
+    git_cwd_resolved = Path(git_cwd).resolve()
+    relative_paths: list[Path] = []
+    unmappable: list[str] = []
+    for rp in resolved_paths:
+        try:
+            relative_paths.append(Path(rp).relative_to(git_cwd_resolved))
+        except ValueError:
+            unmappable.append(rp)
+
+    if unmappable:
+        _emit_safe(
+            "baseline_tree_path_unmappable",
+            {"phase": 5, "step": "compute_baseline_typecheck_count", "paths": unmappable},
+            severity="error",
         )
-        # "No local changes to save" appears on stdout when the working tree is clean.
-        # Handle both returncode!=0 (some git versions) and the stdout sentinel.
-        if r.returncode != 0 or "No local changes to save" in r.stdout:
-            return None  # no independent baseline — tree was already clean
-        stashed = True
+        return None
 
-        # After stashing, filter to paths that still exist on disk.
-        # Newly-ADDED files vanish at baseline and are excluded — their findings
-        # count fully as net-new (mirrors lint's "added files always hard-fail").
-        existing_paths = [p for p in resolved_paths if Path(p).exists()]
+    # D2.1 — the clean-tree check runs BEFORE any worktree checkout: a tree
+    # identical to HEAD needs no baseline measurement, and paying the
+    # checkout cost (1.24s/10653 files, measured) on every clean cycle is
+    # the cost this ordering avoids.
+    if _tree_identical_to_head_for_paths(resolved_paths, git_cwd):
+        return None
 
-        # If no paths remain (all newly-added) → baseline has zero findings.
+    def _on_tree_unavailable(rc: int) -> None:
+        _emit_safe(
+            "baseline_tree_unavailable",
+            {"phase": 5, "step": "compute_baseline_typecheck_count", "returncode": rc},
+            severity="warning",
+        )
+
+    with baseline_tree(
+        ref="HEAD", git_cwd=git_cwd, _git_write=_git_write,
+        on_unavailable=_on_tree_unavailable,
+    ) as wt:
+        if wt is None:
+            return None
+
+        # A path newly-added since HEAD is not on disk inside the worktree at
+        # all — a legitimate exclusion (AC4), not the unmappable case above.
+        wt_paths = [str(Path(wt) / rel) for rel in relative_paths]
+        existing_paths = [p for p in wt_paths if Path(p).exists()]
         if not existing_paths:
             return 0
 
         try:
             proc = bounded_run(
-                _mypy_base_argv(git_cwd) + existing_paths,
-                cwd=git_cwd,
+                _mypy_base_argv(wt) + existing_paths,
+                cwd=wt,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -4571,21 +4625,6 @@ def _compute_baseline_typecheck_count(
         stdout = proc.stdout or ""
         stderr = proc.stderr or ""
         return len(_parse_mypy_output(stdout + "\n" + stderr))
-
-    except Exception:
-        _emit_safe("p2_typecheck_baseline_error", {"phase": 5}, severity="error")
-        return None
-
-    finally:
-        if stashed:
-            try:
-                git_write_port.git_op_capture(
-                    ["git", "stash", "pop"],
-                    cwd=git_cwd,
-                    timeout=30,
-                )
-            except Exception:
-                _emit_safe("p2_typecheck_baseline_stash_pop_failed", {"phase": 5}, severity="error")
 
 
 # ─── GH1123 / 4D604942: durable GREEN checkpoint on terminal E_GREEN_NOT_PASSING ──

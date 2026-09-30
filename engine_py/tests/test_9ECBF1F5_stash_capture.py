@@ -178,63 +178,17 @@ class _CaptureSpy:
 # add/remove) through this seam are covered in test_bd88_red_commit_baseline_by_id.py.
 
 
-# ─── AC6 — _compute_baseline_typecheck_count records typecheck push ───────────
-
-
-def test_9ecbf1f5_ac6_baseline_typecheck_records_stash_push(tmp_path):
-    """Inject spy; _compute_baseline_typecheck_count([], "/tmp") → spy recorded
-    cmd ["git","stash","push","-u","-m","p2-typecheck-baseline-5c14ef32"].
-
-    Reachability: resolved_paths=[] → existing_paths=[] → returns 0 in try block
-    before mypy is called → finally-block pop fires.
-
-    FAILS today: _compute_baseline_typecheck_count calls bounded_run directly →
-    spy never called.
-
-    §1i: spy factory reset in finally (workflows.md §1i).
-    """
-    push_result = GitResult(returncode=0, stdout="", stderr="", timed_out=False)
-    spy = _CaptureSpy(push_result=push_result)
-    git_write_port.set_default_git_write_factory(lambda: spy)
-    try:
-        p5._compute_baseline_typecheck_count([], str(tmp_path), "cfg_git_cwd")
-    finally:
-        git_write_port.reset_default_git_write_factory()
-
-    push_cmd = ["git", "stash", "push", "-u", "-m", "p2-typecheck-baseline-5c14ef32"]
-    assert push_cmd in spy.calls, (
-        f"Expected spy to record {push_cmd!r}; "
-        f"actual recorded calls: {spy.calls!r}.\n"
-        f"GREEN must route the typecheck push through git_write_port.git_op_capture."
-    )
-
-
-# ─── AC7 — _compute_baseline_typecheck_count records stash pop (finally) ──────
-
-
-def test_9ecbf1f5_ac7_baseline_typecheck_records_stash_pop(tmp_path):
-    """Inject spy; _compute_baseline_typecheck_count([], "/tmp") → spy recorded
-    cmd ["git","stash","pop"] (finally-block pop reached).
-
-    FAILS today: _compute_baseline_typecheck_count calls bounded_run directly →
-    spy never called for pop.
-
-    §1i: spy factory reset in finally (workflows.md §1i).
-    """
-    push_result = GitResult(returncode=0, stdout="", stderr="", timed_out=False)
-    spy = _CaptureSpy(push_result=push_result)
-    git_write_port.set_default_git_write_factory(lambda: spy)
-    try:
-        p5._compute_baseline_typecheck_count([], str(tmp_path), "cfg_git_cwd")
-    finally:
-        git_write_port.reset_default_git_write_factory()
-
-    pop_cmd = ["git", "stash", "pop"]
-    assert pop_cmd in spy.calls, (
-        f"Expected spy to record {pop_cmd!r}; "
-        f"actual recorded calls: {spy.calls!r}.\n"
-        f"GREEN must route the finally-block typecheck pop through git_write_port.git_op_capture."
-    )
+# ─── AC6/AC7 — RETIRED by GH1612-B ───────────────────────────────────────────
+#
+# AC6 (`test_9ecbf1f5_ac6_baseline_typecheck_records_stash_push`) and AC7
+# (`test_9ecbf1f5_ac7_baseline_typecheck_records_stash_pop`) pinned the exact
+# `git stash push` argv and the finally-block `git stash pop` of
+# `_compute_baseline_typecheck_count`.  GH1612-B removed the stash from that
+# helper entirely: it now measures its baseline in a detached `git worktree`
+# at HEAD (`lib/baseline_tree.py`), so there is no push and no pop to record.
+# The pytest-baseline stash was already gone (bd#88), so no stash twin survives;
+# the worktree legs are pinned in tests/test_bounded_spawn.py and
+# tests/test_gh1612b_typecheck_baseline_no_tree_mutation.py.
 
 
 # ─── AC9 — source grep: no raw bounded_run(["git","stash") in phase_5 ─────────

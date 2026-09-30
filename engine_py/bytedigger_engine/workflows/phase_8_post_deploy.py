@@ -71,7 +71,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from collections.abc import Callable
@@ -80,6 +79,7 @@ from typing import Any
 from bytedigger_engine import telemetry_ctx
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib.run_allowlist import remove_run_allowlist, resolve_zones_config_path  # noqa: E402  1DA29C33
+from bytedigger_engine.lib.baseline_tree import baseline_tree  # noqa: E402  GH1612-B — canonical worktree-baseline provider (D1/D3)
 try:
     from .phase_workflows_common import _git_read, _git_write  # noqa: E402,F401  D52228C3 §2.9 re-export
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
@@ -1727,26 +1727,14 @@ def _compute_full_suite_baseline(
     if not cmds:
         return None
 
-    parent = tempfile.mkdtemp(prefix="fsd_baseline_")
-    wt = os.path.join(parent, "wt")
-    worktree_added = False
-    try:
-        rc, _, _ = _git_write(["worktree", "add", "--detach", wt, main_ref], Path(git_cwd))
-        if rc != 0:
+    # GH1612-B (D3): the worktree-creation site itself moved to the canonical
+    # `lib.baseline_tree` provider (§1g) — pure refactor, same behaviour:
+    # `_git_write` resolved from THIS module's own globals at call time (D1).
+    with baseline_tree(ref=main_ref, git_cwd=git_cwd, _git_write=_git_write) as wt:
+        if wt is None:
             return None
-        worktree_added = True
         baseline_result = _run_full_suite(cmds, wt, timeout)
         return baseline_result[0]
-    finally:
-        if worktree_added:
-            try:
-                _git_write(["worktree", "remove", "--force", wt], Path(git_cwd))
-            except Exception:
-                pass
-        try:
-            shutil.rmtree(parent, ignore_errors=True)
-        except Exception:
-            pass
 
 
 # ─── Step 8 (new): full-suite delta gate ─────────────────────────────────────

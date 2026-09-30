@@ -105,11 +105,9 @@ import json
 import logging
 import os
 import re
-import shutil
 import statistics
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -172,6 +170,7 @@ from bytedigger_engine.io_utils import atomic_write  # noqa: E402  DD34EEBF: scr
 from bytedigger_engine.reject_log import record_satisfaction_reject  # noqa: E402  EECA708D
 from bytedigger_engine.net_new_delta import delta_verdict  # noqa: E402  GH316 post-fix typecheck gate
 from bytedigger_engine.lib.mypy_baseline import mypy_base_argv as _mypy_base_argv_p6, parse_mypy_output as _parse_mypy_output_p6  # noqa: E402  GH316
+from bytedigger_engine.lib.baseline_tree import baseline_tree  # noqa: E402  GH1612-B — canonical worktree-baseline provider (D1/D3)
 from bytedigger_engine.config_provider import timeout_policy_path, state_dir_prefix  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
 
@@ -5130,13 +5129,12 @@ def _verify_fix_typecheck(ctx, prev) -> StepResult:  # noqa: C901
             "phase": 6, "step": step_name, "source": git_cwd_source,
         })
     else:
-        parent = tempfile.mkdtemp(prefix="tc_baseline_")
-        wt = os.path.join(parent, "wt")
-        worktree_added = False
-        try:
-            rc_wt, _, _ = _git_write(["worktree", "add", "--detach", wt, pre_fix_sha], Path(git_cwd))
-            if rc_wt == 0:
-                worktree_added = True
+        # GH1612-B (D3): the worktree-creation site itself moved to the
+        # canonical `lib.baseline_tree` provider (§1g) — this is a pure
+        # refactor, same behaviour: `_git_write` resolved from THIS module's
+        # own globals at call time (D1), never imported inside the provider.
+        with baseline_tree(ref=pre_fix_sha, git_cwd=git_cwd, _git_write=_git_write) as wt:
+            if wt is not None:
                 # Map resolved paths into the worktree
                 wt_paths: list[str] = []
                 for rp in resolved_paths:
@@ -5161,16 +5159,6 @@ def _verify_fix_typecheck(ctx, prev) -> StepResult:  # noqa: C901
                         )
                 except Exception:
                     baseline_count = None
-        finally:
-            if worktree_added:
-                try:
-                    _git_write(["worktree", "remove", "--force", wt], Path(git_cwd))
-                except Exception:
-                    pass
-            try:
-                shutil.rmtree(parent, ignore_errors=True)
-            except Exception:
-                pass
 
     # ── 7. Delta verdict and emit ─────────────────────────────────────────────
     enforce_flag = bool(cfg.get("post_fix_typecheck_delta_enforce", True))
