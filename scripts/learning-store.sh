@@ -391,18 +391,15 @@ except Exception:
 count = 0
 parse_errors = 0
 for line in lines:
-    line = line.rstrip('\n')
-    if not line.strip() or line.strip().startswith('#') or line.strip().startswith('```'):
+    stripped = line.strip()
+    if not stripped or stripped.startswith(('#', '```')):
         continue  # blank / heading / code fence: not a parse error
-    m = pattern.match(line.strip())
+    m = pattern.match(stripped)
     if not m:
         parse_errors += 1
         continue
     raw_category = m.group(1)
     lesson       = m.group(2).strip()
-    if not lesson:
-        parse_errors += 1
-        continue
     category = sanitize_category(raw_category)
     if not category:
         parse_errors += 1

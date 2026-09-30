@@ -204,17 +204,17 @@ get_complexity() {
 # yaml_get <field> — value of top-level `field:` in $BUILD_STATE, trimmed of
 # surrounding whitespace and one layer of surrounding quotes. Never fails.
 yaml_get() {
-  local field="$1" line="" val=""
+  # Same order as scripts/ts/lib/state-reader.ts stripKeyAndQuotes:
+  # prefix+leading ws, one leading quote, one trailing quote, then ws trim.
+  local field="$1" line="" val="" ws=$' \t\v\f'
   line=$(grep "^${field}:" "$BUILD_STATE" 2>/dev/null | head -n 1) || true
+  line="${line//$'\r'/}"
   val="${line#"${field}":}"
-  val="${val#"${val%%[![:space:]]*}"}"
-  val="${val%"${val##*[![:space:]]}"}"
-  if [ "${#val}" -ge 2 ]; then
-    case "$val" in
-      \"*\") val="${val:1:${#val}-2}" ;;
-      \'*\') val="${val:1:${#val}-2}" ;;
-    esac
-  fi
+  val="${val#"${val%%[!$ws]*}"}"
+  case "$val" in \"*|\'*) val="${val:1}" ;; esac
+  case "$val" in *\"|*\') val="${val%?}" ;; esac
+  val="${val#"${val%%[!$ws]*}"}"
+  val="${val%"${val##*[!$ws]}"}"
   printf '%s' "$val"
 }
 
@@ -236,9 +236,7 @@ gate_phase_4() {
   scratchpad_dir=$(yaml_get "scratchpad_dir")
   if [ -n "$scratchpad_dir" ]; then
     local research_dir="$scratchpad_dir/research"
-    local has_findings=0
-    if has_nonempty_match "$research_dir" "findings-*.md"; then has_findings=1; fi
-    if [ "$has_findings" -eq 0 ]; then
+    if ! has_nonempty_match "$research_dir" "findings-*.md"; then
       # Mark stale in build-state.yaml
       if grep -q "^scratchpad_stale:" "$BUILD_STATE" 2>/dev/null; then
         local tmp_file="${BUILD_STATE}.tmp"
@@ -249,9 +247,7 @@ gate_phase_4() {
     fi
 
     # bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
-    local has_approach=0
-    if has_nonempty_match "$scratchpad_dir/architecture" "approach-*.md"; then has_approach=1; fi
-    if [ "$has_approach" -eq 0 ]; then
+    if ! has_nonempty_match "$scratchpad_dir/architecture" "approach-*.md"; then
       MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/architecture/approach-*.md")
     fi
   fi
@@ -340,10 +336,10 @@ gate_phase_7() {
   # Soft learning validation: when backend != none, warn if learnings_extracted is missing.
   # This never hard-blocks — learning failures must never stop the pipeline.
   local backend
-  backend=$(grep "^learning_backend:" "$BUILD_STATE" 2>/dev/null | sed 's/^learning_backend:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  backend=$(yaml_get "learning_backend")
   if [ -n "$backend" ] && [ "$backend" != "none" ]; then
     local extracted
-    extracted=$(grep "^learnings_extracted:" "$BUILD_STATE" 2>/dev/null | sed 's/^learnings_extracted:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+    extracted=$(yaml_get "learnings_extracted")
     if [ -z "$extracted" ]; then
       # Warn only — do not add to MISSING_FIELDS (soft, never blocks)
       echo "WARN: learnings_extracted not set in build-state.yaml (backend=$backend)" >&2

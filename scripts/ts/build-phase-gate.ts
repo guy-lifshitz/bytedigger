@@ -408,12 +408,13 @@ export function checkPhase4(cwd: string): GateVerdict {
 
     // bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
     const archDir = join(scratchpad, "architecture");
-    let hasApproach = false;
-    try {
-      hasApproach = hasNonEmptyMatch(archDir, /^approach-.*\.md$/);
-    } catch {
-      hasApproach = false; // dir absent/unreadable → missing deliverable
-    }
+    const hasApproach = (() => {
+      try {
+        return hasNonEmptyMatch(archDir, /^approach-.*\.md$/);
+      } catch {
+        return false; // dir absent/unreadable → missing deliverable
+      }
+    })();
     if (!hasApproach) {
       missing.push(`missing deliverable: ${scratchpad}/architecture/approach-*.md`);
     }

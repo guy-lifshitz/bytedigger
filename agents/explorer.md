@@ -62,7 +62,7 @@ Structure your response for maximum clarity. Always include specific file paths 
 
 Write your full findings to `{scratchpad_dir}/research/findings-{your-name}.md` BEFORE reporting.
 
-- Write is granted for that one path only — never use it for source files, test files, or `build-state.yaml` (no source or test files, and never touch build-state.yaml).
+- Write is granted for that one path only — never use it for source files, test files, or `build-state.yaml`.
 - Your final reply is a short summary plus the path, not the findings themselves.
 
 ## Output Status

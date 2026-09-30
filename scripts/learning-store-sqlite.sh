@@ -327,7 +327,7 @@ try:
     with open(raw_md_path, 'r', encoding='utf-8') as f:
         for line in f:
             stripped = line.strip()
-            if not stripped or stripped.startswith('#') or stripped.startswith('```'):
+            if not stripped or stripped.startswith(('#', '```')):
                 continue  # blank / heading / code fence: not a parse error
             m = pattern_re.match(stripped)
             if m:
@@ -335,7 +335,7 @@ try:
                 lesson   = m.group(2).strip()
                 # Sanitize: lowercase, non-alnum to dash, strip edge dashes
                 sanitized = re.sub(r'[^a-z0-9]+', '-', category.lower()).strip('-')
-                if sanitized and lesson:
+                if sanitized:
                     # Delimiter: ASCII unit separator (0x1f) safe against text content
                     entries.append(sanitized + '\x1f' + lesson)
                     continue

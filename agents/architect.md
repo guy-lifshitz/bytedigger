@@ -53,7 +53,7 @@ Make confident architectural choices. Be specific — provide file paths, functi
 
 Write your full blueprint to `{scratchpad_dir}/architecture/approach-{your-name}.md` BEFORE reporting.
 
-- Write is granted for that one path only — never use it for source files, test files, or `build-state.yaml` (no source or test files, and never touch build-state.yaml).
+- Write is granted for that one path only — never use it for source files, test files, or `build-state.yaml`.
 - If your prompt names a different path (security architect), write only that path; do not create another agent's file. The security architect uses the path given in its prompt.
 - Your final reply is a short summary plus the path, not the blueprint itself.
 
