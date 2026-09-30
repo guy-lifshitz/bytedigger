@@ -458,6 +458,7 @@ def test_huge_sparse_file_bounded_memory(tmp_path):
     finally:
         tracemalloc.stop()
     assert ei.value.reason == "over_cap"
+    assert str(ei.value).endswith("(1073741824 bytes > 65536)"), str(ei.value)
     assert peak < 4 * 1024 * 1024, peak
 
 
@@ -1243,6 +1244,7 @@ def test_c_plus_valid_template_reaches_prompt(row, tmp_path, monkeypatch):
     prompt = res.data["prompt"]
     assert anchor and anchor in prompt, anchor
     assert prompt.startswith(marker), prompt[:200]
+    assert prompt.startswith(f"{marker}\nrole body line\n\n"), prompt[:200]
     assert prompt.index(marker) < prompt.index(anchor)
 
 

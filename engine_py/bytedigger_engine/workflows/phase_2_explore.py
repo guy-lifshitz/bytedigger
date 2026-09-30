@@ -19,7 +19,7 @@ Inputs (via `ctx.org_config`):
     scratchpad_dir              — REQUIRED. Absolute path to scratchpad root.
     complexity                  — Optional. "FEATURE" | "COMPLEX". Default "FEATURE".
                                   COMPLEX adds the security perspective; FEATURE skips it.
-    role template (org_config)  — Optional. Prepended; the step fails with E_ROLE_TEMPLATE_INVALID
+    role_template_path          — Optional. Prepended; the step fails with E_ROLE_TEMPLATE_INVALID
                                   if configured but unusable.
     llm_command                 — Optional. Default: get_claude_explore(). Global fallback.
     explore_llm_command         — Optional. Per-step override of llm_command.

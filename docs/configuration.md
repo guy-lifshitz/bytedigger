@@ -228,8 +228,9 @@ Trust and handling:
 - Keep it outside any tree the build writes. A template inside the workspace can be
   edited by an agent and steers later gates; that is a gate-integrity misconfiguration.
 - The content is bounded in size only, not delimited: the engine adds no delimiter
-  or preface and does not reject verdict-like markers inside the text. Content
-  bounding is tracked in bd#116.
+  or preface and does not reject verdict-like markers inside the text. Routing the
+  template through the skill companion contract (bd#116, see "Skill companions" above),
+  the intended mechanism for bounding its content, is tracked in #125.
 - Resume hashes fold in the path, not the file bytes, so a crash-resume can replay a
   sentinel built from an earlier version of the file.
 

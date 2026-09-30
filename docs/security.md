@@ -31,8 +31,8 @@ are assembled from repo content and the operator's `role_template_path` file --
 so a key can only leak into a prompt if you commit it into the repo or put it in
 that file first. Pointing `role_template_path` into the workspace is a
 gate-integrity misconfiguration: an agent-writable template steers later gates
-(see [configuration.md](configuration.md#role-template-engine)). Backend error paths truncate provider responses
-rather than echoing request headers.
+(see [configuration.md](configuration.md#role-template-engine)). Backend error
+paths truncate provider responses rather than echoing request headers.
 
 The event log records step names, statuses, durations, byte counts, and
 artifact paths. It does not record env vars or request payloads. It is still

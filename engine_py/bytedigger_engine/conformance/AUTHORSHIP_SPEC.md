@@ -514,8 +514,8 @@ single file read to `role_template.py::load_role_template`.
   `str(Path(role_path).expanduser())` — the same resolution `_maybe_role_template` already performs
   (`role_template.py::load_role_template`), **not** `.resolve()`, so a symlinked home does not change
   the recorded identifier. `content` is the string that function returns today, i.e.
-  `rp.read_text(encoding="utf-8").rstrip() + "\n\n"` (`role_template.py`, step 12) — the trailing normalisation is part
-  of the injected bytes and therefore part of the hash. Pinning both is what stops the digest
+  `rp.read_text(encoding="utf-8").rstrip() + "\n\n"`, as produced by `load_role_template` — the
+  trailing normalisation is part of the injected bytes and therefore part of the hash. Pinning both is what stops the digest
   assertion from being satisfiable two ways.
   *bd#119 amendment:* phase 2 now reads the template once, in `build_explore_prompt`;
   `source_id` and `content` come from `data["role_template"]`, and `invoke_explore_llm` opens no

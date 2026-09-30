@@ -17,7 +17,8 @@ Token-spend guards (matches phase_1 / phase_45 / phase_2 playbook):
 
 Inputs (via `ctx.org_config`):
     scratchpad_dir              — REQUIRED. Absolute path to scratchpad root.
-    role_template_path          — Optional. Prepended; the step fails with E_ROLE_TEMPLATE_INVALID if configured but unusable.
+    role_template_path          — Optional. Prepended; the step fails with E_ROLE_TEMPLATE_INVALID
+                                  if configured but unusable.
     llm_command                 — Optional. Default: get_claude_fallback(). Global fallback.
     clarify_llm_command         — Optional. Per-step override of llm_command.
     clarify_llm_timeout_sec     — Optional. Default 300.

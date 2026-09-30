@@ -63,12 +63,10 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   result with the new code `E_ROLE_TEMPLATE_INVALID` (nine reason tokens, not retried, no file
   content in messages). Phase 2 reads the template once and reuses the block. Documented in
   `docs/configuration.md` and `docs/security.md`.
-  Narrowing: the discovery goal "clearly delimited" is narrowed to "bounded": the template is bounded, not delimited.
-  No delimiter is added in this release; content bounding is bd#116.
-  Follow-ups: route the template through the bd#116 companion contract, and bound or delimit
-  its content.
-
-### Changed
+  Narrowing: the discovery goal "clearly delimited" is narrowed to "bounded": the template is
+  bounded, not delimited. No delimiter is added in this release.
+  Follow-up (#125): route the template through the bd#116 companion contract (#123), and bound or
+  delimit its content.
 
 - **Role template errors fail the step (bd#119).** A configured `role_template_path` that is
   missing, unreadable, oversized, not UTF-8, NUL-bearing, empty or of a non-string type now fails

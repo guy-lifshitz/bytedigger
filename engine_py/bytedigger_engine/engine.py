@@ -31,9 +31,9 @@ if TYPE_CHECKING:
 from bytedigger_engine.contracts import (
     CodedStepError,
     LoopStepContract,
-    WorkflowContext,
     StepContract,
     StepResult,
+    WorkflowContext,
     WorkflowDefinition,
     format_boundary_error,
 )
