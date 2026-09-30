@@ -91,7 +91,41 @@ Source: harvest of Warp OSS / Oz (`oz-for-oss` `docs/platform.md`, `.agents/skil
   "output_tail"}], "errors": [{"path","reason"}], "summary": {"total","pass","fail","agent"},
   "ok": bool}`. `output_tail` = last 2000 chars of stdout+stderr (`""` when not run).
   `summary.fail` counts `fail`+`timeout`+`error`+`mutated`. `ok` is `summary.fail == 0 and
-  not errors`.
+  no fatal errors`. Every `errors[]` row carries `"fatal": bool`. Non-fatal (reported, `ok`
+  unaffected): a skill directory under a DEFAULT root that is a symlink resolving outside the
+  repo (sharing skills by symlink is common; such a dir is simply not read — code review #2).
+  Fatal: everything else (`unsupported_frontmatter`, `unreadable`, `not_a_git_repo`, an
+  `outside_repo` configured `extra_dirs` entry).
+
+### op1a — code-review amendments (2026-09-30)
+
+- **Inline comments.** A `metadata` or top-level scalar value is cut at the first ` #`
+  (whitespace then `#`) that is outside a quoted string, then trimmed, then unquoted. So
+  `verify_command: 'python3 scripts/check.py'   # optional` gives `python3 scripts/check.py`
+  and `verification: true  # on` registers (code review #1).
+- **`unsupported_frontmatter` trigger** is a `verification` KEY token inside the unreadable
+  `metadata` block (regex `(^|[\s{,])verification\s*:`), not the substring; `tags:
+  [verification, docs]` is not an error (code review #8).
+- **Process group is always reaped.** After a command exits (any status), its process group
+  is killed, so a background grandchild cannot change the tree after the post-snapshot or
+  outlive the step (code review #7).
+- **Snapshots are chained.** The work-tree probe snapshot is the first command's `before`;
+  an `after` that equals its `before` is reused as the next `before` (N+1 snapshots, not
+  2N+1; code review #9).
+- **One source of failing statuses.** The step names failing skills using the registry's
+  exported `FAIL_STATUSES` (code review #10).
+- **Ambient `git_cwd`.** When `_resolve_git_cwd_with_source` reports an ambient source
+  (`is_ambient_git_cwd(source)`), the step runs the registry with `execute=False` (no foreign
+  code runs, no objects are written), writes the report, emits
+  `verification_registry_skipped_ambient`, and returns `ok`; `commit_green_code` refuses the
+  ambient cwd next, as today (code review #3).
+- **A score downgrade is visible to the writer.** On a downgrade `_apply_review_scores`
+  appends to the review doc on disk a section `## Score downgrade` naming each low axis and its
+  score and stating that the verdict is REVISE, so the retrying writer reads the reason even
+  when the reviewer gave no finding (code review #5).
+- Not taken: script tamper (§6); untracked build artefacts count as `mutated` by design
+  (fail-closed; a check must not leave non-ignored files — documented in `commands/verify.md`
+  and `docs/configuration.md`).
 - **`verify_main(argv) -> int`** — `python3 -m bytedigger_engine.run verify [--repo DIR]
   [--extra-dir DIR]... [--list] [--timeout SEC]` (`--extra-dir` repeatable, the CLI twin of
   `verification_skill_dirs`, so the command sees the same registry as phase 5 — DesignReview
@@ -289,6 +323,11 @@ real commands (`python3 -c ...`); no mock of the unit under test.
 | AC22 | op1 | edges: a `verification: true` line indented under a non-`metadata` key (list item / folded `description: >`) does not register; `extra_dirs=("skills",)` lists each skill once; a symlinked skill dir pointing outside the repo → `errors[]` `outside_repo`, not registered; whitespace-only `verify_command` → kind `command`, status `error`; a command that mutates the tree and then sleeps past the timeout → `mutated`. |
 | AC23 | op1 | timeout kills the process group: `sh -c "(sleep 3; touch <tmp>/gc.marker) & sleep 30"` with `timeout_sec=1` → `timeout`, returns in < 10 s, and after a further 4 s the marker does not exist. `run_registry` on a subdirectory of a git repo → `errors[]` `not_a_git_repo`, no command runs. With `GIT_DIR` pointing at another repo in the env, the snapshot still reflects `repo_root` (a mutating skill is still `mutated`). |
 | AC26 | op2 | the step with `git_cwd = <repo>/sub` (a subdirectory of a git repo) and no command skills → `status == "ok"`, report `summary.total == 0`. |
+| AC27 | op1a | inline comments: `verification: true  # on` registers; `verify_command: 'python3 -c "..."'  # optional` runs and passes; `metadata:\n  tags: [verification, docs]` gives no error row. |
+| AC28 | op1a | a non-verifying skill dir under `skills/` symlinked outside the repo → `errors[]` row `outside_repo` with `fatal: false`, report `ok: true`; the phase 5 step returns `ok`. An `extra_dirs` `../x` row has `fatal: true`. |
+| AC29 | op1a | a command that starts `(sleep 2; touch <tmp>/late.marker) &` and exits 0 → `pass`; 4 s later the marker does not exist. |
+| AC30 | op1a | the step with an ambient git_cwd source (patch `_resolve_git_cwd_with_source` to return the repo and an ambient source string accepted by `is_ambient_git_cwd`) and a command skill whose command writes a marker → `status == "ok"`, marker absent, report skill status `listed`. |
+| AC31 | op1a | `_write_review_doc` downgrade case (AC14 fixture): the review doc on disk contains `## Score downgrade` and the low axis name. |
 | AC24 | op1 | CLI: `verify --timeout 1` applies the timeout (a sleeping command → `timeout`); `verify --bogus` exits 2. |
 | AC25 | op4 | `_write_review_doc` with a SHIP review and an `invalid` scores block (`clarity: 0`) → verdict `SHIP`, `review.json` `scores_status: "invalid"`. Events are captured (as sibling tests capture `_emit_safe`): `spec_review_score_downgrade` on AC14, `spec_review_scores_missing` on the absent/invalid cases, `spec_review_score_low_frozen` on AC19, `verification_registry_report` on AC11. AC13 additionally asserts the prompt states the below-3 ⇒ REVISE rule and the `root: "spec"` finding requirement. AC16 early exit asserts `scores_status` and `low_axes` recorded in `review-cycle-2.json`. |
 | AC19 | op4 | `_write_review_doc` with `is_frozen: True` in `prev.data`, a SHIP review and a `2` score → verdict stays `SHIP`, `review.json` records the low axis. |

@@ -1,7 +1,7 @@
 """RED tests for bd#115 - a registry of verifying skills (phase 5 + `verify`
 command) and a scored spec review (`review.json`) in phase 4.5.
 
-Spec: docs/decisions/2026-09-30-bd115-verification-registry-spec-scores.md (AC1-AC26).
+Spec: docs/decisions/2026-09-30-bd115-verification-registry-spec-scores.md (AC1-AC31).
 
 Every test builds real temp git repos with real SKILL.md files and real commands
 (`sys.executable -c ...`); the units under test are never mocked. New modules
@@ -911,3 +911,122 @@ def test_ac20_verify_command_doc_and_phase5_links() -> None:
     phase5 = (REPO_ROOT / "phases" / "phase-5-implement.md").read_text()
     assert "verify_registered_skills" in phase5
     assert "commands/verify.md" in phase5
+
+
+# --------------------------------------------------------------------------
+# op1a - code-review amendments (AC27-AC31)
+# --------------------------------------------------------------------------
+
+
+def test_ac27_inline_comments_and_tags_token(tmp_path: Path) -> None:
+    from bytedigger_engine import verification_registry as vr
+
+    repo = _make_repo(tmp_path)
+    _skill(repo, "skills/commented", raw=(
+        "---\nname: commented\nmetadata:\n  verification: true  # on\n"
+        f"  verify_command: '{_cmd(_OK)}'   # optional\n---\n\nbody\n"
+    ))
+    # `verification` only as a VALUE token in an unreadable metadata block: not an error
+    _skill(repo, "skills/tagged", raw=(
+        "---\nname: tagged\nmetadata:\n  tags: [verification, docs]\n---\n\nbody\n"
+    ))
+    _commit_all(repo)
+
+    reg = vr.discover(repo)
+    assert _names(reg) == ["commented"]
+    assert [_g(s, "kind") for s in reg.skills] == ["command"]
+    assert list(reg.errors) == [], f"tags: [verification, docs] must not be an error: {reg.errors}"
+    report = _run_registry(repo, timeout_sec=60)
+    assert _by_name(report)["commented"]["status"] == "pass"
+    assert report["ok"] is True
+
+
+def test_ac28_symlinked_non_verifying_dir_is_nonfatal_extra_dir_is_fatal(tmp_path: Path) -> None:
+    from bytedigger_engine.workflows import phase_5_implement as p5
+
+    repo = _make_repo(tmp_path)
+    real = tmp_path / "elsewhere"
+    _skill(real, "shared-real", name="shared", verification=None)
+    (repo / "skills").mkdir()
+    os.symlink(str(real / "shared-real"), str(repo / "skills" / "shared"))
+    _commit_all(repo)
+
+    report = _run_registry(repo, timeout_sec=30)
+    rows = [e for e in report["errors"] if e["reason"] == "outside_repo"]
+    assert rows and rows[0]["path"] == "skills/shared/SKILL.md"
+    assert rows[0]["fatal"] is False
+    assert report["ok"] is True, "a symlinked skill dir outside the repo is non-fatal"
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    ctx, prev = _p5(repo, scratch)
+    result = p5._verify_registered_skills(ctx, prev)
+    assert result.status == "ok", result.error
+
+    # configured extra_dirs escaping the repo, and other error rows, are fatal
+    (tmp_path / "x").mkdir()
+    bad = _run_registry(repo, extra_dirs=("../x",), timeout_sec=30)
+    outside = [e for e in bad["errors"] if e["reason"] == "outside_repo" and e["path"] == "../x"]
+    assert outside and outside[0]["fatal"] is True
+    assert bad["ok"] is False
+
+    flow = _make_repo(tmp_path, "flowrepo")
+    _skill(flow, "skills/flow", raw="---\nname: flow\nmetadata: {verification: true}\n---\n\nb\n")
+    _commit_all(flow)
+    freport = _run_registry(flow, timeout_sec=30)
+    assert freport["errors"] and all(e["fatal"] is True for e in freport["errors"])
+    plain_dir = tmp_path / "plain-nogit"
+    _skill(plain_dir, "skills/m", name="m", command=_cmd(_OK))
+    plain = _run_registry(plain_dir, timeout_sec=30)
+    assert plain["errors"] and all(e.get("fatal") is True for e in plain["errors"])
+
+
+def test_ac29_background_grandchild_reaped_after_exit_zero(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path)
+    marker = tmp_path / "late.marker"  # outside the repo
+    _skill(repo, "skills/bg", raw=(
+        "---\nname: bg\nmetadata:\n  verification: true\n"
+        f"  verify_command: 'sh -c \"(sleep 2; touch {marker}) &\"'\n---\n\nbody\n"
+    ))
+    _commit_all(repo)
+
+    report = _run_registry(repo, timeout_sec=30)
+    assert _by_name(report)["bg"]["status"] == "pass"
+    time.sleep(4)
+    assert not marker.exists(), "the process group must be killed after the command exits"
+
+
+def test_ac30_ambient_git_cwd_lists_only_and_runs_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bytedigger_engine.workflows import phase_5_implement as p5
+
+    events = _capture_events(monkeypatch, p5)
+    repo = _make_repo(tmp_path)
+    marker = tmp_path / "ambient.marker"
+    _skill(repo, "skills/m", name="m", command=_cmd(_TOUCH, str(marker), "w"))
+    _commit_all(repo)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    ctx, prev = _p5(repo, scratch)
+    monkeypatch.setattr(p5, "_resolve_git_cwd_with_source", lambda c, p=None: (str(repo), "cwd"))
+
+    result = p5._verify_registered_skills(ctx, prev)
+    assert result.status == "ok", result.error
+    assert not marker.exists(), "no foreign code may run in an ambient git_cwd"
+    report = json.loads((scratch / "reviews" / "verification-report.json").read_text())
+    assert _by_name(report)["m"]["status"] == "listed"
+    assert [1 for (et, _p) in events if et == "verification_registry_skipped_ambient"]
+
+
+def test_ac31_downgrade_appends_score_downgrade_section_to_review_doc(tmp_path: Path) -> None:
+    from bytedigger_engine.workflows.phase_45_spec import _write_review_doc
+
+    prev = _review_prev(tmp_path, _c1_review(_scores_block(clarity=2)))
+    result = _write_review_doc(None, prev)
+    assert result.status == "ok", result.error
+    assert result.data["verdict"] == "REVISE"
+    doc = (tmp_path / "specs" / "build-plan-review.md").read_text()
+    assert "## Score downgrade" in doc
+    section = doc.split("## Score downgrade", 1)[1]
+    assert "clarity" in section and "REVISE" in section
