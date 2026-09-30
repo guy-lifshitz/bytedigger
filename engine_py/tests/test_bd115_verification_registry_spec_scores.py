@@ -249,7 +249,8 @@ def test_ac5_not_a_git_repo_runs_nothing(tmp_path: Path) -> None:
     _skill(plain, "skills/m", name="m", command=_cmd(_TOUCH, str(marker), "w"))
 
     report = _run_registry(plain, timeout_sec=60)
-    assert {"path": ".", "reason": "not_a_git_repo"} in report["errors"]
+    rows = [e for e in report["errors"] if e["path"] == "." and e["reason"] == "not_a_git_repo"]
+    assert rows and rows[0]["fatal"] is True
     assert not marker.exists(), "no command may run outside a git work tree"
     assert report["ok"] is False
     assert _by_name(report)["m"]["status"] == "error"
@@ -292,7 +293,8 @@ def test_ac23_subdirectory_of_git_repo_is_not_a_git_repo(tmp_path: Path) -> None
     _commit_all(repo)
 
     report = _run_registry(repo / "sub", timeout_sec=30)
-    assert {"path": ".", "reason": "not_a_git_repo"} in report["errors"]
+    rows = [e for e in report["errors"] if e["path"] == "." and e["reason"] == "not_a_git_repo"]
+    assert rows and rows[0]["fatal"] is True
     assert not marker.exists(), "no command may run when repo_root is not the work-tree top level"
     assert report["ok"] is False
 

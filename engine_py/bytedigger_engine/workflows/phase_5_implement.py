@@ -8321,18 +8321,21 @@ def _verify_registered_skills(ctx, prev) -> StepResult:
     Otherwise runs `verification_registry.run_registry`, writes the report to
     `$SCRATCHPAD/reviews/verification-report.json` and emits
     `verification_registry_report`. Not ok -> E_VERIFICATION_SKILL_FAILED.
+    An ambient git_cwd only lists the registry (execute=False), emits
+    `verification_registry_skipped_ambient` and returns ok.
     """
     step_name = "verify_registered_skills"
     cfg = getattr(ctx, "org_config", None) or {}
     prev_data = dict(prev.data) if prev is not None and isinstance(prev.data, dict) else {}
-    repo = _resolve_git_cwd_with_source(ctx, prev)[0]
+    repo, source = _resolve_git_cwd_with_source(ctx, prev)
+    ambient = is_ambient_git_cwd(source)
     extra_dirs = tuple(str(d) for d in (cfg.get("verification_skill_dirs") or []))
     try:
         timeout_sec = float(cfg.get("verification_timeout_sec", verification_registry.DEFAULT_TIMEOUT_SEC))
     except (TypeError, ValueError):
         timeout_sec = float(verification_registry.DEFAULT_TIMEOUT_SEC)
 
-    tampered = verification_registry.head_registry_tampered(repo, extra_dirs)
+    tampered: list[str] = [] if ambient else verification_registry.head_registry_tampered(repo, extra_dirs)
     if tampered:
         return StepResult(
             status="error", data=prev_data, duration_ms=0, step_name=step_name,
@@ -8341,7 +8344,11 @@ def _verify_registered_skills(ctx, prev) -> StepResult:
             recoverable=False,
         )
 
-    report = verification_registry.run_registry(repo, extra_dirs=extra_dirs, timeout_sec=timeout_sec)
+    # Ambient git_cwd: list only — no foreign code runs, no objects are written;
+    # commit_green_code refuses the ambient cwd next.
+    report = verification_registry.run_registry(
+        repo, extra_dirs=extra_dirs, timeout_sec=timeout_sec, execute=not ambient,
+    )
     report_path: str | None = None
     try:
         path = _resolve_scratchpad(ctx) / "reviews" / "verification-report.json"
@@ -8354,10 +8361,15 @@ def _verify_registered_skills(ctx, prev) -> StepResult:
         "summary": report["summary"], "ok": report["ok"], "report_path": report_path,
     })
     data = {**prev_data, "verification_report_path": report_path}
+    if ambient:
+        _emit_safe("verification_registry_skipped_ambient", {
+            "git_cwd_source": source, "summary": report["summary"], "report_path": report_path,
+        })
+        return StepResult(status="ok", data=data, duration_ms=0, step_name=step_name)
     if report["ok"]:
         return StepResult(status="ok", data=data, duration_ms=0, step_name=step_name)
-    failing = [f"{s['name']} ({s['status']})" for s in report["skills"] if s["status"] in ("fail", "timeout", "error", "mutated")]
-    failing += [f"{e['path']} ({e['reason']})" for e in report["errors"]]
+    failing = [f"{s['name']} ({s['status']})" for s in report["skills"] if s["status"] in verification_registry.FAIL_STATUSES]
+    failing += [f"{e['path']} ({e['reason']})" for e in report["errors"] if e.get("fatal", True)]
     return StepResult(
         status="error", data=data, duration_ms=0, step_name=step_name,
         error=f"verification skills failed: {', '.join(failing)}",

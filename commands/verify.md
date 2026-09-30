@@ -44,5 +44,7 @@ metadata:
 
 - Never edit, stage or commit a tracked file. A `mutated` status is reported, never
   repaired.
+- A check must not leave non-ignored files behind (build artefacts, caches): any new
+  file that `.gitignore` does not cover counts as `mutated`.
 - Phase 5 runs the same registry automatically (step `verify_registered_skills`);
   this command is the on-demand twin that also covers `agent` skills.

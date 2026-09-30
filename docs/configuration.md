@@ -90,6 +90,9 @@ extend and bound it:
 | `verification_skill_dirs` | list of strings | `[]` | Extra repo-relative directories scanned one level deep (`<dir>/*/SKILL.md`). An entry outside the repo is an `outside_repo` error row. CLI twin: `verify --extra-dir DIR` (repeatable). |
 | `verification_timeout_sec` | number | `300` | Per-command timeout; on expiry the whole process group is killed and the skill is `timeout`. CLI twin: `verify --timeout SEC`. |
 
+A check must not leave non-ignored files in the repo: any new or changed file that
+`.gitignore` does not cover makes the skill `mutated`, which fails the step.
+
 ## Environment variables and the BD_ alias layer
 
 Engine env reads go through `engine_py/config_provider.py`. Every `HAL_<X>`

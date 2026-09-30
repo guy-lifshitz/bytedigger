@@ -4505,6 +4505,14 @@ def _apply_review_scores(
         if may_downgrade:
             verdict = VERDICT_REVISE
             _emit_safe("spec_review_score_downgrade", {"cycle": cycle, "low_axes": low})
+            section = "\n\n## Score downgrade\n\nVerdict is REVISE (reviewer said SHIP): axes scored below " + (
+                f"{spec_review_score.LOW_SCORE}:\n"
+                + "".join(f"- {axis}: {parsed.scores[axis]}\n" for axis in low)
+            )
+            try:
+                atomic_write(review_path, review_path.read_text(encoding="utf-8").rstrip("\n") + section)
+            except OSError as exc:
+                logger.warning("score downgrade section not written: %s", exc)
         elif data.get("is_frozen"):
             _emit_safe("spec_review_score_low_frozen", {"cycle": cycle, "low_axes": low})
     name = "review.json" if cycle <= 1 else f"review-cycle-{cycle}.json"

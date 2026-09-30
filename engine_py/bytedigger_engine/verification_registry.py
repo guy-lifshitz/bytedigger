@@ -8,7 +8,8 @@ command and never run by the engine.
 Public API:
   FrontmatterError      — a `metadata` block the parser cannot read that mentions `verification`
   Skill                 — frozen dataclass(name, path, kind, verify_command)
-  Registry              — frozen dataclass(skills, errors)
+  Registry              — frozen dataclass(skills, errors); each error row carries `fatal`
+  FAIL_STATUSES         — the skill statuses that count as failures
   parse_frontmatter(text) -> dict | None
   discover(repo_root, extra_dirs=()) -> Registry        (reads files only)
   run_registry(repo_root, *, extra_dirs=(), timeout_sec=300, execute=True) -> dict
@@ -46,9 +47,10 @@ _GIT_TIMEOUT_SEC = 120
 _TRUE_VALUES = frozenset({"true", "True", "TRUE"})
 _SCRUBBED_GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")
 _DEFAULT_ROOTS = ("skills", ".claude/skills")  # core-boundary: allow repo-relative skill root inside the host repo, not the user config dir
-_FAIL_STATUSES = frozenset({"fail", "timeout", "error", "mutated"})
+FAIL_STATUSES = frozenset({"fail", "timeout", "error", "mutated"})
 
 _KEY_RE = re.compile(r"^([A-Za-z_][\w.-]*):(?:[ \t]+(.*))?$")
+_VERIFICATION_KEY_RE = re.compile(r"(^|[\s{,])verification\s*:", re.MULTILINE)
 _UNSCALAR_START = frozenset(">|[{&*!")
 
 
@@ -77,7 +79,7 @@ class Registry:
     """Result of `discover`: skills sorted by (name, path), errors sorted by path."""
 
     skills: tuple[Skill, ...]
-    errors: tuple[dict[str, str], ...]
+    errors: tuple[dict[str, Any], ...]
 
 
 # ─── frontmatter ─────────────────────────────────────────────────────────────
@@ -89,6 +91,20 @@ def _unquote(value: str) -> str:
         inner = value[1:-1]
         return inner.replace("''", "'") if value[0] == "'" else inner
     return value
+
+
+def _strip_comment(value: str) -> str:
+    """Cut `value` at the first whitespace-then-`#` outside a quoted string, then trim."""
+    quote = ""
+    for i, ch in enumerate(value):
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "#" and i > 0 and value[i - 1] in " \t":
+            return value[:i].strip()
+    return value.strip()
 
 
 def _is_scalar(value: str) -> bool:
@@ -107,7 +123,7 @@ def _parse_metadata(value: str, children: list[str]) -> dict[str, str] | None:
     raw = value + "\n" + "\n".join(children)
 
     def unreadable() -> dict[str, str] | None:
-        if "verification" in raw:
+        if _VERIFICATION_KEY_RE.search(raw):
             raise FrontmatterError("unsupported metadata block mentions verification")
         return None
 
@@ -126,7 +142,7 @@ def _parse_metadata(value: str, children: list[str]) -> dict[str, str] | None:
         m = _KEY_RE.match(line.strip())
         if m is None:
             return unreadable()
-        item = (m.group(2) or "").strip()
+        item = _strip_comment(m.group(2) or "")
         if not _is_scalar(item):
             return unreadable()
         meta[m.group(1)] = _unquote(item)
@@ -159,7 +175,7 @@ def parse_frontmatter(text: str) -> dict[str, Any] | None:
         j = i + 1
         while j < len(body) and (not body[j].strip() or body[j][0] in " \t-"):
             j += 1
-        key, value = m.group(1), (m.group(2) or "").strip()
+        key, value = m.group(1), _strip_comment(m.group(2) or "")
         if key == "metadata":
             meta = _parse_metadata(value, body[i + 1:j])
             if meta is not None:
@@ -181,25 +197,32 @@ def _inside(path: Path, repo: Path) -> bool:
     return True
 
 
-def _roots(repo: Path, extra_dirs: Iterable[str]) -> tuple[list[tuple[str, Path]], list[dict[str, str]]]:
-    """Return ([(repo-relative display root, path)], errors) de-duplicated by resolved path."""
-    errors: list[dict[str, str]] = []
-    candidates: list[tuple[str, Path]] = [(r, repo / r) for r in _DEFAULT_ROOTS]
+def _error(path: str, reason: str, *, fatal: bool = True) -> dict[str, Any]:
+    """One `errors[]` row; only a symlinked default-root skill dir is non-fatal."""
+    return {"path": path, "reason": reason, "fatal": fatal}
+
+
+def _roots(
+    repo: Path, extra_dirs: Iterable[str],
+) -> tuple[list[tuple[str, Path, bool]], list[dict[str, Any]]]:
+    """Return ([(repo-relative display root, path, is_default)], errors), de-duplicated by resolved path."""
+    errors: list[dict[str, Any]] = []
+    candidates: list[tuple[str, Path, bool]] = [(r, repo / r, True) for r in _DEFAULT_ROOTS]
     for entry in extra_dirs:
         resolved = (repo / str(entry)).resolve()
         if not _inside(resolved, repo):
-            errors.append({"path": str(entry), "reason": "outside_repo"})
+            errors.append(_error(str(entry), "outside_repo"))
             continue
         rel = resolved.relative_to(repo).as_posix()
-        candidates.append(("" if rel == "." else rel, resolved))
-    roots: list[tuple[str, Path]] = []
+        candidates.append(("" if rel == "." else rel, resolved, False))
+    roots: list[tuple[str, Path, bool]] = []
     seen: set[Path] = set()
-    for rel, path in candidates:
+    for rel, path, is_default in candidates:
         key = path.resolve()
         if key in seen:
             continue
         seen.add(key)
-        roots.append((rel, path))
+        roots.append((rel, path, is_default))
     return roots, errors
 
 
@@ -219,7 +242,7 @@ def discover(repo_root: str | os.PathLike[str], extra_dirs: Sequence[str] = ()) 
     roots, errors = _roots(repo, extra_dirs)
     skills: list[Skill] = []
     seen_files: set[Path] = set()
-    for root_rel, root in roots:
+    for root_rel, root, is_default in roots:
         if not root.is_dir():
             continue
         try:
@@ -233,7 +256,7 @@ def discover(repo_root: str | os.PathLike[str], extra_dirs: Sequence[str] = ()) 
             rel = posixpath.join(root_rel, child.name, "SKILL.md") if root_rel else posixpath.join(child.name, "SKILL.md")
             resolved = md.resolve()
             if not _inside(child.resolve(), repo) or not _inside(resolved, repo):
-                errors.append({"path": rel, "reason": "outside_repo"})
+                errors.append(_error(rel, "outside_repo", fatal=not (is_default and child.is_symlink())))
                 continue
             if resolved in seen_files:
                 continue
@@ -241,12 +264,12 @@ def discover(repo_root: str | os.PathLike[str], extra_dirs: Sequence[str] = ()) 
             try:
                 text = md.read_text(encoding="utf-8", errors="replace")
             except OSError:
-                errors.append({"path": rel, "reason": "unreadable"})
+                errors.append(_error(rel, "unreadable"))
                 continue
             try:
                 fm = parse_frontmatter(text)
             except FrontmatterError:
-                errors.append({"path": rel, "reason": "unsupported_frontmatter"})
+                errors.append(_error(rel, "unsupported_frontmatter"))
                 continue
             meta = _registered(fm)
             if fm is None or meta is None:
@@ -333,18 +356,26 @@ def _kill_group(pgid: int) -> None:
         pass
 
 
-def _run_command(skill: Skill, repo: Path, timeout_sec: float) -> dict[str, Any]:
-    """Run one command skill between two tree snapshots; never raises."""
+def _run_command(
+    skill: Skill, repo: Path, timeout_sec: float, before: str | None,
+) -> tuple[dict[str, Any], str | None]:
+    """Run one command skill between two tree snapshots; never raises.
+
+    `before` is a snapshot already known to be current (chained from the previous
+    command) or None to take one. Returns (row, snapshot reusable as the next
+    `before` or None).
+    """
     row = _row(skill, "error")
     try:
         argv = shlex.split(skill.verify_command or "")
     except ValueError:
-        return row
+        return row, before
     if not argv:
-        return row
-    before = _tree_snapshot(repo)
+        return row, before
     if before is None:
-        return row
+        before = _tree_snapshot(repo)
+    if before is None:
+        return row, None
     t0 = time.monotonic()
     timed_out = False
     rc: int | None = None
@@ -356,13 +387,16 @@ def _run_command(skill: Skill, repo: Path, timeout_sec: float) -> dict[str, Any]
             )
         except (OSError, ValueError):
             row["duration_ms"] = int((time.monotonic() - t0) * 1000)
-            return row
+            return row, before
         try:
             rc = proc.wait(timeout=timeout_sec)
         except subprocess.TimeoutExpired:
             timed_out = True
             _kill_group(proc.pid)
             proc.wait()
+        # Always reap the group: a background grandchild must not outlive the check
+        # or change the tree after the post-snapshot.
+        _kill_group(proc.pid)
         row["duration_ms"] = int((time.monotonic() - t0) * 1000)
         out.seek(0)
         text = out.read().decode("utf-8", errors="replace")
@@ -377,7 +411,7 @@ def _run_command(skill: Skill, repo: Path, timeout_sec: float) -> dict[str, Any]
         row["status"] = "timeout"
     else:
         row["status"] = "pass" if rc == 0 else "fail"
-    return row
+    return row, (after if after is not None and after == before else None)
 
 
 def run_registry(
@@ -394,11 +428,14 @@ def run_registry(
     """
     repo = Path(repo_root).resolve()
     reg = discover(repo, extra_dirs)
-    errors: list[dict[str, str]] = [dict(e) for e in reg.errors]
+    errors: list[dict[str, Any]] = [dict(e) for e in reg.errors]
     runnable = execute and any(s.kind == "command" for s in reg.skills)
-    git_ok = runnable and _is_toplevel(repo) and _tree_snapshot(repo) is not None
+    snapshot: str | None = None
+    if runnable and _is_toplevel(repo):
+        snapshot = _tree_snapshot(repo)  # the probe doubles as the first `before`
+    git_ok = runnable and snapshot is not None
     if runnable and not git_ok:
-        errors.append({"path": ".", "reason": "not_a_git_repo"})
+        errors.append(_error(".", "not_a_git_repo"))
     rows: list[dict[str, Any]] = []
     for skill in reg.skills:
         if not execute:
@@ -408,9 +445,10 @@ def run_registry(
         elif not git_ok:
             rows.append(_row(skill, "error"))
         else:
-            rows.append(_run_command(skill, repo, timeout_sec))
+            row, snapshot = _run_command(skill, repo, timeout_sec, snapshot)
+            rows.append(row)
     errors.sort(key=lambda e: e["path"])
-    failed = sum(1 for r in rows if r["status"] in _FAIL_STATUSES)
+    failed = sum(1 for r in rows if r["status"] in FAIL_STATUSES)
     summary = {
         "total": len(rows),
         "pass": sum(1 for r in rows if r["status"] == "pass"),
@@ -422,7 +460,7 @@ def run_registry(
         "skills": rows,
         "errors": errors,
         "summary": summary,
-        "ok": failed == 0 and not errors,
+        "ok": failed == 0 and not any(e.get("fatal", True) for e in errors),
     }
 
 
@@ -439,7 +477,7 @@ def head_registry_tampered(repo_root: str | os.PathLike[str], extra_dirs: Sequen
     """
     repo = Path(repo_root).resolve()
     roots, _errors = _roots(repo, extra_dirs)
-    root_rels = [rel for rel, _path in roots]
+    root_rels = [rel for rel, _path, _default in roots]
     specs = [rel or "." for rel in root_rels]
     listing = _git(["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", *specs], repo)
     if listing is None or listing.returncode != 0:
