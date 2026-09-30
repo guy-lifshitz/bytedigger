@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Versioning: the plugin (`.claude-plugin/plugin.json`), the npm pointer package
 (`npm/`), and the Python engine (`engine_py/pyproject.toml`) all version together
-as `0.1.x` until the engine API stabilizes. The historical `v1.0.0` tag predates
+as `0.x` until the engine API stabilizes. The historical `v1.0.0` tag predates
 the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
+
+## [0.2.0] — 2026-09-30
 
 ### Changed — BREAKING
 
