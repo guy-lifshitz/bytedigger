@@ -780,6 +780,12 @@ def test_m5_security_md_names_hook_and_bash_write_limit():
     section = re.split(r"^## ", tail, maxsplit=1, flags=re.M)[0]
     assert re.search(r"\bBash\b", section) and re.search(r"writ", section, re.I), \
         "docs/security.md must state the Bash-write limit next to the hook"
+    # n1: every other known limit of spec section 4 is named in the same section
+    assert "2.1.69" in section, "security.md must name the Claude Code < 2.1.69 limit"
+    assert re.search(r"worktree", section, re.I), "security.md must name the stale-worktree-state limit"
+    assert "NTFS" in section, "security.md must name the NTFS alias-name limit"
+    assert re.search(r"cd |subdir", section, re.I), \
+        "security.md must name the orchestrator cd-into-subdir limit"
 
 
 # --- m8: empty / null / non-string path, non-object tool_input --------------
@@ -837,6 +843,26 @@ def test_m12_research_symlink_to_project_root_grants_nothing(tmp_path):
     _block(_run(proj, _call("Write", t, agent_type="explorer")),
            _r7("explorer", scratch, t))
     assert _rp(t) == _rp(proj / "src" / "a.py")
+
+
+# --- A10 (n2): NUL byte in file_path -> R3 block, never exit 1 --------------
+
+def test_a10_nul_byte_in_file_path_blocks_with_r3(tmp_path):
+    proj = _project(tmp_path)
+    t = f"{proj}/scratch/research/a\x00b.md"
+    raw = json.dumps({**_call("Write", t, agent_type="explorer"), "cwd": str(proj)})
+    assert "\\u0000" in raw
+    _block(_run(proj, None, raw_stdin=raw), R3)
+
+
+# --- n3: R5 names the resolved file when it differs from the raw name -------
+
+def test_n3_symlink_named_state_file_to_metadata_names_metadata(tmp_path):
+    proj = _project(tmp_path)
+    (proj / "build-metadata.json").write_text("{}")
+    link = proj / "scratch" / "research" / "build-state.yaml"
+    link.symlink_to(proj / "build-metadata.json")
+    _block(_run(proj, _call("Write", link, agent_type="explorer")), _r5("build-metadata.json"))
 
 
 # --- awaiting_approval is an active phase -----------------------------------
