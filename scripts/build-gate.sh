@@ -105,8 +105,9 @@ load_state() {
   # Stale check: mtime > 600s → exit 0
   local now mtime age
   now=$(date +%s)
-  # macOS stat
-  mtime=$(stat -f %m "$BUILD_STATE" 2>/dev/null || stat -c %Y "$BUILD_STATE" 2>/dev/null || echo "0")
+  # stat: GNU (-c %Y) first, then BSD/macOS (-f %m); GNU `stat -f` is filesystem status
+  mtime=$(stat -c %Y "$BUILD_STATE" 2>/dev/null || stat -f %m "$BUILD_STATE" 2>/dev/null || echo "0")
+  [[ "$mtime" =~ ^[0-9]+$ ]] || mtime=0
   age=$((now - mtime))
   if [ "$age" -gt 600 ]; then
     exit 0
