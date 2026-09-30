@@ -264,8 +264,10 @@ def _gate_fixture(tmp_path: Path, phase: str, extra_state: str, complexity="FEAT
     return scratch
 
 
-def _run_gate(tmp_path: Path):
+def _run_gate(tmp_path: Path, extra_path: Path | None = None):
     env = _clean_env(tmp_path, BYTEDIGGER_CONFIG=str(tmp_path / "bytedigger.json"))
+    if extra_path is not None:
+        env["PATH"] = f"{extra_path}{os.pathsep}{env['PATH']}"
     return subprocess.run(
         ["bash", str(GATE)], stdin=subprocess.DEVNULL, capture_output=True,
         text=True, env=env, cwd=str(tmp_path), timeout=60,
@@ -491,6 +493,43 @@ def test_c4_phase4_reanchor_architect_does_not_run_git_diff():
         and re.search(r"provid|paste|supplie|includ", p, re.I)
         for p in paras
     ), "block must say the orchestrator provides the `git diff --stat` output"
+
+
+def test_c11_gate_survives_gnu_stat(tmp_path):
+    # C11: on GNU coreutils `stat -f` means --file-system and exits 0 with
+    # multi-line output, so `stat -f %m ... || stat -c %Y ...` never falls back
+    # and the arithmetic on $mtime dies. The gate must survive a GNU-style stat.
+    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n")
+    (scratch / "research" / "findings-a.md").write_text("findings\n")
+    (scratch / "architecture" / "approach-a.md").write_text("approach\n")
+
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    stat_shim = shim / "stat"
+    stat_shim.write_text(
+        "#!/bin/bash\n"
+        'last="${@: -1}"\n'
+        "has_f=0; has_c=0; has_y=0\n"
+        'for a in "$@"; do\n'
+        '  [ "$a" = "-f" ] && has_f=1\n'
+        '  [ "$a" = "-c" ] && has_c=1\n'
+        '  [ "$a" = "%Y" ] && has_y=1\n'
+        "done\n"
+        'if [ "$has_f" = 1 ]; then\n'
+        '  printf \'  File: "%s"\\n    ID: 0 Namelen: 255 Type: apfs\\n\' "$last"\n'
+        "  exit 0\n"
+        "fi\n"
+        'if [ "$has_c" = 1 ] && [ "$has_y" = 1 ]; then\n'
+        "  python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' \"$last\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 1\n"
+    )
+    stat_shim.chmod(0o755)
+
+    proc = _run_gate(tmp_path, extra_path=shim)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "unbound variable" not in proc.stderr, proc.stderr
 
 
 # ---------------------------------------------------------------------------
