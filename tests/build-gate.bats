@@ -311,8 +311,10 @@ last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 phase_4_architect: complete
 scratchpad_dir: "$TMPDIR/scratch"
 EOF
-  mkdir -p "$TMPDIR/scratch/research"
+  mkdir -p "$TMPDIR/scratch/research" "$TMPDIR/scratch/architecture"
   echo "findings" > "$TMPDIR/scratch/research/findings-codebase.md"
+  # bd#127 AC4b: a non-empty architecture/approach-*.md is now part of the phase-4 gate
+  echo "approach" > "$TMPDIR/scratch/architecture/approach-a.md"
   run bash "$SCRIPT" < /dev/null
   [ "$status" -eq 0 ]
 }

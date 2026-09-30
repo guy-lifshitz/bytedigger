@@ -1,7 +1,7 @@
 ---
 name: synthesizer
 description: Post-implementation synthesis agent. Summarizes what was built, extracts learnings, and produces a concise completion digest.
-tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
+tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput, Write
 model: haiku
 color: purple
 ---
@@ -31,7 +31,7 @@ Patterns or anti-patterns discovered during this build that should be remembered
 - Categories: architecture, bug-fix, code-quality, workflow, performance
 - Only include genuinely reusable insights, not task-specific details
 
-**Write learnings to `{scratchpad}/reviews/learnings-raw.md`** using this exact format:
+Use this exact format:
 
 ```markdown
 ## New Learnings
@@ -59,6 +59,13 @@ If a `## Project Constitution` block was provided:
 - No filler, no praise — just facts
 - If review found zero issues, say so (it's a positive signal)
 - If files were backed up before modification, mention the backup paths
+
+## Deliverable
+
+Write your learnings to `{scratchpad_dir}/reviews/learnings-raw.md` BEFORE reporting (format above).
+
+- Write is granted for that one path only — never use it for source files, test files, or `build-state.yaml`.
+- Your final reply is a short summary plus the path, not the learnings file itself.
 
 ## Output Status
 

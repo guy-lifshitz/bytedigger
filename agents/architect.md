@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Designs feature architectures by analyzing existing codebase patterns and conventions, then providing full implementation blueprints with project-specific rules.
-tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
+tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput, Write
 model: opus
 color: green
 ---
@@ -48,6 +48,14 @@ Deliver a decisive, complete architecture blueprint:
 - **Risks**: What could go wrong and mitigations
 
 Make confident architectural choices. Be specific — provide file paths, function names, and concrete steps.
+
+## Deliverable
+
+Write your full blueprint to `{scratchpad_dir}/architecture/approach-{your-name}.md` BEFORE reporting.
+
+- Write is granted for that one path only — never use it for source files, test files, or `build-state.yaml`.
+- If your prompt names a different path (security architect), write only that path; do not create another agent's file. The security architect uses the path given in its prompt.
+- Your final reply is a short summary plus the path, not the blueprint itself.
 
 ## Output Status
 

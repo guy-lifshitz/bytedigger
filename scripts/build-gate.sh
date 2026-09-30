@@ -105,8 +105,9 @@ load_state() {
   # Stale check: mtime > 600s → exit 0
   local now mtime age
   now=$(date +%s)
-  # macOS stat
-  mtime=$(stat -f %m "$BUILD_STATE" 2>/dev/null || stat -c %Y "$BUILD_STATE" 2>/dev/null || echo "0")
+  # stat: GNU (-c %Y) first, then BSD/macOS (-f %m); GNU `stat -f` is filesystem status
+  mtime=$(stat -c %Y "$BUILD_STATE" 2>/dev/null || stat -f %m "$BUILD_STATE" 2>/dev/null || echo "0")
+  [[ "$mtime" =~ ^[0-9]+$ ]] || mtime=0
   age=$((now - mtime))
   if [ "$age" -gt 600 ]; then
     exit 0
@@ -201,22 +202,54 @@ get_complexity() {
 # Section 5: Gate functions
 # ---------------------------------------------------------------------------
 
+# yaml_get <field> — value of top-level `field:` in $BUILD_STATE, trimmed of
+# surrounding whitespace and one layer of surrounding quotes. Never fails.
+yaml_get() {
+  # Same order as scripts/ts/lib/state-reader.ts stripKeyAndQuotes:
+  # prefix+leading ws, one leading quote, one trailing quote, then ws trim.
+  local field="$1" line="" val="" ws=$' \t\v\f'
+  line=$(grep "^${field}:" "$BUILD_STATE" 2>/dev/null | head -n 1) || true
+  line="${line//$'\r'/}"
+  val="${line#"${field}":}"
+  val="${val#"${val%%[!$ws]*}"}"
+  case "$val" in \"*|\'*) val="${val:1}" ;; esac
+  case "$val" in *\"|*\') val="${val%?}" ;; esac
+  val="${val#"${val%%[!$ws]*}"}"
+  val="${val%"${val##*[!$ws]}"}"
+  printf '%s' "$val"
+}
+
+# has_nonempty_match <dir> <glob> — true if a non-empty file matching glob exists in dir.
+has_nonempty_match() {
+  local dir="$1" glob="$2" f
+  [ -d "$dir" ] || return 1
+  for f in "$dir"/$glob; do
+    if [ -s "$f" ]; then return 0; fi
+  done
+  return 1
+}
+
 gate_phase_4() {
   yaml_field_equals "phase_4_architect" "complete" || true
 
   # C3: scratchpad_stale check — at least one findings-*.md must exist in research/
   local scratchpad_dir=""
-  scratchpad_dir=$(grep "^scratchpad_dir:" "$BUILD_STATE" 2>/dev/null | sed 's/^scratchpad_dir:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  scratchpad_dir=$(yaml_get "scratchpad_dir")
   if [ -n "$scratchpad_dir" ]; then
     local research_dir="$scratchpad_dir/research"
-    if ! compgen -G "$research_dir/findings-*.md" > /dev/null 2>&1; then
+    if ! has_nonempty_match "$research_dir" "findings-*.md"; then
       # Mark stale in build-state.yaml
       if grep -q "^scratchpad_stale:" "$BUILD_STATE" 2>/dev/null; then
         local tmp_file="${BUILD_STATE}.tmp"
         grep -v "^scratchpad_stale:" "$BUILD_STATE" > "$tmp_file" && mv "$tmp_file" "$BUILD_STATE"
       fi
       echo "scratchpad_stale: true" >> "$BUILD_STATE"
-      hard_block "scratchpad_stale: no findings-*.md found in $research_dir — Phase 2 exploration must complete before Phase 4"
+      hard_block "scratchpad_stale: no non-empty findings-*.md found in $research_dir — Phase 2 exploration must complete before Phase 4"
+    fi
+
+    # bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
+    if ! has_nonempty_match "$scratchpad_dir/architecture" "approach-*.md"; then
+      MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/architecture/approach-*.md")
     fi
   fi
 }
@@ -298,18 +331,28 @@ gate_phase_6() {
 }
 
 gate_phase_7() {
+  [ "$COMPLEXITY" = "TRIVIAL" ] && return 0
   yaml_field_equals "review_complete" "pass" || true
 
   # Soft learning validation: when backend != none, warn if learnings_extracted is missing.
   # This never hard-blocks — learning failures must never stop the pipeline.
   local backend
-  backend=$(grep "^learning_backend:" "$BUILD_STATE" 2>/dev/null | sed 's/^learning_backend:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+  backend=$(yaml_get "learning_backend")
   if [ -n "$backend" ] && [ "$backend" != "none" ]; then
     local extracted
-    extracted=$(grep "^learnings_extracted:" "$BUILD_STATE" 2>/dev/null | sed 's/^learnings_extracted:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+    extracted=$(yaml_get "learnings_extracted")
     if [ -z "$extracted" ]; then
       # Warn only — do not add to MISSING_FIELDS (soft, never blocks)
       echo "WARN: learnings_extracted not set in build-state.yaml (backend=$backend)" >&2
+    fi
+  fi
+
+  # bd#127: synthesizer must have written reviews/learnings-raw.md (soft, best-effort nudge).
+  local scratchpad_dir=""
+  scratchpad_dir=$(yaml_get "scratchpad_dir")
+  if [ -n "$scratchpad_dir" ]; then
+    if [ ! -s "$scratchpad_dir/reviews/learnings-raw.md" ]; then
+      MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/reviews/learnings-raw.md")
     fi
   fi
 }

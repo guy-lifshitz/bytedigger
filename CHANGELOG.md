@@ -82,6 +82,16 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   the abort handler also runs and writes its `NOT_ASSESSED` stub; the simple fast path halts
   without one.
 
+### Fixed
+
+- **Workers write their own deliverables (bd#127).** The explorer, architect and synthesizer
+  agents now get `Write` for their one deliverable path (findings, approach, `learnings-raw.md`),
+  and the phase 2/4/7 prompts have the orchestrator verify the file on disk and re-prompt on a
+  miss instead of relaying text. Gates 4 and 7 check the deliverables on disk (best-effort
+  nudge). Gate 7 no longer crashes when `learning_backend` or `learnings_extracted` is absent.
+  `learning-store.sh extract` reports `learnings_parse_errors` and prints a `WARN` when lines do
+  not parse, instead of silently storing 0.
+
 ## [0.2.0] — 2026-09-30
 
 ### Changed — BREAKING

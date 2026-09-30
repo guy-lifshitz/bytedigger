@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Deeply analyzes existing codebase features by tracing execution paths, mapping architecture layers, understanding patterns and abstractions, and documenting dependencies. Structured output for pipeline consumption.
-tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
+tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput, Write
 # model: set by orchestrator per complexity tier (Haiku for FEATURE, Sonnet for COMPLEX)
 color: yellow
 ---
@@ -58,11 +58,16 @@ Provide a detailed analysis with:
 
 Structure your response for maximum clarity. Always include specific file paths and line numbers.
 
+## Deliverable
+
+Write your full findings to `{scratchpad_dir}/research/findings-{your-name}.md` BEFORE reporting.
+
+- Write is granted for that one path only — never use it for source files, test files, or `build-state.yaml`.
+- Your final reply is a short summary plus the path, not the findings themselves.
+
 ## Output Status
 
 **Output Schema:** End your report with: `Scope:` / `Result:` / `Key files:` / `Files changed:` / `Issues:`. Do NOT emit text between tool calls — work silently, report once at the end.
-
-Write findings to `{scratchpad_dir}/research/findings-{your-name}.md` BEFORE reporting.
 
 Then end with the Agent Status Protocol footer:
 ```

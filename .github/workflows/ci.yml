@@ -230,3 +230,10 @@ jobs:
 
       - name: install-forms registry tests (bd#21)
         run: python -m pytest tests/test_install_forms_registry.py -q
+
+      - name: worker deliverables tests (bd#127)
+        env:
+          BD_REQUIRE_SQLITE: "1"
+        run: |
+          command -v sqlite3 >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3; }
+          python -m pytest tests/test_worker_deliverables.py -q
