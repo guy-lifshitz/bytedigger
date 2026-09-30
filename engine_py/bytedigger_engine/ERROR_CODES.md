@@ -239,6 +239,7 @@
 
 - `E_POST_FIX_PYTEST_FAILED` — phase_6_review: post-fix pytest run reported real test failures
 - `E_POST_FIX_PYTEST_INFRA` — phase_6_review: post-fix pytest run failed for infra reasons, not test content
+- `E_POST_FIX_TYPECHECK_NO_BOUNDARY` — phase_6_review: post-fix typecheck boundary is degenerate (== HEAD) and could not be recovered via <fix_commit_sha>~1
 - `E_POST_FIX_TYPECHECK_PATH_ESCAPE` — phase_6_review: post-fix typecheck target path escaped allowed scope
 - `E_POST_FIX_TYPECHECK_REGRESSION` — phase_6_review: post-fix typecheck introduced a new regression
 

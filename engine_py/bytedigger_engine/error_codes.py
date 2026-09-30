@@ -157,6 +157,7 @@ ERROR_CODES: dict[str, str] = {
     "E_ORCHESTRATOR_CHECKLIST_MISSING": "phase_05_inject: orchestrator checklist file not found",
     "E_POST_FIX_PYTEST_FAILED": "phase_6_review: post-fix pytest run reported real test failures",
     "E_POST_FIX_PYTEST_INFRA": "phase_6_review: post-fix pytest run failed for infra reasons, not test content",
+    "E_POST_FIX_TYPECHECK_NO_BOUNDARY": "phase_6_review: post-fix typecheck boundary is degenerate (== HEAD) and could not be recovered via <fix_commit_sha>~1",
     "E_POST_FIX_TYPECHECK_PATH_ESCAPE": "phase_6_review: post-fix typecheck target path escaped allowed scope",
     "E_POST_FIX_TYPECHECK_REGRESSION": "phase_6_review: post-fix typecheck introduced a new regression",
     "E_PYTEST_MISSING": "phase_5_implement: pytest binary not available on this host",

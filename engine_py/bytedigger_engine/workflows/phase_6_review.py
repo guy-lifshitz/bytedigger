@@ -1211,6 +1211,7 @@ _QUOTE_LINE_RE = re.compile(r"^>\s+((?:[A-Za-z]:)?[^:]+):(\d+):(.*)$", re.MULTIL
 # A37D4F04: fuzzy/normalised citation match constants.
 _QUOTE_WINDOW_LINES = 3   # ±3 lines around cited line for tiers 3/4/5
 _REVIEWER_SUSPECT_RATE_THRESHOLD: float = 0.4  # D3492E45: > this triggers reviewer_grep_accuracy_warning
+_REVIEWER_SUSPECT_WITHHOLD_MIN_N: int = 3  # GH1591 C2 item 5b: withholding needs >= this many findings
 _MIN_SUBSTRING_LEN  = 16  # minimum quote length (after strip) for tier 5 substring match
 
 # 3F5599A6 D3: reject oversized cited files before read — stat-only, no content
@@ -1657,9 +1658,16 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     verified_count = sum(v for k, v in match_kinds.items() if k.startswith("verified"))
     suspect_count = sum(v for k, v in match_kinds.items() if k.startswith("suspect"))
     total_verified_suspect = verified_count + suspect_count
+    # GH1591 C2 item 5: suspect_rate/threshold_exceeded default when there is
+    # nothing to rate; forwarded below from this SAME computation (§1g) —
+    # never recomputed from the dedup'd verified_findings/suspect_findings.
+    suspect_rate: float = 0.0
+    suspect_rate_threshold_exceeded = False
     if total_verified_suspect > 0:
         rate = suspect_count / total_verified_suspect
         threshold_exceeded = rate > _REVIEWER_SUSPECT_RATE_THRESHOLD
+        suspect_rate = rate
+        suspect_rate_threshold_exceeded = threshold_exceeded
         _emit_safe("reviewer_suspect_rate", {
             "phase": "phase_6_review",
             "verified_count": verified_count,
@@ -1686,6 +1694,15 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
                     if str(_f.get("verify_status", "")).startswith("suspect")
                 ],
             })
+
+    # GH1591 C2 item 5b: hoisted above `out` assembly (AC18) — the decision
+    # must reach the composite review artifact and review_findings_audit,
+    # not only the fix doc. Minimum-N: withholding fires only when the
+    # sample (same `total_verified_suspect` the reviewer_suspect_rate event
+    # used) is large enough to be signal, not noise.
+    suspect_withhold = (
+        suspect_rate_threshold_exceeded and total_verified_suspect >= _REVIEWER_SUSPECT_WITHHOLD_MIN_N
+    )
 
     # Dedup by (severity, normalized_title); first-seen wins, except that a
     # verified copy replaces a quote-suspect one (bd#84: a suspect duplicate
@@ -1829,6 +1846,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         "malformed_headers": _malformed_total,  # GH970 D2
         "zero_findings_roles": _zero_findings_roles,  # bd#84
         "canonicalized_headers": _canonicalized_total,  # bd#84
+        "suspect_withhold": suspect_withhold,  # GH1591 C2 item 5b/AC18
     }
     out.append("## Findings Audit")
     out.append(
@@ -1854,6 +1872,17 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         out.append(f"{ZERO_FINDINGS_AUDIT_WARNING} — roles: {', '.join(_zero_findings_roles)}")
     if _canonicalized_total:
         out.append(f"{CANONICALIZED_AUDIT_NOTE}: {_canonicalized_total}")
+    if suspect_withhold:
+        # GH1591 C2 item 5b/AC18: state the withholding decision in the
+        # artifact a human and the satisfaction evaluator actually read —
+        # stable marker line. rate/threshold are pre-dedup (matches the
+        # reviewer_suspect_rate event's source); withheld is POST-dedup
+        # (len(suspect_findings)) — what actually gets left out of the fix
+        # feed, matching fix_feed_suspect_withheld.withheld_count.
+        out.append(
+            f"SUSPECT FINDINGS WITHHELD FROM FIX WORKER: rate={suspect_rate} "
+            f"threshold={_REVIEWER_SUSPECT_RATE_THRESHOLD} withheld={len(suspect_findings)}"
+        )
     out.append("")
     _emit_safe("review_findings_audit", findings_audit)
 
@@ -1875,6 +1904,9 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             "findings_audit": findings_audit,  # 906E37DC
             "verified_findings": verified_findings,  # 65695203: forwarded to step 4 for fix-doc render
             "suspect_findings": suspect_findings,  # CA50885D: forwarded for fail-OPEN fix-feed
+            "suspect_rate": suspect_rate,  # GH1591 C2 item 5
+            "suspect_rate_threshold_exceeded": suspect_rate_threshold_exceeded,  # GH1591 C2 item 5
+            "suspect_withhold": suspect_withhold,  # GH1591 C2 item 5b
         },
         duration_ms=0,
         step_name="aggregate_review_findings",
@@ -1983,10 +2015,19 @@ def _persist_fix_feed(
     verified: list,
     suspect: list,
     verdict: str,
+    *,
+    suspect_withhold: bool = False,
 ) -> "Path | StepResult":
     """GH1354 producer chokepoint: the ONLY place that builds the fix-doc
     name, renders its content, and writes it. Path on success,
-    StepResult(status='error') on failure."""
+    StepResult(status='error') on failure.
+
+    GH1591 C2 item 6: when ``suspect_withhold`` is True, suspect findings are
+    withheld from the fix worker's feed entirely (no suspect block bodies) and
+    a withheld notice naming rate/threshold/count is appended instead. When
+    False/absent (default), output is byte-identical to today (CA50885D
+    fail-OPEN preserved) — item 7.
+    """
     fix_path = doc_path.parent / Path(REVIEW_FIX_DOC_RELPATH).name
     if not verified and not suspect:
         # No structured lists (stdout-fallback) ⇒ derive from the SAME bytes
@@ -1997,8 +2038,24 @@ def _persist_fix_feed(
         # This derivation path is already observable via the existing
         # 'stdout_fallback_used' event emitted on the same branch upstream —
         # no new event is introduced here (GH402 orphan-emit gate).
+    withheld_count = len(suspect) if suspect_withhold else 0
+    content = _render_fix_doc(verified, verdict, None if suspect_withhold else suspect)
+    if withheld_count:
+        _total = len(verified) + len(suspect)
+        _rate = (withheld_count / _total) if _total else 0.0
+        content += (
+            "\n## Suspect Findings Withheld\n\n"
+            f"{withheld_count} suspect finding(s) withheld from this feed: reviewer "
+            f"suspect rate {_rate:.2f} exceeded threshold {_REVIEWER_SUSPECT_RATE_THRESHOLD} "
+            "(GH1591). Not fed to the fix worker; see the composite review artifact "
+            "for the full suspect section.\n"
+        )
+        _emit_safe(
+            "fix_feed_suspect_withheld",
+            {"rate": _rate, "threshold": _REVIEWER_SUSPECT_RATE_THRESHOLD, "withheld_count": withheld_count},
+        )
     try:
-        fix_path.write_text(_render_fix_doc(verified, verdict, suspect), encoding="utf-8")
+        fix_path.write_text(content, encoding="utf-8")
     except OSError as exc:
         return StepResult(
             status="error", data=None, duration_ms=0,
@@ -2041,7 +2098,13 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         # CA50885D: fail-OPEN fix doc — verified first, then suspect (LOW CONFIDENCE) if any.
         verified_findings = prev.data.get("verified_findings") or []
         suspect_findings = prev.data.get("suspect_findings") or []
-        fix_result = _persist_fix_feed(doc_path, aggregated_content, verified_findings, suspect_findings, verdict)
+        # GH1591 C2 item 8: composite review artifact (written above) always
+        # keeps its suspect section; only the fix worker's feed is gated.
+        suspect_withhold = bool(prev.data.get("suspect_withhold", False))
+        fix_result = _persist_fix_feed(
+            doc_path, aggregated_content, verified_findings, suspect_findings, verdict,
+            suspect_withhold=suspect_withhold,
+        )
         if isinstance(fix_result, StepResult):
             return fix_result
         fix_doc_path_obj = fix_result
@@ -4345,6 +4408,16 @@ def _drop_add_ignored_paths(
     return retained, dropped
 
 
+def _inherited_fix_boundary(prev_data: "dict | None") -> "str | None":
+    """§1aa/§1g: the ONE reader of the fix-side boundary precedence —
+    fix_boundary_sha (attested by commit_fix_code this cycle) over
+    pre_fix_sha (caller-supplied). Falls through to None so each caller
+    keeps its own resolve_pre_phase_sha fallback and error handling.
+    """
+    data = prev_data or {}
+    return data.get("fix_boundary_sha") or data.get("pre_fix_sha")
+
+
 def _commit_fix_code(ctx, prev) -> StepResult:
     """Step 6+: engine-authoritative FIX commit (7547E02F).
 
@@ -4372,9 +4445,13 @@ def _commit_fix_code(ctx, prev) -> StepResult:
             "fix_commit_skipped",
             {"reason": "no_git_repo", "phase": 6},
         )
+        # GH1591 C1.1b: pre-resolution skip — never forward an inherited
+        # fix_boundary_sha from a prior cycle; this call attested nothing.
+        _no_boundary_data = {**(prev.data or {}), "fix_commit_sha": None}
+        _no_boundary_data.pop("fix_boundary_sha", None)
         return StepResult(
             status="ok",
-            data={**(prev.data or {}), "fix_commit_sha": None},
+            data=_no_boundary_data,
             duration_ms=0,
             step_name="commit_fix_code",
         )
@@ -4400,9 +4477,13 @@ def _commit_fix_code(ctx, prev) -> StepResult:
                 "fix_commit_skipped",
                 {"reason": "no_git_repo", "phase": 6, "err": str(exc)[:200]},
             )
+            # GH1591 C1.1b: pre-resolution skip — never forward an inherited
+            # fix_boundary_sha from a prior cycle; this call attested nothing.
+            _no_boundary_data = {**(prev.data or {}), "fix_commit_sha": None}
+            _no_boundary_data.pop("fix_boundary_sha", None)
             return StepResult(
                 status="ok",
-                data={**(prev.data or {}), "fix_commit_sha": None},
+                data=_no_boundary_data,
                 duration_ms=0,
                 step_name="commit_fix_code",
             )
@@ -4420,6 +4501,8 @@ def _commit_fix_code(ctx, prev) -> StepResult:
             error_code="E_MISSING_FIX_BOUNDARY",
         )
 
+    cycle = int((prev.data or {}).get("cycle", 1))
+
     # DD34EEBF (hoisted 7B6A9AD1): persist pre-fix SHA before any skip path
     if scratchpad_dir:
         _pre_ref = Path(scratchpad_dir) / "integrity" / "pre-fix-ref.txt"
@@ -4427,7 +4510,15 @@ def _commit_fix_code(ctx, prev) -> StepResult:
         assert pre_fix_sha is not None
         atomic_write(_pre_ref, pre_fix_sha)
 
-    cycle = int((prev.data or {}).get("cycle", 1))
+    # GH1591 C1 item 1/1b (construction B): publish the boundary THIS call
+    # actually used under a key the producer never reads back —
+    # "fix_boundary_sha" — into every return made after boundary resolution.
+    # _commit_fix_code's own read of prev.data["pre_fix_sha"] above is
+    # UNCHANGED (same precedence, same fallback, no extra rev-parse); this
+    # step never reads fix_boundary_sha, so no inherited value can influence
+    # it and staleness is structurally impossible rather than merely ruled
+    # out (§1g — one canonical source per fact, "attested" vs "supplied").
+    _pub_data = {**(prev.data or {}), "fix_boundary_sha": pre_fix_sha}
 
     # ── 4961254A: manifest-based commit (allowlist inversion) ────────────────
     # Commit exactly the paths the worker wrote — never the dirty tree.
@@ -4503,7 +4594,7 @@ def _commit_fix_code(ctx, prev) -> StepResult:
             )
             return StepResult(
                 status="ok",
-                data={**(prev.data or {}), "fix_commit_sha": None},
+                data={**_pub_data, "fix_commit_sha": None},
                 duration_ms=0,
                 step_name="commit_fix_code",
             )
@@ -4560,7 +4651,7 @@ def _commit_fix_code(ctx, prev) -> StepResult:
             _emit_safe("fix_commit_skipped", {"reason": "all_paths_off_surface", "phase": 6})
             return StepResult(
                 status="ok",
-                data={**(prev.data or {}), "fix_commit_sha": None},
+                data={**_pub_data, "fix_commit_sha": None},
                 duration_ms=0,
                 step_name="commit_fix_code",
             )
@@ -4627,7 +4718,7 @@ def _commit_fix_code(ctx, prev) -> StepResult:
                 _emit_safe("fix_commit_skipped", {"reason": "all_paths_gitignored", "phase": 6})
                 return StepResult(
                     status="ok",
-                    data={**(prev.data or {}), "fix_commit_sha": None},
+                    data={**_pub_data, "fix_commit_sha": None},
                     duration_ms=0,
                     step_name="commit_fix_code",
                 )
@@ -4755,10 +4846,10 @@ def _commit_fix_code(ctx, prev) -> StepResult:
         },
     )
 
-    # ── AC6: return ok with **prev.data spread + fix_commit_sha ──────────────
+    # ── AC6: return ok with **_pub_data spread (GH1591: incl. pre_fix_sha) ───
     return StepResult(
         status="ok",
-        data={**prev.data, "fix_commit_sha": fix_sha},
+        data={**_pub_data, "fix_commit_sha": fix_sha},
         duration_ms=0,
         step_name="commit_fix_code",
     )
@@ -4807,7 +4898,8 @@ def _commit_fix_tests(ctx, prev) -> StepResult:
             and all(c in hex_chars for c in sha)
         )
 
-    pre_fix_sha = (prev.data or {}).get("pre_fix_sha")
+    # GH1591 C1 item 4c precedence: fix_boundary_sha > pre_fix_sha > fallback.
+    pre_fix_sha = _inherited_fix_boundary(prev.data)
     if not _is_valid_sha(pre_fix_sha):
         # fall back to resolve_pre_phase_sha; if that also fails, error out
         try:
@@ -5039,7 +5131,10 @@ def _verify_fix_typecheck(ctx, prev) -> StepResult:  # noqa: C901
         return StepResult(status="ok", data=dict(prev.data or {}), duration_ms=0, step_name=step_name)
 
     # ── 2. SHA boundary resolution ────────────────────────────────────────────
-    pre_fix_sha = (prev.data or {}).get("pre_fix_sha")
+    # GH1591 C1 item 1b (construction B) precedence: fix_boundary_sha (the
+    # boundary _commit_fix_code attested for this cycle) > pre_fix_sha (a
+    # caller-supplied boundary) > resolve_pre_phase_sha (HEAD-now fallback).
+    pre_fix_sha = _inherited_fix_boundary(prev.data)
     if not pre_fix_sha:
         try:
             pre_fix_sha = resolve_pre_phase_sha(git_cwd)
@@ -5049,6 +5144,50 @@ def _verify_fix_typecheck(ctx, prev) -> StepResult:  # noqa: C901
                 {"reason": "no_sha_boundary", "phase": 6, "step": step_name},
             )
             return StepResult(status="ok", data=dict(prev.data or {}), duration_ms=0, step_name=step_name)
+
+    # ── 2b. GH1591 C1 item 2: degenerate-boundary refusal ─────────────────────
+    # boundary == HEAD while a fix commit landed means the diff against the
+    # boundary is empty and the gate would silently skip over a real
+    # regression (§1b live baseline). Recover to <fix_commit_sha>~1; if that
+    # cannot be resolved, fail loud instead of degrading to no_python_scope.
+    # When no fix commit ever landed (item 3), boundary == HEAD is
+    # legitimate — unchanged silent skip below.
+    fix_commit_sha = (prev.data or {}).get("fix_commit_sha")
+    if fix_commit_sha:
+        try:
+            head_now = resolve_pre_phase_sha(git_cwd)
+        except (RuntimeError, OSError):
+            head_now = None
+        if head_now is not None and pre_fix_sha == head_now:
+            parent_rev = git_port.git_read(
+                ["rev-parse", f"{fix_commit_sha}~1"], cwd=git_cwd, timeout=30
+            )
+            recovered = parent_rev.returncode == 0 and bool((parent_rev.stdout or "").strip())
+            _emit_safe(
+                "post_fix_typecheck_boundary_degenerate",
+                {
+                    "phase": 6,
+                    "step": step_name,
+                    "boundary_sha": pre_fix_sha,
+                    "fix_commit_sha": fix_commit_sha,
+                    "recovered": recovered,
+                },
+            )
+            if recovered:
+                pre_fix_sha = parent_rev.stdout.strip()
+            else:
+                return StepResult(
+                    status="error",
+                    data=dict(prev.data or {}),
+                    duration_ms=0,
+                    step_name=step_name,
+                    error=(
+                        f"post-fix typecheck boundary is degenerate (== HEAD) and "
+                        f"{fix_commit_sha!r}~1 could not be resolved"
+                    ),
+                    error_code="E_POST_FIX_TYPECHECK_NO_BOUNDARY",
+                    recoverable=True,
+                )
 
     # ── 3. Production .py scope resolution ───────────────────────────────────
     _TEST_PATTERNS = ("test_*.py", "*_test.py")
@@ -5393,7 +5532,8 @@ def _run_pytest_post_fix(ctx, prev) -> StepResult:
         )
 
     # ── SHA boundary resolution ───────────────────────────────────────────────
-    pre_fix_sha = (prev.data or {}).get("pre_fix_sha")
+    # GH1591 C1 item 4c precedence: fix_boundary_sha > pre_fix_sha > fallback.
+    pre_fix_sha = _inherited_fix_boundary(prev.data)
     if not pre_fix_sha:
         try:
             pre_fix_sha = resolve_pre_phase_sha(git_cwd)
