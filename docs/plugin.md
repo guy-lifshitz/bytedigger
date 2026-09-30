@@ -207,7 +207,7 @@ Every tier runs phases 0, 0.5, 4.5, 5, 6, 7.
 | Event | Handler | What it does |
 |-------|---------|--------------|
 | PreToolUse (Bash) | `hooks/build-state-guard.sh` | Blocks `rm`/`unlink` on build-state.yaml while pipeline is running |
-| PreToolUse (Write\|Edit\|MultiEdit\|NotebookEdit) | `hooks/worker-write-guard.sh` | While a build is active, blocks subagent writes to build-state.yaml / build-metadata.json and confines explorer/architect/synthesizer to `<scratchpad>/{research,architecture,reviews}/` |
+| PreToolUse (Write\|Edit\|MultiEdit\|NotebookEdit) | `hooks/worker-write-guard.sh` | While a build is active, blocks subagent writes to build-state.yaml / build-metadata.json / build-red-output.log / build-green-output.log / .bytedigger-orchestrator-pid and confines explorer to `<scratchpad>/research/`, architect to `<scratchpad>/architecture/`, synthesizer to `<scratchpad>/reviews/` |
 | SubagentStop | `scripts/build-gate.sh` | Validates phase gate before next phase can start |
 
 ## Agents

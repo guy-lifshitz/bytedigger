@@ -10,8 +10,9 @@ import os
 import sys
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
-READ_ONLY_ROLES = {"explorer", "architect", "synthesizer"}
-PROTECTED = ("build-state.yaml", "build-metadata.json")
+ROLE_DIR = {"explorer": "research", "architect": "architecture", "synthesizer": "reviews"}
+PROTECTED = ("build-state.yaml", "build-metadata.json", "build-red-output.log",
+             "build-green-output.log", ".bytedigger-orchestrator-pid")
 PFX = "BLOCKED (bytedigger write guard): "
 R3_MSG = PFX + "unreadable tool input during an active build"
 
@@ -32,7 +33,7 @@ def state_value(text, key):
     """First line starting with `key:` at column 0; value unquoted; missing -> ''."""
     for line in text.split("\n"):
         if line.startswith(key + ":"):
-            val = line.split(":", 1)[1].strip().strip("\r").strip()
+            val = line.split(":", 1)[1].strip()
             if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
                 val = val[1:-1]
             return val
@@ -40,8 +41,8 @@ def state_value(text, key):
 
 
 def role_of(agent_type):
-    if not isinstance(agent_type, str) or ":" not in agent_type:
-        return agent_type if isinstance(agent_type, str) else ""
+    if not isinstance(agent_type, str):
+        return ""
     if agent_type.startswith("bytedigger:"):
         return agent_type[len("bytedigger:"):]
     return agent_type
@@ -83,19 +84,19 @@ def check(data, cwd, scratch_value):
         block(PFX + "subagents may not write " + name + "; it is orchestrator state")
 
     role = role_of(data.get("agent_type"))
-    if role not in READ_ONLY_ROLES:
+    sub = ROLE_DIR.get(role)
+    if sub is None:
         return  # R8
     if not scratch_value:
         block(PFX + role + " may write only its scratchpad deliverable, "
               "but build-state.yaml has no scratchpad_dir")
     scratch = os.path.realpath(os.path.join(cwd, scratch_value))
     base = scratch.rstrip("/") + "/"
-    for sub in ("research", "architecture", "reviews"):
-        allowed = os.path.realpath(os.path.join(scratch, sub))
-        if allowed.startswith(base) and target.startswith(allowed + "/"):
-            return
-    block(PFX + role + " may write only under " + scratch
-          + "/{research,architecture,reviews}/, not " + target)
+    allowed = os.path.realpath(os.path.join(scratch, sub))
+    if allowed.startswith(base) and target.startswith(allowed + "/"):
+        return
+    block(PFX + role + " may write only under " + scratch + "/" + sub
+          + "/, not " + target)
 
 
 def main():
