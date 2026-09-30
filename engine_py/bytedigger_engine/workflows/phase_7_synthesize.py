@@ -62,6 +62,7 @@ import logging
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition
 from bytedigger_engine.derive_state import query_run_events
@@ -109,6 +110,15 @@ SPEC_DOC_RELPATH = "specs/build-spec.md"
 REVIEW_DOC_RELPATH = "reviews/build-review.md"
 FIX_DOC_RELPATH = "reviews/build-fix.md"
 SATISFACTION_DOC_RELPATH = "reviews/build-satisfaction.md"
+
+# GH1626 B: the satisfaction artifact has THREE states, not two. A stub left by
+# a phase-6 abort is a file, so `is_file()` alone would report acceptance
+# evidence that was never produced. The marker is phase 6's single emission
+# point — see workflows/phase_6_review.NOT_ASSESSED_MARKER.
+SATISFACTION_NOT_ASSESSED_MARKER = "SATISFACTION: NOT_ASSESSED"
+SATISFACTION_PRESENT = "PRESENT"
+SATISFACTION_MISSING = "MISSING"
+SATISFACTION_NOT_ASSESSED = "NOT_ASSESSED"
 
 STATUS_DONE = "DONE"
 STATUS_DONE_WITH_CONCERNS = "DONE_WITH_CONCERNS"
@@ -383,6 +393,48 @@ _SYNTHESIZER_STABLE_PREFIX = (
 )
 
 
+def _satisfaction_state(sat_doc: Path) -> str:
+    """Classify the satisfaction artifact as PRESENT / MISSING / NOT_ASSESSED.
+
+    NOT_ASSESSED is decided by phase 6's own marker and nothing else: an
+    unreadable or unrecognised body is reported as it stands, never guessed at.
+    """
+    if not sat_doc.is_file():
+        return SATISFACTION_MISSING
+    try:
+        body = sat_doc.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return SATISFACTION_MISSING
+    if SATISFACTION_NOT_ASSESSED_MARKER in body:
+        return SATISFACTION_NOT_ASSESSED
+    return SATISFACTION_PRESENT
+
+
+def _context_gap_paths(data: dict[str, Any]) -> list[str]:
+    """Absolute paths of every synthesizer input that is MISSING or NOT_ASSESSED.
+
+    This is what ``E_SYNTHESIZER_NEEDS_CONTEXT`` names, so the operator learns
+    WHAT to supply instead of being told only to expand context.
+    """
+    gaps: list[str] = []
+    for key in ("spec_path", "review_doc_path", "fix_doc_path"):
+        raw = data.get(key)
+        if raw and not Path(raw).is_file():
+            gaps.append(str(raw))
+    sat_raw = data.get("satisfaction_doc_path")
+    if sat_raw and _satisfaction_state(Path(sat_raw)) != SATISFACTION_PRESENT:
+        gaps.append(str(sat_raw))
+    return gaps
+
+
+def _needs_context_error(base: str, data: dict[str, Any]) -> str:
+    """``E_SYNTHESIZER_NEEDS_CONTEXT`` text, extended with the gap paths."""
+    gaps = _context_gap_paths(data)
+    if not gaps:
+        return base
+    return f"{base}; missing or unassessed inputs: " + ", ".join(gaps)
+
+
 def _build_synthesizer_prompt(ctx, _prev) -> StepResult:
     scratchpad = _resolve_scratchpad(ctx)
     spec_path = scratchpad / SPEC_DOC_RELPATH
@@ -426,6 +478,7 @@ def _build_synthesizer_prompt(ctx, _prev) -> StepResult:
     review_present = review_doc.is_file()
     fix_present = fix_doc.is_file()
     satisfaction_present = sat_doc.is_file()
+    satisfaction_state = _satisfaction_state(sat_doc)
 
     parts.append(f"SPEC (read this file): {spec_path}")
     parts.append(f"REVIEW (read this file): {review_doc}")
@@ -436,8 +489,17 @@ def _build_synthesizer_prompt(ctx, _prev) -> StepResult:
     parts.append(f"  - spec: {'PRESENT' if spec_present else 'MISSING'}")
     parts.append(f"  - review: {'PRESENT' if review_present else 'MISSING'}")
     parts.append(f"  - fix: {'PRESENT' if fix_present else 'MISSING'}")
-    parts.append(f"  - satisfaction: {'PRESENT' if satisfaction_present else 'MISSING'}")
+    parts.append(f"  - satisfaction: {satisfaction_state}")
     parts.append("")
+    if satisfaction_state == SATISFACTION_NOT_ASSESSED:
+        parts.append(
+            "SATISFACTION IS NOT_ASSESSED: phase 6 terminated before the "
+            "satisfaction evaluator ran, and the document on disk records that "
+            "abort. NOT_ASSESSED is not acceptance evidence — the file existing "
+            "does NOT mean acceptance was evaluated, and you must not report a "
+            "score or a satisfaction verdict derived from it."
+        )
+        parts.append("")
     parts.append(
         "Run `git diff --stat` to verify which files actually changed. "
         "If a doc reports a file changed but `git diff --stat` does not list "
@@ -679,7 +741,7 @@ def _write_synthesizer_artifact(_ctx, prev) -> StepResult:
             return StepResult(
                 status="error", data=common_data, duration_ms=0,
                 step_name="write_synthesizer_artifact",
-                error="synthesizer reported needs-context (structured) — caller must expand context",
+                error=_needs_context_error("synthesizer reported needs-context (structured) — caller must expand context", common_data),
                 error_code="E_SYNTHESIZER_NEEDS_CONTEXT",
             )
         else:
@@ -704,7 +766,7 @@ def _write_synthesizer_artifact(_ctx, prev) -> StepResult:
             return StepResult(
                 status="error", data=common_data, duration_ms=0,
                 step_name="write_synthesizer_artifact",
-                error="synthesizer reported NEEDS_CONTEXT — caller must expand context",
+                error=_needs_context_error("synthesizer reported NEEDS_CONTEXT — caller must expand context", common_data),
                 error_code="E_SYNTHESIZER_NEEDS_CONTEXT",
             )
         if status == STATUS_NO_MARKER:

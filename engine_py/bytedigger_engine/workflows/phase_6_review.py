@@ -5613,12 +5613,81 @@ def _run_pytest_post_fix(ctx, prev) -> StepResult:
     )
 
 
+# ─── phase-abort handler (GH1626 B) ──────────────────────────────────────────
+
+# The ONE place this lot emits the marker. Every refresh decision keys on it —
+# a whitelist on our own emission point, never a guess about what another
+# producer wrote.
+NOT_ASSESSED_MARKER = "SATISFACTION: NOT_ASSESSED"
+
+
+def _render_not_assessed_stub(result: StepResult) -> str:
+    """Body of the abort stub: the marker, the aborting step, the error code,
+    the error text, and one sentence saying acceptance was never evaluated.
+
+    Deliberately carries NO score and NO verdict token — a document that reads
+    as an assessment is worse than the silence it replaces.
+    """
+    return (
+        "# Build satisfaction — NOT ASSESSED\n"
+        "\n"
+        f"{NOT_ASSESSED_MARKER}\n"
+        "\n"
+        f"Aborting step: {result.step_name}\n"
+        f"Error code: {result.error_code or 'UNKNOWN'}\n"
+        f"Error: {result.error or 'unknown'}\n"
+        "\n"
+        "Acceptance was never evaluated: phase 6 terminated before the "
+        "satisfaction evaluator ran, so this document records why the "
+        "assessment is absent and is not acceptance evidence.\n"
+    )
+
+
+def _on_phase_6_abort(result: StepResult, ctx) -> None:
+    """GH1626 B: phase 6's only ``WorkflowDefinition.error_handler``.
+
+    A terminal exit before ``write_satisfaction_doc`` leaves nobody to produce
+    ``reviews/build-satisfaction.md``, and phase 7 then reads silence as though
+    nobody had looked. This writes the truthful artifact instead.
+
+    Whitelist predicate: the stub is written when the doc is ABSENT, or when it
+    is present and carries ``NOT_ASSESSED_MARKER`` — i.e. a stale stub this lot
+    itself wrote, which must name THIS abort and not the previous one. Any other
+    body is left byte-for-byte untouched. The doc is written at :3187 BEFORE the
+    satisfaction gates return, so a real FAILING assessment is on disk on every
+    below-threshold abort; overwriting it would fabricate the absence of
+    evidence the engine had already collected.
+
+    Side-effect-only, and never fatal: the executor hands us a COPY of the
+    terminal result and discards whatever we return, and an unwritable or
+    unresolvable scratchpad degrades to doing nothing rather than to a crash.
+    """
+    cfg = getattr(ctx, "org_config", None) or {}
+    raw_dir = cfg.get("scratchpad_dir")
+    if not raw_dir:
+        return
+    doc = Path(raw_dir) / SATISFACTION_DOC_RELPATH
+    if doc.exists():
+        try:
+            body = doc.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        if NOT_ASSESSED_MARKER not in body:
+            return
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    # atomic_write = tempfile in the same directory + os.replace: a torn stub
+    # is exactly the unrecognised body the whitelist would then refuse to touch
+    # forever, so the failure would be permanent and silent.
+    atomic_write(doc, _render_not_assessed_stub(result))
+
+
 # ─── workflow definition ─────────────────────────────────────────────────────
 
 
 def phase_6_review_workflow() -> WorkflowDefinition:
     return WorkflowDefinition(
         name="phase_6_review",
+        error_handler=_on_phase_6_abort,
         steps=[
             StepContract(name="build_review_prompt", execute=_build_review_prompt),
             StepContract(name="invoke_review_llm", execute=_invoke_review_llm, resume_sentinel=True),

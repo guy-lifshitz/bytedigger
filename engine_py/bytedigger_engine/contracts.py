@@ -307,12 +307,14 @@ class WorkflowDefinition:
     Attributes:
         name: Workflow name
         steps: List of StepContract definitions in execution order
-        error_handler: Optional callable to handle step errors
+        error_handler: Optional callable invoked once with a COPY of the
+            phase's terminal StepResult. Side-effect-only: the executor
+            discards whatever it returns, so the annotated return type is Any.
     """
 
     name: str
     steps: list[StepContract]
-    error_handler: Callable[[StepResult, Any], StepResult] | None = None
+    error_handler: Callable[[StepResult, Any], Any] | None = None
 
 
 @dataclass
