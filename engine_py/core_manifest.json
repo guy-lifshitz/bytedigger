@@ -13,6 +13,7 @@
     "precommit_lints.py",
     "red_lint_checks.py",
     "readiness.py",
+    "companion_tune.py",
     "reproducibility.py",
     "scope_inverse.py",
     "spec_class.py",

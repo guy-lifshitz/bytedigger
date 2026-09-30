@@ -34,6 +34,13 @@
 
 - `E_CLEANUP_REPORT_WRITE_FAILED` — phase_8_post_deploy: failed writing the post-ship cleanup report
 
+## E_COMPANION
+
+- `E_COMPANION_TUNE_DRAFT_INVALID` — companion_tune: the model output carried no usable file block (no_blocks / unclosed_fence / bad_path) (bd#117)
+- `E_COMPANION_TUNE_REFUSED` — companion_tune: the current companion is invalid, or the draft changed a second path or failed the #116 check; nothing was pushed (bd#117)
+- `E_COMPANION_TUNE_TRUNCATED` — companion_tune: a gh listing returned exactly the 1000-row limit, so the result may be cut off; no output (bd#117)
+- `E_COMPANION_TUNE_UNAVAILABLE` — companion_tune: policy, gh, git, the checker or the model could not be used (incl. malformed_tuning, bd_logins_required) (bd#117)
+
 ## E_CONFIG
 
 - `E_CONFIG_INVALID` — dbos_setup: engine or phase config value is invalid/out of range

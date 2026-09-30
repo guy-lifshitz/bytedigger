@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# companion-tune — thin wrapper around bytedigger_engine.companion_tune (bd#117 Part B).
+# Usage: companion-tune collect [--repo .] [--since 7d] [--out <file>] [--plugin-root <dir>]
+#        companion-tune propose --core <id> --signals <file> [--repo .] [--llm-command <cmd>]
+#                               [--dry-run] [--plugin-root <dir>]
+# Exit: 0 ok / no-op · 2 usage · 3 refused or invalid draft · 4 unavailable or truncated.
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$HERE/../engine_py${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m bytedigger_engine.companion_tune "$@"

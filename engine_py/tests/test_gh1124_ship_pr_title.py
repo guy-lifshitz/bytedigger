@@ -465,6 +465,7 @@ def test_ac16_ship_to_pr_body_uses_report_text_stripped(tmp_path, monkeypatch):
     assert "--body" in create_argv, f"Expected --body in argv: {create_argv}"
     body_idx = create_argv.index("--body")
     body = create_argv[body_idx + 1]
-    assert body == expected_body, (
-        f"Expected body to equal stripped report text, got {body!r}"
+    # bd#117 op-B1: phase 8 appends one provenance line after the body.
+    assert body == expected_body + "\n<!-- bd:built -->", (
+        f"Expected body to equal stripped report text plus the bd:built line, got {body!r}"
     )
