@@ -1,8 +1,9 @@
 """RED tests for bd#133 -- PreToolUse path guard for subagent Write/Edit.
 
-Spec: docs/decisions/2026-09-30-bd133-worker-write-path-guard.md (FROZEN Rev 1).
-Covers A1-A8 and decision rows R1-R8. The hook hooks/worker-write-guard.sh is
-driven through `bash <hook>` with JSON on stdin inside tmp_path project dirs.
+Spec: docs/decisions/2026-09-30-bd133-worker-write-path-guard.md (FROZEN Rev 2).
+Covers A1-A9 and decision rows R1-R8 (+ gate fixes F1-F6, m1, m3, m5, m8, m11, m12).
+The hook hooks/worker-write-guard.sh is driven through `bash <hook>` (and, for
+F5, directly by exec) with JSON on stdin inside tmp_path project dirs.
 
 Nothing is imported from the repo; no sys.path manipulation. All tests are RED
 today (the hook file does not exist); none are skipped or xfail.
@@ -90,9 +91,13 @@ def _r5(name):
     return f"{PFX}subagents may not write {name}; it is orchestrator state"
 
 
+def _oneline(s: str) -> str:
+    return s.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _r7(role, scratch, target):
-    return (f"{PFX}{role} may write only under {_rp(scratch)}/"
-            f"{{research,architecture,reviews}}/, not {_rp(target)}")
+    return _oneline(f"{PFX}{role} may write only under {_rp(scratch)}/"
+                    f"{{research,architecture,reviews}}/, not {_rp(target)}")
 
 
 # ---------------------------------------------------------------------------
@@ -238,10 +243,7 @@ def test_r5_symlink_to_state_file_blocked(tmp_path):
     proj = _project(tmp_path)
     link = proj / "notes.md"
     link.symlink_to(proj / "build-state.yaml")
-    proc = _run(proj, _call("Write", link))
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert proc.stderr.strip() in {_r5("notes.md"), _r5("build-state.yaml")}
-    assert proc.stdout.strip() == proc.stderr.strip()
+    _block(_run(proj, _call("Write", link)), _r5("build-state.yaml"))
 
 
 def test_r5_symlink_to_metadata_blocked(tmp_path):
@@ -249,9 +251,7 @@ def test_r5_symlink_to_metadata_blocked(tmp_path):
     (proj / "build-metadata.json").write_text("{}")
     link = proj / "meta-link.txt"
     link.symlink_to(proj / "build-metadata.json")
-    proc = _run(proj, _call("Edit", link))
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert proc.stderr.strip() in {_r5("meta-link.txt"), _r5("build-metadata.json")}
+    _block(_run(proj, _call("Edit", link)), _r5("build-metadata.json"))
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +425,8 @@ def test_a4_restricted_roles(tmp_path, agent_type, role):
            _r7(role, proj / "scratch", t))
 
 
-@pytest.mark.parametrize("agent_type", ["general-purpose", "bytedigger:foo", None])
+@pytest.mark.parametrize("agent_type",
+                         ["general-purpose", "bytedigger:foo", "other:explorer", None])
 def test_a4_unrestricted_roles_only_hit_r5(tmp_path, agent_type):
     proj = _project(tmp_path)
     _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type=agent_type)))
@@ -555,3 +556,294 @@ def test_a8_ci_manifests_job_runs_this_suite():
              if "tests/test_worker_write_guard.py" in l]
     assert lines, "manifests job does not run tests/test_worker_write_guard.py"
     assert "pytest" in m.group(1)
+
+
+# ===========================================================================
+# Rev 2 additions (Opus gate r1: F1-F6, m1, m3, m5, m8, m11, m12)
+# ===========================================================================
+
+def _run_direct(proj: Path, payload):
+    """Run the hook exactly as the host does: exec the file, no `bash` prefix."""
+    assert HOOK.is_file(), "hooks/worker-write-guard.sh must exist"
+    return subprocess.run(
+        [str(HOOK)], input=json.dumps({**payload, "cwd": str(proj)}),
+        capture_output=True, text=True, cwd=str(proj), timeout=60,
+    )
+
+
+# --- F5 / A1: exec bit, shebang, direct exec --------------------------------
+
+def test_f5_hook_is_executable():
+    assert HOOK.is_file(), "hooks/worker-write-guard.sh must exist"
+    assert os.access(HOOK, os.X_OK), "hook must have the exec bit (host execs it directly)"
+
+
+def test_f5_hook_starts_with_bash_shebang():
+    assert HOOK.is_file(), "hooks/worker-write-guard.sh must exist"
+    first = HOOK.read_text(encoding="utf-8").splitlines()[0].strip()
+    assert first in {"#!/bin/bash", "#!/usr/bin/env bash"}
+
+
+def test_f5_direct_exec_blocks(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run_direct(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+def test_f5_direct_exec_allows(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run_direct(proj, _call("Write", proj / "src" / "a.py")))
+
+
+# --- F1: missing/invalid tool_name falls to R3, not R1 allow ----------------
+
+def test_f1_valid_json_without_tool_name_blocks(tmp_path):
+    proj = _project(tmp_path)
+    p = {"tool_input": {"file_path": str(proj / "build-state.yaml")}, "agent_id": "a1"}
+    _block(_run(proj, p), R3)
+
+
+@pytest.mark.parametrize("tool_name", ["", 5, None, ["Write"]])
+def test_f1_empty_or_non_string_tool_name_blocks(tmp_path, tool_name):
+    proj = _project(tmp_path)
+    p = {"tool_name": tool_name, "tool_input": {"file_path": str(proj / "x.md")}, "agent_id": "a1"}
+    _block(_run(proj, p), R3)
+
+
+@pytest.mark.parametrize("raw", ["[]", '"Write"', "42", "null"])
+def test_f1_non_object_json_blocks(tmp_path, raw):
+    proj = _project(tmp_path)
+    _block(_run(proj, None, raw_stdin=raw), R3)
+
+
+# --- F2: case variants of protected names -----------------------------------
+
+def test_f2_case_variant_state_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Write", proj / "Build-State.yaml")), _r5("build-state.yaml"))
+
+
+def test_f2_case_variant_metadata_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Edit", proj / "BUILD-METADATA.JSON")), _r5("build-metadata.json"))
+
+
+def test_f2_case_variant_in_allowed_dir_for_read_only_role_blocked(tmp_path):
+    proj = _project(tmp_path)
+    t = proj / "scratch" / "research" / "BUILD-STATE.YAML"
+    _block(_run(proj, _call("Write", t, agent_type="explorer")), _r5("build-state.yaml"))
+
+
+# --- F3: state parsing ------------------------------------------------------
+
+def test_f3_task_line_with_current_phase_text_does_not_disable_guard(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, raw_state=(
+        'task: "fix current_phase: completed handling"\n'
+        'current_phase: "4"\n'
+        f'scratchpad_dir: "{scratch}"\n'))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+def test_f3_indented_current_phase_line_is_ignored(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, raw_state=(
+        'notes:\n'
+        '  current_phase: completed\n'
+        'current_phase: "4"\n'
+        f'scratchpad_dir: "{scratch}"\n'))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+def test_f3_crlf_state_file_parses(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, raw_state=(
+        'task: "t"\r\ncurrent_phase: "4"\r\n'
+        f'scratchpad_dir: "{scratch}"\r\n'))
+    _allow(_run(proj, _call("Write", scratch / "research" / "x.md", agent_type="explorer")))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="explorer")), _r7("explorer", scratch, t))
+
+
+@pytest.mark.parametrize("value", ["'completed'", "completed", '"completed"', "completed\r"])
+def test_f3_completed_quote_forms_not_active(tmp_path, value):
+    proj = _project(tmp_path, raw_state=f"current_phase: {value}\n")
+    _allow(_run(proj, _call("Write", proj / "build-state.yaml")))
+
+
+def test_f3_trailing_slash_scratchpad_allows_deliverable(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, scratch_value=f'"{scratch}/"')
+    _allow(_run(proj, _call("Write", scratch / "research" / "x.md", agent_type="explorer")))
+    t = scratch / "notes.md"
+    _block(_run(proj, _call("Write", t, agent_type="explorer")), _r7("explorer", scratch, t))
+
+
+# --- F4: no interpolation of agent-controlled strings -----------------------
+
+def test_f4_shell_metacharacters_in_path_blocked_and_nothing_runs(tmp_path):
+    proj = _project(tmp_path)
+    name = "a'\"$(touch PWNED1)`touch PWNED2`.py"
+    t = proj / "src" / name
+    _block(_run(proj, _call("Write", t, agent_type="explorer")),
+           _r7("explorer", proj / "scratch", t))
+    for d in (proj, tmp_path, proj / "src"):
+        assert not list(d.glob("PWNED*")), f"command ran in {d}"
+
+
+def test_f4_metacharacters_in_agent_type_run_nothing(tmp_path):
+    proj = _project(tmp_path)
+    at = "x'; touch PWNED3; echo '$(touch PWNED4)"
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type=at)))
+    for d in (proj, tmp_path):
+        assert not list(d.glob("PWNED*")), f"command ran in {d}"
+
+
+def test_f4_quote_and_dollar_in_scratchpad_value_allowed(tmp_path):
+    scratch = tmp_path / "proj" / "it's $HOME `x` scratch"
+    proj = _project(tmp_path, scratch_value=f'"{scratch}"')
+    (scratch / "research").mkdir(parents=True)
+    _allow(_run(proj, _call("Write", scratch / "research" / "findings-x.md", agent_type="explorer")))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="explorer")), _r7("explorer", scratch, t))
+
+
+# --- F6: symlinked alias of the project, either direction -------------------
+
+def test_f6_scratchpad_via_alias_target_real_allowed(tmp_path):
+    proj = _project(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(proj)
+    (proj / "build-state.yaml").write_text(
+        f'current_phase: "4"\nscratchpad_dir: "{alias}/scratch"\n')
+    _allow(_run(proj, _call("Write", proj / "scratch" / "research" / "x.md", agent_type="explorer")))
+
+
+def test_f6_scratchpad_real_target_via_alias_allowed(tmp_path):
+    proj = _project(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(proj)
+    _allow(_run(proj, _call("Write", f"{alias}/scratch/research/x.md", agent_type="explorer")))
+
+
+def test_f6_alias_source_file_blocked_with_realpath_message(tmp_path):
+    proj = _project(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(proj)
+    (proj / "build-state.yaml").write_text(
+        f'current_phase: "4"\nscratchpad_dir: "{alias}/scratch"\n')
+    t = f"{alias}/src/a.py"
+    _block(_run(proj, _call("Write", t, agent_type="explorer")),
+           _r7("explorer", proj / "scratch", t))
+
+
+# --- m1: hardlink / dangling symlink ----------------------------------------
+
+def test_m1_hardlink_to_state_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    os.link(proj / "build-state.yaml", proj / "notes-hl.md")
+    _block(_run(proj, _call("Write", proj / "notes-hl.md")), _r5("build-state.yaml"))
+
+
+def test_m1_hardlink_to_metadata_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    (proj / "build-metadata.json").write_text("{}")
+    os.link(proj / "build-metadata.json", proj / "meta-hl.txt")
+    _block(_run(proj, _call("Edit", proj / "meta-hl.txt")), _r5("build-metadata.json"))
+
+
+def test_m1b_dangling_leaf_symlink_out_of_research_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    (proj / "src").mkdir()
+    (scratch / "research" / "x.md").symlink_to(proj / "src" / "new.py")
+    _block(_run(proj, _call("Write", scratch / "research" / "x.md", agent_type="explorer")),
+           _r7("explorer", scratch, proj / "src" / "new.py"))
+
+
+# --- m3: other plugin's explorer is unrestricted ----------------------------
+
+def test_m3_other_plugin_explorer_unrestricted_except_r5(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type="other:explorer")))
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type="other:explorer"),
+                cwd_in_json=False))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml", agent_type="other:explorer")),
+           _r5("build-state.yaml"))
+
+
+# --- m5: docs/security.md ---------------------------------------------------
+
+def test_m5_security_md_names_hook_and_bash_write_limit():
+    text = (REPO_ROOT / "docs" / "security.md").read_text(encoding="utf-8")
+    assert "hooks/worker-write-guard.sh" in text, "docs/security.md must name the hook"
+    tail = text[text.index("hooks/worker-write-guard.sh"):]
+    section = re.split(r"^## ", tail, maxsplit=1, flags=re.M)[0]
+    assert re.search(r"\bBash\b", section) and re.search(r"writ", section, re.I), \
+        "docs/security.md must state the Bash-write limit next to the hook"
+
+
+# --- m8: empty / null / non-string path, non-object tool_input --------------
+
+@pytest.mark.parametrize("fp", [None, "", 5, ["a"], {"x": 1}])
+def test_m8_bad_file_path_blocks(tmp_path, fp):
+    proj = _project(tmp_path)
+    p = {"tool_name": "Write", "tool_input": {"file_path": fp}, "agent_id": "a1",
+         "agent_type": "general-purpose"}
+    _block(_run(proj, p), R3)
+
+
+@pytest.mark.parametrize("ti", ["x", [], None, 5])
+def test_m8_non_object_tool_input_blocks(tmp_path, ti):
+    proj = _project(tmp_path)
+    p = {"tool_name": "Write", "tool_input": ti, "agent_id": "a1", "agent_type": "general-purpose"}
+    _block(_run(proj, p), R3)
+
+
+def test_m8_notebook_path_null_blocks(tmp_path):
+    proj = _project(tmp_path)
+    p = {"tool_name": "NotebookEdit", "tool_input": {"notebook_path": None}}
+    _block(_run(proj, p), R3)
+
+
+# --- m11 / A9: newline in path keeps the reason on one line -----------------
+
+def test_a9_newline_in_path_reason_is_one_line(tmp_path):
+    proj = _project(tmp_path)
+    t = f"{proj}/src/a\nb.py"
+    proc = _run(proj, _call("Write", t, agent_type="explorer"))
+    _block(proc, _r7("explorer", proj / "scratch", t))
+    assert "\\n" in proc.stderr
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+def test_a9_carriage_return_in_path_reason_is_one_line(tmp_path):
+    proj = _project(tmp_path)
+    t = f"{proj}/src/a\rb.py"
+    proc = _run(proj, _call("Write", t, agent_type="explorer"))
+    _block(proc, _r7("explorer", proj / "scratch", t))
+    assert "\\r" in proc.stderr
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+# --- m12: `research` itself a symlink to the project root -------------------
+
+def test_m12_research_symlink_to_project_root_grants_nothing(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    (scratch / "research").rmdir()
+    (scratch / "research").symlink_to(proj)
+    (proj / "src").mkdir()
+    t = scratch / "research" / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="explorer")),
+           _r7("explorer", scratch, t))
+    assert _rp(t) == _rp(proj / "src" / "a.py")
+
+
+# --- awaiting_approval is an active phase -----------------------------------
+
+def test_awaiting_approval_phase_is_active(tmp_path):
+    proj = _project(tmp_path, phase="awaiting_approval")
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="architect")),
+           _r7("architect", proj / "scratch", t))
