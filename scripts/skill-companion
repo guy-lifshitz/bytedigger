@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# skill-companion — thin wrapper for bytedigger_engine.skill_companion (bd#116)
+# Usage: skill-companion {render|check} --core <id> [--repo .] [--plugin-root <dir>] [--json]
+# Exit: 0 valid, 3 invalid companion or core, 2 usage error.
+# PYTHONPATH comes from this script's own location, not --plugin-root, so a
+# plugin root that holds only skills/ still imports the engine. The engine's
+# default plugin root is then the parent of this script's directory.
+set -eu
+
+PYTHONPATH="$(dirname "$0")/../engine_py"
+export PYTHONPATH
+
+exec python3 -m bytedigger_engine.skill_companion "$@"

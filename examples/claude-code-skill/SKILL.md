@@ -49,6 +49,15 @@ Phase 5 runs spec → RED → gate → GREEN:
 
 ## CRITICAL: Load Pipeline
 
+**First, render the host companion** (before `build-state.yaml` or `build-metadata.json` is written, and again on `/build continue` before `build-state.yaml` is read). In a manual install `${CLAUDE_PLUGIN_ROOT}` is empty, so the command uses `$BYTEDIGGER_HOME` — export it in the shell with your checkout path:
+```bash
+BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger
+```
+Branch on its exit code:
+- Exit 0: keep following this skill as loaded (its `$BYTEDIGGER_HOME/...` paths stay authoritative); apply each `bd:local begin/end` block in stdout as an addition to the section it names (no block = no companion).
+- Exit 3: STOP. Report stderr to the user and register nothing (no `build-state.yaml`, no `build-metadata.json`).
+- Any other exit: use this skill exactly as loaded and print one line: `W_SKILL_COMPANION_UNAVAILABLE exit=<n> — host companion NOT applied`.
+
 **Orchestrator reads the compact reference first:**
 ```
 Read file: $BYTEDIGGER_HOME/commands/build.md

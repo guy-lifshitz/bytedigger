@@ -4,6 +4,14 @@
 
 ## PHASE 0: CLASSIFY + INIT
 
+**First — render the host companion**, before `build-state.yaml` or `build-metadata.json` is written. This file is opened with Read, so `${CLAUDE_PLUGIN_ROOT}` below is not substituted: use the absolute plugin root the loaded skill shows in its place.
+```bash
+BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger
+```
+- Exit 0: keep following the loaded skill; apply each `bd:local begin/end` block in stdout as an addition to the section it names (no block = no companion).
+- Exit 3: STOP. Report stderr to the user and register nothing (no `build-state.yaml`, no `build-metadata.json`).
+- Any other exit: use the core skill as loaded and print one line: `W_SKILL_COMPANION_UNAVAILABLE exit=<n> — host companion NOT applied`.
+
 Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: "0" | files_modified: []`
 
 **Classification:** TRIVIAL (<10L) → direct edit | SIMPLE (bug fix ONLY — no new functionality, clear root cause) → AUTONOMOUS | FEATURE (any new behavior/capability — DEFAULT for ambiguous) → AUTONOMOUS | COMPLEX (4+ files, architecture, cross-cutting) → SUPERVISED. **Guard: user says "feature/add/create/implement/build" → NEVER SIMPLE.**
@@ -38,7 +46,7 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **--dry-run flag:** Display table → STOP
 
-**Resumable:** If `build-state.yaml` exists + `current_phase != "completed"` → read, skip to next. On resume, verify scratchpad_dir exists. If missing, recreate directory structure and re-run Phase 2 (explore) to regenerate findings.
+**Resumable:** First run `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger` again (absolute plugin root and exit rules as in the first Phase 0 step). Then, if `build-state.yaml` exists + `current_phase != "completed"` → read, skip to next. On resume, verify scratchpad_dir exists. If missing, recreate directory structure and re-run Phase 2 (explore) to regenerate findings.
 
 **Worktree:** If `--worktree` or FEATURE+ on main → `git worktree add` then **MUST copy build-state.yaml to worktree**: `cp build-state.yaml <worktree-path>/`. Without state file, ALL gates are blind and pipeline runs unprotected.
 

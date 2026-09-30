@@ -93,6 +93,50 @@ extend and bound it:
 A check must not leave non-ignored files in the repo: any new or changed file that
 `.gitignore` does not cover makes the skill `mutated`, which fails the step.
 
+## Skill companions (host-local skill text)
+
+A host can extend a ByteDigger core skill without editing it. The core
+declares which of its H2 sections may be extended, in its frontmatter:
+
+```yaml
+metadata:
+  overridable: "project-conventions"
+```
+
+`skills/bytedigger/SKILL.md` declares one, the empty `## Project conventions`
+section. The host commits a companion at
+`bytedigger/companions/<core-id>.md` in its repo root:
+
+```markdown
+---
+specializes: bytedigger
+---
+# Our conventions
+
+## Project conventions
+
+Run `make lint` before every commit.
+```
+
+Phase 0 runs `scripts/skill-companion render --core bytedigger`. Each
+companion section is appended to the core section with the same title,
+inside `<!-- bd:local begin/end -->` markers. The companion must be committed
+(working tree equal to `HEAD`), may only use sections the core declares, and
+may not contain H1 headings, setext headings, unclosed fences or HTML
+comments. Any violation exits 3 with one `E_SKILL_COMPANION_INVALID <reason>
+<path>` line per error and the build stops. Run
+`scripts/skill-companion check --core bytedigger --repo .` in your own CI to
+catch this early (`--json` prints the full result).
+
+Do not `@`-import a companion into `CLAUDE.md` or place it under a skills
+directory: that loads the text without these checks.
+
+## Role templates (engine, `org_config`)
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `role_template_path` | string | unset | Path to a file whose whole content the engine inserts into its phase prompts. A missing file is skipped silently. Nothing limits what the file says. A bounded replacement is tracked in #119. |
+
 ## Environment variables and the BD_ alias layer
 
 Engine env reads go through `engine_py/config_provider.py`. Every `HAL_<X>`

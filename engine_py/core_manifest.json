@@ -19,6 +19,8 @@
     "facts_pack.py",
     "verification_registry.py",
     "spec_review_score.py",
+    "skill_companion.py",
+    "lib/frontmatter.py",
     "telemetry_ctx.py",
     "corpus_extract.py",
     "llm_subprocess.py",

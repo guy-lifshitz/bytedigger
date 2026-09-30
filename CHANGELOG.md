@@ -28,6 +28,22 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   is recorded in `specs/review.json` (`specs/review-cycle-<N>.json` for later cycles). A SHIP with an
   axis below 3 becomes REVISE, except for frozen specs and the restricted cycle-2 review, which only
   record it. Missing or invalid scores never change the verdict.
+- **Skill companions (#116).** A host can extend a core skill with a committed
+  `bytedigger/companions/<core-id>.md` whose frontmatter says `specializes: <core-id>`. Only the
+  H2 sections the core lists in `metadata.overridable` can be extended; each is appended inside
+  `bd:local` markers. `skills/bytedigger/SKILL.md` declares an empty `## Project conventions`
+  section. New `scripts/skill-companion {render|check}`; Phase 0 and `/build continue` run
+  `render` first. An invalid companion exits 3 (`E_SKILL_COMPANION_INVALID`) and stops the build;
+  an unrunnable checker falls back to the core skill with `W_SKILL_COMPANION_UNAVAILABLE`.
+
+### Changed
+
+- **Shared frontmatter parser (#116).** `parse_frontmatter` moved to
+  `bytedigger_engine.lib.frontmatter` (still importable from `verification_registry`). It now
+  ignores a UTF-8 BOM and reads CRLF as LF, so a BOM or CRLF `SKILL.md` with
+  `metadata.verification: true` is registered instead of skipped. An unreadable `metadata` block
+  that mentions `overridable` is now an `unsupported_frontmatter` error, like one that mentions
+  `verification`.
 
 ## [0.2.0] — 2026-09-30
 

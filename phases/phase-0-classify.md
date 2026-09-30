@@ -3,7 +3,17 @@
 
 # Phase 0: CLASSIFY + INIT
 
-**First ACTION — Create build-state.yaml:**
+**First ACTION — Render the host companion**, before `build-state.yaml` or `build-metadata.json` is written. This file is opened with Read, so `${CLAUDE_PLUGIN_ROOT}` below is not substituted: use the absolute plugin root the loaded skill shows in its place.
+```bash
+BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger
+```
+- Exit 0: keep following the loaded skill; apply each `bd:local begin/end` block in stdout as an addition to the section it names (no block = no companion).
+- Exit 3: STOP. Report stderr to the user and register nothing (no `build-state.yaml`, no `build-metadata.json`).
+- Any other exit: use the core skill as loaded and print one line: `W_SKILL_COMPANION_UNAVAILABLE exit=<n> — host companion NOT applied`.
+
+On `/build continue`, run it again before `build-state.yaml` is read.
+
+**Next ACTION — Create build-state.yaml:**
 ```bash
 python3 -c "
 import datetime
