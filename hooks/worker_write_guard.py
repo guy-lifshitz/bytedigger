@@ -31,6 +31,7 @@ def block(msg):
 
 def state_value(text, key):
     """First line starting with `key:` at column 0; value unquoted; missing -> ''."""
+    # Mirrors stripKeyAndQuotes (scripts/ts/lib/state-reader.ts) and yaml_get (scripts/build-gate.sh); stdlib-only hook, cannot import them.
     for line in text.split("\n"):
         if line.startswith(key + ":"):
             val = line.split(":", 1)[1].strip()
@@ -53,11 +54,12 @@ def protected_name(raw_path, target, cwd):
     resolved = os.path.basename(target).casefold()
     if resolved in PROTECTED:
         return resolved
-    if os.path.exists(target):
-        for name in PROTECTED:
-            ref = os.path.join(cwd, name)
-            if os.path.exists(ref) and os.path.samefile(target, ref):
+    for name in PROTECTED:
+        try:
+            if os.path.samefile(target, os.path.join(cwd, name)):
                 return name
+        except OSError:  # either path missing; ValueError (NUL) propagates to crash policy
+            continue
     raw = os.path.basename(raw_path).casefold()
     return raw if raw in PROTECTED else ""
 
