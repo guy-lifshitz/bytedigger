@@ -91,6 +91,15 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   nudge). Gate 7 no longer crashes when `learning_backend` or `learnings_extracted` is absent.
   `learning-store.sh extract` reports `learnings_parse_errors` and prints a `WARN` when lines do
   not parse, instead of silently storing 0.
+- **`ship.sh` ships commits ahead of the base, and the PR carries the review evidence (bd#131).**
+  `ship.sh --pr` now pushes every commit ahead of `@{upstream}` (else `refs/bd/policy`) under any
+  readiness mode, stages tracked changes (modified or deleted) on top of `files_modified`, and warns
+  about untracked files it does not ship. A detached HEAD or unmerged paths are refused before the
+  readiness check. The PR title and commit subject come from the spec's H1 (project `<prefix>:`
+  convention, at most 72 characters); the PR body carries the spec's Scope and Follow-ups sections and
+  the review fields from `build-state.yaml` (new `scripts/ship_pr_text.py`; any helper failure falls
+  back to the task string). `build-*-cycle*.md` and `.bytedigger-sessions.json` are now gitignored and
+  deleted by Phase 7 State Cleanup.
 
 ## [0.2.0] — 2026-09-30
 
