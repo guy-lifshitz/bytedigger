@@ -265,6 +265,18 @@ FLAGS: dict[str, dict] = {
         "module": "SYSTEM/cli/build/orphan-callsite-lint.py",
         "description": "GH564 warn-only rollout: =1 makes orphan scripts exit 1. flip-by:2026-08-07 issue #564.",
     },
+    "HAL_SSH_PREAMBLE_ALLOWLIST_EXTRA": {
+        "kind": "str",
+        "default": None,
+        "module": "SYSTEM/cli/build/ssh-preamble-lint.py",
+        "description": "hal #1750 D3: JSON array of extra ssh-preamble-lint allowlist entries ({file, function, reason}), appended to the lint's built-in allowlist. Unset in production.",
+    },
+    "HAL_MANIFEST_SHIELD_PARITY_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "SYSTEM/cli/build/manifest-shield-parity-lint.py",
+        "description": "Kill-switch: HAL_MANIFEST_SHIELD_PARITY_GATE=0 skips the GH1765 hook-gen.py MANIFEST <-> AC43 shield parity check.",
+    },
     "HAL_PARENT_SKILL": {
         "kind": "str",
         "default": None,
