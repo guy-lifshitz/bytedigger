@@ -92,8 +92,11 @@ to review. It never merges, never pushes the default branch and never adds a lab
   (repository permission `admin` or `write`, not in `tuning.bot_logins`) inside the window: `reopened` (an
   issue that a merged BD-built PR closes) and `relabeled` (a watched label added or removed on a BD-built PR
   or on an issue it closes). The readiness label is never a signal. Comment text is never read.
+  `signals.json` is `{"window": [from, to], "signals": [{id, kind, pr, issue, label, action, actor, title,
+  at}]}`; `action` is `"added"` or `"removed"` for `relabeled` and `null` for `reopened`.
 - `propose --core <id> --signals signals.json [--llm-command <cmd>] [--dry-run]` asks one model call (default:
-  the configured fallback model; `--llm-command` is split with `shlex` and run without a shell) for the new
+  `claude -p --model <fallback model> --tools ""`, the prompt on stdin; `--llm-command` is split with `shlex`
+  and run without a shell) for the new
   companion, commits it in a temporary worktree cut from the push target's default branch, refuses anything
   but that one file, runs the #116 checker, and only then pushes branch `bd/companion-tune-<date>-<hash>` and
   opens the PR. A run with no signals, an open tuner PR, nothing overridable, or an unchanged draft is a no-op.
@@ -109,7 +112,11 @@ Config: the `tuning` key of `bytedigger.json` on the push target's default branc
 | `tuning.watched_labels` | list of labels | `[]` | labels whose add or remove is a `relabeled` signal; empty means none |
 
 Under a workflow `GITHUB_TOKEN`, `gh api user` returns 403, so `tuning.bd_logins` must then be non-empty
-(`E_COMPANION_TUNE_UNAVAILABLE bd_logins_required`). A malformed `tuning` is `malformed_tuning`. Creating the
+(`E_COMPANION_TUNE_UNAVAILABLE bd_logins_required`); any other `gh api user` failure is exit 4. Under that
+token the tuner's own PRs are authored by `app/github-actions` (as `gh pr list --json author` reports it), so
+`tuning.bd_logins` must also list `app/github-actions`, or the open-PR skip and the `bd:tune` dedupe never
+match. The tuner commit runs with hooks disabled, and a draft that touches any file other than the
+companion is refused (`extra_path`) before anything is written. A malformed `tuning` is `malformed_tuning`. Creating the
 PR from a workflow needs the repository setting "Allow GitHub Actions to create and approve pull requests".
 `examples/github-actions/companion-tune.yml` runs `collect --since 7d` and then `propose` every Monday.
 

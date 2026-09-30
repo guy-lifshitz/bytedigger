@@ -79,7 +79,7 @@ _TIMELINE_QUERY = (
 )
 _CLOSED_BY = (
     "closedByPullRequestsReferences(first:100,includeClosedPrs:true,after:$after)"
-    "{nodes{number} pageInfo{hasNextPage endCursor}}"
+    "{nodes{number repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}"
 )
 _EVENT_KIND = {"ReopenedEvent": "reopened", "LabeledEvent": "relabeled", "UnlabeledEvent": "relabeled"}
 
@@ -151,13 +151,15 @@ def _context(repo: Path) -> _Ctx:
     cfg = blob.data.get("readiness")
     label = cfg.get("label") if isinstance(cfg, dict) else None
     logins = {x.casefold() for x in tuning.bd_logins}
-    rc, out, _ = readiness.gh_capture(repo, ["api", "user"])
+    rc, out, err = readiness.gh_capture(repo, ["api", "user"])
     login: Any = None
     if rc == 0:
         try:
             login = json.loads(out).get("login")
         except (ValueError, AttributeError):
             login = None
+    elif "HTTP 403" not in err:  # only a workflow token's 403 is expected; anything else is an outage
+        raise _unavailable(f"gh api user exited {rc}: {err[:200]}")
     if isinstance(login, str) and login:
         logins.add(login.casefold())
     elif not tuning.bd_logins:
@@ -238,6 +240,13 @@ def _pr_info(ctx: _Ctx, number: int) -> dict[str, Any]:
 
 def _is_built(ctx: _Ctx, row: dict[str, Any]) -> bool:
     return _is_bd(ctx, _login(row)) and _has_line(row.get("body"), BUILT_MARKER)
+
+
+def _in_this_repo(ctx: _Ctx, ref: dict[str, Any]) -> bool:
+    """A closing-PR reference may point at another repository; only same-repo numbers are ours."""
+    repo = ref.get("repository")
+    name = repo.get("nameWithOwner") if isinstance(repo, dict) else None
+    return not isinstance(name, str) or name.casefold() == ctx.slug.casefold()
 
 
 def _is_merged(row: dict[str, Any]) -> bool:
@@ -351,8 +360,11 @@ def _collect(args: argparse.Namespace) -> int:
                title: Any) -> None:
         sid = f"{kind}:{event['id']}"
         if sid not in already and sid not in found:
+            action = None if kind == "reopened" else (
+                "removed" if event.get("__typename") == "UnlabeledEvent" else "added")
             found[sid] = {"id": sid, "kind": kind, "pr": pr, "issue": issue, "label": label,
-                          "actor": _login(event, "actor"), "title": title, "at": event["createdAt"]}
+                          "action": action, "actor": _login(event, "actor"), "title": title,
+                          "at": event["createdAt"]}
 
     for row in pr_rows:
         number = row.get("number")
@@ -368,8 +380,9 @@ def _collect(args: argparse.Namespace) -> int:
             continue
         refs = readiness.read_issue_connection(ctx.repo, ctx.owner, ctx.name, number,
                                                "closedByPullRequestsReferences", _CLOSED_BY)
+        same_repo = [r for r in refs if _in_this_repo(ctx, r)]  # a foreign PR number means nothing here
         built = sorted(
-            (p for p in (_pr_info(ctx, r["number"]) for r in refs if isinstance(r.get("number"), int))
+            (p for p in (_pr_info(ctx, r["number"]) for r in same_repo if isinstance(r.get("number"), int))
              if _is_built(ctx, p)),
             key=lambda p: int(p["number"]),
         )
@@ -415,7 +428,8 @@ def _stage_files(wt: str, paths: list[str]) -> GitResult:
 
 def _commit_files(wt: str, message: str, env: dict[str, str]) -> GitResult:
     return readiness.guard_git(
-        lambda: git_op_capture(["git", "commit", "-q", "-m", message], cwd=wt,
+        lambda: git_op_capture(["git", "-c", "core.hooksPath=/dev/null", "commit", "--no-verify", "-q", "-m", message],
+                               cwd=wt,
                                timeout=_GIT_WRITE_TIMEOUT_S, env=env),
         "commit", False)
 
@@ -530,7 +544,12 @@ def _prompt(core: str, sections: list[tuple[str, str]], current: str, signals: l
     for title, body in sections:
         parts += [f"### {title}", body.strip(), ""]
     parts += ["## Current companion", current if current else "(none yet)", "", "## Signals", ""]
-    parts += [f"- {s['id']} ({s['kind']}): {s['title']}" for s in signals]
+    for s in signals:
+        what = s["kind"]
+        if s["kind"] == "relabeled":
+            what += f" label {s.get('label')} {s.get('action') or 'changed'}"
+        refs = f"#{s['pr']}" + (f" #{s['issue']}" if s["issue"] is not None else "")
+        parts.append(f"- {s['id']} ({what}) {refs}: {s['title']}")
     parts += ["", "## Output format", "",
               "Reply with the complete new companion file as a block. A line `<<<bd:file path=<repo-relative "
               f"path>>>`, the file text, then a line `{_FILE_END}`. Other text is ignored.", ""]
@@ -543,7 +562,7 @@ def _llm_argv(command: str | None) -> list[str]:
     else:
         from bytedigger_engine.lib.model_config import get_claude_fallback  # noqa: PLC0415 — only for the default
 
-        argv = ["claude", "-p", "--model", get_claude_fallback()]
+        argv = ["claude", "-p", "--model", get_claude_fallback(), "--tools", ""]
     if not argv:
         raise _unavailable("empty --llm-command")
     return argv
@@ -648,6 +667,9 @@ def _draft_and_ship(args: argparse.Namespace, ctx: _Ctx, signals: list[dict[str,
     current = current_path.read_text(encoding="utf-8") if current_path.is_file() else ""
     blocks = _parse_blocks(_draft(_llm_argv(args.llm_command), _prompt(args.core, sections, current, signals),
                                   parent))
+    if any(path != rel for path, _ in blocks):
+        # Decided before anything is written: a hook, a workflow or any other file is never ours to add.
+        raise _Fail(CODE_REFUSED, "extra_path", 3)
     for path, text in blocks:
         target = Path(wt) / path
         target.parent.mkdir(parents=True, exist_ok=True)

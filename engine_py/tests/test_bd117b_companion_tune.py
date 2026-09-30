@@ -79,7 +79,9 @@ path or in the GraphQL `owner` / `name` variables)
   account): such an event is not by a maintainer and never crashes the run.
 * `gh pr create -R o/r --head <branch> --base <default> --title <t> --body <b>` (no `--label`).
 
-signals.json: {"window": [from, to], "signals": [{id, kind, pr, issue|None, label|None, actor, title, at}]}.
+signals.json: {"window": [from, to], "signals": [{id, kind, pr, issue|None, label|None, actor, title, at,
+action}]}. `action` (addendum) = "added" (LabeledEvent) | "removed" (UnlabeledEvent) for `relabeled`, None for
+`reopened`.
 `pr` = the BD-built PR number (always); `issue` = the issue number when the event is on an issue, else None;
 `label` = label name (None for reopened); `actor` = login verbatim; `title` = title of the object the event is on
 (issue title for an issue event, PR title for a PR event); `at` = the event `createdAt` verbatim;
@@ -93,6 +95,21 @@ may carry chatter; every file block is a line `<<<bd:file path=<repo-relative po
 text, then a line `<<<bd:end>>>`. Block text is written verbatim (each line LF-terminated). A path that is
 absolute, empty, or has a `..` component => DRAFT_INVALID bad_path (nothing written, nothing branched).
 Zero blocks / empty stdout => DRAFT_INVALID no_blocks; a block with no end line => DRAFT_INVALID unclosed_fence.
+
+Addendum rules (code-review defects):
+* Cross-repo closing PR: `closedByPullRequestsReferences` nodes select `number repository{nameWithOwner}`; a
+  node whose `nameWithOwner` differs (case-insensitively) from the push-target `<o>/<n>` is skipped: no
+  `gh pr view` for it, never a signal, and never UNAVAILABLE. (The fixture emits `repository` only when the
+  query selects `nameWithOwner`.)
+* Draft write safety: any file block whose path is not exactly `bytedigger/companions/<id>.md` =>
+  `E_COMPANION_TUNE_REFUSED extra_path` BEFORE anything is written; the tuner commit runs with hooks disabled
+  (`core.hooksPath` pointing at a tracked hook must not execute it).
+* Default model (no `--llm-command`): argv is exactly `claude -p --model <get_claude_fallback()> --tools ""`
+  (`--tools` immediately followed by the empty string), prompt on stdin, `claude` resolved from PATH.
+* Prompt: every signal line (containing the signal id) carries kind, title, `#<pr>`, `#<issue>` when issue is
+  set, and for `relabeled` the label name plus `added` / `removed` (the `action` field).
+* `gh api user`: only a failure whose stderr contains `HTTP 403` is tolerated (then `tuning.bd_logins` must be
+  non-empty). Any other failure (e.g. `HTTP 502`) => exit 4 UNAVAILABLE even with non-empty `bd_logins`.
 
 Base: the tuner worktree is cut from the default branch of the PUSH target as just fetched (not from the user's
 HEAD or local branches, and not from a stale `origin/<default>`); the user's branch, HEAD, index and working
@@ -227,9 +244,10 @@ def tuner_pr(n, *, author=BD_USER, head="bd/companion-tune-20260101-abcd1234", i
     return pr_row(n, author=author, body=body, state=state, head=head, updated=updated or ago(10))
 
 
-def sig(kind, ev_id, *, pr=10, issue=5, label=None, actor="alice", title="Some title", at=None) -> dict:
+def sig(kind, ev_id, *, pr=10, issue=5, label=None, actor="alice", title="Some title", at=None,
+        action=None) -> dict:
     return {"id": f"{kind}:{ev_id}", "kind": kind, "pr": pr, "issue": issue, "label": label,
-            "actor": actor, "title": title, "at": at or ago(2)}
+            "actor": actor, "title": title, "at": at or ago(2), "action": action}
 
 
 # --------------------------------------------------------------------------- fake gh
@@ -333,6 +351,8 @@ path = argv[1].lstrip("/") if len(argv) > 1 else ""
 if argv[1:] == ["user"]:
     if sw.get("user_403"):
         die("gh: Resource not accessible by integration (HTTP 403)", out='{"message":"forbidden"}')
+    if sw.get("user_502"):
+        die("gh: Bad Gateway (HTTP 502)", out='{"message":"Bad Gateway"}')
     print(json.dumps({"login": st["bd_user"]}))
     sys.exit(0)
 
@@ -380,8 +400,18 @@ if argv[1] == "graphql":
     if "closedByPullRequestsReferences(" in q:
         conn = "closedByPullRequestsReferences"
         inc = re.search(r"includeClosedPrs:\s*true", q) is not None
-        items = [{"number": n} for n in obj.get("closedBy", [])
-                 if n in prs_by_n and (inc or prs_by_n[n]["state"] == "OPEN")]
+        items = []
+        for ref in obj.get("closedBy", []):
+            n, repo = (ref, "o/r") if isinstance(ref, int) else (ref["number"], ref["repo"])
+            if repo == "o/r":
+                if n not in prs_by_n or not (inc or prs_by_n[n]["state"] == "OPEN"):
+                    continue
+            elif not inc:
+                continue
+            node = {"number": n}
+            if "nameWithOwner" in q:  # only when the query selects repository{nameWithOwner}
+                node["repository"] = {"nameWithOwner": repo}
+            items.append(node)
     elif "closingIssuesReferences(" in q:
         conn = "closingIssuesReferences"
         items = [{"number": n} for n in obj.get("closing", [])]
@@ -911,8 +941,10 @@ def _check_b2_output(data: dict) -> None:
     assert not bad, "AC-B2 cases violated:\n  " + "\n  ".join(bad) + f"\n  got={sorted(got)}"
     assert got == set(B2_EXPECTED), f"exactly the expected signals: got {sorted(got)}"
     for s in data["signals"]:
-        assert set(s) == {"id", "kind", "pr", "issue", "label", "actor", "title", "at"}, s
-        want = dict(B2_EXPECTED[s["id"]])
+        assert set(s) == {"id", "kind", "pr", "issue", "label", "actor", "title", "at", "action"}, s
+        want = {"action": "added" if s["kind"] == "relabeled" else None, **B2_EXPECTED[s["id"]]}
+        if s["id"] == "relabeled:UE_1":
+            want["action"] = "removed"
         assert {k: s[k] for k in want} == want, (s, want)
         assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", s["at"]), s
 
@@ -1187,7 +1219,8 @@ def test_ac_b3_unreadable_policy_is_unavailable(tmp_path, monkeypatch):
 # =========================================================================== AC-B4
 
 SIGS = [sig("reopened", "RE_1", pr=10, issue=5, title="SIGNAL TITLE TOKEN five"),
-        sig("relabeled", "LE_1", pr=15, issue=None, label="regression", actor="bob", title="PR fifteen"),
+        sig("relabeled", "LE_1", pr=15, issue=None, label="regression", actor="bob", title="PR fifteen",
+            action="added"),
         sig("reopened", "RE_0", pr=11, issue=6, title="Issue six")]
 
 
@@ -1491,6 +1524,131 @@ def test_ac_b7_failed_push_does_not_open_a_pr(tmp_path, monkeypatch):
     assert rig.pr_creates() == []
     assert rig.bare_tuner_branches() == []
     assert rig.worktree_count() == 1
+
+
+# --------------------------------------------------------------------------- addendum (code review)
+
+
+def test_ac_b2_cross_repo_closing_pr_is_skipped_quietly(tmp_path, monkeypatch):
+    """Addendum 1: issue #5 is closed by `other/lib#42` while THIS repo has a BD-built PR #42. The foreign
+    reference is skipped (queried with repository{nameWithOwner}, compared case-insensitively): no signal, no
+    `gh pr view 42`, exit 0; the same-repo control issue still yields its signal."""
+    rig = make_rig(tmp_path, monkeypatch)
+    rig.set_world(
+        prs=[pr_row(42, closing=[5]), pr_row(11, closing=[6])],
+        issues=[
+            issue_row(5, closed_by=[{"number": 42, "repo": "Other/Lib"}],
+                      timeline=[ev("ReopenedEvent", "RE_x", "alice", ago(2))]),
+            issue_row(6, closed_by=[11], timeline=[ev("ReopenedEvent", "RE_ok", "alice", ago(2))]),
+        ],
+    )
+    proc, data = run_collect(rig)
+    assert proc.returncode == 0, proc.stderr
+    assert [s["id"] for s in data["signals"]] == ["reopened:RE_ok"]
+    views = [e["argv"] for e in rig.gh_calls() if e["argv"][:2] == ["pr", "view"]]
+    assert not any(a[2] == "42" for a in views), f"a foreign PR must never be looked up: {views!r}"
+    closed_by = [a for e in rig.gh_calls() for a in e["argv"]
+                 if a.startswith("query=") and "closedByPullRequestsReferences(" in a]
+    assert closed_by and all("nameWithOwner" in q for q in closed_by)
+
+
+def _install_tracked_hook(rig: Rig) -> Path:
+    """A tracked executable `.githooks/pre-commit` on the default branch, `core.hooksPath=.githooks`;
+    the hook touches a sentinel under tmp_path."""
+    sentinel = rig.root / "hook-ran.sentinel"
+    seed = rig.root / "seed"
+    hook = seed / ".githooks" / "pre-commit"
+    hook.parent.mkdir()
+    hook.write_text(f"#!/bin/sh\ntouch '{sentinel}'\nexit 0\n")
+    hook.chmod(0o755)
+    g(["add", "-A"], seed)
+    g(["-c", "commit.gpgsign=false", "commit", "-q", "-m", "hook"], seed)
+    g(["push", "-q", str(rig.bare), "main"], seed)
+    g(["config", "core.hooksPath", ".githooks"], rig.repo)
+    rig.log.write_text("")
+    return sentinel
+
+
+def test_ac_b6_hook_block_is_refused_before_anything_runs(tmp_path, monkeypatch):
+    """Addendum 2: the model emits the companion plus `.githooks/pre-commit` => REFUSED extra_path, the
+    tracked hook never runs (sentinel absent), no push, no branch."""
+    rig = make_rig(tmp_path, monkeypatch)
+    sentinel = _install_tracked_hook(rig)
+    rig.stage_model(fenced((COMP_PATH, companion()), (".githooks/pre-commit", "#!/bin/sh\ntouch /x\n")))
+    proc = run_propose(rig, SIGS)
+    assert_fail(proc, 3, "E_COMPANION_TUNE_REFUSED", "extra_path")
+    assert not sentinel.exists(), "the commit hook ran"
+    assert_nothing_shipped(rig)
+
+
+def test_ac_b7_tuner_commit_runs_with_hooks_disabled(tmp_path, monkeypatch):
+    """Addendum 2: a valid single-block draft with a tracked hook installed => the hook does not run and
+    the PR opens."""
+    rig = make_rig(tmp_path, monkeypatch)
+    sentinel = _install_tracked_hook(rig)
+    proc, _ = _run_valid(rig)
+    assert proc.returncode == 0, proc.stderr
+    assert not sentinel.exists(), "the tuner commit must run with hooks disabled"
+    assert len(rig.pushes()) == 1 and len(rig.pr_creates()) == 1
+
+
+def test_ac_b7_default_model_is_claude_with_no_tools(tmp_path, monkeypatch):
+    """Addendum 3: without --llm-command the model command is exactly
+    `claude -p --model <get_claude_fallback()> --tools ""` (a fake `claude` first on PATH records argv)."""
+    from bytedigger_engine.lib.model_config import get_claude_fallback
+
+    rig = make_rig(tmp_path, monkeypatch)
+    _write_exec(rig.root / "bin" / "claude", (rig.model).read_text())  # same recorder as the fixture model
+    rig.stage_model(fenced((COMP_PATH, companion())))
+    proc = run_propose(rig, SIGS, model=False)
+    assert proc.returncode == 0, proc.stderr
+    calls = rig.model_calls()
+    assert len(calls) == 1
+    argv = calls[0]["argv"]
+    assert argv == ["-p", "--model", get_claude_fallback(), "--tools", ""], argv
+
+
+def test_ac_b7_prompt_signal_lines_carry_label_action_pr_issue_and_title(tmp_path, monkeypatch):
+    """Addendum 4: each signal line in the prompt has kind, title, #pr, #issue (when set) and, for relabeled,
+    the label with added / removed."""
+    sigs = [
+        sig("relabeled", "LE_a", pr=15, issue=None, label="regression", actor="bob", title="TITLE-ADDED",
+            action="added"),
+        sig("relabeled", "UE_b", pr=17, issue=16, label="wontfix", actor="alice", title="TITLE-REMOVED",
+            action="removed"),
+        sig("reopened", "RE_c", pr=10, issue=5, title="TITLE-REOPENED"),
+    ]
+    rig = make_rig(tmp_path, monkeypatch)
+    proc, _ = _run_valid(rig, sigs)
+    assert proc.returncode == 0, proc.stderr
+    lines = rig.prompt().splitlines()
+
+    def line_of(sid):
+        return next(ln for ln in lines if sid in ln)
+
+    a, r, o = line_of("relabeled:LE_a"), line_of("relabeled:UE_b"), line_of("reopened:RE_c")
+    assert all(x in a for x in ("relabeled", "regression", "added", "#15", "TITLE-ADDED")), a
+    assert all(x in r for x in ("relabeled", "wontfix", "removed", "#17", "#16", "TITLE-REMOVED")), r
+    assert "removed" not in a and "added" not in r
+    assert all(x in o for x in ("reopened", "#5", "#10", "TITLE-REOPENED")), o
+
+
+@pytest.mark.parametrize("cmd", ["collect", "propose"])
+def test_ac_b3_api_user_failure_other_than_403_is_unavailable(tmp_path, monkeypatch, cmd):
+    """Addendum 5: only `HTTP 403` on `gh api user` is tolerated. A 502 => exit 4 UNAVAILABLE even though
+    tuning.bd_logins is non-empty (fixture default), for both collect and propose."""
+    rig = make_rig(tmp_path, monkeypatch)
+    tiny_world(rig)
+    rig.switch(user_502=True)
+    rig.stage_model(fenced((COMP_PATH, companion())))
+    if cmd == "collect":
+        proc, data = run_collect(rig)
+        assert data is None
+    else:
+        proc = run_propose(rig, SIGS)
+        assert rig.model_calls() == []
+    assert_fail(proc, 4, "E_COMPANION_TUNE_UNAVAILABLE")
+    assert rig.pushes() == [] and rig.pr_creates() == []
 
 
 # =========================================================================== AC-B8

@@ -578,6 +578,21 @@ Modules imported lazily (§1q). No mocks of `readiness` / `companion_tune`.
 and assert the ref's presence/absence and the order of consumption → push; AC-B7 asserts the
 pushed branch's real diff.
 
+### Implementation notes (Lot B, from code review; additive, no rule above changes)
+
+- A signal also carries `action` (`"added"` / `"removed"` for `relabeled`, `null` for
+  `reopened`), and the prompt line names kind, label + action, PR, issue and title — without
+  them a `relabeled` signal carries no usable correction.
+- A closing PR from another repository (`repository.nameWithOwner` ≠ the push target) is
+  skipped.
+- Model file blocks are validated before anything is written: any path other than the
+  companion is `extra_path` with nothing on disk; the tuner commit runs with hooks disabled.
+  Step 6 stays as the second line.
+- The default model command passes `--tools ""` (op-B3 step 4 "no tools").
+- `gh api user` failures other than HTTP 403 are exit 4 (only the workflow-token 403 falls back
+  to `tuning.bd_logins`). Under a workflow token the tuner's PRs are authored by
+  `app/github-actions`, which therefore belongs in `bd_logins`.
+
 ## §5 Files (for the implementation lots)
 
 **Lot A (readiness).** New: `engine_py/bytedigger_engine/readiness.py`,
