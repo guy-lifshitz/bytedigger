@@ -237,3 +237,6 @@ jobs:
         run: |
           command -v sqlite3 >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3; }
           python -m pytest tests/test_worker_deliverables.py -q
+
+      - name: worker write guard tests (bd#133)
+        run: python -m pytest tests/test_worker_write_guard.py -q

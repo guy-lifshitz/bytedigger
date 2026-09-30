@@ -51,6 +51,32 @@ bypasses are security bugs and belong in a private report (see
 [SECURITY.md](../SECURITY.md)); host escapes from generated code are an
 isolation problem on your side of the line above.
 
+## Subagent write guard
+
+`hooks/worker-write-guard.sh` is a PreToolUse hook on `Write|Edit|MultiEdit|NotebookEdit`.
+While a build is active (`build-state.yaml` in the working directory has a
+`current_phase` other than `completed`) it enforces two things for subagent calls:
+no subagent may write `build-state.yaml` or `build-metadata.json` (names compared
+case-insensitively, symlinks and hardlinks resolved), and the read-only roles
+(`explorer`, `architect`, `synthesizer`) may write only under
+`<scratchpad_dir>/{research,architecture,reviews}/`. The orchestrator (main thread) is
+never blocked. If the tool input is unreadable during an active build, or the check itself
+fails, the hook blocks (fail closed).
+
+Known limits, not fixed by this hook:
+
+- Bash writes. The hook sees file tools only; a general worker with Bash can still
+  write with `echo > build-state.yaml`. The read-only roles have no Bash.
+- Orchestrator `cd` into a subdir that persists. The hook reads `build-state.yaml` only
+  from the working directory, so with no state file there the guard is off.
+- Stale state after a worktree build. A `build-state.yaml` left in the main checkout
+  keeps the guard on there.
+- NTFS alias names (trailing dot or space, 8.3 short names) are not recognised as the
+  protected file names.
+- Claude Code older than 2.1.69 sends no `agent_id`, so every call looks like a
+  main-thread call and is allowed.
+- Without python3 on PATH the hook allows everything and prints a WARN line.
+
 ## What gets published
 
 The public package is exactly the manifest-driven core extracted into this

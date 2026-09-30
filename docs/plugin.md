@@ -209,12 +209,14 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 | `scripts/security-scan.sh` | Security scan runner for Phase 0.5 |
 | `scripts/post-deploy.sh` | Post-deploy cleanup (prune branches, temp files, merged worktrees) |
 | `hooks/build-state-guard.sh` | Blocks deletion of build-state.yaml mid-pipeline |
+| `hooks/worker-write-guard.sh` | Blocks subagent Write/Edit of orchestrator state and confines read-only roles to their scratchpad dirs (logic in `hooks/worker_write_guard.py`) |
 
 ## Hooks
 
 | Event | Handler | What it does |
 |-------|---------|--------------|
 | PreToolUse (Bash) | `hooks/build-state-guard.sh` | Blocks `rm`/`unlink` on build-state.yaml while pipeline is running |
+| PreToolUse (Write\|Edit\|MultiEdit\|NotebookEdit) | `hooks/worker-write-guard.sh` | While a build is active, blocks subagent writes to build-state.yaml / build-metadata.json and confines explorer/architect/synthesizer to `<scratchpad>/{research,architecture,reviews}/` |
 | SubagentStop | `scripts/build-gate.sh` | Validates phase gate before next phase can start |
 
 ## Agents
