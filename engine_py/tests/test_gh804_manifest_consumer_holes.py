@@ -326,6 +326,12 @@ def test_ac9_commit_green_code_resume_path_valid_dict_does_not_call_manifest_fro
 
     monkeypatch.setattr(phase_5_implement, "manifest_from_result", _spy_manifest_from_result)
 
+    # #1612: green_resume_paths declares a path production only ever populates
+    # with DETECTED (i.e. actually changed) paths -- give it a real in-scope
+    # change since red_sha so the resume path exercises a healthy state, not
+    # the empty-commit incident #1612 now makes terminal.
+    (repo / "src" / "placeholder.py").write_text("# placeholder -- edited by GREEN resume\n")
+
     ctx = _make_ctx(scratchpad, str(repo))
     prev = _FakePrev({
         "cycle": 1,

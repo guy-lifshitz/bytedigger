@@ -227,7 +227,7 @@ class TestGH373AuthoredBoundaryPartA:
 
         RED commit tracks tests/test_x.py; worktree modifies that committed
         test file (tamper) while also adding an untracked prod file to the
-        manifest. ``_commit_green_code`` must refuse with E_RED_TESTS_TAMPERED
+        manifest. ``_commit_green_code`` must refuse with E_RED_BASELINE_FILE_MODIFIED
         and leave the commit count unchanged.
         """
         repo = (tmp_path / "repo").resolve()
@@ -253,8 +253,8 @@ class TestGH373AuthoredBoundaryPartA:
             f"Expected error when a RED-committed test file is tampered, got {result.status!r} "
             f"(data={result.data!r})"
         )
-        assert result.error_code == "E_RED_TESTS_TAMPERED", (
-            f"Expected E_RED_TESTS_TAMPERED, got {result.error_code!r}"
+        assert result.error_code == "E_RED_BASELINE_FILE_MODIFIED", (
+            f"Expected E_RED_BASELINE_FILE_MODIFIED, got {result.error_code!r}"
         )
         assert commits_after == commits_before, (
             f"No GREEN commit should be created on a tampered-test diff; "
@@ -357,7 +357,7 @@ class TestGH373AuthoredBoundaryPartA:
         a `nosemgrep` token. ``_commit_fix_code`` must refuse with
         E_BOUNDARY_SUPPRESSION, no commit created. A second sub-case (tampered
         test file only, no suppression token) documents fix_commit's
-        assert_tests_untouched=False policy: it must NOT flag E_RED_TESTS_TAMPERED
+        assert_tests_untouched=False policy: it must NOT flag E_RED_BASELINE_FILE_MODIFIED
         (this sub-case is a parity/non-regression guard, not the AC8 forcing
         assertion — it may already pass today since no tamper check exists at all).
         """
@@ -409,9 +409,9 @@ class TestGH373AuthoredBoundaryPartA:
         )
 
         result2 = phase_6_review._commit_fix_code(ctx2, prev2)
-        assert result2.error_code != "E_RED_TESTS_TAMPERED", (
+        assert result2.error_code != "E_RED_BASELINE_FILE_MODIFIED", (
             "fix_commit boundary has assert_tests_untouched=False — must never "
-            f"flag E_RED_TESTS_TAMPERED; got error_code={result2.error_code!r}"
+            f"flag E_RED_BASELINE_FILE_MODIFIED; got error_code={result2.error_code!r}"
         )
 
     def test_ac9_scan_boundary_new_file_treats_whole_content_as_added(self, tmp_path: Path) -> None:

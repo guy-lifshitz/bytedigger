@@ -347,7 +347,7 @@ class TestGH639RedHashFreeze:
         result = phase_5_implement._commit_green_code(ctx, prev)
         commits_after = _rev_count(repo)
 
-        assert result.error_code == "E_RED_TESTS_TAMPERED", (
+        assert result.error_code == "E_RED_BASELINE_FILE_MODIFIED", (
             f"git-diff leg is blind to this gitignored test; only the frozen-hash "
             f"leg can catch this tamper. Got status={result.status!r} "
             f"error_code={getattr(result, 'error_code', None)!r} data={result.data!r}"
@@ -421,7 +421,7 @@ class TestGH639RedHashFreeze:
 
         result = phase_5_implement._commit_green_code(ctx, prev)
 
-        assert result.error_code != "E_RED_TESTS_TAMPERED", (
+        assert result.error_code != "E_RED_BASELINE_FILE_MODIFIED", (
             f"authorized-test-edits with a reason must escape the hash-tamper leg; "
             f"got error_code={getattr(result, 'error_code', None)!r}"
         )
@@ -471,5 +471,5 @@ class TestGH639RedHashFreeze:
             f"Expected ok when no manifest was ever frozen, got {result.status!r} "
             f"error_code={getattr(result, 'error_code', None)!r} data={result.data!r}"
         )
-        assert getattr(result, "error_code", None) != "E_RED_TESTS_TAMPERED"
+        assert getattr(result, "error_code", None) != "E_RED_BASELINE_FILE_MODIFIED"
         assert commits_after == commits_before + 1

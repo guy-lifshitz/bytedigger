@@ -7,7 +7,11 @@ Public API:
   check_citation(cit, repo_root, declared=..., repo_index=...) -> Finding
   lint_spec(spec_path, repo_root) -> tuple[int, list[Finding]]
   lint_spec_text(spec_text, repo_root) -> tuple[int, list[Finding]]
-  declared_introduced_symbols(spec_text) -> set[str]
+  norm_spec_path(p) -> str  — GH1893 §2.3/§1g: single-source path normalization
+  create_line_declared_files(spec_text) -> set[str]  — GH1893 §2.3
+  declared_introduced_symbols(spec_text) -> set[str]  — GH1893 §2.1 / bd#87
+  is_repo_rooted(norm_path, top_dirs, git_cwd, cache) -> bool  — GH1893 §2.3/AC15
+  missing_citation_recorder(content, top_dirs, git_cwd, findings, pending) -> Callable  — GH1893 §2.3/§4
   BLOCKING_STATUSES — Finding statuses that make lint_spec exit 1
 
 Part of 52151A8F — spec-cite-lint.
@@ -17,8 +21,9 @@ from __future__ import annotations
 import os
 import re
 import sys
-from collections.abc import Iterable, Iterator, Set as AbstractSet
+from collections.abc import Callable, Iterable, Iterator, Set as AbstractSet
 from dataclasses import dataclass
+from typing import Any
 from pathlib import Path
 
 # Matches code-file paths: e.g. bar.py, src/util.ts, ./router.sh
@@ -60,6 +65,18 @@ _CREATE_LINE_RE = re.compile(
 # Matches the heading of a "Files this spec CREATES" section (GH631 §2.1.b).
 _CREATES_HEADING_RE = re.compile(r"(?i)^#{1,6}\s*Files this spec CREATES")
 
+# GH1893 §2.1: line form of a declared-introduced-symbol — optional bullet,
+# literal "INTRODUCES:" anchored to line start, tail of line parsed for
+# backtick tokens by declared_introduced_symbols().
+_INTRODUCES_LINE_RE = re.compile(r"^\s*(?:[-*]\s*)?INTRODUCES:")
+
+# GH1893 §2.1: heading of a "Symbols this spec INTRODUCES" section — body
+# (until the next `#` heading) is scanned for bullet-only declaration lines.
+_INTRODUCES_HEADING_RE = re.compile(r"(?i)^#{1,6}\s*Symbols this spec INTRODUCES")
+
+# GH1893 §2.1: a section-body declaration line must be a bullet.
+_INTRODUCES_BULLET_RE = re.compile(r"^\s*[-*]\s")
+
 # Matches a fenced-code-block delimiter line (GH689 §2.2): ``` or ~~~ of any
 # length ≥3, optional language tag captured for python-vs-other dispatch.
 _FENCE_RE = re.compile(r"^\s*(?:```+|~~~+)\s*([A-Za-z0-9_+.#-]*)")
@@ -69,8 +86,12 @@ _FENCE_RE = re.compile(r"^\s*(?:```+|~~~+)\s*([A-Za-z0-9_+.#-]*)")
 _PY_FENCE_LANGS = frozenset({"", "py", "python", "python3"})
 
 
-def _norm_path(p: str) -> str:
-    """Strip surrounding backticks and a leading "./" prefix (GH631 §2.1)."""
+def norm_spec_path(p: str) -> str:
+    """Strip surrounding backticks and a leading "./" prefix (GH631 §2.1).
+
+    GH1893 §1g: single source of this normalization for both spec_cite and
+    phase_45_spec — phase_45_spec imports this public name instead of
+    inlining its own "./"-strip."""
     p = p.strip()
     if p.startswith("`") and p.endswith("`") and len(p) >= 2:
         p = p[1:-1]
@@ -91,17 +112,77 @@ def declared_created_files(spec_text: str) -> set[str]:
     for _line_no, line in _iter_scannable_lines(spec_text):
         m = _CREATE_LINE_RE.match(line)
         if m:
-            declared.add(_norm_path(m.group("path")))
+            declared.add(norm_spec_path(m.group("path")))
             continue
         if _CREATES_HEADING_RE.match(line):
             in_creates_section = True
             continue
         if in_creates_section:
-            if re.match(r"^#", line):
+            if line.startswith("#"):
                 in_creates_section = False
                 continue
             for f in _CODE_FILE_RE.findall(line):
-                declared.add(_norm_path(f))
+                declared.add(norm_spec_path(f))
+    return declared
+
+
+def _iter_lines(spec_text: str, *, py_fences_scannable: bool) -> Iterator[tuple[int, str]]:
+    """Shared fence-skip state machine (GH1893 §4: single walker backing both
+    `_iter_scannable_lines` and `_iter_unfenced_lines`). Yields (line_no,
+    line) for every line outside a skipped fence; fence delimiter lines
+    themselves are never yielded.
+
+    ``py_fences_scannable=True`` reproduces `_iter_scannable_lines`'s
+    original semantics (GH1005 §2.1/GH689 §2.2): a fence tagged with a
+    language in `_PY_FENCE_LANGS` (python/py/python3/untagged) is scanned
+    normally, any other-tagged fence is skipped. ``py_fences_scannable=False``
+    reproduces the AC13-hardened semantics: EVERY fence is skipped regardless
+    of tag (the `and` below short-circuits `fence_is_python` to False)."""
+    in_fence = False
+    fence_is_python = True
+    for line_no, line in enumerate(spec_text.splitlines(), start=1):
+        m = _FENCE_RE.match(line)
+        if m:
+            if not in_fence:
+                in_fence = True
+                fence_is_python = py_fences_scannable and m.group(1).lower() in _PY_FENCE_LANGS
+            else:
+                in_fence = False
+                fence_is_python = True
+            continue
+        if in_fence and not fence_is_python:
+            continue
+        yield line_no, line
+
+
+def _iter_unfenced_lines(spec_text: str) -> Iterator[str]:
+    """GH1893 §2.3/AC13: yield `line` for lines outside ANY fenced code
+    block, tagged or not (`_iter_lines(..., py_fences_scannable=False)`) —
+    narrower than `_iter_scannable_lines`, which treats untagged/python
+    fences as scannable (GH689 §2.2 — locked by scan_citations/
+    new_marked_symbols sibling suites and NOT changed here). Used ONLY by
+    `create_line_declared_files` and `declared_introduced_symbols`. Neither
+    consumer binds the line number, so only `line` is yielded (unlike
+    `_iter_scannable_lines`, which keeps yielding `(line_no, line)`)."""
+    for _line_no, line in _iter_lines(spec_text, py_fences_scannable=False):
+        yield line
+
+
+def create_line_declared_files(spec_text: str) -> set[str]:
+    """GH1893 §2.3/§4: line-only CREATE-target collector — `_CREATE_LINE_RE`
+    alone, no section drag-net (unlike `declared_created_files`, which also
+    sweeps a "Files this spec CREATES" section body to EOF by extension).
+    Routed through `_iter_unfenced_lines` (AC13: skips ANY fence, tagged or
+    not — a `CREATE:` line inside an example fence must not be honored as a
+    real declaration). Used by `_verify_spec_citations` (phase_45_spec.py) to
+    downgrade a missing repo-rooted CREATE target from fabrication-ERROR to
+    advisory-WARNING; the section form is deliberately excluded there because
+    it would exempt undeclared citations sitting in the same section body."""
+    declared: set[str] = set()
+    for line in _iter_unfenced_lines(spec_text):
+        m = _CREATE_LINE_RE.match(line)
+        if m:
+            declared.add(norm_spec_path(m.group("path")))
     return declared
 
 
@@ -146,22 +227,10 @@ def _iter_scannable_lines(spec_text: str) -> Iterator[tuple[int, str]]:
     """Yield (line_no, line) for scannable lines (GH1005 §2.1): the same
     fence-skip semantics scan_citations previously inlined — lines inside a
     non-python fenced code block are excluded; fence delimiter lines
-    themselves are excluded."""
-    in_fence = False
-    fence_is_python = True
-    for line_no, line in enumerate(spec_text.splitlines(), start=1):
-        m = _FENCE_RE.match(line)
-        if m:
-            if not in_fence:
-                in_fence = True
-                fence_is_python = m.group(1).lower() in _PY_FENCE_LANGS
-            else:
-                in_fence = False
-                fence_is_python = True
-            continue
-        if in_fence and not fence_is_python:
-            continue
-        yield line_no, line
+    themselves are excluded. GH1893 §4: thin wrapper over the shared
+    `_iter_lines` walker (`py_fences_scannable=True`) — behaviour byte-
+    identical to the original inlined state machine."""
+    return _iter_lines(spec_text, py_fences_scannable=True)
 
 
 # bd#87: `_CODE_FILE_RE` tokens that are not files — a product name such as
@@ -205,14 +274,6 @@ def scan_citations(spec_text: str) -> list[Citation]:
 _SIG_PREFIX_RE = re.compile(r"^([A-Za-z_][\w.-]*)\s*\(")
 
 
-# bd#87 op1 (ported from HAL #1893 §2.1): declarative introduced-symbol
-# allowlist — an `INTRODUCES:` line, or bullets under a
-# "Symbols this spec INTRODUCES" heading.
-_INTRODUCES_LINE_RE = re.compile(r"^\s*(?:[-*]\s*)?INTRODUCES:(?P<rest>.*)$")
-_INTRODUCES_HEADING_RE = re.compile(r"(?i)^#{1,6}\s*Symbols this spec INTRODUCES")
-_BULLET_RE = re.compile(r"^\s*[-*]\s")
-
-
 def _backtick_symbols(text: str) -> set[str]:
     """Backtick tokens in text that name a symbol: a valid symbol token
     (trailing `()` stripped) or the leading identifier of a signature."""
@@ -227,36 +288,6 @@ def _backtick_symbols(text: str) -> set[str]:
     return symbols
 
 
-def declared_introduced_symbols(spec_text: str) -> set[str]:
-    """Return the symbols a spec explicitly declares it introduces (bd#87).
-
-    Two forms, both walked through _iter_scannable_lines (neither works
-    inside a non-python fence): an `INTRODUCES:` line, and bullet lines in
-    the body of a "Symbols this spec INTRODUCES" section (until the next
-    line starting with `#`). Tokens come only from backticks. A section
-    body line carrying a code-file path is a citation, never a declaration,
-    and is skipped whole — otherwise a last-in-document section would
-    allowlist a typo cited below it."""
-    introduced: set[str] = set()
-    in_section = False
-    for _line_no, line in _iter_scannable_lines(spec_text):
-        m = _INTRODUCES_LINE_RE.match(line)
-        if m:
-            introduced |= _backtick_symbols(m.group("rest"))
-            continue
-        if _INTRODUCES_HEADING_RE.match(line):
-            in_section = True
-            continue
-        if not in_section:
-            continue
-        if line.startswith("#"):
-            in_section = False
-            continue
-        if _BULLET_RE.match(line) and not _CODE_FILE_RE.search(line):
-            introduced |= _backtick_symbols(line)
-    return introduced
-
-
 def new_marked_symbols(spec_text: str) -> set[str]:
     """Return symbols marked as new/planned by _NEW_CONTEXT_RE (GH1005 §2.2),
     independent of any code-file token on the same line. For each scannable
@@ -268,6 +299,65 @@ def new_marked_symbols(spec_text: str) -> set[str]:
         if _NEW_CONTEXT_RE.search(line):
             marked |= _backtick_symbols(line)
     return marked
+
+
+def _add_introduced_token(dest: set[str], token: str) -> None:
+    """GH1893 §2.1: normalize one backtick token into `dest` — a valid symbol
+    (removesuffix "()") or, failing that, the leading identifier of a
+    signature-form token (`_SIG_PREFIX_RE`, GH1005 §2.2 idiom reused here)."""
+    if _is_valid_symbol(token):
+        dest.add(token.removesuffix("()"))
+        return
+    sm = _SIG_PREFIX_RE.match(token)
+    if sm:
+        dest.add(sm.group(1))
+
+
+def declared_introduced_symbols(spec_text: str) -> set[str]:
+    """GH1893 §2.1: declarative allowlist of symbols a spec introduces itself.
+
+    Two input forms, both routed through `_iter_unfenced_lines` (AC13: skips
+    ANY fence, tagged or not — narrower than `_iter_scannable_lines`'s
+    python-permissive fence-skip, which `scan_citations`/`new_marked_symbols`
+    still use unchanged): a line form (`INTRODUCES: `sym``,
+    `_INTRODUCES_LINE_RE`) and a section form (`## Symbols this spec
+    INTRODUCES`, `_INTRODUCES_HEADING_RE`, body scanned until the next `#`
+    heading, section-body lines accepted ONLY as bullets via
+    `_INTRODUCES_BULLET_RE`). GH1893 §4: both forms converge on one shared
+    tail block — a `tail` (the text to scan for backtick tokens: the line
+    form's post-`INTRODUCES:` remainder, or the section bullet's whole line)
+    is computed per matching line, then ONE discard-and-extract block runs:
+    a line also matching `_CODE_FILE_RE` (either form) is a citation, not a
+    declaration, and is discarded whole (AC14 line-form guard / AC11 section
+    drag-net guard, now the same rule for both). Token source is
+    `_BACKTICK_RE` alone in both forms — bare words are never allowlisted
+    (deliberate divergence from `declared_created_files`, whose path tokens
+    are extension-recognizable and symbols are not)."""
+    introduced: set[str] = set()
+    in_section = False
+    for line in _iter_unfenced_lines(spec_text):
+        m = _INTRODUCES_LINE_RE.match(line)
+        if m:
+            tail: str = line[m.end():]
+        elif _INTRODUCES_HEADING_RE.match(line):
+            in_section = True
+            continue
+        elif in_section and line.startswith("#"):
+            in_section = False
+            continue
+        elif in_section and _INTRODUCES_BULLET_RE.match(line):
+            tail = line
+        else:
+            continue
+
+        # GH1893 §2.1/AC14/AC11: shared discard rule for both forms — a
+        # declaration line that also matches _CODE_FILE_RE is a citation,
+        # not a declaration, and is dropped whole.
+        if _CODE_FILE_RE.search(line):
+            continue
+        for t in _BACKTICK_RE.findall(tail):
+            _add_introduced_token(introduced, t)
+    return introduced
 
 
 # GH689 §2.3: stdlib module allowlist — a citation like `json.loads` is a
@@ -526,7 +616,7 @@ def check_citation(
     If the symbol is absent AND cit.is_new (GH366 new-symbol context marker),
     status is "new_symbol" (advisory) instead of "unresolved_symbol" (blocking).
 
-    GH631 §2.3: if _norm_path(cit.file) is in ``declared`` (declared-created
+    GH631 §2.3: if norm_spec_path(cit.file) is in ``declared`` (declared-created
     files), the file is treated as a planned net-new file: missing → advisory
     "planned_file"; existing + symbol present → "resolved"; existing + symbol
     absent → "new_symbol". Undeclared files keep prior behavior unchanged.
@@ -539,7 +629,7 @@ def check_citation(
     the wrong file on the same spec line.
     """
     target = repo_root / cit.file
-    if _norm_path(cit.file) in declared:
+    if norm_spec_path(cit.file) in declared:
         if not target.exists() or not target.is_file():
             return Finding(file=cit.file, symbol=cit.symbol, status="planned_file")
         text = target.read_text(encoding="utf-8", errors="replace")
@@ -668,3 +758,86 @@ def lint_spec_text(spec_text: str, repo_root: Path) -> tuple[int, list[Finding]]
         findings.append(Finding(file="", symbol="", status="no_citations"))
     exit_code = 1 if any(f.status in BLOCKING_STATUSES for f in findings) else 0
     return exit_code, findings
+
+
+def is_repo_rooted(
+    norm_path_str: str,
+    top_dirs: set[str],
+    git_cwd: Path,
+    cache: dict[str, bool],
+) -> bool:
+    """GH1893 §2.3/AC15/MINOR-j: is a normalized CREATE-declared path
+    genuinely repo-rooted?
+
+    Discriminator: `os.path.normpath(norm_path_str)`'s first segment either
+    names a static top-level dir (``top_dirs`` — repo_top_level_dirs(),
+    rstrip'd; kept first as the same source the remediation text uses, and
+    what makes AC6 satisfiable against an empty tmp git_cwd), OR the segment
+    genuinely exists as a directory under ``git_cwd`` (AC15: the
+    scripts/ / lib/ / tools/ hole this widening closes — repo_top_level_dirs()
+    names only 5 dirs of a much larger real tree).
+
+    ``seg not in ("", ".", "..")`` is defence in depth (MINOR-j), not a live
+    path: a normpath segment of ".." is already caught by the escape guard
+    upstream in phase_45_spec's `_verify_spec_citations` (which `continue`s before this
+    branch is ever reached), but ``(git_cwd / "..").is_dir()`` is always
+    True, so the call site must not silently depend on a guard ~30 lines
+    away.
+
+    ``cache`` memoizes per-segment so a spec citing ten missing
+    `scripts/...` paths stats `scripts/` once.
+
+    Lives here, not in phase_45_spec.py: that module's block inventory is
+    frozen (GH1272 AC3) and a path predicate is cite-lint's concern."""
+    seg = os.path.normpath(norm_path_str).split("/")[0]
+    if seg in ("", ".", ".."):
+        return False
+    if seg in top_dirs:
+        return True
+    cached = cache.get(seg)
+    if cached is None:
+        cached = (git_cwd / seg).is_dir()
+        cache[seg] = cached
+    return cached
+
+
+def missing_citation_recorder(
+    content: str,
+    top_level_dirs: Iterable[str],
+    git_cwd: Path,
+    findings: list[dict[str, Any]],
+    pending_misses: list[tuple[str, int]],
+) -> Callable[[str, int], None]:
+    """GH1893 §2.3/§4: build the per-citation handler for a citation whose
+    target is not on disk, for phase_45_spec's `_verify_spec_citations`.
+
+    A citation to a path declared by a line-only ``CREATE:`` declaration that
+    is also genuinely repo-rooted (`is_repo_rooted`) names its own future
+    file: it is appended to ``findings`` as a WARNING. Anything else — a bare
+    filename, an undeclared path, a non-repo-rooted one (lot 1896, AC9/AC12)
+    — is appended to ``pending_misses`` for the pass-2 neighbor-dir retry,
+    exactly as before GH1893.
+
+    Everything per-spec is computed once here, not per citation:
+    ``top_level_dirs`` (repo_top_level_dirs() builds a fresh config provider
+    per call), the declared-target set, and the per-segment ``is_dir`` cache.
+    The two lists are the caller's own and are mutated in place."""
+    declared = create_line_declared_files(content)
+    top_dirs = {d.rstrip("/") for d in top_level_dirs}
+    seg_cache: dict[str, bool] = {}
+
+    def record(path_str: str, line_num: int) -> None:
+        norm_path_str = norm_spec_path(path_str)  # GH1893 §1g: single-source normalization
+        if norm_path_str in declared and is_repo_rooted(
+            norm_path_str, top_dirs, git_cwd, seg_cache,
+        ):
+            findings.append({
+                "path": path_str,
+                "line": line_num,
+                "severity": "WARNING",
+                "reason": "declared CREATE target; not yet on disk",
+            })
+            return
+        pending_misses.append((path_str, line_num))
+
+    return record

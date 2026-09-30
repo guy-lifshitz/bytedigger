@@ -1,4 +1,4 @@
-"""RED tests for GH436 — E_RED_TESTS_TAMPERED spec-§5 authorized-test-edits whitelist.
+"""RED tests for GH436 — E_RED_BASELINE_FILE_MODIFIED spec-§5 authorized-test-edits whitelist.
 
 Spec: SHARED/memory/Decisions/2026-07-10_GH436_tamper_whitelist_spec.md
 ACs 1-9 (spec §3).
@@ -255,7 +255,7 @@ class TestGH436TamperWhitelist:
     ) -> None:
         """AC8: e2e commit_green_code — spec carries the marker for
         tests/test_x.py; green-phase edits that committed RED test ->
-        status=='ok', green commit created, no E_RED_TESTS_TAMPERED.
+        status=='ok', green commit created, no E_RED_BASELINE_FILE_MODIFIED.
         Expected FAIL pre-GREEN (call site not wired to pass authorized_test_edits)."""
         repo = (tmp_path / "repo").resolve()
         _init_repo(repo)
@@ -288,13 +288,13 @@ class TestGH436TamperWhitelist:
             f"error_code={getattr(result, 'error_code', None)!r} data={result.data!r}"
         )
         assert commits_after == commits_before + 1
-        assert getattr(result, "error_code", None) != "E_RED_TESTS_TAMPERED"
+        assert getattr(result, "error_code", None) != "E_RED_BASELINE_FILE_MODIFIED"
 
     def test_ac9_commit_green_code_e2e_unlisted_test_edit_still_rejected(
         self, tmp_path: Path
     ) -> None:
         """AC9: same shape as AC8 but the edited test is NOT listed in the
-        marker -> E_RED_TESTS_TAMPERED unchanged (regression pin). This AC may
+        marker -> E_RED_BASELINE_FILE_MODIFIED unchanged (regression pin). This AC may
         already PASS today — today's code always rejects any test edit
         regardless of a whitelist (no whitelist mechanism exists yet)."""
         repo = (tmp_path / "repo").resolve()
@@ -324,5 +324,5 @@ class TestGH436TamperWhitelist:
         commits_after = _rev_count(repo)
 
         assert result.status == "error"
-        assert result.error_code == "E_RED_TESTS_TAMPERED"
+        assert result.error_code == "E_RED_BASELINE_FILE_MODIFIED"
         assert commits_after == commits_before

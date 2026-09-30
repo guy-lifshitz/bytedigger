@@ -278,6 +278,35 @@ def _hal_config_provider_default():
 
 
 @pytest.fixture(autouse=True)
+def _run_identity_isolation():
+    """hal#1626 A / C1: hermetic run identity per test.
+
+    `telemetry_ctx` holds TWO run-identity slots and the engine clears neither on
+    the way out: the thread-local run context (`get_current_run`) and
+    `_invocation_run_id`, a MODULE GLOBAL that `run.main(--run-id ...)` sets. A
+    leaked id makes any helper keyed by run identity (e.g. the orphan-GREEN
+    recovery at the phase 5 dirty-tree guard) behave differently in the full
+    suite than in a scoped run.
+
+    Setup CLEARS both slots; teardown RESTORES whatever the test found on entry,
+    so no test is affected by, or affects, its neighbours. Tests that need a run
+    context set it in their own body and win (function-scoped, autouse first).
+    """
+    from bytedigger_engine import telemetry_ctx as _tctx  # noqa: PLC0415
+
+    prev_ctx = _tctx.get_current_run()
+    prev_invocation = _tctx.get_invocation_run_id()
+    _tctx.clear_current_run()
+    _tctx.set_invocation_run_id(None)
+    try:
+        yield
+    finally:
+        _tctx.set_invocation_run_id(prev_invocation)
+        # Restore the context OBJECT itself, so no _RunCtx field is dropped.
+        _tctx._local.current = prev_ctx
+
+
+@pytest.fixture(autouse=True)
 def _llm_backend_registry_isolation():
     """Hermetic backend registry per test (GH1082 — #1092/#1098)."""
     from bytedigger_engine import llm_subprocess as _llm  # noqa: PLC0415

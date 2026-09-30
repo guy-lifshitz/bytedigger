@@ -176,27 +176,81 @@ def test_ac6_red_commit_baseline_in_phase5_uses_git_write_seam():
     )
 
 
-def test_ac6_compute_baseline_typecheck_count_stash_push_uses_bounded_run():
-    engine_py = _engine_py_root()
-    filepath = engine_py / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
-    body = _read_function_slice(filepath, "_compute_baseline_typecheck_count")
-    # The function body must route the stash push through the git_op_capture seam.
-    assert "git_op_capture(" in body, (
-        f"_compute_baseline_typecheck_count stash push in {filepath} does not call git_op_capture("
+def _assert_no_raw_spawn(body: str, where: str) -> None:
+    """No unbounded primitive may appear in *body* — the whole point of the seam."""
+    for raw in ("subprocess.run(", "subprocess.Popen(", "os.system(", "bounded_run("):
+        assert raw not in body, (
+            f"{where} calls {raw} directly — every git op must go through the "
+            f"injected write port, never a raw/unbounded spawn"
+        )
+
+
+def _assert_injected_port_is_bounded() -> None:
+    """The port `lib/baseline_tree.py` is handed carries the explicit `timeout=`.
+
+    The provider takes its write port as a mandatory keyword and calls it with
+    the port's own bound; the bound itself lives at the port definition
+    (`phase_workflows_common._git_write`, the single source phase_5_implement
+    imports and injects), which must keep a `timeout` in its signature and
+    thread it into the `git_op_capture` seam.
+    """
+    filepath = _engine_py_root() / "bytedigger_engine" / "workflows" / "phase_workflows_common.py"
+    body = _read_function_slice(filepath, "_git_write")
+    assert "timeout" in body.splitlines()[0], (
+        f"_git_write in {filepath} lost its timeout parameter — the baseline "
+        f"provider's git ops would become unbounded"
     )
-    assert "timeout=" in body, (
-        f"_compute_baseline_typecheck_count in {filepath} does not pass timeout="
+    assert "timeout=timeout" in body, (
+        f"_git_write in {filepath} does not thread timeout= into git_op_capture("
     )
 
 
-def test_ac6_compute_baseline_typecheck_count_finally_stash_pop_uses_bounded_run():
-    engine_py = _engine_py_root()
-    filepath = engine_py / "bytedigger_engine" / "workflows" / "phase_5_implement.py"
-    body = _read_function_slice(filepath, "_compute_baseline_typecheck_count")
-    # Both stash push AND stash pop must go through the git_op_capture seam.
-    # Count occurrences: need >= 2 git_op_capture( calls (push + pop).
-    count = body.count("git_op_capture(")
+def test_ac6_baseline_tree_worktree_add_uses_bounded_git_write_port():
+    """Baseline worktree CREATION is a bounded write-port call, not a raw spawn.
+
+    GH1612-B moved this mechanism: `_compute_baseline_typecheck_count` no
+    longer performs any git operation itself — it delegates to the canonical
+    provider `lib/baseline_tree.py`, which runs `git worktree add --detach`
+    through the caller-supplied `_git_write` port (bounded via `timeout=`,
+    see `_assert_injected_port_is_bounded`). The pytest baseline
+    `_compute_baseline_failed` still stashes and is guarded by its own
+    sibling assertions in this file — left untouched.
+    """
+    filepath = _engine_py_root() / "bytedigger_engine" / "lib" / "baseline_tree.py"
+    body = _read_function_slice(filepath, "baseline_tree")
+    assert '_git_write(["worktree", "add", "--detach"' in body, (
+        f"baseline_tree in {filepath} does not create the worktree through the "
+        f"injected _git_write port"
+    )
+    _assert_no_raw_spawn(body, f"baseline_tree in {filepath}")
+    _assert_injected_port_is_bounded()
+
+
+def test_ac6_baseline_tree_finally_worktree_remove_uses_bounded_git_write_port():
+    """Baseline worktree REMOVAL is bounded too, and always runs.
+
+    Same GH1612-B move as the sibling above: the removal leg that used to be
+    `_compute_baseline_typecheck_count`'s `finally` stash pop now lives in
+    `lib/baseline_tree.py` as a `git worktree remove --force` through the same
+    injected port, inside the provider's `finally` block. Both legs must go
+    through the port, so the provider body carries >= 2 `_git_write(` calls.
+    `_compute_baseline_failed` (the pytest baseline) still stashes and keeps
+    its own sibling assertions in this file — untouched.
+    """
+    filepath = _engine_py_root() / "bytedigger_engine" / "lib" / "baseline_tree.py"
+    body = _read_function_slice(filepath, "baseline_tree")
+    assert '_git_write(["worktree", "remove", "--force"' in body, (
+        f"baseline_tree in {filepath} does not remove the worktree through the "
+        f"injected _git_write port"
+    )
+    assert "finally:" in body, (
+        f"baseline_tree in {filepath} has no finally block — removal is no "
+        f"longer unconditional"
+    )
+    count = body.count("_git_write(")
     assert count >= 2, (
-        f"_compute_baseline_typecheck_count in {filepath} must contain at least 2 "
-        f"git_op_capture( calls (stash push + stash pop finally), found {count}"
+        f"baseline_tree in {filepath} must contain at least 2 _git_write( calls "
+        f"(worktree add + worktree remove finally), found {count}"
     )
+    _assert_no_raw_spawn(body, f"baseline_tree in {filepath}")
+    _assert_injected_port_is_bounded()

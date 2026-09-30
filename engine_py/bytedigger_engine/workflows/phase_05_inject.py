@@ -34,6 +34,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -45,6 +46,8 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._task_description import normalize_task_description  # type: ignore[no-redef]  # noqa: E402
 from bytedigger_engine.config_provider import get_config, default_security_asset  # noqa: E402
+from bytedigger_engine.config_provider import inject_learnings_ts_path as _provider_inject_ts_opinion  # noqa: E402
+from bytedigger_engine.config_provider import memory_db_required as _provider_memory_db_required  # noqa: E402
 
 try:
     from bytedigger_engine.lib.observability.emit_resolver import emit_resolver_resolved
@@ -107,7 +110,13 @@ def _utf8_safe_tail(text: str, max_bytes: int) -> str:
     return encoded[-max_bytes:].decode("utf-8", errors="ignore")
 
 
-def _emit_callout_failed(reason: str, exit_code: int, stderr: str | None, argv: list[str]) -> None:
+def _emit_callout_failed(
+    reason: str,
+    exit_code: int,
+    stderr: str | None,
+    argv: list[str],
+    discarded_injector_opinion: str | None = None,
+) -> None:
     """Emit `learning_inject_callout_failed` with stderr_tail/stderr_bytes/
     stderr_truncated/argv/argv_truncated (GH1468 S2), byte-budgeted against
     event_log._LINE_LIMIT_BYTES. Fail-closed: shrinks argv elements (fixed
@@ -115,6 +124,11 @@ def _emit_callout_failed(reason: str, exit_code: int, stderr: str | None, argv: 
     EventLog.append() accepts the line, so the diagnostic event is never
     silently dropped for an oversized stderr/argv — the exact defect this
     fixes.
+
+    AC2d: `discarded_injector_opinion` is included in the payload ONLY when
+    the provider's inject_learnings_ts_path() opinion was non-empty but
+    discarded (AC2c existence-preference) — never added as a null/empty key
+    on a normal run, which would be schema noise on every event.
     """
     run_ctx = telemetry_ctx.get_current_run()
     if run_ctx is None or run_ctx.event_log is None:
@@ -145,6 +159,8 @@ def _emit_callout_failed(reason: str, exit_code: int, stderr: str | None, argv: 
             "argv": argv_out,
             "argv_truncated": argv_truncated,
         }
+        if discarded_injector_opinion is not None:
+            payload["discarded_injector_opinion"] = discarded_injector_opinion
         try:
             run_ctx.event_log.append("learning_inject_callout_failed", payload, run_ctx.run_id)
             return
@@ -180,6 +196,8 @@ def _emit_callout_failed(reason: str, exit_code: int, stderr: str | None, argv: 
         "argv": None,
         "argv_truncated": bool(argv),
     }
+    if discarded_injector_opinion is not None:
+        minimal["discarded_injector_opinion"] = discarded_injector_opinion
     try:
         run_ctx.event_log.append("learning_inject_callout_failed", minimal, run_ctx.run_id)
     except Exception as e:  # noqa: BLE001
@@ -363,14 +381,48 @@ def _sanitize_fts_query(task_description: str) -> tuple[str | None, dict]:
     return " OR ".join(f'"{t}"' for t in tokens), diag
 
 
-def _resolve_inject_ts_path() -> Path:
-    """Resolve path to inject-learnings.ts CLI.
-    Env-overridable via HAL_INJECT_LEARNINGS_TS for tests (§1h pattern).
-    Default: relative to this file's engine repo root (SYSTEM/cli/build/).
+def _resolve_inject_ts_path_diag() -> tuple[Path, str | None]:
+    """Resolve path to inject-learnings.ts CLI (GH1471), plus AC2d diagnostic.
+
+    Precedence:
+      (a) HAL_INJECT_LEARNINGS_TS env override, read via cfg.path() — carries
+          the BD_/BYTEDIGGER_ aliases and already treats an empty string as
+          unset (falls through, never becomes Path(""));
+      (b) the active provider's inject_learnings_ts_path() opinion, when
+          non-empty, expanduser'd (a provider may return a '~'-literal) AND
+          the resulting file exists — a preference, not a veto (AC2c);
+      (c) this file's engine-repo-root default (SYSTEM/cli/build/) — the
+          bootstrap-snapshot copy, which never carries inject-learnings.ts
+          (GH1471's actual production defect).
+
+    Returns (resolved_path, discarded_opinion): `discarded_opinion` is the
+    expanded provider-opinion string when it was non-empty but discarded
+    (AC2c existence-preference), else None — surfaced by AC2d so the
+    diagnostic can name the path that was looked for and missed.
     """
     # engine_py/workflows/phase_05_inject.py → engine_py/ → SYSTEM/cli/build/
     build_dir = Path(__file__).resolve().parents[3]
-    return get_config().path("HAL_INJECT_LEARNINGS_TS", build_dir / "inject-learnings.ts")
+    file_default = build_dir / "inject-learnings.ts"
+
+    opinion = _provider_inject_ts_opinion()
+    opinion_path = Path(os.path.expanduser(opinion)) if opinion else None
+    discarded_opinion: str | None = None
+    if opinion_path and opinion_path.exists():
+        default = opinion_path
+    else:
+        default = file_default
+        if opinion_path is not None:
+            discarded_opinion = str(opinion_path)
+
+    resolved = get_config().path("HAL_INJECT_LEARNINGS_TS", default)
+    return resolved, discarded_opinion
+
+
+def _resolve_inject_ts_path() -> Path:
+    """Thin wrapper over `_resolve_inject_ts_path_diag()` returning only the
+    resolved path — the public/tested surface (AC2, AC2c, AC3)."""
+    resolved, _ = _resolve_inject_ts_path_diag()
+    return resolved
 
 
 def _query_memory_learnings(
@@ -438,7 +490,22 @@ def _query_memory_learnings(
         # foreign projects shouldn't hard-fail on a HAL-specific DB they have
         # no reason to provide. Explicit-path-missing OR HAL-dogfood still
         # hard-fails (real misconfiguration).
+        if is_default and not _provider_memory_db_required():
+            # Seam (config_provider.memory_db_required): where learning memory
+            # is optional, an absent DEFAULT DB is "not configured" — neither a
+            # failure to classify nor a callout to report.
+            return None, None, "[memory_db_not_configured]"
         if is_default and not _cwd_inside_hal_dir(Path.cwd()):
+            # AC4c: this preflight branch previously emitted nothing at all —
+            # the live carrier of defect 1, structurally blind to the §1b
+            # measured baseline. Emit exactly once, keyed on THIS branch
+            # (never on a substring of the suffix — the TS error-kind branch
+            # below at :557-568 already emits its own event for the literal
+            # string "memory_db_unavailable" and must not double-emit).
+            _emit_safe("learning_inject_callout_failed", {
+                "reason": "memory_db_unavailable",
+                "db_path": memory_db_path,
+            })
             return None, None, "[memory_db_unavailable]"
         return None, StepResult(
             status="error",
@@ -456,7 +523,7 @@ def _query_memory_learnings(
 
     # §1h: bun binary env-overridable.
     bun_bin = get_config().binary("HAL_BUN_BIN", "bun")
-    inject_ts = _resolve_inject_ts_path()
+    inject_ts, discarded_opinion = _resolve_inject_ts_path_diag()
 
     # §2.4 discriminated 3-state return type:
     #   ("rows", total_hits, rows)          — success
@@ -516,13 +583,18 @@ def _query_memory_learnings(
             elif isinstance(exc.stderr, (bytes, bytearray)):
                 partial_stderr = exc.stderr.decode("utf-8", errors="ignore")
             else:
-                partial_stderr = None
+                # CPython sets TimeoutExpired.stderr=None when the child wrote
+                # nothing before the timeout, not when stderr was uncaptured
+                # (it was, via capture_output=True) — "" reflects 0 bytes
+                # captured. Contrast the OSError branch below, which keeps
+                # None because there the pipe was never captured at all.
+                partial_stderr = ""
             reason = "subprocess timeout"
-            _emit_callout_failed(reason, -1, partial_stderr, argv)
+            _emit_callout_failed(reason, -1, partial_stderr, argv, discarded_injector_opinion=discarded_opinion)
             return ("sentinel", reason)
         except OSError as exc:
             reason = f"subprocess error: {exc}"
-            _emit_callout_failed(reason, -1, None, argv)
+            _emit_callout_failed(reason, -1, None, argv, discarded_injector_opinion=discarded_opinion)
             return ("sentinel", reason)
 
         # Defense-in-depth (BUG 1): parse the LAST non-empty stdout line so that any
@@ -537,19 +609,19 @@ def _query_memory_learnings(
         # path just because exit code happens to be 0 (AC9).
         if not last_line:
             reason = "cli_no_output"
-            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv, discarded_injector_opinion=discarded_opinion)
             return ("sentinel", reason)
 
         try:
             data = json.loads(last_line)
         except (json.JSONDecodeError, ValueError) as exc:
             reason = f"unparseable stdout: {exc}"
-            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv, discarded_injector_opinion=discarded_opinion)
             return ("sentinel", reason)
 
         if not isinstance(data, dict):
             reason = "stdout JSON was not an object"
-            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv, discarded_injector_opinion=discarded_opinion)
             return ("sentinel", reason)
 
         # §2.4: check for discriminated error kinds BEFORE checking returncode,
@@ -564,12 +636,12 @@ def _query_memory_learnings(
                     return mapped
             # Includes "memory_db_unavailable" and any unknown error kind
             reason = error_kind
-            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv, discarded_injector_opinion=discarded_opinion)
             return ("sentinel", reason)
 
         if proc.returncode != 0:
             reason = "non-zero exit"
-            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv)
+            _emit_callout_failed(reason, proc.returncode, proc.stderr, argv, discarded_injector_opinion=discarded_opinion)
             return ("sentinel", reason)
 
         # Parse rows into (content, confidence, score) tuples to match
@@ -1020,6 +1092,37 @@ def _discover_constitution(ctx, _prev) -> StepResult:
     )
 
 
+def _classify_learning_injection_suffix(suffix: str) -> str:
+    """AC4b classification table for the diagnostic suffix returned by
+    _query_memory_learnings when queried is None. Keyed on the suffix VALUE
+    itself (produced by the actual control-flow branch that ran), never by
+    substring-scanning the rendered hal-memory.md body (AC4):
+
+        [no_keywords_extracted]              -> no_match
+        [fts_hits=0]                         -> no_match
+        [...build_hits=0...]                 -> no_match
+        [memory_db_unavailable]              -> failed
+        [inject_cli_failed:<reason>]         -> failed
+    """
+    if suffix == "[memory_db_unavailable]":
+        return "failed"
+    if suffix.startswith("[inject_cli_failed:"):
+        return "failed"
+    # "[no_keywords_extracted]", "[fts_hits=0]", and the build_hits=0 variant
+    # all share the genuine "nothing to show" classification.
+    return "no_match"
+
+
+def _failure_reason_from_suffix(suffix: str) -> str:
+    """Extract the human-readable reason from a 'failed'-classified suffix,
+    for the AC5 stderr WARNING line."""
+    if suffix == "[memory_db_unavailable]":
+        return "memory_db_unavailable"
+    if suffix.startswith("[inject_cli_failed:") and suffix.endswith("]"):
+        return suffix[len("[inject_cli_failed:"):-1]
+    return suffix
+
+
 def _write_injection_files(ctx, prev) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -1061,8 +1164,13 @@ def _write_injection_files(ctx, prev) -> StepResult:
     constitution_path = prev.data.get("constitution_path")
 
     explicit_block = cfg.get("hal_memory_block")
+    suffix = ""
     if explicit_block:
         hal_memory = explicit_block
+        # AC6b (§1ab): a pre-formatted block bypasses the FTS query entirely —
+        # not a genuine match resolution, so it carries the neutral 'no_match'
+        # value (never absent/None) rather than 'ok'.
+        learning_injection = "no_match"
     else:
         task_description = normalize_task_description(cfg)
         if task_description is not None:
@@ -1080,14 +1188,30 @@ def _write_injection_files(ctx, prev) -> StepResult:
                 return err
             if queried is not None:
                 hal_memory = queried
+                learning_injection = "ok"
             else:
                 # Append diagnostic suffix so operators can distinguish case (a)/(b)/(c).
                 # Existing assertions use `NO_LEARNINGS_SENTINEL in hal_memory` — substring
                 # match still holds because suffix is appended after the base sentinel.
                 hal_memory = f"{NO_LEARNINGS_SENTINEL} {suffix}".rstrip() if suffix else NO_LEARNINGS_SENTINEL
+                # AC4b: classification is keyed on the suffix VALUE (the
+                # branch that actually ran), never on a body substring scan.
+                learning_injection = _classify_learning_injection_suffix(suffix)
         else:
             # Case (d): orchestrator never asked for a query — plain sentinel, no diagnostic.
             hal_memory = NO_LEARNINGS_SENTINEL
+            learning_injection = "no_match"
+
+    # AC5: on any 'failed' classification, surface it loudly and exactly
+    # once — direct sys.stderr.write (never logger.warning, which escapes
+    # capsys; never stdout — safety.md hook-stdout rule). Non-fatal per the
+    # spec's fatality decision: status stays "ok" downstream.
+    if learning_injection == "failed":
+        reason = _failure_reason_from_suffix(suffix)
+        sys.stderr.write(
+            f"WARNING: learning injection unavailable ({reason}); "
+            f"build proceeds without learnings\n"
+        )
 
     # 06452D44: integration-class detection. AFTER hal_memory resolution,
     # BEFORE file writes. Empty trigger list → no emission (silent).
@@ -1103,7 +1227,13 @@ def _write_injection_files(ctx, prev) -> StepResult:
     # NO_LEARNINGS_SENTINEL constant value is unchanged — existing substring
     # assertions (`NO_LEARNINGS_SENTINEL in body`) continue to hold because the
     # sentinel appears verbatim after the comment marker on the next line.
-    if hal_memory == NO_LEARNINGS_SENTINEL or hal_memory.startswith(NO_LEARNINGS_SENTINEL + " "):
+    # AC4: marker selection is driven by the learning_injection classification
+    # (the actual control-flow branch that ran), NEVER by substring-scanning
+    # hal_memory's body text — a matched row whose content happens to contain
+    # the literal string "INJECT_FAILED" must still get MATCHED.
+    if learning_injection == "failed":
+        marker = "<!-- HAL_MEMORY:INJECT_FAILED -->"
+    elif learning_injection == "no_match":
         marker = "<!-- HAL_MEMORY:NO_MATCH -->"
     else:
         count = hal_memory.count("\n- ") + (1 if hal_memory.startswith("- ") else 0)
@@ -1199,6 +1329,7 @@ def _write_injection_files(ctx, prev) -> StepResult:
             "files": files,
             "bytes_written": written,
             "constitution_used": constitution_path,
+            "learning_injection": learning_injection,
         },
         duration_ms=0,
         step_name="write_injection_files",

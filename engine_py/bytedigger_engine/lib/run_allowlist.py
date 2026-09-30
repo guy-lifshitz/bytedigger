@@ -85,14 +85,17 @@ def _parse_table_row(row: str) -> "str | None":
     return None
 
 
-def _parse_items(body: str) -> "list[str]":
-    """GH569 item grammar — accepts (per non-empty line): optional `- `
-    bullet; optional verb prefix (`CREATE|MODIFY|DELETE|RENAME` + `:` or
-    whitespace); backtick segment wins; markdown table rows; otherwise
-    strip trailing parenthetical then take the first whitespace token.
-    Lines yielding no path-like token (prose) are skipped, not garbage
-    entries (spec rule 6)."""
-    paths: "list[str]" = []
+def _parse_items_with_verbs(body: str) -> "list[tuple[str | None, str]]":
+    """GH569 item grammar (verb-preserving, hal#1600 D3, §1g one grammar) —
+    accepts (per non-empty line): optional `- ` bullet; optional verb prefix
+    (`CREATE|MODIFY|DELETE|RENAME` + `:` or whitespace, captured rather than
+    discarded); backtick segment wins; markdown table rows (verb always
+    `None` — a table row carries no verb prefix); otherwise strip trailing
+    parenthetical then take the first whitespace token. Lines yielding no
+    path-like token (prose) are skipped, not garbage entries (spec rule 6).
+    This is the single canonical grammar; `_parse_items` is a pure
+    path-projection of this function."""
+    items: "list[tuple[str | None, str]]" = []
     for line in body.splitlines():
         ls = line.strip()
         if not ls:
@@ -102,15 +105,23 @@ def _parse_items(body: str) -> "list[str]":
         if ls.startswith("|"):
             item = _parse_table_row(ls)
             if item:
-                paths.append(item)
+                items.append((None, item))
             continue
         vm = _VERB_PREFIX_RE.match(ls)
+        verb: "str | None" = None
         if vm:
+            verb = vm.group(1)
             ls = ls[vm.end():].strip()
         item = _extract_item_grammar(ls)
         if item:
-            paths.append(item)
-    return paths
+            items.append((verb, item))
+    return items
+
+
+def _parse_items(body: str) -> "list[str]":
+    """GH569 item grammar — pure path-projection of
+    `_parse_items_with_verbs` (§1g one grammar, not two)."""
+    return [path for _verb, path in _parse_items_with_verbs(body)]
 
 
 def is_test_shaped(path: str) -> bool:
@@ -153,10 +164,13 @@ def derived_test_scope_match(path: str, entries: "list[str]") -> bool:
     return False
 
 
-def parse_spec_files_allowlist(spec_path: "str | None") -> "list[str] | None":
-    """Parse a frozen spec's `## Files` (primary) or `... files in scope ...`
-    (fallback) section into a path allowlist. None when neither section is
-    present, the file is missing, or unreadable."""
+def parse_spec_files_with_verbs(spec_path: "str | None") -> "list[tuple[str | None, str]] | None":
+    """Verb-preserving sibling of `parse_spec_files_allowlist` (hal#1600
+    D3, §1g one grammar). Parse a frozen spec's `## Files` (primary) or
+    `... files in scope ...` (fallback) section into `(verb_or_None, path)`
+    tuples. `None` when neither section is present, the file is missing, or
+    unreadable — same None-vs-[] distinction as `parse_spec_files_allowlist`,
+    which `phase_5_implement`'s scope guard depends on."""
     if not spec_path:
         return None
     try:
@@ -165,14 +179,26 @@ def parse_spec_files_allowlist(spec_path: "str | None") -> "list[str] | None":
         return None
     m = _FILES_SECTION_RE.search(text)
     if m:
-        return _parse_items(m.group(1))
+        return _parse_items_with_verbs(m.group(1))
     header_m = _FILES_IN_SCOPE_HEADER_RE.search(text)
     if header_m:
         rest = text[header_m.end():]
         next_heading = re.search(r"(?m)^#+\s", rest)
         body = rest[:next_heading.start()] if next_heading else rest
-        return _parse_items(body)
+        return _parse_items_with_verbs(body)
     return None
+
+
+def parse_spec_files_allowlist(spec_path: "str | None") -> "list[str] | None":
+    """Parse a frozen spec's `## Files` (primary) or `... files in scope ...`
+    (fallback) section into a path allowlist. None when neither section is
+    present, the file is missing, or unreadable. Pure path-projection of
+    `parse_spec_files_with_verbs` (§1g one grammar, not two) — preserves the
+    None vs [] distinction byte-identically."""
+    with_verbs = parse_spec_files_with_verbs(spec_path)
+    if with_verbs is None:
+        return None
+    return [path for _verb, path in with_verbs]
 
 
 def parse_authorized_test_edits(spec_path: str) -> "list[str]":

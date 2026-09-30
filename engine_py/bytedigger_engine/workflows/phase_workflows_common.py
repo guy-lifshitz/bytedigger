@@ -4,8 +4,8 @@
 
 The 13 helpers + 2 constants below were previously duplicated in both phase
 modules.  This file is the ONE canonical copy (= phase_5_implement version for
-all 13).  Both phase modules import and re-export every name at module level so
-that all three access patterns continue to work:
+all 13).  Both phase modules import and re-export every one of THOSE 13 names at
+module level so that all three access patterns continue to work:
 
   * ``from phase_5_implement import X`` / ``from phase_6_review import X``
   * ``phase_5_implement.X`` / ``phase_6_review.X`` (attribute access)
@@ -14,12 +14,19 @@ that all three access patterns continue to work:
     that use the bare-name reference inside that module's own functions)
 
 Do NOT add helpers to this file that are not in the 13-list — those belong in
-their respective phase module or a future Stage 1/2 package.
+their respective phase module or a future Stage 1/2 package.  ONE exception,
+section 8a (hal#1674): the injection-input contract lives here because §4.1
+of that spec prescribes this module as its home and §1g requires a single owner
+for it — the three gates that consume it span phase_45_spec, phase_45_spec_lite
+and phase_5_implement, so no one phase module can own it.  Section 8a's names
+are NOT re-exported by any phase module and must not be: every consumer imports
+`detect_injection_block` from here directly.
 """
 from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -217,6 +224,72 @@ def _verify_no_cross_tree_edits(worktree_root: Path) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 4b. _filter_cross_tree_to_worker_manifest  (GH1562 — bound the revert to
+#     this build's OWN worker manifest, never subtract from the unbounded
+#     dirty tree; C8E48307 §2.2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _filter_cross_tree_to_worker_manifest(
+    main_repo_root: Path, files: list[str], result: "StepResult"
+) -> "tuple[list[str], list[str], str]":
+    """Partition repo-relative <files> into (owned, refused, manifest_source).
+
+    owned   — files the worker manifest proves THIS build wrote inside main_repo_root
+    refused — everything else (another process's uncommitted work)
+    Fail-closed: an absent/malformed/empty manifest refuses EVERY file.
+    Never raises.
+    """
+    # N4: function-level import — phase_workflows_common is a core module
+    # imported standalone by several tests; do not widen its module-level
+    # import graph.
+    from bytedigger_engine.llm_subprocess import manifest_from_result, _ManifestError  # noqa: PLC0415
+
+    def _refused_reason(exc: Exception) -> str:
+        name = exc.__class__.__name__
+        if name == "_ManifestMalformedError":
+            return "unavailable:malformed"
+        if name == "_ManifestInvalidSourceError":
+            return "unavailable:bad_source"
+        return "unavailable:missing"
+
+    try:
+        manifest, manifest_source = manifest_from_result(result)
+    except _ManifestError as exc:  # missing | malformed | bad_source
+        return [], list(files), _refused_reason(exc)
+    except Exception:  # noqa: BLE001 — outer belt: wrapper contract at :282 never raises
+        return [], list(files), "unavailable:unknown"
+
+    resolved_entries: list[str] = []
+    for entry in manifest:
+        try:
+            if os.path.isabs(entry):
+                resolved_entries.append(os.path.realpath(entry))
+            else:
+                resolved_entries.append(os.path.realpath(os.path.join(str(main_repo_root), entry)))
+        except (OSError, ValueError, TypeError):
+            # Defensive belt (§2.2 D4): a non-str entry never reaches here (the
+            # whole manifest is rejected first by _validate_manifest_or_raise);
+            # kept for a well-formed str entry with an embedded NUL, which
+            # makes os.path.realpath raise ValueError.
+            continue
+
+    owned: list[str] = []
+    refused: list[str] = []
+    for p in files:
+        try:
+            resolved_p = os.path.realpath(os.path.join(str(main_repo_root), p))
+        except (OSError, ValueError, TypeError):
+            refused.append(p)
+            continue
+        if resolved_p in resolved_entries:
+            owned.append(p)
+        else:
+            refused.append(p)
+
+    return owned, refused, manifest_source
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 5. _revert_cross_tree_modifications  (phase_5 version: error="timeout")
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -239,6 +312,8 @@ def _revert_cross_tree_modifications(main_repo_root: Path, files: list[str]) -> 
           "results": [{"file": str, "reverted": bool, "error": str|None}, ...],
           "reverted_count": int,
           "failed_count": int,
+          "refused_count": int,  # GH1562 — always 0 here; manifest filtering
+          "refused_files": [],   # happens only at the wrapper level (§2.4)
         }
     """
     results: list[dict] = []
@@ -273,6 +348,8 @@ def _revert_cross_tree_modifications(main_repo_root: Path, files: list[str]) -> 
         "results": results,
         "reverted_count": reverted_count,
         "failed_count": failed_count,
+        "refused_count": 0,
+        "refused_files": [],
     }
 
 
@@ -310,15 +387,37 @@ def _maybe_emit_cross_tree_warning(result: StepResult, worktree_root: Path) -> S
     # Best-effort auto-revert. Wrapper never raises.
     if main_repo_root is None:  # DC1CB656: type-safety (boy-scout)
         return result
+    # GH1562 (C8E48307): bound the revert to this build's OWN worker
+    # manifest — never subtract from the unbounded dirty tree. Detection
+    # observability above stays unfiltered; only the mutation narrows.
+    owned, refused, manifest_source = _filter_cross_tree_to_worker_manifest(
+        Path(main_repo_root), list(files), result,
+    )
+    if refused:
+        result.data["cross_tree_refused_files"] = list(refused)
+        result.metadata["cross_tree_refused_files"] = list(refused)
+        _emit_safe(
+            "cross_tree_revert_refused",
+            {
+                "step": result.step_name,
+                "main_repo_root": main_repo_root,
+                "refused_files": list(refused),
+                "refused_count": len(refused),
+                "manifest_source": manifest_source,
+            },
+            severity="warning",
+        )
+    if not owned:
+        return result
     try:
-        revert = _revert_cross_tree_modifications(Path(main_repo_root), list(files))
+        revert = _revert_cross_tree_modifications(Path(main_repo_root), owned)
     except Exception as exc:  # noqa: BLE001
         _emit_safe(
             "cross_tree_revert_failed",
             {
                 "step": result.step_name,
                 "exception": exc.__class__.__name__,
-                "files": list(files),
+                "files": list(owned),
             },
         )
         return result
@@ -328,7 +427,7 @@ def _maybe_emit_cross_tree_warning(result: StepResult, worktree_root: Path) -> S
             "step": result.step_name,
             "main_repo_root": main_repo_root,
             "worktree_root": str(worktree_root),
-            "files": list(files),
+            "files": list(owned),
             "reverted_count": revert.get("reverted_count", 0),
             "failed_count": revert.get("failed_count", 0),
         },
@@ -365,11 +464,83 @@ def _worktree_edit_boundary_block(worktree_root: Path) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 8a. injection inputs  (hal#1674 §4.1 — ONE place that knows where the
+#     READ_FIRST files live, what "present" means for them, and how to tell a
+#     DECLARED infrastructure block from a reviewer quoting the prompt)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The five files _read_first_block below points every READ_FIRST worker at.
+# (phase_05_inject.INJECTION_FILES is the PRODUCER's own list — extensionless
+# and six long; these are the names this prompt actually promises.)
+READ_FIRST_INJECTION_FILES: tuple[str, ...] = (
+    "hal-memory.md",
+    "constitution.md",
+    "quality-gate.md",
+    "producer-rules.md",
+    "active-work.md",
+)
+
+# A worker DECLARES a block by opening a LINE with STATUS=block — that is what
+# the prompt prose below asks it for. A substantive answer that QUOTES the same
+# sentence mid-line is not a declaration, and the difference is exactly the one
+# between an infrastructure failure and reviewer disagreement (hal#1674 §1).
+_DECLARED_BLOCK_RE = re.compile(r"^STATUS=block", re.MULTILINE)
+
+
+def injection_dir(scratchpad: Path) -> Path:
+    """The injection directory phase_05_inject writes and READ_FIRST consumes."""
+    return Path(scratchpad) / "injection"
+
+
+def require_injection_files(scratchpad: Path) -> str | None:
+    """None when every READ_FIRST file is present and non-empty, else a message
+    naming the absolute directory (when it is missing) or the offending file.
+
+    Empty means empty AFTER strip(): a whitespace-only file has st_size > 0, so
+    a size check waves it through while the worker still has nothing to read.
+    """
+    inj = injection_dir(scratchpad)
+    if not inj.is_dir():
+        return f"injection files missing: expected directory {inj} does not exist"
+    for name in READ_FIRST_INJECTION_FILES:
+        path = inj / name
+        try:
+            body = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # UnicodeDecodeError is a ValueError, NOT an OSError: a file in some
+            # other encoding is just as unreadable to the worker as one the OS
+            # refuses, and must not crash a hard gate with a traceback.
+            return f"injection files missing: {path} could not be read"
+        if not body.strip():
+            return f"injection files missing: {path} is empty"
+    return None
+
+
+def detect_injection_block(
+    scratchpad_raw: str | Path | None, raw_output: str | None
+) -> str | None:
+    """CONJUNCTIVE classifier for a gate: the worker DECLARED a block AND the
+    inputs really are absent. Returns the reason message, or None.
+
+    Either half alone misclassifies: the block sentence is verbatim prompt
+    prose, so a reviewer may quote it while genuinely disagreeing, and
+    phase_8_post_deploy removes `injection/` as routine housekeeping, so its
+    absence is normal after a ship. Without a scratchpad the disk half cannot
+    be evaluated at all — the caller keeps its verdict axis unchanged.
+    """
+    if not scratchpad_raw:
+        return None
+    if not raw_output or not _DECLARED_BLOCK_RE.search(raw_output):
+        return None
+    return require_injection_files(Path(scratchpad_raw))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 9. _read_first_block  (phase_5 version: "producer anti-fabrication" text)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _read_first_block(scratchpad: Path) -> str:
-    inj = scratchpad / "injection"
+    inj = injection_dir(scratchpad)
     return (
         "READ_FIRST — read these five files before proceeding:\n"
         f"- {inj}/hal-memory.md      (learnings)\n"

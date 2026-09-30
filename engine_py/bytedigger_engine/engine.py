@@ -356,6 +356,11 @@ class WorkflowEngine:
         finally:
             self._emit_phase_artifacts(workflow_name, rid)
         wall_ms = int((time.monotonic() - start) * 1000)
+        # GH1626 B: the phase's TERMINAL outcome is handled in ONE place —
+        # WorkflowDefinition.error_handler — instead of at every return site.
+        # Fired here, after _execute_steps has returned (its retry recursion
+        # included), so it fires exactly once per phase, never once per attempt.
+        self._invoke_error_handler(workflow, final_result, context, rid)
         # GH452 §2.3: rollup emit strictly before workflow_finished; never fail
         # the run on telemetry error, and never fall back to a default log path.
         try:
@@ -414,6 +419,37 @@ class WorkflowEngine:
                     )
                     emit_stuck_report(Path(_ev_path).parent, _report, rid, event_log_path=_ev_path)
         return final_result, context
+
+    def _invoke_error_handler(
+        self,
+        workflow: WorkflowDefinition,
+        final_result: StepResult,
+        context: WorkflowContext,
+        run_id: str,
+    ) -> None:
+        """GH1626 B: fire the declared ``error_handler`` for a terminal phase outcome.
+
+        The hook is SIDE-EFFECT-ONLY by construction, not by discipline:
+
+        * the handler is handed ``replace(final_result)`` — a COPY. StepResult
+          is an unfrozen dataclass, so an in-place mutation of the argument
+          would otherwise reach the object read at :304 (dispatcher report) and
+          :313 (stuck report). The live object never leaves this method.
+        * the return value is DISCARDED, so the handler can neither rescue nor
+          re-code a terminal result.
+        * exceptions are CONTAINED. A ctx without a writable scratchpad is live
+          in production, and a handler that writes there would throw; letting it
+          out would turn every such abort into an uncaught traceback. The
+          containment is recorded as ``phase_error_handler_raised`` so a
+          swallowed exception is never mistaken for a handler that never fired.
+        """
+        handler = getattr(workflow, "error_handler", None)
+        if handler is None or final_result.status not in ("error", "escalate"):
+            return
+        try:
+            handler(replace(final_result), context)
+        except Exception as exc:  # noqa: BLE001 — containment IS the contract
+            self._emit("phase_error_handler_raised", {"workflow_name": workflow.name, "step_name": final_result.step_name, "error_code": final_result.error_code, "error_class": type(exc).__name__, "error_msg": str(exc)}, run_id)
 
     # Design A pipeline recovery (decree 2026-04-26): max workflow-level
     # validation retries. Hard-coded for v1; configurable in v2 once

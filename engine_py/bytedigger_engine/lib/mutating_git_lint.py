@@ -42,6 +42,7 @@ MUTATING_VERBS = frozenset({
 READ_ONLY_PAIRS = frozenset({
     ("worktree", "list"),
     ("stash", "list"),
+    ("stash", "show"),
     ("branch", "--list"),
     ("branch", "-l"),
     ("tag", "-l"),
@@ -76,7 +77,7 @@ GUARDED_WRITE_SITES: "dict[str, str]" = {
     "_checkpoint_green_worktree": "phase_5_implement.py B6 — refuses ambient before staging",
     "_autocommit_fix_tail": "phase_6_review.py B7 — refuses ambient before `git add`",
     "_red_commit_baseline_fail_ids": "phase_5_implement.py B8 — refuses ambient before `git worktree add --detach` (bd#88)",
-    "_compute_baseline_typecheck_count": "phase_5_implement.py B9 — refuses ambient before `git stash push -u`",
+    "_compute_baseline_typecheck_count": "phase_5_implement.py B9 — refuses ambient before the `lib.baseline_tree` worktree checkout (GH1612-B)",
     "_verify_fix_typecheck": "phase_6_review.py B10 — refuses ambient before `git worktree add --detach`",
 }
 
@@ -85,10 +86,6 @@ GUARDED_WRITE_SITES: "dict[str, str]" = {
 # entirely) — genuinely out of the GH1220 chokepoint, documented here rather
 # than silently ignored.
 DECLARED_NON_GIT_CWD_SITES: "dict[str, str]" = {
-    "_revert_cross_tree_modifications": (
-        "phase_workflows_common.py — different resolver chain "
-        "(_resolve_worktree_root), not lib.git_cwd; follow-up OFI"
-    ),
     "_rebase_onto_origin_main": (
         "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd "
         "(A8.6: adds the `rebase` verb to §0's phase_8 row)"
@@ -101,6 +98,22 @@ DECLARED_NON_GIT_CWD_SITES: "dict[str, str]" = {
         "phase_6_fix_integrity.py / phase_workflows_common.py — reads the label "
         "for a read-only dirty-tree guard, no mutating op"
     ),
+    "baseline_tree": (
+        "lib/baseline_tree.py — GH1612-B canonical worktree-baseline provider; "
+        "git_cwd is a parameter threaded from its caller, never lib.git_cwd (D1)"
+    ),
+}
+
+# GH1562 (C8E48307 §2.6): registered hazard -> guard-OWNER function. The
+# hazard's revert is bounded by its OWNER's own worker-manifest filter, not
+# by an ambient-cwd guard inside the hazard's own body (that shape does not
+# apply here — the filter deliberately lives one frame up, in the wrapper
+# that owns the decision). A site is classified only if the OWNER's own
+# body contains BOTH a live AST Call to MANIFEST_GUARD_MARKER and a live
+# AST Call to the registered hazard — see `_owner_guards_hazard`.
+MANIFEST_GUARD_MARKER = "_filter_cross_tree_to_worker_manifest"
+MANIFEST_BOUNDED_WRITE_SITES: "dict[str, str]" = {
+    "_revert_cross_tree_modifications": "_maybe_emit_cross_tree_warning",
 }
 
 
@@ -220,6 +233,7 @@ class _FuncScopedVisitor(ast.NodeVisitor):
         self._func_stack: "list[str]" = []
         self._var_stack: "list[set[str]]" = []
         self.sites: "list[dict[str, Any]]" = []
+        self.stash_sites: "list[dict[str, Any]]" = []
         self.read_port_misuse: "list[dict[str, Any]]" = []
         self.guard_calls: "dict[str, bool]" = {}
 
@@ -273,6 +287,10 @@ class _FuncScopedVisitor(ast.NodeVisitor):
                         self.sites.append({
                             "file": self.filename, "line": node.lineno, "function": func,
                         })
+                        if verb == "stash":
+                            self.stash_sites.append({
+                                "file": self.filename, "line": node.lineno, "function": func,
+                            })
                     if callee in _READ_PORT_CALL_NAMES and is_mutating_pair:
                         self.read_port_misuse.append({
                             "file": self.filename, "line": node.lineno, "function": func,
@@ -301,15 +319,101 @@ class _FuncScopedVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _scan_file(path: Path) -> "_FuncScopedVisitor | None":
+def _scan_file(path: Path) -> "tuple[_FuncScopedVisitor, ast.Module] | tuple[None, None]":
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
     except (OSError, SyntaxError, ValueError):
-        return None
+        return None, None
     visitor = _FuncScopedVisitor(str(path))
     visitor.visit(tree)
-    return visitor
+    return visitor, tree
+
+
+# ── GH1562 §2.6: owner-indirection re-verification for MANIFEST_BOUNDED_ ──
+# WRITE_SITES. The hazard's guard lives one frame up, in the OWNER function
+# that decides whether to call it — a body-scoped check (AC34's shape) would
+# be unsatisfiable, so this checks the OWNER's own body instead, after
+# pruning statically-dead branches so `if False: marker()` cannot rubber-
+# stamp the site.
+
+def _is_static_false_test(test: "ast.expr") -> bool:
+    """True only for the literal `False` constant (`if False:` / `while
+    False:`) — deliberately narrow, not general falsy-constant folding."""
+    return isinstance(test, ast.Constant) and test.value is False
+
+
+def _collect_live_call_names(stmts: "list[ast.stmt]") -> "set[str]":
+    """Names of every function invoked by a live Call node directly within
+    `stmts`'s own control flow (if/for/while/try/with sub-blocks).
+
+    Prunes statically-dead branches (`if False:` / `while False:` — only
+    `orelse`, which Python still executes, is live) and drops any statement
+    after an unconditional `return`/`raise` in the same block. Does NOT
+    descend into a nested function/lambda's own body — that is a different
+    function's scope, not the owner's."""
+    names: "set[str]" = set()
+
+    def _collect_expr_calls(node: "ast.AST | None") -> None:
+        if node is None:
+            return
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                name = _callee_name(sub)
+                if name:
+                    names.add(name)
+
+    def _walk(body: "list[ast.stmt]") -> None:
+        for stmt in body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue  # different function scope
+            if isinstance(stmt, (ast.If, ast.While)) and _is_static_false_test(stmt.test):
+                _walk(stmt.orelse)  # body is dead; orelse still runs
+                continue
+            if isinstance(stmt, ast.If):
+                _collect_expr_calls(stmt.test)
+                _walk(stmt.body)
+                _walk(stmt.orelse)
+            elif isinstance(stmt, ast.While):
+                _collect_expr_calls(stmt.test)
+                _walk(stmt.body)
+                _walk(stmt.orelse)
+            elif isinstance(stmt, ast.For):
+                _collect_expr_calls(stmt.iter)
+                _walk(stmt.body)
+                _walk(stmt.orelse)
+            elif isinstance(stmt, ast.Try):
+                _walk(stmt.body)
+                for handler in stmt.handlers:
+                    _walk(handler.body)
+                _walk(stmt.orelse)
+                _walk(stmt.finalbody)
+            elif isinstance(stmt, ast.With):
+                for item in stmt.items:
+                    _collect_expr_calls(item.context_expr)
+                _walk(stmt.body)
+            else:
+                _collect_expr_calls(stmt)
+            if isinstance(stmt, (ast.Return, ast.Raise)):
+                break  # unreachable tail in this block
+
+    _walk(stmts)
+    return names
+
+
+def _owner_guards_hazard(module_tree: "ast.Module", owner_name: str, hazard_name: str) -> bool:
+    """§2.6: the registered OWNER function's OWN body — not the module at
+    large — must contain BOTH a live Call to MANIFEST_GUARD_MARKER and a
+    live Call to the registered hazard function."""
+    owner_node = None
+    for node in ast.walk(module_tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == owner_name:
+            owner_node = node
+            break
+    if owner_node is None:
+        return False
+    live_calls = _collect_live_call_names(owner_node.body)
+    return MANIFEST_GUARD_MARKER in live_calls and hazard_name in live_calls
 
 
 def find_unclassified_sites(
@@ -320,17 +424,22 @@ def find_unclassified_sites(
     """D3/Amendment 3.3: every mutating-git (or git_cwd-rooted unlink/rmtree)
     call site whose enclosing function is not classified in EITHER registry
     — or is declared "guarded" but genuinely lacks an `is_ambient_git_cwd(`
-    call in its body (AC34) — is reported with file/line/function."""
+    call in its body (AC34) — is reported with file/line/function.
+
+    GH1562: a site whose function is registered in
+    MANIFEST_BOUNDED_WRITE_SITES is classified only if its OWNER function
+    (same module) genuinely guards it (`_owner_guards_hazard`)."""
     guarded = set(guarded_sites) if guarded_sites is not None else set(GUARDED_WRITE_SITES)
     declared_non_git_cwd = (
         set(declared_non_git_cwd_sites)
         if declared_non_git_cwd_sites is not None
         else set(DECLARED_NON_GIT_CWD_SITES)
     )
+    manifest_bounded = MANIFEST_BOUNDED_WRITE_SITES
 
     unclassified: "list[dict[str, Any]]" = []
     for path in _iter_prod_py_files(root):
-        visitor = _scan_file(path)
+        visitor, tree = _scan_file(path)
         if visitor is None:
             continue
         for site in visitor.sites:
@@ -342,8 +451,54 @@ def find_unclassified_sites(
                     continue
                 unclassified.append(site)  # AC34: declared guarded, marker absent
                 continue
+            if func in manifest_bounded:
+                owner_name = manifest_bounded[func]
+                if tree is not None and _owner_guards_hazard(tree, owner_name, func):
+                    continue
+                unclassified.append(site)
+                continue
             unclassified.append(site)
     return unclassified
+
+
+# ── GH1612-B D4/D4.1: the baseline-may-not-stash chokepoint ─────────────────
+BASELINE_STASH_EXCEPTIONS: "dict[str, str]" = {
+    # bytedigger: empty — no baseline site stashes any more (the pytest
+    # baseline moved to a detached worktree in bd#88, the typecheck baseline
+    # onto lib.baseline_tree in GH1612-B), so there is nothing to except.
+}
+
+
+def find_baseline_stash_violations(
+    root: "str | Path", exceptions: "Iterable[str] | None" = None,
+) -> "list[dict[str, Any]]":
+    """D4/D4.1 (GH1612-B) — a baseline/measurement site may not reach the
+    `stash` verb. A function is a VIOLATION iff it reaches a `stash` argv
+    whose (verb, subcommand) pair is MUTATING (`("stash", <anything>)` minus
+    the read-only pairs `("stash", "list")` / `("stash", "show")`) and its
+    name is not a key of *exceptions* (default: `BASELINE_STASH_EXCEPTIONS`).
+    Pass `exceptions=frozenset()` to disable the registry entirely.
+
+    Classification is by the (verb, subcommand) PAIR the lint already parses
+    (`_argv_elements` / `_verb_subcommand`) — never by a function-name list
+    and never by a regex over source text (D4.1): a synthetic function whose
+    name carries no "baseline"/"measure"/"compute" token is exactly as
+    reportable as a named one the moment its argv reaches the shape.
+    """
+    excepted = set(exceptions) if exceptions is not None else set(BASELINE_STASH_EXCEPTIONS)
+    violations: "list[dict[str, Any]]" = []
+    for path in _iter_prod_py_files(root):
+        # GH1562 changed `_scan_file` to return (visitor, tree); the rebase merged
+        # both edits textually without conflict, so unpack explicitly rather than
+        # trusting the old single-value contract.
+        visitor, _tree = _scan_file(path)
+        if visitor is None:
+            continue
+        for site in visitor.stash_sites:
+            if site["function"] in excepted:
+                continue
+            violations.append(site)
+    return violations
 
 
 def find_read_port_misuse(root: "str | Path") -> "list[dict[str, Any]]":
@@ -352,7 +507,7 @@ def find_read_port_misuse(root: "str | Path") -> "list[dict[str, Any]]":
     in GUARDED_WRITE_SITES via its enclosing function), never re-routed."""
     misuse: "list[dict[str, Any]]" = []
     for path in _iter_prod_py_files(root):
-        visitor = _scan_file(path)
+        visitor, _tree = _scan_file(path)
         if visitor is None:
             continue
         misuse.extend(visitor.read_port_misuse)

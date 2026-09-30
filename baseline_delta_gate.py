@@ -41,6 +41,7 @@ from bytedigger_engine.config_provider import foreign_state_dirname  # noqa: E40
 from bytedigger_engine.net_new_delta import covered_by_baseline, iter_pytest_fail_ids  # noqa: E402  bd#88
 from bytedigger_engine.lib.corpus_parity import (  # noqa: E402  (GH1338 §2.2, §10 rev4)
     BLOCKED_BY_ORDER,
+    CorpusResult,
     RunEvidence,
     collect_corpus,
     evaluate_preconditions,
@@ -321,6 +322,38 @@ def _compute_precondition(args, run_evidence: RunEvidence) -> dict:
     return result
 
 
+# GH1740 (ebdfdc7b) §AC2/§AC2a/§AC2b/§AC11: corpus_scope is DERIVED, never a
+# literal. Single denominator source is `pr_corpus_for_evidence` (the
+# unconditional PR-side collect_corpus already computed for
+# collected_not_in_corpus, §AC11) — no second collect_corpus call. Table read
+# TOP-DOWN, first match wins (§AC2a); corpus_files_unrun is never negative
+# and never a guess (§AC3).
+def _derive_corpus_scope(
+    suite: str, n_files: int | None, has_summary: bool, corpus_result: CorpusResult,
+) -> tuple[str, str | None, int | None, int | None, int | None]:
+    if corpus_result.get("status") != "OK":
+        # corpus itself failed to collect — total is UNKNOWN, explicitly
+        # None (not 0: 0 would misread as "empty corpus, fully covered").
+        return "unverified", "corpus_uncollected", None, n_files, None
+
+    total = len(corpus_result.get("files") or [])
+
+    if n_files is None:
+        if suite != "bun":
+            reason = "no_file_oracle"
+        elif not has_summary:
+            reason = "no_summary"
+        else:
+            reason = "multiple_summaries"
+        return "unverified", reason, total, None, None
+
+    if n_files > total:
+        return "unverified", "population_mismatch", total, n_files, None
+    if n_files == total:
+        return "repo-wide", None, total, n_files, 0
+    return "partial", None, total, n_files, total - n_files
+
+
 def main(argv) -> int:
     # Kill-switch precedes ALL file IO (gate reviewer note 3 / §2.3). A
     # requested-but-disabled corpus-parity flag must be COUNTED, not silent
@@ -473,6 +506,21 @@ def main(argv) -> int:
         set(run_evidence_full["collected_files"]) - pr_files_for_evidence
     )
 
+    # GH1740 (ebdfdc7b) §AC2/§AC11: corpus_scope derived from the SAME
+    # unconditional pr_corpus_for_evidence above — no second collect_corpus.
+    (
+        corpus_scope,
+        corpus_scope_reason,
+        corpus_files_total,
+        corpus_files_run,
+        corpus_files_unrun,
+    ) = _derive_corpus_scope(
+        args.suite,
+        run_evidence_full["n_files"],
+        run_evidence_full["has_summary"],
+        pr_corpus_for_evidence,
+    )
+
     output = {
         "suite": args.suite,
         "base_sha": base_sha,
@@ -494,7 +542,11 @@ def main(argv) -> int:
             "n_tests": run_evidence_full["n_tests"],
             "collected_files_seen": len(run_evidence_full["collected_files"]),
         },
-        "corpus_scope": "repo-wide",
+        "corpus_scope": corpus_scope,
+        "corpus_scope_reason": corpus_scope_reason,
+        "corpus_files_total": corpus_files_total,
+        "corpus_files_run": corpus_files_run,
+        "corpus_files_unrun": corpus_files_unrun,
         "collected_not_in_corpus": collected_not_in_corpus,
         "enforce": enforce,
         "exit_code": exit_code,

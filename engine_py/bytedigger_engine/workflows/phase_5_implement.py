@@ -121,8 +121,10 @@ from bytedigger_engine import telemetry_ctx
 
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
+from bytedigger_engine.lib import interpreter  # noqa: E402  GH1626 C — canonical project-interpreter resolver (§1g)
 from bytedigger_engine.lib import dirty_tree_guard  # noqa: E402  GH961 §2.2 — pre-RED-gate dirty-prod-tree guard
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
+from bytedigger_engine.lib.baseline_tree import baseline_tree  # noqa: E402  GH1612-B — canonical worktree-baseline provider (D1)
 from bytedigger_engine.lib import red_write_boundary  # noqa: E402  GH1179 6B28230E — post-RED write-boundary gate
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
@@ -167,14 +169,15 @@ from bytedigger_engine.lib.spec_defect_ledger import (  # noqa: E402  GH767 §2.
     spec_sha,
 )
 from bytedigger_engine.lib.step_sentinel import invalidate_cycle_sentinels  # noqa: E402  GH767 §2.4b (§1g: reuse verbatim)
+from bytedigger_engine.lib import step_sentinel as _step_sentinel  # noqa: E402  hal GH1626 D — orphan-GREEN ownership key
 
 
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 def _default_red_model() -> str:
     return get_claude_primary()
@@ -737,7 +740,7 @@ def _red_baseline_precheck(scratchpad: Path, git_cwd: str, spec_path: str | None
     ("worktree_dirty" / "missing" / fail-closed "head_unreadable"). Returns None
     to let the caller proceed with prompt construction; returns a StepResult to
     short-circuit (either the sanctioned refresh's pass-through None, or an
-    E_RED_TESTS_TAMPERED error)."""
+    E_RED_BASELINE_FILE_MODIFIED error)."""
     frozen = _read_red_test_hashes(scratchpad)
     if not frozen:
         return None
@@ -746,11 +749,17 @@ def _red_baseline_precheck(scratchpad: Path, git_cwd: str, spec_path: str | None
     if not tampered:
         return None
     allowed = set(authorized)
+    reconciled = _frozen_for_current_cycle(scratchpad, git_cwd)
     classes = {
         path: cls
-        for path, cls in authored_boundary.classify_red_hash_mismatches(frozen, git_cwd).items()
+        for path, cls in authored_boundary.classify_red_hash_mismatches(reconciled, git_cwd).items()
         if path in tampered and path not in allowed
     }
+    if not classes:
+        # hal#1600 D4: every mismatch `verify_red_test_hashes` found above
+        # lives outside the current cycle's red-test-paths.txt (or was
+        # already excluded upstream) — nothing left to classify as tamper.
+        return None
     all_head_moved = bool(classes) and all(c == "head_moved" for c in classes.values())
     if all_head_moved and get_config().flag("HAL_RED_BASELINE_REFRESH"):
         current = authored_boundary.compute_red_test_hashes(list(classes.keys()), git_cwd)
@@ -760,12 +769,12 @@ def _red_baseline_precheck(scratchpad: Path, git_cwd: str, spec_path: str | None
         ref_path.write_text(json.dumps(merged, sort_keys=True))
         _emit_safe("red_baseline_refreshed", {"paths": sorted(classes), "n": len(classes)})
         return None
-    msg = f"frozen-hash baseline check found tampered RED test paths: {str(dict(sorted(classes.items())))} — {_TAMPER_REMEDIATION_HINT}"
-    if all_head_moved:
-        msg += " (set HAL_RED_BASELINE_REFRESH=1 and resume to re-freeze the baseline from the committed HEAD content)"
+    msg = _red_baseline_error_message(
+        list(classes.keys()), classes=classes, refresh_available=all_head_moved
+    )
     return StepResult(
         status="error", data=None, duration_ms=0, step_name="build_green_prompt",
-        error=msg, error_code="E_RED_TESTS_TAMPERED", recoverable=False,
+        error=msg, error_code="E_RED_BASELINE_FILE_MODIFIED", recoverable=False,
     )
 
 
@@ -789,7 +798,8 @@ def _persist_red_test_paths(scratchpad, paths: list[str]) -> bool:
 def _read_red_test_paths(scratchpad) -> list[str]:
     """Read persisted RED test paths from scratchpad/RED_TEST_PATHS_RELPATH.
 
-    Returns the non-blank stripped lines in order. Returns [] if the file is
+    Returns the non-blank lines in order, UNSTRIPPED (a whitespace-padded
+    survivor is returned exactly as written). Returns [] if the file is
     absent or any read error occurs. Pure — no writes.
     """
     ref_path = Path(scratchpad) / RED_TEST_PATHS_RELPATH
@@ -799,6 +809,83 @@ def _read_red_test_paths(scratchpad) -> list[str]:
         return [line for line in ref_path.read_text().splitlines() if line.strip()]
     except Exception:
         return []
+
+
+def _frozen_for_current_cycle(scratchpad: Any, git_cwd: str) -> "dict[str, str]":
+    """hal#1600 D4: the ONE reconciled read of the frozen-hash manifest,
+    narrowed to the current cycle's red-test-paths.txt. Never raises, never
+    writes (AC13). Always returns REPO-RELATIVE keys, whatever spelling
+    either artifact used, resolved via realpath on both sides (§1j).
+
+    Order (forced by AC15/AC16, see spec v3 "Ordering"):
+      1. drop unusable keys — anything that fails to resolve at all (e.g. an
+         embedded null byte) or that resolves outside ``git_cwd``;
+      2. reconcile what remains against red-test-paths.txt (stripped,
+         realpath-resolved on both sides);
+      3. apply the disjoint fallback (return the unfiltered-but-usable map)
+         only if BOTH remaining inputs are non-empty and share nothing.
+
+    Emits at most one ``red_freeze_stale_key_dropped`` event per call
+    (ordinary narrowing and/or unusable keys, capped at 20 names each) and at
+    most one ``red_freeze_disjoint_fallback`` event (both inputs non-empty,
+    intersection empty).
+    """
+    frozen = _read_red_test_hashes(scratchpad)
+    if not frozen:
+        return {}
+
+    root = Path(git_cwd).resolve()
+    usable: "dict[str, str]" = {}
+    unusable: list[str] = []
+    for key, digest in frozen.items():
+        try:
+            key_path = Path(key)
+            resolved = key_path.resolve() if key_path.is_absolute() else (root / key_path).resolve()
+            rel = resolved.relative_to(root)
+        except (OSError, ValueError):
+            unusable.append(key)
+            continue
+        usable[str(rel)] = digest
+
+    raw_paths = _read_red_test_paths(scratchpad)
+    stripped_paths = [p.strip() for p in raw_paths if p.strip()]
+    normalized_paths: set[str] = set()
+    for p in stripped_paths:
+        try:
+            p_path = Path(p)
+            resolved_p = p_path.resolve() if p_path.is_absolute() else (root / p_path).resolve()
+            normalized_paths.add(str(resolved_p.relative_to(root)))
+        except (OSError, ValueError):
+            normalized_paths.add(p)
+
+    dropped: list[str] = []
+    if not usable:
+        result: "dict[str, str]" = {}
+    elif not normalized_paths:
+        # No usable current-cycle paths artifact -> fail open, today's behaviour.
+        result = dict(usable)
+    else:
+        common = set(usable) & normalized_paths
+        if not common:
+            _emit_safe("red_freeze_disjoint_fallback", {
+                "reason": "disjoint",
+                "n_frozen": len(usable),
+                "n_paths": len(normalized_paths),
+            })
+            result = dict(usable)
+        else:
+            result = {k: v for k, v in usable.items() if k in normalized_paths}
+            dropped = sorted(k for k in usable if k not in normalized_paths)
+
+    if dropped or unusable:
+        _emit_safe("red_freeze_stale_key_dropped", {
+            "n_dropped": len(dropped),
+            "dropped": dropped[:20],
+            "n_unusable": len(unusable),
+            "unusable": unusable[:20],
+        })
+
+    return result
 
 
 def _derive_green_paths_from_git(git_cwd: str) -> list[str]:
@@ -910,12 +997,40 @@ _RE_1I_WANTS = re.compile(r"singleton|time\.time|sleep\(|timestamp|mtime|TTL\b|c
 # shared by the preflight batch collector and the per-file verify step.
 _RE_1Q_EXEC_IMPORT = re.compile(r"spec_from_file_location|exec_module|runpy\.run_path")
 
-# GH513/§2.5: remediation hint interpolated into the E_RED_TESTS_TAMPERED error string.
+# GH513/§2.5: remediation hint interpolated into the E_RED_BASELINE_FILE_MODIFIED error string.
 _TAMPER_REMEDIATION_HINT = (
     "if this edit is a spec-required contract migration, add the path under the "
     "frozen spec's `authorized-test-edits:` block (GH436/GH513) and resume; "
     "otherwise this is assertion tampering"
 )
+
+
+def _red_baseline_error_message(
+    paths: list[str], *, classes: dict[str, str] | None = None, refresh_available: bool = False
+) -> str:
+    """D2 (hal#1600): single chokepoint for the E_RED_BASELINE_FILE_MODIFIED
+    message, routed through by every emitting site (A, B1, B2, C1, C2).
+
+    Puts the operator action at OFFSET 0 — a monitor that truncates the
+    message at a fixed length must still see the actionable remedy, not the
+    path dump — followed by the full path dump (nothing dropped, AC4), then
+    the explanatory remediation hint text last.
+
+    ``classes`` (a path->classification mapping) and the plain ``paths`` list
+    are independent: a caller with both (site B2) gets both preserved in the
+    dump; a caller with only one supplies ``classes=None``.
+    """
+    if refresh_available:
+        action = (
+            "set HAL_RED_BASELINE_REFRESH=1 and resume to re-freeze the "
+            "baseline from the committed HEAD content"
+        )
+    else:
+        action = "add the path under the frozen spec's `authorized-test-edits:` block and resume"
+    dump = repr(list(paths)) if paths else "[]"
+    if classes:
+        dump += " — " + str(dict(sorted(classes.items())))
+    return f"{action} | paths: {dump} | {_TAMPER_REMEDIATION_HINT}"
 
 
 def _spec_wants_1p(spec_text: str) -> bool:
@@ -1184,6 +1299,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         prompt = (
             delta + "\n\n"
             + _worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad))
+            + "\n\n" + interpreter.worker_interpreter_block_for(ctx)
             + "\n\n" + _get_out_of_role_block()
         )
         _content_digest = _verdict_content_digest(
@@ -1313,6 +1429,8 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     parts.append(RED_OUTPUT_MARKER_BLOCK)
     parts.append("")
     parts.append(_worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad)))
+    parts.append("")
+    parts.append(interpreter.worker_interpreter_block_for(ctx))
 
     if findings:
         parts.append("")
@@ -1643,32 +1761,216 @@ def _detect_green_complete_resume(prev_data: dict, git_cwd: str) -> list:
     return sorted(kept)
 
 
-def _persist_green_complete_resume(scratchpad, red_sha: str, paths: list) -> bool:
-    """Write the resume marker JSON. OSError propagates to the caller."""
+def _sha256_of_file(path: "str | Path") -> "str | None":
+    """sha256 hexdigest of ``path``, or None when it cannot be read.
+
+    hal GH1626 part D helper — §1aa named, so the digest formula has ONE
+    spelling shared by the writer below and the recovery predicate.
+    """
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _persist_green_complete_resume(scratchpad, red_sha: str, paths: list, git_cwd: "str | None" = None, digests: "dict[str, str] | None" = None) -> bool:
+    """Write the resume marker JSON. OSError propagates to the caller.
+
+    hal GH1626 part D: also records a per-path ``sha256`` under ``digests``
+    when ``git_cwd`` is supplied. Names alone prove nothing — a post-GREEN edit,
+    a truncated write and a partial hand-revert all keep the path inside the
+    manifest, so the orphan-GREEN recovery predicate compares CONTENT against
+    the digest captured here, at the moment GREEN completed. An unreadable path
+    is simply omitted, which fails the comparison closed.
+
+    hal GH1018: a caller that already computed the digests (to judge their
+    completeness) passes them in, so the tree is hashed ONCE; omitting the
+    argument keeps the original contract exactly.
+    """
     ref_path = Path(scratchpad) / GREEN_COMPLETE_RESUME_RELPATH
     ref_path.parent.mkdir(parents=True, exist_ok=True)
-    ref_path.write_text(json.dumps({"red_commit_sha": red_sha, "paths": paths}))
+    if digests is None:
+        digests = _green_manifest_digests(paths, git_cwd)
+    ref_path.write_text(json.dumps({"red_commit_sha": red_sha, "paths": paths, "digests": digests}))
     return True
 
 
-def _read_green_complete_resume(scratchpad, red_commit_sha):
+def _first_set(data: "dict[str, Any]", *names: str, default: Any = None) -> Any:
+    """First of ``names`` whose value in ``data`` is not None, else ``default``.
+
+    §1aa named because two call sites need the SAME "a key present with value
+    None counts as absent" rule over the cycle fields, in opposite preference
+    orders — ``dict.get(a, dict.get(b))`` silently gets that wrong.
+    """
+    for name in names:
+        value = data.get(name)
+        if value is not None:
+            return value
+    return default
+
+
+def _green_manifest_digests(paths: "list[str]", git_cwd: "str | None") -> "dict[str, str]":
+    """``{rel: sha256}`` over ``paths``, omitting what cannot be hashed.
+
+    §1g single spelling of the marker's content evidence: the writer records it
+    and P1's completeness check judges it, from ONE computation.
+    """
+    if not git_cwd:
+        return {}
+    digests: dict[str, str] = {}
+    for rel in paths:
+        digest = _sha256_of_file(Path(git_cwd) / rel)
+        if digest:
+            digests[rel] = digest
+    return digests
+
+
+def _green_manifest_digest_gap(paths: "list[str]", digests: "dict[str, str]") -> str:
+    """hal GH1018 — a reason string when the marker's digests do not cover
+    every manifest path, else ``""``.
+
+    An unhashable path (a dangling symlink, a race with a cleanup) is omitted
+    from the digests and the write still reports success; the recovery predicate
+    then refuses that lot at the digest comparison, forever. So the incomplete
+    write has to be visible HERE, where the cause is still known.
+    """
+    missing = [p for p in paths if p not in digests]
+    if not missing:
+        return ""
+    return f"incomplete_digests:{len(missing)}_of_{len(paths)}_paths_unhashable"
+
+
+def _persist_green_manifest_on_complete(ctx: Any, prev_data: "dict[str, Any]") -> None:
+    """hal GH1018 P1 — record the GREEN completion manifest AT completion.
+
+    ``_persist_green_complete_resume`` used to have exactly one call site, in
+    block 5 of ``_verify_red_fails_mechanically``, reached only when the RED
+    suite PASSES — and the dirty-tree guard returns terminal before it whenever
+    an allowlisted production path is dirty, which an uncommitted GREEN always
+    is. So in the very state the orphan-GREEN recovery exists for the marker was
+    never written. This helper writes it where GREEN actually completes, reusing
+    the existing detector and writer unchanged so the per-path sha256 digests
+    are captured at the moment GREEN completed.
+
+    NEVER raises: ``_write_green_artifact``'s contract is depended on by
+    out-of-scope suites, and the marker is an optimisation for the NEXT entry,
+    never a gate on this one.
+
+    Silent — emitting NOTHING — on every healthy "nothing to record" state: the
+    gate is off (checked FIRST, before any work), the build has no scratchpad
+    configured at all, or there was genuinely nothing to record — a docs-only or
+    test-only lot, and an unparseable §5 Files list, both of which leave the spec
+    allowlist EMPTY. Everything else that reaches the detector and comes back
+    empty is a FAILURE, not a no-op: `_detect_green_complete_resume` collapses a
+    git error (index.lock contention, an unresolvable sha) into the same ``[]``,
+    which would re-arm GH1018 with a new cause and no trace. A non-empty
+    allowlist plus a present ``red_commit_sha`` means there WAS something to
+    record, so an empty manifest speaks — as does an attempted write that raised,
+    and a marker that landed without a digest for every path. All of them through
+    ``green_complete_resume_persist_failed``, the ``red_cycle_sha_persist_failed``
+    pattern.
+    """
+    if not get_config().gate_enabled("HAL_GREEN_COMPLETE_RESUME_GATE"):
+        return
+    # `_resolve_scratchpad` RAISES when `org_config.scratchpad_dir` is unset —
+    # that is a supported CONFIGURATION, not an attempted write that failed, so
+    # it is resolved OUTSIDE the alarm's try and declines silently.
+    try:
+        scratchpad = _resolve_scratchpad(ctx)
+    except ValueError:
+        return
+    # "WHICH cycle is this entry?" — `cycle` first, deliberately the opposite
+    # order from `_write_green_artifact`'s `cycle_count` below: on the recovery
+    # route the two differ (P3 sets `cycle_count = max(cycle - 1, 0)`) and this
+    # alarm must name the same number `orphan_green_recovery_routed` names. Do
+    # not "align" the two orders — AC27n pins this one.
+    cycle = _first_set(prev_data, "cycle", "cycle_count")
+    reason = ""
+    try:
+        # §1g: the git_cwd resolution lives INSIDE the try so "never raises" is
+        # true of the whole helper, not just its middle.
+        git_cwd = _resolve_git_cwd(ctx, prev_data)
+        paths = _detect_green_complete_resume(prev_data, git_cwd)
+        # The marker is keyed on ``red_commit_sha`` because that is the sha the
+        # two readers link against: `_invoke_green_llm`'s GH483 skip and the
+        # GH1034 sidecar (`_persist_red_cycle_sha` records red_commit_sha). The
+        # detector's diff base may be the GH1406 skeleton sha, so a manifest can
+        # exist while this key is absent — that is an ATTEMPTED write that
+        # cannot produce linkable evidence, i.e. an alarm, not silence.
+        red_sha = prev_data.get("red_commit_sha")
+        if not paths:
+            if red_sha and _parse_spec_files_allowlist(prev_data.get("spec_path")):
+                reason = "empty_manifest_despite_nonempty_spec_allowlist"
+        elif not red_sha:
+            reason = "no_derivable_red_commit_sha"
+        else:
+            digests = _green_manifest_digests(paths, git_cwd)
+            _persist_green_complete_resume(scratchpad, red_sha, paths, git_cwd, digests)
+            reason = _green_manifest_digest_gap(paths, digests)
+    except Exception as exc:  # noqa: BLE001
+        reason = f"persist_failed:{exc.__class__.__name__}"
+    if not reason:
+        return
+    # emit-consumer: deferred 60DCF49D flip-by:2026-10-31
+    _emit_safe("green_complete_resume_persist_failed", {"cycle": cycle, "reason": reason}, severity="warning")
+
+
+def _read_green_complete_resume(scratchpad: Any, red_commit_sha: Any) -> "list[str] | None":
     """Read+validate the resume marker. Returns `paths` iff the file exists,
     parses as a JSON dict, its `red_commit_sha` matches the argument, and
     `paths` is a list of str. Never raises — returns None on any mismatch.
+
+    Thin wrapper over the ONE parser, ``_read_green_complete_resume_marker``.
+    ``require_sha=False`` keeps this reader's historical leniency: the sha is
+    compared with a bare ``!=``, so a marker whose ``red_commit_sha`` is absent
+    or null matches a caller that also has none. 6 sibling tests pin this
+    contract; the strict form is the recovery predicate's, not this one's.
     """
-    ref_path = Path(scratchpad) / GREEN_COMPLETE_RESUME_RELPATH
+    marker = _read_green_complete_resume_marker(scratchpad, require_sha=False)
+    if marker is None or marker["red_commit_sha"] != red_commit_sha:
+        return None
+    # The marker is read off disk, so its shape is re-narrowed here rather than
+    # asserted: the parser's `list[str]` guarantee arrives as `Any` through the
+    # `dict[str, Any]` record.
+    paths: Any = marker["paths"]
+    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+        return None
+    return [str(p) for p in paths]
+
+
+def _read_green_complete_resume_marker(scratchpad: Any, *, require_sha: bool = True) -> "dict[str, Any] | None":
+    """hal GH1018 P2 — the ONE parser of the GREEN completion marker, keyless.
+
+    Returns ``{"red_commit_sha", "paths", "digests"}``: which cycle (and
+    therefore which RED sha) the marker belongs to is exactly what the
+    resolution is trying to establish, so the marker's own sha is RETURNED
+    instead of being compared against the loop counter's guess.
+    A pre-GH1626-D marker carries no digests and degrades to an EMPTY mapping,
+    which cannot satisfy the recovery predicate's content test. Never raises.
+
+    ``require_sha=True`` (the recovery predicate) rejects a marker whose sha is
+    not a non-empty str — an unusable linkage key. ``require_sha=False`` is the
+    GH483 ``_read_green_complete_resume`` wrapper's historical leniency.
+    """
     try:
-        obj = json.loads(ref_path.read_text())
+        obj = json.loads((Path(scratchpad) / GREEN_COMPLETE_RESUME_RELPATH).read_text())
     except Exception:  # noqa: BLE001
         return None
     if not isinstance(obj, dict):
         return None
-    if obj.get("red_commit_sha") != red_commit_sha:
+    red_sha = obj.get("red_commit_sha")
+    if require_sha and (not isinstance(red_sha, str) or not red_sha):
         return None
     paths = obj.get("paths")
     if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
         return None
-    return paths
+    raw = obj.get("digests")
+    digests: dict[str, str] = {}
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if isinstance(key, str) and isinstance(value, str) and value:
+                digests[key] = value
+    return {"red_commit_sha": red_sha, "paths": paths, "digests": digests}
 
 
 def _persist_red_cycle_sha(scratchpad: "str | Path", cycle: int, sha: str) -> None:
@@ -1689,20 +1991,52 @@ def _persist_red_cycle_sha(scratchpad: "str | Path", cycle: int, sha: str) -> No
     ref_path.write_text(json.dumps(existing, sort_keys=True))
 
 
+def _read_red_cycle_shas(scratchpad: "str | Path") -> "dict[int, str]":
+    """GH1034 §2.1 / ADV-4: ONE snapshot of the per-cycle sidecar as
+    ``{cycle: sha}``, the single spelling of its read semantics.
+
+    Non-int keys, non-str and empty values are skipped; a missing, unreadable or
+    non-dict sidecar yields ``{}``. Never raises. Callers that need several
+    cycles must use this ONE snapshot — the file is merge-on-write, so two reads
+    can disagree and turn a valid adoption into a silent decline (hal GH1018).
+    """
+    try:
+        obj = json.loads((Path(scratchpad) / RED_CYCLE_SHAS_RELPATH).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    shas: dict[int, str] = {}
+    for key, value in obj.items():
+        if not isinstance(value, str) or not value:
+            continue
+        try:
+            shas[int(key)] = value
+        except (TypeError, ValueError):
+            continue
+    return shas
+
+
 def _read_red_cycle_sha(scratchpad: "str | Path", cycle: int) -> "str | None":
     """GH1034 §2.1 / ADV-4: fail-safe read of the RED commit sha persisted
     for ``cycle``. Returns None on missing sidecar, corrupt/non-dict JSON,
     absent key, or non-str value. Never raises (mirrors
-    ``_read_green_complete_resume``)."""
-    ref_path = Path(scratchpad) / RED_CYCLE_SHAS_RELPATH
-    try:
-        obj = json.loads(ref_path.read_text())
-    except (OSError, ValueError):
-        return None
-    if not isinstance(obj, dict):
-        return None
-    sha = obj.get(str(cycle))
-    return sha if isinstance(sha, str) else None
+    ``_read_green_complete_resume``). Thin delegate onto
+    ``_read_red_cycle_shas``."""
+    return _read_red_cycle_shas(scratchpad).get(cycle)
+
+
+def _prev_data_of(prev: Any) -> "dict[str, Any] | None":
+    """A step's carried data, whichever shape ``prev`` arrives in.
+
+    ``prev`` is a StepResult on a normal step boundary and a plain dict on the
+    engine's re-entry boundary (`engine.py:400`) — ONE spelling of that coercion,
+    so the two git_cwd resolvers below cannot disagree about the re-entry shape.
+    """
+    data = getattr(prev, "data", None)
+    if isinstance(data, dict):
+        return data
+    return prev if isinstance(prev, dict) else None
 
 
 def _resolve_git_cwd(ctx, prev=None) -> str:
@@ -1712,9 +2046,7 @@ def _resolve_git_cwd(ctx, prev=None) -> str:
     to enclosing .git -> Path.cwd(). Never returns None.
     All phase_5 sites MUST use this — do not re-derive inline."""
     cfg = getattr(ctx, "org_config", None) or {}
-    prev_data = getattr(prev, "data", None)
-    prev_data = prev_data if isinstance(prev_data, dict) else None
-    return resolve_git_cwd(cfg, prev_data)
+    return resolve_git_cwd(cfg, _prev_data_of(prev))
 
 
 def _resolve_git_cwd_with_source(ctx: Any, prev: Any = None) -> "tuple[str, str]":
@@ -1722,9 +2054,7 @@ def _resolve_git_cwd_with_source(ctx: Any, prev: Any = None) -> "tuple[str, str]
     label (GH1220 §1g) — callers gate mutating ops on
     `lib.git_cwd.is_ambient_git_cwd(source)`."""
     cfg = getattr(ctx, "org_config", None) or {}
-    prev_data = getattr(prev, "data", None)
-    prev_data = prev_data if isinstance(prev_data, dict) else None
-    return resolve_git_cwd_with_source(cfg, prev_data)
+    return resolve_git_cwd_with_source(cfg, _prev_data_of(prev))
 
 
 def _red_mass_deletion_violations(red_paths, base_sha, git_cwd, max_deleted_lines):
@@ -1780,6 +2110,73 @@ def _has_mass_deletion_allow_pragma(abs_path: str) -> bool:
         return _MASS_DELETION_ALLOW_PRAGMA in Path(abs_path).read_text(errors="replace")
     except OSError:
         return False
+
+
+def _path_exists_at_frozen_sha(path: str, frozen_sha: str, git_cwd: str) -> bool:
+    """GH1600 D1: existence probe for a RED test path in the tree at the
+    frozen pre-RED SHA. Fixed to `cat-file -e <sha>:<path>` (existence check,
+    the cheapest read) through the `git_port.git_read` seam — not `show`,
+    not `ls-tree`, not `Path.exists()`, not a bare `subprocess` call (per the
+    spec's "Where" section / AC6)."""
+    r = git_port.git_read(
+        ["cat-file", "-e", f"{frozen_sha}:{path}"], cwd=git_cwd, timeout=30,
+    )
+    return r.returncode == 0
+
+
+def _path_dirty_relative_to_head(path: str, git_cwd: str) -> bool:
+    """GH1600 D1 round 5: the refusal only applies to an UNCOMMITTED RED edit
+    into a pre-existing file — a recovery cycle whose RED commit already
+    landed (path clean vs HEAD) must not be refused (AC9a), while an
+    uncommitted edit on the same fresh-scratchpad shape still must (AC9b).
+    `status --porcelain -- <path>` through the git_read seam; non-empty
+    output means the path is dirty relative to HEAD."""
+    r = git_port.git_read(
+        ["status", "--porcelain", "--", path], cwd=git_cwd, timeout=30,
+    )
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def _red_tests_in_existing_file_error(path: str, mass_deletion_violation: "dict[str, Any] | None" = None) -> StepResult:
+    """GH1600 D1: build the refusal StepResult for a RED path that already
+    exists in the frozen pre-RED tree, is dirty relative to HEAD, and is
+    neither authorized nor GH282-exempted.
+
+    Two message branches (AC10, decision B3): when `mass_deletion_violation`
+    is given (the path is in GH282's `_mdl_all` — a real over-threshold
+    deletion), the message names the DELETION and GH282 as the problem, not
+    a missing file — telling an operator who deleted thousands of lines to
+    "write a new test file" is the wrong remedy, the exact defect class this
+    issue targets. Naming the pragma is legitimate in this branch only,
+    since a real over-threshold deletion has already happened. Otherwise the
+    default branch applies: the first 120 chars of `error` carry both the
+    offending path's basename and the required-new-file remedy phrase
+    (monitors truncate); the full repo-relative path, a suggested new path,
+    and `authorized-test-edits:` (the supported override — NOT the pragma,
+    in this branch) must all appear somewhere in the message."""
+    basename = Path(path).name
+    if mass_deletion_violation is not None:
+        deleted = mass_deletion_violation.get("deleted")
+        base_lines = mass_deletion_violation.get("base_lines")
+        message = (
+            f"RED mass-deleted {basename} (-{deleted}/{base_lines} lines) — GH282 "
+            f"flagged this as a mass deletion, not a missing-file issue. Full path: "
+            f"{path}. Authorize via GH282's '# red-mass-deletion: allow' pragma or "
+            f"list {path} under authorized-test-edits: in the frozen spec."
+        )
+    else:
+        stem = Path(path).stem
+        slug = stem[len("test_"):] if stem.startswith("test_") else stem
+        suggested = f"tests/test_{slug}_gh1600.py"
+        message = (
+            f"RED wrote new tests into pre-existing {basename} — a new test file is "
+            f"required (e.g. {suggested}). Full path: {path}. Override: list {path} "
+            f"under authorized-test-edits: in the frozen spec."
+        )
+    return StepResult(
+        status="error", data=None, duration_ms=0, step_name="commit_red_tests",
+        error=message, error_code="E_RED_TESTS_IN_EXISTING_FILE", recoverable=False,
+    )
 
 
 def _test_only_red_boundary(ctx: WorkflowContext, prev: StepResult) -> "tuple[str | None, StepResult | None]":
@@ -1978,6 +2375,12 @@ def _commit_red_tests(ctx, prev) -> StepResult:
             )
     # ── end AD14A3ED gate ──
     # ── GH282 — RED mass-deletion guard ──
+    # GH1600 D1 note: hoisted above the kill-switch block (was bound only
+    # inside it) so `HAL_RED_MASS_DELETION_GATE=0` does not raise
+    # UnboundLocalError when D1's check reads it below — fail-closed to G=[]
+    # (_mdl_exempted) / no branch (_mdl_all).
+    _mdl_exempted: "list[dict[str, Any]]" = []
+    _mdl_all: "list[dict[str, Any]]" = []
     if get_config().gate_enabled("HAL_RED_MASS_DELETION_GATE"):        # kill-switch, default ON
         _mdl_max = int_value("HAL_RED_MASS_DELETION_MAX_LINES", 120)
         _mdl_enforce = get_config().flag("HAL_RED_MASS_DELETION_ENFORCE")
@@ -2018,6 +2421,37 @@ def _commit_red_tests(ctx, prev) -> StepResult:
     # ── end GH282 gate ──
     cfg = ctx.org_config or {}
     scratchpad = _resolve_scratchpad(ctx)
+    # ── GH1600 D1 — refuse RED tests written into a pre-existing test file ──
+    # E = {p in red_test_paths : p not in A (authorized-test-edits:), p not
+    # in G (GH282's _mdl_exempted partition, empty when its kill-switch is
+    # off), and p exists in the tree at the FROZEN pre-RED SHA (not HEAD,
+    # so cycle->=2 re-entry is unaffected — AC7/AC7b), AND p is dirty
+    # (uncommitted) relative to HEAD (round 5 — a landed RED commit on a
+    # recovery cycle with no persisted ref must not be refused, AC9a/AC9b).
+    # Runs after the whole GH282 mass-deletion block (that gate keeps
+    # precedence — AC8b) and after scratchpad is re-resolved above; before
+    # the commit and before _persist_pre_red_ref (below), so a refusal
+    # leaves no pre-red-ref.txt.
+    _d1_frozen_sha = _resolve_frozen_pre_red_sha(scratchpad, _git_cwd_early)
+    _d1_spec_path = _spec_path_raw if isinstance(_spec_path_raw, str) and _spec_path_raw else None
+    _d1_authorized = set(_parse_authorized_test_edits(_d1_spec_path) if _d1_spec_path else [])
+    _d1_exempted = {v["path"] for v in _mdl_exempted}
+    _d1_mass_deletion_by_path = {v["path"]: v for v in _mdl_all}
+    for _d1_path in red_test_paths:
+        if _d1_path in _d1_authorized or _d1_path in _d1_exempted:
+            continue
+        if not _path_exists_at_frozen_sha(_d1_path, _d1_frozen_sha, _git_cwd_early):
+            continue
+        # round-5 dirtiness conjunct: a RED commit that already landed
+        # (recovery cycle, path clean vs HEAD) must not be refused — only an
+        # UNCOMMITTED edit into a pre-existing file is the unwinnable-freeze
+        # shape D1 targets (AC9a/AC9b).
+        if not _path_dirty_relative_to_head(_d1_path, _git_cwd_early):
+            continue
+        return _red_tests_in_existing_file_error(
+            _d1_path, _d1_mass_deletion_by_path.get(_d1_path)
+        )
+    # ── end GH1600 D1 ──
     git_cwd, git_cwd_source = _resolve_git_cwd_with_source(ctx, prev)
     cycle = int(prev.data.get("cycle", 1))
 
@@ -2165,47 +2599,12 @@ def _commit_red_tests(ctx, prev) -> StepResult:
 # ─── Step 4b: verify RED fails mechanically (Pillar 3) ───────────────────────
 
 
-def _venv_pytest(base: str) -> str | None:
-    """BF7890C8: Return the path to the venv pytest under base, or None.
-
-    Probes <base>/.venv/bin/pytest then <base>/venv/bin/pytest; returns the
-    first that is_file() and os.X_OK. Pure path logic, no subprocess.
-    """
-    for cand in (
-        Path(base) / ".venv" / "bin" / "pytest",
-        Path(base) / "venv" / "bin" / "pytest",
-    ):
-        if cand.is_file() and os.access(cand, os.X_OK):
-            return str(cand)
-    return None
-
-
-def _main_checkout_root(git_cwd: str) -> str | None:
-    """BF7890C8: Resolve the main checkout root from a (possibly-worktree) git_cwd.
-
-    Runs `git -C <git_cwd> rev-parse --git-common-dir` (timeout=5s, fail-soft).
-    Returns the parent of the common .git dir only when git_cwd is genuinely a
-    worktree (i.e. root != realpath(git_cwd)); returns None for the main checkout
-    itself, non-git dirs, or any subprocess error. Never raises, never hangs.
-    """
-    try:
-        proc = git_port.git_read(
-            ["rev-parse", "--git-common-dir"],
-            dir_=git_cwd,
-            timeout=5,
-        )
-        if proc.returncode == 124:
-            return None
-        if proc.returncode != 0:
-            return None
-        common = os.path.realpath(os.path.join(git_cwd, proc.stdout.strip()))
-        root = os.path.dirname(common)
-        if root != os.path.realpath(git_cwd):
-            return root
-        return None
-    except (subprocess.CalledProcessError,
-            FileNotFoundError, OSError, ValueError):
-        return None
+# GH1626 C (§1g): the venv-climb rule has exactly ONE definition, in
+# lib/interpreter.py. These names stay bound here for the existing call sites
+# and their sibling tests (BF7890C8, D8CB354F), but they are re-exports, not a
+# second copy — one function, one answer, whichever phase asks.
+_venv_pytest = interpreter._venv_pytest
+_main_checkout_root = interpreter._main_checkout_root
 
 
 # 69AA5237 (2026-05-03): multi-language test routing. Restored from
@@ -2226,13 +2625,9 @@ def _runner_for_path(path: str, git_cwd: str | None = None) -> dict | None:
         # by id); collection errors in one file do not abort the others.
         flags = ["--tb=no", "-q", "-rfE", "--continue-on-collection-errors"]
         prefix: list[str] = ["python3", "-m", "pytest", *flags]
-        hit: str | None = None
-        if git_cwd is not None:
-            hit = _venv_pytest(git_cwd)
-            if hit is None:
-                root = _main_checkout_root(git_cwd)
-                if root is not None:
-                    hit = _venv_pytest(root)
+        # GH1626 C: one canonical resolver, including the climb to the main
+        # checkout (lib/interpreter.py) — never a local copy of the rule.
+        hit: str | None = interpreter.resolve_pytest_runner(git_cwd)
         if hit is not None:
             prefix = [hit, *flags]
         return {"kind": "py", "argv_prefix": prefix}
@@ -2594,9 +2989,229 @@ def _verify_red_guard_prev_and_paths(prev: StepResult) -> "tuple[StepResult | No
     return None, red_test_paths
 
 
-def _verify_red_dirty_tree_guard(git_cwd: str, red_test_paths: list[str], spec_path: str | None) -> "StepResult | None":
+_ORPHAN_GREEN_SENTINEL_STEP = "invoke_green_llm"
+_ORPHAN_GREEN_WORKFLOW_NAME = "phase_5_implement"
+_ORPHAN_GREEN_ROUTE_TARGET = "write_green_artifact"
+_ORPHAN_GREEN_ROUTED_CODE = "E_GREEN_ORPHAN_RECOVERY_ROUTED"
+# hal GH1018 P2: how the adopted cycle was established — read back off the
+# `orphan_green_recovery_routed` payload by an operator asking WHY a cycle other
+# than the loop counter's was adopted.
+_ORPHAN_GREEN_CYCLE_SOURCE_PREV = "prev_data"
+_ORPHAN_GREEN_CYCLE_SOURCE_SIDECAR = "red_cycle_sidecar"
+
+
+def _orphan_green_route_index() -> "int | None":
+    """Index of the marker-parsing step, read from the LIVE phase-5 workflow.
+
+    Never hardcoded: a step insertion must retarget the route, not silently
+    shift it. ``write_green_artifact`` is the only step that runs
+    ``_parse_green_status``, so re-entering past it would adopt a GREEN that
+    reported BLOCKED or was truncated mid-write — the sentinel is keyed to
+    ``invoke_green_llm`` and knows nothing about the marker.
+    """
+    try:
+        names = [s.name for s in phase_5_implement_workflow().steps]
+    except Exception:  # noqa: BLE001
+        return None
+    if _ORPHAN_GREEN_ROUTE_TARGET not in names:
+        return None
+    return names.index(_ORPHAN_GREEN_ROUTE_TARGET)
+
+
+def _orphan_green_current_run_id() -> str:
+    """The current run's id, or "" when it cannot be established.
+
+    ``resume_keying._NO_RUN`` degrades an absent id to ``norun``, which matches
+    every other run whose id is likewise absent — that is not an identity, so
+    an empty or ``norun`` value can never establish ownership.
+    """
+    run_id = telemetry_ctx.get_invocation_run_id() or ""
+    if not run_id:
+        run_ctx = telemetry_ctx.get_current_run()
+        run_id = (getattr(run_ctx, "run_id", "") or "") if run_ctx is not None else ""
+    if run_id == "norun":
+        return ""
+    return run_id
+
+
+def _resolve_orphan_green_cycle(scratchpad: Any, current_cycle: Any, run_id: str, ctx_hash: "str | None", marker_sha: str) -> "tuple[int, str, dict[str, Any]] | None":
+    """hal GH1018 P2 — resolve the cycle the recovery is resuming INTO.
+
+    An auto-resume re-enters ``validation_cycle_loop`` at its FIRST iteration, so
+    the loop counter says cycle 1 while the completed GREEN's sentinel is keyed
+    at cycle 2 — and ``read_step_sentinel`` is an exact-filename read, so that
+    sentinel is invisible. Resolution is therefore FORWARD-ONLY and evidence
+    linked, never a scan: candidates are ``{current_cycle} u {c >= current_cycle
+    in red-cycle-shas.json}``, tried DESCENDING so the latest work wins.
+
+      * ``c == current_cycle`` qualifies on the sentinel alone and reports
+        ``prev_data``. It is the LOWEST candidate and therefore the LAST tried,
+        so the caller's ``prev_data["red_commit_sha"] == marker_sha``
+        precondition failing there ends the walk in a terminal refusal.
+      * ``c > current_cycle`` qualifies only under DOUBLE linkage: the sidecar's
+        sha for ``c`` AND the sentinel payload's own ``red_commit_sha`` must both
+        equal the marker's. The sidecar is merge-on-write over a possibly shared
+        scratchpad and carries no run identity, so the payload's sha — under a
+        filename keyed by (run_id, ctx_hash) — is the run-authenticated half.
+      * ``c < current_cycle`` is NEVER a candidate (sibling AC15).
+
+    Returns ``(cycle, source, payload)`` — the adopted sentinel payload travels
+    with the answer so the C(20) chokepoint below replaces its inline sentinel
+    read instead of gaining a second one (§1b). Never raises: non-int keys,
+    non-str values and non-positive cycles are skipped, and a missing, unreadable
+    or corrupt sidecar simply contributes no candidate.
+    """
+    try:
+        current = int(current_cycle)
+    except (TypeError, ValueError):
+        current = 1
+    if current <= 0:
+        current = 1
+    # ONE snapshot of the merge-on-write sidecar: the candidate set and the
+    # linkage test below are two questions about the SAME state, and a concurrent
+    # write between two reads would turn a valid adoption into a silent decline.
+    linked = {c: sha for c, sha in _read_red_cycle_shas(scratchpad).items() if c >= current}
+    for cycle in sorted({current, *linked}, reverse=True):
+        payload = _step_sentinel.read_step_sentinel(
+            Path(scratchpad), _ORPHAN_GREEN_SENTINEL_STEP, cycle, run_id,
+            ctx_hash, _ORPHAN_GREEN_WORKFLOW_NAME,
+        )
+        if not isinstance(payload, dict):
+            continue
+        if cycle == current:
+            return cycle, _ORPHAN_GREEN_CYCLE_SOURCE_PREV, payload
+        if (linked.get(cycle) == marker_sha
+                and payload.get("red_commit_sha") == marker_sha):
+            return cycle, _ORPHAN_GREEN_CYCLE_SOURCE_SIDECAR, payload
+    return None
+
+
+def _orphan_green_recovery_result(ctx: Any, prev_data: Any, git_cwd: str, violations: list[str], step_name: str) -> "StepResult | None":
+    """hal GH1626 part D — the dirty-tree guard's ONE forward path, and
+    hal GH1018 — the ONE place a decline is explained.
+
+    Returns the routing StepResult, or ``None`` so the caller's terminal
+    ``E_RED_WORKTREE_DIRTY`` stands with its code, ``recoverable`` and wording
+    unchanged. Every decline now also emits ``orphan_green_recovery_declined``
+    with the reason code ``_orphan_green_recovery_attempt`` returned instead of a
+    bare ``None``: the caller's ``red_dirty_tree_blocked`` says only WHICH paths
+    were dirty, never why the forward path declined — which is why GH1018
+    survived as long as it did, and why the diagnosis had to be reconstructed
+    from source after the live run's scratchpad was reaped. ONE emit site, so a
+    single deferred-consumer token covers the name.
+    """
+    outcome = _orphan_green_recovery_attempt(ctx, prev_data, git_cwd, violations, step_name)
+    if isinstance(outcome, StepResult):
+        return outcome
+    # emit-consumer: deferred 60DCF49D flip-by:2026-10-31
+    _emit_safe("orphan_green_recovery_declined", {"phase": 5, "step": step_name, "reason": outcome}, severity="warning")
+    return None
+
+
+def _orphan_green_recovery_attempt(ctx: Any, prev_data: Any, git_cwd: str, violations: list[str], step_name: str) -> "StepResult | str":
+    """The recovery predicate proper: the routing ``StepResult``, or a REASON
+    CODE naming which precondition refused (the caller turns it into telemetry —
+    returning the reason instead of ``None`` is what makes every decline
+    traceable without one emit per exit).
+
+    The guard is not weakened: it routes ONLY when every one of the following
+    holds, and declines otherwise.
+
+      * the GH483 seam's gate is on and a scratchpad, RED boundary sha and
+        non-empty run_id are all established;
+      * a completed-GREEN sentinel exists whose FULL key tuple matches this run:
+        workflow, step, the RESOLVED cycle (hal GH1018 P2 —
+        ``_resolve_orphan_green_cycle``, forward-only and evidence-linked, since
+        an auto-resume re-enters the loop at cycle 1 while the completed GREEN's
+        sentinel is keyed later), the run_id and the ctx_hash. A sentinel written
+        before a ``_retry_nonce`` bump hashes differently and is therefore not
+        ours;
+      * every dirty production path is inside the GREEN's recorded manifest,
+        its porcelain XY is not a deletion, and its CURRENT sha256 equals the
+        digest recorded when GREEN completed.
+
+    The route target is ``write_green_artifact``, so the GREEN's own completion
+    marker is re-judged before anything else and the four verification gates
+    still run after it. Recovery restores the pipeline's position; it never
+    buys a commit.
+    """
+    if not get_config().gate_enabled("HAL_GREEN_COMPLETE_RESUME_GATE"):
+        return "gate_off"
+    if not isinstance(prev_data, dict) or not violations:
+        return "no_prev_data_or_violations"
+    run_id = _orphan_green_current_run_id()
+    if not run_id:
+        return "no_run_id"
+    scratchpad = _resolve_scratchpad(ctx)
+    if scratchpad is None:
+        return "no_scratchpad"
+    marker = _read_green_complete_resume_marker(scratchpad)
+    if marker is None:
+        return "no_green_completion_marker"
+    red_commit_sha = marker["red_commit_sha"]
+    resolved = _resolve_orphan_green_cycle(
+        scratchpad, prev_data.get("cycle"), run_id,
+        _step_sentinel.compute_ctx_hash(ctx), red_commit_sha,
+    )
+    if resolved is None:
+        return "no_linkable_cycle_for_marker"
+    cycle, cycle_source, payload = resolved
+    if (cycle_source == _ORPHAN_GREEN_CYCLE_SOURCE_PREV
+            and prev_data.get("red_commit_sha") != red_commit_sha):
+        return "prev_data_sha_is_not_the_markers"
+    manifest = {str(p) for p in marker["paths"]}
+    digests: dict[str, str] = marker["digests"]
+    xy_map, xy_err = dirty_tree_guard.porcelain_status_map(git_cwd)
+    if xy_err is not None:
+        return f"porcelain_error:{xy_err}"
+    for rel in violations:
+        if rel not in manifest:
+            return "dirty_path_outside_green_manifest"
+        xy = xy_map.get(rel)
+        if xy is None or "D" in xy:
+            return "dirty_path_is_a_deletion"
+        recorded = digests.get(rel)
+        if not recorded or recorded != _sha256_of_file(Path(git_cwd) / rel):
+            return "dirty_path_content_differs_from_recorded_digest"
+    route_index = _orphan_green_route_index()
+    if route_index is None:
+        return "route_target_absent_from_workflow"
+    _emit_safe("orphan_green_recovery_routed", {"phase": 5, "step": step_name, "paths": sorted(violations), "n": len(violations), "run_id": run_id, "cycle": cycle, "cycle_source": cycle_source, "retry_from_step": route_index, "route_target": _ORPHAN_GREEN_ROUTE_TARGET, "red_commit_sha": red_commit_sha}, severity="warning")
+    # hal GH1018 P3: a recovery is a resume INTO the cycle whose GREEN already
+    # ran, not a new validation cycle, so it must not be refused by the engine's
+    # validation-cycle cap (engine.py:571-572). `cycle_count` puts `next_cycle`
+    # on the resolved cycle; `gate_budget_ok` is what a resolved cycle 3 needs,
+    # and it keeps the route bounded by _GATE_BUDGET_HARD_BACKSTOP so recovery
+    # can never loop unbounded. `cycle` is telemetry only — the engine drops it
+    # from `forwarded` and re-sets it from `next_cycle`.
+    data = {**payload, "red_commit_sha": red_commit_sha, "cycle": cycle,
+            "cycle_source": cycle_source, "cycle_count": max(cycle - 1, 0),
+            "gate_budget_ok": True,
+            "green_resume_paths": sorted(violations), "retry_from_step": route_index}
+    return StepResult(
+        status="error", data=data, duration_ms=0,
+        step_name=step_name,
+        error=(
+            f"orphan GREEN recovered at {step_name}: {sorted(violations)} are exactly this run's "
+            f"completed-GREEN manifest, content-verified against the digests recorded at GREEN — "
+            f"re-entering phase 5 at {_ORPHAN_GREEN_ROUTE_TARGET} so the completion marker is "
+            f"re-judged and the green gates run before any commit."
+        ),
+        error_code=_ORPHAN_GREEN_ROUTED_CODE,
+        recoverable=True,
+    )
+
+
+def _verify_red_dirty_tree_guard(git_cwd: str, red_test_paths: list[str], spec_path: str | None, ctx: Any = None, prev_data: Any = None) -> "StepResult | None":
     """GH961 dirty-tree guard (block 2). Returns E_RED_WORKTREE_DIRTY early result
-    when uncommitted production paths are present, else None."""
+    when uncommitted production paths are present, else None.
+
+    hal GH1626 part D: before refusing, consults the GH483 orphan-GREEN seam
+    via ``_orphan_green_recovery_result``; a provable orphan GREEN routes
+    forward instead of dying here. Every other dirty tree is terminal exactly
+    as before. ``ctx``/``prev_data`` default to None so the pre-1626 call shape
+    keeps its meaning: no context, no recovery.
+    """
     if get_config().gate_enabled("HAL_DIRTY_TREE_GUARD"):    # kill-switch, default ON
         guard_allowlist = _parse_spec_files_allowlist(spec_path)
         if not guard_allowlist:
@@ -2614,6 +3229,11 @@ def _verify_red_dirty_tree_guard(git_cwd: str, red_test_paths: list[str], spec_p
                     {"phase": 5, "step": "verify_red_fails_mechanically", "error": dirty_err},
                 )
             elif violations:
+                routed = _orphan_green_recovery_result(
+                    ctx, prev_data, git_cwd, violations, "verify_red_fails_mechanically",
+                )
+                if routed is not None:
+                    return routed
                 _emit_safe(
                     "red_dirty_tree_blocked",
                     {"phase": 5, "step": "verify_red_fails_mechanically", "paths": violations, "n": len(violations)},
@@ -2777,7 +3397,7 @@ def _decide_red_verdict(ctx: WorkflowContext, prev: StepResult, git_cwd: str, re
         if resume_paths and resume_red_sha:
             try:
                 _persist_green_complete_resume(
-                    _resolve_scratchpad(ctx), resume_red_sha, resume_paths
+                    _resolve_scratchpad(ctx), resume_red_sha, resume_paths, git_cwd
                 )
             except OSError:
                 pass
@@ -2824,7 +3444,9 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
     if early is not None:
         return early
     git_cwd = _resolve_git_cwd(ctx, prev)
-    dirty = _verify_red_dirty_tree_guard(git_cwd, red_test_paths, prev.data.get("spec_path"))
+    dirty = _verify_red_dirty_tree_guard(
+        git_cwd, red_test_paths, prev.data.get("spec_path"), ctx=ctx, prev_data=prev.data,
+    )
     if dirty is not None:
         return dirty
     plan = _infer_test_command_for_paths(list(red_test_paths), git_cwd=git_cwd)
@@ -4130,58 +4752,111 @@ def _red_commit_baseline_fail_ids(paths: list[str], red_sha: str, git_cwd: str,
 # ─── 5C14EF32 baseline helper (typecheck) ──
 
 
+def _tree_identical_to_head_for_paths(paths: list[str], git_cwd: str) -> bool:
+    """D2.1 (GH1612-B) — is every entry of *paths* identical to HEAD, WITHOUT
+    paying for a worktree checkout? A plain READ via `git_port.git_read` —
+    never a mechanism that leaves a stack entry behind, and never the write
+    port a `worktree add` failure fixture answers with a bare success.
+    """
+    try:
+        res = git_port.git_read(
+            ["diff", "--quiet", "HEAD", "--", *paths],
+            cwd=git_cwd, timeout=30,
+        )
+    except Exception:
+        return False
+    return res.returncode == 0
+
+
 def _compute_baseline_typecheck_count(
     resolved_paths: list[str], git_cwd: str, git_cwd_source: str,
 ) -> int | None:
-    """Stash the working tree, run mypy on the pre-branch baseline for the given
-    resolved paths, return the total findings count, then pop the stash.
+    """Run mypy on the pre-branch (HEAD) baseline for the given resolved
+    paths, inside a DETACHED WORKTREE (GH1612-B, D2) — never on the live
+    checkout. Returns the total findings count.
 
     Returns:
-        int   — total mypy findings on the baseline (may be 0 when all paths are
-                newly-added and vanish after stash, or when mypy reports none).
-        None  — baseline unavailable: stash reported no local changes, or any
-                failure of stash/mypy/pop is swallowed and returns None. Also
-                returned, with a `baseline_skipped_ambient_cwd` event, when
-                `git_cwd_source` is ambient (GH1220 B9).
+        int   — total mypy findings on the baseline (may be 0 when all paths
+                are newly-added and absent at HEAD, or when mypy reports
+                none).
+        None  — baseline unavailable: the tree is identical to HEAD (D2.1, no
+                worktree paid for), the worktree checkout could not be
+                created (`baseline_tree_unavailable` event, D5/AC5), an
+                in-scope path could not be mapped into the worktree
+                (`baseline_tree_path_unmappable` event, D2.2), or the mypy
+                run itself failed/timed out. Also returned, with a
+                `baseline_skipped_ambient_cwd` event, when `git_cwd_source`
+                is ambient (GH1220 B9).
 
     `git_cwd_source` is threaded from the caller — never re-resolved inside
     (§1g/A3.1).
 
-    D4 invariant: working tree is NEVER left stashed on exit — the finally block
-    always attempts git stash pop (with its own inner try/except so a raising pop
-    cannot escape this helper).
+    GH1612-B (D2): rebuilt on the canonical `lib.baseline_tree` provider —
+    every push/preflight/restore leg of the mechanism this helper used to run
+    on the live checkout is gone; a kill mid-measurement can no longer leave
+    an entry behind, because none is ever created (AC3).
     """
-    stashed = False
-    try:
-        if is_ambient_git_cwd(git_cwd_source):
-            _emit_safe("baseline_skipped_ambient_cwd", {
-                "phase": 5, "step": "compute_baseline_typecheck_count", "source": git_cwd_source,
-            })
-            return None
-        r = git_write_port.git_op_capture(
-            ["git", "stash", "push", "-u", "-m", "p2-typecheck-baseline-5c14ef32"],
-            cwd=git_cwd,
-            timeout=30,
+    if is_ambient_git_cwd(git_cwd_source):
+        _emit_safe("baseline_skipped_ambient_cwd", {
+            "phase": 5, "step": "compute_baseline_typecheck_count", "source": git_cwd_source,
+        })
+        return None
+
+    # D2.2 — resolve the worktree-relative form of every path UP FRONT, pure
+    # Python arithmetic, no git call and no worktree checkout paid for yet.
+    # A path outside `git_cwd` (or a macOS /var<->/private/var realpath
+    # mismatch) cannot be mapped at all: that is a BROKEN measurement, never
+    # a baseline of 0 (AC18) — distinct from a path legitimately absent at
+    # HEAD because it is newly added (AC4, handled once inside the worktree).
+    git_cwd_resolved = Path(git_cwd).resolve()
+    relative_paths: list[Path] = []
+    unmappable: list[str] = []
+    for rp in resolved_paths:
+        try:
+            relative_paths.append(Path(rp).relative_to(git_cwd_resolved))
+        except ValueError:
+            unmappable.append(rp)
+
+    if unmappable:
+        _emit_safe(
+            "baseline_tree_path_unmappable",
+            {"phase": 5, "step": "compute_baseline_typecheck_count", "paths": unmappable},
+            severity="error",
         )
-        # "No local changes to save" appears on stdout when the working tree is clean.
-        # Handle both returncode!=0 (some git versions) and the stdout sentinel.
-        if r.returncode != 0 or "No local changes to save" in r.stdout:
-            return None  # no independent baseline — tree was already clean
-        stashed = True
+        return None
 
-        # After stashing, filter to paths that still exist on disk.
-        # Newly-ADDED files vanish at baseline and are excluded — their findings
-        # count fully as net-new (mirrors lint's "added files always hard-fail").
-        existing_paths = [p for p in resolved_paths if Path(p).exists()]
+    # D2.1 — the clean-tree check runs BEFORE any worktree checkout: a tree
+    # identical to HEAD needs no baseline measurement, and paying the
+    # checkout cost (1.24s/10653 files, measured) on every clean cycle is
+    # the cost this ordering avoids.
+    if _tree_identical_to_head_for_paths(resolved_paths, git_cwd):
+        return None
 
-        # If no paths remain (all newly-added) → baseline has zero findings.
+    def _on_tree_unavailable(rc: int) -> None:
+        _emit_safe(
+            "baseline_tree_unavailable",
+            {"phase": 5, "step": "compute_baseline_typecheck_count", "returncode": rc},
+            severity="warning",
+        )
+
+    with baseline_tree(
+        ref="HEAD", git_cwd=git_cwd, _git_write=_git_write,
+        on_unavailable=_on_tree_unavailable,
+    ) as wt:
+        if wt is None:
+            return None
+
+        # A path newly-added since HEAD is not on disk inside the worktree at
+        # all — a legitimate exclusion (AC4), not the unmappable case above.
+        wt_paths = [str(Path(wt) / rel) for rel in relative_paths]
+        existing_paths = [p for p in wt_paths if Path(p).exists()]
         if not existing_paths:
             return 0
 
         try:
             proc = bounded_run(
-                _mypy_base_argv(git_cwd) + existing_paths,
-                cwd=git_cwd,
+                _mypy_base_argv(wt) + existing_paths,
+                cwd=wt,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -4199,21 +4874,6 @@ def _compute_baseline_typecheck_count(
         stdout = proc.stdout or ""
         stderr = proc.stderr or ""
         return len(_parse_mypy_output(stdout + "\n" + stderr))
-
-    except Exception:
-        _emit_safe("p2_typecheck_baseline_error", {"phase": 5}, severity="error")
-        return None
-
-    finally:
-        if stashed:
-            try:
-                git_write_port.git_op_capture(
-                    ["git", "stash", "pop"],
-                    cwd=git_cwd,
-                    timeout=30,
-                )
-            except Exception:
-                _emit_safe("p2_typecheck_baseline_stash_pop_failed", {"phase": 5}, severity="error")
 
 
 # ─── GH1123 / 4D604942: durable GREEN checkpoint on terminal E_GREEN_NOT_PASSING ──
@@ -4760,6 +5420,43 @@ def _finding_in_diff_hunks(abs_path: str, red_sha: str, finding_line: int | None
 # ─── Step 4.7: green_lint semgrep gate (79092C00) ────────────────────────────
 
 
+# hal GH1626 part D: the keys a hand-built ``forwarded_data`` must not
+# amputate. ``_verify_green_lint_rules`` builds its forwarded dict by hand (no
+# ``**prev.data`` spread — GH625 §2.3a), so every key not threaded explicitly
+# disappears for EVERY step after the gate. ``_commit_green_code`` resolves its
+# manifest from ``green_complete_resume`` + ``green_resume_paths`` (the GH483
+# resume shape the orphan-GREEN recovery routes with) and falls back to
+# ``manifest_from_result`` over ``worker_written_paths``/``manifest_source``;
+# losing them turns a correctly-routed recovery into an INERT one — the chain
+# runs, every gate sees the right files, and the commit step dies on
+# ``E_LLM_MANIFEST_MISSING_AT_CONSUMER`` with the strand still uncommitted.
+# ``red_test_paths`` is carried for the same reason: without it
+# ``_verify_green_passing`` returns ``no_red_test_paths`` and verifies nothing.
+_GREEN_MANIFEST_CARRY_KEYS = (
+    "green_complete_resume",
+    "green_resume_paths",
+    "worker_written_paths",
+    "manifest_source",
+    "red_test_paths",
+    "cycle",
+)
+
+
+def _carry_green_manifest_keys(prev_data: Any, fwd: "dict[str, Any]") -> "dict[str, Any]":
+    """Thread the GREEN manifest/resume keys through a hand-built forwarded dict.
+
+    Only keys already present in ``prev_data`` and absent from ``fwd`` are
+    copied, so a caller whose ``prev`` never carried them keeps a byte-identical
+    forwarded set. Mutates and returns ``fwd`` (§1g: one carry rule, one place).
+    """
+    if not isinstance(prev_data, dict):
+        return fwd
+    for key in _GREEN_MANIFEST_CARRY_KEYS:
+        if key in prev_data and key not in fwd:
+            fwd[key] = prev_data[key]
+    return fwd
+
+
 def _verify_green_lint_rules(ctx, prev) -> StepResult:
     step = "verify_green_lint_rules"
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
@@ -4871,6 +5568,9 @@ def _verify_green_lint_rules(ctx, prev) -> StepResult:
                 # sees prior spend.
                 if isinstance(prev.data, dict) and isinstance(prev.data.get("gate_attempts"), dict):
                     _fu_fwd["gate_attempts"] = prev.data["gate_attempts"]
+                # GH1626 part D: same hand-built-dict amputation as the findings
+                # leg below — carry the GREEN manifest/resume keys.
+                _carry_green_manifest_keys(prev.data, _fu_fwd)
                 return RecoverableGateMixin.gated_step_result(
                     build_class=_fu_build_class,
                     gate="green_lint",
@@ -5007,6 +5707,9 @@ def _verify_green_lint_rules(ctx, prev) -> StepResult:
         # gate_attempts through explicitly or the gate never sees prior spend.
         if isinstance(prev.data, dict) and isinstance(prev.data.get("gate_attempts"), dict):
             fwd["gate_attempts"] = prev.data["gate_attempts"]
+        # GH1626 part D: the manifest/resume keys must survive this gate's error
+        # result, or `commit_green_code` downstream has no manifest to commit.
+        _carry_green_manifest_keys(prev.data, fwd)
         build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
         # 457DC7DC GH371 §2.2: cheap directed-repair pre-stage IN FRONT OF the
         # unchanged RecoverableGateMixin regen return. Non-convergence falls
@@ -5672,6 +6375,13 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
                     {"phase": 5, "step": "build_validation_prompt", "error": dirty_err},
                 )
             elif violations:
+                # hal GH1626 part D AC20: raise site 2 applies the SAME rule
+                # as site 1 — one site fixed is half a class.
+                routed = _orphan_green_recovery_result(
+                    ctx, prev.data, git_cwd, violations, "build_validation_prompt",
+                )
+                if routed is not None:
+                    return routed
                 _emit_safe(
                     "red_dirty_tree_blocked",
                     {"phase": 5, "step": "build_validation_prompt", "paths": violations, "n": len(violations)},
@@ -6041,6 +6751,47 @@ def _verify_validation_citations(ctx, prev) -> StepResult:
 # ─── Step 8: HARD GATE on validation verdict ─────────────────────────────────
 
 
+def _injection_block_result(
+    _ctx: Any, prev: Any, verdict: str, gate_verdict: str, cycle: int
+) -> StepResult | None:
+    """hal#1674 (B), VALIDATION tier (§1aa): the terminal for a validator that
+    DECLARED a block while the READ_FIRST inputs really are absent.
+
+    Returns None whenever the conjunction does not hold, so the caller falls
+    through to the verdict axis untouched. Without this the same run leaves as
+    E_VALIDATION_FAILED and is indistinguishable from a genuine test gap.
+    """
+    try:
+        from .phase_workflows_common import detect_injection_block
+    except ImportError:  # pragma: no cover — bare sys.path-rooted test imports (GH881)
+        from bytedigger_engine.workflows.phase_workflows_common import detect_injection_block  # type: ignore[no-redef]
+
+    cfg = getattr(_ctx, "org_config", None) or {}
+    reason = detect_injection_block(
+        cfg.get("scratchpad_dir"), prev.data.get("validation_raw", "") or ""
+    )
+    if not reason:
+        return None
+    _emit_safe(
+        "validation_injection_missing",
+        {"phase": 5, "cycle": cycle, "reason": reason},
+    )
+    return StepResult(
+        status="error",
+        data={
+            "verdict": gate_verdict,
+            "markdown_verdict": verdict,
+            "validation_doc_path": prev.data.get("validation_doc_path"),
+            "cycle_count": cycle,
+        },
+        duration_ms=0,
+        step_name="gate_on_validation",
+        error=f"validator blocked on absent injection inputs — {reason} (terminal)",
+        error_code="E_INJECTION_MISSING",
+        recoverable=False,
+    )
+
+
 def _gate_on_validation(_ctx, prev) -> StepResult:
     """HARD GATE — never_skip_opus_validation_gate. UNKNOWN treated as FAIL.
 
@@ -6080,6 +6831,15 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             severity="warning",
         )
     if not passed:
+        # hal#1674 (B): chokepoint (B)'s VALIDATION instance, same position
+        # as before the §1aa extraction — inside the not-passed arm (a PASS is
+        # never aborted by it) and above both the below-cap re-entry and the
+        # terminal tail, so an infrastructure block is reported once instead of
+        # costing a second run on inputs that are still absent.
+        _inj_block = _injection_block_result(_ctx, prev, verdict, gate_verdict, cycle)
+        if _inj_block is not None:
+            return _inj_block
+
         # GH767 §2.3: bounded auto-reroute of a SPEC_DEFECT verdict back to
         # phase_45_spec. Every precondition below is FAIL-SAFE: on any doubt,
         # fall through to the legacy TEST_GAP path below. A reroute is only
@@ -6387,7 +7147,7 @@ def _green_test_lockdown_block(red_test_paths: list[str] | None) -> str:
         paths_section = "\n".join(f"  - {p}" for p in red_test_paths)
     return (
         "## TEST LOCKDOWN (READ FIRST — §1s)\n"
-        "Test files READ-ONLY. FROZEN — any edit triggers E_RED_TESTS_TAMPERED.\n"
+        "Test files READ-ONLY. FROZEN — any edit triggers E_RED_BASELINE_FILE_MODIFIED.\n"
         "If wrong, report 'GREEN BLOCKED — test contract dispute. Diagnosis: [why]'.\n"
         "FROZEN TEST FILES:\n"
         f"{paths_section}"
@@ -6615,6 +7375,8 @@ def _build_green_prompt(ctx, prev) -> StepResult:
     )
     parts.append("")
     parts.append(_worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad)))
+    parts.append("")
+    parts.append(interpreter.worker_interpreter_block_for(ctx))
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
     _standards_block = get_standards_context(ctx)
@@ -6646,6 +7408,13 @@ def _build_green_prompt(ctx, prev) -> StepResult:
             # as the diff boundary to enumerate production files to commit.
             "red_commit_sha": prev_data_full.get("red_commit_sha"),
             "red_test_paths": prev_data_full.get("red_test_paths", []),
+            # hal GH1018: this step is the one that READS the in-run retry
+            # findings keys, and it returns a freshly constructed dict — so the
+            # keys themselves die here. Publish the FACT as one boolean; it is
+            # what `_invoke_green_llm`'s GH483 skip needs on the other side of
+            # this rebuild (and of `cwd_preflight`'s pass-through), or an in-run
+            # gate retry gets swallowed by the completion marker.
+            "green_in_run_retry": _green_in_run_retry(prev_data_full),
         },
         duration_ms=0,
         step_name="build_green_prompt",
@@ -6653,6 +7422,34 @@ def _build_green_prompt(ctx, prev) -> StepResult:
 
 
 # ─── Step 9: invoke GREEN LLM ────────────────────────────────────────────────
+
+def _green_in_run_retry(prev_data: Any) -> bool:
+    """True when this entry is an in-run green-gate RETRY, not a crash-resume.
+
+    The GH483 completion marker is written the moment GREEN reports COMPLETE
+    (hal GH1018 P1) and is GC'd only in `commit_green_code`, so it is on disk
+    for the whole green-verification block. A gate that fails hands the engine a
+    retry restarting at `build_green_prompt` with the SAME `red_commit_sha`: if
+    the skip fired there, GREEN would never see the findings, the tree would not
+    change, the same gate would fail again and the build would burn to the cap.
+    With neither key present the entry is the genuine crash-resume the seam was
+    built for and the skip is unchanged.
+
+    Both keys survive the engine's ``_RETRY_CONTROL_KEYS`` stripping, so they
+    reach this step intact: ``green_test_findings`` from
+    ``_verify_green_passing``'s retry, ``gate_attempts`` from every gate routed
+    through ``recoverable_gate.gated_step_result``.
+
+    Two shapes, one question. The raw keys answer it on a DIRECT entry; after
+    ``build_green_prompt`` they are gone — that step reads them and returns a
+    freshly built dict — so it republishes the answer as ``green_in_run_retry``,
+    which is the shape that actually reaches this step through the real
+    ``build_green_prompt -> cwd_preflight -> invoke_green_llm`` chain.
+    """
+    if not isinstance(prev_data, dict):
+        return False
+    return bool(prev_data.get("green_in_run_retry")) or any(
+        prev_data.get(key) for key in ("green_test_findings", "gate_attempts"))
 
 
 def _invoke_green_llm(ctx, prev) -> StepResult:
@@ -6665,7 +7462,11 @@ def _invoke_green_llm(ctx, prev) -> StepResult:
         )
     # GH483: crash-resume seam — a prior GREEN already wrote the
     # implementation to the working tree; skip re-invoking the LLM.
-    resume_paths = _read_green_complete_resume(_resolve_scratchpad(ctx), prev.data.get("red_commit_sha"))
+    # hal GH1018: NOT on an in-run green-gate retry — see
+    # `_green_in_run_retry`; the marker outlives the whole GREEN block and would
+    # otherwise swallow the findings the retry exists to deliver.
+    resume_paths = None if _green_in_run_retry(prev.data) else _read_green_complete_resume(
+        _resolve_scratchpad(ctx), prev.data.get("red_commit_sha"))
     if resume_paths is not None:
         _emit_safe("invoke_green_llm_skipped_green_complete", {
             "phase": 5, "step": "invoke_green_llm", "n_paths": len(resume_paths),
@@ -6742,15 +7543,21 @@ def _check_green_token_budget(ctx, prev) -> StepResult:
 
 
 def _write_green_artifact(ctx, prev) -> StepResult:
-    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
+    # hal GH1626 part D: the engine's re-entry boundary hands the target step
+    # a plain dict as `prev` (engine.py:400, built at :663-682), not a
+    # StepResult. Every OTHER re-entry target was already dict-tolerant; this
+    # one never was, and the orphan-GREEN recovery routes here. The dict shape
+    # is accepted at the seam rather than by changing what the engine passes.
+    prev_data = prev.data if isinstance(prev, StepResult) and isinstance(prev.data, dict) else (prev if isinstance(prev, dict) else None)
+    if prev_data is None:
         return StepResult(
             status="error", data=None, duration_ms=0,
             step_name="write_green_artifact",
             error="prev step did not produce raw_response",
             error_code="E_MISSING_PREV_DATA",
         )
-    raw = prev.data["raw_response"]
-    log_path = Path(prev.data["log_path"])
+    raw = prev_data["raw_response"]
+    log_path = Path(prev_data["log_path"])
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(raw, encoding="utf-8")
 
@@ -6776,20 +7583,20 @@ def _write_green_artifact(ctx, prev) -> StepResult:
             telemetry_ctx.set_current_run_from(prev_run_ctx, step_name="invoke_green_llm_retry")  # GH375
         try:
             retry_result = invoke_llm_subprocess(
-                prompt=prev.data["prompt"],
+                prompt=prev_data["prompt"],
                 model=_resolve_model(cfg, "green_model", green_default),
                 timeout_sec=_resolve_green_timeout_sec(cfg),
                 step_name="invoke_green_llm_retry",
                 extra_data={
-                    "log_path": prev.data["log_path"],
-                    "spec_path": prev.data["spec_path"],
-                    "red_log_path": prev.data["red_log_path"],
-                    "validation_doc_path": prev.data["validation_doc_path"],
-                    "verdict": prev.data.get("verdict", ""),
-                    "prompt": prev.data["prompt"],
+                    "log_path": prev_data["log_path"],
+                    "spec_path": prev_data["spec_path"],
+                    "red_log_path": prev_data["red_log_path"],
+                    "validation_doc_path": prev_data["validation_doc_path"],
+                    "verdict": prev_data.get("verdict", ""),
+                    "prompt": prev_data["prompt"],
                     # 4C0056FA: carry red_commit_sha in case retry error propagates.
-                    "red_commit_sha": prev.data.get("red_commit_sha"),
-                    "red_test_paths": prev.data.get("red_test_paths", []),
+                    "red_commit_sha": prev_data.get("red_commit_sha"),
+                    "red_test_paths": prev_data.get("red_test_paths", []),
                 },
                 allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
             )
@@ -6816,21 +7623,31 @@ def _write_green_artifact(ctx, prev) -> StepResult:
 
     common_data = {
         "green_log_path": str(log_path),
-        "spec_path": prev.data["spec_path"],
-        "red_log_path": prev.data["red_log_path"],
-        "validation_doc_path": prev.data["validation_doc_path"],
+        "spec_path": prev_data["spec_path"],
+        "red_log_path": prev_data["red_log_path"],
+        "validation_doc_path": prev_data["validation_doc_path"],
         "green_bytes_written": len(raw.encode("utf-8")),
         "green_status": green_status,
         # MED #7: verdict carried from gate_on_validation so engine
         # iteration_finished emits raw verdict (never coerced to PASS).
-        "verdict": prev.data.get("verdict", ""),
+        "verdict": prev_data.get("verdict", ""),
         # 4C0056FA: carry red_commit_sha so commit_green_code has the
         # diff boundary even after write_green_artifact replaces prev.data.
-        "red_commit_sha": prev.data.get("red_commit_sha"),
-        "red_test_paths": prev.data.get("red_test_paths", []),
+        "red_commit_sha": prev_data.get("red_commit_sha"),
+        "red_test_paths": prev_data.get("red_test_paths", []),
         # 56D695F2: carry cycle_count so _verify_green_lint_rules can detect
         # cap-2 (change 2). Default 1 on first cycle.
-        "cycle_count": prev.data.get("cycle_count", 1),
+        # hal GH1018: `cycle_count` is an engine _RETRY_CONTROL_KEY — the
+        # engine STRIPS it across a retry boundary and only `build_green_prompt`
+        # re-derives it (`cycle_count = cycle`), which the orphan-GREEN recovery
+        # route skips by re-entering HERE. Falling back to `cycle` before the
+        # literal 1 keeps the adopted cycle-2/3 GREEN from being judged as cycle
+        # 1 by every downstream green gate; it is the same convention, not a new one.
+        # "HOW MANY cycles have run?" — `cycle_count` first, because where it
+        # survives it is the authoritative count for every consumer of this data;
+        # `cycle` is only the fallback for the re-entry that stripped it. The
+        # opposite order at P1's alarm is deliberate (see there), not a bug.
+        "cycle_count": _first_set(prev_data, "cycle_count", "cycle", default=1),
     }
     if green_status == GREEN_BLOCKED:
         return StepResult(
@@ -6846,9 +7663,13 @@ def _write_green_artifact(ctx, prev) -> StepResult:
             error="GREEN worker output missing completion marker — likely truncated",
             error_code="E_GREEN_NO_MARKER",
         )
+    # hal GH1018 P1: GREEN_COMPLETE only — BLOCKED and NO_MARKER return above,
+    # so a GREEN that never completed can never leave adoptable evidence. Never
+    # raises, never changes this step's contract.
+    _persist_green_manifest_on_complete(ctx, prev_data)
     return StepResult(
         status="ok",
-        data={**prev.data, **common_data},
+        data={**prev_data, **common_data},
         duration_ms=0,
         step_name="write_green_artifact",
     )
@@ -7027,6 +7848,77 @@ def _build_green_commit_message(cycle: int, paths: list[str]) -> str:
     return f"build: green cycle {cycle}\n\n{body_files}\n"
 
 
+def _check_green_commit_nonempty(
+    git_cwd: str, red_commit_sha: str, in_scope_paths: list[str]
+) -> StepResult | None:
+    """#1612-A guard: prove the GREEN commit is not empty.
+
+    Evaluated at every point `_commit_green_code` is about to return `ok`.
+    `in_scope_paths` is P — the pre-phantom-filter manifest (§ spec Decision
+    "ONE guard, over the pre-filter manifest"), never `prod_paths` itself.
+
+    Returns ``None`` when the caller should proceed exactly as it does
+    today: P is empty (a different, already-reported failure, out of scope
+    for this lot), the floor/diff evidence is unavailable (rc != 0 — never a
+    verdict), or the diff since `red_commit_sha` is non-empty. Returns a
+    terminal StepResult (E_GREEN_COMMIT_EMPTY, recoverable=False) only when P
+    is non-empty and the diff since `red_commit_sha` is empty with rc == 0.
+
+    rc-handling: the floor is prechecked with `rev-parse --verify
+    <sha>^{commit}` — a plain `rev-parse <40hex>` exits 0 for a non-existent
+    object, so the precheck must use `--verify …^{commit}`. Any rc != 0, from
+    the precheck or from the diff itself, is evidence-unavailable: fail open
+    and emit `green_commit_nonempty_check_skipped` with a non-empty `reason`.
+    """
+    if not in_scope_paths:
+        return None
+    verify = git_port.git_read(
+        ["rev-parse", "--verify", f"{red_commit_sha}^{{commit}}"],
+        cwd=git_cwd, timeout=30,
+    )
+    if verify.returncode != 0:
+        _emit_safe(
+            "green_commit_nonempty_check_skipped",
+            {
+                "reason": (
+                    f"red_commit_sha floor unresolvable: rc={verify.returncode} "
+                    f"stderr={verify.stderr[:200]!r}"
+                ),
+                "step": "commit_green_code",
+                "phase": 5,
+            },
+        )
+        return None
+    diff = git_port.git_read(
+        ["diff", "--name-only", red_commit_sha, "HEAD", "--", *in_scope_paths],
+        cwd=git_cwd, timeout=30,
+    )
+    if diff.returncode != 0:
+        _emit_safe(
+            "green_commit_nonempty_check_skipped",
+            {
+                "reason": (
+                    f"diff since red_commit_sha unavailable: rc={diff.returncode} "
+                    f"stderr={diff.stderr[:200]!r}"
+                ),
+                "step": "commit_green_code",
+                "phase": 5,
+            },
+        )
+        return None
+    if diff.stdout.strip():
+        return None
+    return StepResult(
+        status="error", data=None, duration_ms=0, step_name="commit_green_code",
+        error=(
+            f"GREEN commit landed with no in-scope change to "
+            f"{sorted(in_scope_paths)!r} since red_commit_sha -- recover via "
+            f"`git stash list`"
+        ),
+        error_code="E_GREEN_COMMIT_EMPTY", recoverable=False,
+    )
+
+
 def _commit_green_code(ctx, prev) -> StepResult:
     """Step 5+: engine-authoritative GREEN commit (4C0056FA).
 
@@ -7090,13 +7982,15 @@ def _commit_green_code(ctx, prev) -> StepResult:
                 error_code="E_LLM_MANIFEST_MISSING_AT_CONSUMER",
                 recoverable=False,
             )
-    prod_paths = _filter_phantom_deleted_paths(
-        _filter_gitignored_paths(
-            [p for p in manifest if not _is_test_path(p)],
-            git_cwd,
-        ),
+    # #1612-A: P — the in-scope manifest as it stood immediately BEFORE
+    # phantom-deletion filtering (test-path-excluded, gitignore-filtered).
+    # Captured once here and never reassigned by the :7277 git-divergence
+    # rescue below — see `_check_green_commit_nonempty`.
+    _prod_paths_pre_phantom = _filter_gitignored_paths(
+        [p for p in manifest if not _is_test_path(p)],
         git_cwd,
     )
+    prod_paths = _filter_phantom_deleted_paths(_prod_paths_pre_phantom, git_cwd)
 
     # f624e3fb (P6): the boundary scan set is derived from git, INDEPENDENT of
     # the manifest/prod_paths — the set of files changed since red_commit_sha
@@ -7144,7 +8038,42 @@ def _commit_green_code(ctx, prev) -> StepResult:
                 error_code="E_BOUNDARY_SUPPRESSION", recoverable=False,
             )
 
+    # ── ppba#1603: empty manifest vs git ground truth ────────────────────────
+    # manifest_from_result parses the GREEN transcript, and that phrasing drifts
+    # ("Files modified: [a, b]" was not recognised → empty manifest → silent
+    # skip → a tests-only PR reported as a clean DONE). git is ground truth:
+    # boundary_scan_paths above is the git-derived changed set since
+    # red_commit_sha, already gitignore/phantom filtered. When the manifest is
+    # empty but git shows production (non-test) changes, the two disagree —
+    # trust git and commit those paths rather than committing nothing.
     if not prod_paths:
+        git_prod_paths = [p for p in boundary_scan_paths if not _is_test_path(p)]
+        if git_prod_paths:
+            _emit_safe(
+                "green_manifest_git_divergence",
+                {
+                    "reason": "empty_manifest_with_git_prod_changes",
+                    "manifest_source": _manifest_src,
+                    "n_manifest": len(manifest),
+                    "git_prod_paths": list(git_prod_paths),
+                    "chosen": "git",
+                    "step": "commit_green_code",
+                    "phase": 5,
+                },
+                severity="warning",
+            )
+            prod_paths = git_prod_paths
+
+    if not prod_paths:
+        # #1612-A: P may be non-empty even though prod_paths (post-phantom-
+        # filter) emptied — e.g. a stashed-away new untracked file (AC7), or
+        # a committed deletion (AC10, correctly NOT terminal). The guard
+        # decides before this leg's "empty_manifest" verdict is emitted.
+        _nonempty_verdict = _check_green_commit_nonempty(
+            git_cwd, red_commit_sha, _prod_paths_pre_phantom
+        )
+        if _nonempty_verdict is not None:
+            return _nonempty_verdict
         _emit_safe(
             "green_commit_skipped",
             {"reason": "empty_manifest", "phase": 5},
@@ -7203,25 +8132,42 @@ def _commit_green_code(ctx, prev) -> StepResult:
         if scan_result.tampered_tests:
             return StepResult(
                 status="error", data=None, duration_ms=0, step_name="commit_green_code",
-                error=f"authored-diff boundary scan found tampered RED test paths: {scan_result.tampered_tests!r} — {_TAMPER_REMEDIATION_HINT}",
-                error_code="E_RED_TESTS_TAMPERED",
+                error=_red_baseline_error_message(scan_result.tampered_tests, refresh_available=False),
+                error_code="E_RED_BASELINE_FILE_MODIFIED",
                 recoverable=False,
             )
         # ── GH639 (7C0FDE44): frozen-hash manifest leg, git-diff-blind residual
         # coverage. No-op when nothing was ever frozen (backward-compat).
         if _frozen:
-            _hash_tampered = authored_boundary.verify_red_test_hashes(_frozen, git_cwd, authorized_test_edits)
+            # hal#1600 D4: reconciled to the current cycle's
+            # red-test-paths.txt — a stale key for a path this cycle never
+            # touched must not be classified. `_frozen` itself stays
+            # unfiltered (red_freeze_paths above, AC9).
+            _reconciled = _frozen_for_current_cycle(scratchpad_dir, git_cwd)
+            _hash_tampered = (
+                authored_boundary.verify_red_test_hashes(_reconciled, git_cwd, authorized_test_edits)
+                if _reconciled else []
+            )
             if _hash_tampered:
-                _hash_classes = authored_boundary.classify_red_hash_mismatches(_frozen, git_cwd)
-                return StepResult(
-                    status="error", data=None, duration_ms=0, step_name="commit_green_code",
-                    error=(
-                        f"frozen-hash integrity check found tampered RED test paths: {_hash_tampered!r} — "
-                        f"{_TAMPER_REMEDIATION_HINT} — {str(dict(sorted(_hash_classes.items())))}"
-                    ),
-                    error_code="E_RED_TESTS_TAMPERED",
-                    recoverable=False,
-                )
+                _hash_classes = authored_boundary.classify_red_hash_mismatches(_reconciled, git_cwd)
+                if _hash_classes:
+                    # D2/MAJOR-3: all_head_moved is computed HERE for MESSAGE
+                    # SELECTION ONLY — B2 runs after GREEN has written code, so
+                    # (unlike site A) it must never re-freeze, even with the flag
+                    # set; only the wording of the operator action changes.
+                    # hal#1600 D4 (kept through the D2 rebase): the classified
+                    # map is `_reconciled`, never `_frozen` — a stale key for a
+                    # path this cycle never touched must not be judged, and an
+                    # empty class map means there is nothing left to call tamper.
+                    _all_head_moved = all(c == "head_moved" for c in _hash_classes.values())
+                    return StepResult(
+                        status="error", data=None, duration_ms=0, step_name="commit_green_code",
+                        error=_red_baseline_error_message(
+                            _hash_tampered, classes=_hash_classes, refresh_available=_all_head_moved
+                        ),
+                        error_code="E_RED_BASELINE_FILE_MODIFIED",
+                        recoverable=False,
+                    )
             _reasons = (
                 _parse_authorized_test_edits_with_reasons(_spec_path)
                 if isinstance(_spec_path, str) and _spec_path
@@ -7327,6 +8273,15 @@ def _commit_green_code(ctx, prev) -> StepResult:
             error_code="E_GREEN_COMMIT_FAILED",
         )
     green_sha = post_rev.stdout.strip()
+
+    # #1612-A: guard sits here too — this point is reached by BOTH the real
+    # commit leg (:7432 branch that just committed) and the idempotent-skip
+    # leg (:7432 else-branch, HEAD unchanged) before either returns 'ok'.
+    _nonempty_verdict = _check_green_commit_nonempty(
+        git_cwd, red_commit_sha, _prod_paths_pre_phantom
+    )
+    if _nonempty_verdict is not None:
+        return _nonempty_verdict
 
     # ── AC4: emit green_commit telemetry ──────────────────────────────────────
     _emit_safe(

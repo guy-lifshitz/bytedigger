@@ -1260,33 +1260,18 @@ def test_ac27_compute_baseline_typecheck_count_ambient_skips_stash(tmp_path, mon
     )
 
 
-def test_ac27b_compute_baseline_typecheck_count_explicit_source_still_stashes_and_pops(
-    tmp_path, monkeypatch,
-):
-    """AC27b (MAJOR-E positive control for B9): `_compute_baseline_typecheck_count`
-    with an EXPLICIT source still stashes, computes and pops -- returns an
-    `int`, and `git stash list` is empty afterwards. Mirrors AC30's positive
-    control for `_compute_baseline_failed`; without this, a GREEN could
-    thread the source into B8 alone and leave B9 permanently disabled."""
-    _record_events(monkeypatch, p5)
-    repo, base_sha = _make_repo_with_base_commit(tmp_path)
-    _write_file(repo, "dirty_ac27b.txt", "dirty\n")
-
-    result = p5._compute_baseline_typecheck_count([], str(repo), "cfg_git_cwd")
-
-    assert isinstance(result, int), (
-        f"expected an int for an explicit source; actual {result!r}"
-    )
-    stash_list = subprocess.run(
-        ["git", "stash", "list"], capture_output=True, text=True, cwd=repo, check=True,
-    ).stdout
-    assert stash_list.strip() == "", (
-        f"expected `git stash list` EMPTY afterwards; actual {stash_list!r}"
-    )
-    assert "dirty_ac27b.txt" in _porcelain(repo), (
-        "expected the dirty file to be restored (popped) into the working "
-        f"tree; actual porcelain={_porcelain(repo)!r}"
-    )
+# AC27b — RETIRED by GH1612-B.
+#
+# `test_ac27b_compute_baseline_typecheck_count_explicit_source_still_stashes_and_pops`
+# was the MAJOR-E positive control for B9: with an EXPLICIT source the typecheck
+# helper "still stashes, computes and pops".  It pins the removed mechanism by
+# name — GH1612-B rebuilt `_compute_baseline_typecheck_count` on a detached
+# `git worktree` at HEAD (`lib/baseline_tree.py`), so it stashes nothing.
+#
+# The B9 half of the control — explicit source ⇒ the typecheck helper returns an
+# int and leaves the tree byte-identical — is ported onto the new mechanism in
+# this lot's own RED: tests/test_gh1612b_typecheck_baseline_no_tree_mutation.py:316
+# (AC1, real side effect).
 
 
 def test_ac27c_verify_green_typecheck_ambient_never_stashes_real_caller(tmp_path, monkeypatch):
@@ -1312,7 +1297,23 @@ def test_ac27c_verify_green_typecheck_ambient_never_stashes_real_caller(tmp_path
     pops its stash in a `finally` too, so an empty `git stash list` alone is
     satisfied equally by 'never stashed' and by 'stashed, ran, popped' --
     `baseline_skipped_ambient_cwd` (the literal event only the guard emits)
-    is the discriminator. A `run_test_command`/`bounded_run` call-count
+    is the discriminator.
+
+    GH1612-B -- PORTED, discriminator intent KEPT. This step now runs TWO
+    INDEPENDENT ambient guards, each emitting `baseline_skipped_ambient_cwd`:
+      * `phase_5_implement.py:6766` -- D5, the leftover check that is the FIRST
+        statement of `_verify_green_typecheck`, payload `step` ==
+        "verify_green_typecheck";
+      * `phase_5_implement.py:5359` -- B9, inside
+        `_compute_baseline_typecheck_count`, payload `step` ==
+        "compute_baseline_typecheck_count".
+    A bare `len(skip_events) == 1` would now fail on CORRECT production
+    behaviour, and relaxing it to `>= 1` would surrender exactly what the
+    Amendment-9 note bought: with a bare count, one guard silently disappearing
+    still passes. The assertion below therefore keys on the payload `step`
+    values and requires BOTH, once each -- so it stays a discriminator between
+    'guard fired' and 'stashed, ran, popped', and additionally discriminates
+    WHICH guard fired. A third, unexpected emitter also fails it. A `run_test_command`/`bounded_run` call-count
     discriminator (used for AC26b) does NOT work here: `src/typed.py` is
     UNTRACKED, so `git stash push -u` removes it from disk; the helper's own
     `existing_paths = [p for p in resolved_paths if Path(p).exists()]` filter
@@ -1359,13 +1360,27 @@ def test_ac27c_verify_green_typecheck_ambient_never_stashes_real_caller(tmp_path
         f"{[e['type'] for e in captured]!r} (result={result!r})"
     )
 
-    # ── discriminator 1: the guard's own event, not just 'nothing stashed' ──
+    # ── discriminator 1: the guards' own events, not just 'nothing stashed' ──
+    #    GH1612-B: BOTH ambient guards on this path must fire, identified by the
+    #    payload `step` they carry -- a count alone cannot tell one missing
+    #    guard from two present ones (see the docstring).
     skip_events = [e for e in captured if e["type"] == "baseline_skipped_ambient_cwd"]
-    assert len(skip_events) == 1, (
-        f"DISCRIMINATOR FAILED: expected exactly 1 'baseline_skipped_ambient_cwd' "
-        f"event -- the empty `git stash list` alone is satisfied equally by "
-        f"'never stashed' (guard fired) and by 'stashed, ran, popped' (guard "
-        f"absent); actual events seen: {[e['type'] for e in captured]!r}"
+    skip_steps = sorted(str(e["payload"].get("step")) for e in skip_events)
+    # bytedigger: the upstream D5 leftover check (payload step
+    # "verify_green_typecheck") is not carried — this engine creates no
+    # baseline stash entries to be left over — so B9 is the one guard here.
+    expected_skip_steps = [
+        "compute_baseline_typecheck_count",  # B9
+    ]
+    assert skip_steps == expected_skip_steps, (
+        f"DISCRIMINATOR FAILED: expected exactly one "
+        f"'baseline_skipped_ambient_cwd' per ambient guard on this path, "
+        f"identified by payload.step -- {expected_skip_steps!r}; actual "
+        f"{skip_steps!r}. The empty `git stash list` alone is satisfied equally "
+        f"by 'never stashed' (guard fired) and by 'stashed, ran, popped' (guard "
+        f"absent), and a bare count is satisfied equally by 'both guards fired' "
+        f"and by 'one guard fired twice'. Events seen: "
+        f"{[e['type'] for e in captured]!r}"
     )
 
     # ── discriminator 2 (semantic, gate pass 3): baseline_failed=None
