@@ -42,6 +42,21 @@ frontmatter parser; this spec reuses it and touches none of its files before it 
    invocation — and AC12's pinned literal — before RED freeze; shipping with a permanent
    `W_SKILL_COMPANION_UNAVAILABLE` line is not acceptable.
 
+   **Measured by the implementation lot (2026-09-30, before RED freeze): NEGATIVE.** Nested
+   `claude -p --plugin-dir <fixture plugin>`: (a) the Bash tool's `$CLAUDE_PLUGIN_ROOT` is
+   empty; (b) the exact text `${CLAUDE_PLUGIN_ROOT}` in a plugin command and in a plugin
+   `SKILL.md` is substituted with the absolute plugin root when the file is loaded; (c)
+   `${CLAUDE_PLUGIN_ROOT:-$BYTEDIGGER_HOME}` is **not** substituted (left literal), so in Bash
+   it falls to `$BYTEDIGGER_HOME` — unset in plugin mode ⇒ exit 127 on every build. Files the
+   orchestrator opens with Read (`commands/build.md`, `phases/*.md`) get no substitution.
+   **Invocation changed accordingly** (op3, AC12):
+   `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger`
+   — in a loaded plugin skill/command the first assignment becomes the absolute root; in
+   manual install (no substitution, empty in Bash) it falls to `$BYTEDIGGER_HOME`. Read-only
+   files (`commands/build.md`, `phases/phase-0-classify.md`) carry the same line plus the
+   instruction to use the absolute root the loaded skill shows when `${CLAUDE_PLUGIN_ROOT}` is
+   not substituted in front of them.
+
 What Oz does and why it is not enough for us: the core skill lists "Repository-specific
 overrides" categories in prose; the companion `<core>-local/SKILL.md` declares
 `specializes: <core>`; the prompt builder appends a path reference plus the sentence "may
@@ -56,7 +71,7 @@ shape and add a deterministic enforcement layer.
 - **Core skill** — a `SKILL.md` shipped by BD: `<plugin-root>/skills/<core-id>/SKILL.md`. Its
   id is the directory name (`bytedigger`), not the display `name:` (`ByteDigger`):
   `[a-z0-9-]+` (a `--core` that does not match is an argparse usage error, exit 2 — no path
-  traversal). `<plugin-root>` = `--plugin-root` flag, else `$CLAUDE_PLUGIN_ROOT`, else the
+  traversal). `<plugin-root>` = `--plugin-root` flag, else a **non-empty** `$CLAUDE_PLUGIN_ROOT`, else the
   parent of the wrapper's own directory.
 - **Section** — ATX H2 only: `^ {0,3}## +(.+?)(?: +#+)? *$`, outside fenced blocks (a fence
   opens with ≥3 backticks or tildes and closes with the same char, at least the same length).
@@ -97,6 +112,9 @@ input failed is skipped:
 - any stage-2 error that makes the overridable set unusable — `unsupported_frontmatter`,
   `invalid_overridable_entry`, `core_section_missing`, `ambiguous_core_section` on the core —
   skips stage 7;
+- per entry/section: an overridable entry that is `invalid_overridable_entry` is not also
+  checked for `core_section_missing`; a companion section whose title fails stage 6
+  (`invalid_section_title`) is not also checked in stage 7;
 - a stage-4 failure (`companion_not_committed`) skips stages 5–7: their input would not be
   the text that is merged. Stages 1–2 are about the core and run
 with or without a companion, so `check` on BD's own core is meaningful.
@@ -183,14 +201,15 @@ stale, outlive a deleted companion, or be rewritten by an agent (DesignReview F3
   ACTION — Create build-state.yaml"; `commands/build.md` Phase 0 and its "Resumable"
   paragraph; `skills/bytedigger/SKILL.md` "CRITICAL: Load Pipeline";
   `examples/claude-code-skill/SKILL.md` (manual install). Each says: run
-  `"${CLAUDE_PLUGIN_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger`,
-  before `build-state.yaml` or `build-metadata.json` is written, and branch on its exit:
+  `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger`
+  (§1 item 4; files opened with Read also say to use the absolute root the loaded skill shows
+  when `${CLAUDE_PLUGIN_ROOT}` was not substituted in front of them), before `build-state.yaml` or `build-metadata.json` is written, and branch on its exit:
   - **0** ⇒ keep following the skill file already loaded (its paths stay authoritative — in a
     manual install the example skill's `$BYTEDIGGER_HOME/...` paths) and apply each
     `bd:local begin/end` block from stdout as an addition to the section it names; no block ⇒
     no companion, nothing to apply;
   - **3** ⇒ STOP, report stderr (a refused build registers nothing — DesignReview F7);
-  - **anything else** (127: wrapper not found / both variables unset; 2; 1; crash) ⇒ use the
+  - **anything else** (127: wrapper not found — no substituted root and `$BYTEDIGGER_HOME` unset; 2; 1; crash) ⇒ use the
     core `SKILL.md` exactly as today and print one visible line
     `W_SKILL_COMPANION_UNAVAILABLE exit=<n> — host companion NOT applied`. Deliberate (gate
     r2 N1c, r3 P4): only a *verdict* — on the core or on the companion — may stop a build; an
@@ -354,11 +373,12 @@ inside tests (absent at `aa87816`, §1q). No mocks of `skill_companion`.
 | AC9 | op2 | after a valid `render`, delete the companion (commit the deletion) and `render` again → exit 0, stdout == core bytes (nothing stale) |
 | AC10 | op4 | the shipped `skills/bytedigger/SKILL.md` declares `project-conventions`, has exactly one such H2, and `check --core bytedigger --repo <git top level of the BD checkout>` against the real plugin root exits 0 (runs in BD CI) |
 | AC11 | Terms | a `.claude/skills/bytedigger-local/SKILL.md` fixture with `specializes: bytedigger` has no effect on `text` (only `bytedigger/companions/` is read) |
-| AC12 | op3 | prompt contract: in `phases/phase-0-classify.md` the `skill-companion" render --core bytedigger` step appears before "Create build-state.yaml"; in `commands/build.md` the `**Resumable:**` paragraph contains it before the word `read`; `commands/build.md` Phase 0, `skills/bytedigger/SKILL.md` "Load Pipeline" and `examples/claude-code-skill/SKILL.md` contain the invocation `${CLAUDE_PLUGIN_ROOT:-$BYTEDIGGER_HOME}`, the exit-0 "apply the `bd:local` blocks" rule, the exit-3 STOP rule and the `W_SKILL_COMPANION_UNAVAILABLE` fallback rule |
+| AC12 | op3 | prompt contract: in `phases/phase-0-classify.md` the `skill-companion" render --core bytedigger` step appears before "Create build-state.yaml"; in `commands/build.md` the `**Resumable:**` paragraph contains it before the word `read`; `commands/build.md` Phase 0, `skills/bytedigger/SKILL.md` "Load Pipeline" and `examples/claude-code-skill/SKILL.md` contain the invocation `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger` (changed from `${CLAUDE_PLUGIN_ROOT:-$BYTEDIGGER_HOME}` by the §1 item 4 measurement), the exit-0 "apply the `bd:local` blocks" rule, the exit-3 STOP rule and the `W_SKILL_COMPANION_UNAVAILABLE` fallback rule |
 | AC13 | registry | `E_SKILL_COMPANION_INVALID` in `error_codes.py` and both `ERROR_CODES.md`; `skill_companion.py` in `core_manifest.json`; `docs/configuration.md` names `bytedigger/companions/` and `role_template_path`; `CHANGELOG.md` `[Unreleased]` mentions #116; `core-boundary-lint.py` clean |
 | AC14 | coord | RED frozen on the post-#115 base; after the parser move: `verification_registry.discover` on a BOM + CRLF `SKILL.md` with `metadata.verification: true` registers it (a deliberate behaviour change for #115, from invisible to registered); an unreadable `metadata: {overridable: x}` in a core raises `FrontmatterError` from `lib/frontmatter.py` |
+| AC15 | op2/op3 (impl gate r1) | the real wrapper with **neither** `--plugin-root` nor `--repo` (cwd = repo top level), `CLAUDE_PLUGIN_ROOT` unset and set to `""` → plugin root = wrapper parent; a companion merged into the shipped core's empty `## Project conventions` section; the AC12 literal run through `bash -c` with `CLAUDE_PLUGIN_ROOT` substituted (plugin mode) and with `BYTEDIGGER_HOME` only (manual mode) → exit 0; the three skip rules; a symlinked / non-realpath `--repo` top level → exit 0; no repo + no companion via CLI → exit 0 + core bytes; ambient `GIT_DIR`/`GIT_INDEX_FILE` decoys do not change `resolve`; a BOM core keeps its BOM in `text`; no prompt file carries `${CLAUDE_PLUGIN_ROOT:-` |
 
-§1l production side-effect: AC7/AC9 run the shipped wrapper as a subprocess against a real
+§1l production side-effect: AC7/AC9/AC15 run the shipped wrapper as a subprocess against a real
 git repo, and its stdout is exactly what op3 feeds the orchestrator.
 
 ## §5 Files (for the implementation lot)
