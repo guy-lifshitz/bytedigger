@@ -51,7 +51,6 @@ _THIS = Path(__file__).resolve()
 _ENGINE_ROOT = _THIS.parents[1]        # …/engine_py/
 _BUILD_DIR = _THIS.parents[2]          # …/SYSTEM/cli/build/
 _SCRIPT = _BUILD_DIR / "baseline_delta_gate.py"
-_REPO_ROOT = _BUILD_DIR.parents[2]     # …/.claude/  (real repo, for AC7 ONLY)
 
 
 from bytedigger_engine import flags_catalog  # noqa: E402  (already exists — safe at module level)
