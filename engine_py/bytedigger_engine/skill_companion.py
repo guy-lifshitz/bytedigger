@@ -322,6 +322,23 @@ def _merge(core_text: str, core: _Doc, comp: _Doc, rel: str) -> str:
     return "".join(out)
 
 
+def overridable_sections(core_text: str) -> list[tuple[str, str]]:
+    """(title, body) of each section `metadata.overridable` lists, in declared order.
+
+    An entry with no matching H2 gives `(entry, "")`; reporting that is `check`'s job, not this
+    function's. Raises FrontmatterError for an unreadable `metadata` block. Used by `companion_tune`.
+    """
+    meta = (parse_frontmatter(core_text) or {}).get("metadata")
+    raw = meta.get("overridable") if isinstance(meta, dict) else None
+    wanted = [e.strip() for e in (raw or "").split(",") if e.strip()]
+    doc = _Doc(core_text)
+    by_slug = {sec.slug: sec for sec in reversed(doc.sections)}  # first section wins on a duplicate
+    return [
+        (by_slug[e].title, "\n".join(doc.body(by_slug[e]))) if e in by_slug else (e, "")
+        for e in wanted
+    ]
+
+
 def resolve(core_id: str, repo: str, plugin_root: str) -> dict[str, Any]:
     """Validate the companion of `core_id` in `repo` and return the merged text.
 
@@ -375,7 +392,7 @@ def _core_arg(value: str) -> str:
     return value
 
 
-def _default_plugin_root() -> str:
+def default_plugin_root() -> str:
     """Non-empty $CLAUDE_PLUGIN_ROOT, else the parent of the wrapper's directory.
 
     The wrapper puts its own `../engine_py` on PYTHONPATH, so this module's
@@ -393,7 +410,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--plugin-root", default=None, dest="plugin_root")
     parser.add_argument("--json", action="store_true", dest="json_output")
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
-    plugin_root = args.plugin_root or _default_plugin_root()
+    plugin_root = args.plugin_root or default_plugin_root()
     try:
         res = resolve(args.core, args.repo, plugin_root)
     except UsageError as exc:

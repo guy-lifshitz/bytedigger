@@ -37,6 +37,7 @@ from bytedigger_engine.lib.git_port import GitResult, git_read
 from bytedigger_engine.lib.git_write_port import git_op_capture
 
 LABEL_DEFAULT = "plan-approved"
+BUILT_MARKER = "<!-- bd:built -->"  # bd#117 op-B1: last PR-body line; scripts/ship.sh appends the same literal
 POLICY_REF = "refs/bd/policy"
 MAX_RECORD_CHARS = 65536
 
@@ -373,7 +374,8 @@ def read_issue_connection(repo: Path, owner: str, name: str, number: int, conn: 
     return _paged(repo, owner, name, number, conn, _ISSUE_QUERY % selection)
 
 
-# Shared with companion_tune (Part B): one git / gh / policy layer, not a second copy.
+# Helpers shared with companion_tune (bd#117 Part B): one git / gh / policy layer, not a second copy.
+# Public: read_policy_blob, gh_capture, read_issue_connection, and the aliases below.
 Unavailable = _Unavailable
 parse_github = _parse_github
 git_env = _git_env

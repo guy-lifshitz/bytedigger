@@ -40,23 +40,26 @@ from typing import Any, NamedTuple
 
 from bytedigger_engine import readiness
 from bytedigger_engine.lib.bounded_spawn import TIMEOUT_RETURNCODE, bounded_run
-from bytedigger_engine.lib.frontmatter import FrontmatterError, parse_frontmatter
+from bytedigger_engine.lib.frontmatter import FrontmatterError
 from bytedigger_engine.lib.git_port import GitResult
 from bytedigger_engine.lib.git_write_port import git_op_capture
-from bytedigger_engine.skill_companion import COMPANION_DIR, _Doc
+from bytedigger_engine.skill_companion import COMPANION_DIR, default_plugin_root, overridable_sections
 
-CODE_REFUSED = "E_COMPANION_TUNE_REFUSED"
+CODE_REFUSED ="E_COMPANION_TUNE_REFUSED"
 CODE_DRAFT_INVALID = "E_COMPANION_TUNE_DRAFT_INVALID"
 CODE_UNAVAILABLE = "E_COMPANION_TUNE_UNAVAILABLE"
 CODE_TRUNCATED = "E_COMPANION_TUNE_TRUNCATED"
 
-BUILT_MARKER = "<!-- bd:built -->"
 BRANCH_PREFIX = "bd/companion-tune-"
 LIST_LIMIT = 1000
 _TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
 _MODEL_TIMEOUT_S = 900
 _CHECK_TIMEOUT_S = 120
 _GIT_WRITE_TIMEOUT_S = 120
+
+# Hooks off for the tuner commit. Set AFTER readiness.git_env(), which scrubs GIT_CONFIG_*. `--no-verify`
+# alone would leave prepare-commit-msg and post-commit, and the repo's hooksPath may be a tracked directory.
+_NO_HOOKS_ENV = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath", "GIT_CONFIG_VALUE_0": "/dev/null"}
 
 _TUNE_LINE_RE = re.compile(r"^<!-- bd:tune signals=(\S*) -->$")
 _FILE_OPEN_RE = re.compile(r"^<<<bd:file path=(.*)>>>$")
@@ -239,7 +242,7 @@ def _pr_info(ctx: _Ctx, number: int) -> dict[str, Any]:
 
 
 def _is_built(ctx: _Ctx, row: dict[str, Any]) -> bool:
-    return _is_bd(ctx, _login(row)) and _has_line(row.get("body"), BUILT_MARKER)
+    return _is_bd(ctx, _login(row)) and _has_line(row.get("body"), readiness.BUILT_MARKER)
 
 
 def _in_this_repo(ctx: _Ctx, ref: dict[str, Any]) -> bool:
@@ -428,9 +431,8 @@ def _stage_files(wt: str, paths: list[str]) -> GitResult:
 
 def _commit_files(wt: str, message: str, env: dict[str, str]) -> GitResult:
     return readiness.guard_git(
-        lambda: git_op_capture(["git", "-c", "core.hooksPath=/dev/null", "commit", "--no-verify", "-q", "-m", message],
-                               cwd=wt,
-                               timeout=_GIT_WRITE_TIMEOUT_S, env=env),
+        lambda: git_op_capture(["git", "commit", "--no-verify", "-q", "-m", message], cwd=wt,
+                               timeout=_GIT_WRITE_TIMEOUT_S, env={**env, **_NO_HOOKS_ENV}),
         "commit", False)
 
 
@@ -489,25 +491,18 @@ def _overridable_sections(plugin_root: str, core: str) -> list[tuple[str, str]]:
     """(title, body) of each section the core skill lets a host extend."""
     core_path = Path(plugin_root) / "skills" / core / "SKILL.md"
     try:
-        text = core_path.read_text(encoding="utf-8")
-        meta = (parse_frontmatter(text) or {}).get("metadata")
+        return overridable_sections(core_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, FrontmatterError) as exc:
         raise _unavailable(f"cannot read core skill {core_path}: {exc}") from exc
-    raw = meta.get("overridable") if isinstance(meta, dict) else None
-    wanted = [e.strip() for e in (raw or "").split(",") if e.strip()]
-    doc = _Doc(text)
-    by_slug = {sec.slug: sec for sec in reversed(doc.sections)}
-    return [
-        (by_slug[e].title, "\n".join(doc.body(by_slug[e]))) if e in by_slug else (e, "")
-        for e in wanted  # a missing section is the checker's verdict to give, not ours
-    ]
 
 
 def _checker(plugin_root: str) -> str:
     shipped = Path(plugin_root) / "scripts" / "skill-companion"
     if shipped.is_file():
         return str(shipped)
-    return str(Path(__file__).resolve().parents[2] / "scripts" / "skill-companion")
+    # The wrapper next to scripts/companion-tune. Absent on a wheel-only install: bash then exits 127,
+    # `_check_companion` maps that to E_COMPANION_TUNE_UNAVAILABLE (exit 4) before any model call or push.
+    return str(Path(default_plugin_root()) / "scripts" / "skill-companion")
 
 
 def _check_companion(plugin_root: str, core: str, wt: str) -> tuple[int, str]:
@@ -637,8 +632,7 @@ def _propose(args: argparse.Namespace) -> int:
         if row.get("state") == "OPEN":
             print(f"skipped: open PR #{row.get('number')}")
             return 0
-    plugin_root = args.plugin_root or os.environ.get("CLAUDE_PLUGIN_ROOT") or str(
-        Path(__file__).resolve().parents[2])
+    plugin_root = args.plugin_root or default_plugin_root()
     sections = _overridable_sections(plugin_root, args.core)
     if not sections:
         print("nothing overridable")
