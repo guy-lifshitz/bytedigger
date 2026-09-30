@@ -156,7 +156,7 @@ from bytedigger_engine.lib.spec_retry_cycle import (  # noqa: E402  CF480CAE SSO
     VERDICT_UNKNOWN,
 )
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
-from bytedigger_engine.spec_cite import BLOCKING_STATUSES, lint_spec  # noqa: E402  GH675A, bd#87
+from bytedigger_engine.spec_cite import BLOCKING_STATUSES, lint_spec, missing_citation_recorder  # noqa: E402  GH675A, bd#87, GH1893
 from bytedigger_engine.error_codes import ERROR_CODES  # noqa: E402  GH824
 
 
@@ -673,7 +673,7 @@ def _grounded_citation_contract() -> str:
         "     (E_SPEC_CITE_LINT_FAIL). Write introduced symbols as plain backtick\n"
         "     code labelled NEW (rule 7), with no file: prefix. Citation form is\n"
         "     reserved for EXISTING code you Read this turn.\n"
-        # bd#87: the declarative form the cite-lint reads as an allowlist
+        # bd#87 / GH1893: the declarative form the cite-lint reads as an allowlist
         " 10. Declare what this spec introduces, starting each line exactly as\n"
         "     shown (no bold, no backticks around the keyword):\n"
         "         INTRODUCES: `symbol`\n"
@@ -681,7 +681,11 @@ def _grounded_citation_contract() -> str:
         "     or list introduced symbols as backtick bullets under a\n"
         "     \"## Symbols this spec INTRODUCES\" heading. A cited file that\n"
         "     neither exists nor is declared fails the cite-lint, and so does a\n"
-        "     spec with no checkable citation at all.\n"
+        "     spec with no checkable citation at all. An INTRODUCES line or\n"
+        "     bullet must NOT also name a file (a `.py`/`.ts`/`.sh` token on the\n"
+        "     same line): such a line is read as a citation and declares\n"
+        "     nothing. Declarations inside a fenced code block of ANY kind —\n"
+        "     including untagged ``` and ```python — are ignored.\n"
     )
 
 
@@ -3634,7 +3638,7 @@ def _reality_blocking(spec_text: str, repo_root: Path) -> list[spec_cite.Finding
     rel_paths = [p.relative_to(repo_root).as_posix() for p in spec_cite._iter_code_files(repo_root)] if missing else []
     rewrites = {
         path: full for path in missing
-        if (full := next((r for r in rel_paths if r.endswith("/" + spec_cite._norm_path(path))), None))
+        if (full := next((r for r in rel_paths if r.endswith("/" + spec_cite.norm_spec_path(path))), None))
     }
     for path, full in rewrites.items():
         spec_text = re.sub(r"(?<![\w./-])" + re.escape(path) + r"(?![\w/-])", full, spec_text)
@@ -3811,6 +3815,12 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
     # of erroring immediately.
     resolved_dirs: set[str] = set()
     pending_misses: list[tuple[str, int]] = []
+    # GH1893 §2.3/§4: a missing citation to a repo-rooted line-only `CREATE:`
+    # target is advisory (WARNING), anything else goes to the pass-2 retry.
+    # The decision lives in spec_cite so this block's CC stays frozen (GH1272 AC3).
+    record_missing = missing_citation_recorder(
+        content, repo_top_level_dirs(), git_cwd, findings, pending_misses,
+    )
     for m in _CITATION_RE.finditer(content):
         path_str = m.group(1)
         line_num = int(m.group(2))
@@ -3839,7 +3849,7 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
             continue
 
         if resolved is None:
-            pending_misses.append((path_str, line_num))
+            record_missing(path_str, line_num)
             continue
 
         if resolved_via in ("git_cwd", "suffix_map"):

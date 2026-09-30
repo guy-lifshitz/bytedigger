@@ -94,7 +94,7 @@ def seed_tokens(text: str) -> Seeds:
     files: set[str] = set()
     for m in spec_cite._CODE_FILE_RE.finditer(text):
         if spec_cite._is_file_token(m.group(0)):
-            files.add(spec_cite._norm_path(m.group(0)))
+            files.add(spec_cite.norm_spec_path(m.group(0)))
     symbols: set[str] = set()
     for tok in spec_cite._BACKTICK_RE.findall(text):
         tok = tok.strip()
@@ -504,7 +504,7 @@ def unanchored_criteria(spec_text: str, repo_root: Path | str) -> list[dict[str,
 
     def exists(token: str) -> bool:
         if _is_path(token):
-            return (root / spec_cite._norm_path(token)).is_file() or spec_cite._norm_path(token) in created
+            return (root / spec_cite.norm_spec_path(token)).is_file() or spec_cite.norm_spec_path(token) in created
         return token.removesuffix("()") in introduced or spec_cite._symbol_in_repo(token, index)
 
     failing: list[dict[str, Any]] = []
