@@ -219,8 +219,19 @@ def _symref_head(ls_remote_out: str) -> str | None:
     return None
 
 
-def _load_policy(repo: Path) -> _Policy | None:
-    """Decision table, policy half. None = off; raises _Unavailable(policy=True) when unreadable."""
+class PolicyBlob(NamedTuple):
+    """The push target's default-branch ``bytedigger.json`` (``{}`` when the file is absent)."""
+
+    push_url: str
+    default_ref: str  # e.g. refs/heads/main; its tip is now refs/bd/policy
+    data: dict[str, Any]
+
+
+def read_policy_blob(repo: Path) -> PolicyBlob | None:
+    """Policy read shared with Part B: push URL -> default branch -> refs/bd/policy -> bytedigger.json.
+
+    None = no origin, or an empty push target. Raises _Unavailable(policy=True) when unreadable.
+    """
     if not os.path.isdir(_cwd(repo)):
         return None  # not a directory, so no origin to push to
     res = _git(repo, ["remote", "get-url", "--push", "--all", "origin"])
@@ -246,7 +257,7 @@ def _load_policy(repo: Path) -> _Policy | None:
             f"git fetch of the policy ref failed: {res.stderr.strip() or res.returncode}", policy=True)
     status, payload = read_blob(repo, POLICY_REF, "bytedigger.json", env=_git_env())
     if status == "absent":
-        return None
+        return PolicyBlob(push_url, default_ref, {})
     if status != "ok" or not isinstance(payload, bytes):
         raise _Unavailable(f"cannot read bytedigger.json: {payload}", policy=True)
     try:
@@ -255,9 +266,16 @@ def _load_policy(repo: Path) -> _Policy | None:
         raise _Unavailable(f"bytedigger.json is not valid JSON: {exc}", policy=True) from exc
     if not isinstance(data, dict):
         raise _Unavailable("bytedigger.json is not a JSON object", policy=True)
-    if "readiness" not in data:
+    return PolicyBlob(push_url, default_ref, data)
+
+
+def _load_policy(repo: Path) -> _Policy | None:
+    """Decision table, policy half. None = off; raises _Unavailable(policy=True) when unreadable."""
+    blob = read_policy_blob(repo)
+    if blob is None or "readiness" not in blob.data:
         return None
-    cfg = data["readiness"]
+    push_url = blob.push_url
+    cfg = blob.data["readiness"]
     if not isinstance(cfg, dict):
         raise _Unavailable("readiness is not an object", policy=True)
     required = cfg.get("required", False)
@@ -291,8 +309,11 @@ def _current_branch(repo: Path) -> str:
 # --------------------------------------------------------------------------- gh
 
 
-def _gh(repo: Path, args: list[str], stdin: str | None = None) -> str:
-    """Run gh (binary resolved by the config provider); return stdout or raise _Unavailable."""
+def gh_capture(repo: Path, args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
+    """Run gh (binary resolved by the config provider) -> (rc, stdout, stderr).
+
+    Raises _Unavailable only for a spawn failure or a timeout; a gh exit code is the caller's to judge.
+    """
     gh_bin = get_config().binary("HAL_GH_BIN", "gh")
     try:
         proc = bounded_run(
@@ -303,9 +324,15 @@ def _gh(repo: Path, args: list[str], stdin: str | None = None) -> str:
         raise _Unavailable(f"gh: {exc}") from exc
     if proc.returncode == TIMEOUT_RETURNCODE:
         raise _Unavailable(f"gh {args[0]}: timeout after {_GH_TIMEOUT_S}s")
-    if proc.returncode != 0:
-        raise _Unavailable(f"gh {args[0]} exited {proc.returncode}: {(proc.stderr or '').strip()[:200]}")
-    return proc.stdout or ""
+    return proc.returncode, proc.stdout or "", (proc.stderr or "").strip()
+
+
+def _gh(repo: Path, args: list[str], stdin: str | None = None) -> str:
+    """Run gh; return stdout or raise _Unavailable on any failure."""
+    rc, out, err = gh_capture(repo, args, stdin)
+    if rc != 0:
+        raise _Unavailable(f"gh {args[0]} exited {rc}: {err[:200]}")
+    return out
 
 
 def _parse_page(out: str, conn: str) -> tuple[list[dict[str, Any]], bool, str | None]:
@@ -338,6 +365,21 @@ def _paged(repo: Path, owner: str, name: str, number: int, conn: str, query: str
         if not has_next:
             return nodes
     raise _Unavailable(f"too many {conn} pages")
+
+
+def read_issue_connection(repo: Path, owner: str, name: str, number: int, conn: str,
+                          selection: str) -> list[dict[str, Any]]:
+    """All nodes of ``issue(number).<conn>``; ``selection`` is the connection field with ``after:$after``."""
+    return _paged(repo, owner, name, number, conn, _ISSUE_QUERY % selection)
+
+
+# Shared with companion_tune (Part B): one git / gh / policy layer, not a second copy.
+Unavailable = _Unavailable
+parse_github = _parse_github
+git_env = _git_env
+git_checked = _git
+guard_git = _guard
+one_line = _one_line
 
 
 def _read_comments(repo: Path, owner: str, name: str, number: int) -> list[_Comment]:

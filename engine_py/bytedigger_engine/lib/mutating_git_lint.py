@@ -95,6 +95,11 @@ DECLARED_NON_GIT_CWD_SITES: "dict[str, str]" = {
         "readiness.py — bd#117: git_cwd is a parameter (the repo being checked), never lib.git_cwd; "
         "writes only refs/bd/policy, never the working tree or index"
     ),
+    "_add_worktree": "companion_tune.py — bd#117: git_cwd is a parameter (the repo being tuned); adds a detached temporary worktree, never touches the user's checkout",
+    "_stage_files": "companion_tune.py — bd#117: stages only inside the temporary worktree (cwd is the worktree, not the user's tree)",
+    "_commit_files": "companion_tune.py — bd#117: commits only inside the temporary worktree, detached HEAD, no branch ref",
+    "_push_branch": "companion_tune.py — bd#117: pushes the tuner branch (never the default branch) from the temporary worktree",
+    "_remove_worktree": "companion_tune.py — bd#117: removes the temporary worktree it created; git_cwd is a parameter",
     "_cleanup_worktrees": "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd",
     "_cleanup_gone_branches": "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd",
     "_compute_full_suite_baseline": "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd",

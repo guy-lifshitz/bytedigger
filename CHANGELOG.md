@@ -14,6 +14,14 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Added
 
+- **Weekly companion tuning (bd#117, Part B).** New `scripts/companion-tune collect|propose`
+  (`bytedigger_engine/companion_tune.py`). `collect` reads maintainer corrections (a reopened issue closed
+  by a BD-built PR, a watched label added or removed) into `signals.json`; `propose` asks one model call for
+  a new `bytedigger/companions/<core>.md`, refuses any diff beyond that file, runs the #116 checker, and
+  opens a PR for a human. Config: `tuning.bd_logins`, `bot_logins`, `watched_labels` in `bytedigger.json`.
+  Every PR opened by `ship.sh` and `ship_to_pr` now ends its body with `<!-- bd:built -->`. Error codes
+  `E_COMPANION_TUNE_REFUSED`, `_DRAFT_INVALID`, `_UNAVAILABLE`, `_TRUNCATED`. New
+  `examples/github-actions/companion-tune.yml`.
 - **`plan-approved` readiness gate (bd#117, Part A).** A repo opts in with `"readiness": {"required":
   true}` in `bytedigger.json` on the default branch of the repository BD pushes to (optional keys
   `label`, `approvers`, `distinct_actor`). `scripts/ship.sh --pr` and the engine's `ship_to_pr` then

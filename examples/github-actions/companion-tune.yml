@@ -1,0 +1,45 @@
+# Weekly companion tuning (bd#117 Part B). Copy this file into your repository's
+# .github/workflows/ directory; ByteDigger itself does not run it (it has no companion).
+#
+# Needs, in the repository settings:
+#   - Actions > General > Workflow permissions: "Allow GitHub Actions to create and approve pull requests"
+#   - bytedigger.json on the default branch with a `tuning` object; under GITHUB_TOKEN `gh api user`
+#     is 403, so `tuning.bd_logins` must list the account that authors your BD-built PRs.
+#   - A model command on the runner (set LLM_COMMAND, e.g. `claude -p --model <model>`).
+name: companion-tune
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: guy-lifshitz/bytedigger
+          path: .bytedigger-core
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Collect signals
+        run: |
+          .bytedigger-core/scripts/companion-tune collect --repo . --since 7d --out signals.json --plugin-root .bytedigger-core
+      - name: Propose a companion change
+        env:
+          LLM_COMMAND: ${{ vars.LLM_COMMAND }}
+        run: |
+          .bytedigger-core/scripts/companion-tune propose --core bytedigger --signals signals.json --repo . --plugin-root .bytedigger-core ${LLM_COMMAND:+--llm-command "$LLM_COMMAND"}

@@ -100,6 +100,8 @@ from bytedigger_engine.readiness import parse_issue_from_branch as _parse_issue_
 
 logger = logging.getLogger(__name__)
 
+_BUILT_MARKER = "<!-- bd:built -->"  # bd#117 op-B1; scripts/ship.sh appends the same line
+
 
 def _emit_safe(event_type: str, payload: dict) -> None:
     """Emit telemetry event via current run context; swallow all errors.
@@ -666,6 +668,8 @@ def _ship_to_pr(ctx, prev) -> StepResult:
 
     # Derive PR metadata (AC10) — prefer synthesizer report over commit subject/trail
     title, body = _derive_pr_metadata(ctx, org_config, cwd, branch, main)
+    # Provenance marker (bd#117 op-B1): always the last body line, after any ship_pr_body override.
+    body = f"{body}\n{_BUILT_MARKER}" if body else _BUILT_MARKER
 
     # Create PR (AC6/AC9)
     rc_pc, pc_out, pc_err = _gh(

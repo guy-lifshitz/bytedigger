@@ -197,7 +197,9 @@ PR_URL=""
 
 # PR creation is best-effort: gh may be absent, may fail auth, may fail network
 if command -v "$GH_BIN" &>/dev/null; then
-  PR_URL=$("$GH_BIN" pr create --title "$TASK" --body "Built via ByteDigger /build pipeline." 2>/dev/null) || {
+  # The last body line is the provenance marker (bd#117 op-B1): the companion tuner only trusts it on a BD-authored PR.
+  PR_BODY=$'Built via ByteDigger /build pipeline.\n<!-- bd:built -->'
+  PR_URL=$("$GH_BIN" pr create --title "$TASK" --body "$PR_BODY" 2>/dev/null) || {
     echo "WARNING: gh pr create failed — skipping PR creation. Push complete, open a PR manually." >&2
     PR_URL=""
   }
