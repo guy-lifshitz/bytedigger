@@ -1,6 +1,6 @@
 # bd#133 — PreToolUse path guard for subagent Write/Edit
 
-**Status: FROZEN Rev 2.1** (gate r1 REJECT → F1–F6 + minors; gate r2 PASS; r2 advisories n1–n3 folded in) · **Class:** SYSTEMATIC · **Chokepoint:** one new PreToolUse hook,
+**Status: FROZEN Rev 3** (gate r1 REJECT → F1–F6 + minors; gate r2 PASS; r2 advisories n1–n3; /code-review CR1, CR3, CR7 folded in) · **Class:** SYSTEMATIC · **Chokepoint:** one new PreToolUse hook,
 `hooks/worker-write-guard.sh`, registered in `hooks/hooks.json` for
 `Write|Edit|MultiEdit|NotebookEdit`. Every file write a subagent makes through a file tool
 passes it.
@@ -68,16 +68,21 @@ Definitions:
 - **Target** = the path string made absolute against `cwd`, then `os.path.realpath` (symlinks
   and `..` resolved; a not-yet-existing leaf resolves through its existing parents).
 - **Scratchpad** = `realpath(scratchpad_dir made absolute against cwd)` (F6; a trailing `/` is
-  harmless). **Allowed dirs** = `realpath(<scratchpad>/research)`, `…/architecture`,
-  `…/reviews`; an allowed dir whose realpath is not strictly under Scratchpad is dropped
+  harmless). **Allowed dir (CR3)** = one per role: explorer → `realpath(<scratchpad>/research)`,
+  architect → `…/architecture`, synthesizer → `…/reviews` (so an explorer cannot write
+  `reviews/learnings-raw.md`, which Phase 7 persists into future builds); the allowed dir whose realpath is not strictly under Scratchpad is dropped
   (m12: a symlinked `research -> /project` grants nothing).
 - **Inside (m6)**: target is inside dir D ⇔ target starts with `D + "/"`. target == D is
   outside; `research-evil/x` is outside `research`.
-- **Protected name (F2, m1)**: target is protected if the `casefold()` of the raw path's
-  basename or of the resolved basename equals `build-state.yaml` or `build-metadata.json`, or
-  the target exists and is `os.path.samefile` with `<cwd>/build-state.yaml` or
-  `<cwd>/build-metadata.json` (hardlink). The message names the canonical lowercase file
-  name.
+- **Protected names (F2, m1, CR1)**: `build-state.yaml`, `build-metadata.json`,
+  `build-red-output.log`, `build-green-output.log`, `.bytedigger-orchestrator-pid`. The two
+  logs are gate evidence (`gate_phase_51` greps the RED log); their legitimate writer is
+  `<test-cmd> | tee` in Bash, never a file tool. The pid file is touched by the orchestrator.
+  (`build-opus-validation.md`, `build-plan-review.md`, `build-tests.md` stay writable: phase
+  prompts tell subagents to write them.) Target is protected if the `casefold()` of the raw
+  path's basename or of the resolved basename is a protected name, or the target exists and
+  is `os.path.samefile` with `<cwd>/<protected name>` (hardlink). The message names the
+  canonical file name.
 
 ## §4 Decision table (first matching row wins)
 
@@ -89,15 +94,15 @@ Definitions:
 | R4 | not a subagent call | allow |
 | R5 | target is protected (§3) | **block** |
 | R6 | role is read-only and `scratchpad_dir` is empty | **block** |
-| R7 | role is read-only and target is not inside an allowed dir | **block** |
+| R7 | role is read-only and target is not inside its allowed dir | **block** |
 | R8 | otherwise | allow |
 
 Block = exit 2, one line on stderr (Claude Code feeds stderr back to the agent) and the same
 line on stdout, prefix `BLOCKED (bytedigger write guard): `. Exact reasons:
 - R3: `BLOCKED (bytedigger write guard): unreadable tool input during an active build`
-- R5: `BLOCKED (bytedigger write guard): subagents may not write <name>; it is orchestrator state` (`<name>` = `build-state.yaml` or `build-metadata.json`)
+- R5: `BLOCKED (bytedigger write guard): subagents may not write <name>; it is orchestrator state` (`<name>` = the canonical protected name)
 - R6: `BLOCKED (bytedigger write guard): <role> may write only its scratchpad deliverable, but build-state.yaml has no scratchpad_dir`
-- R7: `BLOCKED (bytedigger write guard): <role> may write only under <scratchpad>/{research,architecture,reviews}/, not <target>` (`<scratchpad>`, `<target>` = the realpaths of §3)
+- R7: `BLOCKED (bytedigger write guard): <role> may write only under <scratchpad>/<dir>/, not <target>` (`<dir>` = the role's dir name; `<scratchpad>`, `<target>` = the realpaths of §3)
 
 **Crash policy (n2).** Any unexpected error inside the check while a build is active (e.g.
 `ValueError` from a NUL byte in the path, `OSError` from `samefile`) → the R3 block (exit 2),
@@ -145,6 +150,11 @@ there; NTFS alias names (trailing dot/space, 8.3 short names); Claude Code < 2.1
 - A7 no python3 on PATH → exit 0 + the WARN line.
 - A8 docs: `docs/plugin.md` hooks table row; `docs/security.md` names the hook and every §4 known limit
   (m5, n1); CHANGELOG entry; CI `manifests` job runs the new test file.
+- A11 (CR1) each of the three added protected names → R5 for a general-purpose subagent;
+  main thread may write them. (CR3) explorer → `reviews/x.md` and synthesizer →
+  `research/x.md` are R7; architect → `architecture/security-review.md` allowed.
+  (CR7) `docs/security.md` and CHANGELOG do not claim the main thread is never blocked; they
+  say R5–R7 never apply to it.
 - A10 NUL byte in `file_path` during an active build → R3 line, exit 2 (n2).
 - A9 newline in a target path → the R7 reason is still one line, with `\n` written out (m11).
 
