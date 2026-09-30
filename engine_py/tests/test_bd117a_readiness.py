@@ -701,6 +701,7 @@ def test_ac_a1_get_url_spawn_failure_or_timeout_is_unavailable_not_off(tmp_path,
     "no origin". A spawn failure / timeout sentinel of `git remote get-url --push --all origin`
     (simulated by a git wrapper exiting 127 for that call only) is unavailable, never off:
     ship => exit 4, start => warn + exit 0; required:true policy, no gh call."""
+    # host-tool-hard-fail: git is a hard dependency of the whole readiness rig; every test in this file needs it
     rig = make_rig(tmp_path, monkeypatch)
     real_git = shutil.which("git")
     _write_exec(rig.root / "bin" / "git",
