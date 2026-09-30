@@ -310,6 +310,25 @@ phase_5_implement: complete
 
 ### Model: Always **Sonnet** for code generation (configurable via `bytedigger.json` → `agent_model`)
 
+### Registered verification skills (engine step `verify_registered_skills`)
+
+After the four fixed checks (`verify_green_lint_rules`, `verify_security_lint`,
+`verify_green_passing`, `verify_green_typecheck`) and before `commit_green_code`, the
+engine runs every skill the repo declares as a check: a `SKILL.md` under `skills/*/`,
+`.claude/skills/*/` or a `verification_skill_dirs` entry with `metadata.verification: true`
+and a `metadata.verify_command`. The report goes to
+`$SCRATCHPAD/reviews/verification-report.json`.
+
+- Any check that fails, times out, cannot start or changes the working tree stops the
+  phase with `E_VERIFICATION_SKILL_FAILED` (not recoverable).
+- A verifying `SKILL.md` registered at HEAD that GREEN modified or deleted stops the
+  phase with `E_VERIFICATION_REGISTRY_TAMPERED` before any check runs. Newly added
+  verifying skills are allowed and run.
+- A repo with no verifying skills sees no change: the step passes with an empty report.
+- Skills without `verify_command` (`agent` skills) are listed, never run by the engine.
+  After GREEN, run `commands/verify.md` to execute them through read-only agents; it
+  edits no tracked file.
+
 ## Step 3.5 — TEST INTEGRITY DIFF GUARD (MANDATORY before Phase 6)
 
 After GREEN completes and tests pass, orchestrator MUST verify test integrity:

@@ -319,9 +319,9 @@ class TestVerifyGreenPassingRegistration:
         ], (f"expected verify_security_lint between verify_green_lint_rules and verify_green_passing (gh341), got: {step_names}")
 
     def test_step_count_matches_expected(self) -> None:
-        """Total workflow step count == 12 (was 11 pre-gh341, 10 pre-34AEB235, 9 pre-4C0056FA, 8 pre-Step-3)."""
+        """Total workflow step count == 13 (was 12 pre-bd115, 11 pre-gh341, 10 pre-34AEB235, 9 pre-4C0056FA, 8 pre-Step-3)."""
         wf = phase_5_implement_workflow()
-        assert len(wf.steps) == 12, (
-            f"expected 12 steps after gh341 adds verify_security_lint, "
+        assert len(wf.steps) == 13, (
+            f"expected 13 steps after bd115 adds verify_registered_skills, "
             f"got {len(wf.steps)}; steps: {[s.name for s in wf.steps]}"
         )

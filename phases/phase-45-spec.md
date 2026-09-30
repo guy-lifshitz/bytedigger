@@ -153,6 +153,26 @@ This is the most cost-effective gate — design errors caught here save entire i
 
 6. **SIMPLE tasks skip this gate** — direct to Phase 5.
 
+### Scores and `review.json`
+
+The review also carries a REQUIRED `## Scores` section after `## Verdict`: one fenced
+JSON object scoring `completeness`, `clarity`, `feasibility`, `issue_alignment` and
+`consistency` from 1 to 5. Any axis below 3 means the verdict must be REVISE, with at
+least one `root: "spec"` structured finding naming that axis.
+
+The engine records every review in `specs/review.json` (cycle 1) or
+`specs/review-cycle-<N>.json` (cycle N >= 2), next to the review doc: `verdict`,
+`verdict_before_scores`, `scores_status` (`ok`, `absent`, `invalid`), `scores`,
+`min_score` and `low_axes`.
+
+- A SHIP with a low axis becomes REVISE and takes the normal REVISE path
+  (event `spec_review_score_downgrade`).
+- A frozen spec is never downgraded; the low axes are recorded
+  (event `spec_review_score_low_frozen`).
+- The restricted cycle-2 review (per-finding `FINDING_` lines) is record-only.
+- Missing or invalid scores never change the verdict (event `spec_review_scores_missing`),
+  so a custom reviewer template keeps working.
+
 ### Why separate agent:
 The agent that wrote the spec has confirmation bias. A fresh agent catches what the author assumes is obvious.
 

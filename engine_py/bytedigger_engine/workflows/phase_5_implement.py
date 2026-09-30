@@ -111,6 +111,7 @@ from bytedigger_engine.config_provider import env_mapping, foreign_state_dirname
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402  GH1123 4D604942 — checkpoint patch artifact
 from bytedigger_engine import flags_catalog  # noqa: E402  GH529
 from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
+from bytedigger_engine import verification_registry  # noqa: E402  bd#115
 from bytedigger_engine.suite_safety import scan_suite_safety
 from bytedigger_engine.stub_passability import scan_stub_passability
 from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema
@@ -8312,6 +8313,70 @@ def _commit_green_code(ctx, prev) -> StepResult:
     )
 
 
+def _verify_registered_skills(ctx, prev) -> StepResult:
+    """bd#115 op2: run the repo's registered verification skills after GREEN.
+
+    Refuses to run anything when a verifying SKILL.md registered at HEAD was
+    modified or deleted in the work tree (E_VERIFICATION_REGISTRY_TAMPERED).
+    Otherwise runs `verification_registry.run_registry`, writes the report to
+    `$SCRATCHPAD/reviews/verification-report.json` and emits
+    `verification_registry_report`. Not ok -> E_VERIFICATION_SKILL_FAILED.
+    An ambient git_cwd only lists the registry (execute=False), emits
+    `verification_registry_skipped_ambient` and returns ok.
+    """
+    step_name = "verify_registered_skills"
+    cfg = getattr(ctx, "org_config", None) or {}
+    prev_data = dict(prev.data) if prev is not None and isinstance(prev.data, dict) else {}
+    repo, source = _resolve_git_cwd_with_source(ctx, prev)
+    ambient = is_ambient_git_cwd(source)
+    extra_dirs = tuple(str(d) for d in (cfg.get("verification_skill_dirs") or []))
+    try:
+        timeout_sec = float(cfg.get("verification_timeout_sec", verification_registry.DEFAULT_TIMEOUT_SEC))
+    except (TypeError, ValueError):
+        timeout_sec = float(verification_registry.DEFAULT_TIMEOUT_SEC)
+
+    tampered: list[str] = [] if ambient else verification_registry.head_registry_tampered(repo, extra_dirs)
+    if tampered:
+        return StepResult(
+            status="error", data=prev_data, duration_ms=0, step_name=step_name,
+            error=f"verification registry changed since HEAD (modified or deleted): {', '.join(tampered)}",
+            error_code="E_VERIFICATION_REGISTRY_TAMPERED",
+            recoverable=False,
+        )
+
+    # Ambient git_cwd: list only — no foreign code runs, no objects are written;
+    # commit_green_code refuses the ambient cwd next.
+    report = verification_registry.run_registry(
+        repo, extra_dirs=extra_dirs, timeout_sec=timeout_sec, execute=not ambient,
+    )
+    report_path: str | None = None
+    try:
+        path = _resolve_scratchpad(ctx) / "reviews" / "verification-report.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, json.dumps(report, sort_keys=True, indent=2) + "\n")
+        report_path = str(path)
+    except (ValueError, OSError) as exc:
+        logger.warning("verification report not written: %s", exc)
+    _emit_safe("verification_registry_report", {
+        "summary": report["summary"], "ok": report["ok"], "report_path": report_path,
+    })
+    data = {**prev_data, "verification_report_path": report_path}
+    if ambient:
+        _emit_safe("verification_registry_skipped_ambient", {
+            "git_cwd_source": source, "summary": report["summary"], "report_path": report_path,
+        })
+    if ambient or report["ok"]:
+        return StepResult(status="ok", data=data, duration_ms=0, step_name=step_name)
+    failing = verification_registry.failing_skill_names(report)
+    failing += [f"{e['path']} ({e['reason']})" for e in verification_registry.blocking_errors(report)]
+    return StepResult(
+        status="error", data=data, duration_ms=0, step_name=step_name,
+        error=f"verification skills failed: {', '.join(failing)}",
+        error_code="E_VERIFICATION_SKILL_FAILED",
+        recoverable=False,
+    )
+
+
 def phase_5_implement_workflow() -> WorkflowDefinition:
     return WorkflowDefinition(
         name="phase_5_implement",
@@ -8326,6 +8391,7 @@ def phase_5_implement_workflow() -> WorkflowDefinition:
             StepContract(name="verify_security_lint", execute=_verify_security_lint),
             StepContract(name="verify_green_passing", execute=_verify_green_passing),
             StepContract(name="verify_green_typecheck", execute=_verify_green_typecheck),
+            StepContract(name="verify_registered_skills", execute=_verify_registered_skills),
             StepContract(name="commit_green_code", execute=_commit_green_code),
             step(
                 "green_watchdog",

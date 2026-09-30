@@ -12,6 +12,23 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Added
+
+- **Verification skills registry (bd#115).** A `SKILL.md` with `metadata.verification: true`
+  under `skills/*/`, `.claude/skills/*/` or an `org_config["verification_skill_dirs"]` entry
+  declares a check. Phase 5 runs every such skill that has a `metadata.verify_command` in the new
+  step `verify_registered_skills` (after `verify_green_typecheck`, before `commit_green_code`) and
+  writes `$SCRATCHPAD/reviews/verification-report.json`. A failing, timed-out or tree-mutating check
+  stops the phase with `E_VERIFICATION_SKILL_FAILED`; a verifying `SKILL.md` from HEAD modified or
+  deleted by GREEN stops it with `E_VERIFICATION_REGISTRY_TAMPERED`. Repos with no verifying
+  skills see no change. New `python3 -m bytedigger_engine.run verify` and `commands/verify.md`
+  run the same registry on demand, report only. Timeout: `verification_timeout_sec` (default 300).
+- **Scored spec review (bd#115).** The phase 4.5 reviewer now returns a `## Scores` block
+  (`completeness`, `clarity`, `feasibility`, `issue_alignment`, `consistency`, 1 to 5). Every review
+  is recorded in `specs/review.json` (`specs/review-cycle-<N>.json` for later cycles). A SHIP with an
+  axis below 3 becomes REVISE, except for frozen specs and the restricted cycle-2 review, which only
+  record it. Missing or invalid scores never change the verdict.
+
 ## [0.2.0] — 2026-09-30
 
 ### Changed — BREAKING
