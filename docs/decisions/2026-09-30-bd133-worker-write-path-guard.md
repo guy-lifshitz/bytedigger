@@ -1,6 +1,6 @@
 # bd#133 — PreToolUse path guard for subagent Write/Edit
 
-**Status: FROZEN Rev 2** (Opus gate r1: REJECT → F1–F6 + m1–m6, m8, m11, m12 folded in) · **Class:** SYSTEMATIC · **Chokepoint:** one new PreToolUse hook,
+**Status: FROZEN Rev 2.1** (gate r1 REJECT → F1–F6 + minors; gate r2 PASS; r2 advisories n1–n3 folded in) · **Class:** SYSTEMATIC · **Chokepoint:** one new PreToolUse hook,
 `hooks/worker-write-guard.sh`, registered in `hooks/hooks.json` for
 `Write|Edit|MultiEdit|NotebookEdit`. Every file write a subagent makes through a file tool
 passes it.
@@ -98,6 +98,13 @@ line on stdout, prefix `BLOCKED (bytedigger write guard): `. Exact reasons:
 - R6: `BLOCKED (bytedigger write guard): <role> may write only its scratchpad deliverable, but build-state.yaml has no scratchpad_dir`
 - R7: `BLOCKED (bytedigger write guard): <role> may write only under <scratchpad>/{research,architecture,reviews}/, not <target>` (`<scratchpad>`, `<target>` = the realpaths of §3)
 
+**Crash policy (n2).** Any unexpected error inside the check while a build is active (e.g.
+`ValueError` from a NUL byte in the path, `OSError` from `samefile`) → the R3 block (exit 2),
+never exit 1 (the host treats exit 1 as non-blocking).
+
+**R5 name (n3).** When the raw name and the resolved/samefile file differ, `<name>` is the
+resolved/samefile file.
+
 In every message, a `\n` or `\r` character inside an interpolated value is written as the two
 characters `\n` / `\r` (m11), so the reason stays one line.
 
@@ -135,8 +142,9 @@ there; NTFS alias names (trailing dot/space, 8.3 short names); Claude Code < 2.1
   allow everything (incl. state file). Parsing: a `task:` line containing `current_phase:
   completed` does not switch the guard off; a CRLF state file parses (F3).
 - A7 no python3 on PATH → exit 0 + the WARN line.
-- A8 docs: `docs/plugin.md` hooks table row; `docs/security.md` names the hook and the Bash
-  limit (m5); CHANGELOG entry; CI `manifests` job runs the new test file.
+- A8 docs: `docs/plugin.md` hooks table row; `docs/security.md` names the hook and every §4 known limit
+  (m5, n1); CHANGELOG entry; CI `manifests` job runs the new test file.
+- A10 NUL byte in `file_path` during an active build → R3 line, exit 2 (n2).
 - A9 newline in a target path → the R7 reason is still one line, with `\n` written out (m11).
 
 ## §6 Tests
