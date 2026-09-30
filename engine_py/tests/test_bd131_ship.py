@@ -1069,16 +1069,28 @@ def test_ac20_helper_imports_are_stdlib_only():
 # =========================================================================== AC21-AC23: leftovers / docs
 
 
-def test_ac21_gitignore_covers_cycle_files_and_session_file():
-    """AC21: .gitignore lists both entries and git check-ignore confirms them in this repo."""
+def test_ac21_gitignore_covers_cycle_files_and_session_file(tmp_path):
+    """AC21: .gitignore lists both entries and git check-ignore (in a fresh hermetic repo holding a copy of it,
+    so the clean-room tree without .git works) confirms them; negative controls stay unignored."""
     lines = (REPO_ROOT / ".gitignore").read_text().splitlines()
     assert "build-*-cycle*.md" in lines, "missing .gitignore line build-*-cycle*.md"
     assert ".bytedigger-sessions.json" in lines, "missing .gitignore line .bytedigger-sessions.json"
+    scratch = tmp_path / "ignore-repo"
+    scratch.mkdir()
+    (scratch / ".gitignore").write_text("\n".join(lines) + "\n")
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+    for k in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        env.pop(k, None)
+    subprocess.run(["git", "init", "-q"], cwd=str(scratch), check=True, capture_output=True, timeout=60, env=env)
+
+    def check(path: str) -> int:
+        return subprocess.run(["git", "check-ignore", "-q", "--no-index", path], cwd=str(scratch),
+                              capture_output=True, timeout=60, env=env).returncode
+
     for path in ("build-plan-review-cycle1.md", "build-opus-validation-cycle2.md", ".bytedigger-sessions.json"):
-        proc = subprocess.run(["git", "check-ignore", "-v", "--no-index", path], cwd=str(REPO_ROOT),
-                              capture_output=True, text=True, timeout=60)
-        assert proc.returncode == 0, f"{path} is not ignored"
-        assert proc.stdout.startswith(".gitignore:"), f"{path} must be ignored by .gitignore: {proc.stdout!r}"
+        assert check(path) == 0, f"{path} is not ignored by the repo .gitignore"
+    for control in ("notes.md", "build-plan-review.md.txt"):
+        assert check(control) == 1, f"negative control {control} must not be ignored"
 
 
 def _section(text: str, start_pat: str, end_pat: str | None) -> str:
