@@ -128,6 +128,22 @@ describe("AC4 — phase 4 gate: findings must be non-empty, approach deliverable
     expect(v.exit_code).toBe(0);
   });
 
+  // R1 precedence: hard block wins over the soft approach entry. The TS verdict reason
+  // has no prefix; toWirePayload adds "HARD BLOCK: " on the wire, matching bash hard_block().
+  // Guard-ish on main (hard block already fires there, but with the old wording → RED on text).
+  test("AC4a — zero-byte findings AND no approach → hard block wins (exit 1, not soft)", () => {
+    phase4State({ phase_4_architect: "complete" });
+    put("research/findings-a.md", "");
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("block");
+    if (v.decision !== "block") throw new Error("unreachable");
+    expect(v.severity).toBe("hard");
+    expect(v.exit_code).toBe(1);
+    expect(v.reason).toBe(
+      `scratchpad_stale: no non-empty findings-*.md found in ${scratch}/research — Phase 2 exploration must complete before Phase 4`,
+    );
+  });
+
   // Guard (passes on main): unset scratchpad_dir → no deliverable entry.
   test("AC4 guard — scratchpad_dir unset and phase_4_architect complete → pass", () => {
     writeState({
@@ -157,17 +173,36 @@ describe("AC5 — phase 7 gate: learnings-raw.md deliverable", () => {
     expect(softReason(v)).toBe(`missing deliverable: ${scratch}/reviews/learnings-raw.md; `);
   });
 
-  // Current TS review_complete message has no trailing "; " while bash does, so the
-  // exact combined string is not asserted here; only both parts + order.
-  test("AC5 — both missing → both entries present, deliverable after review_complete", () => {
+  // R1 parity: checkPhase7 collects entries and joins with joinMissing, so the
+  // reason is byte-identical to bash `printf '%s; '` (trailing "; " after every entry).
+  test("AC5 — both missing → exact joined reason (bash parity, joinMissing)", () => {
     phase7State();
     const v = dispatchPhase({ cwd: dir });
-    const reason = softReason(v);
-    const a = reason.indexOf("review_complete=pass");
-    const b = reason.indexOf(`missing deliverable: ${scratch}/reviews/learnings-raw.md`);
-    expect(a).toBeGreaterThanOrEqual(0);
-    expect(b).toBeGreaterThanOrEqual(0);
-    expect(a).toBeLessThan(b);
+    expect(softReason(v)).toBe(
+      `review_complete=pass (got: <missing>); missing deliverable: ${scratch}/reviews/learnings-raw.md; `,
+    );
+  });
+
+  // R1: review_complete-only reason now ends with "; " like every other joinMissing phase.
+  test("AC5 — review_complete missing, learnings-raw.md present → reason ends with '; ' (joinMissing)", () => {
+    phase7State();
+    put("reviews/learnings-raw.md", "- [testing] --- a lesson\n");
+    const v = dispatchPhase({ cwd: dir });
+    expect(softReason(v)).toBe("review_complete=pass (got: <missing>); ");
+  });
+
+  // Guard (passes on main): no scratchpad_dir → no deliverable entry.
+  test("AC5 guard — phase 7 without scratchpad_dir, review_complete pass → pass", () => {
+    writeState({
+      task: "x",
+      complexity: "FEATURE",
+      mode: "AUTONOMOUS",
+      current_phase: "7",
+      last_updated: nowIso(),
+      review_complete: "pass",
+    });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("pass");
   });
 
   test("AC5 — header-only learnings-raw.md (## New Learnings) passes", () => {
