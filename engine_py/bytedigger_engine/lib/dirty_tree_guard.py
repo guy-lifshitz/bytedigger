@@ -55,6 +55,36 @@ def parse_porcelain_lines(text: str) -> "list[tuple[str, str]]":
     return sorted(set(entries), key=lambda e: (e[1], e[0]))
 
 
+def porcelain_status_map(
+    git_cwd: str, timeout: int = 30
+) -> "tuple[dict[str, str], str | None]":
+    """Return (normalized path -> verbatim XY, err). Never raises.
+
+    hal GH1626 part D: `dirty_prod_paths` deliberately drops the XY column,
+    so a caller that must distinguish a deletion from a write — the orphan-GREEN
+    recovery predicate — has nowhere to read it. Same `git_port.git_read` call
+    site convention as `dirty_prod_paths` so the 18 sibling monkeypatch points
+    on `dirty_tree_guard.git_port.git_read` bind this reader too. On git failure
+    returns an EMPTY map plus the error string; the caller fails closed.
+    """
+    try:
+        result = git_port.git_read(
+            ["status", "--porcelain"],
+            cwd=git_cwd,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        return {}, f"porcelain_status_map: git status failed: {exc}"
+
+    if result.returncode != 0:
+        return {}, f"porcelain_status_map: git status failed (rc={result.returncode}, stderr={result.stderr[:200]})"
+
+    out: dict[str, str] = {}
+    for xy, norm in parse_porcelain_lines(result.stdout):
+        out.setdefault(norm, xy)
+    return out, None
+
+
 def dirty_prod_paths(
     git_cwd: str, red_test_paths: list[str], allowlist: list[str], timeout: int = 30
 ) -> tuple[list[str], str | None]:

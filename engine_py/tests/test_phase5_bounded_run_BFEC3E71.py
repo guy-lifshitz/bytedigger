@@ -43,6 +43,35 @@ def _common_source() -> str:
     return Path(_pwc.__file__).read_text(encoding="utf-8")
 
 
+def _interpreter_source() -> str:
+    """The canonical resolver module (GH1626C): the new home of _main_checkout_root."""
+    path = _PROD_FILE.resolve().parents[1] / "lib" / "interpreter.py"
+    assert path.is_file(), (
+        f"lib/interpreter.py not found at {path}: the source-grep corpus is missing "
+        f"entirely — repoint the helper at the module's new location."
+    )
+    return path.read_text(encoding="utf-8")
+
+
+def _assert_corpus_defines(source: str, fn_name: str, where: str) -> None:
+    """Anti-blindness guard: a source-grep must distinguish "checked" from
+    "nothing to check".
+
+    GH1626C incident: these greps scanned `phase_5_implement.py` for
+    `_main_checkout_root` after its single definition moved to
+    `lib/interpreter.py`.  A body-property assertion over a corpus that no
+    longer contains its subject proves nothing.  Every grep below states, first,
+    that the definition is actually HERE — so a future move fails loudly instead
+    of silently disarming the guard.
+    """
+    found = re.search(r"^def " + re.escape(fn_name) + r"\b", source, re.MULTILINE)
+    assert found is not None, (
+        f"{fn_name!r} is NOT defined in {where}: this source-grep would scan a "
+        f"corpus without its subject and pass vacuously (disarmed guard). "
+        f"The definition moved — repoint the grep at its new home, do not delete it."
+    )
+
+
 def _fn_body(source: str, fn_name: str) -> str:
     """Extract the source text from 'def <fn_name>' to the next top-level def/class.
 
@@ -150,8 +179,16 @@ class TestSourceGrepBFEC3E71:
         assert "subprocess.run(" not in body
 
     def test_main_checkout_root_uses_git_port(self):
-        """AC1/AC2 Bucket B: _main_checkout_root body must call git_port.git_read."""
-        body = _fn_body(_source(), "_main_checkout_root")
+        """AC1/AC2 Bucket B: _main_checkout_root body must call git_port.git_read.
+
+        Repointed per GH1626C: the single definition moved from
+        phase_5_implement.py to lib/interpreter.py (spec AC1 requires exactly one
+        AST definition, there); phase_5 keeps only an alias.  The property is
+        unchanged — only its address moved.
+        """
+        src = _interpreter_source()
+        _assert_corpus_defines(src, "_main_checkout_root", "lib/interpreter.py")
+        body = _fn_body(src, "_main_checkout_root")
         assert "git_port.git_read(" in body, (
             "_main_checkout_root git read not routed through git_port.git_read"
         )
@@ -232,8 +269,14 @@ class TestSourceGrepBFEC3E71:
 
     def test_main_checkout_root_no_timeout_expired_except(self):
         """AC3 Bucket B: _main_checkout_root must not catch TimeoutExpired
-        but must still catch CalledProcessError, FileNotFoundError, OSError, ValueError."""
-        body = _fn_body(_source(), "_main_checkout_root")
+        but must still catch CalledProcessError, FileNotFoundError, OSError, ValueError.
+
+        Repointed per GH1626C to lib/interpreter.py, the one module that defines
+        it; the except-arms live there byte-identical.
+        """
+        src = _interpreter_source()
+        _assert_corpus_defines(src, "_main_checkout_root", "lib/interpreter.py")
+        body = _fn_body(src, "_main_checkout_root")
         assert "TimeoutExpired" not in body
         assert "CalledProcessError" in body
         assert "FileNotFoundError" in body

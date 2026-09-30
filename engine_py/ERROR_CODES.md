@@ -132,6 +132,7 @@
 - `E_GREEN_NOT_PASSING` — phase_5_implement: GREEN test suite not fully passing
 - `E_GREEN_NOT_REPRODUCIBLE` — phase_5_implement: GREEN result not reproducible on re-run
 - `E_GREEN_NO_MARKER` — phase_5_implement: GREEN subagent output missing required completion marker
+- `E_GREEN_ORPHAN_RECOVERY_ROUTED` — phase_5_implement: RECOVERABLE routing, not a failure — the dirty production paths at the RED gate are exactly this run's completed-GREEN manifest, verified by the full sentinel key tuple of workflow, step, current cycle, non-empty run_id and ctx_hash plus a per-path sha256 recorded at GREEN, so phase 5 re-enters at write_green_artifact instead of refusing with E_RED_WORKTREE_DIRTY. RESUME NOTE, applies to every recoverable error: when you re-run a build after one, you MUST bump the `_retry_nonce` key in org_config. It has no production reader; it feeds compute_ctx_hash, which keys the resume sentinel filename, so without a bump the engine replays the cached failing step result and any fix you made looks inert.
 - `E_GREEN_TEST_RUNNER_MISSING` — phase_5_implement: test runner binary unavailable for GREEN verification
 - `E_GREEN_TEST_TIMEOUT` — phase_5_implement: GREEN test suite subprocess timed out
 - `E_GREEN_TYPECHECK_FAIL_CAP2` — phase_5_implement: GREEN typecheck retry cap exhausted, still failing

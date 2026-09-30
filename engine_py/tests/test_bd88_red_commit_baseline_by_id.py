@@ -127,15 +127,15 @@ def _wire_verify_green(monkeypatch, tmp_path, *, red_fails, sib_current, sib_bas
 
 class TestS1RunnerPrefix:
     def test_fallback_prefix(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(_p5, "_venv_pytest", lambda cwd: None)
-        monkeypatch.setattr(_p5, "_main_checkout_root", lambda cwd: None)
+        # hal#1626 C: the runner comes from the one resolver in lib/interpreter.py.
+        monkeypatch.setattr(_p5.interpreter, "resolve_pytest_runner", lambda cwd: None)
         prefix = _p5._runner_for_path("tests/test_a.py", git_cwd=str(tmp_path))["argv_prefix"]
         assert "-x" not in prefix
         assert prefix == ["python3", "-m", "pytest", "--tb=no", "-q", "-rfE",
                           "--continue-on-collection-errors"]
 
     def test_venv_prefix(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(_p5, "_venv_pytest", lambda cwd: "/v/bin/pytest")
+        monkeypatch.setattr(_p5.interpreter, "resolve_pytest_runner", lambda cwd: "/v/bin/pytest")
         prefix = _p5._runner_for_path("tests/test_a.py", git_cwd=str(tmp_path))["argv_prefix"]
         assert prefix == ["/v/bin/pytest", "--tb=no", "-q", "-rfE", "--continue-on-collection-errors"]
 

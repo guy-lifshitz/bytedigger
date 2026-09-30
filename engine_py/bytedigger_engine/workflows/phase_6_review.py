@@ -122,6 +122,7 @@ from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, STRAGGLER_PA
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from bytedigger_engine.lib import git_port  # noqa: E402
+from bytedigger_engine.lib import interpreter  # noqa: E402  GH1626 C — canonical project-interpreter resolver (§1g)
 from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381/GH1220
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     check_citation as _check_citation_impl,
@@ -2344,6 +2345,8 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
     )
     parts.append("")
     parts.append(_worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad)))
+    parts.append("")
+    parts.append(interpreter.worker_interpreter_block_for(ctx))
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
     return StepResult(
@@ -4031,51 +4034,23 @@ def _is_synthetic_test_env(cfg: dict, git_cwd: str) -> bool:
         return True
 
 
-def _venv_pytest(base: str) -> str | None:
-    for cand in (
-        Path(base) / ".venv" / "bin" / "pytest",
-        Path(base) / "venv" / "bin" / "pytest",
-    ):
-        if cand.is_file() and os.access(cand, os.X_OK):
-            return str(cand)
-    return None
-
-
-def _main_checkout_root(git_cwd: str) -> str | None:
-    try:
-        proc = git_port.git_read(
-            ["rev-parse", "--git-common-dir"],
-            dir_=git_cwd,
-            timeout=5,
-        )
-        if proc.returncode == 124:
-            return None
-        if proc.returncode != 0:
-            return None
-        common = os.path.realpath(os.path.join(git_cwd, proc.stdout.strip()))
-        root = os.path.dirname(common)
-        if root != os.path.realpath(git_cwd):
-            return root
-        return None
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError, ValueError):
-        return None
+# GH1626 C (§1g): the venv-climb rule has exactly ONE definition, in
+# lib/interpreter.py. These names stay bound here for the existing call sites
+# and their sibling tests (9F3A7C21), but they are re-exports, not a second
+# copy — one function, one answer, whichever phase asks.
+_venv_pytest = interpreter._venv_pytest
+_main_checkout_root = interpreter._main_checkout_root
 
 
 def _resolve_pytest_argv(git_cwd: str | None = None) -> list[str]:
     """R4-secondary: prefer <git_cwd>/.venv/bin/pytest (then venv/) if executable;
     else climb to the main checkout root (git-common-dir parent) and retry the
-    same probe there before falling back to the system invocation. Mirrors
-    phase_5 _runner_for_path venv probe (D8CB354F cycle 2, commit 88a4f2f8)
-    plus BF7890C8's parent-checkout climb. --tb=short -q preserved verbatim
-    from the prior hardcoded argv."""
-    if git_cwd is not None:
-        hit = _venv_pytest(git_cwd)
-        if hit is None:
-            root = _main_checkout_root(git_cwd)
-            if root is not None:
-                hit = _venv_pytest(root)
-        if hit is not None:
-            return [hit, "--tb=short", "-q"]
+    same probe there before falling back to the system invocation. The rule now
+    lives once, in lib/interpreter.py (GH1626 C, §1g); this is a thin caller.
+    --tb=short -q preserved verbatim from the prior hardcoded argv."""
+    hit = interpreter.resolve_pytest_runner(git_cwd)
+    if hit is not None:
+        return [hit, "--tb=short", "-q"]
     return ["python3", "-m", "pytest", "--tb=short", "-q"]
 
 

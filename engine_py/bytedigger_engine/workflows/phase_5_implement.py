@@ -121,6 +121,7 @@ from bytedigger_engine import telemetry_ctx
 
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
+from bytedigger_engine.lib import interpreter  # noqa: E402  GH1626 C — canonical project-interpreter resolver (§1g)
 from bytedigger_engine.lib import dirty_tree_guard  # noqa: E402  GH961 §2.2 — pre-RED-gate dirty-prod-tree guard
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from bytedigger_engine.lib import red_write_boundary  # noqa: E402  GH1179 6B28230E — post-RED write-boundary gate
@@ -167,6 +168,7 @@ from bytedigger_engine.lib.spec_defect_ledger import (  # noqa: E402  GH767 §2.
     spec_sha,
 )
 from bytedigger_engine.lib.step_sentinel import invalidate_cycle_sentinels  # noqa: E402  GH767 §2.4b (§1g: reuse verbatim)
+from bytedigger_engine.lib import step_sentinel as _step_sentinel  # noqa: E402  hal GH1626 D — orphan-GREEN ownership key
 
 
 def _timeout_policy() -> dict:
@@ -1296,6 +1298,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         prompt = (
             delta + "\n\n"
             + _worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad))
+            + "\n\n" + interpreter.worker_interpreter_block_for(ctx)
             + "\n\n" + _get_out_of_role_block()
         )
         _content_digest = _verdict_content_digest(
@@ -1425,6 +1428,8 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     parts.append(RED_OUTPUT_MARKER_BLOCK)
     parts.append("")
     parts.append(_worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad)))
+    parts.append("")
+    parts.append(interpreter.worker_interpreter_block_for(ctx))
 
     if findings:
         parts.append("")
@@ -1755,15 +1760,69 @@ def _detect_green_complete_resume(prev_data: dict, git_cwd: str) -> list:
     return sorted(kept)
 
 
-def _persist_green_complete_resume(scratchpad, red_sha: str, paths: list) -> bool:
-    """Write the resume marker JSON. OSError propagates to the caller."""
+def _sha256_of_file(path: "str | Path") -> "str | None":
+    """sha256 hexdigest of ``path``, or None when it cannot be read.
+
+    hal GH1626 part D helper — §1aa named, so the digest formula has ONE
+    spelling shared by the writer below and the recovery predicate.
+    """
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _persist_green_complete_resume(scratchpad, red_sha: str, paths: list, git_cwd: "str | None" = None) -> bool:
+    """Write the resume marker JSON. OSError propagates to the caller.
+
+    hal GH1626 part D: also records a per-path ``sha256`` under ``digests``
+    when ``git_cwd`` is supplied. Names alone prove nothing — a post-GREEN edit,
+    a truncated write and a partial hand-revert all keep the path inside the
+    manifest, so the orphan-GREEN recovery predicate compares CONTENT against
+    the digest captured here, at the moment GREEN completed. An unreadable path
+    is simply omitted, which fails the comparison closed.
+    """
     ref_path = Path(scratchpad) / GREEN_COMPLETE_RESUME_RELPATH
     ref_path.parent.mkdir(parents=True, exist_ok=True)
-    ref_path.write_text(json.dumps({"red_commit_sha": red_sha, "paths": paths}))
+    digests: dict[str, str] = {}
+    if git_cwd:
+        for rel in paths:
+            digest = _sha256_of_file(Path(git_cwd) / rel)
+            if digest:
+                digests[rel] = digest
+    ref_path.write_text(json.dumps({"red_commit_sha": red_sha, "paths": paths, "digests": digests}))
     return True
 
 
-def _read_green_complete_resume(scratchpad, red_commit_sha):
+def _read_green_complete_resume_record(scratchpad: Any, red_commit_sha: Any) -> "dict[str, Any] | None":
+    """Read+validate the FULL resume marker, digests included.
+
+    Sibling of ``_read_green_complete_resume`` — that reader's contract is
+    "paths only" and 6 sibling tests pin it, so the content half lives here.
+    Returns ``{"paths": [...], "digests": {path: sha256}}`` under the same
+    validation rules, plus: ``digests`` must be a str->str mapping. A marker
+    written before hal GH1626 part D carries no digests at all and degrades
+    to an EMPTY mapping, which cannot satisfy the recovery predicate — the old
+    marker is never treated as content evidence. Never raises.
+    """
+    paths = _read_green_complete_resume(scratchpad, red_commit_sha)
+    if paths is None:
+        return None
+    ref_path = Path(scratchpad) / GREEN_COMPLETE_RESUME_RELPATH
+    try:
+        obj = json.loads(ref_path.read_text())
+    except Exception:  # noqa: BLE001
+        return None
+    raw = obj.get("digests") if isinstance(obj, dict) else None
+    digests: dict[str, str] = {}
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if isinstance(key, str) and isinstance(value, str) and value:
+                digests[key] = value
+    return {"paths": paths, "digests": digests}
+
+
+def _read_green_complete_resume(scratchpad: Any, red_commit_sha: Any) -> "list[str] | None":
     """Read+validate the resume marker. Returns `paths` iff the file exists,
     parses as a JSON dict, its `red_commit_sha` matches the argument, and
     `paths` is a list of str. Never raises — returns None on any mismatch.
@@ -2381,47 +2440,12 @@ def _commit_red_tests(ctx, prev) -> StepResult:
 # ─── Step 4b: verify RED fails mechanically (Pillar 3) ───────────────────────
 
 
-def _venv_pytest(base: str) -> str | None:
-    """BF7890C8: Return the path to the venv pytest under base, or None.
-
-    Probes <base>/.venv/bin/pytest then <base>/venv/bin/pytest; returns the
-    first that is_file() and os.X_OK. Pure path logic, no subprocess.
-    """
-    for cand in (
-        Path(base) / ".venv" / "bin" / "pytest",
-        Path(base) / "venv" / "bin" / "pytest",
-    ):
-        if cand.is_file() and os.access(cand, os.X_OK):
-            return str(cand)
-    return None
-
-
-def _main_checkout_root(git_cwd: str) -> str | None:
-    """BF7890C8: Resolve the main checkout root from a (possibly-worktree) git_cwd.
-
-    Runs `git -C <git_cwd> rev-parse --git-common-dir` (timeout=5s, fail-soft).
-    Returns the parent of the common .git dir only when git_cwd is genuinely a
-    worktree (i.e. root != realpath(git_cwd)); returns None for the main checkout
-    itself, non-git dirs, or any subprocess error. Never raises, never hangs.
-    """
-    try:
-        proc = git_port.git_read(
-            ["rev-parse", "--git-common-dir"],
-            dir_=git_cwd,
-            timeout=5,
-        )
-        if proc.returncode == 124:
-            return None
-        if proc.returncode != 0:
-            return None
-        common = os.path.realpath(os.path.join(git_cwd, proc.stdout.strip()))
-        root = os.path.dirname(common)
-        if root != os.path.realpath(git_cwd):
-            return root
-        return None
-    except (subprocess.CalledProcessError,
-            FileNotFoundError, OSError, ValueError):
-        return None
+# GH1626 C (§1g): the venv-climb rule has exactly ONE definition, in
+# lib/interpreter.py. These names stay bound here for the existing call sites
+# and their sibling tests (BF7890C8, D8CB354F), but they are re-exports, not a
+# second copy — one function, one answer, whichever phase asks.
+_venv_pytest = interpreter._venv_pytest
+_main_checkout_root = interpreter._main_checkout_root
 
 
 # 69AA5237 (2026-05-03): multi-language test routing. Restored from
@@ -2442,13 +2466,9 @@ def _runner_for_path(path: str, git_cwd: str | None = None) -> dict | None:
         # by id); collection errors in one file do not abort the others.
         flags = ["--tb=no", "-q", "-rfE", "--continue-on-collection-errors"]
         prefix: list[str] = ["python3", "-m", "pytest", *flags]
-        hit: str | None = None
-        if git_cwd is not None:
-            hit = _venv_pytest(git_cwd)
-            if hit is None:
-                root = _main_checkout_root(git_cwd)
-                if root is not None:
-                    hit = _venv_pytest(root)
+        # GH1626 C: one canonical resolver, including the climb to the main
+        # checkout (lib/interpreter.py) — never a local copy of the rule.
+        hit: str | None = interpreter.resolve_pytest_runner(git_cwd)
         if hit is not None:
             prefix = [hit, *flags]
         return {"kind": "py", "argv_prefix": prefix}
@@ -2810,9 +2830,138 @@ def _verify_red_guard_prev_and_paths(prev: StepResult) -> "tuple[StepResult | No
     return None, red_test_paths
 
 
-def _verify_red_dirty_tree_guard(git_cwd: str, red_test_paths: list[str], spec_path: str | None) -> "StepResult | None":
+_ORPHAN_GREEN_SENTINEL_STEP = "invoke_green_llm"
+_ORPHAN_GREEN_WORKFLOW_NAME = "phase_5_implement"
+_ORPHAN_GREEN_ROUTE_TARGET = "write_green_artifact"
+_ORPHAN_GREEN_ROUTED_CODE = "E_GREEN_ORPHAN_RECOVERY_ROUTED"
+
+
+def _orphan_green_route_index() -> "int | None":
+    """Index of the marker-parsing step, read from the LIVE phase-5 workflow.
+
+    Never hardcoded: a step insertion must retarget the route, not silently
+    shift it. ``write_green_artifact`` is the only step that runs
+    ``_parse_green_status``, so re-entering past it would adopt a GREEN that
+    reported BLOCKED or was truncated mid-write — the sentinel is keyed to
+    ``invoke_green_llm`` and knows nothing about the marker.
+    """
+    try:
+        names = [s.name for s in phase_5_implement_workflow().steps]
+    except Exception:  # noqa: BLE001
+        return None
+    if _ORPHAN_GREEN_ROUTE_TARGET not in names:
+        return None
+    return names.index(_ORPHAN_GREEN_ROUTE_TARGET)
+
+
+def _orphan_green_current_run_id() -> str:
+    """The current run's id, or "" when it cannot be established.
+
+    ``resume_keying._NO_RUN`` degrades an absent id to ``norun``, which matches
+    every other run whose id is likewise absent — that is not an identity, so
+    an empty or ``norun`` value can never establish ownership.
+    """
+    run_id = telemetry_ctx.get_invocation_run_id() or ""
+    if not run_id:
+        run_ctx = telemetry_ctx.get_current_run()
+        run_id = (getattr(run_ctx, "run_id", "") or "") if run_ctx is not None else ""
+    if run_id == "norun":
+        return ""
+    return run_id
+
+
+def _orphan_green_recovery_result(ctx: Any, prev_data: Any, git_cwd: str, violations: list[str], step_name: str) -> "StepResult | None":
+    """hal GH1626 part D — the dirty-tree guard's ONE forward path.
+
+    The guard is not weakened: it returns a routing result ONLY when every one
+    of the following holds, and ``None`` — meaning the caller's terminal
+    ``E_RED_WORKTREE_DIRTY`` stands, wording unchanged — otherwise.
+
+      * the GH483 seam's gate is on and a scratchpad, RED boundary sha and
+        non-empty run_id are all established;
+      * a completed-GREEN sentinel exists whose FULL key tuple matches this run:
+        workflow, step, the CURRENT cycle, the run_id and the ctx_hash. A
+        sentinel written before a ``_retry_nonce`` bump hashes differently and
+        is therefore not ours;
+      * every dirty production path is inside the GREEN's recorded manifest,
+        its porcelain XY is not a deletion, and its CURRENT sha256 equals the
+        digest recorded when GREEN completed.
+
+    The route target is ``write_green_artifact``, so the GREEN's own completion
+    marker is re-judged before anything else and the four verification gates
+    still run after it. Recovery restores the pipeline's position; it never
+    buys a commit.
+    """
+    if not get_config().gate_enabled("HAL_GREEN_COMPLETE_RESUME_GATE"):
+        return None
+    if not isinstance(prev_data, dict) or not violations:
+        return None
+    run_id = _orphan_green_current_run_id()
+    if not run_id:
+        return None
+    scratchpad = _resolve_scratchpad(ctx)
+    if scratchpad is None:
+        return None
+    red_commit_sha = prev_data.get("red_commit_sha")
+    if not red_commit_sha:
+        return None
+    try:
+        cycle = int(prev_data.get("cycle", 1) or 1)
+    except (TypeError, ValueError):
+        return None
+    ctx_hash = _step_sentinel.compute_ctx_hash(ctx)
+    payload = _step_sentinel.read_step_sentinel(
+        Path(scratchpad), _ORPHAN_GREEN_SENTINEL_STEP, cycle, run_id,
+        ctx_hash, _ORPHAN_GREEN_WORKFLOW_NAME,
+    )
+    if not isinstance(payload, dict):
+        return None
+    record = _read_green_complete_resume_record(scratchpad, red_commit_sha)
+    if record is None:
+        return None
+    manifest = {str(p) for p in record["paths"]}
+    digests: dict[str, str] = record["digests"]
+    xy_map, xy_err = dirty_tree_guard.porcelain_status_map(git_cwd)
+    if xy_err is not None:
+        return None
+    for rel in violations:
+        if rel not in manifest:
+            return None
+        xy = xy_map.get(rel)
+        if xy is None or "D" in xy:
+            return None
+        recorded = digests.get(rel)
+        if not recorded or recorded != _sha256_of_file(Path(git_cwd) / rel):
+            return None
+    route_index = _orphan_green_route_index()
+    if route_index is None:
+        return None
+    _emit_safe("orphan_green_recovery_routed", {"phase": 5, "step": step_name, "paths": sorted(violations), "n": len(violations), "run_id": run_id, "cycle": cycle, "retry_from_step": route_index, "route_target": _ORPHAN_GREEN_ROUTE_TARGET, "red_commit_sha": red_commit_sha}, severity="warning")
+    data = {**payload, "red_commit_sha": red_commit_sha, "green_resume_paths": sorted(violations), "retry_from_step": route_index}
+    return StepResult(
+        status="error", data=data, duration_ms=0,
+        step_name=step_name,
+        error=(
+            f"orphan GREEN recovered at {step_name}: {sorted(violations)} are exactly this run's "
+            f"completed-GREEN manifest, content-verified against the digests recorded at GREEN — "
+            f"re-entering phase 5 at {_ORPHAN_GREEN_ROUTE_TARGET} so the completion marker is "
+            f"re-judged and the green gates run before any commit."
+        ),
+        error_code=_ORPHAN_GREEN_ROUTED_CODE,
+        recoverable=True,
+    )
+
+
+def _verify_red_dirty_tree_guard(git_cwd: str, red_test_paths: list[str], spec_path: str | None, ctx: Any = None, prev_data: Any = None) -> "StepResult | None":
     """GH961 dirty-tree guard (block 2). Returns E_RED_WORKTREE_DIRTY early result
-    when uncommitted production paths are present, else None."""
+    when uncommitted production paths are present, else None.
+
+    hal GH1626 part D: before refusing, consults the GH483 orphan-GREEN seam
+    via ``_orphan_green_recovery_result``; a provable orphan GREEN routes
+    forward instead of dying here. Every other dirty tree is terminal exactly
+    as before. ``ctx``/``prev_data`` default to None so the pre-1626 call shape
+    keeps its meaning: no context, no recovery.
+    """
     if get_config().gate_enabled("HAL_DIRTY_TREE_GUARD"):    # kill-switch, default ON
         guard_allowlist = _parse_spec_files_allowlist(spec_path)
         if not guard_allowlist:
@@ -2830,6 +2979,11 @@ def _verify_red_dirty_tree_guard(git_cwd: str, red_test_paths: list[str], spec_p
                     {"phase": 5, "step": "verify_red_fails_mechanically", "error": dirty_err},
                 )
             elif violations:
+                routed = _orphan_green_recovery_result(
+                    ctx, prev_data, git_cwd, violations, "verify_red_fails_mechanically",
+                )
+                if routed is not None:
+                    return routed
                 _emit_safe(
                     "red_dirty_tree_blocked",
                     {"phase": 5, "step": "verify_red_fails_mechanically", "paths": violations, "n": len(violations)},
@@ -2993,7 +3147,7 @@ def _decide_red_verdict(ctx: WorkflowContext, prev: StepResult, git_cwd: str, re
         if resume_paths and resume_red_sha:
             try:
                 _persist_green_complete_resume(
-                    _resolve_scratchpad(ctx), resume_red_sha, resume_paths
+                    _resolve_scratchpad(ctx), resume_red_sha, resume_paths, git_cwd
                 )
             except OSError:
                 pass
@@ -3040,7 +3194,9 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
     if early is not None:
         return early
     git_cwd = _resolve_git_cwd(ctx, prev)
-    dirty = _verify_red_dirty_tree_guard(git_cwd, red_test_paths, prev.data.get("spec_path"))
+    dirty = _verify_red_dirty_tree_guard(
+        git_cwd, red_test_paths, prev.data.get("spec_path"), ctx=ctx, prev_data=prev.data,
+    )
     if dirty is not None:
         return dirty
     plan = _infer_test_command_for_paths(list(red_test_paths), git_cwd=git_cwd)
@@ -4976,6 +5132,43 @@ def _finding_in_diff_hunks(abs_path: str, red_sha: str, finding_line: int | None
 # ─── Step 4.7: green_lint semgrep gate (79092C00) ────────────────────────────
 
 
+# hal GH1626 part D: the keys a hand-built ``forwarded_data`` must not
+# amputate. ``_verify_green_lint_rules`` builds its forwarded dict by hand (no
+# ``**prev.data`` spread — GH625 §2.3a), so every key not threaded explicitly
+# disappears for EVERY step after the gate. ``_commit_green_code`` resolves its
+# manifest from ``green_complete_resume`` + ``green_resume_paths`` (the GH483
+# resume shape the orphan-GREEN recovery routes with) and falls back to
+# ``manifest_from_result`` over ``worker_written_paths``/``manifest_source``;
+# losing them turns a correctly-routed recovery into an INERT one — the chain
+# runs, every gate sees the right files, and the commit step dies on
+# ``E_LLM_MANIFEST_MISSING_AT_CONSUMER`` with the strand still uncommitted.
+# ``red_test_paths`` is carried for the same reason: without it
+# ``_verify_green_passing`` returns ``no_red_test_paths`` and verifies nothing.
+_GREEN_MANIFEST_CARRY_KEYS = (
+    "green_complete_resume",
+    "green_resume_paths",
+    "worker_written_paths",
+    "manifest_source",
+    "red_test_paths",
+    "cycle",
+)
+
+
+def _carry_green_manifest_keys(prev_data: Any, fwd: "dict[str, Any]") -> "dict[str, Any]":
+    """Thread the GREEN manifest/resume keys through a hand-built forwarded dict.
+
+    Only keys already present in ``prev_data`` and absent from ``fwd`` are
+    copied, so a caller whose ``prev`` never carried them keeps a byte-identical
+    forwarded set. Mutates and returns ``fwd`` (§1g: one carry rule, one place).
+    """
+    if not isinstance(prev_data, dict):
+        return fwd
+    for key in _GREEN_MANIFEST_CARRY_KEYS:
+        if key in prev_data and key not in fwd:
+            fwd[key] = prev_data[key]
+    return fwd
+
+
 def _verify_green_lint_rules(ctx, prev) -> StepResult:
     step = "verify_green_lint_rules"
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
@@ -5087,6 +5280,9 @@ def _verify_green_lint_rules(ctx, prev) -> StepResult:
                 # sees prior spend.
                 if isinstance(prev.data, dict) and isinstance(prev.data.get("gate_attempts"), dict):
                     _fu_fwd["gate_attempts"] = prev.data["gate_attempts"]
+                # GH1626 part D: same hand-built-dict amputation as the findings
+                # leg below — carry the GREEN manifest/resume keys.
+                _carry_green_manifest_keys(prev.data, _fu_fwd)
                 return RecoverableGateMixin.gated_step_result(
                     build_class=_fu_build_class,
                     gate="green_lint",
@@ -5223,6 +5419,9 @@ def _verify_green_lint_rules(ctx, prev) -> StepResult:
         # gate_attempts through explicitly or the gate never sees prior spend.
         if isinstance(prev.data, dict) and isinstance(prev.data.get("gate_attempts"), dict):
             fwd["gate_attempts"] = prev.data["gate_attempts"]
+        # GH1626 part D: the manifest/resume keys must survive this gate's error
+        # result, or `commit_green_code` downstream has no manifest to commit.
+        _carry_green_manifest_keys(prev.data, fwd)
         build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
         # 457DC7DC GH371 §2.2: cheap directed-repair pre-stage IN FRONT OF the
         # unchanged RecoverableGateMixin regen return. Non-convergence falls
@@ -5888,6 +6087,13 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
                     {"phase": 5, "step": "build_validation_prompt", "error": dirty_err},
                 )
             elif violations:
+                # hal GH1626 part D AC20: raise site 2 applies the SAME rule
+                # as site 1 — one site fixed is half a class.
+                routed = _orphan_green_recovery_result(
+                    ctx, prev.data, git_cwd, violations, "build_validation_prompt",
+                )
+                if routed is not None:
+                    return routed
                 _emit_safe(
                     "red_dirty_tree_blocked",
                     {"phase": 5, "step": "build_validation_prompt", "paths": violations, "n": len(violations)},
@@ -6831,6 +7037,8 @@ def _build_green_prompt(ctx, prev) -> StepResult:
     )
     parts.append("")
     parts.append(_worktree_edit_boundary_block(_resolve_worktree_root(ctx, scratchpad)))
+    parts.append("")
+    parts.append(interpreter.worker_interpreter_block_for(ctx))
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
     _standards_block = get_standards_context(ctx)
@@ -6958,15 +7166,21 @@ def _check_green_token_budget(ctx, prev) -> StepResult:
 
 
 def _write_green_artifact(ctx, prev) -> StepResult:
-    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
+    # hal GH1626 part D: the engine's re-entry boundary hands the target step
+    # a plain dict as `prev` (engine.py:400, built at :663-682), not a
+    # StepResult. Every OTHER re-entry target was already dict-tolerant; this
+    # one never was, and the orphan-GREEN recovery routes here. The dict shape
+    # is accepted at the seam rather than by changing what the engine passes.
+    prev_data = prev.data if isinstance(prev, StepResult) and isinstance(prev.data, dict) else (prev if isinstance(prev, dict) else None)
+    if prev_data is None:
         return StepResult(
             status="error", data=None, duration_ms=0,
             step_name="write_green_artifact",
             error="prev step did not produce raw_response",
             error_code="E_MISSING_PREV_DATA",
         )
-    raw = prev.data["raw_response"]
-    log_path = Path(prev.data["log_path"])
+    raw = prev_data["raw_response"]
+    log_path = Path(prev_data["log_path"])
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(raw, encoding="utf-8")
 
@@ -6992,20 +7206,20 @@ def _write_green_artifact(ctx, prev) -> StepResult:
             telemetry_ctx.set_current_run_from(prev_run_ctx, step_name="invoke_green_llm_retry")  # GH375
         try:
             retry_result = invoke_llm_subprocess(
-                prompt=prev.data["prompt"],
+                prompt=prev_data["prompt"],
                 model=_resolve_model(cfg, "green_model", green_default),
                 timeout_sec=_resolve_green_timeout_sec(cfg),
                 step_name="invoke_green_llm_retry",
                 extra_data={
-                    "log_path": prev.data["log_path"],
-                    "spec_path": prev.data["spec_path"],
-                    "red_log_path": prev.data["red_log_path"],
-                    "validation_doc_path": prev.data["validation_doc_path"],
-                    "verdict": prev.data.get("verdict", ""),
-                    "prompt": prev.data["prompt"],
+                    "log_path": prev_data["log_path"],
+                    "spec_path": prev_data["spec_path"],
+                    "red_log_path": prev_data["red_log_path"],
+                    "validation_doc_path": prev_data["validation_doc_path"],
+                    "verdict": prev_data.get("verdict", ""),
+                    "prompt": prev_data["prompt"],
                     # 4C0056FA: carry red_commit_sha in case retry error propagates.
-                    "red_commit_sha": prev.data.get("red_commit_sha"),
-                    "red_test_paths": prev.data.get("red_test_paths", []),
+                    "red_commit_sha": prev_data.get("red_commit_sha"),
+                    "red_test_paths": prev_data.get("red_test_paths", []),
                 },
                 allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
             )
@@ -7032,21 +7246,21 @@ def _write_green_artifact(ctx, prev) -> StepResult:
 
     common_data = {
         "green_log_path": str(log_path),
-        "spec_path": prev.data["spec_path"],
-        "red_log_path": prev.data["red_log_path"],
-        "validation_doc_path": prev.data["validation_doc_path"],
+        "spec_path": prev_data["spec_path"],
+        "red_log_path": prev_data["red_log_path"],
+        "validation_doc_path": prev_data["validation_doc_path"],
         "green_bytes_written": len(raw.encode("utf-8")),
         "green_status": green_status,
         # MED #7: verdict carried from gate_on_validation so engine
         # iteration_finished emits raw verdict (never coerced to PASS).
-        "verdict": prev.data.get("verdict", ""),
+        "verdict": prev_data.get("verdict", ""),
         # 4C0056FA: carry red_commit_sha so commit_green_code has the
         # diff boundary even after write_green_artifact replaces prev.data.
-        "red_commit_sha": prev.data.get("red_commit_sha"),
-        "red_test_paths": prev.data.get("red_test_paths", []),
+        "red_commit_sha": prev_data.get("red_commit_sha"),
+        "red_test_paths": prev_data.get("red_test_paths", []),
         # 56D695F2: carry cycle_count so _verify_green_lint_rules can detect
         # cap-2 (change 2). Default 1 on first cycle.
-        "cycle_count": prev.data.get("cycle_count", 1),
+        "cycle_count": prev_data.get("cycle_count", 1),
     }
     if green_status == GREEN_BLOCKED:
         return StepResult(
@@ -7064,7 +7278,7 @@ def _write_green_artifact(ctx, prev) -> StepResult:
         )
     return StepResult(
         status="ok",
-        data={**prev.data, **common_data},
+        data={**prev_data, **common_data},
         duration_ms=0,
         step_name="write_green_artifact",
     )
