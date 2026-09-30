@@ -69,8 +69,13 @@ Source: harvest of Warp OSS / Oz (`oz-for-oss` `docs/platform.md`, `.agents/skil
   tree (the snapshot command fails), no command runs: one `errors[]` row
   `{"path": ".", "reason": "not_a_git_repo"}` and every command skill is `error`. The same
   happens when `repo_root` is inside a work tree but is not its top level
-  (`git rev-parse --show-toplevel` differs from the resolved `repo_root`; gate edge 8). Every
-  git call made by the registry runs with `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and
+  (`git rev-parse --show-toplevel` differs from the resolved `repo_root`; gate edge 8). Both
+  checks (work tree, top level) and the snapshots run ONLY when at least one `command` skill
+  will execute (`execute=True` and a command skill exists): an empty registry, an agent-only
+  registry or `--list` never calls them, so a phase 5 `git_cwd` inside a repo subdirectory
+  (supported, `phase_5_implement.py:4717`) with no command skills stays `ok` (gate R2-1). Every
+  git call made by the registry and by the op2 step (including the tamper guard's
+  `git show`) runs with `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and
   `GIT_OBJECT_DIRECTORY` removed from its env (only the temp index is set explicitly), so an
   inherited git-hook env cannot redirect the snapshot (gate edge 10). On timeout the whole
   process group is killed (`os.killpg(pgid, SIGKILL)`), so no grandchild survives to mutate
@@ -112,7 +117,8 @@ Source: harvest of Warp OSS / Oz (`oz-for-oss` `docs/platform.md`, `.agents/skil
 - `agent` skills never fail the step (the engine cannot run them); they appear in the report.
 - **Registry tamper guard (DesignReview F8, applied; scope per gate finding 2/3).** Before
   running anything, the step computes the *HEAD registry*: every `SKILL.md` under a scanned
-  root whose HEAD blob (`git show HEAD:<path>`) is a registered verifying skill (or raises the
+  root whose HEAD blob (`git -C <repo> show HEAD:./<path relative to repo>`, so a `git_cwd`
+  subdirectory works) is a registered verifying skill (or raises the
   `unsupported_frontmatter` case). If any HEAD-registry path is modified (work-tree bytes differ
   from the HEAD blob) or deleted in the work tree → `status="error"`,
   `error_code="E_VERIFICATION_REGISTRY_TAMPERED"`, `recoverable=False`, the error names the
@@ -120,6 +126,9 @@ Source: harvest of Warp OSS / Oz (`oz-for-oss` `docs/platform.md`, `.agents/skil
   `SKILL.md` files (e.g. `skills/bytedigger/SKILL.md`) and newly added verifying skills (a new
   check only adds verification; it is discovered and run normally). GREEN must not switch its
   own checks off, and hosts that never declare `verification` see no behaviour change.
+- The step and `_apply_review_scores` emit their events through their own module's
+  `_emit_safe` (`phase_5_implement._emit_safe`, `phase_45_spec._emit_safe`); the new core
+  modules emit nothing (gate R2-5).
 - The workflow entry is exactly
   `StepContract(name="verify_registered_skills", execute=_verify_registered_skills)`.
 
@@ -207,7 +216,7 @@ anchored on `## Findings (structured)`); `_parse_verdict` reads only the first t
    behaviour change". Change: unknown top-level constructs are skipped; `unsupported_frontmatter`
    only when unreadable `metadata` mentions `verification`. AC1 extended.
 2. **HIGH — timeout can hang (applied).** `subprocess.run(capture_output=True, timeout=)`
-   kills only the child; a grandchild (`npm test`, `sh -c`) keeps the pipe open and the
+   kills only the child; a grandchild (`npm test`, `sh -c`) keeps running:
    the grandchild outlives the timeout (on CPython >= 3.8 `subprocess.run` does not hang, but
    the orphan keeps running and can mutate the tree after the post-snapshot — gate finding 1
    corrected this rationale). Change: `Popen` + `start_new_session=True` + `killpg`,
@@ -278,7 +287,8 @@ real commands (`python3 -c ...`); no mock of the unit under test.
 | AC18 | op2 | a repo with two committed verifying skills A and B (B's command writes a marker outside the repo). (a) A edited in the work tree to `verification: false` → `E_VERIFICATION_REGISTRY_TAMPERED`, `recoverable is False`, A's path in the error, B's marker absent. (b) A deleted (`git rm`) → same code. (c) only an untracked new verifying skill C added → not tampered; C is run (its marker exists). |
 | AC21 | op2 | a committed NON-verifying `SKILL.md` with an uncommitted edit, no verifying skills → step `status == "ok"`. |
 | AC22 | op1 | edges: a `verification: true` line indented under a non-`metadata` key (list item / folded `description: >`) does not register; `extra_dirs=("skills",)` lists each skill once; a symlinked skill dir pointing outside the repo → `errors[]` `outside_repo`, not registered; whitespace-only `verify_command` → kind `command`, status `error`; a command that mutates the tree and then sleeps past the timeout → `mutated`. |
-| AC23 | op1 | timeout kills the process group: `sh -c "(sleep 3; touch <tmp>/gc.marker) & sleep 30"` with `timeout_sec=1` → `timeout`, returns in < 10 s, and after a further 4 s the marker does not exist. `run_registry` on a subdirectory of a git repo → `errors[]` `not_a_git_repo`, no command runs. With `GIT_DIR` pointing at another repo in the env, the snapshot still reflects `repo_root` (a clean pass stays `pass`). |
+| AC23 | op1 | timeout kills the process group: `sh -c "(sleep 3; touch <tmp>/gc.marker) & sleep 30"` with `timeout_sec=1` → `timeout`, returns in < 10 s, and after a further 4 s the marker does not exist. `run_registry` on a subdirectory of a git repo → `errors[]` `not_a_git_repo`, no command runs. With `GIT_DIR` pointing at another repo in the env, the snapshot still reflects `repo_root` (a mutating skill is still `mutated`). |
+| AC26 | op2 | the step with `git_cwd = <repo>/sub` (a subdirectory of a git repo) and no command skills → `status == "ok"`, report `summary.total == 0`. |
 | AC24 | op1 | CLI: `verify --timeout 1` applies the timeout (a sleeping command → `timeout`); `verify --bogus` exits 2. |
 | AC25 | op4 | `_write_review_doc` with a SHIP review and an `invalid` scores block (`clarity: 0`) → verdict `SHIP`, `review.json` `scores_status: "invalid"`. Events are captured (as sibling tests capture `_emit_safe`): `spec_review_score_downgrade` on AC14, `spec_review_scores_missing` on the absent/invalid cases, `spec_review_score_low_frozen` on AC19, `verification_registry_report` on AC11. AC13 additionally asserts the prompt states the below-3 ⇒ REVISE rule and the `root: "spec"` finding requirement. AC16 early exit asserts `scores_status` and `low_axes` recorded in `review-cycle-2.json`. |
 | AC19 | op4 | `_write_review_doc` with `is_frozen: True` in `prev.data`, a SHIP review and a `2` score → verdict stays `SHIP`, `review.json` records the low axis. |

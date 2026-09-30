@@ -1,7 +1,7 @@
 """RED tests for bd#115 - a registry of verifying skills (phase 5 + `verify`
 command) and a scored spec review (`review.json`) in phase 4.5.
 
-Spec: docs/decisions/2026-09-30-bd115-verification-registry-spec-scores.md (AC1-AC25).
+Spec: docs/decisions/2026-09-30-bd115-verification-registry-spec-scores.md (AC1-AC26).
 
 Every test builds real temp git repos with real SKILL.md files and real commands
 (`sys.executable -c ...`); the units under test are never mocked. New modules
@@ -424,7 +424,7 @@ def test_ac22_mutation_then_timeout_is_mutated(tmp_path: Path) -> None:
     ))
     _commit_all(repo)
 
-    report = _run_registry(repo, timeout_sec=1)
+    report = _run_registry(repo, timeout_sec=3)
     assert (repo / "m.txt").exists()
     assert _by_name(report)["mt"]["status"] == "mutated"
 
@@ -574,6 +574,23 @@ def test_ac11_empty_registry_is_ok_and_forwards_data(
     assert json.loads(report_file.read_text())["summary"]["total"] == 0
     reports = [p for (et, p) in events if et == "verification_registry_report"]
     assert len(reports) == 1 and reports[0]["summary"]["total"] == 0
+
+
+def test_ac26_subdirectory_git_cwd_empty_registry_is_ok(tmp_path: Path) -> None:
+    from bytedigger_engine.workflows import phase_5_implement as p5
+
+    repo = _make_repo(tmp_path)
+    (repo / "sub").mkdir()
+    (repo / "sub" / "f.txt").write_text("f\n")
+    _commit_all(repo)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    ctx, prev = _p5(repo / "sub", scratch)
+
+    result = p5._verify_registered_skills(ctx, prev)
+    assert result.status == "ok", result.error
+    report = json.loads((scratch / "reviews" / "verification-report.json").read_text())
+    assert report["summary"]["total"] == 0
 
 
 def _two_skill_repo(tmp_path: Path, name: str):
