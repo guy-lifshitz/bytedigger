@@ -16,6 +16,10 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **Classification:** TRIVIAL (<10L) → direct edit | SIMPLE (bug fix ONLY — no new functionality, clear root cause) → AUTONOMOUS | FEATURE (any new behavior/capability — DEFAULT for ambiguous) → AUTONOMOUS | COMPLEX (4+ files, architecture, cross-cutting) → SUPERVISED. **Guard: user says "feature/add/create/implement/build" → NEVER SIMPLE.**
 
+**Issue intake + readiness (bd#117):** Parse `--issue <N>`; run `bash scripts/readiness check --stage start --json` only to read `readiness.required` (exit 4 → warn, continue). When `readiness.required` is true: no issue → STOP (`no_issue`) before `build-state.yaml` is written; `--issue <N>` on a branch that parses to another number → STOP (`issue_mismatch`); otherwise the build runs on branch `gh<N>-<slug>` for every tier, worktree or not.
+
+**Start gate (only when `readiness.required` is true):** before the first write outside the scratchpad — TRIVIAL: after writing a minimal `build-spec.md` (`Task | Files | Change`), before the direct edit | SIMPLE: after its Phase 1 spec | FEATURE/COMPLEX: after Phase 4.5. Run `bash scripts/readiness check --stage start --spec ./build-spec.md`: **0** → continue | **3** → `bash scripts/readiness post --spec ./build-spec.md`, set `current_phase: awaiting_approval` + `awaiting_stage: start`, print `Waiting for "<label>" on #<N>`, STOP — in every mode, AUTONOMOUS included | **anything else** → warn with the stderr line, continue (the ship gate still holds). Every readiness STOP prints the verdict line and, for `no_spec_record` / `label_predates_spec`, the recovery: `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue`.
+
 **Rules:** Every phase RUNS. Code/review/test = always agent. No skipping. **SYNTHESIS RULE:** Before spawning implementation workers, orchestrator MUST read scratchpad findings and write prompts with exact file paths + line numbers. Never "based on findings".
 
 **WORKER LIFECYCLE MATRIX:**
@@ -34,7 +38,7 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **AUTONOMOUS MODE ENFORCEMENT:** When mode = AUTONOMOUS, proceed through ALL phases without stopping. Do NOT pause between phases, do NOT ask for user confirmation, do NOT present intermediate results for approval. The only valid stops are: (1) a gate HARD BLOCK (exit non-zero), (2) pipeline completion, (3) unrecoverable error. **SUPERVISED mode:** pause after each phase for user review.
 
-> **PAUSE-POINT HARD RULE:** Every pause/wait/approval point in this document is wrapped in an explicit mode check below. If you add a new pause point anywhere in the pipeline, you MUST wrap it in `if mode == AUTONOMOUS / SUPERVISED`. There are NO implicit pauses. When reading `mode` from build-state.yaml, strip surrounding quotes before comparing (see `yaml_parser_quote_strip` pattern: `sed "s/^['\"]//;s/['\"]$//"` or equivalent).
+> **PAUSE-POINT HARD RULE:** Every pause/wait/approval point in this document is wrapped in an explicit mode check below. If you add a new pause point anywhere in the pipeline, you MUST wrap it in `if mode == AUTONOMOUS / SUPERVISED`. There are NO implicit pauses. **One named exception:** the readiness start gate (Phase 0 / 4.5) STOPs at `awaiting_approval` in every mode, AUTONOMOUS included, keyed on `readiness.required` — not on mode. When reading `mode` from build-state.yaml, strip surrounding quotes before comparing (see `yaml_parser_quote_strip` pattern: `sed "s/^['\"]//;s/['\"]$//"` or equivalent).
 
 ---
 
@@ -46,7 +50,7 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **--dry-run flag:** Display table → STOP
 
-**Resumable:** First run `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger` again (absolute plugin root and exit rules as in the first Phase 0 step). Then, if `build-state.yaml` exists + `current_phase != "completed"` → read, skip to next. On resume, verify scratchpad_dir exists. If missing, recreate directory structure and re-run Phase 2 (explore) to regenerate findings.
+**Resumable:** First run `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger` again (absolute plugin root and exit rules as in the first Phase 0 step). Then, if `build-state.yaml` exists + `current_phase != "completed"` → read, skip to next. On resume, verify scratchpad_dir exists. If missing, recreate directory structure and re-run Phase 2 (explore) to regenerate findings. If `current_phase: awaiting_approval`: `awaiting_stage: start` → re-run the start gate (0 → next phase); `awaiting_stage: ship` → re-run only SHIP (7.1c), no re-implementation, then the rest of Phase 7.
 
 **Worktree:** If `--worktree` or FEATURE+ on main → `git worktree add` then **MUST copy build-state.yaml to worktree**: `cp build-state.yaml <worktree-path>/`. Without state file, ALL gates are blind and pipeline runs unprotected.
 
@@ -162,6 +166,8 @@ Process: Collect ALL issues (single list) → Task agent fixes EVERY finding →
 3. If mode == "SUPERVISED": present summary to user (What was built + learnings bullets), wait for acknowledgement, then proceed
 
 **7.1b Learning Extraction:** After synthesizer returns, run `bash scripts/learning-store.sh extract "$SCRATCHPAD"` — persists `reviews/learnings-raw.md` to `.bytedigger/learnings/`. Writes `learnings_extracted: <N>` to build-state.yaml. Gracefully exits 0 on any error.
+
+**7.1c SHIP (if `--pr`):** `bash scripts/ship.sh --pr --state ./build-state.yaml` — commit, push, PR. It runs `readiness check --stage ship` first (verdict + consumption), so nothing leaves the machine unapproved. When `required: true` (from the Phase 0 readiness read), any non-zero exit is STOP: set `current_phase: awaiting_approval` and `awaiting_stage: ship`, keep `build-state.yaml` and `build-metadata.json`, skip 7.2, print the verdict line and — for `no_spec_record` / `label_predates_spec` — the recovery `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue`. When `required: false`: best-effort, log a warning and continue.
 
 **7.2 State Cleanup:** Delete `build-state.yaml` | `build-tests.md` | `build-red-output.log` | `build-green-output.log` | `build-opus-validation.md` | `build-metadata.json` (on FAILED, keep build-state.yaml/build-metadata.json for `/build continue`). **Cleanup rule:** Delete only transient scratchpad subdirs (`research/`, `architecture/`, `specs/`, `tests/`, `reviews/`) — do NOT `rm -rf` the entire scratchpad dir. This preserves `.bytedigger/learnings/` for future builds.
 

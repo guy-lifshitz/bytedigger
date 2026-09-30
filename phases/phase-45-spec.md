@@ -80,6 +80,14 @@ What to test, expected outcomes (derived from acceptance criteria).
 2. If mode == "AUTONOMOUS": write `build-spec.md`, run Plan-Review Gate (automated reviewer — always mandatory, not interactive), write `plan_review: pass`, proceed to Phase 5 — no user wait
 3. If mode == "SUPERVISED": follow Spec Review flow below (present for review + wait), then run Plan-Review Gate, then proceed
 
+## Readiness Start Gate (bd#117, only when `readiness.required` is true)
+
+After the Plan-Review Gate passes and before Phase 5 writes anything outside the scratchpad, run `bash scripts/readiness check --stage start --spec ./build-spec.md`:
+
+- **0** → proceed to Phase 5.
+- **3** → run `bash scripts/readiness post --spec ./build-spec.md`, set `current_phase: awaiting_approval` and `awaiting_stage: start`, print `Waiting for "<label>" on #<N>`, and STOP — in every mode, AUTONOMOUS included. A human adds the label, then `/build continue` re-runs this gate.
+- **anything else** → warn with the stderr line and continue (the ship gate still holds).
+
 ## SUPERVISED Mode — Spec Review
 
 1. Write full spec to `./build-spec.md` in project CWD

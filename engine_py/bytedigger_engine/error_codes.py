@@ -162,6 +162,8 @@ ERROR_CODES: dict[str, str] = {
     "E_POST_FIX_TYPECHECK_PATH_ESCAPE": "phase_6_review: post-fix typecheck target path escaped allowed scope",
     "E_POST_FIX_TYPECHECK_REGRESSION": "phase_6_review: post-fix typecheck introduced a new regression",
     "E_PYTEST_MISSING": "phase_5_implement: pytest binary not available on this host",
+    "E_READINESS_NOT_APPROVED": "readiness/phase_8_post_deploy: the bound issue has no current `plan-approved` approval (bd#117); nothing was pushed",
+    "E_READINESS_UNAVAILABLE": "readiness/phase_8_post_deploy: the readiness policy or the issue could not be read (git/gh/network failure); fails closed before any push (bd#117)",
     "E_RED_1Q_EXEC_IMPORT": "phase_5_implement: RED test file uses spec_from_file_location/exec_module without a '# 1q: allow' pragma (§1q non-collectable RED risk)",
     "E_RED_COLLECT_FAILED": "phase_5_implement: RED test file failed pytest collection",
     "E_RED_COLLECT_PROBE": "phase_5_implement: RED test file(s) failed the §1q pytest --co collect-probe (non-collectable RED, D1CF5FDF hang class)",

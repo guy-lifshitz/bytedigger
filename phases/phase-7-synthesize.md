@@ -74,6 +74,21 @@ Document results and summarize the build.
    - [ ] New dependency added? → Update installation/setup docs
    If NONE apply, explicitly state: "No living documents affected."
 
+## 7.5 SHIP Protocol (if --pr flag)
+
+Runs BEFORE State Cleanup, so a refused ship leaves the state to resume from.
+
+If `--pr` flag was passed in the build invocation:
+
+1. Run: `bash scripts/ship.sh --pr --state ./build-state.yaml` (it runs `scripts/readiness check --stage ship` first: verdict + consumption, before any git mutation)
+2. Verify: `ship_complete: true` exists in build-state.yaml
+3. Log PR URL from `ship_pr_url` field
+4. If ship.sh fails (exit non-zero):
+   - **`required: true`** (readiness policy, read in Phase 0): STOP. Set `current_phase: awaiting_approval` and `awaiting_stage: ship`, keep `build-state.yaml` and `build-metadata.json`, skip State Cleanup. Print the verdict line from ship.sh's stderr and, for `no_spec_record` / `label_predates_spec`, the recovery: `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue` (re-runs only this SHIP step, then the rest of Phase 7).
+   - **`required: false`**: log warning, continue synthesis (SHIP is best-effort, not a gate)
+
+**State log:** `ship_complete: true|false | ship_pr_url: <url>`
+
 ## State Cleanup
 
 - Delete `build-state.yaml` from CWD (build complete)
@@ -107,17 +122,6 @@ Docs: [updated / N docs refreshed]
 Next: [manual test / PR / done]
 ```
 
-## 7.5 SHIP Protocol (if --pr flag)
-
-If `--pr` flag was passed in the build invocation:
-
-1. Run: `bash scripts/ship.sh --pr --state ./build-state.yaml`
-2. Verify: `ship_complete: true` exists in build-state.yaml
-3. Log PR URL from `ship_pr_url` field
-4. If ship.sh fails (exit non-zero) → log warning, continue synthesis (SHIP is best-effort, not a gate)
-
-**State log:** `ship_complete: true|false | ship_pr_url: <url>`
-
 ## Model Selection
 
 Always **Haiku** — summary extraction is simple.
@@ -140,4 +144,4 @@ CONTEXT_NEEDED: [what's missing, only if NEEDS_CONTEXT]
 
 - [ ] Summary presented (3-5 bullets)
 - [ ] Living documents checklist evaluated (all applicable items addressed)
-- [ ] build-state.yaml cleaned up
+- [ ] build-state.yaml cleaned up (unless stopped awaiting approval)

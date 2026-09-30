@@ -91,7 +91,7 @@ You are the orchestrator performing initial classification and pipeline setup fo
 
 - The user's feature request / task description
 - CWD (current working directory)
-- Any flags: `--dry-run`, `--worktree`, `--pr`, `--supervised`, `--auto`, `--init`, `--atomic-commits`
+- Any flags: `--dry-run`, `--worktree`, `--pr`, `--supervised`, `--auto`, `--init`, `--atomic-commits`, `--issue <N>`
 
 ## What You Must Produce
 
@@ -114,6 +114,33 @@ If `/build continue` was invoked:
    - Continue pipeline normally from there
 3. If not found: `No build state found. Start a new /build.`
 4. If found but `current_phase` == "completed": `Previous build completed. Start a new /build.`
+5. If found and `current_phase` == "awaiting_approval": `awaiting_stage: start` → re-run the start gate below (0 → continue with the next phase); `awaiting_stage: ship` → re-run only SHIP (Phase 7, `scripts/ship.sh --pr`), never re-implement.
+
+## Issue Intake and Readiness (bd#117)
+
+Runs after `skill-companion render` when that step exists, and before `build-state.yaml` is written (every tier, TRIVIAL included).
+
+1. Parse `--issue <N>` from the flags.
+2. Run `bash scripts/readiness check --stage start --json` only to read `required` (the `readiness.required` field of its JSON output). Exit 4 → print the `W_READINESS_UNAVAILABLE` line as a warning and continue; it is not a stop.
+3. `readiness.required` is true and no issue is bound (no `--issue <N>`, and the branch does not parse as `gh<N>-...` / `batch/<N>`) → STOP with `E_READINESS_NOT_APPROVED no_issue #` before `build-state.yaml` is written.
+4. `--issue <N>` and the current branch parses to another number → STOP with `issue_mismatch` (a Phase 0 message only, not a verdict reason).
+5. Otherwise put the build on branch `gh<N>-<slug>` for every tier, with or without a worktree.
+
+### Start gate (only when `readiness.required` is true)
+
+Runs before the first write outside the scratchpad:
+
+- **TRIVIAL**: write a minimal `build-spec.md` (`Task | Files | Change`) first, run the gate, then make the direct edit.
+- **SIMPLE**: after its Phase 1 spec.
+- **FEATURE / COMPLEX**: after Phase 4.5.
+
+Run `bash scripts/readiness check --stage start --spec ./build-spec.md`:
+
+- **0** → continue.
+- **3** → run `bash scripts/readiness post --spec ./build-spec.md`, set `current_phase: awaiting_approval` and `awaiting_stage: start`, print `Waiting for "<label>" on #<N>`, and STOP — in every mode, AUTONOMOUS included (the one named exception to the no-pause rule, keyed on `readiness.required`, not on mode).
+- **anything else** → warn with the stderr line and continue (the ship gate still holds).
+
+Every readiness STOP message prints the verdict line and, for `no_spec_record` / `label_predates_spec`, the recovery: `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue`.
 
 ## Complexity Classification
 
@@ -212,7 +239,7 @@ Then STOP.
 
 If `--worktree` flag is set OR complexity is COMPLEX with `--pr` flag:
 
-1. Create git worktree: `git worktree add .bytedigger/worktrees/build-[slug]-[timestamp] -b build/[slug]`
+1. Create git worktree: `git worktree add .bytedigger/worktrees/build-[slug]-[timestamp] -b build/[slug]` (branch `gh<N>-[slug]` instead when an issue is bound via `--issue <N>`)
 2. **Copy state files into worktree** — without this, ALL gates are blind and pipeline runs unprotected:
    ```bash
    WT=<worktree-path>
