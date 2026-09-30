@@ -463,7 +463,9 @@ def test_ac7_pr_already_exists_no_duplicate_create(tmp_path, monkeypatch):
 
 
 def test_ac8_push_failure_returns_recoverable_error(tmp_path, monkeypatch):
-    """AC8: push rc≠0 → error, E_SHIP_PUSH_FAILED, recoverable=True."""
+    """AC8 (amended by bd#117 Part A): an unreachable origin now fails closed at the
+    readiness gate — error, E_READINESS_UNAVAILABLE, recoverable=True (no policy readable,
+    nothing pushed). The E_SHIP_PUSH_FAILED path keeps its test in test_bd117a_readiness.py."""
     repo = tmp_path / "repo"
     init_git_repo(repo)
     make_feature_branch_with_commit(repo, "feat/push-fail")
@@ -479,10 +481,10 @@ def test_ac8_push_failure_returns_recoverable_error(tmp_path, monkeypatch):
     result = _ship_to_pr(ctx, None)
 
     assert result.status == "error", f"Expected error, got {result.status!r}"
-    assert result.error_code == "E_SHIP_PUSH_FAILED", (
-        f"Expected E_SHIP_PUSH_FAILED, got {result.error_code!r}"
+    assert result.error_code == "E_READINESS_UNAVAILABLE", (
+        f"Expected E_READINESS_UNAVAILABLE, got {result.error_code!r}"
     )
-    assert result.recoverable is True, "Push failure must be recoverable=True (transient)"
+    assert result.recoverable is True, "Readiness-unavailable must be recoverable=True (transient)"
 
 
 # ─── AC9: pr create fails ─────────────────────────────────────────────────────

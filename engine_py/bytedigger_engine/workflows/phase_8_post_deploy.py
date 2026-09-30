@@ -95,6 +95,8 @@ from bytedigger_engine.lib.plugins.disk_truth.suite_boyscout import (
     _today as boyscout_today,
 )
 from bytedigger_engine.net_new_delta import delta_verdict
+from bytedigger_engine import readiness as _readiness  # bd#117 — ship-time readiness gate
+from bytedigger_engine.readiness import parse_issue_from_branch as _parse_issue_from_branch  # noqa: E402,F401  bd#117 — moved to readiness.py (anchored), re-exported
 
 logger = logging.getLogger(__name__)
 
@@ -424,14 +426,6 @@ def _parse_report_summary(report_text: str) -> str:
     return match.group(1)[:100]
 
 
-def _parse_issue_from_branch(branch: str) -> int | None:
-    """Extract an issue number from a branch name (e.g. batch/1378, gh1124-x)."""
-    match = re.search(r"(?:batch/|gh)(\d+)", branch, re.IGNORECASE)
-    if not match:
-        return None
-    return int(match.group(1))
-
-
 def _issue_type_prefix(cwd: Path, issue_n: int | None) -> str:
     """Return conventional-commit prefix ('fix'/'feat') from the issue's labels.
 
@@ -571,6 +565,30 @@ def _ship_to_pr(ctx, prev) -> StepResult:
             }),
             duration_ms=0,
             step_name="ship_to_pr",
+        )
+
+    # Readiness gate (bd#117 op-A4): verdict + consumption in one call, after the
+    # skips above (a build that ships nothing makes no call) and before any
+    # guard, rebase, push or PR lookup. Off => no gh call, behaviour unchanged.
+    gate = _readiness.verdict(cwd, "ship")
+    if gate["verdict"] in ("NOT_APPROVED", "UNAVAILABLE"):
+        refused = gate["verdict"] == "NOT_APPROVED"
+        issue_tag = "" if gate["issue"] is None else str(gate["issue"])
+        return StepResult(
+            status="error",
+            data=_accumulate_summary(prev, "ship_to_pr", {
+                "shipped": False,
+                "skipped": None,
+                "pr_url": None,
+                "idempotent_hit": False,
+                "branch": branch,
+            }),
+            duration_ms=0,
+            step_name="ship_to_pr",
+            error=(f"readiness: not approved ({gate['reason']}) #{issue_tag}" if refused
+                   else f"readiness: unavailable ({gate['reason']})"),
+            error_code="E_READINESS_NOT_APPROVED" if refused else "E_READINESS_UNAVAILABLE",
+            recoverable=not refused,
         )
 
     # Dirty-tree guard (AC5) — do NOT push uncommitted work

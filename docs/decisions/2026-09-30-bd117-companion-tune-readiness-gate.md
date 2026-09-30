@@ -54,6 +54,13 @@ depend on #116** and ships first. bd#115 (lot-1874) is not touched.
    probe confirms it); (b) the wall-clock cost Phase 0 adds (`ls-remote` + `fetch` of one ref,
    30 s timeout ceiling) on a real host, as the baseline for any latency claim. Live probes
    against GitHub were not run from this spec session.
+   **Measured by Lot A (2026-09-30, before the RED freeze):** (a) a body with CRLF line ends,
+   trailing spaces/tabs and trailing blank lines, posted with `gh api …/issues/117/comments
+   --input`, came back **byte-identical** from both REST and GraphQL (`lastEditedAt` null);
+   the comment was deleted right after. The op-A1 normalisation is therefore a safety margin,
+   not a workaround. (b) `ls-remote --symref` + `fetch --no-tags +main:refs/bd/…` against
+   `git@github.com:guy-lifshitz/bytedigger` over SSH, 3 runs: 1.46–1.56 s + 1.52–1.61 s,
+   **3.0–3.2 s total** per Phase 0 / ship check.
 
 What Oz does and why it is not enough for us: a weekly `update-*-local` job opens a PR against
 the local skill only; `plan-approved`, set by a human, gates the implementation run. Both limits

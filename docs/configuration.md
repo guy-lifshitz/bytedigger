@@ -44,6 +44,44 @@ bash gates and `scripts/learning-store.sh` extract keys with `python3`.
 See [plugin.md](plugin.md#configuration) for the narrative version of the
 plugin flags.
 
+## Readiness gate (`readiness`, bd#117)
+
+Opt-in approval gate for issue-bound builds. It reads the `readiness` key of `bytedigger.json` **on the
+default branch of the repository BD pushes to** (`git remote get-url --push origin`, fetched into
+`refs/bd/policy`) -- never the working tree or the build branch, so a build cannot switch it off.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `readiness.required` | bool | `false` | `true` turns the gate on; absent or `false` means no `gh` call and no behaviour change |
+| `readiness.label` | string | `"plan-approved"` | the label a human adds to approve the plan |
+| `readiness.approvers` | list of logins | `[]` | when non-empty, only these users' label counts |
+| `readiness.distinct_actor` | bool | `false` | `true` refuses a label added by the BD user itself (`self_approved`) |
+
+How it works:
+
+- The build is bound to issue `N` by its branch name only: `gh<N>-<slug>`, `gh<N>` or `batch/<N>`.
+  `/build --issue <N>` puts the build on `gh<N>-<slug>` for every tier.
+- `scripts/readiness post --spec <path>` posts the plan to the issue as a record by the BD user
+  (`gh api user`) and removes the label if present. A human then adds the label.
+- `scripts/readiness check --stage start|ship` decides. At `ship` (run by `scripts/ship.sh --pr` and by
+  the engine's `ship_to_pr`, before anything is pushed) an approval is consumed: BD posts a
+  `<!-- bd:consumed ... -->` record, re-reads the comments, and removes the label. A second branch needs
+  a new record and a new approval. BD never adds the label.
+- Exit codes: 0 off or approved, 2 usage, 3 not approved (`E_READINESS_NOT_APPROVED <reason> #<N>`),
+  4 unavailable (`W_READINESS_UNAVAILABLE`; at `ship` the gate fails closed). `ship.sh` maps a crash or
+  a missing `python3` to 4, so `ship.sh --pr` requires `python3`.
+- v1 supports github.com only (`https://github.com/<o>/<n>` or `git@github.com:<o>/<n>` push URLs); any
+  other push target with `required: true` is unavailable.
+- Engine-driven builds (`engine_py` phases 4.5 to 5) get only the ship gate. Under `required: true`
+  their Phase 8 fails `E_READINESS_NOT_APPROVED` until a record exists. Recovery:
+  `scripts/readiness post --spec $SCRATCHPAD/specs/build-spec.md`, a human adds the label, resume
+  Phase 8.
+
+Residual risk: the gate is advisory against the orchestrating model. It has `git` and `gh` and can add
+the label itself or skip both ship paths with a direct `git push` / `gh pr create`. `approvers` and
+`distinct_actor` close only the "model adds the label, then ships through BD" path; with a shared GitHub
+account they cannot tell the two apart. Approval binds the posted spec, not the code.
+
 ## Model pinning (engine)
 
 The engine resolves the model per LLM step through `_resolve_model`

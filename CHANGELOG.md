@@ -14,6 +14,17 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Added
 
+- **`plan-approved` readiness gate (bd#117, Part A).** A repo opts in with `"readiness": {"required":
+  true}` in `bytedigger.json` on the default branch of the repository BD pushes to (optional keys
+  `label`, `approvers`, `distinct_actor`). `scripts/ship.sh --pr` and the engine's `ship_to_pr` then
+  refuse to push or open a PR unless the bound issue (`gh<N>-...` / `batch/<N>` branch) carries a
+  current approval: a spec record posted by BD (`scripts/readiness post --spec`) followed by a human
+  adding the label. An approval is consumed by the first branch that ships it and the label is
+  removed. New `scripts/readiness check|post`, `lib/git_blob.py`, error codes
+  `E_READINESS_NOT_APPROVED` and `E_READINESS_UNAVAILABLE`. `/build --issue <N>` and a start gate in
+  Phase 0/4.5 bind the build to the issue. An unreachable push target at ship time is now
+  `E_READINESS_UNAVAILABLE` (recoverable) instead of `E_SHIP_PUSH_FAILED`. Repos without the key see
+  no change and no `gh` call. `ship.sh --pr` now needs `python3`.
 - **Verification skills registry (bd#115).** A `SKILL.md` with `metadata.verification: true`
   under `skills/*/`, `.claude/skills/*/` or an `org_config["verification_skill_dirs"]` entry
   declares a check. Phase 5 runs every such skill that has a `metadata.verify_command` in the new

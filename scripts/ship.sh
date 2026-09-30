@@ -39,6 +39,33 @@ if [[ "$PR_FLAG" != "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Readiness gate (bd#117) — one call, before any git mutation
+# ---------------------------------------------------------------------------
+# `readiness check --stage ship` decides AND consumes the approval. Exit 3 is a
+# refusal, 4 is "unavailable"; a crash or a missing python3 (any other code,
+# 127 included) is mapped to 4. Its stderr is forwarded as-is.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# One gh name everywhere: HAL_GH_BIN > BD_GH_BIN > BYTEDIGGER_GH_BIN > gh
+GH_BIN="${HAL_GH_BIN:-${BD_GH_BIN:-${BYTEDIGGER_GH_BIN:-gh}}}"
+
+READINESS_RC=0
+READINESS_OUT=$(bash "$SCRIPT_DIR/readiness" check --stage ship --json) || READINESS_RC=$?
+case "$READINESS_RC" in
+  0) ;;
+  3) exit 3 ;;
+  *)
+    echo "ERROR: readiness check unavailable (exit $READINESS_RC) — nothing shipped" >&2
+    exit 4
+    ;;
+esac
+
+READINESS_REQUIRED=false
+if printf '%s' "$READINESS_OUT" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("required") is True else 1)' 2>/dev/null; then
+  READINESS_REQUIRED=true
+fi
+
+# ---------------------------------------------------------------------------
 # Read build-state.yaml
 # ---------------------------------------------------------------------------
 
@@ -115,17 +142,46 @@ while IFS= read -r file; do
   git add "$file"
 done <<< "$FILES_MODIFIED"
 
-# Guard: if nothing was staged (all files were sensitive), skip commit gracefully
+# Resume rule (only under readiness required:true): commits already made but not
+# yet pushed still ship. Base = @{upstream}, else refs/bd/policy (the push
+# target's default branch readiness just fetched). A non-numeric count is 0.
+_ahead_of_base() {
+  local base="refs/bd/policy" count
+  if git rev-parse --verify -q '@{upstream}' >/dev/null 2>&1; then
+    base='@{upstream}'
+  fi
+  count=$(git rev-list --count "$base..HEAD" 2>/dev/null || true)
+  case "$count" in
+    ''|*[!0-9]*) count=0 ;;
+  esac
+  [[ "$count" -gt 0 ]]
+}
+
+NOTHING_STAGED=false
 if git diff --cached --quiet; then
-  echo "WARNING: No files to commit (all excluded as sensitive)" >&2
-  exit 0
+  NOTHING_STAGED=true
+fi
+
+# Guard: if nothing was staged (all files were sensitive), skip commit gracefully —
+# unless the resume rule applies (required:true and commits are ahead of the base).
+if [[ "$NOTHING_STAGED" == "true" ]]; then
+  RESUME=false
+  if [[ "$READINESS_REQUIRED" == "true" ]] && _ahead_of_base; then
+    RESUME=true
+  fi
+  if [[ "$RESUME" != "true" ]]; then
+    echo "WARNING: No files to commit (all excluded as sensitive)" >&2
+    exit 0
+  fi
 fi
 
 # ---------------------------------------------------------------------------
 # Commit
 # ---------------------------------------------------------------------------
 
-git commit -m "$TASK" --
+if [[ "$NOTHING_STAGED" != "true" ]]; then
+  git commit -m "$TASK" --
+fi
 
 # ---------------------------------------------------------------------------
 # Push
@@ -140,8 +196,8 @@ git push -u origin "$CURRENT_BRANCH"
 PR_URL=""
 
 # PR creation is best-effort: gh may be absent, may fail auth, may fail network
-if command -v gh &>/dev/null; then
-  PR_URL=$(gh pr create --title "$TASK" --body "Built via ByteDigger /build pipeline." 2>/dev/null) || {
+if command -v "$GH_BIN" &>/dev/null; then
+  PR_URL=$("$GH_BIN" pr create --title "$TASK" --body "Built via ByteDigger /build pipeline." 2>/dev/null) || {
     echo "WARNING: gh pr create failed — skipping PR creation. Push complete, open a PR manually." >&2
     PR_URL=""
   }

@@ -415,6 +415,17 @@ def test_ac6_phantom_deletion_blocks_the_ship(tmp_path, monkeypatch):
     # the local origin/main still carries the drift ⇒ the phantom belt is the second line of
     # defence and must fire BEFORE the push (§1.3 call-site order).
     git(["remote", "set-url", "origin", "/nonexistent/path/to/nowhere.git"], repo)
+    # bd#117 Part A: the readiness gate reads the PUSH target, so it must be reachable
+    # (an empty real bare repo carries no policy => readiness is "off") while the fetch
+    # URL stays dead and the rebase fetch still fails.
+    push_target = tmp_path / "push-target.git"
+    subprocess.run(
+        ["git", "init", "-q", "--bare", str(push_target)],
+        check=True,
+        capture_output=True,
+        env={**os.environ, **GIT_ENV},
+    )
+    git(["remote", "set-url", "--push", "origin", str(push_target)], repo)
     monkeypatch.setenv("HAL_GH_BIN", str(write_fake_gh(tmp_path)))
     ctx = make_ctx(tmp_path / "scratch", working_dir=repo, ship_pr=True)
 
@@ -581,9 +592,10 @@ def test_ac11_no_origin_remote_skips_cleanly(tmp_path):
 # ─── AC12 ────────────────────────────────────────────────────────────────────
 
 
-def test_ac12_unreachable_origin_defers_to_push_failed(tmp_path, monkeypatch):
-    """AC12: error_code == "E_SHIP_PUSH_FAILED" (fetch failure defers, §1.4) — not a
-    rebase/phantom code."""
+def test_ac12_unreachable_origin_fails_closed_as_readiness_unavailable(tmp_path, monkeypatch):
+    """AC12 (amended by bd#117 Part A): an unreachable origin can no longer be read for a
+    readiness policy, so the ship fails closed with E_READINESS_UNAVAILABLE (recoverable)
+    before any push — not a rebase/phantom code."""
     repo = tmp_path / "repo"
     init_git_repo(repo)
     make_feature_branch_with_commit(repo, "feat/unreachable")
@@ -595,7 +607,8 @@ def test_ac12_unreachable_origin_defers_to_push_failed(tmp_path, monkeypatch):
     result = _ship_to_pr(ctx, None)
 
     assert result.status == "error", f"AC12: expected error, got {result.status!r}"
-    assert result.error_code == "E_SHIP_PUSH_FAILED", (
-        f"AC12: an unreachable origin must defer to E_SHIP_PUSH_FAILED, got {result.error_code!r}"
+    assert result.error_code == "E_READINESS_UNAVAILABLE", (
+        f"AC12: an unreachable origin must fail closed as E_READINESS_UNAVAILABLE, "
+        f"got {result.error_code!r}"
     )
-    assert result.recoverable is True, "AC12: push failure stays recoverable=True"
+    assert result.recoverable is True, "AC12: readiness-unavailable is transient (recoverable=True)"

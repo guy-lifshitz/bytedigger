@@ -91,6 +91,10 @@ DECLARED_NON_GIT_CWD_SITES: "dict[str, str]" = {
         "(A8.6: adds the `rebase` verb to §0's phase_8 row)"
     ),
     "_ship_to_pr": "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd",
+    "_fetch_policy_ref": (
+        "readiness.py — bd#117: git_cwd is a parameter (the repo being checked), never lib.git_cwd; "
+        "writes only refs/bd/policy, never the working tree or index"
+    ),
     "_cleanup_worktrees": "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd",
     "_cleanup_gone_branches": "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd",
     "_compute_full_suite_baseline": "phase_8_post_deploy.py — git_cwd is a parameter, never lib.git_cwd",
