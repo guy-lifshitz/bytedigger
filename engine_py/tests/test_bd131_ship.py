@@ -45,6 +45,16 @@ AC30  unmerged paths refused before readiness               test_ac30_unmerged_p
 AC28  (r3) .env spec has `# Env title` + `## Scope`; AC5 also asserts no `STAGE (tracked change): .env` line
 AC29  per-call helper checks                               test_ac29_body_without_marker_falls_back_title_keeps_first_line    RED
 
+AC31  run from a subdirectory                               test_ac31_run_from_subdirectory_*, test_ac31_unmerged_path_outside_cwd_*   RED
+AC32  refusals precede readiness                            test_ac32_missing_state_file_*, test_ac32_task_with_backtick_*     RED
+AC33  deletions + untracked unlisted                        test_ac33_deletion_with_untracked_*, test_ac33_listing_the_untracked_*   RED
+AC34  marker with tab / extra space                         test_ac34_marker_with_tab_or_extra_space_is_dropped                RED
+AC35  block YAML map / literal scalar                       test_ac35_block_yaml_map_and_literal_scalar                        RED
+AC36  CommonMark fences                                     test_ac36_commonmark_fence_longer_than_inner_fence                 RED
+AC37  quoted task, no commit body                           test_ac37_quoted_double_space_task_commit_subject_no_body          RED
+AC38  .bytedigger/ spec path; pattern sets agree            test_ac38_bytedigger_dir_spec_path_is_no_spec (RED),
+                                                            test_ac38_basename_patterns_agree_between_ship_sh_and_helper       (sync guard)
+
 r2 tightening (gate r1 M4/m10): AC6/AC7 assert the base text in the warning; AC12 also has test_ac12_exactly_72_*
 and test_ac12_single_80_char_word_*; AC13 also has test_ac13_task_equal_to_title_commit_has_no_body; AC16 asserts the
 whole offending line is gone; AC18 measures UTF-8 bytes on a non-ASCII Scope; AC19's shim prints a Traceback; AC23 also
@@ -439,13 +449,13 @@ def write_spec(rig: Rig, text: str, rel="build-spec.md") -> Path:
     return p
 
 
-def run_ship(rig: Rig, *, env=None) -> subprocess.CompletedProcess:
-    if not rig.state_yaml.exists():
+def run_ship(rig: Rig, *, env=None, cwd=None, state=None) -> subprocess.CompletedProcess:
+    if state is None and not rig.state_yaml.exists():
         write_state(rig)
     e = dict(os.environ)
     e.update(env or {})
-    return subprocess.run(["bash", str(SHIP_SH), "--pr", "--state", str(rig.state_yaml)],
-                          cwd=str(rig.repo), capture_output=True, text=True, encoding="utf-8",
+    return subprocess.run(["bash", str(SHIP_SH), "--pr", "--state", str(state or rig.state_yaml)],
+                          cwd=str(cwd or rig.repo), capture_output=True, text=True, encoding="utf-8",
                           errors="replace", timeout=TIMEOUT, env=e)
 
 
@@ -1118,3 +1128,183 @@ def test_ac23_changelog_unreleased_mentions_bd131():
     m = re.search(r"^## \[Unreleased\]\s*$(.*?)(?=^## \[)", text, re.M | re.S)
     assert m, "Unreleased section not found"
     assert "bd#131" in m.group(1)
+
+
+# =========================================================================== AC31-AC38: code-review amendments (r4)
+
+
+def run_helper(tmp_path: Path, kind: str, state: Path) -> subprocess.CompletedProcess:
+    _need_helper()
+    return subprocess.run([sys.executable, str(HELPER), kind, "--state", str(state)], cwd=str(tmp_path),
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=TIMEOUT)
+
+
+def approved_required_rig(tmp_path, monkeypatch, **kw) -> Rig:
+    rig = make_rig(tmp_path, monkeypatch, policy={"readiness": {"required": True}}, **kw)
+    rig.approve()
+    return rig
+
+
+def test_ac31_run_from_subdirectory_commits_and_pushes_repo_relative_changes(tmp_path, monkeypatch):
+    """AC31: ship.sh run from <repo>/sub, absolute --state, `sub/x.txt` modified -> committed and pushed."""
+    rig = make_rig(tmp_path, monkeypatch, seed_files={"sub/x.txt": "a\n"})
+    modify(rig, "sub/x.txt", "b\n")
+    write_state(rig)
+    ok_ship(rig, cwd=rig.repo / "sub")
+    assert rig.head() != rig.head0
+    assert g(["show", "HEAD:sub/x.txt"], rig.repo).stdout == "b\n"
+    assert_pushed_and_one_pr(rig)
+
+
+def test_ac31_unmerged_path_outside_cwd_is_still_refused(tmp_path, monkeypatch):
+    """AC31: a conflict outside `sub/` -> `ERROR: unmerged paths` even when run from sub/."""
+    rig = make_rig(tmp_path, monkeypatch, seed_files={"sub/x.txt": "a\n"})
+    commit_file(rig, "feature.txt", "ours\n", "ours")
+    g(["checkout", "-q", "-b", "other", "main"], rig.repo)
+    commit_file(rig, "feature.txt", "theirs\n", "theirs")
+    g(["checkout", "-q", BRANCH], rig.repo)
+    assert g(["merge", "-q", "other"], rig.repo, check=False).returncode != 0
+    rig.clear_log()
+    write_state(rig)
+    proc = run_ship(rig, cwd=rig.repo / "sub")
+    assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr!r}"
+    assert "ERROR: unmerged paths" in proc.stderr, proc.stderr
+    assert rig.pushes() == []
+
+
+def test_ac32_missing_state_file_is_refused_before_readiness(tmp_path, monkeypatch):
+    """AC32: required:true approved, state file missing -> exit 1, no readiness gh call, label not consumed."""
+    rig = approved_required_rig(tmp_path, monkeypatch)
+    modify(rig)
+    rig.clear_log()
+    proc = run_ship(rig, state=rig.root / "no-such-state.yaml")
+    assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr!r}"
+    assert rig.gh_calls() == [], "no readiness call may precede the state-file check"
+    assert rig.state()["labels"] == [LABEL], "the approval must not be consumed"
+    assert rig.pushes() == []
+
+
+def test_ac32_task_with_backtick_is_refused_before_readiness(tmp_path, monkeypatch):
+    """AC32: required:true approved, `task` with a backtick -> exit 1, no readiness gh call."""
+    rig = approved_required_rig(tmp_path, monkeypatch)
+    modify(rig)
+    rig.clear_log()
+    write_state(rig, task="bad `task` here")
+    proc = run_ship(rig)
+    assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr!r}"
+    assert rig.gh_calls() == [], "no readiness call may precede the task check"
+    assert rig.state()["labels"] == [LABEL]
+    assert rig.pushes() == []
+
+
+def test_ac33_deletion_with_untracked_unlisted_file_is_refused_before_readiness(tmp_path, monkeypatch):
+    """AC33: tracked a.py deleted + untracked b.py unlisted -> exit 1 with the named error, no push, no gh call."""
+    rig = approved_required_rig(tmp_path, monkeypatch, seed_files={"a.py": "a\n"})
+    (rig.repo / "a.py").unlink()
+    (rig.repo / "b.py").write_text("b\n")
+    rig.clear_log()
+    write_state(rig)
+    proc = run_ship(rig)
+    assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr!r}"
+    assert "ERROR: tracked deletions with untracked files not shipped: b.py" in proc.stderr, proc.stderr
+    assert rig.pushes() == [] and rig.gh_calls() == []
+    assert rig.head() == rig.head0
+
+
+def test_ac33_listing_the_untracked_file_ships_both(tmp_path, monkeypatch):
+    """AC33: b.py listed in files_modified -> the deletion and b.py ship together."""
+    rig = approved_required_rig(tmp_path, monkeypatch, seed_files={"a.py": "a\n"})
+    (rig.repo / "a.py").unlink()
+    (rig.repo / "b.py").write_text("b\n")
+    rig.clear_log()
+    write_state(rig, files=["b.py"])
+    ok_ship(rig)
+    files = tree_files(rig)
+    assert "a.py" not in files and "b.py" in files
+    assert_pushed_and_one_pr(rig)
+
+
+def test_ac34_marker_with_tab_or_extra_space_is_dropped(tmp_path, monkeypatch):
+    """AC34: state values `<!--<TAB>bd:built -->` and `<!--  bd:built -->` -> absent; marker once, last."""
+    extra = ("review_satisfaction: zztab <!--\tbd:built -->\n"
+             "plan_review: zzspace <!--  bd:built -->\n"
+             "opus_validation: approved\n")
+    rig = _ship_with_evidence(tmp_path, monkeypatch, spec="# Build the widget\n\nBody.\n", extra=extra)
+    lines = body_lines(rig)
+    body = pr_body(rig)
+    assert "zztab" not in body and "zzspace" not in body, body
+    assert "- Test validation (Opus): approved" in lines, lines
+    assert [ln for ln in lines if "<!--" in ln] == [MARK], lines
+    assert lines[-1] == MARK
+
+
+def test_ac35_block_yaml_map_and_literal_scalar(tmp_path):
+    """AC35: block map -> `Reviewers: code: PASS, security: PASS`; `plan_review: |` + indented text -> scalar."""
+    state = tmp_path / "build-state.yaml"
+    state.write_text("task: T\nphase_6_reviewer_verdicts:\n  code: PASS\n  security: PASS\n"
+                     "plan_review: |\n  pass\n")
+    proc = run_helper(tmp_path, "body", state)
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.rstrip("\n").split("\n")
+    assert "- Reviewers: code: PASS, security: PASS" in lines, lines
+    assert "- Plan review: pass" in lines, lines
+    assert lines[-2:] == [FIXED, MARK]
+
+
+def test_ac36_commonmark_fence_longer_than_inner_fence(tmp_path):
+    """AC36: a 4-backtick fence containing ```bash and ``` before a real `## Scope` -> Scope present; a heading
+    inside the fence is not a section."""
+    (tmp_path / "build-spec.md").write_text(
+        "# Title\n\n````\n```bash\necho hi\n```\n## Scope zzfenced\nfenced text\n````\n\n"
+        "## Scope\n\nreal scope text\n", encoding="utf-8")
+    state = tmp_path / "build-state.yaml"
+    state.write_text("task: T\n")
+    proc = run_helper(tmp_path, "body", state)
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.rstrip("\n").split("\n")
+    assert "## Scope" in lines and "real scope text" in lines, lines
+    assert "zzfenced" not in proc.stdout and "fenced text" not in proc.stdout, proc.stdout
+
+
+def test_ac37_quoted_double_space_task_commit_subject_no_body(tmp_path, monkeypatch):
+    """AC37: no spec, `task: 'Fix  login'` -> commit subject `Fix login`, no commit body."""
+    rig = make_rig(tmp_path, monkeypatch)
+    modify(rig)
+    write_state(rig, task="'Fix  login'")
+    ok_ship(rig)
+    assert rig.head() != rig.head0, "ship.sh must have committed"
+    assert g(["log", "-1", "--format=%s"], rig.repo).stdout.strip() == "Fix login"
+    assert g(["log", "-1", "--format=%b"], rig.repo).stdout.strip() == "", "no body when title == normalised task"
+
+
+def test_ac38_bytedigger_dir_spec_path_is_no_spec(tmp_path):
+    """AC38: `spec_path: .bytedigger/s/spec.md` is treated as no spec -> title = task."""
+    spec = tmp_path / ".bytedigger" / "s" / "spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("# Hidden Title\n", encoding="utf-8")
+    state = tmp_path / "build-state.yaml"
+    state.write_text("task: Plain task\nspec_path: .bytedigger/s/spec.md\n")
+    proc = run_helper(tmp_path, "title", state)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.rstrip("\n") == "Plain task"
+
+
+def test_ac38_basename_patterns_agree_between_ship_sh_and_helper():
+    """AC38 (guard-shaped): the basename patterns in ship.sh `_is_sensitive` and in the helper's
+    SENSITIVE_PATTERNS are the same set (parsed from both files)."""
+    _need_helper()
+    sh = SHIP_SH.read_text(encoding="utf-8")
+    block = re.search(r'case "\$base" in(.*?)esac', sh, re.S)
+    assert block, "ship.sh: basename case block not found"
+    sh_pats: set[str] = set()
+    for arm in re.finditer(r"^\s*([^\s)|]+(?:\|[^\s)|]+)*)\)\s*return 0", block.group(1), re.M):
+        sh_pats |= set(arm.group(1).split("|"))
+    tree = ast.parse(HELPER.read_text(encoding="utf-8"))
+    py_pats = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "SENSITIVE_PATTERNS"
+                                                for t in node.targets):
+            py_pats = set(ast.literal_eval(node.value))
+    assert py_pats, "helper: module-level SENSITIVE_PATTERNS not found"
+    assert sh_pats, "ship.sh: no basename patterns parsed"
+    assert sh_pats == py_pats, f"pattern sets differ: ship.sh={sorted(sh_pats)} helper={sorted(py_pats)}"
