@@ -1,6 +1,6 @@
 # bd#131 — `ship.sh` ships commits ahead of base, and the PR carries the review evidence
 
-**Status: FROZEN (r3, after gate r2 REVISE)** · **Class:** SHIP path · **Chokepoint:** `scripts/ship.sh`, the one place the
+**Status: FROZEN (r4, after gate r2 REVISE + code-review r1)** · **Class:** SHIP path · **Chokepoint:** `scripts/ship.sh`, the one place the
 plugin commits, pushes and opens the PR; its title and body come from one new helper,
 `scripts/ship_pr_text.py`.
 
@@ -235,6 +235,42 @@ PUSH") — now PUSH and one `pr create`. Test
 `test_ac_a12a_required_false_keeps_todays_exit_0_without_push` is inverted (same file, renamed
 `…_required_false_now_pushes_when_ahead`).
 
+## §5 Code-review amendments (r4)
+
+Found by `/code-review high` on the GREEN diff; each gets a RED row.
+
+- **CR1 — repo root.** Right after the `--pr` gate ship.sh resolves `--state` to an absolute
+  path, then `cd "$(git rev-parse --show-toplevel)"`. Every git path read (`diff`, `ls-files -u`,
+  `ls-files --others`) and every `git add` is then relative to the root. Not inside a work tree →
+  stderr `ERROR: not inside a git work tree — nothing shipped`, exit 1.
+- **CR2 — all read-only refusals before readiness.** Missing state file, invalid `task`
+  (newline/backtick), detached HEAD, unmerged paths and CR3 all run before the readiness check, so
+  none of them consumes an approval.
+- **CR3 — half-shipped moves.** Before readiness (read-only): when discovery would stage at
+  least one **deletion** of a tracked path and the untracked-not-shipped set (op1 warning set, BD
+  leftovers excluded) is non-empty, stderr `ERROR: tracked deletions with untracked files not
+  shipped: <paths> — commit them or list them in files_modified`, exit 1. A deletion with no
+  untracked files, or untracked files with no deletion, keeps the op1 behaviour (warning only).
+- **CR4 — marker filter after normalising.** The `<!-- bd:` line filter is applied to the rendered
+  one-line text, and additionally matches `<!--` followed by any whitespace then `bd:`
+  (regex `<!--\s*bd:`), on spec lines and state values alike.
+- **CR5 — block YAML in state.** A key with an empty value followed by indented lines: `  - x`
+  lines → list (as today); `  k: v` lines → map, rendered `k: v, k2: v2`; a value of `|` or `>`
+  followed by indented lines → scalar, the lines joined with one space.
+- **CR6 — fences per CommonMark.** A fence opens with ≥ 3 backticks or tildes (optional info
+  string) and closes only on a line of the same character, at least as long, with nothing but
+  whitespace after it.
+- **CR7 — commit body only when the title differs from the normalised task.** ship.sh strips one
+  level of matching single or double quotes from `task` portably (no `\x27` in sed) and compares
+  after collapsing whitespace; equal → no commit body.
+- **CR8 — one `git add`.** Discovered paths are filtered in bash (`${f##*/}` for the basename) and
+  staged in a single `git add -A --pathspec-from-file=- --pathspec-file-nul` call (literal
+  pathspecs).
+- **CR9 — one sensitive-pattern set.** The helper's spec-path check includes ship.sh's directory
+  rules (`node_modules/`, `.bytedigger/` anywhere in the path); both files carry a comment naming
+  the other as the twin to keep in sync, and a RED row checks the two lists agree.
+- **CR10** — the unused readiness JSON capture is removed (`--json` output discarded).
+
 ## §4 Acceptance (RED targets)
 
 Fixture: the bd#117 rig (real temp repo, bare remote behind the ssh shim, pre-receive `PUSH` log,
@@ -280,3 +316,11 @@ stderr before exiting 1, and the test asserts `Traceback` is absent from ship.sh
 asserts the whole line (its other text) is gone. AC6/AC7 assert the base text in the warning
 (`refs/bd/policy` / `@{upstream}`). AC13 adds a case task == title (no body). AC12 adds an
 exactly-72-char H1 (unchanged) and a single 80-char word (hard cut at 72).
+| AC31 | CR1 | ship.sh run from `<repo>/sub` with `sub/x.txt` modified → committed and pushed; a conflict outside `sub/` → `ERROR: unmerged paths` |
+| AC32 | CR2 | `required: true`, approved: state file missing → exit 1, no readiness gh call (label not consumed); `task` with a backtick → same |
+| AC33 | CR3 | tracked `a.py` deleted + untracked `b.py` unlisted → exit 1, `ERROR: tracked deletions with untracked files not shipped: b.py`, no push, no readiness gh call under `required: true`; `b.py` listed in `files_modified` → ships both |
+| AC34 | CR4 | state values `<!--\tbd:built -->` and `<!--  bd:built -->` → absent; marker exactly once, last |
+| AC35 | CR5 | block map `phase_6_reviewer_verdicts:` + `  code: PASS` + `  security: PASS` → `- Reviewers: code: PASS, security: PASS`; `plan_review: \|` + indented `pass` → `- Plan review: pass` |
+| AC36 | CR6 | a ```` ```` ```` fence containing ```` ```bash ```` then ```` ``` ```` before a real `## Scope` → Scope section present; a heading inside that fence is not a section |
+| AC37 | CR7 | no spec, `task: 'Fix  login'` → commit subject `Fix login`, no commit body |
+| AC38 | CR9 | helper treats `spec_path: .bytedigger/s/spec.md` as no spec; the basename patterns in ship.sh `_is_sensitive` and in the helper are the same set (parsed from both files) |
