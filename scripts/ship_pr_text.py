@@ -24,14 +24,19 @@ import sys
 FIXED = "Built via ByteDigger /build pipeline."
 # Same literal as readiness.BUILT_MARKER in engine_py/bytedigger_engine/readiness.py.
 MARKER = "<!-- bd:built -->"
-MARKER_PREFIX = "<!-- bd:"
 TRUNC = "(truncated; see build-spec.md)"
 BODY_LIMIT = 60000  # UTF-8 bytes
 VALUE_LIMIT = 2000  # UTF-8 bytes per one-line state value
 TITLE_LIMIT = 72
-# Same basename patterns as _is_sensitive in scripts/ship.sh.
+# Twin of _is_sensitive in scripts/ship.sh: keep the basename list in sync (a test compares them).
+# The directory rules (node_modules/, .bytedigger/) are in _sensitive_spec_path below.
 SENSITIVE_PATTERNS = (".env", ".env.*", "*.env", "*.env.*", "*.pem", "*.key", "*.credentials*")
 
+MARKER_RE = re.compile(r"<!--\s*bd:")
+BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?[0-9]*$")
+MAP_LINE_RE = re.compile(r"^[ \t]+([^\s:#][^:]*?):(?:[ \t]+(.*))?$")
+FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`+|~+)[ \t]*$")
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
 ITEM_RE = re.compile(r"^[ \t]*-[ \t]+(.*)$")
 HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
@@ -70,6 +75,23 @@ def _parse_inline(rest):
     return _unquote(v)
 
 
+def _parse_block(block, allow_structure):
+    """Indented lines under a key: `- x` lines -> list, `k: v` lines -> 'k: v, k2: v2',
+    anything else (and every `|` / `>` block) -> the lines joined with one space."""
+    if allow_structure and block and ITEM_RE.match(block[0]):
+        items = [_unquote(m.group(1)) for m in map(ITEM_RE.match, block) if m]
+        return [x for x in items if x]
+    if allow_structure and block and MAP_LINE_RE.match(block[0]):
+        pairs = []
+        for ln in block:
+            m = MAP_LINE_RE.match(ln)
+            if m:
+                val = _unquote(m.group(2) or "")
+                pairs.append("{}: {}".format(m.group(1).strip(), val) if val else m.group(1).strip())
+        return ", ".join(pairs)
+    return " ".join(ln.strip() for ln in block if ln.strip())
+
+
 def parse_state(text):
     """Top-level `key:` lines only; the last occurrence of a key wins."""
     lines = text.splitlines()
@@ -81,18 +103,17 @@ def parse_state(text):
         if not m:
             continue
         key, rest = m.group(1), m.group(2).strip()
-        if rest == "":
-            items = []
+        if rest == "" or BLOCK_SCALAR_RE.match(rest):
+            block = []
             while i < n:
-                im = ITEM_RE.match(lines[i])
-                if im:
-                    items.append(_unquote(im.group(1)))
+                if not lines[i].strip():
                     i += 1
-                elif not lines[i].strip():
+                elif lines[i][0] in " \t" or ITEM_RE.match(lines[i]):
+                    block.append(lines[i])
                     i += 1
                 else:
                     break
-            out[key] = [x for x in items if x]
+            out[key] = _parse_block(block, rest == "")
         else:
             out[key] = _parse_inline(rest)
     return out
@@ -128,13 +149,20 @@ def oneline(s):
 # --------------------------------------------------------------------------- spec
 
 
+def _sensitive_spec_path(path):
+    """ship.sh's sensitivity rules: basename patterns, plus node_modules/ and .bytedigger/ anywhere."""
+    parts = path.replace("\\", "/").split("/")
+    if "node_modules" in parts[:-1] or ".bytedigger" in parts[:-1]:
+        return True
+    return any(fnmatch.fnmatchcase(parts[-1], pat) for pat in SENSITIVE_PATTERNS)
+
+
 def read_spec(state_path, state):
     """The spec text, or None (no spec, sensitive basename, not a regular file, unreadable)."""
     state_dir = os.path.dirname(os.path.abspath(state_path))
     sp = get_text(state, "spec_path")
     path = os.path.join(state_dir, sp) if sp else os.path.join(state_dir, "build-spec.md")
-    base = os.path.basename(path)
-    if any(fnmatch.fnmatchcase(base, pat) for pat in SENSITIVE_PATTERNS):
+    if _sensitive_spec_path(sp or "build-spec.md"):
         return None
     if not os.path.isfile(path):
         return None
@@ -147,18 +175,18 @@ def read_spec(state_path, state):
 
 def _scan(lines):
     """Yield (index, line, in_fence); fence marker lines count as in a fence."""
-    fence = None
+    fence = None  # (char, length) of the open fence (CommonMark)
     for idx, line in enumerate(lines):
-        stripped = line.lstrip()
-        marker = stripped[:3] if stripped.startswith(("```", "~~~")) else None
         if fence is None:
-            if marker:
-                fence = marker
+            m = FENCE_OPEN_RE.match(line)
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = (m.group(1)[0], len(m.group(1)))
                 yield idx, line, True
-                continue
-            yield idx, line, False
+            else:
+                yield idx, line, False
         else:
-            if marker == fence:
+            m = FENCE_CLOSE_RE.match(line)
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1]:
                 fence = None
             yield idx, line, True
 
@@ -197,7 +225,7 @@ def spec_sections(lines, title_idx):
                 end = nidx
                 break
         covered = end
-        sec = [ln for ln in lines[idx:end] if MARKER_PREFIX not in ln]
+        sec = [ln for ln in lines[idx:end] if not MARKER_RE.search(ln)]
         while sec and not sec[-1].strip():
             sec.pop()
         if sec:
@@ -283,11 +311,11 @@ def _review_line(state, label, key, suffix_key=None, suffix_fmt="({})"):
         return None
     if suffix_key:
         raw.append(get_text(state, suffix_key))
-    if any(r and MARKER_PREFIX in r for r in raw):
-        return None
     line = "- {}: {}".format(label, oneline(raw[0]))
     if suffix_key and raw[1]:
         line += " " + suffix_fmt.format(oneline(raw[1]))
+    if any(r and MARKER_RE.search(r) for r in raw) or MARKER_RE.search(line):
+        return None
     return line
 
 
@@ -300,7 +328,8 @@ def build_body(state_path, state):
         scope_secs, follow_secs = spec_sections(lines, title_idx)
 
     def safe_items(key):
-        return [oneline(x) for x in get_items(state, key) if MARKER_PREFIX not in x]
+        one = [oneline(x) for x in get_items(state, key)]
+        return [o for x, o in zip(get_items(state, key), one) if not MARKER_RE.search(x) and not MARKER_RE.search(o)]
 
     plan_line = _review_line(state, "Plan review", "plan_review", "plan_review_cycles", "({} cycles)")
     concerns = Cut(["  - " + c for c in safe_items("plan_review_concerns")], "  " + TRUNC) if plan_line else None

@@ -43,42 +43,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GH_BIN="${HAL_GH_BIN:-${BD_GH_BIN:-${BYTEDIGGER_GH_BIN:-gh}}}"
 
 # ---------------------------------------------------------------------------
-# Refusals (bd#131) — read-only, before the readiness check so a refusal does
-# not consume an approval
+# Repo root (bd#131 CR1): every git path below is relative to the work tree root
 # ---------------------------------------------------------------------------
 
-CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
-if [[ -z "$CURRENT_BRANCH" ]]; then
-  echo "ERROR: detached HEAD — nothing shipped" >&2
-  exit 1
-fi
-# A merge/rebase conflict: discovery's `git add -A` would mark the files resolved
-if [[ -n "$(git ls-files -u 2>/dev/null)" ]]; then
-  echo "ERROR: unmerged paths — nothing shipped" >&2
-  exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# Readiness gate (bd#117) — one call, before any git mutation
-# ---------------------------------------------------------------------------
-# `readiness check --stage ship` decides AND consumes the approval. Exit 3 is a
-# refusal, 4 is "unavailable"; a crash or a missing python3 (any other code,
-# 127 included) is mapped to 4. Its stderr is forwarded as-is. Its stdout (the
-# --json verdict) is captured and not read: the push rule no longer depends on it.
-
-READINESS_RC=0
-READINESS_OUT=$(bash "$SCRIPT_DIR/readiness" check --stage ship --json) || READINESS_RC=$?
-case "$READINESS_RC" in
-  0) ;;
-  3) exit 3 ;;
-  *)
-    echo "ERROR: readiness check unavailable (exit $READINESS_RC) — nothing shipped" >&2
-    exit 4
-    ;;
+case "$STATE_PATH" in
+  /*) ;;
+  *) STATE_PATH="$PWD/$STATE_PATH" ;;
 esac
+if ! REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
+  echo "ERROR: not inside a git work tree — nothing shipped" >&2
+  exit 1
+fi
+cd "$REPO_ROOT"
 
 # ---------------------------------------------------------------------------
-# Read build-state.yaml
+# Read build-state.yaml (before the readiness check: a refusal must not consume
+# an approval)
 # ---------------------------------------------------------------------------
 
 if [[ ! -f "$STATE_PATH" ]]; then
@@ -87,7 +67,12 @@ if [[ ! -f "$STATE_PATH" ]]; then
 fi
 
 # Extract task field — preserve colons in value by stripping only the key prefix
-TASK=$(sed -n 's/^task:[[:space:]]*//p' "$STATE_PATH" | sed 's/^["\x27]\(.*\)["\x27]$/\1/')
+TASK=$(sed -n 's/^task:[[:space:]]*//p' "$STATE_PATH")
+# One level of matching surrounding quotes
+case "$TASK" in
+  \"*\") TASK="${TASK#\"}"; TASK="${TASK%\"}" ;;
+  \'*\') TASK="${TASK#\'}"; TASK="${TASK%\'}" ;;
+esac
 
 # Guard: empty task means branch name would be invalid
 if [[ -z "$TASK" ]]; then
@@ -96,10 +81,17 @@ if [[ -z "$TASK" ]]; then
 fi
 
 # Validate TASK does not contain newlines or backticks (injection prevention)
-if printf '%s' "$TASK" | grep -qE $'[\n`]'; then
+if [[ "$TASK" == *$'\n'* || "$TASK" == *'`'* ]]; then
   printf '%s\n' "invalid task string: contains newline or backtick" >&2
   exit 1
 fi
+
+# TASK with whitespace runs collapsed, to compare against the PR title (no glob, no IFS surprises)
+set -f
+# shellcheck disable=SC2086
+set -- $TASK
+TASK_NORM="$*"
+set +f
 
 # Extract files_modified list using awk (lines starting with "  - ")
 FILES_MODIFIED=$(awk '/^files_modified:/{found=1; next} found && /^  - /{sub(/^  - /, ""); print; next} found{found=0}' "$STATE_PATH")
@@ -107,11 +99,11 @@ FILES_MODIFIED=$(awk '/^files_modified:/{found=1; next} found && /^  - /{sub(/^ 
 # ---------------------------------------------------------------------------
 # Sensitive file exclusion
 # ---------------------------------------------------------------------------
+# Twin of SENSITIVE_PATTERNS in scripts/ship_pr_text.py: keep the basename lists in sync.
 
 _is_sensitive() {
   local f="$1"
-  local base
-  base=$(basename "$f")
+  local base="${f##*/}"
   # Check the full path for directory patterns first
   case "$f" in
     node_modules/*) return 0 ;;
@@ -126,6 +118,94 @@ _is_sensitive() {
   esac
   return 1
 }
+
+# Untracked files that would not be staged (not listed in files_modified), without
+# BD's own leftovers (build-* and .bytedigger*). Sets UNTRACKED_N and UNTRACKED_LIST
+# (at most 20 paths, then "… (+N more)").
+_collect_untracked() {
+  local file listed skip
+  UNTRACKED_N=0
+  UNTRACKED_LIST=""
+  while IFS= read -r -d '' file; do
+    case "${file##*/}" in
+      build-*|.bytedigger*) continue ;;
+    esac
+    case "/$file" in
+      */.bytedigger*/*) continue ;;
+    esac
+    skip=false
+    while IFS= read -r listed; do
+      listed="${listed#./}"
+      listed="${listed%/}"
+      [[ -z "$listed" ]] && continue
+      if [[ "$file" == "$listed" || "$file" == "$listed"/* ]] && ! _is_sensitive "$file"; then
+        skip=true
+        break
+      fi
+    done <<< "$FILES_MODIFIED"
+    if [[ "$skip" == "true" ]]; then
+      continue
+    fi
+    UNTRACKED_N=$((UNTRACKED_N + 1))
+    if [[ "$UNTRACKED_N" -le 20 ]]; then
+      UNTRACKED_LIST="${UNTRACKED_LIST:+$UNTRACKED_LIST, }$file"
+    fi
+  done < <(git -c core.quotePath=false ls-files --others --exclude-standard -z)
+  if [[ "$UNTRACKED_N" -gt 20 ]]; then
+    UNTRACKED_LIST="$UNTRACKED_LIST, … (+$((UNTRACKED_N - 20)) more)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Refusals (bd#131) — read-only, before the readiness check so a refusal does
+# not consume an approval
+# ---------------------------------------------------------------------------
+
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
+if [[ -z "$CURRENT_BRANCH" ]]; then
+  echo "ERROR: detached HEAD — nothing shipped" >&2
+  exit 1
+fi
+# A merge/rebase conflict: discovery's `git add -A` would mark the files resolved
+if [[ -n "$(git ls-files -u 2>/dev/null)" ]]; then
+  echo "ERROR: unmerged paths — nothing shipped" >&2
+  exit 1
+fi
+# A tracked deletion ships but an untracked file that may be its move target would
+# not: refuse rather than push half a move
+_collect_untracked
+if [[ "$UNTRACKED_N" -gt 0 ]]; then
+  HAS_DELETION=false
+  while IFS= read -r -d '' file; do
+    if ! _is_sensitive "$file"; then
+      HAS_DELETION=true
+      break
+    fi
+  done < <(git -c core.quotePath=false diff --name-only --diff-filter=D -z)
+  if [[ "$HAS_DELETION" == "true" ]]; then
+    echo "ERROR: tracked deletions with untracked files not shipped: $UNTRACKED_LIST — commit them or list them in files_modified" >&2
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Readiness gate (bd#117) — one call, before any git mutation
+# ---------------------------------------------------------------------------
+# `readiness check --stage ship` decides AND consumes the approval. Exit 3 is a
+# refusal, 4 is "unavailable"; a crash or a missing python3 (any other code,
+# 127 included) is mapped to 4. Its stderr is forwarded as-is. Its stdout (the
+# --json verdict) is discarded: the push rule no longer depends on it.
+
+READINESS_RC=0
+bash "$SCRIPT_DIR/readiness" check --stage ship --json >/dev/null || READINESS_RC=$?
+case "$READINESS_RC" in
+  0) ;;
+  3) exit 3 ;;
+  *)
+    echo "ERROR: readiness check unavailable (exit $READINESS_RC) — nothing shipped" >&2
+    exit 4
+    ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Branch management
@@ -155,6 +235,9 @@ done <<< "$FILES_MODIFIED"
 # Tracked changes (modified or deleted) not listed in files_modified ship too (bd#131).
 # NUL-delimited and unquoted, so any path is safe. Untracked files are never
 # discovered, only staged when listed above. --literal-pathspecs: no glob/magic.
+# One `git add` for all of them (paths go through a NUL-delimited file on stdin).
+PATHSPEC_FILE=$(mktemp)
+PATHSPEC_N=0
 while IFS= read -r -d '' file; do
   [[ -z "$file" ]] && continue
   if _is_sensitive "$file"; then
@@ -162,29 +245,24 @@ while IFS= read -r -d '' file; do
     continue
   fi
   echo "STAGE (tracked change): $file"
-  git --literal-pathspecs add -A -- "$file"
+  printf '%s\0' "$file" >> "$PATHSPEC_FILE"
+  PATHSPEC_N=$((PATHSPEC_N + 1))
 done < <(git -c core.quotePath=false diff --name-only -z)
+if [[ "$PATHSPEC_N" -gt 0 ]]; then
+  PATHSPEC_RC=0
+  git --literal-pathspecs add -A --pathspec-from-file=- --pathspec-file-nul < "$PATHSPEC_FILE" || PATHSPEC_RC=$?
+  rm -f "$PATHSPEC_FILE"
+  if [[ "$PATHSPEC_RC" -ne 0 ]]; then
+    exit "$PATHSPEC_RC"
+  fi
+else
+  rm -f "$PATHSPEC_FILE"
+fi
 
 # Untracked files that are not staged stay out of the PR; say so once (BD's own
 # leftovers, build-* and .bytedigger*, are not worth a warning).
-UNTRACKED_N=0
-UNTRACKED_LIST=""
-while IFS= read -r -d '' file; do
-  case "${file##*/}" in
-    build-*|.bytedigger*) continue ;;
-  esac
-  case "/$file" in
-    */.bytedigger*/*) continue ;;
-  esac
-  UNTRACKED_N=$((UNTRACKED_N + 1))
-  if [[ "$UNTRACKED_N" -le 20 ]]; then
-    UNTRACKED_LIST="${UNTRACKED_LIST:+$UNTRACKED_LIST, }$file"
-  fi
-done < <(git -c core.quotePath=false ls-files --others --exclude-standard -z)
+_collect_untracked
 if [[ "$UNTRACKED_N" -gt 0 ]]; then
-  if [[ "$UNTRACKED_N" -gt 20 ]]; then
-    UNTRACKED_LIST="$UNTRACKED_LIST, … (+$((UNTRACKED_N - 20)) more)"
-  fi
   echo "WARNING: untracked files not shipped: $UNTRACKED_LIST" >&2
 fi
 
@@ -243,7 +321,7 @@ else
   TITLE=""
 fi
 if [[ -z "$TITLE" ]]; then
-  TITLE="$TASK"
+  TITLE="$TASK_NORM"
   _helper_fallback
 fi
 
@@ -252,7 +330,7 @@ fi
 # ---------------------------------------------------------------------------
 
 if [[ "$NOTHING_STAGED" != "true" ]]; then
-  if [[ "$TASK" != "$TITLE" ]]; then
+  if [[ "$TASK_NORM" != "$TITLE" ]]; then
     git commit -m "$TITLE" -m "$TASK" --
   else
     git commit -m "$TITLE" --
