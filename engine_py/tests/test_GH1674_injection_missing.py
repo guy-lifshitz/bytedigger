@@ -118,15 +118,12 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
 ENGINE_PY_ROOT = HERE.parent
 ERROR_CODES_MD = ENGINE_PY_ROOT / "bytedigger_engine/ERROR_CODES.md"
-ERROR_CODES_PY = ENGINE_PY_ROOT / "bytedigger_engine/error_codes.py"
 
 CODE = "E_INJECTION_MISSING"
 
@@ -786,14 +783,10 @@ def test_ac6_error_code_registered_and_markdown_regenerated():
         f"AC6 FAIL: {CODE!r} needs a meaningful docstring, got {doc!r}"
     )
 
-    proc = subprocess.run(
-        [sys.executable, str(ERROR_CODES_PY), "--check"],
-        cwd=str(ENGINE_PY_ROOT), capture_output=True, text=True,
-    )
-    assert proc.returncode == 0, (
-        f"AC6 FAIL: error_codes.py --check exited {proc.returncode}\n"
-        f"stdout={proc.stdout}\nstderr={proc.stderr}"
-    )
+    # In-process, as bytedigger's own registry tests do: the module is a package
+    # member, so running it as a script needs an installed package.
+    rc = m.main(["--check"])
+    assert rc == 0, f"AC6 FAIL: error_codes.py --check returned {rc}"
 
     assert ERROR_CODES_MD.read_bytes() == m.render_markdown().encode(), (
         "AC6 FAIL: committed ERROR_CODES.md is stale — regenerate it "
