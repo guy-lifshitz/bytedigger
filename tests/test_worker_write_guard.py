@@ -95,9 +95,12 @@ def _oneline(s: str) -> str:
     return s.replace("\r", "\\r").replace("\n", "\\n")
 
 
+ROLE_DIR = {"explorer": "research", "architect": "architecture", "synthesizer": "reviews"}
+
+
 def _r7(role, scratch, target):
     return _oneline(f"{PFX}{role} may write only under {_rp(scratch)}/"
-                    f"{{research,architecture,reviews}}/, not {_rp(target)}")
+                    f"{ROLE_DIR[role]}/, not {_rp(target)}")
 
 
 # ---------------------------------------------------------------------------
@@ -370,12 +373,19 @@ def test_r7_edit_tools_use_file_path(tmp_path, tool):
     ("explorer", "research/findings-x.md"),
     ("architect", "architecture/approach-a.md"),
     ("synthesizer", "reviews/learnings-raw.md"),
-    ("explorer", "architecture/approach-b.md"),
-    ("architect", "reviews/notes.md"),
 ])
 def test_r8_read_only_role_scratchpad_deliverables_allowed(tmp_path, role, rel):
     proj = _project(tmp_path)
     _allow(_run(proj, _call("Write", proj / "scratch" / rel, agent_type=role)))
+
+
+@pytest.mark.parametrize("role,other_dir", [
+    (r, d) for r in RO_ROLES for d in ("research", "architecture", "reviews") if ROLE_DIR[r] != d
+])
+def test_r7_cr3_read_only_role_in_another_roles_dir_blocked(tmp_path, role, other_dir):
+    proj = _project(tmp_path)
+    t = proj / "scratch" / other_dir / "x.md"
+    _block(_run(proj, _call("Write", t, agent_type=role)), _r7(role, proj / "scratch", t))
 
 
 def test_r8_nested_path_inside_allowed_dir_allowed(tmp_path):
@@ -866,6 +876,68 @@ def test_n3_symlink_named_state_file_to_metadata_names_metadata(tmp_path):
 
 
 # --- awaiting_approval is an active phase -----------------------------------
+
+PROTECTED_LOGS = ["build-red-output.log", "build-green-output.log", ".bytedigger-orchestrator-pid"]
+
+
+# --- A11 (CR1): gate-evidence logs and pid file are protected ---------------
+
+@pytest.mark.parametrize("name", PROTECTED_LOGS)
+def test_a11_cr1_subagent_write_to_added_protected_names_blocked(tmp_path, name):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Write", proj / name)), _r5(name))
+
+
+def test_a11_cr1_case_variant_red_log_blocked_naming_canonical(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Write", proj / "Build-Red-Output.LOG")), _r5("build-red-output.log"))
+
+
+@pytest.mark.parametrize("name", PROTECTED_LOGS)
+def test_a11_cr1_main_thread_may_write_added_protected_names(tmp_path, name):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / name, agent_id=None, agent_type=None)))
+
+
+# --- A11 (CR3): per-role allowed dir ----------------------------------------
+
+def test_a11_cr3_explorer_to_reviews_blocked(tmp_path):
+    proj = _project(tmp_path)
+    t = proj / "scratch" / "reviews" / "x.md"
+    _block(_run(proj, _call("Write", t, agent_type="explorer")), _r7("explorer", proj / "scratch", t))
+
+
+def test_a11_cr3_synthesizer_to_research_blocked(tmp_path):
+    proj = _project(tmp_path)
+    t = proj / "scratch" / "research" / "x.md"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+def test_a11_cr3_architect_security_review_in_architecture_allowed(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "scratch" / "architecture" / "security-review.md",
+                            agent_type="architect")))
+
+
+# --- A11 (CR7): docs do not claim the main thread is never blocked ----------
+
+def test_a11_cr7_security_md_guard_section_does_not_say_never_blocked():
+    text = (REPO_ROOT / "docs" / "security.md").read_text(encoding="utf-8")
+    section = re.split(r"^## ", text[text.index("hooks/worker-write-guard.sh"):],
+                       maxsplit=1, flags=re.M)[0]
+    assert "never blocked" not in section
+    assert "R5" in section or "malformed" in section
+
+
+def test_a11_cr7_changelog_bd133_entry_does_not_say_never_blocked():
+    text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    heads = list(re.finditer(r"^## \[", text, re.M))
+    end = heads[1].start() if len(heads) > 1 else len(text)
+    top = text[heads[0].start():end]
+    assert re.search(r"bd#133|#133\b", top)
+    assert "never blocked" not in top
+
 
 def test_awaiting_approval_phase_is_active(tmp_path):
     proj = _project(tmp_path, phase="awaiting_approval")
