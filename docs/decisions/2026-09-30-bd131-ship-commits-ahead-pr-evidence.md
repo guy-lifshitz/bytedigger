@@ -1,6 +1,6 @@
 # bd#131 — `ship.sh` ships commits ahead of base, and the PR carries the review evidence
 
-**Status: FROZEN (r2, after gate r1 REVISE)** · **Class:** SHIP path · **Chokepoint:** `scripts/ship.sh`, the one place the
+**Status: FROZEN (r3, after gate r2 REVISE)** · **Class:** SHIP path · **Chokepoint:** `scripts/ship.sh`, the one place the
 plugin commits, pushes and opens the PR; its title and body come from one new helper,
 `scripts/ship_pr_text.py`.
 
@@ -31,9 +31,12 @@ Source: first end-to-end `/bytedigger:build` pilot (bd#119 → PR #126, lot-360;
 
 ### op1 — what gets staged
 
-**Detached HEAD.** Right after the readiness gate, before branch creation: when
-`git branch --show-current` is empty, stderr `ERROR: detached HEAD — nothing shipped`, exit 1, no
-git mutation (gate r1 m6).
+**Detached HEAD / unmerged paths.** Right after the `--pr` gate and **before** the readiness check
+(so a refusal does not consume an approval — gate r2 m2), with no git mutation:
+- `git branch --show-current` empty → stderr `ERROR: detached HEAD — nothing shipped`, exit 1;
+- `git ls-files -u` non-empty (merge/rebase conflict) → stderr
+  `ERROR: unmerged paths — nothing shipped`, exit 1 (gate r2 m1: discovery's `git add -A` would
+  otherwise mark conflicted files resolved, markers included).
 
 After the readiness gate and branch creation (both unchanged), ship.sh stages:
 
@@ -52,7 +55,8 @@ reset: a path staged before ship.sh ran stays staged, and a staged path modified
 restaged by discovery like any other tracked change.
 
 **Untracked-not-shipped warning** (gate r1 M3). After staging, when
-`git ls-files --others --exclude-standard -z` lists paths that are not staged, ship.sh prints one
+`git ls-files --others --exclude-standard -z` lists paths that are not staged — ignoring BD's own
+leftovers, basenames `build-*` and anything under or named `.bytedigger*` (gate r2 m7) — ship.sh prints one
 stderr line `WARNING: untracked files not shipped: <p1>, <p2>, …` (at most 20 paths, then
 `… (+N more)`). It stages nothing and does not change the exit code — a build that created files
 without committing them or listing them in `files_modified` is visible, not silently partial.
@@ -175,7 +179,7 @@ Built via ByteDigger /build pipeline.
 - `body`: exit ≠ 0, empty output, or a last line that is not exactly `<!-- bd:built -->` → the
   two-line body.
 - Any fallback prints stderr `WARNING: ship_pr_text failed — using the task string` once per
-  failing call. The helper's own stderr is discarded (never forwarded: no traceback text).
+  run (at most one line, however many calls fall back — gate r2 M1). The helper's own stderr is discarded (never forwarded: no traceback text).
 
 The helper needs Python ≥ 3.9 (same floor as `readiness`). The helper
 is stdlib-only Python 3, reads files as UTF-8 with `errors="replace"`, runs git with `cwd=<repo>`
@@ -206,7 +210,7 @@ already); keeping `files_modified` up to date in the phases; unstaging sensitive
 staged before ship.sh ran, or sensitive files inside commits already made; the legacy
 `tests/ship-protocol.bats` (not run in CI, mocks git without `rev-parse`/`rev-list`; left as is);
 an existing open PR for the branch (`gh pr create` failing stays best-effort); merge / rebase in
-progress or conflicted paths (git itself refuses the commit).
+progress without conflicts (the commit proceeds as git decides).
 
 **Accepted risks, documented in `docs/plugin.md` next to the helper row** (gate r1 M2, m11):
 - Tracked changes are shipped **whatever made them**: edits to tracked files that were in the
@@ -257,7 +261,7 @@ otherwise.
 | AC15 | 4 | duplicate key (`plan_review: fail` then later `plan_review: pass`) → `Plan review: pass`; field without its cycles key → no parenthetical |
 | AC16 | 4 | a spec section and a state value each containing `<!-- bd:built -->` / `<!-- bd:consumed … -->` → those lines absent; marker appears exactly once, as the last line |
 | AC17 | 4 | no evidence → body lines exactly `["Built via ByteDigger /build pipeline.", "<!-- bd:built -->"]` (bd#117 AC-B1 green unchanged) |
-| AC18 | 4 | a 200 000-char Scope section → body ≤ 60 000 chars, contains `(truncated; see build-spec.md)`, `## Review` lines intact, marker last |
+| AC18 | 4 | a 200 000-char Scope section → body ≤ 60 000 UTF-8 bytes, contains `(truncated; see build-spec.md)`, `## Review` lines intact, marker last |
 | AC19 | 5 | helper made to fail (spec path is a directory / helper exits ≠ 0 via a broken `python3` shim that fails only for `ship_pr_text.py`) → ship still pushes, title = `task`, body = the two lines, one `WARNING: ship_pr_text failed` line, no `Traceback` in stderr |
 | AC20 | 5 | helper unit (subprocess on `scripts/ship_pr_text.py`): `title` and `body` exit 0 on a state with only `task:`; stdlib-only (AST: imports ⊂ stdlib) |
 | AC21 | 6 | `.gitignore` lines `build-*-cycle*.md` and `.bytedigger-sessions.json` (with `git check-ignore` on `build-plan-review-cycle1.md`, `build-opus-validation-cycle2.md`, `.bytedigger-sessions.json` in this repo) |
@@ -267,8 +271,9 @@ otherwise.
 | AC25 | 1 | tracked files `docs/ünï.txt` and `a b.txt` (committed in the seed) modified, not listed → both in the ship commit, exit 0, `STAGE (tracked change): docs/ünï.txt` on stdout (unquoted) |
 | AC26 | 1 | tracked `x.txt` modified + untracked `new.txt` not listed → ship commits `x.txt`, `new.txt` in no commit, stderr `WARNING: untracked files not shipped: new.txt` |
 | AC27 | 1 | detached HEAD with a modified tracked file → exit 1, stderr `ERROR: detached HEAD`, no PUSH, no commit, nothing staged |
-| AC28 | 3,4 | `spec_path: .env` holding `# Scope` + `SECRET=abc` → title = `task`, body has no `SECRET` and no `## Scope`; H1 inside a ```` ``` ```` fence before the real H1 → the real H1 is the title; a `## Scope` line inside a fence is not a section |
+| AC28 | 3,4 | `spec_path: .env` holding `# Env title` + `## Scope` + `SECRET=abc` → title = `task` (not `Env title`), body has no `SECRET` and no `## Scope` (gate r2 M2); H1 inside a ```` ``` ```` fence before the real H1 → the real H1 is the title; a `## Scope` line inside a fence is not a section |
 | AC29 | 5 | helper `body` output missing the marker (shim prints a body without it) → two-line body + warning; `title` output of two lines → only the first is used |
+| AC30 | 1 | a merge conflict left in the index (`git ls-files -u` non-empty) → exit 1, stderr `ERROR: unmerged paths`, no PUSH, no commit, **no readiness gh call** (under `required: true`); AC27 detached HEAD likewise makes no readiness gh call |
 
 **Test tightening (gate r1 M4, m10):** AC19's shim prints `Traceback (most recent call last):` to
 stderr before exiting 1, and the test asserts `Traceback` is absent from ship.sh's stderr. AC16
