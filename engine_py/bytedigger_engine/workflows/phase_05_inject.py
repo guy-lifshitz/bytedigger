@@ -47,6 +47,7 @@ except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted te
     from bytedigger_engine.workflows._task_description import normalize_task_description  # type: ignore[no-redef]  # noqa: E402
 from bytedigger_engine.config_provider import get_config, default_security_asset  # noqa: E402
 from bytedigger_engine.config_provider import inject_learnings_ts_path as _provider_inject_ts_opinion  # noqa: E402
+from bytedigger_engine.config_provider import memory_db_required as _provider_memory_db_required  # noqa: E402
 
 try:
     from bytedigger_engine.lib.observability.emit_resolver import emit_resolver_resolved
@@ -489,6 +490,11 @@ def _query_memory_learnings(
         # foreign projects shouldn't hard-fail on a HAL-specific DB they have
         # no reason to provide. Explicit-path-missing OR HAL-dogfood still
         # hard-fails (real misconfiguration).
+        if is_default and not _provider_memory_db_required():
+            # Seam (config_provider.memory_db_required): where learning memory
+            # is optional, an absent DEFAULT DB is "not configured" — neither a
+            # failure to classify nor a callout to report.
+            return None, None, "[memory_db_not_configured]"
         if is_default and not _cwd_inside_hal_dir(Path.cwd()):
             # AC4c: this preflight branch previously emitted nothing at all —
             # the live carrier of defect 1, structurally blind to the §1b

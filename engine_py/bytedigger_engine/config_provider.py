@@ -106,6 +106,15 @@ class _DefaultConfigProvider:
         default. Off-Protocol, mirrors foreign_state_dirname()."""
         return ""
 
+    def memory_db_required(self) -> bool:
+        """Is a missing DEFAULT memory.db a failure? Neutral default: no —
+        learning memory is an optional add-on here, so an absent default DB
+        means "not configured": injection proceeds with no learnings, without
+        a failure marker, warning or callout-failed event. A host that always
+        ships its memory.db returns True (upstream behaviour). Off-Protocol,
+        mirrors inject_learnings_ts_path()."""
+        return False
+
     def memory_db_path(self) -> str:
         """Neutral default: cwd-anchored, mirrors the foreign_state_dirname() convention."""
         return str(Path.cwd() / self.foreign_state_dirname() / "memory.db")
@@ -234,6 +243,13 @@ def foreign_state_dirname() -> str:
     """Foreign-project artifact dirname (single source, §1g). Tolerates minimal-Protocol providers (neutral fallback)."""
     fn = getattr(get_config(), "foreign_state_dirname", None)
     return fn() if fn is not None else ".bytedigger"
+
+def memory_db_required() -> bool:
+    """Host opinion: is a missing default memory.db a failure (single source,
+    §1g)? A provider that does not declare it keeps the upstream behaviour
+    (True)."""
+    fn = getattr(get_config(), "memory_db_required", None)
+    return bool(fn()) if fn is not None else True
 
 def inject_learnings_ts_path() -> str:
     """Host-opinionated inject-learnings.ts CLI path (GH1471, single source,
