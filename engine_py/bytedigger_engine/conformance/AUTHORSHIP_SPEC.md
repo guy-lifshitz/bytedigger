@@ -456,9 +456,9 @@ Prompt text a phase authors by string concatenation is not an "injected block" i
 covered whole by R3.1's hash. The attestation says exactly this and claims nothing more.
 **Re-open criterion:** the first phase that inlines file-sourced content into a prompt without
 routing it through `injections` — `_maybe_role_template`
-(`workflows/phase_workflows_common.py:582`) is today's live example and is migrated by AC-I5 so
+(in `workflows/phase_workflows_common.py`) is today's live example and is migrated by AC-I5 so
 that ADV-8 tests a door the pipeline actually uses rather than an unused one.
-*bd#119 amendment:* the cite was stale; the wrapper is at `:582`, and it now delegates the
+*bd#119 amendment:* the cite was stale; the wrapper is located by function name, and it now delegates the
 single file read to `role_template.py::load_role_template`.
 
 - **AC-I1** `assemble(prompt, blocks)` returns `prompt` followed by each block's `content` in list

@@ -201,7 +201,7 @@ text.
 | `unreadable` | any other OS error (permissions, symlink loop, path too long, read error) |
 | `not_regular_file` | a directory, FIFO, device or socket, or a symlink to one |
 | `over_cap` | more than 65536 bytes |
-| `not_utf8` | strict UTF-8 decoding fails (a UTF-16 file fails here) |
+| `not_utf8` | strict UTF-8 decoding fails (a UTF-16 file with a byte order mark fails here; a BOM-less UTF-16 file fails as `contains_nul`) |
 | `contains_nul` | any NUL byte in the file |
 | `empty` | zero length, or only whitespace |
 
@@ -221,7 +221,9 @@ Trust and handling:
 
 - The file is operator-trusted and inserted verbatim at the head of the prompt. It is
   sent to the provider on every step that takes it, persisted in request artifacts and
-  step sentinels, and its path and sha256 are recorded in the event log.
+  step sentinels, and is covered by the whole-prompt hash recorded in the event log. Only
+  phase 2 (explore) additionally declares the template as an injection, so only there are
+  its path and sha256 recorded in the event log on their own.
 - It MUST contain no credentials, tokens, private hostnames or personal data.
 - Keep it outside any tree the build writes. A template inside the workspace can be
   edited by an agent and steers later gates; that is a gate-integrity misconfiguration.

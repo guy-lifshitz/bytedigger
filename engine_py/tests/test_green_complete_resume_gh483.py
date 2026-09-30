@@ -189,6 +189,7 @@ def test_ac5_verify_red_fails_mechanically_resumes_on_detection(monkeypatch, tmp
         },
     )
     monkeypatch.setattr(_p5, "_resolve_git_cwd", lambda ctx, prev: str(tmp_path))
+    monkeypatch.setattr(_p5, "_resolve_git_cwd_with_source", lambda ctx, prev=None: (str(tmp_path), "cfg_git_cwd"))
     monkeypatch.setattr(_p5, "git_diff_files", lambda *a, **kw: ["src/a.py"])
 
     ctx = _make_ctx(str(scratchpad))
@@ -242,6 +243,7 @@ def test_ac6_regression_floor_all_passing_no_resume_gives_error(monkeypatch, tmp
         },
     )
     monkeypatch.setattr(_p5, "_resolve_git_cwd", lambda ctx, prev: str(tmp_path))
+    monkeypatch.setattr(_p5, "_resolve_git_cwd_with_source", lambda ctx, prev=None: (str(tmp_path), "cfg_git_cwd"))
 
     ctx = _make_ctx(str(tmp_path / "scratchpad"))
     # NO spec_path / no red_commit_sha → detection is [] regardless of GH483 impl.
@@ -279,6 +281,7 @@ def test_ac7_persist_oserror_falls_through_to_legacy_error(monkeypatch, tmp_path
         },
     )
     monkeypatch.setattr(_p5, "_resolve_git_cwd", lambda ctx, prev: str(tmp_path))
+    monkeypatch.setattr(_p5, "_resolve_git_cwd_with_source", lambda ctx, prev=None: (str(tmp_path), "cfg_git_cwd"))
     monkeypatch.setattr(_p5, "git_diff_files", lambda *a, **kw: ["src/a.py"])
 
     persist_fn = getattr(_p5, "_persist_green_complete_resume", None)
@@ -476,6 +479,7 @@ def test_ac11_commit_green_code_uses_resume_paths_and_deletes_marker(monkeypatch
 
     monkeypatch.setattr(_p5, "manifest_from_result", _raise_if_called)
     monkeypatch.setattr(_p5, "_resolve_git_cwd", lambda ctx, prev: str(tmp_path))
+    monkeypatch.setattr(_p5, "_resolve_git_cwd_with_source", lambda ctx, prev=None: (str(tmp_path), "cfg_git_cwd"))
     monkeypatch.setattr(_p5, "_filter_gitignored_paths", lambda paths, cwd: list(paths))
     monkeypatch.setattr(_p5, "get_config", lambda: SimpleNamespace(gate_enabled=lambda name: False))
     monkeypatch.setattr(

@@ -110,10 +110,7 @@ def load_role_template(org_config: Mapping[str, Any] | None) -> RoleTemplate | N
         fst = os.fstat(fd)
         if not stat.S_ISREG(fst.st_mode):
             raise RoleTemplateError("not_regular_file", value)
-        try:
-            raw = _read_bounded(fd, cap)
-        except OSError as exc:
-            raise RoleTemplateError("unreadable", value, _errno_name(exc)) from None
+        raw = _read_bounded(fd, cap)
     except OSError as exc:
         raise RoleTemplateError("unreadable", value, _errno_name(exc)) from None
     finally:
