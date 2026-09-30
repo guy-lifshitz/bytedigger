@@ -32,7 +32,11 @@ Source: harvest of Warp OSS / Oz (`oz-for-oss` `docs/platform.md`, `.agents/skil
   `<repo>/skills/*/SKILL.md`, `<repo>/.claude/skills/*/SKILL.md`, then each entry of
   `org_config["verification_skill_dirs"]` (repo-relative directory; `<dir>/*/SKILL.md`). One
   level deep. A root that does not exist is skipped silently; an entry that resolves outside
-  `<repo>` is an `errors[]` row (`reason: "outside_repo"`) and is not scanned.
+  `<repo>` is an `errors[]` row (`reason: "outside_repo"`, `path` = the entry exactly as
+  configured, e.g. `"../x"`) and is not scanned. A skill directory under any root whose
+  resolved path (symlinks followed) is outside `<repo>` is an `errors[]` row
+  `{"path": <repo-relative SKILL.md as found>, "reason": "outside_repo"}` and is not read
+  (gate edge 7). An `extra_dirs` entry equal to a default root lists each skill once.
 - **`parse_frontmatter(text) -> dict | None`**. Deterministic stdlib subset of YAML: the block
   between a first line `---` and the next line `---`. Top-level `key: value` scalars, and one
   level of nesting under `metadata:` (indented `key: value` lines). Quotes (`'`/`"`) around a
@@ -63,11 +67,18 @@ Source: harvest of Warp OSS / Oz (`oz-for-oss` `docs/platform.md`, `.agents/skil
   5 the GREEN edits are still uncommitted, and a check that rewrites an already-modified file
   leaves `git status --porcelain` identical (DesignReview F3). If `repo_root` is not a git work
   tree (the snapshot command fails), no command runs: one `errors[]` row
-  `{"path": ".", "reason": "not_a_git_repo"}` and every command skill is `error`. Per-skill
+  `{"path": ".", "reason": "not_a_git_repo"}` and every command skill is `error`. The same
+  happens when `repo_root` is inside a work tree but is not its top level
+  (`git rev-parse --show-toplevel` differs from the resolved `repo_root`; gate edge 8). Every
+  git call made by the registry runs with `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and
+  `GIT_OBJECT_DIRECTORY` removed from its env (only the temp index is set explicitly), so an
+  inherited git-hook env cannot redirect the snapshot (gate edge 10). On timeout the whole
+  process group is killed (`os.killpg(pgid, SIGKILL)`), so no grandchild survives to mutate
+  the tree after the post-snapshot. Per-skill
   `status`:
   `pass` (exit 0, tree unchanged) · `fail` (exit ≠ 0) · `timeout` · `error` (could not start:
   `OSError`, `ValueError` from `shlex.split` on unbalanced quotes, empty argv after split, or
-  no snapshot possible) · `mutated` (tree changed; wins over `pass`/`fail`) ·
+  no snapshot possible) · `mutated` (tree changed; wins over `pass`/`fail`/`timeout`) ·
   `agent` (kind `agent`: not run by the engine, listed for the `verify` command) ·
   `listed` (`execute=False`). The engine never restores a mutated tree; it reports it.
 - **Report** (JSON-serialisable, keys sorted on dump):
@@ -99,11 +110,18 @@ Source: harvest of Warp OSS / Oz (`oz-for-oss` `docs/platform.md`, `.agents/skil
 - Empty registry (every repo today, including this one: `skills/bytedigger/SKILL.md` has no
   `metadata`) → `ok`, a report with `total: 0`. No behaviour change for existing hosts.
 - `agent` skills never fail the step (the engine cannot run them); they appear in the report.
-- **Registry tamper guard (DesignReview F8, applied).** Before running, the step lists
-  `git status --porcelain=v1 --untracked-files=all -- <each scanned root>/*/SKILL.md`. Any
-  `SKILL.md` under a scanned root that is modified, deleted or added relative to HEAD (i.e.
-  touched by GREEN) → `status="error"`, `error_code="E_VERIFICATION_REGISTRY_TAMPERED"`,
-  `recoverable=False`, the error names the paths. GREEN must not switch its own checks off.
+- **Registry tamper guard (DesignReview F8, applied; scope per gate finding 2/3).** Before
+  running anything, the step computes the *HEAD registry*: every `SKILL.md` under a scanned
+  root whose HEAD blob (`git show HEAD:<path>`) is a registered verifying skill (or raises the
+  `unsupported_frontmatter` case). If any HEAD-registry path is modified (work-tree bytes differ
+  from the HEAD blob) or deleted in the work tree → `status="error"`,
+  `error_code="E_VERIFICATION_REGISTRY_TAMPERED"`, `recoverable=False`, the error names the
+  paths, and no verify command runs. Everything else is allowed: edits to non-verifying
+  `SKILL.md` files (e.g. `skills/bytedigger/SKILL.md`) and newly added verifying skills (a new
+  check only adds verification; it is discovered and run normally). GREEN must not switch its
+  own checks off, and hosts that never declare `verification` see no behaviour change.
+- The workflow entry is exactly
+  `StepContract(name="verify_registered_skills", execute=_verify_registered_skills)`.
 
 ### op3 — the `verify` command (`commands/verify.md`)
 
@@ -190,7 +208,9 @@ anchored on `## Findings (structured)`); `_parse_verdict` reads only the first t
    only when unreadable `metadata` mentions `verification`. AC1 extended.
 2. **HIGH — timeout can hang (applied).** `subprocess.run(capture_output=True, timeout=)`
    kills only the child; a grandchild (`npm test`, `sh -c`) keeps the pipe open and the
-   post-kill `communicate()` blocks. Change: `Popen` + `start_new_session=True` + `killpg`,
+   the grandchild outlives the timeout (on CPython >= 3.8 `subprocess.run` does not hang, but
+   the orphan keeps running and can mutate the tree after the post-snapshot — gate finding 1
+   corrected this rationale). Change: `Popen` + `start_new_session=True` + `killpg`,
    output to a temp file, `errors="replace"` decode. AC6 extended with a grandchild case.
 3. **HIGH — porcelain snapshot misses mutations at phase 5 (applied).** The step runs before
    `commit_green_code`, so GREEN edits are uncommitted; a formatter-style check that rewrites an
@@ -205,7 +225,8 @@ anchored on `## Findings (structured)`); `_parse_verdict` reads only the first t
    `is_frozen` spec routes to `frozen_spec_fallback_to_full`: one subjective `clarity: 2`
    discards a hand-frozen, already-reviewed spec and hands it to the LLM writer. Recommend
    `may_downgrade = not result.data.get("is_frozen")` (threaded by `_fwd_frozen`), with event
-   `spec_review_score_advisory`, plus an AC. The behaviour is now documented in §2 either way.
+   `spec_review_score_advisory`, plus an AC. [Superseded: §2 names the event
+   `spec_review_score_low_frozen`; AC19 covers it.] The behaviour is now documented in §2 either way.
 6. **LOW — other gate branches (documented, applied as a note).** A downgraded SHIP whose
    structured findings are all `upstream` becomes a terminal `E_SPEC_UPSTREAM_REVISE`; each
    downgrade bumps the durable REVISE counter. Acceptable, but add one AC if kept.
@@ -215,13 +236,14 @@ anchored on `## Findings (structured)`); `_parse_verdict` reads only the first t
 8. **MEDIUM — GREEN can weaken the registry (applied: tamper guard, AC18).** Discovery reads the work tree
    after GREEN, so the GREEN LLM can flip `verification: true` off or delete a skill and the
    step passes. Recommend: in op2, a registry `SKILL.md` that is modified or deleted relative
-   to `HEAD` is an `errors[]` row `registry_changed_since_head` (added files are allowed).
+   to `HEAD` is an `errors[]` row `registry_changed_since_head` (added files are allowed). [Superseded by §2 op2 tamper guard: modified/deleted
+   HEAD-registry skills are `E_VERIFICATION_REGISTRY_TAMPERED`; added skills are allowed and run.]
 9. **LOW — CLI/phase 5 registry mismatch (applied).** The CLI had no way to pass
    `verification_skill_dirs`; added repeatable `--extra-dir`, AC8 extended.
 10. **LOW — scope: op3 has no AC (applied: kept, AC20 added).** `commands/verify.md` (agent fan-out) is the only
     consumer of `kind: agent` and nothing tests it. Either add a doc-lint AC (file exists,
     invokes `run verify`, `phase-5-implement.md` links it) or move op3 to a follow-up and keep
-    `agent` skills as report-only rows. Recommend the follow-up: it is the least-bounded piece.
+    `agent` skills as report-only rows. [Superseded: op3 kept, AC20.]
 11. **LOW — score-only REVISE gives the writer nothing (applied).** A SHIP with `[]` findings
     and a low axis becomes REVISE with no actionable finding; the prompt rule now requires a
     `root: "spec"` finding naming each low axis.
@@ -245,7 +267,7 @@ real commands (`python3 -c ...`); no mock of the unit under test.
 | AC6 | op1 | `timeout_sec=1` with a sleeping command → `timeout`; `timeout_sec=1` with `sh -c "sleep 30 & sleep 30"` (a grandchild holding stdout) → `timeout` returned in under 10 s; a non-existent binary → `error`; `verify_command: "a 'b"` (unbalanced quote) → `error`; none raises. |
 | AC7 | op1 | `agent` skills → status `agent`, not counted in `fail`, `ok` stays true; `execute=False` → every skill `listed`, no command runs (a command that would create a file leaves no file). |
 | AC8 | op1 | `python3 -m bytedigger_engine.run verify --repo <tmp>` (real subprocess): stdout parses as the report; exit 0 when ok, 1 when a check fails; `git status` of the repo is identical before and after a passing run; `--extra-dir <d>` registers a skill under `<d>` that the run without it does not list. |
-| AC9 | op2 | `phase_5_implement_workflow()` step names contain `verify_registered_skills` immediately after `verify_green_typecheck` and before `commit_green_code`. |
+| AC9 | op2 | `phase_5_implement_workflow()` step names contain `verify_registered_skills` immediately after `verify_green_typecheck` and before `commit_green_code`, and that step's `execute is phase_5_implement._verify_registered_skills`. |
 | AC10 | op2 | the step on a repo with one failing command skill → `status="error"`, `E_VERIFICATION_SKILL_FAILED`, `recoverable is False`, and `$SCRATCHPAD/reviews/verification-report.json` exists on disk with `ok: false`. |
 | AC11 | op2 | the step on a repo with no verifying skills → `status="ok"`, every `prev.data` key forwarded unchanged, `verification_report_path` set, the report file on disk has `summary.total == 0`. |
 | AC12 | op4 | `parse_scores`: valid block → `ok` in axis order; no heading → `absent`; missing axis, extra axis, `true` as a score, `0`, `6`, broken JSON → `invalid` with a `reason`. |
@@ -253,7 +275,12 @@ real commands (`python3 -c ...`); no mock of the unit under test.
 | AC14 | op4 | `_write_review_doc` with a SHIP review whose scores include a `2` → returned `verdict == "REVISE"`, and `specs/review.json` on disk has `verdict_before_scores: "SHIP"`, `verdict: "REVISE"`, `low_axes` naming that axis. |
 | AC15 | op4 | `_write_review_doc` with a SHIP review, all scores ≥ 3 → verdict `SHIP`, `review.json` `scores_status: "ok"`, `min_score` correct; with no `## Scores` section → verdict unchanged, `scores_status: "absent"`. |
 | AC16 | op4 | cycle 2 (`early_result` path, review with `FINDING_` per-finding lines all RESOLVED) writes `specs/review-cycle-2.json`; even with a `## Scores` block containing a `2`, the returned verdict stays `SHIP` (record-only), and the json has `verdict_before_scores == verdict == "SHIP"`. Cycle 2 on the main exit (free-form review, no `FINDING_` lines) with a low score → `REVISE`, `review-cycle-2.json` written. |
-| AC18 | op2 | the step on a repo whose committed verifying `SKILL.md` has an uncommitted edit (`verification: false`) → `E_VERIFICATION_REGISTRY_TAMPERED`, `recoverable is False`, the path in the error; no verify command ran (its marker file is absent). |
+| AC18 | op2 | a repo with two committed verifying skills A and B (B's command writes a marker outside the repo). (a) A edited in the work tree to `verification: false` → `E_VERIFICATION_REGISTRY_TAMPERED`, `recoverable is False`, A's path in the error, B's marker absent. (b) A deleted (`git rm`) → same code. (c) only an untracked new verifying skill C added → not tampered; C is run (its marker exists). |
+| AC21 | op2 | a committed NON-verifying `SKILL.md` with an uncommitted edit, no verifying skills → step `status == "ok"`. |
+| AC22 | op1 | edges: a `verification: true` line indented under a non-`metadata` key (list item / folded `description: >`) does not register; `extra_dirs=("skills",)` lists each skill once; a symlinked skill dir pointing outside the repo → `errors[]` `outside_repo`, not registered; whitespace-only `verify_command` → kind `command`, status `error`; a command that mutates the tree and then sleeps past the timeout → `mutated`. |
+| AC23 | op1 | timeout kills the process group: `sh -c "(sleep 3; touch <tmp>/gc.marker) & sleep 30"` with `timeout_sec=1` → `timeout`, returns in < 10 s, and after a further 4 s the marker does not exist. `run_registry` on a subdirectory of a git repo → `errors[]` `not_a_git_repo`, no command runs. With `GIT_DIR` pointing at another repo in the env, the snapshot still reflects `repo_root` (a clean pass stays `pass`). |
+| AC24 | op1 | CLI: `verify --timeout 1` applies the timeout (a sleeping command → `timeout`); `verify --bogus` exits 2. |
+| AC25 | op4 | `_write_review_doc` with a SHIP review and an `invalid` scores block (`clarity: 0`) → verdict `SHIP`, `review.json` `scores_status: "invalid"`. Events are captured (as sibling tests capture `_emit_safe`): `spec_review_score_downgrade` on AC14, `spec_review_scores_missing` on the absent/invalid cases, `spec_review_score_low_frozen` on AC19, `verification_registry_report` on AC11. AC13 additionally asserts the prompt states the below-3 ⇒ REVISE rule and the `root: "spec"` finding requirement. AC16 early exit asserts `scores_status` and `low_axes` recorded in `review-cycle-2.json`. |
 | AC19 | op4 | `_write_review_doc` with `is_frozen: True` in `prev.data`, a SHIP review and a `2` score → verdict stays `SHIP`, `review.json` records the low axis. |
 | AC20 | op3 | `commands/verify.md` exists, invokes `bytedigger_engine.run verify`, and states that it edits no tracked file; `phases/phase-5-implement.md` references `verify_registered_skills` and `commands/verify.md`. |
 | AC17 | reg | `E_VERIFICATION_SKILL_FAILED` and `E_VERIFICATION_REGISTRY_TAMPERED` are in `error_codes.py` and in both `ERROR_CODES.md`; both new modules are in `core_manifest.json`. |
@@ -273,6 +300,13 @@ Sibling tests (§1a): `test_phase_45_spec.py`, `test_phase_5_implement_228AB822.
 text (found by grep in RED).
 
 ## §6 Open questions
+
+- A GREEN that edits the *script* a `verify_command` invokes (`python3 scripts/check.py`) is
+  not caught by the tamper guard, which covers `SKILL.md` only. Follow-up if needed.
+- The engine writing files inside a non-ignored in-repo path while a check runs would show as
+  `mutated`; the scratchpad and event log live outside the tree or are gitignored today.
+- Downgrade + all-`upstream` findings → `E_SPEC_UPSTREAM_REVISE` is the existing gate path,
+  covered by the existing gate tests; no separate AC (DesignReview F6 / gate finding 12).
 
 - Should a failing verification skill retry GREEN (like typecheck) instead of stopping? v1
   stops (`recoverable=False`); a retry loop is a follow-up if hosts ask.
