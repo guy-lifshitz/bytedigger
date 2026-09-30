@@ -29,9 +29,11 @@ if TYPE_CHECKING:
     from bytedigger_engine.event_sink import EventSink
 
 from bytedigger_engine.contracts import (
+    CodedStepError,
     LoopStepContract,
-    WorkflowContext,
+    StepContract,
     StepResult,
+    WorkflowContext,
     WorkflowDefinition,
     format_boundary_error,
 )
@@ -227,6 +229,14 @@ def _findings_to_str(findings: Any) -> str:
         return json.dumps(findings, ensure_ascii=False, default=str)
     except Exception:
         return str(findings)
+
+
+def _execute_step(step: StepContract, ctx: WorkflowContext, prev: StepResult | None) -> StepResult:
+    """Run one step; convert a CodedStepError to an error StepResult. Other exceptions propagate."""
+    try:
+        return step.execute(ctx, prev)
+    except CodedStepError as exc:
+        return exc.to_result(step.name)
 
 
 class WorkflowEngine:
@@ -552,7 +562,7 @@ class WorkflowEngine:
             else:
                 try:
                     cached = maybe_read_sentinel(context, step, cycle, run_id, self._emit, workflow_name=workflow.name)
-                    result = cached if cached is not None else step.execute(context, prev)
+                    result = cached if cached is not None else _execute_step(step, context, prev)
                 finally:
                     telemetry_ctx.clear_current_run()
 
@@ -975,13 +985,13 @@ class LoopRunner:
                         lambda et, payload, rid: telemetry_ctx.emit_safe(et, payload),
                         workflow_name=c.name, prev=cur_prev,
                     )
-                    result = cached if cached is not None else body_step.execute(ctx, cur_prev)
+                    result = cached if cached is not None else _execute_step(body_step, ctx, cur_prev)
                     maybe_write_sentinel(
                         ctx, body_step, iteration, run_ctx.run_id, result,
                         workflow_name=c.name, prev=cur_prev,
                     )
                 else:
-                    result = body_step.execute(ctx, cur_prev)
+                    result = _execute_step(body_step, ctx, cur_prev)
                 cur_prev = result
                 # 585E30E3: escalate — non-terminal, symmetric to _execute_steps dispatch.
                 # LoopRunner has no event_log; telemetry is emitted by the outer engine
@@ -1129,13 +1139,13 @@ class LoopRunner:
                         lambda et, payload, rid: telemetry_ctx.emit_safe(et, payload),
                         workflow_name=c.name, prev=cur_prev,
                     )
-                    result = cached if cached is not None else body_step.execute(ctx, cur_prev)
+                    result = cached if cached is not None else _execute_step(body_step, ctx, cur_prev)
                     maybe_write_sentinel(
                         ctx, body_step, sentinel_iteration, run_ctx.run_id, result,
                         workflow_name=c.name, prev=cur_prev,
                     )
                 else:
-                    result = body_step.execute(ctx, cur_prev)
+                    result = _execute_step(body_step, ctx, cur_prev)
                 cur_prev = result
 
                 if result.status == "escalate":

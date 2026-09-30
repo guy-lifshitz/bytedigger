@@ -302,7 +302,7 @@ def test_role_template_prepended(tmp_path):
     assert "# Read-only role" in doc
 
 
-def test_role_template_missing_file_silently_skipped(tmp_path):
+def test_role_template_missing_file_fails_closed(tmp_path):
     scratchpad = tmp_path / "scratch"
     _reg_echo("body\nSTATUS: DONE\n")
     eng = WorkflowEngine()
@@ -315,8 +315,11 @@ def test_role_template_missing_file_silently_skipped(tmp_path):
             role_template_path=str(tmp_path / "nope.md"),
         ),
     )
-    # No crash; workflow proceeds.
-    assert result.data["marker"] == "DONE"
+    # bd#119: a configured-but-missing template fails the step closed.
+    assert result.status == "error"
+    assert result.error_code == "E_ROLE_TEMPLATE_INVALID"
+    assert result.step_name == "build_explore_prompt"
+    assert not (scratchpad / EXPLORE_DOC_RELPATH).exists()
 
 
 # ─── status marker parsing (last-marker-wins via rfind) ───────────────────────

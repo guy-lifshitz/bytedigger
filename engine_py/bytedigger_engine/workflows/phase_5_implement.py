@@ -46,7 +46,8 @@ Token-spend guards (same playbook as phase_1 / phase_4 / phase_45):
 
 Inputs (via ``ctx.org_config``):
     scratchpad_dir              — REQUIRED. Absolute path to scratchpad root.
-    role_template_path          — Optional. Prepended to ALL three prompts.
+    role_template_path          — Optional. Prepended to ALL three prompts; the step fails with
+                                  E_ROLE_TEMPLATE_INVALID if configured but unusable.
     git_cwd                     — Optional. Working directory for git operations
                                   in commit_red_tests. Defaults to Path.cwd().
     llm_command                 — Optional. Default: get_claude_primary(). Global

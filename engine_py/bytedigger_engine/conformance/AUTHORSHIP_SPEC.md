@@ -456,8 +456,10 @@ Prompt text a phase authors by string concatenation is not an "injected block" i
 covered whole by R3.1's hash. The attestation says exactly this and claims nothing more.
 **Re-open criterion:** the first phase that inlines file-sourced content into a prompt without
 routing it through `injections` — `_maybe_role_template`
-(`workflows/phase_workflows_common.py:410`) is today's live example and is migrated by AC-I5 so
+(in `workflows/phase_workflows_common.py`) is today's live example and is migrated by AC-I5 so
 that ADV-8 tests a door the pipeline actually uses rather than an unused one.
+*bd#119 amendment:* the cite was stale; the wrapper is located by function name, and it now delegates the
+single file read to `role_template.py::load_role_template`.
 
 - **AC-I1** `assemble(prompt, blocks)` returns `prompt` followed by each block's `content` in list
   order, each separated by exactly `"\n\n"`. Pinned rather than described, because an unpinned
@@ -510,11 +512,14 @@ that ADV-8 tests a door the pipeline actually uses rather than an unused one.
   `[bd10:10]` **(G6) The path spelling and the content normalisation are pinned, because two
   plausible spellings produce two different digests and v1 chose neither.** `source_id` is
   `str(Path(role_path).expanduser())` — the same resolution `_maybe_role_template` already performs
-  (`workflows/phase_2_explore.py:185`), **not** `.resolve()`, so a symlinked home does not change
+  (`role_template.py::load_role_template`), **not** `.resolve()`, so a symlinked home does not change
   the recorded identifier. `content` is the string that function returns today, i.e.
-  `rp.read_text(encoding="utf-8").rstrip() + "\n\n"` (`:188`) — the trailing normalisation is part
-  of the injected bytes and therefore part of the hash. Pinning both is what stops the digest
+  `rp.read_text(encoding="utf-8").rstrip() + "\n\n"`, as produced by `load_role_template` — the
+  trailing normalisation is part of the injected bytes and therefore part of the hash. Pinning both is what stops the digest
   assertion from being satisfiable two ways.
+  *bd#119 amendment:* phase 2 now reads the template once, in `build_explore_prompt`;
+  `source_id` and `content` come from `data["role_template"]`, and `invoke_explore_llm` opens no
+  file. Both pins above are unchanged.
 
 ## 5. R3.3 and ADV-7 — reported model identity versus the pin
 

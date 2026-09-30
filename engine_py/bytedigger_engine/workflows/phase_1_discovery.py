@@ -19,7 +19,8 @@ Inputs (via `ctx.org_config`):
     scratchpad_dir       — REQUIRED. Absolute path to scratchpad root.
     complexity           — "SIMPLE" | "FEATURE" | "COMPLEX". Drives output
                            filename and prompt scaffolding. Default "FEATURE".
-    role_template_path   — Optional. If set + file exists, prepended to prompt.
+    role_template_path   — Optional. Prepended; the step fails with E_ROLE_TEMPLATE_INVALID
+                           if configured but unusable.
     llm_command          — Optional. Argv list for subprocess; prompt is fed
                            via stdin, response is captured from stdout.
                            Default: get_claude_discovery(). Tests stub with a fake.
@@ -62,6 +63,10 @@ try:
     from .graph_source import ensure_graph  # noqa: E402
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows.graph_source import ensure_graph  # type: ignore[no-redef]  # noqa: E402
+try:
+    from .phase_workflows_common import _maybe_role_template  # noqa: E402
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # type: ignore[no-redef]  # noqa: E402
 from bytedigger_engine.lib.project_root import resolve_project_root  # noqa: E402
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
@@ -342,15 +347,12 @@ def _output_schema_block(complexity: str, doc_path: str) -> str:
 
 
 def _build_prompt(ctx, scratchpad: Path, complexity: str) -> str:
-    cfg = ctx.org_config or {}
     parts: list[str] = []
 
-    role_path = cfg.get("role_template_path")
-    if role_path:
-        rp = Path(role_path).expanduser()
-        if rp.is_file():
-            parts.append(rp.read_text(encoding="utf-8").rstrip())
-            parts.append("")
+    role = _maybe_role_template(ctx)
+    if role:
+        parts.append(role.rstrip())
+        parts.append("")
 
     inj = scratchpad / "injection"
     parts.append(

@@ -37,7 +37,8 @@ Token-spend guards (same playbook as phase_1 / phase_4 / phase_45 / phase_5 / ph
 
 Inputs (via ``ctx.org_config``):
     scratchpad_dir              — REQUIRED. Absolute path to scratchpad root.
-    role_template_path          — Optional. Prepended to synthesizer prompt.
+    role_template_path          — Optional. Prepended to synthesizer prompt; the step fails with
+                                  E_ROLE_TEMPLATE_INVALID if configured but unusable.
     llm_command                 — Optional. Default: get_claude_fallback(). Global
                                   fallback for synthesizer subprocess call.
     synthesizer_llm_command     — Optional. Per-step override.
@@ -77,6 +78,7 @@ from bytedigger_engine.io_utils import atomic_write  # noqa: E402
 from bytedigger_engine.lib.model_config import get_claude_fallback  # noqa: E402
 from bytedigger_engine.lib.plugins.disk_truth import git_diff_files, resolve_pre_phase_sha, parse_structured_block, enforce, SynthesizerVerdict, SchemaViolation  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
+from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # noqa: E402  bd#119
 from bytedigger_engine.lib.worktree_root import resolve_worktree_root as _resolve_worktree_root  # noqa: E402
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
@@ -281,17 +283,6 @@ def _completed_phase_digest(ctx) -> str:
     for ph in phases:
         lines.append(f"  - {ph}")
     return "\n".join(lines)
-
-
-def _maybe_role_template(ctx) -> str:
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ""
-    rp = Path(role_path).expanduser()
-    if not rp.is_file():
-        return ""
-    return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
 
 
 def _last_marker_wins(raw: str, markers: list[tuple[str, str]], fallback: str) -> str:

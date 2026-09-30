@@ -19,6 +19,7 @@
     "spec_cite.py",
     "facts_pack.py",
     "verification_registry.py",
+    "role_template.py",
     "spec_review_score.py",
     "skill_companion.py",
     "lib/frontmatter.py",

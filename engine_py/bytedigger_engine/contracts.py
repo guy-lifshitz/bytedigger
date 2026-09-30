@@ -90,6 +90,39 @@ class StepResult:
             )
 
 
+class CodedStepError(Exception):
+    """A step-level failure that carries a registered E_* code.
+
+    `engine._execute_step` converts it to a StepResult with status "error".
+    """
+
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        *,
+        suggestion: str | None = None,
+        recoverable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.suggestion = suggestion
+        self.recoverable = recoverable
+
+    def to_result(self, step_name: str) -> StepResult:
+        return StepResult(
+            status="error",
+            data=None,
+            duration_ms=0,
+            step_name=step_name,
+            error=self.message,
+            error_code=self.error_code,
+            suggestion=self.suggestion,
+            recoverable=self.recoverable,
+        )
+
+
 # ─── D5699904 boundary envelope — F2344E12 CC-1 + CC-3 + FI-4 + 6F08F5F5 ───
 
 

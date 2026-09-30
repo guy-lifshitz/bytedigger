@@ -44,6 +44,7 @@ from bytedigger_engine.lib import git_port  # noqa: E402  164E4EFA — rc-aware 
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
 from bytedigger_engine.config_provider import int_value  # noqa: E402  GH786 retry knob
+from bytedigger_engine.role_template import load_role_template  # noqa: E402  bd#119
 
 logger = logging.getLogger(__name__)
 
@@ -576,18 +577,12 @@ _resolve_command = _resolve_model  # type: ignore[assignment]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 11. _maybe_role_template  (identical across p5/p6)
+# 11. _maybe_role_template  (bd#119: thin wrapper; reader lives in role_template.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _maybe_role_template(ctx) -> str:
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ""
-    rp = Path(role_path).expanduser()
-    if not rp.is_file():
-        return ""
-    return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
+    rt = load_role_template(ctx.org_config)
+    return rt.content if rt else ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
