@@ -67,6 +67,7 @@ class PreconditionResult(TypedDict, total=False):
 class RunEvidence(TypedDict):
     has_summary: bool
     n_tests: int
+    n_files: int | None
     collected_files: list[str]
     detail: str
 
@@ -104,6 +105,18 @@ BLOCKED_BY_ORDER = (
 )
 # backward-compat internal alias
 _BLOCKED_BY_ORDER = BLOCKED_BY_ORDER
+
+# GH1740 (ebdfdc7b) §AC5: closed enumeration of `corpus_scope_reason` values
+# (plus `None` for the no-reason branches repo-wide/partial). Lives in
+# production so a consumer never has to trust a test-local literal
+# (Principle C).
+CORPUS_SCOPE_REASONS = frozenset({
+    "no_file_oracle",
+    "no_summary",
+    "multiple_summaries",
+    "population_mismatch",
+    "corpus_uncollected",
+})
 
 _REMOTE_TRACKING_PREFIX = "refs/remotes/"
 
@@ -475,12 +488,22 @@ def _parse_pytest_evidence(text: str) -> tuple[bool, int, list[str], str]:
     return False, 0, [], "no recognizable pytest summary line"
 
 
-def _parse_bun_evidence(text: str) -> tuple[bool, int, list[str], str]:
+def _parse_bun_evidence(text: str) -> tuple[bool, int, int | None, list[str], str]:
+    """n_tests keeps FIRST-MATCH semantics (§1v, GH1740 AC1 rev 6 — summing
+    would silently disarm the live fail-closed E_EMPTY_RUN code at
+    baseline_delta_gate.py:320). n_files is derived SEPARATELY by counting
+    ALL `Ran N tests across M files` matches: exactly one match -> that
+    match's file count; zero matches -> None; more than one match -> None
+    (GH1740 F4 — summing/guessing across non-overlapping corpora is not
+    safe, so a multi-summary log is `unverified`, not silently added up).
+    """
     files = sorted(set(_BUN_FILE_HEADER_RE.findall(text)))
-    m = _BUN_SUMMARY_RE.search(text)
-    if m:
-        return True, int(m.group(1)), files, "Ran N tests across M files summary line"
-    return False, 0, files, "no recognizable bun summary line"
+    matches = _BUN_SUMMARY_RE.findall(text)
+    if matches:
+        n_tests = int(matches[0][0])
+        n_files: int | None = int(matches[0][1]) if len(matches) == 1 else None
+        return True, n_tests, n_files, files, "Ran N tests across M files summary line"
+    return False, 0, None, files, "no recognizable bun summary line"
 
 
 def parse_run_evidence(text: str, suite: str) -> RunEvidence:
@@ -490,15 +513,21 @@ def parse_run_evidence(text: str, suite: str) -> RunEvidence:
     A parseable summary reporting zero tests (`Ran 0 tests across 0 files`,
     `no tests ran`) has has_summary=True but n_tests=0 — 'nothing to check'
     printed as 'matched' is exactly the #1428 class this closes.
+
+    GH1740 (ebdfdc7b) §AC1: n_files is bun's own file-count oracle (second
+    group of `_BUN_SUMMARY_RE`); pytest has NO file-count oracle at all, so
+    n_files is always None for suite != "bun".
     """
     normalized = _normalize_ci_text(text)
     if suite == "bun":
-        has_summary, n_tests, files, detail = _parse_bun_evidence(normalized)
+        has_summary, n_tests, n_files, files, detail = _parse_bun_evidence(normalized)
     else:
         has_summary, n_tests, files, detail = _parse_pytest_evidence(normalized)
+        n_files = None
     return {
         "has_summary": has_summary,
         "n_tests": n_tests,
+        "n_files": n_files,
         "collected_files": files,
         "detail": detail,
     }

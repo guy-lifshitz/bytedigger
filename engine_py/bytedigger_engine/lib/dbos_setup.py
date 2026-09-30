@@ -378,6 +378,19 @@ def hard_exit(rc: int) -> None:
     from bytedigger_engine import config_provider
     if not config_provider.get_config().gate_enabled("HAL_RUNPY_HARD_EXIT"):
         sys.exit(rc)
+    # GH1939: os._exit skips atexit — remove disk_truth temp roots of every
+    # loaded test_runner instance (imported under two names). Never imports it.
+    for name, mod in list(sys.modules.items()):
+        try:
+            if name.endswith("disk_truth.test_runner"):
+                cleanup = getattr(mod, "cleanup_tmp_root", None)
+                if cleanup is not None:
+                    cleanup()
+        except Exception as exc:
+            try:
+                print(f"hard_exit: disk_truth cleanup failed for {name}: {exc!r}", file=sys.stderr)
+            except Exception:
+                continue
     try:
         sys.stdout.flush()
         sys.stderr.flush()

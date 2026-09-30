@@ -80,6 +80,14 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
     blocked_by = verdict_json.get("blocked_by", [])
     only_in_base = verdict_json.get("only_in_base", [])
     declared_removal_count = verdict_json.get("declared_removal_count", 0)
+    # GH1740 (ebdfdc7b) §AC12: forward the gate's corpus-scope honesty
+    # fields verbatim into telemetry — without this, the derivation is only
+    # visible to whoever reads raw stdout, not to the §1r-delta consumer.
+    corpus_scope = verdict_json.get("corpus_scope")
+    corpus_scope_reason = verdict_json.get("corpus_scope_reason")
+    corpus_files_total = verdict_json.get("corpus_files_total")
+    corpus_files_run = verdict_json.get("corpus_files_run")
+    corpus_files_unrun = verdict_json.get("corpus_files_unrun")
 
     # §2.3 gate M2: the delta lane must not be masked by a compound BLOCKED
     # verdict. A missing delta_verdict key (old script via HAL_BASELINE_DELTA_BIN)
@@ -109,6 +117,11 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
         "blocked_by": blocked_by,
         "only_in_base": only_in_base,
         "declared_removal_count": declared_removal_count,
+        "corpus_scope": corpus_scope,
+        "corpus_scope_reason": corpus_scope_reason,
+        "corpus_files_total": corpus_files_total,
+        "corpus_files_run": corpus_files_run,
+        "corpus_files_unrun": corpus_files_unrun,
     }, severity="warning")
 
     return {

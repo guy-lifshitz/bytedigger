@@ -12,14 +12,17 @@ Public API:
 """
 from __future__ import annotations
 
+import atexit
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Union, runtime_checkable
+from typing import Any, Protocol, Union, runtime_checkable
 
 from bytedigger_engine import config_provider
 
@@ -120,6 +123,85 @@ def test_subprocess_env(cwd: Union[str, Path]) -> dict[str, str]:
 setattr(test_subprocess_env, "__test__", False)  # not a test: pytest must not collect this test_*-named helper
 
 
+# ── GH1939: per-process temp root, removed at exit ───────────────────────────
+# Output files must outlive the call (callers read them later in-process), so
+# they live under one lazily-created root that is removed at interpreter exit
+# (atexit) or by lib/dbos_setup.py::hard_exit (os._exit skips atexit).
+
+_TMP_ROOT: str | None = None
+_TMP_ROOT_PID: int | None = None
+_TMP_ROOT_LOCK = threading.Lock()
+
+
+def _reset_lock_in_child() -> None:
+    """After fork the inherited lock may be held by a thread that does not exist."""
+    global _TMP_ROOT_LOCK
+    _TMP_ROOT_LOCK = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_lock_in_child)
+
+
+def _get_tmp_root() -> str:
+    """Return this process's root dir, (re)creating it if missing or vanished."""
+    global _TMP_ROOT, _TMP_ROOT_PID
+    with _TMP_ROOT_LOCK:
+        if (_TMP_ROOT is None or _TMP_ROOT_PID != os.getpid()
+                or not os.path.isdir(_TMP_ROOT)):
+            _TMP_ROOT = tempfile.mkdtemp(prefix="disk_truth_")
+            _TMP_ROOT_PID = os.getpid()
+        return _TMP_ROOT
+
+
+def _new_call_dir() -> str:
+    """Per-call subdir; if the root vanished between check and use, recreate once."""
+    for attempt in (1, 2):
+        try:
+            return tempfile.mkdtemp(dir=_get_tmp_root())
+        except FileNotFoundError:
+            if attempt == 2:
+                raise
+    raise AssertionError("unreachable")
+
+
+def _stderr_line(msg: str) -> None:
+    """Best-effort one-line diagnostic on stderr (never stdout, never raises)."""
+    try:
+        print(msg, file=sys.stderr)
+    except Exception:
+        return
+
+
+def _rmtree_failed(func: object, path: str, exc: object) -> None:
+    _stderr_line(f"disk_truth: cleanup_tmp_root could not remove {path}: {exc!r}")
+
+
+def cleanup_tmp_root() -> None:
+    """Remove this module instance's root (pid-guarded, idempotent, never raises)."""
+    global _TMP_ROOT, _TMP_ROOT_PID
+    try:
+        if not _TMP_ROOT_LOCK.acquire(timeout=5):
+            _stderr_line("disk_truth: cleanup_tmp_root lock timeout, root left in place")
+            return
+        try:
+            root, pid = _TMP_ROOT, _TMP_ROOT_PID
+            if root is None or pid != os.getpid():
+                return  # nothing created, or a forked child: parent owns the files
+            _TMP_ROOT = None
+            _TMP_ROOT_PID = None
+        finally:
+            _TMP_ROOT_LOCK.release()
+        # onexc (3.12+) passes the exception, onerror an exc_info tuple; the handler reprs either.
+        handler: dict[str, Any] = {"onexc" if sys.version_info >= (3, 12) else "onerror": _rmtree_failed}
+        shutil.rmtree(root, **handler)
+    except Exception as exc:
+        _stderr_line(f"disk_truth: cleanup_tmp_root failed: {exc!r}")
+
+
+atexit.register(cleanup_tmp_root)
+
+
 # ── §2.2: concrete subprocess implementation (renamed from run_test_command) ──
 
 def _run_test_command_subprocess(
@@ -140,8 +222,8 @@ def _run_test_command_subprocess(
     cwd_str = str(cwd)
     use_shell = isinstance(cmd, str)
 
-    # Create temp files for stdout/stderr
-    tmp_dir = tempfile.mkdtemp(prefix="disk_truth_")
+    # Create temp files for stdout/stderr (GH1939: per-call subdir of the per-process root)
+    tmp_dir = _new_call_dir()
     stdout_file = open(f"{tmp_dir}/stdout.txt", "w")
     stderr_file = open(f"{tmp_dir}/stderr.txt", "w")
     stdout_path = stdout_file.name
