@@ -32,7 +32,7 @@ class TestGH513SpecAuthorizedEditsProducer:
 
     def test_ac1_spec_output_schema_contains_marker_heading_and_error_code(self) -> None:
         """AC1: _spec_output_schema output has the marker, the section heading,
-        and the E_RED_TESTS_TAMPERED token. Expected FAIL pre-GREEN."""
+        and the E_RED_BASELINE_FILE_MODIFIED token. Expected FAIL pre-GREEN."""
         out = phase_45_spec._spec_output_schema("specs/x.md")
         assert "authorized-test-edits:" in out, (
             "spec output schema missing the machine-read marker line "
@@ -41,8 +41,8 @@ class TestGH513SpecAuthorizedEditsProducer:
         assert "## Authorized Test Edits" in out, (
             "spec output schema missing the '## Authorized Test Edits' section heading"
         )
-        assert "E_RED_TESTS_TAMPERED" in out, (
-            "spec output schema missing the E_RED_TESTS_TAMPERED token that "
+        assert "E_RED_BASELINE_FILE_MODIFIED" in out, (
+            "spec output schema missing the E_RED_BASELINE_FILE_MODIFIED token that "
             "explains the consequence of an unlisted test edit"
         )
 
@@ -122,9 +122,12 @@ class TestGH513SpecAuthorizedEditsProducer:
         assert result == []
 
     def test_ac6_tamper_remediation_hint_constant_used_in_error_string(self) -> None:
-        """AC6: phase_5_implement._TAMPER_REMEDIATION_HINT exists, mentions
-        authorized-test-edits, and is used in the E_RED_TESTS_TAMPERED error
-        f-string. Expected FAIL pre-GREEN."""
+        """AC6 (D2 v2 §MAJOR-2 replacement contract, verbatim): the reorder
+        (hal#1600 D2) deletes the 'tampered RED test paths' literal this
+        test used to anchor on, so the anchor moves to the chokepoint helper
+        itself rather than a substring of the message. Keeps AC6's original
+        purpose — the remediation route is reachable from the error path —
+        under the new shape."""
         hint = getattr(phase_5_implement, "_TAMPER_REMEDIATION_HINT", None)
         assert hint is not None, (
             "phase_5_implement._TAMPER_REMEDIATION_HINT does not exist yet "
@@ -132,12 +135,19 @@ class TestGH513SpecAuthorizedEditsProducer:
         )
         assert "authorized-test-edits:" in hint
 
-        source = inspect.getsource(phase_5_implement)
-        idx_tampered = source.find("tampered RED test paths")
-        assert idx_tampered != -1, "could not locate the tampered-RED-test-paths error string"
-        idx_hint_use = source.find("_TAMPER_REMEDIATION_HINT}", idx_tampered)
-        assert idx_hint_use != -1, (
-            "_TAMPER_REMEDIATION_HINT is not interpolated into the "
-            "E_RED_TESTS_TAMPERED error f-string after the "
-            "'tampered RED test paths' literal"
+        helper = getattr(phase_5_implement, "_red_baseline_error_message", None)
+        assert helper is not None, (
+            "phase_5_implement._red_baseline_error_message does not exist yet "
+            "(D2 chokepoint not implemented)"
+        )
+        helper_source = inspect.getsource(helper)
+        assert "_TAMPER_REMEDIATION_HINT" in helper_source, (
+            "_TAMPER_REMEDIATION_HINT is not referenced inside "
+            "_red_baseline_error_message's own body"
+        )
+
+        non_refresh_message = helper(["tests/test_x.py"], classes=None, refresh_available=False)
+        assert non_refresh_message.startswith("add the path under"), (
+            "expected the non-refresh state to begin with the literal operator "
+            f"action 'add the path under', got {non_refresh_message[:60]!r}"
         )

@@ -737,7 +737,7 @@ def _red_baseline_precheck(scratchpad: Path, git_cwd: str, spec_path: str | None
     ("worktree_dirty" / "missing" / fail-closed "head_unreadable"). Returns None
     to let the caller proceed with prompt construction; returns a StepResult to
     short-circuit (either the sanctioned refresh's pass-through None, or an
-    E_RED_TESTS_TAMPERED error)."""
+    E_RED_BASELINE_FILE_MODIFIED error)."""
     frozen = _read_red_test_hashes(scratchpad)
     if not frozen:
         return None
@@ -746,11 +746,17 @@ def _red_baseline_precheck(scratchpad: Path, git_cwd: str, spec_path: str | None
     if not tampered:
         return None
     allowed = set(authorized)
+    reconciled = _frozen_for_current_cycle(scratchpad, git_cwd)
     classes = {
         path: cls
-        for path, cls in authored_boundary.classify_red_hash_mismatches(frozen, git_cwd).items()
+        for path, cls in authored_boundary.classify_red_hash_mismatches(reconciled, git_cwd).items()
         if path in tampered and path not in allowed
     }
+    if not classes:
+        # hal#1600 D4: every mismatch `verify_red_test_hashes` found above
+        # lives outside the current cycle's red-test-paths.txt (or was
+        # already excluded upstream) — nothing left to classify as tamper.
+        return None
     all_head_moved = bool(classes) and all(c == "head_moved" for c in classes.values())
     if all_head_moved and get_config().flag("HAL_RED_BASELINE_REFRESH"):
         current = authored_boundary.compute_red_test_hashes(list(classes.keys()), git_cwd)
@@ -760,12 +766,12 @@ def _red_baseline_precheck(scratchpad: Path, git_cwd: str, spec_path: str | None
         ref_path.write_text(json.dumps(merged, sort_keys=True))
         _emit_safe("red_baseline_refreshed", {"paths": sorted(classes), "n": len(classes)})
         return None
-    msg = f"frozen-hash baseline check found tampered RED test paths: {str(dict(sorted(classes.items())))} — {_TAMPER_REMEDIATION_HINT}"
-    if all_head_moved:
-        msg += " (set HAL_RED_BASELINE_REFRESH=1 and resume to re-freeze the baseline from the committed HEAD content)"
+    msg = _red_baseline_error_message(
+        list(classes.keys()), classes=classes, refresh_available=all_head_moved
+    )
     return StepResult(
         status="error", data=None, duration_ms=0, step_name="build_green_prompt",
-        error=msg, error_code="E_RED_TESTS_TAMPERED", recoverable=False,
+        error=msg, error_code="E_RED_BASELINE_FILE_MODIFIED", recoverable=False,
     )
 
 
@@ -789,7 +795,8 @@ def _persist_red_test_paths(scratchpad, paths: list[str]) -> bool:
 def _read_red_test_paths(scratchpad) -> list[str]:
     """Read persisted RED test paths from scratchpad/RED_TEST_PATHS_RELPATH.
 
-    Returns the non-blank stripped lines in order. Returns [] if the file is
+    Returns the non-blank lines in order, UNSTRIPPED (a whitespace-padded
+    survivor is returned exactly as written). Returns [] if the file is
     absent or any read error occurs. Pure — no writes.
     """
     ref_path = Path(scratchpad) / RED_TEST_PATHS_RELPATH
@@ -799,6 +806,83 @@ def _read_red_test_paths(scratchpad) -> list[str]:
         return [line for line in ref_path.read_text().splitlines() if line.strip()]
     except Exception:
         return []
+
+
+def _frozen_for_current_cycle(scratchpad: Any, git_cwd: str) -> "dict[str, str]":
+    """hal#1600 D4: the ONE reconciled read of the frozen-hash manifest,
+    narrowed to the current cycle's red-test-paths.txt. Never raises, never
+    writes (AC13). Always returns REPO-RELATIVE keys, whatever spelling
+    either artifact used, resolved via realpath on both sides (§1j).
+
+    Order (forced by AC15/AC16, see spec v3 "Ordering"):
+      1. drop unusable keys — anything that fails to resolve at all (e.g. an
+         embedded null byte) or that resolves outside ``git_cwd``;
+      2. reconcile what remains against red-test-paths.txt (stripped,
+         realpath-resolved on both sides);
+      3. apply the disjoint fallback (return the unfiltered-but-usable map)
+         only if BOTH remaining inputs are non-empty and share nothing.
+
+    Emits at most one ``red_freeze_stale_key_dropped`` event per call
+    (ordinary narrowing and/or unusable keys, capped at 20 names each) and at
+    most one ``red_freeze_disjoint_fallback`` event (both inputs non-empty,
+    intersection empty).
+    """
+    frozen = _read_red_test_hashes(scratchpad)
+    if not frozen:
+        return {}
+
+    root = Path(git_cwd).resolve()
+    usable: "dict[str, str]" = {}
+    unusable: list[str] = []
+    for key, digest in frozen.items():
+        try:
+            key_path = Path(key)
+            resolved = key_path.resolve() if key_path.is_absolute() else (root / key_path).resolve()
+            rel = resolved.relative_to(root)
+        except (OSError, ValueError):
+            unusable.append(key)
+            continue
+        usable[str(rel)] = digest
+
+    raw_paths = _read_red_test_paths(scratchpad)
+    stripped_paths = [p.strip() for p in raw_paths if p.strip()]
+    normalized_paths: set[str] = set()
+    for p in stripped_paths:
+        try:
+            p_path = Path(p)
+            resolved_p = p_path.resolve() if p_path.is_absolute() else (root / p_path).resolve()
+            normalized_paths.add(str(resolved_p.relative_to(root)))
+        except (OSError, ValueError):
+            normalized_paths.add(p)
+
+    dropped: list[str] = []
+    if not usable:
+        result: "dict[str, str]" = {}
+    elif not normalized_paths:
+        # No usable current-cycle paths artifact -> fail open, today's behaviour.
+        result = dict(usable)
+    else:
+        common = set(usable) & normalized_paths
+        if not common:
+            _emit_safe("red_freeze_disjoint_fallback", {
+                "reason": "disjoint",
+                "n_frozen": len(usable),
+                "n_paths": len(normalized_paths),
+            })
+            result = dict(usable)
+        else:
+            result = {k: v for k, v in usable.items() if k in normalized_paths}
+            dropped = sorted(k for k in usable if k not in normalized_paths)
+
+    if dropped or unusable:
+        _emit_safe("red_freeze_stale_key_dropped", {
+            "n_dropped": len(dropped),
+            "dropped": dropped[:20],
+            "n_unusable": len(unusable),
+            "unusable": unusable[:20],
+        })
+
+    return result
 
 
 def _derive_green_paths_from_git(git_cwd: str) -> list[str]:
@@ -910,12 +994,40 @@ _RE_1I_WANTS = re.compile(r"singleton|time\.time|sleep\(|timestamp|mtime|TTL\b|c
 # shared by the preflight batch collector and the per-file verify step.
 _RE_1Q_EXEC_IMPORT = re.compile(r"spec_from_file_location|exec_module|runpy\.run_path")
 
-# GH513/§2.5: remediation hint interpolated into the E_RED_TESTS_TAMPERED error string.
+# GH513/§2.5: remediation hint interpolated into the E_RED_BASELINE_FILE_MODIFIED error string.
 _TAMPER_REMEDIATION_HINT = (
     "if this edit is a spec-required contract migration, add the path under the "
     "frozen spec's `authorized-test-edits:` block (GH436/GH513) and resume; "
     "otherwise this is assertion tampering"
 )
+
+
+def _red_baseline_error_message(
+    paths: list[str], *, classes: dict[str, str] | None = None, refresh_available: bool = False
+) -> str:
+    """D2 (hal#1600): single chokepoint for the E_RED_BASELINE_FILE_MODIFIED
+    message, routed through by every emitting site (A, B1, B2, C1, C2).
+
+    Puts the operator action at OFFSET 0 — a monitor that truncates the
+    message at a fixed length must still see the actionable remedy, not the
+    path dump — followed by the full path dump (nothing dropped, AC4), then
+    the explanatory remediation hint text last.
+
+    ``classes`` (a path->classification mapping) and the plain ``paths`` list
+    are independent: a caller with both (site B2) gets both preserved in the
+    dump; a caller with only one supplies ``classes=None``.
+    """
+    if refresh_available:
+        action = (
+            "set HAL_RED_BASELINE_REFRESH=1 and resume to re-freeze the "
+            "baseline from the committed HEAD content"
+        )
+    else:
+        action = "add the path under the frozen spec's `authorized-test-edits:` block and resume"
+    dump = repr(list(paths)) if paths else "[]"
+    if classes:
+        dump += " — " + str(dict(sorted(classes.items())))
+    return f"{action} | paths: {dump} | {_TAMPER_REMEDIATION_HINT}"
 
 
 def _spec_wants_1p(spec_text: str) -> bool:
@@ -1782,6 +1894,73 @@ def _has_mass_deletion_allow_pragma(abs_path: str) -> bool:
         return False
 
 
+def _path_exists_at_frozen_sha(path: str, frozen_sha: str, git_cwd: str) -> bool:
+    """GH1600 D1: existence probe for a RED test path in the tree at the
+    frozen pre-RED SHA. Fixed to `cat-file -e <sha>:<path>` (existence check,
+    the cheapest read) through the `git_port.git_read` seam — not `show`,
+    not `ls-tree`, not `Path.exists()`, not a bare `subprocess` call (per the
+    spec's "Where" section / AC6)."""
+    r = git_port.git_read(
+        ["cat-file", "-e", f"{frozen_sha}:{path}"], cwd=git_cwd, timeout=30,
+    )
+    return r.returncode == 0
+
+
+def _path_dirty_relative_to_head(path: str, git_cwd: str) -> bool:
+    """GH1600 D1 round 5: the refusal only applies to an UNCOMMITTED RED edit
+    into a pre-existing file — a recovery cycle whose RED commit already
+    landed (path clean vs HEAD) must not be refused (AC9a), while an
+    uncommitted edit on the same fresh-scratchpad shape still must (AC9b).
+    `status --porcelain -- <path>` through the git_read seam; non-empty
+    output means the path is dirty relative to HEAD."""
+    r = git_port.git_read(
+        ["status", "--porcelain", "--", path], cwd=git_cwd, timeout=30,
+    )
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def _red_tests_in_existing_file_error(path: str, mass_deletion_violation: "dict[str, Any] | None" = None) -> StepResult:
+    """GH1600 D1: build the refusal StepResult for a RED path that already
+    exists in the frozen pre-RED tree, is dirty relative to HEAD, and is
+    neither authorized nor GH282-exempted.
+
+    Two message branches (AC10, decision B3): when `mass_deletion_violation`
+    is given (the path is in GH282's `_mdl_all` — a real over-threshold
+    deletion), the message names the DELETION and GH282 as the problem, not
+    a missing file — telling an operator who deleted thousands of lines to
+    "write a new test file" is the wrong remedy, the exact defect class this
+    issue targets. Naming the pragma is legitimate in this branch only,
+    since a real over-threshold deletion has already happened. Otherwise the
+    default branch applies: the first 120 chars of `error` carry both the
+    offending path's basename and the required-new-file remedy phrase
+    (monitors truncate); the full repo-relative path, a suggested new path,
+    and `authorized-test-edits:` (the supported override — NOT the pragma,
+    in this branch) must all appear somewhere in the message."""
+    basename = Path(path).name
+    if mass_deletion_violation is not None:
+        deleted = mass_deletion_violation.get("deleted")
+        base_lines = mass_deletion_violation.get("base_lines")
+        message = (
+            f"RED mass-deleted {basename} (-{deleted}/{base_lines} lines) — GH282 "
+            f"flagged this as a mass deletion, not a missing-file issue. Full path: "
+            f"{path}. Authorize via GH282's '# red-mass-deletion: allow' pragma or "
+            f"list {path} under authorized-test-edits: in the frozen spec."
+        )
+    else:
+        stem = Path(path).stem
+        slug = stem[len("test_"):] if stem.startswith("test_") else stem
+        suggested = f"tests/test_{slug}_gh1600.py"
+        message = (
+            f"RED wrote new tests into pre-existing {basename} — a new test file is "
+            f"required (e.g. {suggested}). Full path: {path}. Override: list {path} "
+            f"under authorized-test-edits: in the frozen spec."
+        )
+    return StepResult(
+        status="error", data=None, duration_ms=0, step_name="commit_red_tests",
+        error=message, error_code="E_RED_TESTS_IN_EXISTING_FILE", recoverable=False,
+    )
+
+
 def _test_only_red_boundary(ctx: WorkflowContext, prev: StepResult) -> "tuple[str | None, StepResult | None]":
     """GH1245: resolve the RED/GREEN boundary SHA for a declared test_only
     build. Returns (sha, None) on success or (None, error_StepResult).
@@ -1978,6 +2157,12 @@ def _commit_red_tests(ctx, prev) -> StepResult:
             )
     # ── end AD14A3ED gate ──
     # ── GH282 — RED mass-deletion guard ──
+    # GH1600 D1 note: hoisted above the kill-switch block (was bound only
+    # inside it) so `HAL_RED_MASS_DELETION_GATE=0` does not raise
+    # UnboundLocalError when D1's check reads it below — fail-closed to G=[]
+    # (_mdl_exempted) / no branch (_mdl_all).
+    _mdl_exempted: "list[dict[str, Any]]" = []
+    _mdl_all: "list[dict[str, Any]]" = []
     if get_config().gate_enabled("HAL_RED_MASS_DELETION_GATE"):        # kill-switch, default ON
         _mdl_max = int_value("HAL_RED_MASS_DELETION_MAX_LINES", 120)
         _mdl_enforce = get_config().flag("HAL_RED_MASS_DELETION_ENFORCE")
@@ -2018,6 +2203,37 @@ def _commit_red_tests(ctx, prev) -> StepResult:
     # ── end GH282 gate ──
     cfg = ctx.org_config or {}
     scratchpad = _resolve_scratchpad(ctx)
+    # ── GH1600 D1 — refuse RED tests written into a pre-existing test file ──
+    # E = {p in red_test_paths : p not in A (authorized-test-edits:), p not
+    # in G (GH282's _mdl_exempted partition, empty when its kill-switch is
+    # off), and p exists in the tree at the FROZEN pre-RED SHA (not HEAD,
+    # so cycle->=2 re-entry is unaffected — AC7/AC7b), AND p is dirty
+    # (uncommitted) relative to HEAD (round 5 — a landed RED commit on a
+    # recovery cycle with no persisted ref must not be refused, AC9a/AC9b).
+    # Runs after the whole GH282 mass-deletion block (that gate keeps
+    # precedence — AC8b) and after scratchpad is re-resolved above; before
+    # the commit and before _persist_pre_red_ref (below), so a refusal
+    # leaves no pre-red-ref.txt.
+    _d1_frozen_sha = _resolve_frozen_pre_red_sha(scratchpad, _git_cwd_early)
+    _d1_spec_path = _spec_path_raw if isinstance(_spec_path_raw, str) and _spec_path_raw else None
+    _d1_authorized = set(_parse_authorized_test_edits(_d1_spec_path) if _d1_spec_path else [])
+    _d1_exempted = {v["path"] for v in _mdl_exempted}
+    _d1_mass_deletion_by_path = {v["path"]: v for v in _mdl_all}
+    for _d1_path in red_test_paths:
+        if _d1_path in _d1_authorized or _d1_path in _d1_exempted:
+            continue
+        if not _path_exists_at_frozen_sha(_d1_path, _d1_frozen_sha, _git_cwd_early):
+            continue
+        # round-5 dirtiness conjunct: a RED commit that already landed
+        # (recovery cycle, path clean vs HEAD) must not be refused — only an
+        # UNCOMMITTED edit into a pre-existing file is the unwinnable-freeze
+        # shape D1 targets (AC9a/AC9b).
+        if not _path_dirty_relative_to_head(_d1_path, _git_cwd_early):
+            continue
+        return _red_tests_in_existing_file_error(
+            _d1_path, _d1_mass_deletion_by_path.get(_d1_path)
+        )
+    # ── end GH1600 D1 ──
     git_cwd, git_cwd_source = _resolve_git_cwd_with_source(ctx, prev)
     cycle = int(prev.data.get("cycle", 1))
 
@@ -6387,7 +6603,7 @@ def _green_test_lockdown_block(red_test_paths: list[str] | None) -> str:
         paths_section = "\n".join(f"  - {p}" for p in red_test_paths)
     return (
         "## TEST LOCKDOWN (READ FIRST — §1s)\n"
-        "Test files READ-ONLY. FROZEN — any edit triggers E_RED_TESTS_TAMPERED.\n"
+        "Test files READ-ONLY. FROZEN — any edit triggers E_RED_BASELINE_FILE_MODIFIED.\n"
         "If wrong, report 'GREEN BLOCKED — test contract dispute. Diagnosis: [why]'.\n"
         "FROZEN TEST FILES:\n"
         f"{paths_section}"
@@ -7027,6 +7243,77 @@ def _build_green_commit_message(cycle: int, paths: list[str]) -> str:
     return f"build: green cycle {cycle}\n\n{body_files}\n"
 
 
+def _check_green_commit_nonempty(
+    git_cwd: str, red_commit_sha: str, in_scope_paths: list[str]
+) -> StepResult | None:
+    """#1612-A guard: prove the GREEN commit is not empty.
+
+    Evaluated at every point `_commit_green_code` is about to return `ok`.
+    `in_scope_paths` is P — the pre-phantom-filter manifest (§ spec Decision
+    "ONE guard, over the pre-filter manifest"), never `prod_paths` itself.
+
+    Returns ``None`` when the caller should proceed exactly as it does
+    today: P is empty (a different, already-reported failure, out of scope
+    for this lot), the floor/diff evidence is unavailable (rc != 0 — never a
+    verdict), or the diff since `red_commit_sha` is non-empty. Returns a
+    terminal StepResult (E_GREEN_COMMIT_EMPTY, recoverable=False) only when P
+    is non-empty and the diff since `red_commit_sha` is empty with rc == 0.
+
+    rc-handling: the floor is prechecked with `rev-parse --verify
+    <sha>^{commit}` — a plain `rev-parse <40hex>` exits 0 for a non-existent
+    object, so the precheck must use `--verify …^{commit}`. Any rc != 0, from
+    the precheck or from the diff itself, is evidence-unavailable: fail open
+    and emit `green_commit_nonempty_check_skipped` with a non-empty `reason`.
+    """
+    if not in_scope_paths:
+        return None
+    verify = git_port.git_read(
+        ["rev-parse", "--verify", f"{red_commit_sha}^{{commit}}"],
+        cwd=git_cwd, timeout=30,
+    )
+    if verify.returncode != 0:
+        _emit_safe(
+            "green_commit_nonempty_check_skipped",
+            {
+                "reason": (
+                    f"red_commit_sha floor unresolvable: rc={verify.returncode} "
+                    f"stderr={verify.stderr[:200]!r}"
+                ),
+                "step": "commit_green_code",
+                "phase": 5,
+            },
+        )
+        return None
+    diff = git_port.git_read(
+        ["diff", "--name-only", red_commit_sha, "HEAD", "--", *in_scope_paths],
+        cwd=git_cwd, timeout=30,
+    )
+    if diff.returncode != 0:
+        _emit_safe(
+            "green_commit_nonempty_check_skipped",
+            {
+                "reason": (
+                    f"diff since red_commit_sha unavailable: rc={diff.returncode} "
+                    f"stderr={diff.stderr[:200]!r}"
+                ),
+                "step": "commit_green_code",
+                "phase": 5,
+            },
+        )
+        return None
+    if diff.stdout.strip():
+        return None
+    return StepResult(
+        status="error", data=None, duration_ms=0, step_name="commit_green_code",
+        error=(
+            f"GREEN commit landed with no in-scope change to "
+            f"{sorted(in_scope_paths)!r} since red_commit_sha -- recover via "
+            f"`git stash list`"
+        ),
+        error_code="E_GREEN_COMMIT_EMPTY", recoverable=False,
+    )
+
+
 def _commit_green_code(ctx, prev) -> StepResult:
     """Step 5+: engine-authoritative GREEN commit (4C0056FA).
 
@@ -7090,13 +7377,15 @@ def _commit_green_code(ctx, prev) -> StepResult:
                 error_code="E_LLM_MANIFEST_MISSING_AT_CONSUMER",
                 recoverable=False,
             )
-    prod_paths = _filter_phantom_deleted_paths(
-        _filter_gitignored_paths(
-            [p for p in manifest if not _is_test_path(p)],
-            git_cwd,
-        ),
+    # #1612-A: P — the in-scope manifest as it stood immediately BEFORE
+    # phantom-deletion filtering (test-path-excluded, gitignore-filtered).
+    # Captured once here and never reassigned by the :7277 git-divergence
+    # rescue below — see `_check_green_commit_nonempty`.
+    _prod_paths_pre_phantom = _filter_gitignored_paths(
+        [p for p in manifest if not _is_test_path(p)],
         git_cwd,
     )
+    prod_paths = _filter_phantom_deleted_paths(_prod_paths_pre_phantom, git_cwd)
 
     # f624e3fb (P6): the boundary scan set is derived from git, INDEPENDENT of
     # the manifest/prod_paths — the set of files changed since red_commit_sha
@@ -7144,7 +7433,42 @@ def _commit_green_code(ctx, prev) -> StepResult:
                 error_code="E_BOUNDARY_SUPPRESSION", recoverable=False,
             )
 
+    # ── ppba#1603: empty manifest vs git ground truth ────────────────────────
+    # manifest_from_result parses the GREEN transcript, and that phrasing drifts
+    # ("Files modified: [a, b]" was not recognised → empty manifest → silent
+    # skip → a tests-only PR reported as a clean DONE). git is ground truth:
+    # boundary_scan_paths above is the git-derived changed set since
+    # red_commit_sha, already gitignore/phantom filtered. When the manifest is
+    # empty but git shows production (non-test) changes, the two disagree —
+    # trust git and commit those paths rather than committing nothing.
     if not prod_paths:
+        git_prod_paths = [p for p in boundary_scan_paths if not _is_test_path(p)]
+        if git_prod_paths:
+            _emit_safe(
+                "green_manifest_git_divergence",
+                {
+                    "reason": "empty_manifest_with_git_prod_changes",
+                    "manifest_source": _manifest_src,
+                    "n_manifest": len(manifest),
+                    "git_prod_paths": list(git_prod_paths),
+                    "chosen": "git",
+                    "step": "commit_green_code",
+                    "phase": 5,
+                },
+                severity="warning",
+            )
+            prod_paths = git_prod_paths
+
+    if not prod_paths:
+        # #1612-A: P may be non-empty even though prod_paths (post-phantom-
+        # filter) emptied — e.g. a stashed-away new untracked file (AC7), or
+        # a committed deletion (AC10, correctly NOT terminal). The guard
+        # decides before this leg's "empty_manifest" verdict is emitted.
+        _nonempty_verdict = _check_green_commit_nonempty(
+            git_cwd, red_commit_sha, _prod_paths_pre_phantom
+        )
+        if _nonempty_verdict is not None:
+            return _nonempty_verdict
         _emit_safe(
             "green_commit_skipped",
             {"reason": "empty_manifest", "phase": 5},
@@ -7203,25 +7527,42 @@ def _commit_green_code(ctx, prev) -> StepResult:
         if scan_result.tampered_tests:
             return StepResult(
                 status="error", data=None, duration_ms=0, step_name="commit_green_code",
-                error=f"authored-diff boundary scan found tampered RED test paths: {scan_result.tampered_tests!r} — {_TAMPER_REMEDIATION_HINT}",
-                error_code="E_RED_TESTS_TAMPERED",
+                error=_red_baseline_error_message(scan_result.tampered_tests, refresh_available=False),
+                error_code="E_RED_BASELINE_FILE_MODIFIED",
                 recoverable=False,
             )
         # ── GH639 (7C0FDE44): frozen-hash manifest leg, git-diff-blind residual
         # coverage. No-op when nothing was ever frozen (backward-compat).
         if _frozen:
-            _hash_tampered = authored_boundary.verify_red_test_hashes(_frozen, git_cwd, authorized_test_edits)
+            # hal#1600 D4: reconciled to the current cycle's
+            # red-test-paths.txt — a stale key for a path this cycle never
+            # touched must not be classified. `_frozen` itself stays
+            # unfiltered (red_freeze_paths above, AC9).
+            _reconciled = _frozen_for_current_cycle(scratchpad_dir, git_cwd)
+            _hash_tampered = (
+                authored_boundary.verify_red_test_hashes(_reconciled, git_cwd, authorized_test_edits)
+                if _reconciled else []
+            )
             if _hash_tampered:
-                _hash_classes = authored_boundary.classify_red_hash_mismatches(_frozen, git_cwd)
-                return StepResult(
-                    status="error", data=None, duration_ms=0, step_name="commit_green_code",
-                    error=(
-                        f"frozen-hash integrity check found tampered RED test paths: {_hash_tampered!r} — "
-                        f"{_TAMPER_REMEDIATION_HINT} — {str(dict(sorted(_hash_classes.items())))}"
-                    ),
-                    error_code="E_RED_TESTS_TAMPERED",
-                    recoverable=False,
-                )
+                _hash_classes = authored_boundary.classify_red_hash_mismatches(_reconciled, git_cwd)
+                if _hash_classes:
+                    # D2/MAJOR-3: all_head_moved is computed HERE for MESSAGE
+                    # SELECTION ONLY — B2 runs after GREEN has written code, so
+                    # (unlike site A) it must never re-freeze, even with the flag
+                    # set; only the wording of the operator action changes.
+                    # hal#1600 D4 (kept through the D2 rebase): the classified
+                    # map is `_reconciled`, never `_frozen` — a stale key for a
+                    # path this cycle never touched must not be judged, and an
+                    # empty class map means there is nothing left to call tamper.
+                    _all_head_moved = all(c == "head_moved" for c in _hash_classes.values())
+                    return StepResult(
+                        status="error", data=None, duration_ms=0, step_name="commit_green_code",
+                        error=_red_baseline_error_message(
+                            _hash_tampered, classes=_hash_classes, refresh_available=_all_head_moved
+                        ),
+                        error_code="E_RED_BASELINE_FILE_MODIFIED",
+                        recoverable=False,
+                    )
             _reasons = (
                 _parse_authorized_test_edits_with_reasons(_spec_path)
                 if isinstance(_spec_path, str) and _spec_path
@@ -7327,6 +7668,15 @@ def _commit_green_code(ctx, prev) -> StepResult:
             error_code="E_GREEN_COMMIT_FAILED",
         )
     green_sha = post_rev.stdout.strip()
+
+    # #1612-A: guard sits here too — this point is reached by BOTH the real
+    # commit leg (:7432 branch that just committed) and the idempotent-skip
+    # leg (:7432 else-branch, HEAD unchanged) before either returns 'ok'.
+    _nonempty_verdict = _check_green_commit_nonempty(
+        git_cwd, red_commit_sha, _prod_paths_pre_phantom
+    )
+    if _nonempty_verdict is not None:
+        return _nonempty_verdict
 
     # ── AC4: emit green_commit telemetry ──────────────────────────────────────
     _emit_safe(

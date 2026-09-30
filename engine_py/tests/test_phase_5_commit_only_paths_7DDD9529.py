@@ -258,6 +258,12 @@ def test_ac6_subprocess_argv_via_monkeypatch_commit_red(tmp_path):
             r.stdout = fake_sha
         elif "status" in cmd:
             r.stdout = f"?? {fake_test_path}\n"
+        elif "cat-file" in cmd:
+            # hal#1600 D1: fake_test_path is untracked ("??" above), so it
+            # cannot exist at the frozen SHA — the only truthful answer for
+            # the new `cat-file -e <frozen_sha>:<path>` existence probe.
+            r.returncode = 1  # path NOT present at the frozen SHA
+            r.stdout = ""
         elif "check-ignore" in cmd:
             r.returncode = 1  # nothing is ignored
             r.stdout = ""

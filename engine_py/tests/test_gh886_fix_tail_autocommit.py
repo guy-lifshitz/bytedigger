@@ -212,8 +212,8 @@ class TestAC5TamperedTailBlocksAutocommit:
 
         assert _head(repo) == pre_head, "tampered tail must NOT be committed"
         error_code = getattr(result, "error_code", None) if not isinstance(result, dict) else result.get("error_code")
-        assert error_code == "E_RED_TESTS_TAMPERED", (
-            f"expected E_RED_TESTS_TAMPERED for a tampered RED tail, got {error_code!r}"
+        assert error_code == "E_RED_BASELINE_FILE_MODIFIED", (
+            f"expected E_RED_BASELINE_FILE_MODIFIED for a tampered RED tail, got {error_code!r}"
         )
 
 

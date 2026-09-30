@@ -138,7 +138,11 @@ from bytedigger_engine import facts_pack, spec_cite  # noqa: E402  bd#86
 from bytedigger_engine import ac_dsl  # noqa: E402  GH517 A2 — module-attr import so monkeypatch(ac_dsl, "admit", ...) works
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib.git_port import git_read  # noqa: E402
-from bytedigger_engine.lib.run_allowlist import write_run_allowlist_for_spec  # noqa: E402  1DA29C33
+from bytedigger_engine.lib.run_allowlist import write_run_allowlist_for_spec, parse_spec_files_with_verbs  # noqa: E402  1DA29C33 / hal#1600 D3
+try:
+    from ._task_description import normalize_task_description  # noqa: E402  740FF3CD
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from bytedigger_engine.workflows._task_description import normalize_task_description  # type: ignore[no-redef]  # noqa: E402
 from bytedigger_engine.lib.verdict_resolution import resolve_gate_verdict  # noqa: E402  GH373 Part B
 from bytedigger_engine.lib.spec_retry_cycle import (  # noqa: E402  CF480CAE SSOT-01
     truncate_findings,
@@ -540,7 +544,7 @@ def _spec_output_schema(doc_path: str) -> str:
         "  <REQUIRED. If any Acceptance Criterion changes an EXISTING function/data\n"
         "   contract that a PRE-EXISTING test file asserts, list each such test file\n"
         "   below — GREEN is only allowed to edit listed files; edits to unlisted\n"
-        "   pre-existing tests terminal-FAIL E_RED_TESTS_TAMPERED. Grep the test\n"
+        "   pre-existing tests terminal-FAIL E_RED_BASELINE_FILE_MODIFIED. Grep the test\n"
         "   tree for each changed symbol before declaring. Emit the machine-read\n"
         "   marker EXACTLY as shown (the engine parses it):\n"
         "\n"
@@ -587,7 +591,7 @@ def _spec_output_schema(doc_path: str) -> str:
         "\n"
         "  [ ] authorized-test-edits: grepped the test tree for every changed contract symbol\n"
         "      and listed every PRE-EXISTING test file asserting the old contract; an\n"
-        "      unlisted pre-existing-test edit terminal-FAILs (E_RED_TESTS_TAMPERED);\n"
+        "      unlisted pre-existing-test edit terminal-FAILs (E_RED_BASELINE_FILE_MODIFIED);\n"
         "      over-broad whitelists are also flagged by the reviewer.\n"
         "\n"
         "  [ ] Producer Guard Reachability section enumerates every early-return guard of\n"
@@ -4510,6 +4514,199 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
     )
 
 
+# ─── hal#1600 D3: task_description prohibition gate ─────────────────────
+# Spec: hal#1600 D3 prohibition-gate spec (host repo Decisions memory).
+
+_D3_NEGATION_RE = re.compile(r"do\s+not|don't|must\s+not|never|no(?=\s)", re.IGNORECASE)
+_D3_MUTATION_VERB_RE = re.compile(r"\b(?:modify|edit|change|touch|add|write|append)\b", re.IGNORECASE)
+_D3_LIST_MARKER_RE = re.compile(r"(?m)^[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
+_D3_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.;])\s+")
+_D3_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n+")
+_D3_PROHIBITED_VERBS = ("MODIFY", "DELETE", "RENAME")
+
+
+def _split_prohibition_clauses(text: str) -> "list[str]":
+    """D3 clause segmentation — THREE boundaries: blank lines (paragraphs),
+    sentence punctuation followed by whitespace (`(?<=[.;])\\s+`), and a
+    markdown list marker at line start. A bare `\\n` is never a boundary, so
+    a negation and its path on consecutive continuation lines stay in one
+    clause."""
+    clauses: "list[str]" = []
+    for paragraph in _D3_BLANK_LINE_RE.split(text):
+        if not paragraph.strip():
+            continue
+        positions = [m.start() for m in _D3_LIST_MARKER_RE.finditer(paragraph)]
+        if not positions:
+            segments = [paragraph]
+        else:
+            segments = []
+            prev = 0
+            for pos in positions:
+                if pos > prev:
+                    segments.append(paragraph[prev:pos])
+                prev = pos
+            segments.append(paragraph[prev:])
+        for segment in segments:
+            for piece in _D3_SENTENCE_BOUNDARY_RE.split(segment):
+                if piece.strip():
+                    clauses.append(piece)
+    return clauses
+
+
+def _normalize_prohibited_path(token: str) -> str:
+    """D3 path-matching normalisation: strip surrounding backticks, a
+    leading './', normalise '\\' to '/', strip trailing sentence punctuation
+    '.,;:' and any '\\r'. Exact-match only — never substring (D3 spec)."""
+    m = re.search(r"`([^`]+)`", token)
+    tok = m.group(1) if m else token.strip()
+    if tok.startswith("./"):
+        tok = tok[2:]
+    tok = tok.replace("\\", "/")
+    tok = tok.rstrip(".,;:\r")
+    return tok
+
+
+def _looks_like_prohibited_path_token(token: str) -> bool:
+    return bool(token) and ("/" in token or "." in token)
+
+
+def _prohibited_paths(task_description: "str | None") -> "dict[str, str]":
+    """Named helper (§1aa) — hal#1600 D3. Maps each path the
+    `task_description` prohibits mutating to the minimal negation->path
+    reason span. Both conjuncts required per clause window: a negation token
+    AND a mutation verb. Only path-like tokens occurring AFTER a negation,
+    within that negation's local window (up to the next negation or clause
+    end), enter the set — relative to the NEAREST PRECEDING negation, not
+    the first one in the clause (D3 'Multiple negations' / AC8i)."""
+    if not task_description:
+        return {}
+    prohibited: "dict[str, str]" = {}
+    for clause in _split_prohibition_clauses(task_description):
+        negations = list(_D3_NEGATION_RE.finditer(clause))
+        if not negations:
+            continue
+        for i, neg in enumerate(negations):
+            window_start = neg.end()
+            window_end = negations[i + 1].start() if i + 1 < len(negations) else len(clause)
+            window_text = clause[window_start:window_end]
+            if not _D3_MUTATION_VERB_RE.search(window_text):
+                continue
+            for tok_m in re.finditer(r"\S+", window_text):
+                candidate = _normalize_prohibited_path(tok_m.group(0))
+                if not _looks_like_prohibited_path_token(candidate):
+                    continue
+                if candidate in prohibited:
+                    continue
+                prohibited[candidate] = clause[neg.start():window_start + tok_m.end()]
+    return prohibited
+
+
+def _prohibition_gate(_ctx: WorkflowContext, prev: Any, cycle: int) -> "StepResult | None":
+    """Single call-site surface (§1aa) — hal#1600 D3. Resolves
+    task_description, computes the prohibited-path set, parses the spec's
+    verb-tagged entries, applies the MODIFY/DELETE/RENAME exact-match
+    filter, and — on a hit — builds and returns the FINISHED routing
+    decision (telemetry + gated_step_result, below-cap E_VALIDATION_RETRY
+    vs at-cap terminal E_REVIEW_FAILED) via the same RecoverableGateMixin
+    path an LLM REVISE uses. Returns None on no hit. Extracted so
+    `_gate_on_review`'s SHIP branch keeps a single `is not None` check
+    (keeps its CC at/below the §3.3 frozen bound — the whole DECISION
+    moves, not just detection)."""
+    td = normalize_task_description(getattr(_ctx, "org_config", None))
+    if not td:
+        return None
+    prohibited = _prohibited_paths(td)
+    if not prohibited:
+        return None
+    entries = parse_spec_files_with_verbs(prev.data.get("spec_path")) or []
+    hit_paths: "list[str]" = []
+    hit_spans: "list[str]" = []
+    for verb, path in entries:
+        if verb not in _D3_PROHIBITED_VERBS:
+            continue
+        norm_entry = _normalize_prohibited_path(path)
+        if norm_entry in prohibited:
+            hit_paths.append(norm_entry)
+            hit_spans.append(prohibited[norm_entry])
+    if not hit_paths:
+        return None
+    reason = "task_description prohibits modifying: " + "; ".join(
+        f"{p} ({r})" for p, r in zip(hit_paths, hit_spans)
+    )
+    _emit_safe(
+        "phase_45_spec_prohibition_hit",
+        {"phase": "phase_45_spec", "cycle": cycle, "n_hits": len(hit_paths)},
+    )
+    fwd: dict[str, Any] = {
+        "verdict": "REVISE",
+        "review_path": prev.data["review_path"],
+        "spec_path": prev.data["spec_path"],
+        "cycle": cycle,
+        "prohibited_paths": hit_paths,
+    }
+    if isinstance(prev.data.get("gate_attempts"), dict):
+        fwd["gate_attempts"] = prev.data["gate_attempts"]
+    build_class = (getattr(_ctx, "org_config", None) or {}).get("complexity", "SIMPLE").upper()
+    # bd#85: a deterministic spec gate spends the `spec_gates` budget through
+    # the one retry builder, carrying its own reason as the findings.
+    return cast(StepResult, _spec_gate_retry(
+        build_class=build_class,
+        cycle=cycle,
+        retry_from_step_idx=0,
+        error_code="E_VALIDATION_RETRY",
+        error_msg=reason,
+        step_name="gate_on_review",
+        forwarded_data=fwd,
+        terminal_error_code="E_REVIEW_FAILED",
+    ))
+
+
+def _finalize_ship_verdict(_ctx: WorkflowContext, prev: Any, verdict: Any, cycle: int) -> StepResult:
+    """SHIP-branch tail (extracted from `_gate_on_review`, GH1600 D3 CC
+    give-back): ship telemetry, `write_run_allowlist_for_spec` + its
+    status->event mapping, and the final `ok` StepResult. Pure extraction —
+    no behaviour change; always runs AFTER the D3 prohibition check has
+    already cleared."""
+    _spec_ship_raw = prev.data.get("review_raw", "") or ""
+    _spec_ship_structured = extract_structured_findings(_spec_ship_raw)
+    _spec_ship_n = len(_spec_ship_structured) if _spec_ship_structured is not None else 0
+    _emit_safe(
+        "phase_45_spec_ship",
+        {
+            "phase": "phase_45_spec",
+            "cycle": cycle,
+            "n_findings_at_ship": _spec_ship_n,
+        },
+    )
+    _allowlist_cfg = getattr(_ctx, "org_config", None) or {}
+    _allowlist_outcome = write_run_allowlist_for_spec(_allowlist_cfg, prev.data["spec_path"])
+    _allowlist_status = _allowlist_outcome.get("status")
+    _allowlist_event = {
+        "written": "run_allowlist_written",
+        "skipped": "run_allowlist_skipped",
+        "error": "run_allowlist_write_failed",
+    }.get(_allowlist_status or "error", "run_allowlist_write_failed")
+    _emit_safe(
+        _allowlist_event,
+        {
+            "run_id": _allowlist_cfg.get("run_id"),
+            "n_entries": _allowlist_outcome.get("n_entries"),
+            "reason": _allowlist_outcome.get("reason"),
+        },
+    )
+    return StepResult(
+        status="ok",
+        data={
+            "verdict": verdict,
+            "review_path": prev.data["review_path"],
+            "spec_path": prev.data["spec_path"],
+            "cycle": cycle,
+        },
+        duration_ms=0,
+        step_name="gate_on_review",
+    )
+
+
 def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
     """HARD GATE — REVISE on cycle < cap → E_VALIDATION_RETRY recoverable=True
     (engine retries from step 0, re-running spec writer with findings).
@@ -4529,44 +4726,14 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
     cycle = int(prev.data.get("cycle", 1))
 
     if verdict == VERDICT_SHIP:
-        _spec_ship_raw = prev.data.get("review_raw", "") or ""
-        _spec_ship_structured = extract_structured_findings(_spec_ship_raw)
-        _spec_ship_n = len(_spec_ship_structured) if _spec_ship_structured is not None else 0
-        _emit_safe(
-            "phase_45_spec_ship",
-            {
-                "phase": "phase_45_spec",
-                "cycle": cycle,
-                "n_findings_at_ship": _spec_ship_n,
-            },
-        )
-        _allowlist_cfg = getattr(_ctx, "org_config", None) or {}
-        _allowlist_outcome = write_run_allowlist_for_spec(_allowlist_cfg, prev.data["spec_path"])
-        _allowlist_status = _allowlist_outcome.get("status")
-        _allowlist_event = {
-            "written": "run_allowlist_written",
-            "skipped": "run_allowlist_skipped",
-            "error": "run_allowlist_write_failed",
-        }.get(_allowlist_status or "error", "run_allowlist_write_failed")
-        _emit_safe(
-            _allowlist_event,
-            {
-                "run_id": _allowlist_cfg.get("run_id"),
-                "n_entries": _allowlist_outcome.get("n_entries"),
-                "reason": _allowlist_outcome.get("reason"),
-            },
-        )
-        return StepResult(
-            status="ok",
-            data={
-                "verdict": verdict,
-                "review_path": prev.data["review_path"],
-                "spec_path": prev.data["spec_path"],
-                "cycle": cycle,
-            },
-            duration_ms=0,
-            step_name="gate_on_review",
-        )
+        # hal#1600 D3: deterministic prohibition gate — runs BEFORE any
+        # other SHIP-branch side effect (telemetry, write_run_allowlist_for_spec)
+        # so a spec about to be rejected never gets an allowlist written.
+        _d3_result = _prohibition_gate(_ctx, prev, cycle)
+        if _d3_result is not None:
+            return _d3_result
+
+        return _finalize_ship_verdict(_ctx, prev, verdict, cycle)
 
     # HIGH #3: UNKNOWN + empty/whitespace review → terminal E_REVIEW_UNPARSEABLE.
     # Reviewer crashed or produced blank output — retrying is pointless.

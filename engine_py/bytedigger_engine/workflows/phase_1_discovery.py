@@ -229,7 +229,7 @@ def _output_schema_block(complexity: str, doc_path: str) -> str:
             "  <REQUIRED. If any Acceptance Criterion changes an EXISTING function/data\n"
             "   contract that a PRE-EXISTING test file asserts, list each such test file\n"
             "   below — GREEN is only allowed to edit listed files; edits to unlisted\n"
-            "   pre-existing tests terminal-FAIL E_RED_TESTS_TAMPERED. Emit the marker\n"
+            "   pre-existing tests terminal-FAIL E_RED_BASELINE_FILE_MODIFIED. Emit the marker\n"
             "   EXACTLY as shown:\n"
             "  authorized-test-edits:\n"
             "  - `<path/to/pre-existing/test.py>` — <which AC/contract change requires the edit>\n"

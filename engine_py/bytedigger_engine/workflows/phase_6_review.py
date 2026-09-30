@@ -3993,6 +3993,10 @@ from bytedigger_engine.lib.util.path_classifier import (  # noqa: E402
 )
 from bytedigger_engine.config_provider import get_config  # noqa: E402  GH373 §2 Part A
 from bytedigger_engine.lib import authored_boundary  # noqa: E402  GH373 §2 Part A
+try:
+    from .phase_5_implement import _red_baseline_error_message  # noqa: E402  D2/§1g
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from bytedigger_engine.workflows.phase_5_implement import _red_baseline_error_message  # type: ignore[no-redef]  # noqa: E402  D2/§1g
 
 
 def _is_test_py_path(path: str) -> bool:
@@ -4217,8 +4221,8 @@ def _autocommit_fix_tail(
         if scan_result.tampered_tests:
             return StepResult(
                 status="error", data=None, duration_ms=0, step_name=step_name,
-                error=f"authored-diff boundary scan found tampered RED test paths in tail: {scan_result.tampered_tests!r}",
-                error_code="E_RED_TESTS_TAMPERED",
+                error=_red_baseline_error_message(scan_result.tampered_tests, refresh_available=False),
+                error_code="E_RED_BASELINE_FILE_MODIFIED",
                 recoverable=False,
             )
 
@@ -4615,8 +4619,8 @@ def _commit_fix_code(ctx, prev) -> StepResult:
         if scan_result.tampered_tests:
             return StepResult(
                 status="error", data=None, duration_ms=0, step_name="commit_fix_code",
-                error=f"authored-diff boundary scan found tampered RED test paths: {scan_result.tampered_tests!r}",
-                error_code="E_RED_TESTS_TAMPERED",
+                error=_red_baseline_error_message(scan_result.tampered_tests, refresh_available=False),
+                error_code="E_RED_BASELINE_FILE_MODIFIED",
                 recoverable=False,
             )
     else:

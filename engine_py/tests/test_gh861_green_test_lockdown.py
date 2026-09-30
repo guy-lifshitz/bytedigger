@@ -100,7 +100,7 @@ class TestAC1HelperBlockWithPaths:
         )
         block = fn(["tests/a.py", "tests/b.py"])
         assert "## TEST LOCKDOWN" in block, f"missing header; got {block[:200]!r}"
-        assert "E_RED_TESTS_TAMPERED" in block, f"missing error code cite; got {block[:200]!r}"
+        assert "E_RED_BASELINE_FILE_MODIFIED" in block, f"missing error code cite; got {block[:200]!r}"
         assert "§1s" in block, f"missing §1s cite; got {block[:200]!r}"
         for path in ("tests/a.py", "tests/b.py"):
             found = any(

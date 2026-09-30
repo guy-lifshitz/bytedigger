@@ -120,6 +120,7 @@
 ## E_GREEN
 
 - `E_GREEN_BLOCKED` — phase_5_implement: GREEN subagent returned BLOCKED verdict
+- `E_GREEN_COMMIT_EMPTY` — phase_5_implement: GREEN commit landed with no in-scope change since red_commit_sha
 - `E_GREEN_COMMIT_FAILED` — phase_5_implement: git commit of GREEN code failed
 - `E_GREEN_CWD_GONE` — phase_5_implement: GREEN subprocess working directory disappeared mid-run
 - `E_GREEN_LINT_BAD_JSON` — phase_5_implement: GREEN lint tool emitted malformed JSON output
@@ -247,6 +248,7 @@
 ## E_RED
 
 - `E_RED_1Q_EXEC_IMPORT` — phase_5_implement: RED test file uses spec_from_file_location/exec_module without a '# 1q: allow' pragma (§1q non-collectable RED risk)
+- `E_RED_BASELINE_FILE_MODIFIED` — phase_5/6: frozen RED test file content was modified after freeze
 - `E_RED_COLLECT_FAILED` — phase_5_implement: RED test file failed pytest collection
 - `E_RED_COLLECT_PROBE` — phase_5_implement: RED test file(s) failed the §1q pytest --co collect-probe (non-collectable RED, D1CF5FDF hang class)
 - `E_RED_CRASHED` — phase_5_implement: RED test run crashed (signal / zero tests executed / test-executable error) without reporting any assertion failure
@@ -267,7 +269,7 @@
 - `E_RED_SCOPE_VIOLATION` — phase_5_implement: RED diff touched files outside declared scope
 - `E_RED_STUB_PASSABLE` — phase_5_implement: RED test mocks its own UUT, making it vacuously passable
 - `E_RED_SUITE_UNSAFE` — phase_5_implement: RED suite considered unsafe to execute as-is
-- `E_RED_TESTS_TAMPERED` — phase_5/6: RED test file content was tampered with after freeze
+- `E_RED_TESTS_IN_EXISTING_FILE` — phase_5_implement: RED wrote new tests into a pre-existing test file (hal#1600 D1 — refused at commit_red_tests, before the RED commit lands)
 - `E_RED_TEST_RUNNER_TIMEOUT` — phase_5_implement: RED test runner subprocess timed out
 - `E_RED_WORKTREE_DIRTY` — phase_5_implement: uncommitted production changes at RED-gate/validation entry — tree must be clean before RED certification
 - `E_RED_WROTE_OUTSIDE_WORKTREE` — phase_5_implement: RED subagent wrote a test-shaped file into the MAIN checkout instead of the build worktree (GH1179 write-boundary gate)

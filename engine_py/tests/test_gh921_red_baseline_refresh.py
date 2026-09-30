@@ -93,7 +93,7 @@ def _require(mod, name: str):
     return fn
 
 
-def _stub_scratch_files(scratchpad: Path) -> tuple[str, str, str]:
+def _stub_scratch_files(scratchpad: Path) -> tuple[str, str]:
     """Create the red_log / validation_doc / spec files _build_green_prompt reads."""
     red_log = scratchpad / "red-log.md"
     red_log.write_text("RED report\n")
@@ -236,7 +236,7 @@ class TestGH921RedBaselinePrecheck:
 
         result = phase_5_implement._build_green_prompt(ctx, prev)
         assert result.status == "error"
-        assert result.error_code == "E_RED_TESTS_TAMPERED"
+        assert result.error_code == "E_RED_BASELINE_FILE_MODIFIED"
         assert result.step_name == "build_green_prompt"
         assert result.recoverable is False
         assert "head_moved" in result.error
@@ -273,7 +273,7 @@ class TestGH921RedBaselinePrecheck:
 
         result = phase_5_implement._build_green_prompt(ctx, prev)
         assert result.status == "error", "the refresh flag must NOT bless a dirty worktree"
-        assert result.error_code == "E_RED_TESTS_TAMPERED"
+        assert result.error_code == "E_RED_BASELINE_FILE_MODIFIED"
         assert "worktree_dirty" in result.error
         assert manifest_path.read_bytes() == before_bytes
         refresh_events = [e for e in captured if e["type"] == "red_baseline_refreshed"]
@@ -325,7 +325,7 @@ class TestGH921RedBaselinePrecheck:
 
         result = phase_5_implement._build_green_prompt(ctx, prev)
         assert result.status == "error", "mixed classification must NOT be blessed by the refresh flag"
-        assert result.error_code == "E_RED_TESTS_TAMPERED"
+        assert result.error_code == "E_RED_BASELINE_FILE_MODIFIED"
         assert "head_moved" in result.error
         assert "worktree_dirty" in result.error
         assert "HAL_RED_BASELINE_REFRESH=1" not in result.error, (
@@ -605,7 +605,7 @@ class TestGH921CommitGreenCodeClassifiedPayload:
         )
 
         result = phase_5_implement._commit_green_code(ctx, prev)
-        assert result.error_code == "E_RED_TESTS_TAMPERED"
+        assert result.error_code == "E_RED_BASELINE_FILE_MODIFIED"
         assert "head_unreadable" in result.error, (
             f"error string must carry the classification token for the tampered path, "
             f"got: {result.error!r}"

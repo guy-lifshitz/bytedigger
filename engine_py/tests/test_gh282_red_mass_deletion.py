@@ -280,9 +280,13 @@ class TestCommitRedTestsMassDeletionGate:
 
         result = _commit_red_tests(ctx, prev)
 
-        assert result.status == "ok"
-        post_head = _head_sha(repo)
-        assert post_head != pre_head, "expected a new commit to have been created"
+        assert result.error_code != "E_RED_MASS_DELETION"
+        # hal#1600 / decision B3: GH282's warn-only *commit* tail is
+        # superseded by D1 (which may refuse this same input with
+        # E_RED_TESTS_IN_EXISTING_FILE before any commit lands) — the
+        # surviving contract here is classification + telemetry, not that a
+        # commit followed. The old `post_head != pre_head` assertion pinned
+        # exactly the tail B3 removed.
 
         events = [(n, p) for (n, p) in captured if n == "red_mass_deletion_check"]
         assert len(events) == 1
@@ -378,7 +382,7 @@ class TestCommitRedTestsMassDeletionGate:
 
         result = _commit_red_tests(ctx, prev)
 
-        assert result.status == "ok"
+        assert result.error_code != "E_RED_MASS_DELETION"
         events = [n for (n, p) in captured if n == "red_mass_deletion_check"]
         assert events == []
 
