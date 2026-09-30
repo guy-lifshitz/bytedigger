@@ -239,6 +239,9 @@ def main() -> int:
     if sys.argv[1:2] == ["doctor"]:
         from bytedigger_engine.doctor import doctor_main
         return doctor_main(sys.argv[2:])
+    if sys.argv[1:2] == ["verify"]:
+        from bytedigger_engine.verification_registry import verify_main
+        return verify_main(sys.argv[2:])
 
     p = argparse.ArgumentParser()
     p.add_argument("--workflow")

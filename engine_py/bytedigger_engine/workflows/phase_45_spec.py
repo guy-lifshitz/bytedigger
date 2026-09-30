@@ -135,6 +135,8 @@ from bytedigger_engine.token_consistency import scan_token_consistency  # noqa: 
 from bytedigger_engine.presence_triad import scan_presence_triad  # noqa: E402  GH559
 from bytedigger_engine.format_conversion_cases import scan_format_conversion  # noqa: E402  GH559
 from bytedigger_engine import facts_pack, spec_cite  # noqa: E402  bd#86
+from bytedigger_engine import spec_review_score  # noqa: E402  bd#115
+from dataclasses import replace as _dc_replace  # noqa: E402  bd#115
 from bytedigger_engine import ac_dsl  # noqa: E402  GH517 A2 — module-attr import so monkeypatch(ac_dsl, "admit", ...) works
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib.git_port import git_read  # noqa: E402
@@ -729,6 +731,21 @@ def _review_output_schema() -> str:
         "  ## Verdict\n"
         "  SHIP | REVISE\n"
         "  (CITATION GROUNDING CHECK: if <ungrounded> is 1 or more outside ## Open Questions, this MUST be REVISE.)\n"
+        "\n"
+        "  ## Scores\n"
+        "  REQUIRED — one fenced JSON object, exactly these five axes, each an\n"
+        "  integer 1..5 (5 = best):\n"
+        "  ```json\n"
+        '  {"completeness": 4, "clarity": 4, "feasibility": 4, "issue_alignment": 4, "consistency": 4}\n'
+        "  ```\n"
+        "  - completeness: every requested behaviour, edge case and error path is specified\n"
+        "  - clarity: each requirement has one reading and a testable acceptance criterion\n"
+        "  - feasibility: the design can be built as written in this codebase and scope\n"
+        "  - issue_alignment: the spec solves the requested problem, nothing more or less\n"
+        "  - consistency: no section contradicts another, the codebase or the inputs\n"
+        "  Rule: any axis below 3 means your verdict MUST be REVISE, and\n"
+        "  `## Findings (structured)` MUST contain at least one `root: \"spec\"`\n"
+        "  finding naming that axis.\n"
         "\n"
         "  ## Findings (structured)\n"
         "  REQUIRED — emit on every review (even SHIP). Omitting this section\n"
@@ -4462,6 +4479,47 @@ def _review_doc_emit_citation_grounding(raw: str, verdict: str) -> None:
         _emit_safe("citation_grounding_count_missing", {"verdict": verdict})
 
 
+def _apply_review_scores(
+    result: StepResult, raw: str, cycle: int, review_path: Path, *, may_downgrade: bool,
+) -> StepResult:
+    """bd#115 chokepoint: the one place a review verdict meets its axis scores.
+
+    Parses the `## Scores` block, writes `specs/review.json` (cycle 1) or
+    `specs/review-cycle-<N>.json` next to the review doc, and returns `result`
+    with `verdict` (possibly downgraded) and `review_json_path` added to `data`.
+    A SHIP with a low axis becomes REVISE only when `may_downgrade`; absent or
+    invalid scores never change the verdict.
+    """
+    data = result.data if isinstance(result.data, dict) else None
+    if result.status != "ok" or data is None or "verdict" not in data:
+        return result
+    before = data["verdict"]
+    parsed = spec_review_score.parse_scores(raw)
+    low = spec_review_score.low_axes(parsed)
+    verdict = before
+    if parsed.status != "ok":
+        _emit_safe("spec_review_scores_missing", {
+            "cycle": cycle, "status": parsed.status, "reason": parsed.reason,
+        })
+    elif low and before == VERDICT_SHIP:
+        if may_downgrade:
+            verdict = VERDICT_REVISE
+            _emit_safe("spec_review_score_downgrade", {"cycle": cycle, "low_axes": low})
+        elif data.get("is_frozen"):
+            _emit_safe("spec_review_score_low_frozen", {"cycle": cycle, "low_axes": low})
+    name = "review.json" if cycle <= 1 else f"review-cycle-{cycle}.json"
+    json_path = review_path.parent / name
+    payload = spec_review_score.build_review_json(
+        verdict=verdict, verdict_before_scores=before, cycle=cycle,
+        result=parsed, review_path=str(review_path),
+    )
+    try:
+        atomic_write(json_path, json.dumps(payload, indent=2) + "\n")
+    except OSError as exc:
+        logger.warning("review json not written: %s", exc)
+    return _dc_replace(result, data={**data, "verdict": verdict, "review_json_path": str(json_path)})
+
+
 def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -4480,7 +4538,7 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
 
     early_result = _write_review_doc_cycle2_result(raw, cycle, review_path, prev)
     if early_result is not None:
-        return early_result
+        return _apply_review_scores(early_result, raw, cycle, review_path, may_downgrade=False)
 
     _review_doc_emit_findings_compliance(raw, cycle)
 
@@ -4509,7 +4567,7 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
         },
     )
     _prev_data_wrd2 = prev.data if isinstance(prev.data, dict) else {}
-    return StepResult(
+    result = StepResult(
         status="ok",
         data=_fwd_frozen(_prev_data_wrd2, {
             "review_path": str(review_path),
@@ -4521,6 +4579,9 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
         }),
         duration_ms=0,
         step_name="write_review_doc",
+    )
+    return _apply_review_scores(
+        result, raw, cycle, review_path, may_downgrade=not result.data.get("is_frozen"),
     )
 
 

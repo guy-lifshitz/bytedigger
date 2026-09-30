@@ -437,6 +437,11 @@
 
 - `E_VERDICT_GATE_LINT` — phase_5/audit-gate hook: deterministic verdict-gate lint contradicts an APPROVED verdict (enforce mode)
 
+## E_VERIFICATION
+
+- `E_VERIFICATION_REGISTRY_TAMPERED` — phase_5_implement: a verifying SKILL.md registered at HEAD was modified or deleted in the work tree before verify_registered_skills ran (bd#115)
+- `E_VERIFICATION_SKILL_FAILED` — phase_5_implement: a registered verification skill failed, timed out, could not start or mutated the tree (bd#115)
+
 ## E_VERIFY
 
 - `E_VERIFY_READ_FAILED` — anti_hallucination helper: reading the artifact to verify failed
