@@ -2,6 +2,8 @@
 name: ByteDigger
 title: ByteDigger — Feature Development Pipeline
 description: Full-cycle feature development with research, architecture, TDD enforcement, and deep code review. Structured pipeline from requirements to production-ready code. USE WHEN building non-trivial features end-to-end. Invoked via /build.
+metadata:
+  overridable: "project-conventions"
 ---
 
 # ByteDigger — Feature Development Pipeline
@@ -36,6 +38,15 @@ description: Full-cycle feature development with research, architecture, TDD enf
 
 ## CRITICAL: Load Pipeline
 
+**First, render the host companion** (before `build-state.yaml` or `build-metadata.json` is written, and again on `/build continue` before `build-state.yaml` is read):
+```bash
+BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger
+```
+Branch on its exit code:
+- Exit 0: keep following this skill as loaded; apply each `bd:local begin/end` block in stdout as an addition to the section it names (no block = no companion, nothing to apply).
+- Exit 3: STOP. Report stderr to the user and register nothing (no `build-state.yaml`, no `build-metadata.json`).
+- Any other exit: use this skill exactly as loaded and print one line: `W_SKILL_COMPANION_UNAVAILABLE exit=<n> — host companion NOT applied`.
+
 **Orchestrator reads the compact reference first:**
 ```
 Read file: commands/build.md
@@ -62,3 +73,5 @@ templates/dynamic-context.md
 Contains model allocation, review agent roster, satisfaction scoring — changes here don't bust prompt cache.
 
 The compact reference is the orchestrator's operating manual. Phase files are for agents. Do NOT read any other pipeline files — compact + phases + dynamic-context is the complete set.
+
+## Project conventions

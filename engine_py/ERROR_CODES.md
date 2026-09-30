@@ -353,6 +353,10 @@
 - `E_SHIP_REBASE_CONFLICT` — phase_8_post_deploy: rebase onto origin/main conflicted at ship time
 - `E_SHIP_UNALLOWLISTED_RED` — phase_8_post_deploy: ship-time suite showed a red not covered by the allowlist
 
+## E_SKILL
+
+- `E_SKILL_COMPANION_INVALID` — skill_companion: a host companion or its core skill failed validation; render/check exit 3 and the core text is used unchanged (bd#116)
+
 ## E_SMOKE
 
 - `E_SMOKE_FAILED` — phase_6_smoke: smoke test run reported a failure
