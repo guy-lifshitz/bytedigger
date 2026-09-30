@@ -4762,6 +4762,46 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
             recoverable=False,
         )
 
+    # hal#1674 (B): an infrastructure block is not a verdict. Modelled on the
+    # E_REVIEW_UNPARSEABLE branch above — a non-substantive cause gets its own
+    # terminal instead of riding the verdict axis out as E_REVIEW_FAILED, where
+    # it is indistinguishable from the reviewer disagreeing with the spec.
+    # Position: BELOW the SHIP branch (a review that passed still ships even
+    # after phase_8 cleaned injection/ up) and ABOVE the durable REVISE counter
+    # (missing inputs must not spend the review budget — AC11). Terminal on
+    # every cycle: re-entering below cap just spends a second run on inputs
+    # that have not reappeared.
+    try:
+        from .phase_workflows_common import detect_injection_block
+    except ImportError:  # pragma: no cover — bare sys.path-rooted test imports (GH881)
+        from bytedigger_engine.workflows.phase_workflows_common import detect_injection_block  # type: ignore[no-redef]
+
+    _inj_cfg = getattr(_ctx, "org_config", None) or {}
+    _inj_reason = detect_injection_block(_inj_cfg.get("scratchpad_dir"), raw_review)
+    if _inj_reason:
+        _emit_safe(
+            "phase_45_spec_abort",
+            {
+                "phase": "phase_45_spec",
+                "cap_reached": False,
+                "last_verdict": verdict,
+                "terminal_reason": "injection_missing",
+            },
+        )
+        return StepResult(
+            status="error",
+            data={
+                "verdict": verdict,
+                "review_path": prev.data["review_path"],
+                "cycle": cycle,
+            },
+            duration_ms=0,
+            step_name="gate_on_review",
+            error=f"reviewer blocked on absent injection inputs — {_inj_reason} (terminal)",
+            error_code="E_INJECTION_MISSING",
+            recoverable=False,
+        )
+
     # GH443 part 3 §2.2: upstream-root escalation — checked FIRST among the new
     # branches, BEFORE the durable hard-cap and the frozen-fallback branch. An
     # upstream-rooted finding can never be resolved by a spec rewrite, so we

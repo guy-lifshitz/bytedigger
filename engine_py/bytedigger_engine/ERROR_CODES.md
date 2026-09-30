@@ -151,6 +151,10 @@
 
 - `E_INJECT_UNATTRIBUTED` — llm_subprocess: an injected prompt block lacked a source identifier, or its content was absent from the assembled prompt (bd#10 R3.2)
 
+## E_INJECTION
+
+- `E_INJECTION_MISSING` — phase_45_spec/phase_45_spec_lite/phase_5_implement: the worker declared STATUS=block while the READ_FIRST injection files are genuinely absent or empty — infrastructure failure, NOT reviewer/validator disagreement (hal#1674)
+
 ## E_INSUFFICIENT
 
 - `E_INSUFFICIENT_FANOUT` — phase_6_review: reviewer fan-out produced fewer results than required

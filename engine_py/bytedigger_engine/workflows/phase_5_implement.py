@@ -6502,6 +6502,47 @@ def _verify_validation_citations(ctx, prev) -> StepResult:
 # ─── Step 8: HARD GATE on validation verdict ─────────────────────────────────
 
 
+def _injection_block_result(
+    _ctx: Any, prev: Any, verdict: str, gate_verdict: str, cycle: int
+) -> StepResult | None:
+    """hal#1674 (B), VALIDATION tier (§1aa): the terminal for a validator that
+    DECLARED a block while the READ_FIRST inputs really are absent.
+
+    Returns None whenever the conjunction does not hold, so the caller falls
+    through to the verdict axis untouched. Without this the same run leaves as
+    E_VALIDATION_FAILED and is indistinguishable from a genuine test gap.
+    """
+    try:
+        from .phase_workflows_common import detect_injection_block
+    except ImportError:  # pragma: no cover — bare sys.path-rooted test imports (GH881)
+        from bytedigger_engine.workflows.phase_workflows_common import detect_injection_block  # type: ignore[no-redef]
+
+    cfg = getattr(_ctx, "org_config", None) or {}
+    reason = detect_injection_block(
+        cfg.get("scratchpad_dir"), prev.data.get("validation_raw", "") or ""
+    )
+    if not reason:
+        return None
+    _emit_safe(
+        "validation_injection_missing",
+        {"phase": 5, "cycle": cycle, "reason": reason},
+    )
+    return StepResult(
+        status="error",
+        data={
+            "verdict": gate_verdict,
+            "markdown_verdict": verdict,
+            "validation_doc_path": prev.data.get("validation_doc_path"),
+            "cycle_count": cycle,
+        },
+        duration_ms=0,
+        step_name="gate_on_validation",
+        error=f"validator blocked on absent injection inputs — {reason} (terminal)",
+        error_code="E_INJECTION_MISSING",
+        recoverable=False,
+    )
+
+
 def _gate_on_validation(_ctx, prev) -> StepResult:
     """HARD GATE — never_skip_opus_validation_gate. UNKNOWN treated as FAIL.
 
@@ -6541,6 +6582,15 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             severity="warning",
         )
     if not passed:
+        # hal#1674 (B): chokepoint (B)'s VALIDATION instance, same position
+        # as before the §1aa extraction — inside the not-passed arm (a PASS is
+        # never aborted by it) and above both the below-cap re-entry and the
+        # terminal tail, so an infrastructure block is reported once instead of
+        # costing a second run on inputs that are still absent.
+        _inj_block = _injection_block_result(_ctx, prev, verdict, gate_verdict, cycle)
+        if _inj_block is not None:
+            return _inj_block
+
         # GH767 §2.3: bounded auto-reroute of a SPEC_DEFECT verdict back to
         # phase_45_spec. Every precondition below is FAIL-SAFE: on any doubt,
         # fall through to the legacy TEST_GAP path below. A reroute is only

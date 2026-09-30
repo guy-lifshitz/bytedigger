@@ -104,6 +104,7 @@ ERROR_CODES: dict[str, str] = {
     "E_GATE_EFFORT_UNSUPPORTED": "llm_subprocess: a hard gate's pinned effort cannot be applied by the resolved backend (bd#82)",
     "E_TOOL_RESTRICTION_UNSUPPORTED": "llm_subprocess: a hard gate's allowed_tools cannot be enforced by the resolved backend (bd#82)",
     "E_INJECT_UNATTRIBUTED": "llm_subprocess: an injected prompt block lacked a source identifier, or its content was absent from the assembled prompt (bd#10 R3.2)",
+    "E_INJECTION_MISSING": "phase_45_spec/phase_45_spec_lite/phase_5_implement: the worker declared STATUS=block while the READ_FIRST injection files are genuinely absent or empty — infrastructure failure, NOT reviewer/validator disagreement (hal#1674)",
     "E_INSUFFICIENT_FANOUT": "phase_6_review: reviewer fan-out produced fewer results than required",
     "E_INTEGRITY_ASSERTION_GAMING": "phase_5_integrity: RED/GREEN diff appears to game assertions",
     "E_INTEGRITY_NO_MARKER": "phase_5_integrity: integrity check output missing required marker",

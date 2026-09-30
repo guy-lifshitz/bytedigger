@@ -4,8 +4,8 @@
 
 The 13 helpers + 2 constants below were previously duplicated in both phase
 modules.  This file is the ONE canonical copy (= phase_5_implement version for
-all 13).  Both phase modules import and re-export every name at module level so
-that all three access patterns continue to work:
+all 13).  Both phase modules import and re-export every one of THOSE 13 names at
+module level so that all three access patterns continue to work:
 
   * ``from phase_5_implement import X`` / ``from phase_6_review import X``
   * ``phase_5_implement.X`` / ``phase_6_review.X`` (attribute access)
@@ -14,7 +14,13 @@ that all three access patterns continue to work:
     that use the bare-name reference inside that module's own functions)
 
 Do NOT add helpers to this file that are not in the 13-list — those belong in
-their respective phase module or a future Stage 1/2 package.
+their respective phase module or a future Stage 1/2 package.  ONE exception,
+section 8a (hal#1674): the injection-input contract lives here because §4.1
+of that spec prescribes this module as its home and §1g requires a single owner
+for it — the three gates that consume it span phase_45_spec, phase_45_spec_lite
+and phase_5_implement, so no one phase module can own it.  Section 8a's names
+are NOT re-exported by any phase module and must not be: every consumer imports
+`detect_injection_block` from here directly.
 """
 from __future__ import annotations
 
@@ -458,11 +464,83 @@ def _worktree_edit_boundary_block(worktree_root: Path) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 8a. injection inputs  (hal#1674 §4.1 — ONE place that knows where the
+#     READ_FIRST files live, what "present" means for them, and how to tell a
+#     DECLARED infrastructure block from a reviewer quoting the prompt)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The five files _read_first_block below points every READ_FIRST worker at.
+# (phase_05_inject.INJECTION_FILES is the PRODUCER's own list — extensionless
+# and six long; these are the names this prompt actually promises.)
+READ_FIRST_INJECTION_FILES: tuple[str, ...] = (
+    "hal-memory.md",
+    "constitution.md",
+    "quality-gate.md",
+    "producer-rules.md",
+    "active-work.md",
+)
+
+# A worker DECLARES a block by opening a LINE with STATUS=block — that is what
+# the prompt prose below asks it for. A substantive answer that QUOTES the same
+# sentence mid-line is not a declaration, and the difference is exactly the one
+# between an infrastructure failure and reviewer disagreement (hal#1674 §1).
+_DECLARED_BLOCK_RE = re.compile(r"^STATUS=block", re.MULTILINE)
+
+
+def injection_dir(scratchpad: Path) -> Path:
+    """The injection directory phase_05_inject writes and READ_FIRST consumes."""
+    return Path(scratchpad) / "injection"
+
+
+def require_injection_files(scratchpad: Path) -> str | None:
+    """None when every READ_FIRST file is present and non-empty, else a message
+    naming the absolute directory (when it is missing) or the offending file.
+
+    Empty means empty AFTER strip(): a whitespace-only file has st_size > 0, so
+    a size check waves it through while the worker still has nothing to read.
+    """
+    inj = injection_dir(scratchpad)
+    if not inj.is_dir():
+        return f"injection files missing: expected directory {inj} does not exist"
+    for name in READ_FIRST_INJECTION_FILES:
+        path = inj / name
+        try:
+            body = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # UnicodeDecodeError is a ValueError, NOT an OSError: a file in some
+            # other encoding is just as unreadable to the worker as one the OS
+            # refuses, and must not crash a hard gate with a traceback.
+            return f"injection files missing: {path} could not be read"
+        if not body.strip():
+            return f"injection files missing: {path} is empty"
+    return None
+
+
+def detect_injection_block(
+    scratchpad_raw: str | Path | None, raw_output: str | None
+) -> str | None:
+    """CONJUNCTIVE classifier for a gate: the worker DECLARED a block AND the
+    inputs really are absent. Returns the reason message, or None.
+
+    Either half alone misclassifies: the block sentence is verbatim prompt
+    prose, so a reviewer may quote it while genuinely disagreeing, and
+    phase_8_post_deploy removes `injection/` as routine housekeeping, so its
+    absence is normal after a ship. Without a scratchpad the disk half cannot
+    be evaluated at all — the caller keeps its verdict axis unchanged.
+    """
+    if not scratchpad_raw:
+        return None
+    if not raw_output or not _DECLARED_BLOCK_RE.search(raw_output):
+        return None
+    return require_injection_files(Path(scratchpad_raw))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 9. _read_first_block  (phase_5 version: "producer anti-fabrication" text)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _read_first_block(scratchpad: Path) -> str:
-    inj = scratchpad / "injection"
+    inj = injection_dir(scratchpad)
     return (
         "READ_FIRST — read these five files before proceeding:\n"
         f"- {inj}/hal-memory.md      (learnings)\n"

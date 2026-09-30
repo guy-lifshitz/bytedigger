@@ -1080,6 +1080,41 @@ def _gate_on_review(_ctx, prev) -> StepResult:
             recoverable=False,
         )
 
+    # hal#1674 (B): the same masquerade one tier down — an infrastructure
+    # block must not leave this gate as `SIMPLE spec REVISE verdict on cycle N`.
+    # Sits BELOW the SHIP branch and ABOVE the below-cap re-entry, which would
+    # otherwise return status="ok" and spend a second run on absent inputs.
+    try:
+        from .phase_workflows_common import detect_injection_block
+    except ImportError:  # pragma: no cover — bare sys.path-rooted test imports (GH881)
+        from bytedigger_engine.workflows.phase_workflows_common import detect_injection_block  # type: ignore[no-redef]
+
+    _inj_cfg = getattr(_ctx, "org_config", None) or {}
+    _inj_reason = detect_injection_block(_inj_cfg.get("scratchpad_dir"), raw_review)
+    if _inj_reason:
+        _emit_safe(
+            "phase_45_spec_abort",
+            {
+                "phase": "phase_45_spec_lite",
+                "cap_reached": False,
+                "last_verdict": verdict,
+                "terminal_reason": "injection_missing",
+            },
+        )
+        return StepResult(
+            status="error",
+            data={
+                "verdict": verdict,
+                "review_path": prev.data["review_path"],
+                "cycle": cycle,
+            },
+            duration_ms=0,
+            step_name="gate_on_review",
+            error=f"reviewer blocked on absent injection inputs — {_inj_reason} (terminal)",
+            error_code="E_INJECTION_MISSING",
+            recoverable=False,
+        )
+
     # HIGH #2: cap findings before threading to next cycle to prevent token-budget breach.
     findings, was_truncated = _truncate_findings(raw_review)
     if cycle < MAX_REVIEW_CYCLES:
