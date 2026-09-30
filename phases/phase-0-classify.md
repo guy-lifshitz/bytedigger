@@ -121,7 +121,7 @@ If `/build continue` was invoked:
 Runs after `skill-companion render` when that step exists, and before `build-state.yaml` is written (every tier, TRIVIAL included).
 
 1. Parse `--issue <N>` from the flags.
-2. Run `bash scripts/readiness check --stage start --json` only to read `required` (the `readiness.required` field of its JSON output). Exit 4 → print the `W_READINESS_UNAVAILABLE` line as a warning and continue; it is not a stop.
+2. Run `bash scripts/readiness check --stage start --json` only to read `required` (the `readiness.required` field of its JSON output). Exit 3 is expected here (no spec record yet, or the build is not yet on its `gh<N>-` branch): it is not a stop — the JSON is still printed, so read `readiness.required` from it and continue. Exit 4 → print the `W_READINESS_UNAVAILABLE` line as a warning and continue; it is not a stop.
 3. `readiness.required` is true and no issue is bound (no `--issue <N>`, and the branch does not parse as `gh<N>-...` / `batch/<N>`) → STOP with `E_READINESS_NOT_APPROVED no_issue #` before `build-state.yaml` is written.
 4. `--issue <N>` and the current branch parses to another number → STOP with `issue_mismatch` (a Phase 0 message only, not a verdict reason).
 5. Otherwise put the build on branch `gh<N>-<slug>` for every tier, with or without a worktree.

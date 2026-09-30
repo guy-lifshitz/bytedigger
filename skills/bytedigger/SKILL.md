@@ -39,7 +39,7 @@ metadata:
 
 ## Readiness Gate (bd#117)
 
-Opt-in per repo (`readiness.required` in `bytedigger.json` on the push target's default branch; see `docs/configuration.md`). Phase 0 parses `--issue <N>` and runs `scripts/readiness check --stage start --json` only to read `readiness.required`; exit 4 warns and continues. When `readiness.required` is true: no issue → STOP (`no_issue`); `--issue <N>` on a branch that parses to another number → STOP (`issue_mismatch`); otherwise the build runs on `gh<N>-<slug>`.
+Opt-in per repo (`readiness.required` in `bytedigger.json` on the push target's default branch; see `docs/configuration.md`). Phase 0 parses `--issue <N>` and runs `scripts/readiness check --stage start --json` only to read `readiness.required`; exit 3 is expected here (no spec record yet, or not yet on the `gh<N>-` branch) and is not a stop — read the JSON and continue; exit 4 warns and continues. When `readiness.required` is true: no issue → STOP (`no_issue`); `--issue <N>` on a branch that parses to another number → STOP (`issue_mismatch`); otherwise the build runs on `gh<N>-<slug>`.
 
 **Start gate** — before the first write outside the scratchpad: TRIVIAL (after a minimal `build-spec.md`, before the direct edit), SIMPLE (after its Phase 1 spec), FEATURE and COMPLEX (after Phase 4.5). Run `scripts/readiness check --stage start --spec ./build-spec.md`: 0 continues; 3 runs `scripts/readiness post --spec ./build-spec.md`, sets `current_phase: awaiting_approval` and `awaiting_stage: start`, prints `Waiting for "<label>" on #<N>` and STOPs in every mode, AUTONOMOUS included; anything else warns and continues. The ship gate (`scripts/ship.sh --pr`, engine Phase 8) then refuses unapproved work deterministically.
 

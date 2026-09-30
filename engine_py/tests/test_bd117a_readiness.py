@@ -48,6 +48,9 @@ Contract points pinned here (the spec leaves them open; GREEN implements exactly
     comment:       `gh api -X POST repos/<o>/<n>/issues/<N>/comments --input -`, stdin `{"body": ...}`
     label removal: `gh api -X DELETE repos/<o>/<n>/issues/<N>/labels/<urlencoded label>`
 * Readiness runs git with cwd=<repo> (never `git -C`), so a PATH `git` shim keyed on argv[1..2] works.
+* "No origin" means a real git exit (non-zero exit of `git remote get-url --push --all origin`) or exit 0
+  with empty output. A timeout or spawn failure of that call is unavailable (ship 4, start warns + 0),
+  never off.
 * When no issue is bound the stderr line is exactly `E_READINESS_NOT_APPROVED no_issue #` (a bare
   trailing `#`, nothing after it).
 * Removing the label is best effort: a failing DELETE is a warning line on stderr that names the label;
@@ -691,6 +694,25 @@ def test_ac_a1_off_rows_exit_0_and_no_gh_call(tmp_path, monkeypatch, mutate):
         assert proc.returncode == 0, f"{stage}: expected off (0), got {proc.returncode}: {proc.stderr!r}"
         assert "E_READINESS" not in proc.stderr
     assert rig.gh_calls() == [], f"off must make no gh call, saw {rig.gh_calls()!r}"
+
+
+def test_ac_a1_get_url_spawn_failure_or_timeout_is_unavailable_not_off(tmp_path, monkeypatch):
+    """AC-A1 (fail-open guard): only a real git exit code (or exit 0 with empty output) counts as
+    "no origin". A spawn failure / timeout sentinel of `git remote get-url --push --all origin`
+    (simulated by a git wrapper exiting 127 for that call only) is unavailable, never off:
+    ship => exit 4, start => warn + exit 0; required:true policy, no gh call."""
+    rig = make_rig(tmp_path, monkeypatch)
+    real_git = shutil.which("git")
+    _write_exec(rig.root / "bin" / "git",
+                f'#!/bin/sh\nif [ "$1" = remote ] && [ "$2" = get-url ]; then exit 127; fi\n'
+                f'exec "{real_git}" "$@"\n')
+    ship = run_readiness(rig, "check", "--stage", "ship")
+    assert ship.returncode == 4, f"expected 4, got {ship.returncode}: {ship.stderr!r}"
+    assert "W_READINESS_UNAVAILABLE" in ship.stderr
+    start = run_readiness(rig, "check", "--stage", "start")
+    assert start.returncode == 0, start.stderr
+    assert "W_READINESS_UNAVAILABLE" in start.stderr
+    assert rig.gh_calls() == []
 
 
 def test_ac_a1_policy_fetch_survives_force_pushed_default_branch(tmp_path, monkeypatch):

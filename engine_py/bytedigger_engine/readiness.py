@@ -193,7 +193,9 @@ def _symref_head(ls_remote_out: str) -> str | None:
 
 def _load_policy(repo: Path) -> _Policy | None:
     """Decision table, policy half. None = off; raises _Unavailable(policy=True) when unreadable."""
-    rc, out, _ = _git(repo, ["remote", "get-url", "--push", "--all", "origin"])
+    rc, out, err = _git(repo, ["remote", "get-url", "--push", "--all", "origin"])
+    if rc in (TIMEOUT_RETURNCODE, 127):
+        raise _Unavailable(f"git remote get-url failed: {err or rc}", policy=True)
     urls = [ln.strip() for ln in out.splitlines() if ln.strip()]
     if rc != 0 or not urls:
         return None  # no origin
