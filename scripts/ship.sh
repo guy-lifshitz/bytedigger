@@ -86,12 +86,9 @@ if [[ "$TASK" == *$'\n'* || "$TASK" == *'`'* ]]; then
   exit 1
 fi
 
-# TASK with whitespace runs collapsed, to compare against the PR title (no glob, no IFS surprises)
-set -f
-# shellcheck disable=SC2086
-set -- $TASK
-TASK_NORM="$*"
-set +f
+# TASK with whitespace runs collapsed, to compare against the PR title
+read -ra _w <<< "$TASK"
+TASK_NORM="${_w[*]:-}"
 
 # Extract files_modified list using awk (lines starting with "  - ")
 FILES_MODIFIED=$(awk '/^files_modified:/{found=1; next} found && /^  - /{sub(/^  - /, ""); print; next} found{found=0}' "$STATE_PATH")
@@ -99,15 +96,15 @@ FILES_MODIFIED=$(awk '/^files_modified:/{found=1; next} found && /^  - /{sub(/^ 
 # ---------------------------------------------------------------------------
 # Sensitive file exclusion
 # ---------------------------------------------------------------------------
-# Twin of SENSITIVE_PATTERNS in scripts/ship_pr_text.py: keep the basename lists in sync.
+# Twin of _sensitive_spec_path / SENSITIVE_PATTERNS in scripts/ship_pr_text.py: keep both in sync.
 
 _is_sensitive() {
   local f="$1"
   local base="${f##*/}"
-  # Check the full path for directory patterns first
+  # Check the full path for directory patterns first (at any depth)
   case "$f" in
-    node_modules/*) return 0 ;;
-    .bytedigger/*)  return 0 ;;  # scratchpad dir used by ByteDigger pipeline
+    node_modules/*|*/node_modules/*) return 0 ;;
+    .bytedigger/*|*/.bytedigger/*)   return 0 ;;  # scratchpad dir used by ByteDigger pipeline
   esac
   # Check the basename for file patterns (handles nested paths like config/.env)
   case "$base" in
@@ -117,43 +114,6 @@ _is_sensitive() {
     *.credentials*)     return 0 ;;
   esac
   return 1
-}
-
-# Untracked files that would not be staged (not listed in files_modified), without
-# BD's own leftovers (build-* and .bytedigger*). Sets UNTRACKED_N and UNTRACKED_LIST
-# (at most 20 paths, then "… (+N more)").
-_collect_untracked() {
-  local file listed skip
-  UNTRACKED_N=0
-  UNTRACKED_LIST=""
-  while IFS= read -r -d '' file; do
-    case "${file##*/}" in
-      build-*|.bytedigger*) continue ;;
-    esac
-    case "/$file" in
-      */.bytedigger*/*) continue ;;
-    esac
-    skip=false
-    while IFS= read -r listed; do
-      listed="${listed#./}"
-      listed="${listed%/}"
-      [[ -z "$listed" ]] && continue
-      if [[ "$file" == "$listed" || "$file" == "$listed"/* ]] && ! _is_sensitive "$file"; then
-        skip=true
-        break
-      fi
-    done <<< "$FILES_MODIFIED"
-    if [[ "$skip" == "true" ]]; then
-      continue
-    fi
-    UNTRACKED_N=$((UNTRACKED_N + 1))
-    if [[ "$UNTRACKED_N" -le 20 ]]; then
-      UNTRACKED_LIST="${UNTRACKED_LIST:+$UNTRACKED_LIST, }$file"
-    fi
-  done < <(git -c core.quotePath=false ls-files --others --exclude-standard -z)
-  if [[ "$UNTRACKED_N" -gt 20 ]]; then
-    UNTRACKED_LIST="$UNTRACKED_LIST, … (+$((UNTRACKED_N - 20)) more)"
-  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -171,21 +131,83 @@ if [[ -n "$(git ls-files -u 2>/dev/null)" ]]; then
   echo "ERROR: unmerged paths — nothing shipped" >&2
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# Staging plan — read-only, computed once; the refusal below, the staging and the
+# final warning all consume it
+# ---------------------------------------------------------------------------
+
+# files_modified, normalised (no ./ prefix, no trailing /)
+LISTED=()
+while IFS= read -r file; do
+  file="${file#./}"
+  file="${file%/}"
+  if [[ -n "$file" ]]; then
+    LISTED+=("$file")
+  fi
+done <<< "$FILES_MODIFIED"
+
+# True when a non-sensitive files_modified entry stages this path (exact or under a listed dir)
+_is_listed() {
+  local f="$1" listed
+  if _is_sensitive "$f"; then
+    return 1
+  fi
+  for listed in ${LISTED[@]+"${LISTED[@]}"}; do
+    if [[ "$f" == "$listed" || "$f" == "$listed"/* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Tracked changes (modified or deleted) not already staged by a listed entry: NUL-delimited,
+# unquoted, so any path is safe. A non-sensitive deletion is noted even when listed.
+STAGE=()
+SKIPPED=()
+HAS_DELETION=false
+while IFS= read -r -d '' status && IFS= read -r -d '' file; do
+  if _is_sensitive "$file"; then
+    SKIPPED+=("$file")
+    continue
+  fi
+  if [[ "$status" == "D" ]]; then
+    HAS_DELETION=true
+  fi
+  if ! _is_listed "$file"; then
+    STAGE+=("$file")
+  fi
+done < <(git -c core.quotePath=false diff --no-renames --name-status -z)
+
+# Untracked files that would not ship (not staged by a listed entry). BD's own leftovers
+# (build-*, .bytedigger*) are left out: they exist in target repos that do not carry
+# BD's .gitignore. At most 20 paths are named, then "… (+N more)".
+UNTRACKED_N=0
+UNTRACKED_LIST=""
+while IFS= read -r -d '' file; do
+  case "${file##*/}" in
+    build-*|.bytedigger*) continue ;;
+  esac
+  case "/$file" in
+    */.bytedigger*/*) continue ;;
+  esac
+  if _is_listed "$file"; then
+    continue
+  fi
+  UNTRACKED_N=$((UNTRACKED_N + 1))
+  if [[ "$UNTRACKED_N" -le 20 ]]; then
+    UNTRACKED_LIST="${UNTRACKED_LIST:+$UNTRACKED_LIST, }$file"
+  fi
+done < <(git -c core.quotePath=false ls-files --others --exclude-standard -z)
+if [[ "$UNTRACKED_N" -gt 20 ]]; then
+  UNTRACKED_LIST="$UNTRACKED_LIST, … (+$((UNTRACKED_N - 20)) more)"
+fi
+
 # A tracked deletion ships but an untracked file that may be its move target would
 # not: refuse rather than push half a move
-_collect_untracked
-if [[ "$UNTRACKED_N" -gt 0 ]]; then
-  HAS_DELETION=false
-  while IFS= read -r -d '' file; do
-    if ! _is_sensitive "$file"; then
-      HAS_DELETION=true
-      break
-    fi
-  done < <(git -c core.quotePath=false diff --name-only --diff-filter=D -z)
-  if [[ "$HAS_DELETION" == "true" ]]; then
-    echo "ERROR: tracked deletions with untracked files not shipped: $UNTRACKED_LIST — commit them or list them in files_modified" >&2
-    exit 1
-  fi
+if [[ "$HAS_DELETION" == "true" && "$UNTRACKED_N" -gt 0 ]]; then
+  echo "ERROR: tracked deletions with untracked files not shipped: $UNTRACKED_LIST — commit them or list them in files_modified" >&2
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -223,45 +245,28 @@ fi
 # Stage files (skip sensitive)
 # ---------------------------------------------------------------------------
 
-while IFS= read -r file; do
-  [[ -z "$file" ]] && continue
+for file in ${LISTED[@]+"${LISTED[@]}"}; do
   if _is_sensitive "$file"; then
     echo "SKIP (sensitive): $file"
     continue
   fi
   git add "$file"
-done <<< "$FILES_MODIFIED"
+done
 
 # Tracked changes (modified or deleted) not listed in files_modified ship too (bd#131).
-# NUL-delimited and unquoted, so any path is safe. Untracked files are never
-# discovered, only staged when listed above. --literal-pathspecs: no glob/magic.
-# One `git add` for all of them (paths go through a NUL-delimited file on stdin).
-PATHSPEC_FILE=$(mktemp)
-PATHSPEC_N=0
-while IFS= read -r -d '' file; do
-  [[ -z "$file" ]] && continue
-  if _is_sensitive "$file"; then
-    echo "SKIP (sensitive): $file"
-    continue
-  fi
-  echo "STAGE (tracked change): $file"
-  printf '%s\0' "$file" >> "$PATHSPEC_FILE"
-  PATHSPEC_N=$((PATHSPEC_N + 1))
-done < <(git -c core.quotePath=false diff --name-only -z)
-if [[ "$PATHSPEC_N" -gt 0 ]]; then
-  PATHSPEC_RC=0
-  git --literal-pathspecs add -A --pathspec-from-file=- --pathspec-file-nul < "$PATHSPEC_FILE" || PATHSPEC_RC=$?
-  rm -f "$PATHSPEC_FILE"
-  if [[ "$PATHSPEC_RC" -ne 0 ]]; then
-    exit "$PATHSPEC_RC"
-  fi
-else
-  rm -f "$PATHSPEC_FILE"
+# Untracked files are never discovered, only staged when listed above.
+# --literal-pathspecs: no glob/magic. One `git add` for all of them.
+for file in ${SKIPPED[@]+"${SKIPPED[@]}"}; do
+  echo "SKIP (sensitive): $file"
+done
+if [[ "${#STAGE[@]}" -gt 0 ]]; then
+  for file in "${STAGE[@]}"; do
+    echo "STAGE (tracked change): $file"
+  done
+  printf '%s\0' "${STAGE[@]}" | git --literal-pathspecs add -A --pathspec-from-file=- --pathspec-file-nul
 fi
 
-# Untracked files that are not staged stay out of the PR; say so once (BD's own
-# leftovers, build-* and .bytedigger*, are not worth a warning).
-_collect_untracked
+# Untracked files that are not staged stay out of the PR; say so once
 if [[ "$UNTRACKED_N" -gt 0 ]]; then
   echo "WARNING: untracked files not shipped: $UNTRACKED_LIST" >&2
 fi
@@ -314,7 +319,6 @@ TITLE_ARGS=(title --state "$STATE_PATH")
 if [[ -n "$BASE_REF" ]]; then
   TITLE_ARGS+=(--base "$BASE_REF")
 fi
-TITLE=""
 if TITLE=$(python3 "$HELPER" "${TITLE_ARGS[@]}" 2>/dev/null); then
   TITLE="${TITLE%%$'\n'*}"
 else
@@ -330,11 +334,11 @@ fi
 # ---------------------------------------------------------------------------
 
 if [[ "$NOTHING_STAGED" != "true" ]]; then
+  COMMIT_MSG=(-m "$TITLE")
   if [[ "$TASK_NORM" != "$TITLE" ]]; then
-    git commit -m "$TITLE" -m "$TASK" --
-  else
-    git commit -m "$TITLE" --
+    COMMIT_MSG+=(-m "$TASK")
   fi
+  git commit "${COMMIT_MSG[@]}" --
 fi
 
 # ---------------------------------------------------------------------------
@@ -355,7 +359,6 @@ if command -v "$GH_BIN" &>/dev/null; then
   # Same literal as readiness.BUILT_MARKER in engine_py/bytedigger_engine/readiness.py.
   # The helper's body must end with that exact line, else the two-line body is used.
   PR_BODY_FALLBACK=$'Built via ByteDigger /build pipeline.\n<!-- bd:built -->'
-  PR_BODY=""
   if PR_BODY=$(python3 "$HELPER" body --state "$STATE_PATH" 2>/dev/null) \
     && [[ "${PR_BODY##*$'\n'}" == "<!-- bd:built -->" ]]; then
     :

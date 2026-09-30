@@ -138,8 +138,12 @@ def get_items(state, key):
     return [v] if v.strip() else []
 
 
+def normalise(s):
+    return " ".join(CONTROL_RE.sub(" ", s).split())
+
+
 def oneline(s):
-    s = " ".join(CONTROL_RE.sub(" ", s).split())
+    s = normalise(s)
     b = s.encode("utf-8")
     if len(b) > VALUE_LIMIT:
         s = b[:VALUE_LIMIT].decode("utf-8", "ignore") + " …"
@@ -147,6 +151,11 @@ def oneline(s):
 
 
 # --------------------------------------------------------------------------- spec
+
+
+def _clean(lines):
+    """Drop every rendered line that carries a `<!-- bd:` marker (one place for spec and state content)."""
+    return [ln for ln in lines if not MARKER_RE.search(ln)]
 
 
 def _sensitive_spec_path(path):
@@ -160,10 +169,10 @@ def _sensitive_spec_path(path):
 def read_spec(state_path, state):
     """The spec text, or None (no spec, sensitive basename, not a regular file, unreadable)."""
     state_dir = os.path.dirname(os.path.abspath(state_path))
-    sp = get_text(state, "spec_path")
-    path = os.path.join(state_dir, sp) if sp else os.path.join(state_dir, "build-spec.md")
-    if _sensitive_spec_path(sp or "build-spec.md"):
+    sp = get_text(state, "spec_path") or "build-spec.md"
+    if _sensitive_spec_path(sp):
         return None
+    path = os.path.join(state_dir, sp)
     if not os.path.isfile(path):
         return None
     try:
@@ -225,7 +234,7 @@ def spec_sections(lines, title_idx):
                 end = nidx
                 break
         covered = end
-        sec = [ln for ln in lines[idx:end] if not MARKER_RE.search(ln)]
+        sec = _clean(lines[idx:end])
         while sec and not sec[-1].strip():
             sec.pop()
         if sec:
@@ -234,10 +243,6 @@ def spec_sections(lines, title_idx):
 
 
 # --------------------------------------------------------------------------- title
-
-
-def normalise(s):
-    return " ".join(CONTROL_RE.sub(" ", s).split())
 
 
 def _commit_prefix(repo, base):
@@ -306,16 +311,13 @@ class Cut:
 
 
 def _review_line(state, label, key, suffix_key=None, suffix_fmt="({})"):
-    raw = [get_text(state, key)]
-    if raw[0] is None:
+    verdict = get_text(state, key)
+    if verdict is None:
         return None
-    if suffix_key:
-        raw.append(get_text(state, suffix_key))
-    line = "- {}: {}".format(label, oneline(raw[0]))
-    if suffix_key and raw[1]:
-        line += " " + suffix_fmt.format(oneline(raw[1]))
-    if any(r and MARKER_RE.search(r) for r in raw) or MARKER_RE.search(line):
-        return None
+    line = "- {}: {}".format(label, oneline(verdict))
+    extra = get_text(state, suffix_key) if suffix_key else None
+    if extra:
+        line += " " + suffix_fmt.format(oneline(extra))
     return line
 
 
@@ -327,23 +329,25 @@ def build_body(state_path, state):
         title_idx, _ = spec_h1(lines)
         scope_secs, follow_secs = spec_sections(lines, title_idx)
 
-    def safe_items(key):
-        one = [oneline(x) for x in get_items(state, key)]
-        return [o for x, o in zip(get_items(state, key), one) if not MARKER_RE.search(x) and not MARKER_RE.search(o)]
+    def bullets(prefix, *keys):
+        return _clean([prefix + oneline(x) for key in keys for x in get_items(state, key)])
 
-    plan_line = _review_line(state, "Plan review", "plan_review", "plan_review_cycles", "({} cycles)")
-    concerns = Cut(["  - " + c for c in safe_items("plan_review_concerns")], "  " + TRUNC) if plan_line else None
-    other_review = [ln for ln in (
+    plan = _clean([ln for ln in [
+        _review_line(state, "Plan review", "plan_review", "plan_review_cycles", "({} cycles)")] if ln])
+    plan_line = plan[0] if plan else None
+    other_review = _clean([ln for ln in (
         _review_line(state, "Test validation (Opus)", "opus_validation", "opus_validation_cycles", "({} cycles)"),
         _review_line(state, "Reviewers", "phase_6_reviewer_verdicts"),
         _review_line(state, "Satisfaction", "review_satisfaction", "phase_6_satisfaction"),
-    ) if ln]
-    fu_items_lines = ["- " + x for x in safe_items("follow_ups") + safe_items("pre_existing_findings")]
+    ) if ln])
 
     scope_cuts = [Cut(s) for s in scope_secs]
     follow_cuts = [Cut(s) for s in follow_secs]
-    item_cut = Cut(fu_items_lines) if fu_items_lines else None
-    concern_cut = concerns if concerns is not None and concerns.lines else None
+    fu_lines = bullets("- ", "follow_ups", "pre_existing_findings")
+    item_cut = Cut(fu_lines) if fu_lines else None
+    # Concerns are children of the Plan review line: dropped without it
+    concern_lines = bullets("  - ", "plan_review_concerns") if plan_line else []
+    concern_cut = Cut(concern_lines, "  " + TRUNC) if concern_lines else None
 
     def join(cuts):
         res = []
@@ -360,17 +364,15 @@ def build_body(state_path, state):
         review = []
         if plan_line:
             review.append(plan_line)
-            if concern_cut is not None:
+            if concern_cut:
                 review.extend(concern_cut.out())
         review.extend(other_review)
         if review:
             blocks.append(["## Review", ""] + review)
-        fu = item_cut.out() if item_cut is not None else []
+        fu = item_cut.out() if item_cut else []
         secs = join(follow_cuts)
         if fu or secs:
             blocks.append(["## Follow-ups", ""] + fu + ([""] if fu and secs else []) + secs)
-        if not blocks:
-            return FIXED + "\n" + MARKER + "\n"
         out = []
         for b in blocks:
             out.extend(b)
@@ -393,15 +395,10 @@ def build_body(state_path, state):
                 hi = mid - 1
         cut.keep = best
 
-    if not fits():
-        groups = [follow_cuts, scope_cuts, [item_cut] if item_cut else [], [concern_cut] if concern_cut else []]
-        for group in groups:
-            for cut in reversed(group):
-                if fits():
-                    break
-                shrink(cut)
-            if fits():
-                break
+    # Cut order: spec Follow-ups, Scope, state follow-up items, plan concerns
+    for cut in [*reversed(follow_cuts), *reversed(scope_cuts), item_cut, concern_cut]:
+        if cut and not fits():
+            shrink(cut)
     return render()
 
 
