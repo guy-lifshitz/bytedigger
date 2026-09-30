@@ -100,6 +100,12 @@ class _DefaultConfigProvider:
         """Directory name (under cwd / a foreign project root) for engine artifacts."""
         return ".bytedigger"
 
+    def inject_learnings_ts_path(self) -> str:
+        """Host opinion on the inject-learnings.ts CLI path (GH1471). Neutral
+        default: no opinion — callers fall through to the __file__-derived
+        default. Off-Protocol, mirrors foreign_state_dirname()."""
+        return ""
+
     def memory_db_path(self) -> str:
         """Neutral default: cwd-anchored, mirrors the foreign_state_dirname() convention."""
         return str(Path.cwd() / self.foreign_state_dirname() / "memory.db")
@@ -228,6 +234,12 @@ def foreign_state_dirname() -> str:
     """Foreign-project artifact dirname (single source, §1g). Tolerates minimal-Protocol providers (neutral fallback)."""
     fn = getattr(get_config(), "foreign_state_dirname", None)
     return fn() if fn is not None else ".bytedigger"
+
+def inject_learnings_ts_path() -> str:
+    """Host-opinionated inject-learnings.ts CLI path (GH1471, single source,
+    §1g). Tolerates minimal-Protocol providers (neutral '' fallback)."""
+    fn = getattr(get_config(), "inject_learnings_ts_path", None)
+    return fn() if fn is not None else ""
 
 def hal_root() -> Path:
     """Free function: HAL install-root path (§1g single-source). Delegates to get_config().hal_root()."""
