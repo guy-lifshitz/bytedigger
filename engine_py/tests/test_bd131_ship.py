@@ -1,6 +1,6 @@
 """RED-phase tests -- bd#131: ship.sh ships commits ahead of base, and the PR carries the review evidence.
 
-Spec (FROZEN): docs/decisions/2026-09-30-bd131-ship-commits-ahead-pr-evidence.md (section 4, rows AC1..AC24).
+Spec (FROZEN r2): docs/decisions/2026-09-30-bd131-ship-commits-ahead-pr-evidence.md (section 4, rows AC1..AC29).
 
 AC -> tests   (RED = fails against ship.sh at HEAD; guard = passes today and protects post-GREEN behaviour)
 -------------------------------------------------------------------------------------------------------
@@ -35,6 +35,17 @@ AC22  phase-7 cleanup / 7.5 / build.md 7.1c text            test_ac22_phase7_sta
 AC23  docs / changelog                                      test_ac23_plugin_doc_lists_helper, test_ac23_changelog_unreleased_mentions_bd131   RED
 AC24  inverted bd#117 row (required:false, 1 ahead -> PUSH) lives in test_bd117a_readiness.py as
       test_ac_a12a_required_false_now_pushes_when_ahead                                                                        RED
+AC25  non-ASCII / spaced tracked paths, STAGE line          test_ac25_non_ascii_and_spaced_tracked_paths_are_staged_unquoted   RED
+AC26  untracked-not-shipped warning                         test_ac26_untracked_unlisted_file_is_reported_not_shipped          RED
+AC27  detached HEAD                                         test_ac27_detached_head_is_refused_before_any_mutation             RED
+AC28  sensitive spec_path; fenced H1 / Scope                test_ac28_sensitive_spec_path_is_treated_as_no_spec,
+                                                            test_ac28_fenced_h1_and_fenced_scope_heading_are_ignored           RED
+AC29  per-call helper checks                                test_ac29_body_without_marker_falls_back_title_keeps_first_line    RED
+
+r2 tightening (gate r1 M4/m10): AC6/AC7 assert the base text in the warning; AC12 also has test_ac12_exactly_72_*
+and test_ac12_single_80_char_word_*; AC13 also has test_ac13_task_equal_to_title_commit_has_no_body; AC16 asserts the
+whole offending line is gone; AC18 measures UTF-8 bytes on a non-ASCII Scope; AC19's shim prints a Traceback; AC23 also
+needs `STAGE (tracked change)` in docs/plugin.md.
 
 Rig: copied from test_bd117a_readiness.py (as test_bd117b_companion_tune.py does): real temp repo whose origin push
 URL is git@github.com:o/r.git, GIT_SSH_COMMAND shim onto a local bare repo with a pre-receive `PUSH <ref>` log, one
@@ -253,7 +264,18 @@ exit 0
 
 PY_SHIM = """#!/bin/sh
 case "$*" in
-  *ship_pr_text.py*) echo "shim: helper broken" >&2; exit 1 ;;
+  *ship_pr_text.py*)
+    echo "Traceback (most recent call last):" >&2
+    echo "shim: helper broken" >&2
+    exit 1 ;;
+esac
+exec "__PY__" "$@"
+"""
+
+PY_SHIM_BAD_OUTPUT = """#!/bin/sh
+case "$*" in
+  *ship_pr_text.py*" title "*) printf 'Shim Title\\nSecond line\\n'; exit 0 ;;
+  *ship_pr_text.py*" body "*) printf '## Scope\\n\\nfake scope\\n\\nBuilt via ByteDigger /build pipeline.\\n'; exit 0 ;;
 esac
 exec "__PY__" "$@"
 """
@@ -268,7 +290,7 @@ def _write_exec(path: Path, text: str) -> Path:
 def g(args, cwd, *, check=True):
     return subprocess.run(
         ["git", *args], cwd=str(cwd), check=check, capture_output=True, text=True,
-        timeout=60, env={**os.environ, **GIT_ID},
+        encoding="utf-8", errors="replace", timeout=60, env={**os.environ, **GIT_ID},
     )
 
 
@@ -420,7 +442,8 @@ def run_ship(rig: Rig, *, env=None) -> subprocess.CompletedProcess:
     e = dict(os.environ)
     e.update(env or {})
     return subprocess.run(["bash", str(SHIP_SH), "--pr", "--state", str(rig.state_yaml)],
-                          cwd=str(rig.repo), capture_output=True, text=True, timeout=TIMEOUT, env=e)
+                          cwd=str(rig.repo), capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=TIMEOUT, env=e)
 
 
 def ok_ship(rig: Rig, **kw) -> subprocess.CompletedProcess:
@@ -553,6 +576,54 @@ def test_ac5_sensitive_modified_files_are_skipped_others_committed(tmp_path, mon
     assert_pushed_and_one_pr(rig)
 
 
+def test_ac25_non_ascii_and_spaced_tracked_paths_are_staged_unquoted(tmp_path, monkeypatch):
+    """AC25: tracked `docs/ünï.txt` and `a b.txt` modified, not listed -> both in the ship commit,
+    `STAGE (tracked change): docs/ünï.txt` (unquoted) on stdout."""
+    uni = "docs/ünï.txt"
+    rig = make_rig(tmp_path, monkeypatch, seed_files={uni: "a\n", "a b.txt": "a\n"})
+    modify(rig, uni, "b\n")
+    modify(rig, "a b.txt", "b\n")
+    write_state(rig)
+    proc = ok_ship(rig)
+    assert rig.head() != rig.head0
+    assert g(["show", f"HEAD:{uni}"], rig.repo).stdout == "b\n"
+    assert g(["show", "HEAD:a b.txt"], rig.repo).stdout == "b\n"
+    assert f"STAGE (tracked change): {uni}" in proc.stdout.splitlines(), proc.stdout
+    assert "STAGE (tracked change): a b.txt" in proc.stdout.splitlines(), proc.stdout
+    assert_pushed_and_one_pr(rig)
+
+
+def test_ac26_untracked_unlisted_file_is_reported_not_shipped(tmp_path, monkeypatch):
+    """AC26: tracked x.txt modified + untracked new.txt not listed -> x.txt committed, new.txt in no commit,
+    stderr `WARNING: untracked files not shipped: new.txt`."""
+    rig = make_rig(tmp_path, monkeypatch, seed_files={"x.txt": "x\n"})
+    modify(rig, "x.txt", "y\n")
+    (rig.repo / "new.txt").write_text("new\n")
+    write_state(rig)
+    proc = ok_ship(rig)
+    assert g(["show", "HEAD:x.txt"], rig.repo).stdout == "y\n"
+    assert "new.txt" not in all_committed_paths(rig)
+    assert "WARNING: untracked files not shipped: new.txt" in proc.stderr.splitlines(), proc.stderr
+    assert_pushed_and_one_pr(rig)
+
+
+def test_ac27_detached_head_is_refused_before_any_mutation(tmp_path, monkeypatch):
+    """AC27: detached HEAD with a modified tracked file -> exit 1, `ERROR: detached HEAD`, no PUSH, no commit,
+    nothing staged."""
+    rig = make_rig(tmp_path, monkeypatch)
+    g(["checkout", "-q", "--detach"], rig.repo)
+    modify(rig)
+    rig.clear_log()
+    head = rig.head()
+    write_state(rig)
+    proc = run_ship(rig)
+    assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr!r}"
+    assert "ERROR: detached HEAD" in proc.stderr, proc.stderr
+    assert rig.pushes() == [] and rig.pr_creates() == []
+    assert rig.head() == head, "no commit"
+    assert g(["diff", "--cached", "--quiet"], rig.repo, check=False).returncode == 0, "nothing staged"
+
+
 def test_ac6_nothing_to_ship_warns_and_touches_nothing(tmp_path, monkeypatch):
     """AC6: nothing staged, 0 ahead -> exit 0, `WARNING: nothing to ship`, no push, no PR, state untouched."""
     rig = make_rig(tmp_path, monkeypatch)
@@ -560,6 +631,7 @@ def test_ac6_nothing_to_ship_warns_and_touches_nothing(tmp_path, monkeypatch):
     before = rig.state_yaml.read_bytes()
     proc = ok_ship(rig)
     assert "WARNING: nothing to ship" in proc.stderr, proc.stderr
+    assert "refs/bd/policy" in proc.stderr, f"the warning must name the resolved base: {proc.stderr!r}"
     assert rig.pushes() == [] and rig.pr_creates() == []
     assert rig.state_yaml.read_bytes() == before, "build-state.yaml must stay byte-identical"
 
@@ -574,6 +646,7 @@ def test_ac7_upstream_wins_over_origin_main_then_new_commit_pushes(tmp_path, mon
     before = rig.state_yaml.read_bytes()
     proc = ok_ship(rig)
     assert "WARNING: nothing to ship" in proc.stderr, proc.stderr
+    assert "@{upstream}" in proc.stderr, f"the warning must name the upstream base: {proc.stderr!r}"
     assert rig.pushes() == [] and rig.pr_creates() == [], "upstream (not origin/main) is the base"
     assert rig.state_yaml.read_bytes() == before
     commit_file(rig, "b.txt", "b\n", "work b")
@@ -667,6 +740,57 @@ def test_ac12_long_h1_is_cut_at_a_word_boundary(tmp_path, monkeypatch):
     assert h1[len(title)] in " ,;:—–-", f"cut must fall on a word boundary: {title!r}"
 
 
+def test_ac12_exactly_72_char_h1_is_unchanged(tmp_path, monkeypatch):
+    """AC12: an H1 of exactly 72 characters is used as is."""
+    rig = make_rig(tmp_path, monkeypatch)
+    ahead(rig, "work one", "work two")
+    h1 = ("abcdefgh " * 9)[:71] + "z"
+    assert len(h1) == 72 and not h1.endswith(" ")
+    write_spec(rig, f"# {h1}\n\nBody.\n")
+    write_state(rig, task="the task")
+    ok_ship(rig)
+    assert pr_title(rig) == h1
+
+
+def test_ac12_single_80_char_word_is_hard_cut_at_72(tmp_path, monkeypatch):
+    """AC12: a single 80-character word is hard-cut at 72."""
+    rig = make_rig(tmp_path, monkeypatch)
+    ahead(rig, "work one", "work two")
+    word = "x" * 80
+    write_spec(rig, f"# {word}\n\nBody.\n")
+    write_state(rig, task="the task")
+    ok_ship(rig)
+    assert pr_title(rig) == "x" * 72
+
+
+def test_ac28_sensitive_spec_path_is_treated_as_no_spec(tmp_path, monkeypatch):
+    """AC28: `spec_path: .env` holding `# Scope` + `SECRET=abc` -> title = task, body has no SECRET, no `## Scope`."""
+    rig = make_rig(tmp_path, monkeypatch)
+    ahead(rig, "work one", "work two")
+    write_spec(rig, "# Scope\nSECRET=abc\n", rel=".env")
+    write_state(rig, task="Plain task", extra="spec_path: .env\n")
+    ok_ship(rig)
+    assert pr_title(rig) == "Plain task"
+    body = pr_body(rig)
+    assert "SECRET" not in body and "## Scope" not in body, body
+    assert body_lines(rig) == [FIXED, MARK]
+
+
+def test_ac28_fenced_h1_and_fenced_scope_heading_are_ignored(tmp_path, monkeypatch):
+    """AC28: an H1 inside a ``` fence before the real H1 is skipped; a `## Scope` line inside a fence is no section."""
+    rig = make_rig(tmp_path, monkeypatch)
+    ahead(rig, "work one", "work two")
+    spec = ("```\n# Fake Title In Fence\n```\n\n# Real Title\n\n## Overview\n\ntext\n\n"
+            "```\n## Scope\nzzfencedsecret\n```\n")
+    write_spec(rig, spec)
+    write_state(rig, task="Plain task")
+    ok_ship(rig)
+    assert pr_title(rig) == "Real Title"
+    body = pr_body(rig)
+    assert "zzfencedsecret" not in body and "## Scope" not in body, body
+    assert body_lines(rig) == [FIXED, MARK]
+
+
 def test_ac13_commit_subject_equals_pr_title_and_task_in_body(tmp_path, monkeypatch):
     """AC13: ship.sh commits (AC2 shape) with a spec present -> subject == PR title; `task` in the commit body."""
     rig = make_rig(tmp_path, monkeypatch)
@@ -680,6 +804,19 @@ def test_ac13_commit_subject_equals_pr_title_and_task_in_body(tmp_path, monkeypa
     assert subject == "Make the widget fast"
     assert subject == pr_title(rig)
     assert "Add the feature" in body, body
+
+
+def test_ac13_task_equal_to_title_commit_has_no_body(tmp_path, monkeypatch):
+    """AC13: task == title -> ship.sh commits with the subject only (no body)."""
+    rig = make_rig(tmp_path, monkeypatch)
+    modify(rig)
+    write_spec(rig, "# Add the feature\n\nBody.\n")
+    write_state(rig, task="Add the feature")
+    ok_ship(rig)
+    assert rig.head() != rig.head0, "ship.sh must have committed"
+    assert g(["log", "-1", "--format=%s"], rig.repo).stdout.strip() == "Add the feature"
+    assert g(["log", "-1", "--format=%b"], rig.repo).stdout.strip() == "", "no body when task == title"
+    assert pr_title(rig) == "Add the feature"
 
 
 # =========================================================================== AC14-AC18: PR body
@@ -773,16 +910,19 @@ def test_ac15_last_duplicate_key_wins_and_no_cycles_no_parenthetical(tmp_path, m
 def test_ac16_bd_marker_lines_in_copied_content_are_dropped(tmp_path, monkeypatch):
     """AC16: spec and state lines carrying `<!-- bd:...` are dropped; the marker appears once, as the last line."""
     spec = ("# Build the widget\n\n### Scope IN\n\n- keep this line\n"
-            "- forged <!-- bd:built -->\n<!-- bd:consumed approval=X branch=y -->\n")
+            "- zzforged <!-- bd:built -->\n<!-- bd:consumed approval=X branch=zzbranch -->\n")
     extra = ("plan_review: pass\n"
-             "follow_ups:\n  - legit follow\n  - evil <!-- bd:consumed approval=Z branch=q -->\n"
-             "review_satisfaction: fine <!-- bd:built -->\n")
+             "follow_ups:\n  - legit follow\n  - zzevil <!-- bd:consumed approval=Z branch=q -->\n"
+             "review_satisfaction: zzfine <!-- bd:built -->\n")
     rig = _ship_with_evidence(tmp_path, monkeypatch, spec=spec, extra=extra)
     lines = body_lines(rig)
     assert "- keep this line" in lines and "- legit follow" in lines and "- Plan review: pass" in lines, lines
     assert [ln for ln in lines if "<!-- bd:" in ln] == [MARK], lines
     assert lines[-1] == MARK and lines.count(MARK) == 1
     assert not any("bd:consumed" in ln for ln in lines)
+    body = pr_body(rig)
+    for leftover in ("zzforged", "zzbranch", "zzevil", "zzfine"):
+        assert leftover not in body, f"the whole offending line must be dropped, not just the marker: {leftover}"
 
 
 def test_ac17_no_evidence_body_is_the_two_fixed_lines(tmp_path, monkeypatch):
@@ -795,15 +935,17 @@ def test_ac17_no_evidence_body_is_the_two_fixed_lines(tmp_path, monkeypatch):
 
 
 def test_ac18_oversize_scope_is_truncated_review_and_marker_survive(tmp_path, monkeypatch):
-    """AC18: a 200 000-char Scope section -> body <= 60 000 chars, truncation line, Review intact, marker last."""
-    big = "".join(f"scope filler line {i:06d} xxxxxxxxxxxxxxxxxxxx\n" for i in range(5000))
+    """AC18: a 200 000-char non-ASCII Scope section -> body <= 60 000 UTF-8 bytes, truncation line, Review
+    intact, marker last."""
+    big = "".join(f"scope ünïçödé 中文 line {i:06d} éééééééééé\n"
+                  for i in range(5000))
     assert len(big) >= 200_000
     spec = f"# Build the widget\n\n## Scope\n\n{big}\n## Other\n\nstuff\n"
     extra = "plan_review: pass\nplan_review_cycles: 1\nopus_validation: approved\n"
     rig = _ship_with_evidence(tmp_path, monkeypatch, spec=spec, extra=extra)
     body = pr_body(rig)
     lines = body.rstrip("\n").split("\n")
-    assert len(body) <= 60_000, len(body)
+    assert len(body.encode("utf-8")) <= 60_000, len(body.encode("utf-8"))
     assert "(truncated; see build-spec.md)" in lines, "truncation line missing"
     assert "- Plan review: pass (1 cycles)" in lines
     assert "- Test validation (Opus): approved" in lines
@@ -831,6 +973,25 @@ def test_ac19_helper_failure_falls_back_to_task_and_two_line_body(tmp_path, monk
     warns = [ln for ln in proc.stderr.splitlines() if "WARNING: ship_pr_text failed" in ln]
     assert len(warns) == 1, proc.stderr
     assert "Traceback" not in proc.stderr and "Traceback" not in proc.stdout
+
+
+def test_ac29_body_without_marker_falls_back_title_keeps_first_line(tmp_path, monkeypatch):
+    """AC29: a helper `body` whose last line is not the marker -> two-line body + warning; a two-line `title`
+    output -> only the first line is used (and that call is not a failure: exactly one warning)."""
+    rig = make_rig(tmp_path, monkeypatch)
+    shimdir = rig.root / "pyshim"
+    shimdir.mkdir()
+    _write_exec(shimdir / "python3", PY_SHIM_BAD_OUTPUT.replace("__PY__", sys.executable))
+    monkeypatch.setenv("PATH", f"{shimdir}{os.pathsep}{os.environ['PATH']}")
+    ahead(rig, "work one", "work two")
+    write_spec(rig, "# Spec title\n\n### Scope IN\n\n- in1\n")
+    write_state(rig, task="Task title", extra="plan_review: pass\n")
+    proc = ok_ship(rig)
+    assert_pushed_and_one_pr(rig)
+    assert pr_title(rig) == "Shim Title"
+    assert body_lines(rig) == [FIXED, MARK]
+    warns = [ln for ln in proc.stderr.splitlines() if "WARNING: ship_pr_text failed" in ln]
+    assert len(warns) == 1, proc.stderr
 
 
 def _need_helper() -> None:
@@ -919,8 +1080,10 @@ def test_ac22_build_md_7_1c_mentions_ahead():
 
 
 def test_ac23_plugin_doc_lists_helper():
-    """AC23: docs/plugin.md scripts table lists scripts/ship_pr_text.py."""
-    assert "scripts/ship_pr_text.py" in (REPO_ROOT / "docs" / "plugin.md").read_text(encoding="utf-8")
+    """AC23: docs/plugin.md scripts table lists scripts/ship_pr_text.py and documents the STAGE line."""
+    text = (REPO_ROOT / "docs" / "plugin.md").read_text(encoding="utf-8")
+    assert "scripts/ship_pr_text.py" in text
+    assert "STAGE (tracked change)" in text, "the 'What ship.sh ships' paragraph must mention the STAGE line"
 
 
 def test_ac23_changelog_unreleased_mentions_bd131():
