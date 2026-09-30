@@ -56,12 +56,14 @@ isolation problem on your side of the line above.
 `hooks/worker-write-guard.sh` is a PreToolUse hook on `Write|Edit|MultiEdit|NotebookEdit`.
 While a build is active (`build-state.yaml` in the working directory has a
 `current_phase` other than `completed`) it enforces two things for subagent calls:
-no subagent may write `build-state.yaml` or `build-metadata.json` (names compared
-case-insensitively, symlinks and hardlinks resolved), and the read-only roles
-(`explorer`, `architect`, `synthesizer`) may write only under
-`<scratchpad_dir>/{research,architecture,reviews}/`. The orchestrator (main thread) is
-never blocked. If the tool input is unreadable during an active build, or the check itself
-fails, the hook blocks (fail closed).
+no subagent may write `build-state.yaml`, `build-metadata.json`, `build-red-output.log`,
+`build-green-output.log` or `.bytedigger-orchestrator-pid` (names compared
+case-insensitively, symlinks and hardlinks resolved), and each read-only role may write
+only under one scratchpad dir: `explorer` under `<scratchpad_dir>/research/`, `architect`
+under `<scratchpad_dir>/architecture/`, `synthesizer` under `<scratchpad_dir>/reviews/`.
+The protected-name and per-role rules (R5–R7) never apply to the orchestrator (main thread);
+it is blocked only when the tool input is malformed. If the tool input is unreadable during
+an active build, or the check itself fails, the hook blocks (fail closed).
 
 Known limits, not fixed by this hook:
 

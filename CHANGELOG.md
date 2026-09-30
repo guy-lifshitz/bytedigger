@@ -16,9 +16,11 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 - **Subagent write guard (bd#133).** New PreToolUse hook `hooks/worker-write-guard.sh`
   (logic in `hooks/worker_write_guard.py`) on `Write|Edit|MultiEdit|NotebookEdit`. During an active
-  build it blocks subagent writes to `build-state.yaml` / `build-metadata.json` and confines
-  `explorer`, `architect`, `synthesizer` to `<scratchpad>/{research,architecture,reviews}/`. The
-  orchestrator is never blocked; unreadable input fails closed. Known limits (Bash writes and
+  build it blocks subagent writes to `build-state.yaml`, `build-metadata.json`,
+  `build-red-output.log`, `build-green-output.log` and `.bytedigger-orchestrator-pid`, and
+  confines `explorer` to `<scratchpad>/research/`, `architect` to `<scratchpad>/architecture/`,
+  `synthesizer` to `<scratchpad>/reviews/`. These rules (R5–R7) never apply to the
+  main thread, which is blocked only on malformed tool input; unreadable input fails closed. Known limits (Bash writes and
   others) are listed in `docs/security.md`.
 - **Weekly companion tuning (bd#117, Part B).** New `scripts/companion-tune collect|propose`
   (`bytedigger_engine/companion_tune.py`). `collect` reads maintainer corrections (a reopened issue closed
