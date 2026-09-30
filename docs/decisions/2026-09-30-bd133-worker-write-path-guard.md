@@ -10,7 +10,8 @@ passes it.
 A `--settings` PreToolUse hook on `Write|Edit` fired for a Write made by a `general-purpose`
 subagent; stdin carried `agent_id` (non-empty) and `agent_type: "general-purpose"`, plus `cwd`
 and `tool_input.file_path` (absolute). The same hook with `exit 2` + a stderr line stopped the
-write (no file on disk) and the subagent reported the stderr text. Hook docs: `agent_id` /
+write (no file on disk) and the subagent reported the stderr text. A Write made by the main
+thread had neither `agent_id` nor `agent_type` in stdin. Hook docs: `agent_id` /
 `agent_type` are present only in a subagent context; plugin agents are named
 `<plugin>:<agent>`. Fields added in Claude Code 2.1.69: on older hosts every call looks like a
 main-thread call, so the guard allows (degrades to today's behaviour).
