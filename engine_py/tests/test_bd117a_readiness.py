@@ -1686,12 +1686,14 @@ def test_ac_a12a_nothing_ahead_exits_0_without_push(tmp_path, monkeypatch):
     assert rig.gh_calls(), "the readiness check ran (required: true)"
 
 
-def test_ac_a12a_required_false_keeps_todays_exit_0_without_push(tmp_path, monkeypatch):
-    """AC-A12a: required:false, nothing staged, 1 ahead => exit 0, no PUSH (today's behaviour), no gh call."""
+def test_ac_a12a_required_false_now_pushes_when_ahead(tmp_path, monkeypatch):
+    """bd#131 AC24 (supersedes AC-A12a row 4): required:false, nothing staged, 1 ahead => exit 0, PUSH
+    refs/heads/gh42-feature and exactly one `pr create`."""
     rig = make_rig(tmp_path, monkeypatch, policy={"readiness": {"required": False}})
     proc = run_ship(rig)
     assert proc.returncode == 0, proc.stderr
-    assert rig.pushes() == [] and rig.gh_calls() == []
+    assert rig.pushes() == ["refs/heads/gh42-feature"]
+    assert len(pr_creates(rig)) == 1
 
 
 # =========================================================================== AC-A12
