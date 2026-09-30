@@ -41,7 +41,8 @@ Steps (7):
 
 Inputs (`ctx.org_config`):
     scratchpad_dir              — REQUIRED. Absolute path.
-    role_template_path          — Optional. Prepended to BOTH prompts.
+    role_template_path          — Optional. Prepended to BOTH prompts; the step fails with
+                                  E_ROLE_TEMPLATE_INVALID if configured but unusable.
     llm_command                 — Optional. Default: get_claude_spec_writer().
     spec_llm_command            — Optional. Sonnet recommended (rewrite path).
     review_llm_command          — Optional. **Pin Opus** — review is the
@@ -87,6 +88,10 @@ try:
     from .phase_1_discovery import _build_prompt as _build_phase1_prompt
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows.phase_1_discovery import _build_prompt as _build_phase1_prompt  # type: ignore[no-redef]
+try:
+    from .phase_workflows_common import _maybe_role_template
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # type: ignore[no-redef]
 try:
     from .phase_45_spec import (
         _verify_spec_cite_prelint,
@@ -255,17 +260,6 @@ def _resolve_scratchpad(ctx) -> Path:
     if not raw:
         raise ValueError("org_config.scratchpad_dir required for phase_45_spec_lite")
     return Path(raw).expanduser().resolve()
-
-
-def _maybe_role_template(ctx) -> str:
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ""
-    rp = Path(role_path).expanduser()
-    if not rp.is_file():
-        return ""
-    return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
 
 
 def _spec_cycle_relpath(cycle: int) -> str:

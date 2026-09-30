@@ -17,7 +17,7 @@ Token-spend guards (matches phase_1 / phase_45 / phase_2 playbook):
 
 Inputs (via `ctx.org_config`):
     scratchpad_dir              — REQUIRED. Absolute path to scratchpad root.
-    role_template_path          — Optional. Prepended to prompt.
+    role_template_path          — Optional. Prepended; the step fails with E_ROLE_TEMPLATE_INVALID if configured but unusable.
     llm_command                 — Optional. Default: get_claude_fallback(). Global fallback.
     clarify_llm_command         — Optional. Per-step override of llm_command.
     clarify_llm_timeout_sec     — Optional. Default 300.
@@ -47,6 +47,7 @@ from pathlib import Path
 
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
+from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template
 
 from bytedigger_engine.skip_logic import make_skip_result, passthrough_if_skipped, should_skip_phase  # noqa: E402
 from bytedigger_engine.lib.model_config import get_claude_fallback  # noqa: E402
@@ -123,17 +124,6 @@ def _read_first_block(scratchpad: Path) -> str:
         "If any file is missing or empty: orchestrator Phase 0.5 failed — "
         "STATUS: BLOCKED with reason 'injection files missing'."
     )
-
-
-def _maybe_role_template(ctx) -> str:
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ""
-    rp = Path(role_path).expanduser()
-    if not rp.is_file():
-        return ""
-    return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
 
 
 def _clarify_output_schema(doc_path: str) -> str:

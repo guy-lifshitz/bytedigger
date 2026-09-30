@@ -169,11 +169,67 @@ catch this early (`--json` prints the full result).
 Do not `@`-import a companion into `CLAUDE.md` or place it under a skills
 directory: that loads the text without these checks.
 
-## Role templates (engine, `org_config`)
+## Role template (engine)
+
+An operator can put a fixed role text at the head of every engine phase prompt.
+One `org_config` key controls it:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `role_template_path` | string | unset | Path to a file whose whole content the engine inserts into its phase prompts. A missing file is skipped silently. Nothing limits what the file says. A bounded replacement is tracked in #119. |
+| `role_template_path` | string | unset | Path to a UTF-8 text file. `~` is expanded with `expanduser` only (no environment variables, no `resolve()`); a relative path is relative to the engine's working directory; symlinks are followed. Unset means the key is absent, `None` or `""`: no template, no error. |
+
+The key is read from `org_config` (the run context) only. It is never read from bytedigger.json
+or any other repo-committed config.
+
+The file is read once per step by `engine_py/bytedigger_engine/role_template.py`
+through a single file descriptor. It must be a regular file, valid UTF-8, at most
+64 KiB (`65536` bytes), free of NUL bytes and non-empty after trailing whitespace is
+stripped. Line endings are normalised to `\n`, trailing whitespace is stripped, and
+the text is followed by one blank line. The template keeps its head position in the
+prompt; nothing is added around it.
+
+A configured template that cannot be used fails the step with
+`E_ROLE_TEMPLATE_INVALID` (not retried, never skipped). The message names the key,
+one reason token and the configured path; it never contains file content or OS error
+text.
+
+| Reason token | Trigger |
+|---|---|
+| `bad_value_type` | the value is not a string |
+| `invalid_path` | the path has an embedded NUL, or `~user` cannot be resolved |
+| `missing` | the file does not exist (including a dangling symlink, a whitespace-only value, or a `$VAR` left unexpanded) |
+| `unreadable` | any other OS error (permissions, symlink loop, path too long, read error) |
+| `not_regular_file` | a directory, FIFO, device or socket, or a symlink to one |
+| `over_cap` | more than 65536 bytes |
+| `not_utf8` | strict UTF-8 decoding fails (a UTF-16 file fails here) |
+| `contains_nul` | any NUL byte in the file |
+| `empty` | zero length, or only whitespace |
+
+Steps that read the template: phase 1 discovery, phase 2 `build_explore_prompt`
+(read once; `invoke_explore_llm` reuses the stored block), phase 3 clarify, phase 4
+architect, phase 4.5 spec and review (and `maybe_rewrite_simple_spec_prompt` in the
+lite spec path), phase 5 red, validation, green and integrity, phase 6 review, fix,
+fix-integrity, satisfaction and decorrelated verifier (also the
+`build_satisfaction_prompt` step of the `phase_6_review_simple_fastpath` workflow),
+and phase 7 synthesizer. Delta-retry prompts, the restricted spec reviewer and writer,
+and the phase 2 decision-doc skip path carry no template and do not read the file.
+In full phase 6 a template error runs the abort handler, which writes the
+`NOT_ASSESSED` satisfaction stub; on the simple fast path (`phase_6_review_simple_fastpath`)
+a template error halts with `E_ROLE_TEMPLATE_INVALID` and writes no `NOT_ASSESSED` stub.
+
+Trust and handling:
+
+- The file is operator-trusted and inserted verbatim at the head of the prompt. It is
+  sent to the provider on every step that takes it, persisted in request artifacts and
+  step sentinels, and its path and sha256 are recorded in the event log.
+- It MUST contain no credentials, tokens, private hostnames or personal data.
+- Keep it outside any tree the build writes. A template inside the workspace can be
+  edited by an agent and steers later gates; that is a gate-integrity misconfiguration.
+- The content is bounded in size only, not delimited: the engine adds no delimiter
+  or preface and does not reject verdict-like markers inside the text. Content
+  bounding is tracked in bd#116.
+- Resume hashes fold in the path, not the file bytes, so a crash-resume can replay a
+  sentinel built from an earlier version of the file.
 
 ## Environment variables and the BD_ alias layer
 

@@ -11,7 +11,7 @@ single-pass with prompt-level perspective enumeration is the locked replacement.
 
 Token-spend guards (matches phase_1 / phase_45 playbook):
     - Prompt lists READ_FIRST pointer paths only — never inline injection files.
-    - Optional `role_template_path` for ~3KB role-reviewer instead of ~10KB CLAUDE.md
+    - Optional role template (org_config) for ~3KB role-reviewer instead of ~10KB CLAUDE.md
       (matches phase doc: explore agents use omitProjectContext + role-reviewer).
     - Default timeout: 600s (large repo grep + read).
 
@@ -19,7 +19,8 @@ Inputs (via `ctx.org_config`):
     scratchpad_dir              — REQUIRED. Absolute path to scratchpad root.
     complexity                  — Optional. "FEATURE" | "COMPLEX". Default "FEATURE".
                                   COMPLEX adds the security perspective; FEATURE skips it.
-    role_template_path          — Optional. Prepended to prompt.
+    role template (org_config)  — Optional. Prepended; the step fails with E_ROLE_TEMPLATE_INVALID
+                                  if configured but unusable.
     llm_command                 — Optional. Default: get_claude_explore(). Global fallback.
     explore_llm_command         — Optional. Per-step override of llm_command.
                                   Pin Sonnet for COMPLEX, Haiku for FEATURE per phase doc.
@@ -55,6 +56,7 @@ from pathlib import Path
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition  # noqa: E402
 from bytedigger_engine.conformance.attest import InjectedBlock  # noqa: E402  bd#10 R3.2 (AC-I5)
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine.role_template import load_role_template  # noqa: E402
 from bytedigger_engine.skip_logic import make_skip_result, passthrough_if_skipped, should_skip_phase  # noqa: E402
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_producer_prompt_fragment as _get_producer_anti_fab_prompt,
@@ -174,40 +176,27 @@ def _read_first_block(scratchpad: Path) -> str:
     )
 
 
-def _maybe_role_template(ctx) -> str:
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ""
-    rp = Path(role_path).expanduser()
-    if not rp.is_file():
-        return ""
-    return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
-
-
-def _role_template_injections(ctx) -> "tuple[InjectedBlock, ...]":
+def _role_template_injections(prev) -> "tuple[InjectedBlock, ...]":
     """bd#10 AC-I5 (R3.2): DECLARE the role-template block on the `injections`
     channel, so the attributed channel is load-bearing on a real phase.
 
     ATTRIBUTION IS SEPARATED FROM ASSEMBLY (`[bd10:16]`). This declares only —
-    `_build_explore_prompt` keeps PREPENDING the template exactly where :294-297
-    puts it, and AC-I6 fences that with a byte-level comparison. `[bd10:10]`
-    pins both spellings the digest depends on: `source_id` is
-    `str(Path(role_path).expanduser())` (NOT `.resolve()`, so a symlinked home
-    does not change the recorded identifier) and `content` is what
-    `_maybe_role_template` returns, trailing normalisation included.
+    `_build_explore_prompt` PREPENDS the template at the head of the prompt,
+    and AC-I6 fences that with a byte-level comparison. bd#119: the template
+    is read once, in `_build_explore_prompt`; this helper only reads the
+    `role_template` block that step stored in `prev.data` (no key read, no
+    file open). `[bd10:10]` pins both spellings the digest depends on:
+    `source_id` is `str(Path(value).expanduser())` (NOT `.resolve()`, so a
+    symlinked home does not change the recorded identifier) and `content` is
+    the loader's normalised text, trailing newlines included.
     """
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ()
-    content = _maybe_role_template(ctx)
-    if not content:
+    block = prev.data.get("role_template") if isinstance(prev.data, dict) else None
+    if not block:
         return ()
     return (
         InjectedBlock(
-            source_id=str(Path(role_path).expanduser()),
-            content=content,
+            source_id=block["source_id"],
+            content=block["content"],
         ),
     )
 
@@ -315,9 +304,9 @@ def _build_explore_prompt(ctx, prev) -> StepResult:
     doc_path = scratchpad / EXPLORE_DOC_RELPATH
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
-    if role:
-        parts.append(role.rstrip())
+    rt = load_role_template(ctx.org_config)
+    if rt is not None:
+        parts.append(rt.content.rstrip())
         parts.append("")
     parts.append(_read_first_block(scratchpad))
     parts.append("")
@@ -355,6 +344,10 @@ def _build_explore_prompt(ctx, prev) -> StepResult:
             "doc_path": str(doc_path),
             "complexity": complexity,
             "prompt_bytes": len(prompt.encode("utf-8")),
+            "role_template": (
+                None if rt is None
+                else {"source_id": rt.source_id, "content": rt.content}
+            ),
         },
         duration_ms=0,
         step_name="build_explore_prompt",
@@ -394,7 +387,7 @@ def _invoke_explore_llm(ctx, prev) -> StepResult:
             "graph_source": graph_src,
         },
         allowed_tools=["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Write", "Bash(graphify-shim.sh:*)"],
-        injections=_role_template_injections(ctx),
+        injections=_role_template_injections(prev),
     )
 
 

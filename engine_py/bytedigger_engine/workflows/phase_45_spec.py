@@ -29,7 +29,8 @@ Token-spend guards (same playbook as phase_1 / phase_4):
 
 Inputs (via `ctx.org_config`):
     scratchpad_dir              — REQUIRED. Absolute path to scratchpad root.
-    role_template_path          — Optional. Prepended to BOTH prompts.
+    role_template_path          — Optional. Prepended to BOTH prompts; the step fails with
+                                  E_ROLE_TEMPLATE_INVALID if configured but unusable.
     llm_command                 — Optional. Default: get_claude_spec_writer(). Global
                                   fallback for both subprocess calls.
     spec_llm_command            — Optional. Per-step override of llm_command.
@@ -84,6 +85,10 @@ try:
     from ._standards_context import get_standards_context
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._standards_context import get_standards_context  # type: ignore[no-redef]
+try:
+    from .phase_workflows_common import _maybe_role_template
+except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
+    from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # type: ignore[no-redef]
 
 from bytedigger_engine import telemetry_ctx  # noqa: E402
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
@@ -462,17 +467,6 @@ def _read_decision_doc_block(cfg: dict[str, Any] | None) -> str:
         f"## DECISION DOC (full file at {resolved} — text inlined below)\n\n"
         f"{body}\n"
     )
-
-
-def _maybe_role_template(ctx: WorkflowContext) -> str:
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ""
-    rp = Path(role_path).expanduser()
-    if not rp.is_file():
-        return ""
-    return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
 
 
 def _spec_output_schema(doc_path: str) -> str:

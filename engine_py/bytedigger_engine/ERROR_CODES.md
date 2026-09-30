@@ -314,6 +314,10 @@
 - `E_REVIEW_UNPARSEABLE` — phase_45_spec/phase_45_spec_lite: review verdict output could not be parsed
 - `E_REVIEW_WRITE_FAILED` — phase_6_review: writing the review artifact to disk failed
 
+## E_ROLE
+
+- `E_ROLE_TEMPLATE_INVALID` — role_template: configured org_config.role_template_path is missing, unreadable, oversized, not UTF-8, NUL-bearing, empty or not a string (bd#119)
+
 ## E_RUNNER
 
 - `E_RUNNER` — run.py: the phase runner itself raised an unhandled error

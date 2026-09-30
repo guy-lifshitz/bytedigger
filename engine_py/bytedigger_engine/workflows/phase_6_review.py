@@ -46,7 +46,10 @@ Inputs (via ``ctx.org_config``):
     scratchpad_dir                  — REQUIRED. Absolute path to scratchpad root.
     complexity                      — Optional. SIMPLE | FEATURE | COMPLEX. Default: FEATURE.
                                       Controls reviewer count (3 for SIMPLE, 6 for FEATURE/COMPLEX).
-    role_template_path              — Optional. Prepended to ALL three prompts.
+    role_template_path              — Optional. Prepended to ALL three prompts; the step fails with
+                                      E_ROLE_TEMPLATE_INVALID if configured but unusable.
+                                      The workflow error_handler then runs and writes the
+                                      NOT_ASSESSED satisfaction stub (bd#119).
     llm_command                     — Optional. Default: get_claude_primary(). Global
                                       fallback for all three subprocess calls.
     review_llm_command              — Optional. Per-step override.

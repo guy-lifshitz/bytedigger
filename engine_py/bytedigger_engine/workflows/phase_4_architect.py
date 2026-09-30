@@ -23,7 +23,8 @@ Inputs (via `ctx.org_config`):
     scratchpad_dir            — REQUIRED. Absolute path to scratchpad root.
     security_classification   — "HIGH" | "MEDIUM" | "LOW" (default "LOW").
                                 Drives a security-focus paragraph in the prompt.
-    role_template_path        — Optional. Prepended to prompt if file exists.
+    role_template_path        — Optional. Prepended; the step fails with
+                                E_ROLE_TEMPLATE_INVALID if configured but unusable.
     llm_command               — Optional. Default: get_claude_critical().
     llm_timeout_sec           — Optional. Default 600.
 
@@ -51,6 +52,7 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
     get_out_of_role_block as _get_out_of_role_block,
 )
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402
+from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # noqa: E402
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.skip_logic import make_skip_result, passthrough_if_skipped, should_skip_phase  # noqa: E402
 from bytedigger_engine import telemetry_ctx  # noqa: E402
@@ -210,15 +212,12 @@ def _output_schema_block(doc_path: str) -> str:
 
 
 def _build_prompt(ctx, scratchpad: Path, security: str, research_files: list[Path]) -> str:
-    cfg = ctx.org_config or {}
     parts: list[str] = []
 
-    role_path = cfg.get("role_template_path")
-    if role_path:
-        rp = Path(role_path).expanduser()
-        if rp.is_file():
-            parts.append(rp.read_text(encoding="utf-8").rstrip())
-            parts.append("")
+    role = _maybe_role_template(ctx)
+    if role:
+        parts.append(role.rstrip())
+        parts.append("")
 
     inj = scratchpad / "injection"
     parts.append(

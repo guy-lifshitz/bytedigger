@@ -56,6 +56,26 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   that mentions `overridable` is now an `unsupported_frontmatter` error, like one that mentions
   `verification`.
 
+- **Role template hardening (bd#119).** `org_config["role_template_path"]` is now read by one
+  bounded, fail-closed reader (`role_template.py`): a regular UTF-8 file of at most 64 KiB
+  (65536 bytes), no NUL, non-empty, opened through a single file descriptor. Failures raise the
+  new `CodedStepError` subclass and the engine converts it once, in `_execute_step`, to an error
+  result with the new code `E_ROLE_TEMPLATE_INVALID` (nine reason tokens, not retried, no file
+  content in messages). Phase 2 reads the template once and reuses the block. Documented in
+  `docs/configuration.md` and `docs/security.md`.
+  Narrowing: the discovery goal "clearly delimited" is narrowed to "bounded": the template is bounded, not delimited.
+  No delimiter is added in this release; content bounding is bd#116.
+  Follow-ups: route the template through the bd#116 companion contract, and bound or delimit
+  its content.
+
+### Changed
+
+- **Role template errors fail the step (bd#119).** A configured `role_template_path` that is
+  missing, unreadable, oversized, not UTF-8, NUL-bearing, empty or of a non-string type now fails
+  the step with `E_ROLE_TEMPLATE_INVALID` instead of being skipped or crashing. On the full phase 6
+  the abort handler also runs and writes its `NOT_ASSESSED` stub; the simple fast path halts
+  without one.
+
 ## [0.2.0] — 2026-09-30
 
 ### Changed — BREAKING

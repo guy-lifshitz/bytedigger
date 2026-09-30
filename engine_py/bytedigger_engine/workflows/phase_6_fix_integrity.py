@@ -21,7 +21,8 @@ Inputs (via `ctx.org_config`):
                                   Default ['*test*', '*spec*', '*.test.*'].
     git_cwd                     — Optional. Working directory for git diff subprocess.
     diff_command                — Optional. Full override of the diff command.
-    role_template_path          — Optional. Prepended to prompt.
+    role_template_path          — Optional. Prepended to prompt; the step fails with
+                                  E_ROLE_TEMPLATE_INVALID if configured but unusable.
     fix_integrity_llm_command   — Optional. Per-step LLM command override.
     fix_integrity_llm_timeout_sec — Optional. Default 600.
 
@@ -70,6 +71,7 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
 from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  bd#84
+    _maybe_role_template,
     reroll_until_verdict,
 )
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
@@ -242,17 +244,6 @@ def _read_first_block(scratchpad: Path) -> str:
         "If any file is missing or empty: orchestrator Phase 0.5 failed — "
         "VERDICT: ASSERTION_GAMING (cautious default; cannot certify integrity)."
     )
-
-
-def _maybe_role_template(ctx) -> str:
-    cfg = ctx.org_config or {}
-    role_path = cfg.get("role_template_path")
-    if not role_path:
-        return ""
-    rp = Path(role_path).expanduser()
-    if not rp.is_file():
-        return ""
-    return rp.read_text(encoding="utf-8").rstrip() + "\n\n"
 
 
 def _integrity_output_schema() -> str:

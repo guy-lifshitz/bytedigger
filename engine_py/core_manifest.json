@@ -4,6 +4,7 @@
     "execution_provenance.py",
     "event_log.py",
     "contracts.py",
+    "role_template.py",
     "io_utils.py",
     "error_locus.py",
     "forbidden_import.py",

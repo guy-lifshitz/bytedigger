@@ -27,8 +27,11 @@ plenty of room.
 API keys enter through environment variables only (`ANTHROPIC_API_KEY`,
 `AZURE_OPENAI_KEY`, the rest are in [backends.md](backends.md)). Nothing reads
 keys from files in the workspace, nothing writes them anywhere, and prompts
-are assembled from repo content -- so a key can only leak into a prompt if you
-commit it into the repo first. Backend error paths truncate provider responses
+are assembled from repo content and the operator's `role_template_path` file --
+so a key can only leak into a prompt if you commit it into the repo or put it in
+that file first. Pointing `role_template_path` into the workspace is a
+gate-integrity misconfiguration: an agent-writable template steers later gates
+(see [configuration.md](configuration.md#role-template-engine)). Backend error paths truncate provider responses
 rather than echoing request headers.
 
 The event log records step names, statuses, durations, byte counts, and
