@@ -23,7 +23,8 @@ AC-A12  approvers / distinct_actor   test_ac_a12_*
 AC-A13  no label add        test_ac_a13_* (plus assert_no_label_add inside every runner)
 AC-A14  prompt contract     test_ac_a14_*
 AC-R    registries / docs   test_ac_r_*
-        (also: test_ship_sh_pr_body_unchanged_by_part_a -- Part B owns the marker)
+        (the former PR-body guard moved to Part B: AC-B1 in test_bd117b_companion_tune.py owns the
+        `<!-- bd:built -->` marker)
 
 Contract points pinned here (the spec leaves them open; GREEN implements exactly these)
 --------------------------------------------------------------------------------------
@@ -1360,16 +1361,6 @@ def test_ac_a9_bd_gh_bin_is_honoured_when_hal_gh_bin_unset(tmp_path, monkeypatch
     assert proc.returncode == 0, f"{proc.returncode}: {proc.stderr!r}"
     assert rig.gh_calls() and rig.pushes() == ["refs/heads/gh42-feature"]
     assert len(pr_creates(rig)) == 1
-
-
-def test_ship_sh_pr_body_unchanged_by_part_a(tmp_path, monkeypatch):
-    """Guard: Part A does not touch the PR body (the bd:built marker is Part B)."""
-    rig = make_rig(tmp_path, monkeypatch, change="modify")
-    rig.approve()
-    proc = run_ship(rig)
-    assert proc.returncode == 0, proc.stderr
-    argv = pr_creates(rig)[0]["argv"]
-    assert argv[argv.index("--body") + 1] == "Built via ByteDigger /build pipeline."
 
 
 # =========================================================================== AC-A10
