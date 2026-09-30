@@ -61,9 +61,9 @@ case "$READINESS_RC" in
 esac
 
 READINESS_REQUIRED=false
-case "$READINESS_OUT" in
-  *'"required": true'*) READINESS_REQUIRED=true ;;
-esac
+if printf '%s' "$READINESS_OUT" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("required") is True else 1)' 2>/dev/null; then
+  READINESS_REQUIRED=true
+fi
 
 # ---------------------------------------------------------------------------
 # Read build-state.yaml
@@ -162,10 +162,17 @@ if git diff --cached --quiet; then
   NOTHING_STAGED=true
 fi
 
-# Guard: if nothing was staged (all files were sensitive), skip commit gracefully
-if [[ "$NOTHING_STAGED" == "true" ]] && ! { [[ "$READINESS_REQUIRED" == "true" ]] && _ahead_of_base; }; then
-  echo "WARNING: No files to commit (all excluded as sensitive)" >&2
-  exit 0
+# Guard: if nothing was staged (all files were sensitive), skip commit gracefully —
+# unless the resume rule applies (required:true and commits are ahead of the base).
+if [[ "$NOTHING_STAGED" == "true" ]]; then
+  RESUME=false
+  if [[ "$READINESS_REQUIRED" == "true" ]] && _ahead_of_base; then
+    RESUME=true
+  fi
+  if [[ "$RESUME" != "true" ]]; then
+    echo "WARNING: No files to commit (all excluded as sensitive)" >&2
+    exit 0
+  fi
 fi
 
 # ---------------------------------------------------------------------------

@@ -20,8 +20,9 @@ Parent SYSTEMATIC: DC87240D (build-engine architecture hardening).
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # in-package form — canonical for modules living in lib/
 
@@ -56,6 +57,7 @@ class GitReadPort(Protocol):
         cwd: str | None = None,
         timeout: float | None = None,
         dir_: str | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> GitResult: ...
 
 
@@ -67,6 +69,7 @@ def _git_read_subprocess(
     cwd: str | None = None,
     timeout: float | None = None,
     dir_: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> GitResult:
     """Run a git read command via bounded_run; never raises on non-zero git exit.
 
@@ -91,12 +94,14 @@ def _git_read_subprocess(
     if cwd is not None and not os.path.isabs(cwd):
         raise ValueError(f"git_port.git_read: refusing a relative cwd: {cwd!r}")
     cmd = ["git"] + (["-C", dir_] if dir_ else []) + args
+    extra: dict[str, Any] = {"env": dict(env)} if env is not None else {}
     proc = bounded_run(
         cmd,
         cwd=cwd,
         capture_output=True,
         text=True,
         timeout=timeout,
+        **extra,
     )
     return GitResult(
         returncode=proc.returncode,
@@ -148,12 +153,17 @@ def git_read(
     cwd: str | None = None,
     timeout: float | None = None,
     dir_: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> GitResult:
     """Run a git read command; routes through the injectable GitReadPort seam.
 
     Contract is identical to the original git_read — all callers are unaffected.
     With no factory override, delegates to _git_read_subprocess byte-for-byte.
+    ``env`` is forwarded only when given, so injected ports with the old
+    signature keep working.
     """
+    if env is not None:
+        return get_git_read()(args, cwd=cwd, timeout=timeout, dir_=dir_, env=env)
     return get_git_read()(args, cwd=cwd, timeout=timeout, dir_=dir_)
 
 

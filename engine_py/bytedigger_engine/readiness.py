@@ -27,11 +27,14 @@ import time
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from bytedigger_engine.config_provider import get_config
 from bytedigger_engine.lib.bounded_spawn import TIMEOUT_RETURNCODE, bounded_run
 from bytedigger_engine.lib.git_blob import read_blob
+from bytedigger_engine.lib.git_port import GitResult, git_read
+from bytedigger_engine.lib.git_write_port import git_op_capture
 
 LABEL_DEFAULT = "plan-approved"
 POLICY_REF = "refs/bd/policy"
@@ -166,18 +169,43 @@ def _git_env() -> dict[str, str]:
     return env
 
 
-def _git(repo: Path, args: list[str]) -> tuple[int, str, str]:
-    """git with cwd=repo (never ``-C``), scrubbed env, 30 s timeout. Never raises."""
+def _cwd(repo: Path) -> str:
+    return os.path.abspath(str(repo))
+
+
+def _guard(call: Callable[[], GitResult], verb: str, policy: bool) -> GitResult:
+    """The one place a git timeout or spawn failure becomes _Unavailable.
+
+    A real git exit code (any non-zero) is returned to the caller untouched; the
+    timeout sentinel, an OSError, and exit 127 (command not found) are not git
+    answers, so they must never be read as "no origin" / "absent".
+    """
     try:
-        proc = bounded_run(
-            ["git", *args], cwd=str(repo), capture_output=True, text=True,
-            timeout=_GIT_TIMEOUT_S, check=False, env=_git_env(),
-        )
+        res = call()
     except OSError as exc:
-        return 127, "", str(exc)
-    if proc.returncode == TIMEOUT_RETURNCODE:
-        return TIMEOUT_RETURNCODE, "", f"git {args[0]}: timeout after {_GIT_TIMEOUT_S}s"
-    return proc.returncode, proc.stdout or "", (proc.stderr or "").strip()
+        raise _Unavailable(f"git {verb}: {exc}", policy=policy) from exc
+    if res.timed_out or res.returncode == 127:
+        raise _Unavailable(f"git {verb}: timeout or spawn failure (rc {res.returncode})", policy=policy)
+    return res
+
+
+def _git(repo: Path, args: list[str], *, policy: bool = True) -> GitResult:
+    """Read-only git with cwd=repo (never ``-C``), scrubbed env, 30 s timeout."""
+    return _guard(
+        lambda: git_read(args, cwd=_cwd(repo), timeout=_GIT_TIMEOUT_S, env=_git_env()),
+        args[0], policy,
+    )
+
+
+def _fetch_policy_ref(repo: Path, push_url: str, default_ref: str) -> GitResult:
+    """The one mutating git call: fetch the policy ref (forced) into refs/bd/policy."""
+    return _guard(
+        lambda: git_op_capture(
+            ["git", "fetch", "--no-tags", push_url, f"+{default_ref}:{POLICY_REF}"],
+            cwd=_cwd(repo), timeout=_GIT_TIMEOUT_S, env=_git_env(),
+        ),
+        "fetch", True,
+    )
 
 
 def _symref_head(ls_remote_out: str) -> str | None:
@@ -193,28 +221,29 @@ def _symref_head(ls_remote_out: str) -> str | None:
 
 def _load_policy(repo: Path) -> _Policy | None:
     """Decision table, policy half. None = off; raises _Unavailable(policy=True) when unreadable."""
-    rc, out, err = _git(repo, ["remote", "get-url", "--push", "--all", "origin"])
-    if rc in (TIMEOUT_RETURNCODE, 127):
-        raise _Unavailable(f"git remote get-url failed: {err or rc}", policy=True)
-    urls = [ln.strip() for ln in out.splitlines() if ln.strip()]
-    if rc != 0 or not urls:
+    if not os.path.isdir(_cwd(repo)):
+        return None  # not a directory, so no origin to push to
+    res = _git(repo, ["remote", "get-url", "--push", "--all", "origin"])
+    urls = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+    if res.returncode != 0 or not urls:
         return None  # no origin
     if len(urls) > 1:
         raise _Unavailable("remote origin has more than one push URL", policy=True)
     push_url = urls[0]
     if push_url.startswith("-"):
         raise _Unavailable("push URL looks like an option", policy=True)
-    rc, out, err = _git(repo, ["ls-remote", "--symref", push_url, "HEAD"])
-    if rc != 0:
-        raise _Unavailable(f"git ls-remote failed: {err or rc}", policy=True)
-    if not out.strip():
+    res = _git(repo, ["ls-remote", "--symref", push_url, "HEAD"])
+    if res.returncode != 0:
+        raise _Unavailable(f"git ls-remote failed: {res.stderr.strip() or res.returncode}", policy=True)
+    if not res.stdout.strip():
         return None  # empty repo / unborn HEAD
-    default_ref = _symref_head(out)
+    default_ref = _symref_head(res.stdout)
     if default_ref is None:
         raise _Unavailable("ls-remote reported HEAD without a symbolic ref", policy=True)
-    rc, _, err = _git(repo, ["fetch", "--no-tags", push_url, f"+{default_ref}:{POLICY_REF}"])
-    if rc != 0:
-        raise _Unavailable(f"git fetch of the policy ref failed: {err or rc}", policy=True)
+    res = _fetch_policy_ref(repo, push_url, default_ref)
+    if res.returncode != 0:
+        raise _Unavailable(
+            f"git fetch of the policy ref failed: {res.stderr.strip() or res.returncode}", policy=True)
     status, payload = read_blob(repo, POLICY_REF, "bytedigger.json", env=_git_env())
     if status == "absent":
         return None
@@ -255,8 +284,8 @@ def _parse_github(push_url: str) -> tuple[str, str]:
 
 
 def _current_branch(repo: Path) -> str:
-    rc, out, _ = _git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])
-    return out.strip() if rc == 0 else ""
+    res = _git(repo, ["rev-parse", "--abbrev-ref", "HEAD"], policy=False)
+    return res.stdout.strip() if res.returncode == 0 else ""
 
 
 # --------------------------------------------------------------------------- gh
@@ -279,6 +308,22 @@ def _gh(repo: Path, args: list[str], stdin: str | None = None) -> str:
     return proc.stdout or ""
 
 
+def _parse_page(out: str, conn: str) -> tuple[list[dict[str, Any]], bool, str | None]:
+    """One GraphQL page -> (nodes, has_next, end_cursor); raises _Unavailable if malformed."""
+    try:
+        connection = json.loads(out)["data"]["repository"]["issue"][conn]
+        page = connection["nodes"]
+        has_next = connection["pageInfo"]["hasNextPage"]
+        end_cursor = connection["pageInfo"]["endCursor"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise _Unavailable(f"unparseable {conn} page: {exc!r}") from exc
+    if not isinstance(page, list) or not all(isinstance(n, dict) for n in page):
+        raise _Unavailable(f"malformed {conn} page")
+    if has_next is True and (not isinstance(end_cursor, str) or not end_cursor):
+        raise _Unavailable(f"{conn} page has no end cursor")
+    return page, has_next is True, end_cursor if isinstance(end_cursor, str) else None
+
+
 def _paged(repo: Path, owner: str, name: str, number: int, conn: str, query: str) -> list[dict[str, Any]]:
     """Every node of one issue connection; own cursor loop (the cursor is echoed back verbatim)."""
     nodes: list[dict[str, Any]] = []
@@ -288,22 +333,10 @@ def _paged(repo: Path, owner: str, name: str, number: int, conn: str, query: str
                 "-f", f"name={name}", "-F", f"number={number}"]
         if cursor is not None:
             args += ["-f", f"after={cursor}"]
-        out = _gh(repo, args)
-        try:
-            connection = json.loads(out)["data"]["repository"]["issue"][conn]
-            page = connection["nodes"]
-            has_next = connection["pageInfo"]["hasNextPage"]
-            end_cursor = connection["pageInfo"]["endCursor"]
-        except (ValueError, KeyError, TypeError) as exc:
-            raise _Unavailable(f"unparseable {conn} page: {exc!r}") from exc
-        if not isinstance(page, list) or not all(isinstance(n, dict) for n in page):
-            raise _Unavailable(f"malformed {conn} page")
+        page, has_next, cursor = _parse_page(_gh(repo, args), conn)
         nodes.extend(page)
-        if has_next is not True:
+        if not has_next:
             return nodes
-        if not isinstance(end_cursor, str) or not end_cursor:
-            raise _Unavailable(f"{conn} page has no end cursor")
-        cursor = end_cursor
     raise _Unavailable(f"too many {conn} pages")
 
 
@@ -490,10 +523,26 @@ def _read_spec_file(path: str) -> str:
         raise _Unavailable(f"cannot read spec file {path}: {exc}") from exc
 
 
-def _evaluate(res: dict[str, Any], repo: Path, stage: str, spec_path: str | None) -> None:
+def _default_result() -> dict[str, Any]:
+    return {
+        "required": False, "issue": None, "label": LABEL_DEFAULT,
+        "verdict": "OFF", "reason": None, "record_sha256": None,
+    }
+
+
+class _Bound(NamedTuple):
+    pol: _Policy
+    owner: str
+    name: str
+    branch: str
+    issue: int
+
+
+def _bind(res: dict[str, Any], repo: Path) -> _Bound | None:
+    """Shared prologue: policy -> repo -> branch -> issue. None = nothing more to do (``res`` is final)."""
     pol = _load_policy(repo)
     if pol is None:
-        return
+        return None  # off
     res["required"] = True
     res["label"] = pol.label
     owner, name = _parse_github(pol.push_url)
@@ -502,7 +551,15 @@ def _evaluate(res: dict[str, Any], repo: Path, stage: str, spec_path: str | None
     res["issue"] = issue
     if issue is None:
         res.update(verdict="NOT_APPROVED", reason="no_issue")
+        return None
+    return _Bound(pol, owner, name, branch, issue)
+
+
+def _evaluate(res: dict[str, Any], repo: Path, stage: str, spec_path: str | None) -> None:
+    bound = _bind(res, repo)
+    if bound is None:
         return
+    pol, owner, name, branch, issue = bound
     spec_text = _read_spec_file(spec_path) if (stage == "start" and spec_path) else None
     snap = _read_issue(repo, owner, name, issue)
     decision = _decide(snap, pol, branch, stage, spec_text)
@@ -531,10 +588,7 @@ def _run_guarded(res: dict[str, Any], body: Any) -> bool:
 def _verdict(repo: str | Path, stage: str, spec_path: str | None) -> tuple[dict[str, Any], bool]:
     if stage not in ("start", "ship"):
         raise ValueError(f"stage must be 'start' or 'ship', got {stage!r}")
-    res: dict[str, Any] = {
-        "required": False, "issue": None, "label": LABEL_DEFAULT,
-        "verdict": "OFF", "reason": None, "record_sha256": None,
-    }
+    res = _default_result()
     policy_failure = _run_guarded(res, lambda: _evaluate(res, Path(repo), stage, spec_path))
     return res, policy_failure
 
@@ -553,18 +607,10 @@ def verdict(repo: str | Path, stage: str, spec_path: str | None = None) -> dict[
 
 
 def _post(res: dict[str, Any], repo: Path, spec_path: str) -> None:
-    pol = _load_policy(repo)
-    if pol is None:
+    bound = _bind(res, repo)
+    if bound is None:
         return
-    res["required"] = True
-    res["label"] = pol.label
-    owner, name = _parse_github(pol.push_url)
-    branch = _current_branch(repo)
-    issue = parse_issue_from_branch(branch)
-    res["issue"] = issue
-    if issue is None:
-        res.update(verdict="NOT_APPROVED", reason="no_issue")
-        return
+    pol, owner, name, branch, issue = bound
     text = _normalise(_read_spec_file(spec_path))
     sha = _sha(text)
     body = f"<!-- bd:spec sha256={sha} -->\n{text}"
@@ -610,10 +656,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 
 def _cmd_post(args: argparse.Namespace) -> int:
-    res: dict[str, Any] = {
-        "required": False, "issue": None, "label": LABEL_DEFAULT,
-        "verdict": "OFF", "reason": None, "record_sha256": None,
-    }
+    res = _default_result()
     _run_guarded(res, lambda: _post(res, Path(args.repo), args.spec))
     return _report(res, policy_failure=False, stage="ship")
 

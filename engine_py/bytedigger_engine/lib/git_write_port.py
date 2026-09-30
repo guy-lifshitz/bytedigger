@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Mapping
 from typing import Optional, Protocol, runtime_checkable
 
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # in-package form — canonical for lib/ modules
@@ -47,16 +48,22 @@ def _cmd0(cmd: "list[str]") -> str:
 class GitWritePort(Protocol):
     """Structural protocol for a git write-op runner with index.lock retry."""
     def op_with_lock_retry(self, cmd: list, *, cwd: str, timeout: int = 30): ...
-    def op_capture(self, cmd: list, *, cwd: str, timeout: int = 30) -> "GitResult": ...
+    def op_capture(self, cmd: list, *, cwd: str, timeout: int = 30,
+                   env: Optional[Mapping[str, str]] = None) -> "GitResult": ...
 
 
 class _GitWriteSubprocess:
     """Default impl — body byte-moved verbatim from phase_5_implement._git_op_with_lock_retry."""
-    def op_capture(self, cmd: list, *, cwd: str, timeout: int = 30) -> GitResult:
-        """Run git command, capture stdout/stderr, return GitResult. OSError propagates."""
+    def op_capture(self, cmd: list, *, cwd: str, timeout: int = 30,
+                   env: Optional[Mapping[str, str]] = None) -> GitResult:
+        """Run git command, capture stdout/stderr, return GitResult. OSError propagates.
+
+        ``env`` (optional) replaces the child environment; omitted => inherited.
+        """
         _check_cwd_writable(cwd)
         emit_git_write_at_cwd(_cmd0(cmd), cwd)
-        proc = bounded_run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        extra: dict = {"env": dict(env)} if env is not None else {}
+        proc = bounded_run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, **extra)
         return GitResult(
             returncode=proc.returncode,
             stdout=proc.stdout,
@@ -115,5 +122,9 @@ def git_op_with_lock_retry(cmd: list, *, cwd: str, timeout: int = 30):
     return get_git_write().op_with_lock_retry(cmd, cwd=cwd, timeout=timeout)
 
 
-def git_op_capture(cmd: list, *, cwd: str, timeout: int = 30) -> GitResult:
+def git_op_capture(cmd: list, *, cwd: str, timeout: int = 30,
+                   env: Optional[Mapping[str, str]] = None) -> GitResult:
+    # env is forwarded only when given, so injected ports with the old signature keep working
+    if env is not None:
+        return get_git_write().op_capture(cmd, cwd=cwd, timeout=timeout, env=env)
     return get_git_write().op_capture(cmd, cwd=cwd, timeout=timeout)
