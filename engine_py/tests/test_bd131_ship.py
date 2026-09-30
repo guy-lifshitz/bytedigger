@@ -40,7 +40,10 @@ AC26  untracked-not-shipped warning                         test_ac26_untracked_
 AC27  detached HEAD                                         test_ac27_detached_head_is_refused_before_any_mutation             RED
 AC28  sensitive spec_path; fenced H1 / Scope                test_ac28_sensitive_spec_path_is_treated_as_no_spec,
                                                             test_ac28_fenced_h1_and_fenced_scope_heading_are_ignored           RED
-AC29  per-call helper checks                                test_ac29_body_without_marker_falls_back_title_keeps_first_line    RED
+AC27  (r3) runs under required:true, asserts no readiness gh call
+AC30  unmerged paths refused before readiness               test_ac30_unmerged_paths_are_refused_before_readiness              RED
+AC28  (r3) .env spec has `# Env title` + `## Scope`; AC5 also asserts no `STAGE (tracked change): .env` line
+AC29  per-call helper checks                               test_ac29_body_without_marker_falls_back_title_keeps_first_line    RED
 
 r2 tightening (gate r1 M4/m10): AC6/AC7 assert the base text in the warning; AC12 also has test_ac12_exactly_72_*
 and test_ac12_single_80_char_word_*; AC13 also has test_ac13_task_equal_to_title_commit_has_no_body; AC16 asserts the
@@ -569,6 +572,7 @@ def test_ac5_sensitive_modified_files_are_skipped_others_committed(tmp_path, mon
     proc = ok_ship(rig)
     assert "SKIP (sensitive): .env" in proc.stdout.splitlines(), proc.stdout
     assert "SKIP (sensitive): config/app.env" in proc.stdout.splitlines(), proc.stdout
+    assert "STAGE (tracked change): .env" not in proc.stdout.splitlines(), proc.stdout
     assert g(["show", "HEAD:feature.txt"], rig.repo).stdout == "branch\n"
     assert g(["show", "HEAD:.env"], rig.repo).stdout == "SECRET=1\n", ".env must not be committed"
     assert g(["show", "HEAD:config/app.env"], rig.repo).stdout == "K=1\n"
@@ -610,7 +614,7 @@ def test_ac26_untracked_unlisted_file_is_reported_not_shipped(tmp_path, monkeypa
 def test_ac27_detached_head_is_refused_before_any_mutation(tmp_path, monkeypatch):
     """AC27: detached HEAD with a modified tracked file -> exit 1, `ERROR: detached HEAD`, no PUSH, no commit,
     nothing staged."""
-    rig = make_rig(tmp_path, monkeypatch)
+    rig = make_rig(tmp_path, monkeypatch, policy={"readiness": {"required": True}})  # not approved
     g(["checkout", "-q", "--detach"], rig.repo)
     modify(rig)
     rig.clear_log()
@@ -619,9 +623,31 @@ def test_ac27_detached_head_is_refused_before_any_mutation(tmp_path, monkeypatch
     proc = run_ship(rig)
     assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr!r}"
     assert "ERROR: detached HEAD" in proc.stderr, proc.stderr
+    assert rig.gh_calls() == [], "the refusal precedes the readiness check (no gh call)"
     assert rig.pushes() == [] and rig.pr_creates() == []
     assert rig.head() == head, "no commit"
     assert g(["diff", "--cached", "--quiet"], rig.repo, check=False).returncode == 0, "nothing staged"
+
+
+def test_ac30_unmerged_paths_are_refused_before_readiness(tmp_path, monkeypatch):
+    """AC30: a merge conflict left in the index -> exit 1, `ERROR: unmerged paths`, no PUSH, no commit, no gh call."""
+    rig = make_rig(tmp_path, monkeypatch, policy={"readiness": {"required": True}})  # not approved
+    commit_file(rig, "feature.txt", "ours\n", "ours")
+    g(["checkout", "-q", "-b", "other", "main"], rig.repo)
+    commit_file(rig, "feature.txt", "theirs\n", "theirs")
+    g(["checkout", "-q", BRANCH], rig.repo)
+    merge = g(["merge", "-q", "other"], rig.repo, check=False)
+    assert merge.returncode != 0, "fixture must leave a conflicted merge"
+    assert g(["ls-files", "-u"], rig.repo).stdout.strip(), "fixture must leave unmerged index entries"
+    rig.clear_log()
+    head = rig.head()
+    write_state(rig)
+    proc = run_ship(rig)
+    assert proc.returncode == 1, f"expected exit 1, got {proc.returncode}: {proc.stderr!r}"
+    assert "ERROR: unmerged paths" in proc.stderr, proc.stderr
+    assert rig.gh_calls() == [], "the refusal precedes the readiness check (no gh call)"
+    assert rig.pushes() == [] and rig.pr_creates() == []
+    assert rig.head() == head, "no commit"
 
 
 def test_ac6_nothing_to_ship_warns_and_touches_nothing(tmp_path, monkeypatch):
@@ -767,10 +793,10 @@ def test_ac28_sensitive_spec_path_is_treated_as_no_spec(tmp_path, monkeypatch):
     """AC28: `spec_path: .env` holding `# Scope` + `SECRET=abc` -> title = task, body has no SECRET, no `## Scope`."""
     rig = make_rig(tmp_path, monkeypatch)
     ahead(rig, "work one", "work two")
-    write_spec(rig, "# Scope\nSECRET=abc\n", rel=".env")
+    write_spec(rig, "# Env title\n\n## Scope\n\nSECRET=abc\n", rel=".env")
     write_state(rig, task="Plain task", extra="spec_path: .env\n")
     ok_ship(rig)
-    assert pr_title(rig) == "Plain task"
+    assert pr_title(rig) == "Plain task" and pr_title(rig) != "Env title"
     body = pr_body(rig)
     assert "SECRET" not in body and "## Scope" not in body, body
     assert body_lines(rig) == [FIXED, MARK]
