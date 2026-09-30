@@ -201,18 +201,43 @@ get_complexity() {
 # Section 5: Gate functions
 # ---------------------------------------------------------------------------
 
+# yaml_get <field> — value of top-level `field:` in $BUILD_STATE, trimmed of
+# surrounding whitespace and one layer of surrounding quotes. Never fails.
+yaml_get() {
+  local field="$1" line="" val=""
+  line=$(grep "^${field}:" "$BUILD_STATE" 2>/dev/null | head -n 1) || true
+  val="${line#"${field}":}"
+  val="${val#"${val%%[![:space:]]*}"}"
+  val="${val%"${val##*[![:space:]]}"}"
+  if [ "${#val}" -ge 2 ]; then
+    case "$val" in
+      \"*\") val="${val:1:${#val}-2}" ;;
+      \'*\') val="${val:1:${#val}-2}" ;;
+    esac
+  fi
+  printf '%s' "$val"
+}
+
+# has_nonempty_match <dir> <glob> — true if a non-empty file matching glob exists in dir.
+has_nonempty_match() {
+  local dir="$1" glob="$2" f
+  [ -d "$dir" ] || return 1
+  for f in "$dir"/$glob; do
+    if [ -s "$f" ]; then return 0; fi
+  done
+  return 1
+}
+
 gate_phase_4() {
   yaml_field_equals "phase_4_architect" "complete" || true
 
   # C3: scratchpad_stale check — at least one findings-*.md must exist in research/
   local scratchpad_dir=""
-  scratchpad_dir=$(grep "^scratchpad_dir:" "$BUILD_STATE" 2>/dev/null | sed 's/^scratchpad_dir:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  scratchpad_dir=$(yaml_get "scratchpad_dir")
   if [ -n "$scratchpad_dir" ]; then
     local research_dir="$scratchpad_dir/research"
-    local f has_findings=0
-    for f in "$research_dir"/findings-*.md; do
-      if [ -s "$f" ]; then has_findings=1; break; fi
-    done
+    local has_findings=0
+    if has_nonempty_match "$research_dir" "findings-*.md"; then has_findings=1; fi
     if [ "$has_findings" -eq 0 ]; then
       # Mark stale in build-state.yaml
       if grep -q "^scratchpad_stale:" "$BUILD_STATE" 2>/dev/null; then
@@ -225,9 +250,7 @@ gate_phase_4() {
 
     # bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
     local has_approach=0
-    for f in "$scratchpad_dir/architecture"/approach-*.md; do
-      if [ -s "$f" ]; then has_approach=1; break; fi
-    done
+    if has_nonempty_match "$scratchpad_dir/architecture" "approach-*.md"; then has_approach=1; fi
     if [ "$has_approach" -eq 0 ]; then
       MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/architecture/approach-*.md")
     fi
@@ -311,6 +334,7 @@ gate_phase_6() {
 }
 
 gate_phase_7() {
+  [ "$COMPLEXITY" = "TRIVIAL" ] && return 0
   yaml_field_equals "review_complete" "pass" || true
 
   # Soft learning validation: when backend != none, warn if learnings_extracted is missing.
@@ -327,10 +351,9 @@ gate_phase_7() {
   fi
 
   # bd#127: synthesizer must have written reviews/learnings-raw.md (soft, best-effort nudge).
-  # TRIVIAL builds skip Phase 6 review/synthesis, so the file is not required there.
   local scratchpad_dir=""
-  scratchpad_dir=$(grep "^scratchpad_dir:" "$BUILD_STATE" 2>/dev/null | sed 's/^scratchpad_dir:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
-  if [ "$COMPLEXITY" != "TRIVIAL" ] && [ -n "$scratchpad_dir" ]; then
+  scratchpad_dir=$(yaml_get "scratchpad_dir")
+  if [ -n "$scratchpad_dir" ]; then
     if [ ! -s "$scratchpad_dir/reviews/learnings-raw.md" ]; then
       MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/reviews/learnings-raw.md")
     fi

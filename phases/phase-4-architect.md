@@ -47,7 +47,7 @@ Orchestrator includes this block in every architect agent prompt:
 ```
 BEFORE designing, read these files yourself:
 1. Read `build-state.yaml` — understand build context + get scratchpad_dir path
-2. Run `git diff --stat` — see current codebase state
+2. Current codebase state — the orchestrator pastes the output of `git diff --stat` below this block (you have no shell; do not run it yourself)
 3. Read ALL files in `{scratchpad_dir}/research/` — these are Phase 2 exploration findings
 4. Read requirements files yourself
 Only then begin architecture work. Do NOT trust summaries.

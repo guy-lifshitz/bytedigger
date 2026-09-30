@@ -327,8 +327,8 @@ try:
     with open(raw_md_path, 'r', encoding='utf-8') as f:
         for line in f:
             stripped = line.strip()
-            if not stripped or stripped.startswith('#'):
-                continue  # blank / heading: not a parse error
+            if not stripped or stripped.startswith('#') or stripped.startswith('```'):
+                continue  # blank / heading / code fence: not a parse error
             m = pattern_re.match(stripped)
             if m:
                 category = m.group(1).strip()
@@ -367,7 +367,7 @@ PYEOF
     *$'\n'*) parsed_entries="${parsed_output#*$'\n'}" ;;
   esac
 
-  _write_state "$cwd" "learnings_parse_errors" "$parse_errors"
+  _write_state "$cwd" "learnings_parse_errors" "$parse_errors" || true
   if [ "$parse_errors" -gt 0 ]; then
     echo "[learning-store-sqlite] WARN: ${parse_errors} line(s) in ${raw_md} do not match \"- [category] --- lesson\" and were not stored" >&2
   fi

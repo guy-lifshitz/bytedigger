@@ -372,10 +372,7 @@ export function checkPhase4(cwd: string): GateVerdict {
     let hasFindings = false;
     if (existsSync(researchDir)) {
       try {
-        const entries = readdirSync(researchDir);
-        hasFindings = entries.some(
-          (f) => /^findings-.*\.md$/.test(f) && isNonEmptyFile(join(researchDir, f)),
-        );
+        hasFindings = hasNonEmptyMatch(researchDir, /^findings-.*\.md$/);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // Permission error is fail-closed (triggers hard block below) but
@@ -413,9 +410,7 @@ export function checkPhase4(cwd: string): GateVerdict {
     const archDir = join(scratchpad, "architecture");
     let hasApproach = false;
     try {
-      hasApproach = readdirSync(archDir).some(
-        (f) => /^approach-.*\.md$/.test(f) && isNonEmptyFile(join(archDir, f)),
-      );
+      hasApproach = hasNonEmptyMatch(archDir, /^approach-.*\.md$/);
     } catch {
       hasApproach = false; // dir absent/unreadable → missing deliverable
     }
@@ -434,6 +429,12 @@ function isNonEmptyFile(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+// True if `dir` holds a non-empty file whose name matches `re`. Throws if the
+// directory cannot be read (callers decide how to handle that).
+function hasNonEmptyMatch(dir: string, re: RegExp): boolean {
+  return readdirSync(dir).some((f) => re.test(f) && isNonEmptyFile(join(dir, f)));
 }
 
 // Bash uses `printf '%s; ' "${MISSING_FIELDS[@]}"` which appends `"; "` after

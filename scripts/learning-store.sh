@@ -392,9 +392,9 @@ count = 0
 parse_errors = 0
 for line in lines:
     line = line.rstrip('\n')
-    if not line.strip() or line.strip().startswith('#'):
-        continue  # blank / heading: not a parse error
-    m = pattern.match(line)
+    if not line.strip() or line.strip().startswith('#') or line.strip().startswith('```'):
+        continue  # blank / heading / code fence: not a parse error
+    m = pattern.match(line.strip())
     if not m:
         parse_errors += 1
         continue
