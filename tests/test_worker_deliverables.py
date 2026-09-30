@@ -240,9 +240,11 @@ def test_ac3_phase7_documents_line_format():
 # ---------------------------------------------------------------------------
 
 def _gate_fixture(tmp_path: Path, phase: str, extra_state: str, complexity="FEATURE",
-                  subdirs=("research", "architecture", "reviews"), with_scratch_dir=True):
+                  subdirs=("research", "architecture", "reviews"), with_scratch_dir=True,
+                  scratch_name="scratch"):
     # F2: subdirs is optional so tests can exercise an absent architecture/ or reviews/.
-    scratch = tmp_path / "scratch"
+    # Rev3 C2: scratch_name lets a test put a space in the scratchpad dir name.
+    scratch = tmp_path / scratch_name
     scratch.mkdir(parents=True, exist_ok=True)
     for d in subdirs:
         (scratch / d).mkdir(parents=True, exist_ok=True)
@@ -440,6 +442,58 @@ def test_ac5_trivial_missing_file_not_checked(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Rev 3 -- C2 (spaces in scratchpad path), C3 (TRIVIAL), C4 (no git diff by architect)
+# ---------------------------------------------------------------------------
+
+def test_c2_gate4_scratchpad_path_with_space_passes(tmp_path):
+    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n",
+                            scratch_name="my scratch")
+    (scratch / "research" / "findings-a.md").write_text("findings\n")
+    (scratch / "architecture" / "approach-a.md").write_text("approach\n")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_c2_gate7_scratchpad_path_with_space_passes(tmp_path):
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\n",
+                            scratch_name="my scratch")
+    (scratch / "reviews" / "learnings-raw.md").write_text("- [testing] --- a lesson\n")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_c2_gate7_missing_file_reason_contains_real_spaced_path(tmp_path):
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\n",
+                            scratch_name="my scratch")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert _reason(proc) == f"missing deliverable: {scratch}/reviews/learnings-raw.md; "
+    assert "my scratch" in _reason(proc)
+
+
+def test_c3_gate7_trivial_without_review_complete_passes(tmp_path):
+    # bash used to demand review_complete even for TRIVIAL (TS already skips).
+    _gate_fixture(tmp_path, "7", "", complexity="TRIVIAL")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "review_complete" not in proc.stdout
+
+
+def test_c4_phase4_reanchor_architect_does_not_run_git_diff():
+    text = _read("phases/phase-4-architect.md")
+    block = _slice(text, r"^## Re-Anchoring", r"^## Actions")
+    assert not re.search(r"^\s*\d+\.\s*Run `git diff", block, re.M), \
+        "architect has no shell: it must not be told to run git diff"
+    # the orchestrator supplies the `git diff --stat` output instead
+    paras = re.split(r"\n\s*\n", block)
+    assert any(
+        re.search(r"orchestrator", p, re.I) and "git diff --stat" in p
+        and re.search(r"provid|paste|supplie|includ", p, re.I)
+        for p in paras
+    ), "block must say the orchestrator provides the `git diff --stat` output"
+
+
+# ---------------------------------------------------------------------------
 # AC6 -- extract reports parse errors (both backends)
 # ---------------------------------------------------------------------------
 
@@ -561,6 +615,32 @@ def test_ac6_whitespace_only_and_indented_heading_are_not_errors(tmp_path, backe
     assert re.search(r"^learnings_extracted: 2$", state, re.M)
     assert re.search(r"^learnings_parse_errors: 0$", state, re.M)
     assert "WARN" not in proc.stderr
+
+
+INDENTED_BODY = "## New Learnings\n\n  - [bug-fix] --- indented lesson\n"
+FENCED_T12_BODY = "```markdown\n" + T12_BODY + "```\n"
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_c6_indented_valid_bullet_is_stored_in_both_backends(tmp_path, backend):
+    # Rev3 C6: file backend matches line.strip() like sqlite (sqlite is already a guard).
+    proc, state = _extract(tmp_path, backend, INDENTED_BODY)
+    assert proc.returncode == 0, proc.stderr
+    assert re.search(r"^learnings_extracted: 1$", state, re.M)
+    assert re.search(r"^learnings_parse_errors: 0$", state, re.M)
+    assert "WARN" not in proc.stderr
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_c7_code_fence_lines_are_not_parse_errors(tmp_path, backend):
+    # Rev3 C7: ```markdown / ``` fence lines are skipped; T12 content still yields 3 errors.
+    proc, state = _extract(tmp_path, backend, FENCED_T12_BODY)
+    assert proc.returncode == 0, proc.stderr
+    assert re.search(r"^learnings_extracted: 2$", state, re.M)
+    assert re.search(r"^learnings_parse_errors: 3$", state, re.M)
+    warn = [l for l in proc.stderr.splitlines() if "WARN" in l]
+    assert len(warn) == 1, proc.stderr
+    assert re.search(r"\b3\b", warn[0]), warn[0]
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

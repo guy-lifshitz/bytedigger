@@ -227,3 +227,16 @@ describe("AC5 — phase 7 gate: learnings-raw.md deliverable", () => {
     expect(v.decision).toBe("pass");
   });
 });
+
+describe("Rev 3 — C2 spaced scratchpad path", () => {
+  // C2 guard: TS already handles spaces (bash is fixed to match).
+  test("C2 guard — phase 7 with spaced scratchpad path, file present → pass", () => {
+    scratch = join(dir, "my scratch");
+    mkdirSync(scratch, { recursive: true });
+    phase7State({ review_complete: "pass" });
+    put("reviews/learnings-raw.md", "- [testing] --- a lesson\n");
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("pass");
+    expect(v.exit_code).toBe(0);
+  });
+});
