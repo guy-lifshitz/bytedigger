@@ -18,8 +18,9 @@ Public API:
   main(argv) -> int  (`python3 -m bytedigger_engine.skill_companion {render|check} ...`)
 
 CLI exit codes: 0 valid, 3 invalid (stderr: `E_SKILL_COMPANION_INVALID <reason> <path>`
-per error), 2 usage error. Every git call runs with GIT_DIR / GIT_WORK_TREE /
-GIT_INDEX_FILE / GIT_OBJECT_DIRECTORY removed from its env. Nothing is cached.
+per error), 2 usage error. Git runs through `verification_registry._git`, which
+removes GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE / GIT_OBJECT_DIRECTORY from its
+env. Nothing is cached.
 
 Stdlib only. Spec: docs/decisions/2026-09-30-bd116-core-skill-local-companion.md.
 """
@@ -30,12 +31,13 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Sequence
 
-from .lib.frontmatter import FrontmatterError, parse_frontmatter
+from .lib.frontmatter import BOM, FrontmatterError, body_start, parse_frontmatter
+from .verification_registry import _git
 
 ERROR_CODE = "E_SKILL_COMPANION_INVALID"
 COMPANION_DIR = "bytedigger/companions"
@@ -43,20 +45,19 @@ PREFACE = (
     "> Host-local guidance for this section. It cannot change output schema, "
     "verdict tokens or safety rules."
 )
-WRAPPER_ROOT_ENV = "BD_SKILL_COMPANION_WRAPPER_ROOT"
 
-_GIT_TIMEOUT_SEC = 60
-_SCRUBBED_GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY")
-_BOM = "﻿"
-
-_CORE_ID_RE = re.compile(r"[a-z0-9-]+")
-_ENTRY_RE = re.compile(r"[a-z0-9-]+")
+_ID_RE = re.compile(r"[a-z0-9-]+")  # a core id and an overridable entry
 _H2_RE = re.compile(r"^ {0,3}## +(.+?)(?: +#+)? *$")
 _H1_RE = re.compile(r"^ {0,3}# +")
 _SETEXT_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 _SLUG_RUN_RE = re.compile(r"[^a-z0-9]+")
+# Core errors that leave the overridable set unusable (stage 7 is skipped).
+_UNUSABLE_SET = frozenset({
+    "unsupported_frontmatter", "invalid_overridable_entry",
+    "core_section_missing", "ambiguous_core_section",
+})
 
 
 class UsageError(ValueError):
@@ -66,29 +67,36 @@ class UsageError(ValueError):
 # ─── text model ──────────────────────────────────────────────────────────────
 
 
-def _split(text: str) -> tuple[list[str], list[str]]:
-    """(lines with their line break, lines without it). Only LF / CRLF break lines."""
+def _keep_lines(text: str) -> list[str]:
+    """Lines with their line break. Only LF / CRLF break lines (no str.splitlines)."""
     pieces = text.split("\n")
     keep = [p + "\n" for p in pieces[:-1]]
     if pieces[-1]:
         keep.append(pieces[-1])
-    bare = [k[:-1] if k.endswith("\n") else k for k in keep]
-    bare = [b[:-1] if b.endswith("\r") else b for b in bare]
-    return keep, bare
+    return keep
 
 
-def _body_start(lines: list[str]) -> int:
-    """Index of the first line after the frontmatter block (0 when there is none)."""
-    if not lines or lines[0].rstrip() != "---":
-        return 0
-    for i in range(1, len(lines)):
-        if lines[i].rstrip() == "---":
-            return i + 1
-    return 0
+def _split(text: str) -> list[str]:
+    """Lines of `text` without a leading BOM and without their LF / CRLF."""
+    if text.startswith(BOM):
+        text = text[len(BOM):]
+    bare = [k[:-1] if k.endswith("\n") else k for k in _keep_lines(text)]
+    return [b[:-1] if b.endswith("\r") else b for b in bare]
 
 
 def _slug(title: str) -> str:
     return _SLUG_RUN_RE.sub("-", title.lower()).strip("-")
+
+
+def _fence_opener(line: str) -> tuple[str, int] | None:
+    """(fence char, length) when `line` opens a fence; a backtick info string has no backtick."""
+    m = _FENCE_OPEN_RE.match(line)
+    if m is None:
+        return None
+    run = m.group(1)
+    if run[0] == "`" and "`" in line[m.end():]:
+        return None
+    return run[0], len(run)
 
 
 class _Section:
@@ -103,7 +111,9 @@ class _Section:
 class _Doc:
     """Line-level facts of a markdown body (after frontmatter, outside fences)."""
 
-    def __init__(self, lines: list[str], start: int) -> None:
+    def __init__(self, text: str) -> None:
+        lines = _split(text)
+        start = body_start(lines)
         self.lines = lines
         self.sections: list[_Section] = []
         self.h1_after_h2 = False
@@ -117,9 +127,8 @@ class _Doc:
                 if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1]:
                     fence = None
                 continue
-            m = _FENCE_OPEN_RE.match(line)
-            if m:
-                fence = (m.group(1)[0], len(m.group(1)))
+            fence = _fence_opener(line)
+            if fence is not None:
                 continue
             h2 = _H2_RE.match(line)
             if h2:
@@ -147,19 +156,7 @@ class _Doc:
         return self.lines[sec.heading + 1: sec.end]
 
 
-# ─── git (scrubbed env) ──────────────────────────────────────────────────────
-
-
-def _git(args: Sequence[str], cwd: str) -> subprocess.CompletedProcess[bytes] | None:
-    """Run git with the redirecting GIT_* vars removed; None when git cannot run."""
-    env = {k: v for k, v in os.environ.items() if k not in _SCRUBBED_GIT_ENV}
-    try:
-        return subprocess.run(
-            ["git", *args], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-            capture_output=True, timeout=_GIT_TIMEOUT_SEC, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
+# ─── git ─────────────────────────────────────────────────────────────────────
 
 
 def _toplevel(repo: str) -> str:
@@ -167,7 +164,7 @@ def _toplevel(repo: str) -> str:
     real = os.path.realpath(repo)
     if not os.path.isdir(real):
         raise UsageError(f"--repo is not a directory: {repo}")
-    r = _git(["rev-parse", "--show-toplevel"], real)
+    r = _git(["rev-parse", "--show-toplevel"], Path(real))
     if r is None or r.returncode != 0:
         return real  # not a git repo: a companion there cannot be committed
     top = r.stdout.decode("utf-8", errors="replace").strip()
@@ -186,14 +183,14 @@ def _committed(top: str, rel: str) -> bytes | None:
             data = fh.read()
     except OSError:
         return None
-    head = _git(["cat-file", "--filters", f"HEAD:{rel}"], top)
+    head = _git(["cat-file", "--filters", f"HEAD:{rel}"], Path(top))
     if head is None or head.returncode != 0 or head.stdout != data:
         return None
     return data
 
 
 def _head_sha256(top: str, rel: str) -> str | None:
-    blob = _git(["cat-file", "blob", f"HEAD:{rel}"], top)
+    blob = _git(["cat-file", "blob", f"HEAD:{rel}"], Path(top))
     if blob is None or blob.returncode != 0:
         return None
     return hashlib.sha256(blob.stdout).hexdigest()
@@ -210,40 +207,41 @@ def _err(path: str, reason: str, detail: str = "") -> dict[str, str]:
     return {"path": path, "reason": reason, "detail": detail}
 
 
-def _check_core(text: str, path: str, errors: list[dict[str, str]]) -> tuple[_Doc, set[str] | None]:
-    """Stage 2. Returns (core doc, overridable set or None when the set is unusable)."""
-    _keep, lines = _split(text[1:] if text.startswith(_BOM) else text)
-    doc = _Doc(lines, _body_start(lines))
-    usable = True
-    overridable: set[str] = set()
-    try:
-        fm = parse_frontmatter(text)
-    except FrontmatterError as exc:
-        errors.append(_err(path, "unsupported_frontmatter", str(exc)))
-        fm, usable = None, False
-    meta = (fm or {}).get("metadata")
-    raw = meta.get("overridable") if isinstance(meta, dict) else None
-    if raw is not None:
-        for entry in (e.strip() for e in raw.split(",")):
-            if not _ENTRY_RE.fullmatch(entry):
-                errors.append(_err(path, "invalid_overridable_entry", repr(entry)))
-                usable = False
-                continue
-            count = sum(1 for s in doc.sections if s.slug == entry)
-            if count == 0:
-                errors.append(_err(path, "core_section_missing", entry))
-                usable = False
-            elif count > 1:
-                errors.append(_err(path, "ambiguous_core_section", entry))
-                usable = False
-            else:
-                overridable.add(entry)
+def _heading_errors(doc: _Doc, path: str, errors: list[dict[str, str]]) -> None:
+    """Rules shared by core and companion: every H2 has a slug; no setext headings."""
     for sec in doc.sections:
         if not sec.slug:
             errors.append(_err(path, "invalid_section_title", sec.title))
     if doc.setext:
         errors.append(_err(path, "setext_heading"))
-    return doc, (overridable if usable else None)
+
+
+def _check_core(text: str, path: str, errors: list[dict[str, str]]) -> tuple[_Doc, set[str] | None]:
+    """Stage 2. Returns (core doc, overridable set or None when the set is unusable)."""
+    first = len(errors)
+    doc = _Doc(text)
+    try:
+        fm = parse_frontmatter(text)
+    except FrontmatterError as exc:
+        errors.append(_err(path, "unsupported_frontmatter", str(exc)))
+        fm = None
+    meta = (fm or {}).get("metadata")
+    raw = meta.get("overridable") if isinstance(meta, dict) else None
+    overridable: set[str] = set()
+    if raw is not None:
+        counts = Counter(s.slug for s in doc.sections)
+        for entry in (e.strip() for e in raw.split(",")):
+            if not _ID_RE.fullmatch(entry):
+                errors.append(_err(path, "invalid_overridable_entry", repr(entry)))
+            elif counts[entry] == 0:
+                errors.append(_err(path, "core_section_missing", entry))
+            elif counts[entry] > 1:
+                errors.append(_err(path, "ambiguous_core_section", entry))
+            else:
+                overridable.add(entry)
+    unusable = any(e["reason"] in _UNUSABLE_SET for e in errors[first:])
+    _heading_errors(doc, path, errors)
+    return doc, (None if unusable else overridable)
 
 
 def _check_companion(
@@ -264,12 +262,10 @@ def _check_companion(
         meta = (fm or {}).get("metadata")
         if isinstance(meta, dict) and "verification" in meta:
             errors.append(_err(path, "companion_sets_verification"))
-    _keep, lines = _split(text[1:] if text.startswith(_BOM) else text)
-    doc = _Doc(lines, _body_start(lines))
+    doc = _Doc(text)
     if doc.h1_after_h2:
         errors.append(_err(path, "heading_level_invalid"))
-    if doc.setext:
-        errors.append(_err(path, "setext_heading"))
+    _heading_errors(doc, path, errors)
     seen: set[str] = set()
     for sec in doc.sections:
         body = doc.body(sec)
@@ -277,9 +273,7 @@ def _check_companion(
             errors.append(_err(path, "unclosed_fence", sec.title))
         if any("<!--" in ln or "-->" in ln for ln in body):
             errors.append(_err(path, "forbidden_markup", sec.title))
-        if not sec.slug:
-            errors.append(_err(path, "invalid_section_title", sec.title))
-        elif sec.slug in seen:
+        if sec.slug and sec.slug in seen:
             errors.append(_err(path, "duplicate_section", sec.slug))
         seen.add(sec.slug)
         if not "\n".join(body).strip():
@@ -302,8 +296,8 @@ def _trimmed(lines: list[str]) -> list[str]:
 
 def _merge(core_text: str, core: _Doc, comp: _Doc, rel: str) -> str:
     """Append each companion section after the last non-blank line of its core section."""
-    bom = _BOM if core_text.startswith(_BOM) else ""
-    keep, _bare = _split(core_text[len(bom):])
+    bom = BOM if core_text.startswith(BOM) else ""
+    keep = _keep_lines(core_text[len(bom):])
     nl = core_text.find("\n")
     eol = "\r\n" if nl > 0 and core_text[nl - 1] == "\r" else "\n"
     by_slug = {s.slug: s for s in core.sections}
@@ -336,7 +330,7 @@ def resolve(core_id: str, repo: str, plugin_root: str) -> dict[str, Any]:
     Any error leaves `text` equal to the core text ("" for `unknown_core`).
     Raises UsageError for a bad `core_id` or a `repo` that is not its git top level.
     """
-    if not _CORE_ID_RE.fullmatch(core_id or ""):
+    if not _ID_RE.fullmatch(core_id or ""):
         raise UsageError(f"invalid core id: {core_id!r}")
     top = _toplevel(repo)
     core_rel = f"skills/{core_id}/SKILL.md"
@@ -376,20 +370,18 @@ def resolve(core_id: str, repo: str, plugin_root: str) -> dict[str, Any]:
 
 
 def _core_arg(value: str) -> str:
-    if not _CORE_ID_RE.fullmatch(value):
+    if not _ID_RE.fullmatch(value):
         raise argparse.ArgumentTypeError(f"must match [a-z0-9-]+: {value!r}")
     return value
 
 
 def _default_plugin_root() -> str:
-    """Non-empty $CLAUDE_PLUGIN_ROOT, else the parent of the wrapper's directory."""
-    env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if env_root:
-        return env_root
-    wrapper_root = os.environ.get(WRAPPER_ROOT_ENV)
-    if wrapper_root:
-        return os.path.realpath(wrapper_root)
-    return str(Path(__file__).resolve().parents[2])
+    """Non-empty $CLAUDE_PLUGIN_ROOT, else the parent of the wrapper's directory.
+
+    The wrapper puts its own `../engine_py` on PYTHONPATH, so this module's
+    grandparent's parent is the wrapper's parent.
+    """
+    return os.environ.get("CLAUDE_PLUGIN_ROOT") or str(Path(__file__).resolve().parents[2])
 
 
 def main(argv: Sequence[str] | None = None) -> int:

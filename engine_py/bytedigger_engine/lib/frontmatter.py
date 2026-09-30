@@ -3,6 +3,8 @@
 Public API:
   FrontmatterError        — an unreadable `metadata` block that mentions a guarded key
   GUARDED_METADATA_KEYS   — the keys whose mention makes an unreadable block an error
+  BOM                     — the UTF-8 byte order mark as text ("\\ufeff")
+  body_start(lines) -> int — index of the first line after the frontmatter block
   parse_frontmatter(text) -> dict | None
 
 A deterministic YAML subset: top-level `key: value` scalars and one level of
@@ -21,7 +23,7 @@ _GUARDED_KEY_RE = re.compile(
     r"(^|[\s{,])(?:" + "|".join(GUARDED_METADATA_KEYS) + r")\s*:", re.MULTILINE,
 )
 _UNSCALAR_START = frozenset(">|[{&*!")
-_BOM = "﻿"
+BOM = chr(0xFEFF)  # the UTF-8 byte order mark, decoded
 
 
 class FrontmatterError(ValueError):
@@ -94,6 +96,22 @@ def _parse_metadata(value: str, children: list[str]) -> dict[str, str] | None:
     return meta
 
 
+def _close_index(lines: list[str]) -> int | None:
+    """Index of the line closing a leading `---` block, or None when there is none."""
+    if not lines or lines[0].rstrip() != "---":
+        return None
+    return next((i for i in range(1, len(lines)) if lines[i].rstrip() == "---"), None)
+
+
+def body_start(lines: list[str]) -> int:
+    """Index of the first line after the frontmatter block (0 when there is none).
+
+    `lines` are the text's lines without line breaks (BOM already removed).
+    """
+    end = _close_index(lines)
+    return 0 if end is None else end + 1
+
+
 def parse_frontmatter(text: str) -> dict[str, Any] | None:
     """Parse the leading `---` block with a deterministic YAML subset.
 
@@ -103,13 +121,11 @@ def parse_frontmatter(text: str) -> dict[str, Any] | None:
     frontmatter block; raises FrontmatterError only for an unreadable `metadata`
     value that mentions a guarded key (`GUARDED_METADATA_KEYS`).
     """
-    if text.startswith(_BOM):
-        text = text[len(_BOM):]
+    if text.startswith(BOM):
+        text = text[len(BOM):]
     text = text.replace("\r\n", "\n")
     lines = text.splitlines()
-    if not lines or lines[0].rstrip() != "---":
-        return None
-    end = next((i for i in range(1, len(lines)) if lines[i].rstrip() == "---"), None)
+    end = _close_index(lines)
     if end is None:
         return None
     body = lines[1:end]

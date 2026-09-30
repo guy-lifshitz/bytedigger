@@ -363,6 +363,31 @@ def test_ac5_bom_crlf_companion_resolves_like_lf_twin(tmp_path):
     assert b["sections"] == a["sections"]
 
 
+def test_ac5_backtick_line_with_inline_backticks_is_not_a_fence(tmp_path):
+    # CommonMark: a backtick fence's info string may not contain backticks.
+    line = "```x``` is the syntax"
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    # (a) in a companion section body: the following H2 must still be a section
+    core_a = _core_text(
+        overridable='"project-conventions,review-focus"',
+        body="# Core\n\n## Project conventions\n\ncore conv\n\n## Review focus\n\ncore rf\n",
+    )
+    sections = f"## Project conventions\n\n{line}\n\n## Review focus\n\nrf body\n"
+    plugin, repo, _ = _basic(tmp_path / "a", _companion_text(sections=sections), core=core_a)
+    res = _resolve(plugin, repo)
+    assert res["errors"] == []
+    assert res["text"].count("<!-- bd:local begin") == 2
+    assert "bd:local begin review-focus" in res["text"]
+    assert line in res["text"]
+    # (b) in the core, before the declared section: the section is still found
+    core_b = _core_text(body=f"# Core\n\n{line}\n\n## Project conventions\n\ncore conv\n")
+    plugin, repo, _ = _basic(tmp_path / "b", None, core=core_b)
+    res = _resolve(plugin, repo)
+    assert "core_section_missing" not in _reasons(res)
+    assert res["errors"] == []
+
+
 def test_ac5_crlf_core_every_inserted_line_ends_crlf(tmp_path):
     core = _core_text().replace("\n", "\r\n")
     plugin = _plugin(tmp_path, core.encode("utf-8"))

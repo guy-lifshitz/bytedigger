@@ -7,11 +7,10 @@ command and never run by the engine.
 
 Public API:
   FrontmatterError      — re-exported from `lib.frontmatter` (the shared parser, bd#116)
-  Skill                — frozen dataclass(name, path, kind, verify_command)
+  Skill                 — frozen dataclass(name, path, kind, verify_command)
   Registry              — frozen dataclass(skills, errors); each error row carries `fatal`
   FAIL_STATUSES         — the skill statuses that count as failures
-  parse_frontmatter(text) -> dict | None   (re-exported from `lib.frontmatter`)
-  discover(repo_root, extra_dirs=()) -> Registry        (reads files only)
+  parse_frontmatter(text) -> dict | None   (re-exported from `lib.frontmatter`)  discover(repo_root, extra_dirs=()) -> Registry        (reads files only)
   run_registry(repo_root, *, extra_dirs=(), timeout_sec=300, execute=True) -> dict
   blocking_errors(report) -> list[dict]      (fatal `errors[]` rows)
   failing_skill_names(report) -> list[str]   (skills whose status is in FAIL_STATUSES)
