@@ -389,17 +389,23 @@ except Exception:
     sys.exit(0)
 
 count = 0
+parse_errors = 0
 for line in lines:
     line = line.rstrip('\n')
+    if not line.strip() or line.strip().startswith('#'):
+        continue  # blank / heading: not a parse error
     m = pattern.match(line)
     if not m:
+        parse_errors += 1
         continue
     raw_category = m.group(1)
     lesson       = m.group(2).strip()
     if not lesson:
+        parse_errors += 1
         continue
     category = sanitize_category(raw_category)
     if not category:
+        parse_errors += 1
         continue
     tags = generate_tags(lesson)
     cat_file = os.path.join(storage_abs, f"{category}.md")
@@ -419,11 +425,26 @@ for line in lines:
         pass
     count += 1
 
-print(count)
+print(count, parse_errors)
 PYEOF
   ) || extracted_count=0
 
+  # python prints "<count> <parse_errors>"; the `|| echo "0"` failure path is a bare "0"
+  # (no second field) => parser failed, so learnings_parse_errors is not written.
+  local parse_errors=""
+  case "$extracted_count" in
+    *" "*) parse_errors="${extracted_count#* }"; extracted_count="${extracted_count%% *}" ;;
+  esac
+  extracted_count="${extracted_count//[^0-9]/}"
+  extracted_count="${extracted_count:-0}"
+
   _write_state "$cwd" "learnings_extracted" "$extracted_count" || true
+  if [[ "$parse_errors" =~ ^[0-9]+$ ]]; then
+    _write_state "$cwd" "learnings_parse_errors" "$parse_errors" || true
+    if [ "$parse_errors" -gt 0 ]; then
+      echo "[learning-store] WARN: ${parse_errors} line(s) in ${raw_md} do not match \"- [category] --- lesson\" and were not stored" >&2
+    fi
+  fi
   exit 0
 }
 

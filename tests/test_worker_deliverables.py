@@ -179,7 +179,9 @@ def _slice(text: str, start_re: str, end_re: str) -> str:
 
 def test_ac3_phase2_step3_contract():
     text = _read("phases/phase-2-explore.md")
-    step3 = _slice(text, r"^3\. ", r"^4\. ")
+    actions_idx = text.find("\n## Actions")
+    assert actions_idx != -1, "section not found: ## Actions"
+    step3 = _slice(text[actions_idx:], r"^3\. ", r"^4\. ")
     assert "{scratchpad_dir}/research/findings-{agent-name}.md" in step3 or \
         "{scratchpad_dir}/research/findings-{your-name}.md" in step3
     assert re.search(r"itself", step3, re.I)

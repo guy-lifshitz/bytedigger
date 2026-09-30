@@ -40,9 +40,11 @@ You are an exploration agent understanding relevant existing code and patterns.
 
 **Agent Timeout:** Explore agents MUST complete within 5 minutes. If no response after 5min, orchestrator spawns a fresh replacement. Do NOT wait indefinitely — stale agents waste tokens and block the pipeline.
 
-3. Each agent MUST write findings to scratchpad: `{scratchpad_dir}/research/findings-{agent-name}.md`
+3. Each agent MUST write findings to scratchpad itself: `{scratchpad_dir}/research/findings-{your-name}.md` (pass the resolved path in the prompt), and return only a short summary + the path
    - Include: file paths, line numbers, key patterns, relevant code signatures
    - This persists findings for Phase 4 architects (they read scratchpad, not chat)
+   - Orchestrator verifies each file is on disk and non-empty; on a miss, re-prompt or respawn the agent — the orchestrator does NOT write the file on the agent's behalf
+   - The gate check at Phase 4 is a best-effort nudge; this orchestrator verification is the guarantee
 4. Wait for all agents
 5. Read scratchpad `research/` dir to verify findings were written
 6. Present summary of findings

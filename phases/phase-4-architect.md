@@ -18,7 +18,7 @@ SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[
 You are an architecture agent designing implementation approaches. This phase uses Opus — architecture decisions cascade through the entire implementation.
 
 **WORKER AGENT CONSTRAINTS (include in every agent prompt):**
-- You are a worker inside /build pipeline. Use Read/Edit/Write/Bash directly.
+- You are a worker inside /build pipeline. Your tools are read-only (Read/Glob/Grep) plus Write for the one deliverable path named in your prompt — write nothing else.
 - NEVER call Skill tool (you don't have access, attempts waste turns).
 - NEVER invoke /build, /bugfix, or any slash command.
 - If stuck, report what's blocking you — don't try to delegate or escalate via tools.
@@ -54,7 +54,10 @@ Only then begin architecture work. Do NOT trust summaries.
 
 Write your architecture decision to: `{scratchpad_dir}/architecture/approach-{your-name}.md`
 Include: file list, trade-offs, implementation order, dependencies.
+Write it yourself, then reply with a short summary + the path (not the blueprint).
 ```
+
+Each architect writes its file itself. Orchestrator verifies the file is on disk and non-empty; on a miss, re-prompt or respawn the architect — the orchestrator does NOT write the file on the agent's behalf. (The gate check is a best-effort nudge; this verification is the guarantee.)
 
 **Always spawn fresh architects.** Explore agents from Phase 2 have completed — do NOT attempt SendMessage to them. Architect agents read findings from `{scratchpad_dir}/research/` files directly. This is more reliable than trying to reuse completed agents.
 

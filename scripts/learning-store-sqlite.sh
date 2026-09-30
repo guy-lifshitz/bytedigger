@@ -309,32 +309,43 @@ cmd_extract() {
   fi
 
   # Parse learnings-raw.md via python3 (reliable regex for multi-line markdown)
-  # Output format: <sanitized_category>\x1f<lesson> one per line
+  # Output format: first line = parse-error count, then <sanitized_category>\x1f<lesson> one per line
   # IFS=0x1f must match python3 writer below — ASCII unit separator chosen because
   # lesson text can contain tab/pipe/comma
   local py_stderr_file
   py_stderr_file=$(mktemp)  # no suffix — portable BSD + GNU mktemp
-  local parsed_entries
-  parsed_entries=$(python3 - "$raw_md" 2>"$py_stderr_file" <<'PYEOF'
+  local parsed_output
+  parsed_output=$(python3 - "$raw_md" 2>"$py_stderr_file" <<'PYEOF'
 import re, sys
 
 raw_md_path = sys.argv[1]
 pattern_re = re.compile(r'^-\s+\[([^\]]+)\]\s+(?:---?|\u2014)\s+(.+)$')
 
+entries = []
+errors = 0
 try:
     with open(raw_md_path, 'r', encoding='utf-8') as f:
         for line in f:
-            m = pattern_re.match(line.strip())
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue  # blank / heading: not a parse error
+            m = pattern_re.match(stripped)
             if m:
                 category = m.group(1).strip()
                 lesson   = m.group(2).strip()
                 # Sanitize: lowercase, non-alnum to dash, strip edge dashes
                 sanitized = re.sub(r'[^a-z0-9]+', '-', category.lower()).strip('-')
-                # Delimiter: ASCII unit separator (0x1f) safe against text content
-                print(sanitized + '\x1f' + lesson)
+                if sanitized and lesson:
+                    # Delimiter: ASCII unit separator (0x1f) safe against text content
+                    entries.append(sanitized + '\x1f' + lesson)
+                    continue
+            errors += 1
 except (OSError, IOError, UnicodeDecodeError) as e:
     print("[learning-store-sqlite] ERROR: parse failed: " + str(e), file=sys.stderr)
     sys.exit(1)
+print(errors)
+for e in entries:
+    print(e)
 PYEOF
   ) || {
     local parse_err
@@ -346,6 +357,20 @@ PYEOF
     exit 0
   }
   rm -f "$py_stderr_file" 2>/dev/null
+
+  # Split python output: first line = parse-error count, remainder = entries
+  local parse_errors parsed_entries=""
+  parse_errors="${parsed_output%%$'\n'*}"
+  parse_errors="${parse_errors//[^0-9]/}"
+  parse_errors="${parse_errors:-0}"
+  case "$parsed_output" in
+    *$'\n'*) parsed_entries="${parsed_output#*$'\n'}" ;;
+  esac
+
+  _write_state "$cwd" "learnings_parse_errors" "$parse_errors"
+  if [ "$parse_errors" -gt 0 ]; then
+    echo "[learning-store-sqlite] WARN: ${parse_errors} line(s) in ${raw_md} do not match \"- [category] --- lesson\" and were not stored" >&2
+  fi
 
   if [ -z "$parsed_entries" ]; then
     _write_state "$cwd" "learnings_extracted" "0"

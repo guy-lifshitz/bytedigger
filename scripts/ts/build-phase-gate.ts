@@ -373,7 +373,9 @@ export function checkPhase4(cwd: string): GateVerdict {
     if (existsSync(researchDir)) {
       try {
         const entries = readdirSync(researchDir);
-        hasFindings = entries.some((f) => /^findings-.*\.md$/.test(f));
+        hasFindings = entries.some(
+          (f) => /^findings-.*\.md$/.test(f) && isNonEmptyFile(join(researchDir, f)),
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // Permission error is fail-closed (triggers hard block below) but
@@ -402,14 +404,36 @@ export function checkPhase4(cwd: string): GateVerdict {
         );
       }
       return hardBlock(
-        `scratchpad_stale: no findings-*.md found in ${researchDir} — Phase 2 exploration must complete before Phase 4`,
+        `scratchpad_stale: no non-empty findings-*.md found in ${researchDir} — Phase 2 exploration must complete before Phase 4`,
         "4",
       );
+    }
+
+    // bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
+    const archDir = join(scratchpad, "architecture");
+    let hasApproach = false;
+    try {
+      hasApproach = readdirSync(archDir).some(
+        (f) => /^approach-.*\.md$/.test(f) && isNonEmptyFile(join(archDir, f)),
+      );
+    } catch {
+      hasApproach = false; // dir absent/unreadable → missing deliverable
+    }
+    if (!hasApproach) {
+      missing.push(`missing deliverable: ${scratchpad}/architecture/approach-*.md`);
     }
   }
 
   if (missing.length > 0) return softBlock(joinMissing(missing), "4");
   return pass("4");
+}
+
+function isNonEmptyFile(path: string): boolean {
+  try {
+    return statSync(path).size > 0;
+  } catch {
+    return false;
+  }
 }
 
 // Bash uses `printf '%s; ' "${MISSING_FIELDS[@]}"` which appends `"; "` after
@@ -704,10 +728,17 @@ function checkPhase7(cwd: string): GateVerdict {
   if (complexity === "TRIVIAL") return pass("7");
 
   const statePath = join(cwd, "build-state.yaml");
-  const v = (readStateField(statePath, "review_complete") ?? "").trim();
-  if (v !== "pass") {
-    return softBlock(`review_complete=pass (got: ${v || "<missing>"})`, "7");
+  const missing: string[] = [];
+  const m = fieldMissing(statePath, "review_complete", "pass");
+  if (m) missing.push(m);
+
+  // bd#127: synthesizer must have written reviews/learnings-raw.md (soft, best-effort nudge)
+  const scratchpad = (readStateField(statePath, "scratchpad_dir") ?? "").trim();
+  if (scratchpad && !isNonEmptyFile(join(scratchpad, "reviews", "learnings-raw.md"))) {
+    missing.push(`missing deliverable: ${scratchpad}/reviews/learnings-raw.md`);
   }
+
+  if (missing.length > 0) return softBlock(joinMissing(missing), "7");
   return pass("7");
 }
 

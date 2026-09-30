@@ -209,14 +209,27 @@ gate_phase_4() {
   scratchpad_dir=$(grep "^scratchpad_dir:" "$BUILD_STATE" 2>/dev/null | sed 's/^scratchpad_dir:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
   if [ -n "$scratchpad_dir" ]; then
     local research_dir="$scratchpad_dir/research"
-    if ! compgen -G "$research_dir/findings-*.md" > /dev/null 2>&1; then
+    local f has_findings=0
+    for f in "$research_dir"/findings-*.md; do
+      if [ -s "$f" ]; then has_findings=1; break; fi
+    done
+    if [ "$has_findings" -eq 0 ]; then
       # Mark stale in build-state.yaml
       if grep -q "^scratchpad_stale:" "$BUILD_STATE" 2>/dev/null; then
         local tmp_file="${BUILD_STATE}.tmp"
         grep -v "^scratchpad_stale:" "$BUILD_STATE" > "$tmp_file" && mv "$tmp_file" "$BUILD_STATE"
       fi
       echo "scratchpad_stale: true" >> "$BUILD_STATE"
-      hard_block "scratchpad_stale: no findings-*.md found in $research_dir — Phase 2 exploration must complete before Phase 4"
+      hard_block "scratchpad_stale: no non-empty findings-*.md found in $research_dir — Phase 2 exploration must complete before Phase 4"
+    fi
+
+    # bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
+    local has_approach=0
+    for f in "$scratchpad_dir/architecture"/approach-*.md; do
+      if [ -s "$f" ]; then has_approach=1; break; fi
+    done
+    if [ "$has_approach" -eq 0 ]; then
+      MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/architecture/approach-*.md")
     fi
   fi
 }
@@ -303,13 +316,23 @@ gate_phase_7() {
   # Soft learning validation: when backend != none, warn if learnings_extracted is missing.
   # This never hard-blocks — learning failures must never stop the pipeline.
   local backend
-  backend=$(grep "^learning_backend:" "$BUILD_STATE" 2>/dev/null | sed 's/^learning_backend:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+  backend=$(grep "^learning_backend:" "$BUILD_STATE" 2>/dev/null | sed 's/^learning_backend:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
   if [ -n "$backend" ] && [ "$backend" != "none" ]; then
     local extracted
-    extracted=$(grep "^learnings_extracted:" "$BUILD_STATE" 2>/dev/null | sed 's/^learnings_extracted:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+    extracted=$(grep "^learnings_extracted:" "$BUILD_STATE" 2>/dev/null | sed 's/^learnings_extracted:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
     if [ -z "$extracted" ]; then
       # Warn only — do not add to MISSING_FIELDS (soft, never blocks)
       echo "WARN: learnings_extracted not set in build-state.yaml (backend=$backend)" >&2
+    fi
+  fi
+
+  # bd#127: synthesizer must have written reviews/learnings-raw.md (soft, best-effort nudge).
+  # TRIVIAL builds skip Phase 6 review/synthesis, so the file is not required there.
+  local scratchpad_dir=""
+  scratchpad_dir=$(grep "^scratchpad_dir:" "$BUILD_STATE" 2>/dev/null | sed 's/^scratchpad_dir:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ') || true
+  if [ "$COMPLEXITY" != "TRIVIAL" ] && [ -n "$scratchpad_dir" ]; then
+    if [ ! -s "$scratchpad_dir/reviews/learnings-raw.md" ]; then
+      MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/reviews/learnings-raw.md")
     fi
   fi
 }
