@@ -7,13 +7,19 @@ fails the test, never collection.
 
 RED-signal contract (spec section 6):
 - Fail by assertion on the old tree: B1-B4, C- (18 rows through `_run_step`),
-  C-engine, `test_c_p2_invoke_does_not_reopen_template`, F1-F3, F5-F9, H1, G6,
+  C-engine, `test_c_p2_invoke_does_not_reopen_template`,
+  `test_p2_template_opened_once_across_build_and_invoke`, F1-F3, F5-F9, H1, G6,
   the phase 2 inversion in test_phase_2_explore.py.
 - Fail by ImportError / AttributeError / KeyError raised inside the test body:
-  A2-A12, A15-A22, D1, D2, G1-G5, H2, H3; `test_c_bad_bytes_error_result_not_raise`
-  fails on the UnicodeDecodeError the old reader raises.
+  A2-A12, A15-A22, `test_fstat_is_authoritative_after_open`,
+  `test_valid_read_uses_one_fd_and_closes_it`, `test_read_error_is_unreadable_and_fd_closed`,
+  `test_reason_tokens_and_constants`, `test_load_role_template_returns_none_for_unset_values`,
+  `test_role_template_module_contract`, D1, D2, G1-G5, H2, H3;
+  `test_c_bad_bytes_error_result_not_raise` fails on the UnicodeDecodeError the old reader raises.
 - PRE-PASSING GUARD (labelled at the definition, excluded from the RED count):
-  A1, A13, A14, C+, F4, H1b, `test_sentinel_written_for_ok_result`.
+  A1, A13, A14, C+, F4, H1b, `test_sentinel_written_for_ok_result`, the B3
+  extractor fail-loud tests (they check this file's own extractor), and the
+  template-free path tests (p45 / p5 delta retry; unchanged behavior).
 """
 from __future__ import annotations
 
@@ -26,6 +32,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tracemalloc
 from pathlib import Path
 
@@ -167,6 +174,39 @@ class _OpenSpy:
         monkeypatch.setattr(os, "open", _spy)
 
 
+# Spec 5.1 step 5: the flags the single fd MUST carry (a flag absent on the platform is skipped).
+_REQUIRED_OPEN_FLAGS = 0
+for _flag in ("O_NONBLOCK", "O_NOCTTY", "O_CLOEXEC"):
+    _REQUIRED_OPEN_FLAGS |= getattr(os, _flag, 0)
+
+
+class _FdSpy:
+    """Records (path, flags, fd) for every os.open and every fd passed to os.close."""
+
+    def __init__(self, monkeypatch):
+        self.opened: list[tuple[str, int, int]] = []
+        self.closed: list[int] = []
+        real_open, real_close = os.open, os.close
+
+        def _open(path, flags, *a, **kw):
+            fd = real_open(path, flags, *a, **kw)
+            self.opened.append((os.fsdecode(path), flags, fd))
+            return fd
+
+        def _close(fd):
+            self.closed.append(fd)
+            return real_close(fd)
+
+        monkeypatch.setattr(os, "open", _open)
+        monkeypatch.setattr(os, "close", _close)
+
+    def opens_of(self, path: Path) -> list[tuple[int, int]]:
+        return [(flags, fd) for (p, flags, fd) in self.opened if p == str(path)]
+
+    def fds_of(self, path: Path) -> set[int]:
+        return {fd for (_flags, fd) in self.opens_of(path)}
+
+
 class _FakeEventLog:
     """Records (event_type, payload, run_id); duck-types the EventSink contract."""
 
@@ -243,6 +283,24 @@ def test_unset_values_yield_no_template(tmp_path, monkeypatch):
     assert spy.paths == []
 
 
+def test_load_role_template_returns_none_for_unset_values(monkeypatch):
+    """AC2 on the reader API: unset values return None with no stat and no open."""
+    rt = _rt()
+    stats: list[object] = []
+    real_stat = os.stat
+
+    def _stat_spy(path, *a, **kw):
+        stats.append(path)
+        return real_stat(path, *a, **kw)
+
+    spy = _OpenSpy(monkeypatch)
+    monkeypatch.setattr(os, "stat", _stat_spy)
+    for org in ({}, {KEY: None}, {KEY: ""}, None):
+        assert rt.load_role_template(org) is None, org
+    assert stats == []
+    assert spy.paths == []
+
+
 def test_whitespace_only_value_is_missing(tmp_path, monkeypatch):
     """A2."""
     monkeypatch.chdir(tmp_path)
@@ -282,20 +340,26 @@ def test_nonexistent_and_enotdir_are_missing(tmp_path):
     assert "Not a directory" not in str(exc)
 
 
-def test_directory_is_not_regular_file(tmp_path):
-    """A5."""
+def test_directory_is_not_regular_file(tmp_path, monkeypatch):
+    """A5: rejected by the stat pre-filter, so the directory is never opened."""
+    _rt()
+    spy = _OpenSpy(monkeypatch)
     exc = _err(str(tmp_path))
     assert exc.reason == "not_regular_file"
+    assert str(tmp_path) not in spy.paths
 
 
 @pytest.mark.timeout(10)
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="os.mkfifo unavailable")
-def test_fifo_is_not_regular_file_and_never_blocks(tmp_path):
-    """A6: a FIFO with no writer is rejected without blocking."""
+def test_fifo_is_not_regular_file_and_never_blocks(tmp_path, monkeypatch):
+    """A6: a FIFO with no writer is rejected without blocking and never opened."""
     fifo = tmp_path / "role.fifo"
     os.mkfifo(fifo)
+    _rt()
+    spy = _OpenSpy(monkeypatch)
     exc = _err(str(fifo))
     assert exc.reason == "not_regular_file"
+    assert str(fifo) not in spy.paths
 
 
 @pytest.mark.skipif(not Path("/dev/null").exists(), reason="/dev/null absent")
@@ -361,11 +425,19 @@ def test_cap_boundary_and_bytes_not_chars(tmp_path, monkeypatch):
     f.write_bytes(b"a" * 17)
     exc = _err(str(f))
     assert exc.reason == "over_cap"
-    assert "16" in str(exc)
+    assert str(exc).endswith("(17 bytes > 16)"), str(exc)
+
+    # Check order (spec 5.1 steps 8-10): the cap is checked before UTF-8 and NUL.
+    f.write_bytes(b"\xff\x00" + b"a" * 20)
+    assert _err(str(f)).reason == "over_cap"
+    f.write_bytes(b"\xff\x00")
+    assert _err(str(f)).reason == "not_utf8"
 
     monkeypatch.setattr(rt, "ROLE_TEMPLATE_MAX_BYTES", 11)
     f.write_text("é" * 6, encoding="utf-8")  # 6 chars, 12 bytes
-    assert _err(str(f)).reason == "over_cap"
+    exc = _err(str(f))
+    assert exc.reason == "over_cap"
+    assert "12 bytes > 11" in str(exc), str(exc)
 
 
 def test_huge_sparse_file_bounded_memory(tmp_path):
@@ -394,6 +466,80 @@ def test_cap_constant_is_65536():
     assert _rt().ROLE_TEMPLATE_MAX_BYTES == 65_536
 
 
+def test_reason_tokens_and_constants():
+    """Spec 3 / 5.2: exactly the nine reason tokens, in order, and the public constants."""
+    rt = _rt()
+    assert rt.ROLE_TEMPLATE_REASONS == REASONS
+    assert rt.ROLE_TEMPLATE_KEY == KEY
+    assert rt.ERROR_CODE == CODE
+
+
+def test_valid_read_uses_one_fd_and_closes_it(tmp_path, monkeypatch):
+    """Spec 5.1 steps 5-7: one os.open with the required flags, read on that fd, closed."""
+    rt = _rt()
+    role = tmp_path / "role.md"
+    role.write_text("ONE FD ROLE\n", encoding="utf-8")
+    spy = _FdSpy(monkeypatch)
+    assert rt.load_role_template({KEY: str(role)}).content == "ONE FD ROLE\n\n"
+    opens = spy.opens_of(role)
+    assert len(opens) == 1, spy.opened
+    flags, fd = opens[0]
+    assert flags & _REQUIRED_OPEN_FLAGS == _REQUIRED_OPEN_FLAGS, oct(flags)
+    assert flags & os.O_ACCMODE == os.O_RDONLY, oct(flags)
+    assert fd in spy.closed
+
+
+def test_fstat_is_authoritative_after_open(tmp_path, monkeypatch):
+    """Security MUST (spec 5.1 step 6): the fd is re-checked with fstat; a non-regular fd is
+    rejected even though the stat pre-filter saw a regular file; the fd is closed."""
+    rt = _rt()
+    role = tmp_path / "role.md"
+    role.write_text("RACED ROLE\n", encoding="utf-8")
+    spy = _FdSpy(monkeypatch)
+    real_fstat = os.fstat
+
+    def _fstat(fd):
+        if fd in spy.fds_of(role):
+            return os.stat_result((stat.S_IFIFO | 0o644, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+        return real_fstat(fd)
+
+    monkeypatch.setattr(os, "fstat", _fstat)
+    with pytest.raises(rt.RoleTemplateError) as ei:
+        rt.load_role_template({KEY: str(role)})
+    assert ei.value.reason == "not_regular_file"
+    opens = spy.opens_of(role)
+    assert len(opens) == 1, spy.opened
+    flags, fd = opens[0]
+    assert flags & _REQUIRED_OPEN_FLAGS == _REQUIRED_OPEN_FLAGS, oct(flags)
+    assert flags & os.O_ACCMODE == os.O_RDONLY, oct(flags)
+    assert fd in spy.closed
+
+
+def test_read_error_is_unreadable_and_fd_closed(tmp_path, monkeypatch):
+    """Spec 5.1 step 7: an OSError during the read loop -> unreadable, errno name only; fd closed."""
+    rt = _rt()
+    role = tmp_path / "role.md"
+    role.write_text("READ FAILS\n", encoding="utf-8")
+    spy = _FdSpy(monkeypatch)
+    real_read = os.read
+
+    def _read(fd, n):
+        if fd in spy.fds_of(role):
+            raise OSError(errno.EIO, "Input/output error")
+        return real_read(fd, n)
+
+    monkeypatch.setattr(os, "read", _read)
+    with pytest.raises(rt.RoleTemplateError) as ei:
+        rt.load_role_template({KEY: str(role)})
+    assert ei.value.reason == "unreadable"
+    msg = str(ei.value)
+    assert "EIO" in msg
+    assert "Input/output error" not in msg
+    fds = spy.fds_of(role)
+    assert len(fds) == 1, spy.opened
+    assert fds <= set(spy.closed)
+
+
 def test_non_utf8_is_not_utf8_without_byte_leak(tmp_path):
     """A11: strict UTF-8; no offending byte or offset in the message."""
     f = tmp_path / "role.md"
@@ -411,9 +557,9 @@ def test_non_utf8_is_not_utf8_without_byte_leak(tmp_path):
 def test_bom_is_kept_byte_identical_to_old_reader(tmp_path):
     """A12: the UTF-8 BOM is kept (no utf-8-sig), exactly as read_text does."""
     f = tmp_path / "role.md"
-    f.write_bytes("﻿BOM ROLE\n".encode("utf-8"))
+    f.write_bytes("\ufeffBOM ROLE\n".encode("utf-8"))
     rt = _load(str(f))
-    assert rt.content.startswith("﻿")
+    assert rt.content.startswith("\ufeff")
     assert rt.content == _oracle(f)
 
 
@@ -516,6 +662,9 @@ def test_message_truncates_path_and_suppresses_context(tmp_path, monkeypatch):
     long_value = "x" * 300
     exc = _err(long_value)
     msg = str(exc)
+    # A 300-byte component exceeds NAME_MAX (255) on APFS, ext4 and tmpfs.
+    assert exc.reason == "unreadable"
+    assert "ENAMETOOLONG" in msg
     assert long_value[:256] + "..." in msg
     assert long_value[:257] not in msg
     assert exc.path == long_value
@@ -567,6 +716,42 @@ def test_message_is_single_line_ascii_for_hostile_paths(tmp_path, monkeypatch):
         assert exc.path == value
         assert exc.to_result("s").error == msg
     assert _err("a\x00b").reason == "invalid_path"
+
+
+# Spec 5.7: core literals the new module must not carry (split so this file carries none).
+_FORBIDDEN_CORE_LITERALS = (
+    "/" + "Users/", "." + "claude/", "~/." + "claude", "SHA" + "RED/", "MEM" + "ORY.md", "HAL_",
+)
+_ALLOWED_ENGINE_IMPORTS = {"contracts", "bytedigger_engine.contracts"}
+
+
+def test_role_template_module_contract():
+    """Spec 3 / 5.7: `from __future__ import annotations` first; stdlib + contracts only;
+    no forbidden core literals anywhere in the source (docstrings and comments included)."""
+    source = Path(_rt().__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    body = list(tree.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+            and isinstance(body[0].value.value, str):
+        body = body[1:]
+    first = body[0]
+    assert isinstance(first, ast.ImportFrom) and first.module == "__future__", ast.dump(first)
+    assert [a.name for a in first.names] == ["annotations"]
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name.split(".")[0] in sys.stdlib_module_names, alias.name
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                assert node.module == "contracts", (node.level, node.module)
+            else:
+                assert (
+                    node.module.split(".")[0] in sys.stdlib_module_names
+                    or node.module in _ALLOWED_ENGINE_IMPORTS
+                ), node.module
+    for literal in _FORBIDDEN_CORE_LITERALS:
+        assert literal not in source, literal
 
 
 # ---------------------------------------------------------------------------
@@ -739,28 +924,27 @@ def _extract_steps(path: Path, within: str | None = None):
     if within is not None:
         root = _module_defs(tree)[within]
     local_defs = set(_module_defs(tree))
+    rel = path.relative_to(PKG) if PKG in path.parents else path.name
     out = []
     for node in ast.walk(root):
         if not isinstance(node, ast.Call):
             continue
         cname = _call_name(node.func)
+        where = f"{rel}:{node.lineno}"
         if cname == "StepContract":
             expr = _kwarg(node, "execute")
             if expr is None and len(node.args) >= 2:
                 expr = node.args[1]
-            if expr is None:
-                continue
+            assert expr is not None, f"B3: StepContract without a resolvable execute at {where}"
             form = "name"
         elif cname == "step" and isinstance(node.func, ast.Name):
             expr = _kwarg(node, "fn")
             if expr is None and len(node.args) >= 2:
                 expr = node.args[1]
-            if expr is None:
-                continue
+            assert expr is not None, f"B3: step() factory without a resolvable fn at {where}"
             form = "factory"
         else:
             continue
-        where = f"{path.relative_to(PKG)}:{node.lineno}"
         if isinstance(expr, (ast.Name, ast.Attribute)):
             name = _call_name(expr)
             if modname == "contracts" and name in local_defs | {"_execute"}:
@@ -805,8 +989,7 @@ def test_role_template_consumers_match_step_table():
     assert ("phase_45_spec", "_build_review_prompt") in observed
 
     p45_steps = _extract_steps(PKG / "workflows" / "phase_45_spec.py", within="phase_45_spec_workflow")
-    # Spec 5.0 says 22; the workflow registers 21 steps (the 22nd "lambda" in the
-    # function is in a comment), so the count is read from the definition itself.
+    # The workflow registers 21 lambda-form steps; the count is read from the definition itself.
     assert len({t for t, _f, _l in p45_steps}) == len(p45.phase_45_spec_workflow().steps)
     assert sum(1 for _t, f, _l in p45_steps if f == "lambda") >= 2
 
@@ -816,6 +999,40 @@ def test_role_template_consumers_match_step_table():
     assert observed == expected, (
         f"missing: {sorted(expected - observed)}; unexpected: {sorted(observed - expected)}"
     )
+
+
+_UNSUPPORTED_EXECUTE_FORMS = {
+    "partial": "functools.partial(f)",
+    "call": "make()",
+    "ifexp": "f if c else g",
+    "subscript": "fns[0]",
+}
+
+
+# PRE-PASSING GUARD
+@pytest.mark.parametrize("form", sorted(_UNSUPPORTED_EXECUTE_FORMS))
+def test_b3_extractor_fails_loudly_on_unsupported_execute_form(form, tmp_path):
+    """B3 extractor: a new execute form cannot silently drop a step from the observed set."""
+    mod = tmp_path / "synthetic_steps.py"
+    mod.write_text(
+        f'StepContract(name="x", execute={_UNSUPPORTED_EXECUTE_FORMS[form]})\n', encoding="utf-8",
+    )
+    with pytest.raises(AssertionError, match=r"unsupported execute form \w+ at .+:\d+"):
+        _extract_steps(mod)
+
+
+# PRE-PASSING GUARD
+@pytest.mark.parametrize("source", [
+    "StepContract(**kw)\n",
+    'StepContract(name="x")\n',
+    "step(**kw)\n",
+], ids=["contract_kwargs", "contract_no_execute", "factory_kwargs"])
+def test_b3_extractor_fails_loudly_without_resolvable_execute(source, tmp_path):
+    """B3 extractor: a registration whose execute cannot be read is an error, not a skip."""
+    mod = tmp_path / "synthetic_steps.py"
+    mod.write_text(source, encoding="utf-8")
+    with pytest.raises(AssertionError, match=r"without a resolvable \w+ at synthetic_steps\.py:\d+"):
+        _extract_steps(mod)
 
 
 def test_engine_has_no_bare_execute_outside_execute_step():
@@ -1123,6 +1340,55 @@ def test_c_bad_bytes_error_result_not_raise(row, tmp_path, monkeypatch):
     assert "not_utf8" in res.error
 
 
+_STRUCTURED_FINDINGS = (
+    "## Findings (structured)\n```json\n"
+    '[{"id": "F1", "severity": "MAJOR", "path": "build-spec.md", "description": "fix AC3"}]\n'
+    "```\n"
+)
+
+
+def _assert_template_free(res, missing: Path, spy: _OpenSpy) -> None:
+    assert res.status == "ok", (res.error_code, res.error)
+    assert res.data.get("delta_retry") is True, "fixture: the delta-retry early return was not taken"
+    assert res.error_code is None
+    assert CODE not in (res.error or "")
+    assert str(missing) not in spy.paths
+
+
+# PRE-PASSING GUARD
+def test_template_free_p45_delta_retry_ignores_missing_template(tmp_path, monkeypatch):
+    """Spec 5.5: the p45 cycle>=2 delta-retry early return carries no template and never reads it."""
+    scratchpad = tmp_path / "scratch"
+    scratchpad.mkdir()
+    missing = tmp_path / "nope.md"
+    monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
+    ctx = make_ctx(scratchpad, complexity="COMPLEX", **{KEY: str(missing)})
+    spy = _OpenSpy(monkeypatch)
+    res = _run_step(
+        engine_module, StepContract(name="build_spec_prompt", execute=p45._build_spec_prompt),
+        ctx, {"cycle": 2, "findings": _STRUCTURED_FINDINGS},
+    )
+    _assert_template_free(res, missing, spy)
+
+
+# PRE-PASSING GUARD
+def test_template_free_p5_red_delta_retry_ignores_missing_template(tmp_path, monkeypatch):
+    """Spec 5.5: the p5 red delta-retry early return (gate on) carries no template and never reads it."""
+    scratchpad = tmp_path / "scratch"
+    scratchpad.mkdir()
+    missing = tmp_path / "nope.md"
+    monkeypatch.setenv("HAL_IMPL_DELTA_RETRY", "1")
+    monkeypatch.setattr(p5, "_resolve_worktree_root", lambda ctx, sp: tmp_path)
+    monkeypatch.setattr(p5, "_worktree_edit_boundary_block", lambda _root: "")
+    ctx = make_ctx(scratchpad, complexity="COMPLEX", **{KEY: str(missing)})
+    spy = _OpenSpy(monkeypatch)
+    res = _run_step(
+        engine_module, StepContract(name="build_red_prompt", execute=p5._build_red_prompt),
+        ctx, {"cycle": 2, "findings": "F1: fix AC3"},
+    )
+    _assert_template_free(res, missing, spy)
+
+
 # ---------------------------------------------------------------------------
 # D. No content leak
 # ---------------------------------------------------------------------------
@@ -1193,7 +1459,9 @@ def test_error_code_registered_with_bd119_ref():
 def test_error_code_in_both_catalogues():
     """F2."""
     for cat in (ENGINE_PY / "ERROR_CODES.md", PKG / "ERROR_CODES.md"):
-        assert CODE in cat.read_text(encoding="utf-8"), cat
+        text = cat.read_text(encoding="utf-8")
+        assert CODE in text, cat
+        assert "## E_ROLE" in text, cat
 
 
 def _config_doc() -> str:
@@ -1209,6 +1477,10 @@ def test_configuration_doc_documents_key():
     assert "65536" in doc or "64 KiB" in doc
     for reason in REASONS:
         assert reason in doc, reason
+    # Spec 5.6: one sentence that the simple fast path halts and writes no NOT_ASSESSED stub.
+    assert any(
+        "NOT_ASSESSED" in line and "fast" in line.lower() for line in doc.splitlines()
+    ), "configuration.md lacks the fast-path NOT_ASSESSED sentence"
 
 
 # PRE-PASSING GUARD
@@ -1501,6 +1773,25 @@ def test_p2_injections_from_prev_declared_equals_placed(tmp_path):
     assert blocks[0].source_id == rt["source_id"] == str(role)
     assert blocks[0].content == rt["content"]
     assert built.data["prompt"].startswith(rt["content"])
+
+
+def test_p2_template_opened_once_across_build_and_invoke(tmp_path, monkeypatch):
+    """AC12: across build + invoke the template path is opened exactly once (the single fd)."""
+    scratchpad = tmp_path / "scratch"
+    role = tmp_path / "role.md"
+    role.write_text("ONCE ROLE\n", encoding="utf-8")
+    ctx = _p2_ctx(scratchpad, str(role))
+    _register(_CountingBackend())
+    spy = _OpenSpy(monkeypatch)
+    built = p2._build_explore_prompt(ctx, _P2_NOT_SKIPPED)
+    assert built.status == "ok"
+    telemetry_ctx.set_current_run(
+        event_log=_FakeEventLog(), run_id="RUN-BD119-ONCE",
+        step_name="invoke_explore_llm", phase="phase_2_explore",
+    )
+    res = p2._invoke_explore_llm(ctx, built)
+    assert res.status == "ok", (res.error_code, res.error)
+    assert spy.paths.count(str(role)) == 1, spy.paths
 
 
 def test_p2_file_swap_between_build_and_invoke_declares_placed_bytes(tmp_path):
