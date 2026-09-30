@@ -8365,11 +8365,10 @@ def _verify_registered_skills(ctx, prev) -> StepResult:
         _emit_safe("verification_registry_skipped_ambient", {
             "git_cwd_source": source, "summary": report["summary"], "report_path": report_path,
         })
+    if ambient or report["ok"]:
         return StepResult(status="ok", data=data, duration_ms=0, step_name=step_name)
-    if report["ok"]:
-        return StepResult(status="ok", data=data, duration_ms=0, step_name=step_name)
-    failing = [f"{s['name']} ({s['status']})" for s in report["skills"] if s["status"] in verification_registry.FAIL_STATUSES]
-    failing += [f"{e['path']} ({e['reason']})" for e in report["errors"] if e.get("fatal", True)]
+    failing = verification_registry.failing_skill_names(report)
+    failing += [f"{e['path']} ({e['reason']})" for e in verification_registry.blocking_errors(report)]
     return StepResult(
         status="error", data=data, duration_ms=0, step_name=step_name,
         error=f"verification skills failed: {', '.join(failing)}",

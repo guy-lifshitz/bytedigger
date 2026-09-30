@@ -102,8 +102,10 @@ def build_review_json(
     result: ScoreResult,
     review_path: str,
 ) -> dict[str, Any]:
-    """Build the JSON-serialisable `review.json` payload for one review cycle."""
-    ok = result.status == "ok"
+    """Build the JSON-serialisable `review.json` payload for one review cycle.
+
+    `scores` is non-empty only when `result.status == "ok"`.
+    """
     return {
         "schema": 1,
         "cycle": cycle,
@@ -111,8 +113,8 @@ def build_review_json(
         "verdict": verdict,
         "verdict_before_scores": verdict_before_scores,
         "scores_status": result.status,
-        "scores": dict(result.scores) if ok else None,
+        "scores": dict(result.scores) or None,
         "reason": result.reason,
-        "min_score": min(result.scores.values()) if ok and result.scores else None,
+        "min_score": min(result.scores.values()) if result.scores else None,
         "low_axes": low_axes(result),
     }

@@ -193,7 +193,8 @@ no tracked file. `phases/phase-5-implement.md` points to it after GREEN.
   rule "any axis below 3 means your verdict MUST be REVISE, and `## Findings (structured)`
   MUST contain at least one `root: \"spec\"` finding naming that axis" (so a REVISE driven by a
   score always hands the writer something actionable — DesignReview F11).
-- **Chokepoint `_apply_review_scores(result, raw, cycle, review_path, *, may_downgrade)
+- **Chokepoint `_apply_review_scores(result, raw, cycle, review_path, *, early)` (it derives
+  `may_downgrade = not early and not is_frozen` itself; /simplify moved the policy into the chokepoint)
   -> StepResult`** in `phase_45_spec.py`, called on BOTH exits of `_write_review_doc` when
   `result.status == "ok"` and `result.data` has `verdict`: the main result with
   `may_downgrade = not result.data.get("is_frozen")` (a frozen spec is hand-reviewed; one

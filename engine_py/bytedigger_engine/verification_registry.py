@@ -13,14 +13,20 @@ Public API:
   parse_frontmatter(text) -> dict | None
   discover(repo_root, extra_dirs=()) -> Registry        (reads files only)
   run_registry(repo_root, *, extra_dirs=(), timeout_sec=300, execute=True) -> dict
+  blocking_errors(report) -> list[dict]      (fatal `errors[]` rows)
+  failing_skill_names(report) -> list[str]   (skills whose status is in FAIL_STATUSES)
   head_registry_tampered(repo_root, extra_dirs=()) -> list[str]
   verify_main(argv) -> int   (`python3 -m bytedigger_engine.run verify ...`)
 
 Discovery roots: `<repo>/skills`, `<repo>/.claude/skills`, then each `extra_dirs`
 entry (repo-relative), one level deep (`<root>/*/SKILL.md`). Every git call runs with
 GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE / GIT_OBJECT_DIRECTORY removed from its env.
-Commands never run through a shell; on timeout the whole process group is killed.
-Stdlib only, emits no telemetry.
+Commands never run through a shell; the whole process group is killed after every
+command (and on timeout).
+
+Stdlib only, on purpose: this is a core module that also backs a standalone CLI
+(`run verify`), so it does not use `lib.git_port` / `lib.bounded_spawn` and pulls
+in no engine state. It emits no telemetry; its callers do.
 Spec: docs/decisions/2026-09-30-bd115-verification-registry-spec-scores.md.
 """
 from __future__ import annotations
@@ -37,6 +43,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -202,38 +209,80 @@ def _error(path: str, reason: str, *, fatal: bool = True) -> dict[str, Any]:
     return {"path": path, "reason": reason, "fatal": fatal}
 
 
-def _roots(
-    repo: Path, extra_dirs: Iterable[str],
-) -> tuple[list[tuple[str, Path, bool]], list[dict[str, Any]]]:
-    """Return ([(repo-relative display root, path, is_default)], errors), de-duplicated by resolved path."""
+def _roots(repo: Path, extra_dirs: Iterable[str]) -> tuple[list[tuple[str, Path]], list[dict[str, Any]]]:
+    """Return ([(repo-relative display root, path)], errors), de-duplicated by resolved path.
+
+    Default roots come first, so an `extra_dirs` entry equal to one is dropped and
+    the root keeps its default status (membership in `_DEFAULT_ROOTS`).
+    """
     errors: list[dict[str, Any]] = []
-    candidates: list[tuple[str, Path, bool]] = [(r, repo / r, True) for r in _DEFAULT_ROOTS]
+    candidates: list[tuple[str, Path]] = [(r, repo / r) for r in _DEFAULT_ROOTS]
     for entry in extra_dirs:
         resolved = (repo / str(entry)).resolve()
         if not _inside(resolved, repo):
             errors.append(_error(str(entry), "outside_repo"))
             continue
         rel = resolved.relative_to(repo).as_posix()
-        candidates.append(("" if rel == "." else rel, resolved, False))
-    roots: list[tuple[str, Path, bool]] = []
+        candidates.append(("" if rel == "." else rel, resolved))
+    roots: list[tuple[str, Path]] = []
     seen: set[Path] = set()
-    for rel, path, is_default in candidates:
+    for rel, path in candidates:
         key = path.resolve()
-        if key in seen:
-            continue
-        seen.add(key)
-        roots.append((rel, path, is_default))
+        if key not in seen:
+            seen.add(key)
+            roots.append((rel, path))
     return roots, errors
 
 
-def _registered(fm: dict[str, Any] | None) -> dict[str, str] | None:
-    """The metadata map of a verifying skill, else None."""
-    if fm is None:
-        return None
-    meta = fm.get("metadata")
+_REGISTERED, _UNSUPPORTED, _NOT_REGISTERED = "registered", "unsupported", "not_registered"
+
+
+def _classify(text: str) -> tuple[str, dict[str, Any], dict[str, str]]:
+    """Classify a SKILL.md: (status, frontmatter, metadata).
+
+    status is `_REGISTERED` (metadata.verification is true), `_UNSUPPORTED`
+    (unreadable metadata declaring `verification`) or `_NOT_REGISTERED`.
+    """
+    try:
+        fm = parse_frontmatter(text)
+    except FrontmatterError:
+        return _UNSUPPORTED, {}, {}
+    meta = (fm or {}).get("metadata")
     if not isinstance(meta, dict) or meta.get("verification") not in _TRUE_VALUES:
-        return None
-    return meta
+        return _NOT_REGISTERED, fm or {}, {}
+    return _REGISTERED, fm or {}, meta
+
+
+def _load_skill(
+    repo: Path, root_rel: str, child: Path, seen_files: set[Path],
+) -> tuple[Skill | None, dict[str, Any] | None]:
+    """Read one `<root>/<child>/SKILL.md`: (skill or None, error row or None)."""
+    md = child / "SKILL.md"
+    if not md.is_file():
+        return None, None
+    rel = posixpath.join(root_rel, child.name, "SKILL.md")
+    resolved = md.resolve()
+    if not _inside(child.resolve(), repo) or not _inside(resolved, repo):
+        non_fatal = root_rel in _DEFAULT_ROOTS and child.is_symlink()
+        return None, _error(rel, "outside_repo", fatal=not non_fatal)
+    if resolved in seen_files:
+        return None, None
+    seen_files.add(resolved)
+    try:
+        text = md.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, _error(rel, "unreadable")
+    status, fm, meta = _classify(text)
+    if status == _UNSUPPORTED:
+        return None, _error(rel, "unsupported_frontmatter")
+    if status != _REGISTERED:
+        return None, None
+    fm_name = fm.get("name")
+    name = fm_name if isinstance(fm_name, str) and fm_name else child.name
+    command = meta.get("verify_command")
+    if isinstance(command, str) and command != "":
+        return Skill(name=name, path=rel, kind="command", verify_command=command), None
+    return Skill(name=name, path=rel, kind="agent"), None
 
 
 def discover(repo_root: str | os.PathLike[str], extra_dirs: Sequence[str] = ()) -> Registry:
@@ -242,7 +291,7 @@ def discover(repo_root: str | os.PathLike[str], extra_dirs: Sequence[str] = ()) 
     roots, errors = _roots(repo, extra_dirs)
     skills: list[Skill] = []
     seen_files: set[Path] = set()
-    for root_rel, root, is_default in roots:
+    for root_rel, root in roots:
         if not root.is_dir():
             continue
         try:
@@ -250,37 +299,11 @@ def discover(repo_root: str | os.PathLike[str], extra_dirs: Sequence[str] = ()) 
         except OSError:
             continue
         for child in children:
-            md = child / "SKILL.md"
-            if not md.is_file():
-                continue
-            rel = posixpath.join(root_rel, child.name, "SKILL.md") if root_rel else posixpath.join(child.name, "SKILL.md")
-            resolved = md.resolve()
-            if not _inside(child.resolve(), repo) or not _inside(resolved, repo):
-                errors.append(_error(rel, "outside_repo", fatal=not (is_default and child.is_symlink())))
-                continue
-            if resolved in seen_files:
-                continue
-            seen_files.add(resolved)
-            try:
-                text = md.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                errors.append(_error(rel, "unreadable"))
-                continue
-            try:
-                fm = parse_frontmatter(text)
-            except FrontmatterError:
-                errors.append(_error(rel, "unsupported_frontmatter"))
-                continue
-            meta = _registered(fm)
-            if fm is None or meta is None:
-                continue
-            fm_name = fm.get("name")
-            name = fm_name if isinstance(fm_name, str) and fm_name else child.name
-            command = meta.get("verify_command")
-            if isinstance(command, str) and command != "":
-                skills.append(Skill(name=name, path=rel, kind="command", verify_command=command))
-            else:
-                skills.append(Skill(name=name, path=rel, kind="agent"))
+            skill, error = _load_skill(repo, root_rel, child, seen_files)
+            if skill is not None:
+                skills.append(skill)
+            if error is not None:
+                errors.append(error)
     skills.sort(key=lambda s: (s.name, s.path))
     errors.sort(key=lambda e: e["path"])
     return Registry(skills=tuple(skills), errors=tuple(errors))
@@ -303,26 +326,23 @@ def _git(args: Sequence[str], cwd: Path, index_file: str | None = None) -> subpr
         return None
 
 
-def _is_toplevel(repo: Path) -> bool:
-    """True iff `repo` is a git work tree and is its top level."""
-    r = _git(["rev-parse", "--show-toplevel"], repo)
-    if r is None or r.returncode != 0:
-        return False
-    top = r.stdout.decode("utf-8", errors="replace").strip()
-    return bool(top) and Path(top).resolve() == repo
-
-
-def _tree_snapshot(repo: Path) -> str | None:
-    """Tree id of the whole work tree (tracked + untracked, .gitignore respected).
-
-    Built through a temp copy of the index so the real index is never touched.
-    """
-    r = _git(["rev-parse", "--git-path", "index"], repo)
+def _toplevel_index(repo: Path) -> Path | None:
+    """The real index path iff `repo` is a git work tree AND its top level, else None."""
+    r = _git(["rev-parse", "--show-toplevel", "--git-path", "index"], repo)
     if r is None or r.returncode != 0:
         return None
-    index = Path(r.stdout.decode("utf-8", errors="replace").strip())
-    if not index.is_absolute():
-        index = repo / index
+    lines = r.stdout.decode("utf-8", errors="replace").splitlines()
+    if len(lines) != 2 or not lines[0] or Path(lines[0]).resolve() != repo:
+        return None
+    index = Path(lines[1])
+    return index if index.is_absolute() else repo / index
+
+
+def _tree_snapshot(repo: Path, index: Path) -> str | None:
+    """Tree id of the whole work tree (tracked + untracked, .gitignore respected).
+
+    Built through a temp copy of `index` so the real index is never touched.
+    """
     with tempfile.TemporaryDirectory(prefix="bd-verify-") as td:
         tmp_index = str(Path(td) / "index")
         try:
@@ -357,13 +377,14 @@ def _kill_group(pgid: int) -> None:
 
 
 def _run_command(
-    skill: Skill, repo: Path, timeout_sec: float, before: str | None,
+    skill: Skill, repo: Path, index: Path, timeout_sec: float, before: str | None,
 ) -> tuple[dict[str, Any], str | None]:
     """Run one command skill between two tree snapshots; never raises.
 
     `before` is a snapshot already known to be current (chained from the previous
     command) or None to take one. Returns (row, snapshot reusable as the next
-    `before` or None).
+    `before` or None). The row stays `error` unless the command ran and both
+    snapshots were taken; `exit_code` None means the command timed out.
     """
     row = _row(skill, "error")
     try:
@@ -373,45 +394,42 @@ def _run_command(
     if not argv:
         return row, before
     if before is None:
-        before = _tree_snapshot(repo)
+        before = _tree_snapshot(repo, index)
     if before is None:
         return row, None
-    t0 = time.monotonic()
-    timed_out = False
     rc: int | None = None
-    with tempfile.TemporaryFile() as out:
-        try:
-            proc = subprocess.Popen(
-                argv, cwd=str(repo), stdin=subprocess.DEVNULL, stdout=out,
-                stderr=subprocess.STDOUT, start_new_session=True,
-            )
-        except (OSError, ValueError):
-            row["duration_ms"] = int((time.monotonic() - t0) * 1000)
-            return row, before
-        try:
-            rc = proc.wait(timeout=timeout_sec)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+    t0 = time.monotonic()
+    try:
+        with tempfile.TemporaryFile() as out:
+            try:
+                proc = subprocess.Popen(
+                    argv, cwd=str(repo), stdin=subprocess.DEVNULL, stdout=out,
+                    stderr=subprocess.STDOUT, start_new_session=True,
+                )
+            except (OSError, ValueError):
+                return row, before
+            try:
+                rc = proc.wait(timeout=timeout_sec)
+            except subprocess.TimeoutExpired:
+                _kill_group(proc.pid)
+                proc.wait()
+            # Always reap the group: a background grandchild must not outlive the
+            # check or change the tree after the post-snapshot.
             _kill_group(proc.pid)
-            proc.wait()
-        # Always reap the group: a background grandchild must not outlive the check
-        # or change the tree after the post-snapshot.
-        _kill_group(proc.pid)
+            out.seek(0)
+            row["output_tail"] = out.read().decode("utf-8", errors="replace")[-OUTPUT_TAIL_CHARS:]
+    finally:
         row["duration_ms"] = int((time.monotonic() - t0) * 1000)
-        out.seek(0)
-        text = out.read().decode("utf-8", errors="replace")
-    row["output_tail"] = text[-OUTPUT_TAIL_CHARS:]
-    row["exit_code"] = None if timed_out else rc
-    after = _tree_snapshot(repo)
-    if after is None:
-        row["status"] = "error"
-    elif after != before:
-        row["status"] = "mutated"
-    elif timed_out:
-        row["status"] = "timeout"
-    else:
-        row["status"] = "pass" if rc == 0 else "fail"
-    return row, (after if after is not None and after == before else None)
+    row["exit_code"] = rc
+    after = _tree_snapshot(repo, index)
+    if after is not None:
+        if after != before:
+            row["status"] = "mutated"
+        elif rc is None:
+            row["status"] = "timeout"
+        else:
+            row["status"] = "pass" if rc == 0 else "fail"
+    return row, (after if after == before else None)
 
 
 def run_registry(
@@ -429,39 +447,47 @@ def run_registry(
     repo = Path(repo_root).resolve()
     reg = discover(repo, extra_dirs)
     errors: list[dict[str, Any]] = [dict(e) for e in reg.errors]
-    runnable = execute and any(s.kind == "command" for s in reg.skills)
+    index: Path | None = None
     snapshot: str | None = None
-    if runnable and _is_toplevel(repo):
-        snapshot = _tree_snapshot(repo)  # the probe doubles as the first `before`
-    git_ok = runnable and snapshot is not None
-    if runnable and not git_ok:
-        errors.append(_error(".", "not_a_git_repo"))
+    if execute and any(s.kind == "command" for s in reg.skills):
+        index = _toplevel_index(repo)
+        # The probe snapshot doubles as the first command's `before`.
+        snapshot = _tree_snapshot(repo, index) if index is not None else None
+        if snapshot is None:  # not a work tree, not its top level, or no snapshot: run nothing
+            errors.append(_error(".", "not_a_git_repo"))
+            index = None
     rows: list[dict[str, Any]] = []
     for skill in reg.skills:
         if not execute:
             rows.append(_row(skill, "listed"))
         elif skill.kind == "agent":
             rows.append(_row(skill, "agent"))
-        elif not git_ok:
+        elif index is None:
             rows.append(_row(skill, "error"))
         else:
-            row, snapshot = _run_command(skill, repo, timeout_sec, snapshot)
+            row, snapshot = _run_command(skill, repo, index, timeout_sec, snapshot)
             rows.append(row)
     errors.sort(key=lambda e: e["path"])
-    failed = sum(1 for r in rows if r["status"] in FAIL_STATUSES)
-    summary = {
-        "total": len(rows),
-        "pass": sum(1 for r in rows if r["status"] == "pass"),
-        "fail": failed,
-        "agent": sum(1 for r in rows if r["status"] == "agent"),
-    }
-    return {
+    counts = Counter(r["status"] for r in rows)
+    failed = sum(counts[s] for s in FAIL_STATUSES)
+    report: dict[str, Any] = {
         "schema": 1,
         "skills": rows,
         "errors": errors,
-        "summary": summary,
-        "ok": failed == 0 and not any(e.get("fatal", True) for e in errors),
+        "summary": {"total": len(rows), "pass": counts["pass"], "fail": failed, "agent": counts["agent"]},
     }
+    report["ok"] = failed == 0 and not blocking_errors(report)
+    return report
+
+
+def blocking_errors(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """The fatal `errors[]` rows of a report (a row without `fatal` counts as fatal)."""
+    return [e for e in report.get("errors", []) if e.get("fatal", True)]
+
+
+def failing_skill_names(report: dict[str, Any]) -> list[str]:
+    """Names of the report's skills whose status is in `FAIL_STATUSES`."""
+    return [s["name"] for s in report.get("skills", []) if s["status"] in FAIL_STATUSES]
 
 
 # ─── tamper guard (phase 5) ──────────────────────────────────────────────────
@@ -474,38 +500,30 @@ def head_registry_tampered(repo_root: str | os.PathLike[str], extra_dirs: Sequen
     `repo_root`, which may be a subdirectory of the work tree) that registers a
     verifying skill or carries an unreadable `metadata` block mentioning
     `verification`. Added skills are never reported. Returns [] when there is no HEAD.
+
+    One `git diff --name-only HEAD` over the roots finds the tracked paths that differ
+    from HEAD (modified or deleted); only those SKILL.md blobs are read and classified.
     """
     repo = Path(repo_root).resolve()
     roots, _errors = _roots(repo, extra_dirs)
-    root_rels = [rel for rel, _path, _default in roots]
+    root_rels = [rel for rel, _path in roots]
     specs = [rel or "." for rel in root_rels]
-    listing = _git(["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", *specs], repo)
-    if listing is None or listing.returncode != 0:
+    changed = _git(["diff", "--name-only", "--relative", "-z", "HEAD", "--", *specs], repo)
+    if changed is None or changed.returncode != 0:
         return []
-    tampered: list[str] = []
-    for raw_path in listing.stdout.decode("utf-8", errors="replace").split("\0"):
-        if not raw_path or not raw_path.endswith("/SKILL.md"):
+    tampered: set[str] = set()
+    for rel_path in changed.stdout.decode("utf-8", errors="replace").split("\0"):
+        if not rel_path.endswith("/SKILL.md"):
             continue
-        parent = posixpath.dirname(posixpath.dirname(raw_path))
-        if parent not in root_rels:
+        if posixpath.dirname(posixpath.dirname(rel_path)) not in root_rels:
             continue
-        blob = _git(["show", f"HEAD:./{raw_path}"], repo)
+        blob = _git(["show", f"HEAD:./{rel_path}"], repo)
         if blob is None or blob.returncode != 0:
-            continue
-        try:
-            registered = _registered(parse_frontmatter(blob.stdout.decode("utf-8", errors="replace"))) is not None
-        except FrontmatterError:
-            registered = True
-        if not registered:
-            continue
-        work = repo / raw_path
-        try:
-            unchanged = work.is_file() and work.read_bytes() == blob.stdout
-        except OSError:
-            unchanged = False
-        if not unchanged:
-            tampered.append(raw_path)
-    return sorted(set(tampered))
+            continue  # not in HEAD: an added skill
+        status, _fm, _meta = _classify(blob.stdout.decode("utf-8", errors="replace"))
+        if status != _NOT_REGISTERED:
+            tampered.add(rel_path)
+    return sorted(tampered)
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────

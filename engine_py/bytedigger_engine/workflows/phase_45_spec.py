@@ -70,6 +70,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -136,7 +137,6 @@ from bytedigger_engine.presence_triad import scan_presence_triad  # noqa: E402  
 from bytedigger_engine.format_conversion_cases import scan_format_conversion  # noqa: E402  GH559
 from bytedigger_engine import facts_pack, spec_cite  # noqa: E402  bd#86
 from bytedigger_engine import spec_review_score  # noqa: E402  bd#115
-from dataclasses import replace as _dc_replace  # noqa: E402  bd#115
 from bytedigger_engine import ac_dsl  # noqa: E402  GH517 A2 — module-attr import so monkeypatch(ac_dsl, "admit", ...) works
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib.git_port import git_read  # noqa: E402
@@ -4479,20 +4479,38 @@ def _review_doc_emit_citation_grounding(raw: str, verdict: str) -> None:
         _emit_safe("citation_grounding_count_missing", {"verdict": verdict})
 
 
+def _append_downgrade_section(
+    review_path: Path, raw: str, low_axes: list[str], scores: dict[str, int],
+) -> None:
+    """Rewrite the review doc as `raw` plus a `## Score downgrade` section naming each
+    low axis and its score, so the retrying writer sees why the verdict is REVISE."""
+    section = (
+        "\n\n## Score downgrade\n\n"
+        f"Verdict is REVISE (reviewer said SHIP): axes scored below {spec_review_score.LOW_SCORE}:\n"
+        + "".join(f"- {axis}: {scores[axis]}\n" for axis in low_axes)
+    )
+    try:
+        atomic_write(review_path, raw.rstrip("\n") + section)
+    except OSError as exc:
+        logger.warning("score downgrade section not written: %s", exc)
+
+
 def _apply_review_scores(
-    result: StepResult, raw: str, cycle: int, review_path: Path, *, may_downgrade: bool,
+    result: StepResult, raw: str, cycle: int, review_path: Path, *, early: bool,
 ) -> StepResult:
     """bd#115 chokepoint: the one place a review verdict meets its axis scores.
 
     Parses the `## Scores` block, writes `specs/review.json` (cycle 1) or
     `specs/review-cycle-<N>.json` next to the review doc, and returns `result`
     with `verdict` (possibly downgraded) and `review_json_path` added to `data`.
-    A SHIP with a low axis becomes REVISE only when `may_downgrade`; absent or
-    invalid scores never change the verdict.
+    A SHIP with a low axis becomes REVISE unless the review is the record-only
+    cycle-2 `early` exit or the spec is frozen; absent or invalid scores never
+    change the verdict.
     """
     data = result.data if isinstance(result.data, dict) else None
     if result.status != "ok" or data is None or "verdict" not in data:
         return result
+    may_downgrade = not early and not data.get("is_frozen")
     before = data["verdict"]
     parsed = spec_review_score.parse_scores(raw)
     low = spec_review_score.low_axes(parsed)
@@ -4505,14 +4523,7 @@ def _apply_review_scores(
         if may_downgrade:
             verdict = VERDICT_REVISE
             _emit_safe("spec_review_score_downgrade", {"cycle": cycle, "low_axes": low})
-            section = "\n\n## Score downgrade\n\nVerdict is REVISE (reviewer said SHIP): axes scored below " + (
-                f"{spec_review_score.LOW_SCORE}:\n"
-                + "".join(f"- {axis}: {parsed.scores[axis]}\n" for axis in low)
-            )
-            try:
-                atomic_write(review_path, review_path.read_text(encoding="utf-8").rstrip("\n") + section)
-            except OSError as exc:
-                logger.warning("score downgrade section not written: %s", exc)
+            _append_downgrade_section(review_path, raw, low, parsed.scores)
         elif data.get("is_frozen"):
             _emit_safe("spec_review_score_low_frozen", {"cycle": cycle, "low_axes": low})
     name = "review.json" if cycle <= 1 else f"review-cycle-{cycle}.json"
@@ -4546,7 +4557,7 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
 
     early_result = _write_review_doc_cycle2_result(raw, cycle, review_path, prev)
     if early_result is not None:
-        return _apply_review_scores(early_result, raw, cycle, review_path, may_downgrade=False)
+        return _apply_review_scores(early_result, raw, cycle, review_path, early=True)
 
     _review_doc_emit_findings_compliance(raw, cycle)
 
@@ -4588,9 +4599,7 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
         duration_ms=0,
         step_name="write_review_doc",
     )
-    return _apply_review_scores(
-        result, raw, cycle, review_path, may_downgrade=not result.data.get("is_frozen"),
-    )
+    return _apply_review_scores(result, raw, cycle, review_path, early=False)
 
 
 # ─── hal#1600 D3: task_description prohibition gate ─────────────────────
