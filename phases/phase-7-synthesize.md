@@ -89,6 +89,8 @@ If `--pr` flag was passed in the build invocation:
    - **`required: true`** (readiness policy, read in Phase 0): STOP. Set `current_phase: awaiting_approval` and `awaiting_stage: ship`, keep `build-state.yaml` and `build-metadata.json`, skip State Cleanup. Print the verdict line from ship.sh's stderr and, for `no_spec_record` / `label_predates_spec`, the recovery: `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue` (re-runs only this SHIP step, then the rest of Phase 7).
    - **`required: false`**: log warning, continue synthesis (SHIP is best-effort, not a gate)
 
+ship.sh ships every commit ahead of the base plus tracked changes (no hand-maintained file list needed), and writes the PR title and body from the spec and the review fields in `build-state.yaml`.
+
 **State log:** `ship_complete: true|false | ship_pr_url: <url>`
 
 ## State Cleanup
@@ -99,6 +101,8 @@ If `--pr` flag was passed in the build invocation:
 - Delete `build-green-output.log` from CWD if it exists (TDD GREEN phase artifact)
 - Delete `build-opus-validation.md` from CWD if it exists (Opus validation artifact)
 - Delete `build-plan-review.md` from CWD if it exists (Phase 4.5 plan review artifact)
+- Delete `build-*-cycle*.md` from CWD if it exists (per-cycle plan review / Opus validation copies)
+- Delete `.bytedigger-sessions.json` from CWD if it exists (Phase 0.5 session file)
 - Delete `build-metadata.json` from CWD if it exists (build metadata — on FAILED, keep for `/build continue`)
 - Delete scratchpad transient subdirs only (preserves `.bytedigger/learnings/` for future builds):
   ```bash

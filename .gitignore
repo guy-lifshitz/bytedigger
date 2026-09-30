@@ -9,6 +9,8 @@ build-architecture.md
 build-review-*.md
 build-opus-validation.md
 build-plan-review.md
+build-*-cycle*.md
+.bytedigger-sessions.json
 build-test-integrity-review.md
 .bytedigger/
 .bytedigger/gate-shadow/

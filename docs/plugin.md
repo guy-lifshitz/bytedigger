@@ -206,9 +206,18 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 | `scripts/learning-store.sh` | Learning-store dispatcher — selects file or sqlite backend, `exec`s delegate |
 | `scripts/learning-store-sqlite.sh` | SQLite learning-store delegate — inject/extract backed by sqlite3 CLI |
 | `scripts/ship.sh` | SHIP protocol — commit, push, open PR after build |
+| `scripts/ship_pr_text.py` | PR title and body for `ship.sh` — spec H1, Scope / Follow-ups sections, review fields from `build-state.yaml` (stdlib-only, Python ≥ 3.9) |
 | `scripts/security-scan.sh` | Security scan runner for Phase 0.5 |
 | `scripts/post-deploy.sh` | Post-deploy cleanup (prune branches, temp files, merged worktrees) |
 | `hooks/build-state-guard.sh` | Blocks deletion of build-state.yaml mid-pipeline |
+
+**What ship.sh ships.** Every commit ahead of the base (`@{upstream}`, else `refs/bd/policy`), plus the paths in `files_modified`, plus every tracked file with an unstaged change (modified or deleted). Untracked files ship only when listed in `files_modified`; other untracked files are reported in one `WARNING: untracked files not shipped` line. Sensitive paths (`.env*`, `*.pem`, `*.key`, `*.credentials*`, …) are skipped. It can run from any subdirectory (it works from the work-tree root, so `files_modified` paths are root-relative), and it refuses, before the readiness check and without consuming an approval, a missing state file, a detached HEAD, unmerged paths, and tracked deletions combined with untracked files that would not ship (`ERROR: tracked deletions with untracked files not shipped: …`; commit them or list them in `files_modified`). Accepted risks:
+
+- Tracked changes ship whatever made them, including edits that were in the checkout before the build; each is announced by a `STAGE (tracked change): <path>` line. FEATURE/COMPLEX builds run in a worktree; SIMPLE/TRIVIAL builds on a dirty checkout are the exposure.
+- `@{upstream}` is tried first: after a kill between push and `pr create`, a re-run sees nothing ahead and opens no PR (open it by hand).
+- Copied spec sections are Markdown on GitHub: closing keywords (`Closes #N`) and `@mentions` in them take effect.
+- Submodule pointer changes count as tracked changes; a directory listed in `files_modified` is staged recursively.
+- Of the PR body's state fields, the phases write `plan_review`, `plan_review_concerns`, `opus_validation` and `review_satisfaction`; the others appear when the orchestrator records them.
 
 ## Hooks
 

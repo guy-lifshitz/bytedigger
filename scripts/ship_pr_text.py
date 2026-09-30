@@ -1,0 +1,434 @@
+#!/usr/bin/env python3
+"""ship_pr_text.py — PR title and body for scripts/ship.sh (bd#131).
+
+Usage:
+  ship_pr_text.py title --state <build-state.yaml> [--repo <dir>] [--base <ref>]
+  ship_pr_text.py body  --state <build-state.yaml>
+
+`title` prints one line (spec H1, project `<prefix>:` convention, at most 72
+characters; the task string when there is no usable spec). `body` prints the
+PR body: spec Scope / Follow-ups sections and the review fields of the state
+file, ending with the fixed line and the provenance marker. Stdlib-only,
+Python >= 3.9. ship.sh falls back to the task string on any failure here.
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+
+FIXED = "Built via ByteDigger /build pipeline."
+# Same literal as readiness.BUILT_MARKER in engine_py/bytedigger_engine/readiness.py.
+MARKER = "<!-- bd:built -->"
+TRUNC = "(truncated; see build-spec.md)"
+BODY_LIMIT = 60000  # UTF-8 bytes
+VALUE_LIMIT = 2000  # UTF-8 bytes per one-line state value
+TITLE_LIMIT = 72
+# Twin of _is_sensitive in scripts/ship.sh: keep the basename list in sync (a test compares them).
+# The directory rules (node_modules/, .bytedigger/) are in _sensitive_spec_path below.
+SENSITIVE_PATTERNS = (".env", ".env.*", "*.env", "*.env.*", "*.pem", "*.key", "*.credentials*")
+
+MARKER_RE = re.compile(r"<!--\s*bd:")
+BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?[0-9]*$")
+MAP_LINE_RE = re.compile(r"^[ \t]+([^\s:#][^:]*?):(?:[ \t]+(.*))?$")
+FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`+|~+)[ \t]*$")
+KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
+ITEM_RE = re.compile(r"^[ \t]*-[ \t]+(.*)$")
+HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
+SCOPE_RE = re.compile(r"\bscope\b", re.I)
+FOLLOWUP_RE = re.compile(r"follow-?ups?", re.I)
+PREFIX_RE = re.compile(r"^([^\s:]+):\s")
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+# --------------------------------------------------------------------------- state
+
+
+def _unquote(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        return v[1:-1]
+    return v
+
+
+def _parse_inline(rest):
+    """A value on the key line: scalar (str), flow list (list) or flow map (str)."""
+    v = rest.strip()
+    if v.startswith("["):
+        try:
+            data = json.loads(v)
+        except ValueError:
+            data = None
+        if isinstance(data, list):
+            items = [str(x).strip() for x in data]
+        else:
+            inner = v[1:-1] if v.endswith("]") else v[1:]
+            items = [p.strip(" \t'\"") for p in inner.split(",")]
+        return [x for x in items if x]
+    if v.startswith("{"):
+        return (v[1:-1] if v.endswith("}") else v[1:]).strip()
+    return _unquote(v)
+
+
+def _parse_block(block, allow_structure):
+    """Indented lines under a key: `- x` lines -> list, `k: v` lines -> 'k: v, k2: v2',
+    anything else (and every `|` / `>` block) -> the lines joined with one space."""
+    if allow_structure and block and ITEM_RE.match(block[0]):
+        items = [_unquote(m.group(1)) for m in map(ITEM_RE.match, block) if m]
+        return [x for x in items if x]
+    if allow_structure and block and MAP_LINE_RE.match(block[0]):
+        pairs = []
+        for ln in block:
+            m = MAP_LINE_RE.match(ln)
+            if m:
+                val = _unquote(m.group(2) or "")
+                pairs.append("{}: {}".format(m.group(1).strip(), val) if val else m.group(1).strip())
+        return ", ".join(pairs)
+    return " ".join(ln.strip() for ln in block if ln.strip())
+
+
+def parse_state(text):
+    """Top-level `key:` lines only; the last occurrence of a key wins."""
+    lines = text.splitlines()
+    out = {}
+    i, n = 0, len(lines)
+    while i < n:
+        m = KEY_RE.match(lines[i])
+        i += 1
+        if not m:
+            continue
+        key, rest = m.group(1), m.group(2).strip()
+        if rest == "" or BLOCK_SCALAR_RE.match(rest):
+            block = []
+            while i < n:
+                if not lines[i].strip():
+                    i += 1
+                elif lines[i][0] in " \t" or ITEM_RE.match(lines[i]):
+                    block.append(lines[i])
+                    i += 1
+                else:
+                    break
+            out[key] = _parse_block(block, rest == "")
+        else:
+            out[key] = _parse_inline(rest)
+    return out
+
+
+def get_text(state, key):
+    v = state.get(key)
+    if v is None:
+        return None
+    if isinstance(v, list):
+        v = ", ".join(v)
+    v = v.strip()
+    return v or None
+
+
+def get_items(state, key):
+    v = state.get(key)
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return [x for x in v if x.strip()]
+    return [v] if v.strip() else []
+
+
+def normalise(s):
+    return " ".join(CONTROL_RE.sub(" ", s).split())
+
+
+def oneline(s):
+    s = normalise(s)
+    b = s.encode("utf-8")
+    if len(b) > VALUE_LIMIT:
+        s = b[:VALUE_LIMIT].decode("utf-8", "ignore") + " …"
+    return s
+
+
+# --------------------------------------------------------------------------- spec
+
+
+def _clean(lines):
+    """Drop every rendered line that carries a `<!-- bd:` marker (one place for spec and state content)."""
+    return [ln for ln in lines if not MARKER_RE.search(ln)]
+
+
+def _sensitive_spec_path(path):
+    """ship.sh's sensitivity rules: basename patterns, plus node_modules/ and .bytedigger/ anywhere."""
+    parts = path.replace("\\", "/").split("/")
+    if "node_modules" in parts[:-1] or ".bytedigger" in parts[:-1]:
+        return True
+    return any(fnmatch.fnmatchcase(parts[-1], pat) for pat in SENSITIVE_PATTERNS)
+
+
+def read_spec(state_path, state):
+    """The spec text, or None (no spec, sensitive basename, not a regular file, unreadable)."""
+    state_dir = os.path.dirname(os.path.abspath(state_path))
+    sp = get_text(state, "spec_path") or "build-spec.md"
+    if _sensitive_spec_path(sp):
+        return None
+    path = os.path.join(state_dir, sp)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "rb") as fh:
+            return fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def _scan(lines):
+    """Yield (index, line, in_fence); fence marker lines count as in a fence."""
+    fence = None  # (char, length) of the open fence (CommonMark)
+    for idx, line in enumerate(lines):
+        if fence is None:
+            m = FENCE_OPEN_RE.match(line)
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = (m.group(1)[0], len(m.group(1)))
+                yield idx, line, True
+            else:
+                yield idx, line, False
+        else:
+            m = FENCE_CLOSE_RE.match(line)
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1]:
+                fence = None
+            yield idx, line, True
+
+
+def spec_h1(lines):
+    """(index, normalised text) of the first `# ` line outside a fence, or (None, '')."""
+    for idx, line, in_fence in _scan(lines):
+        if not in_fence and line.startswith("# "):
+            return idx, normalise(line[2:])
+    return None, ""
+
+
+def spec_sections(lines, title_idx):
+    """(scope_sections, followup_sections): lists of line lists, in spec order."""
+    heads = []
+    for idx, line, in_fence in _scan(lines):
+        if in_fence:
+            continue
+        m = HEADING_RE.match(line)
+        if m:
+            heads.append((idx, len(m.group(1)), m.group(2)))
+    scope, follow = [], []
+    covered = 0
+    for pos, (idx, level, text) in enumerate(heads):
+        if idx == title_idx or idx < covered:
+            continue
+        if SCOPE_RE.search(text):
+            target = scope
+        elif FOLLOWUP_RE.search(text):
+            target = follow
+        else:
+            continue
+        end = len(lines)
+        for nidx, nlevel, _ in heads[pos + 1:]:
+            if nlevel <= level:
+                end = nidx
+                break
+        covered = end
+        sec = _clean(lines[idx:end])
+        while sec and not sec[-1].strip():
+            sec.pop()
+        if sec:
+            target.append(sec)
+    return scope, follow
+
+
+# --------------------------------------------------------------------------- title
+
+
+def _commit_prefix(repo, base):
+    """The shared `<P>` of every subject in base..HEAD, or None."""
+    try:
+        proc = subprocess.run(
+            ["git", "-c", "core.quotePath=false", "log", "--format=%s", base + "..HEAD", "--"],
+            cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    subjects = [s for s in proc.stdout.decode("utf-8", "replace").splitlines() if s.strip()]
+    prefixes = set()
+    for s in subjects:
+        m = PREFIX_RE.match(s)
+        if not m:
+            return None
+        prefixes.add(m.group(1))
+    return prefixes.pop() if len(prefixes) == 1 else None
+
+
+def build_title(state_path, state, repo, base):
+    task = normalise(get_text(state, "task") or "") or "unnamed-build"
+    candidate = ""
+    text = read_spec(state_path, state)
+    if text is not None:
+        candidate = spec_h1(text.splitlines())[1]
+    if not candidate:
+        candidate = task
+    if base:
+        prefix = _commit_prefix(repo, base)
+        if prefix:
+            rest = candidate
+            if candidate.startswith(prefix) and (
+                len(candidate) == len(prefix) or candidate[len(prefix)] in ": —–-"
+            ):
+                rest = re.sub(r"^[\s:—–-]+", "", candidate[len(prefix):])
+            if rest:
+                candidate = prefix + ": " + rest
+    if len(candidate) > TITLE_LIMIT:
+        cut = candidate[: TITLE_LIMIT + 1].rfind(" ")
+        head = candidate[:cut] if cut > 0 else candidate[:TITLE_LIMIT]
+        head = head.rstrip(" ,;:—–-")
+        candidate = head or candidate[:TITLE_LIMIT]
+    return candidate
+
+
+# --------------------------------------------------------------------------- body
+
+
+class Cut:
+    """A block of lines that may be cut from the end when the body is too big."""
+
+    def __init__(self, lines, trunc=TRUNC):
+        self.lines = lines
+        self.keep = len(lines)
+        self.trunc = trunc
+
+    def out(self):
+        res = self.lines[: self.keep]
+        if self.keep < len(self.lines):
+            res.append(self.trunc)
+        return res
+
+
+def _review_line(state, label, key, suffix_key=None, suffix_fmt="({})"):
+    verdict = get_text(state, key)
+    if verdict is None:
+        return None
+    line = "- {}: {}".format(label, oneline(verdict))
+    extra = get_text(state, suffix_key) if suffix_key else None
+    if extra:
+        line += " " + suffix_fmt.format(oneline(extra))
+    return line
+
+
+def build_body(state_path, state):
+    scope_secs, follow_secs = [], []
+    text = read_spec(state_path, state)
+    if text is not None:
+        lines = text.splitlines()
+        title_idx, _ = spec_h1(lines)
+        scope_secs, follow_secs = spec_sections(lines, title_idx)
+
+    def bullets(prefix, *keys):
+        return _clean([prefix + oneline(x) for key in keys for x in get_items(state, key)])
+
+    plan = _clean([ln for ln in [
+        _review_line(state, "Plan review", "plan_review", "plan_review_cycles", "({} cycles)")] if ln])
+    plan_line = plan[0] if plan else None
+    other_review = _clean([ln for ln in (
+        _review_line(state, "Test validation (Opus)", "opus_validation", "opus_validation_cycles", "({} cycles)"),
+        _review_line(state, "Reviewers", "phase_6_reviewer_verdicts"),
+        _review_line(state, "Satisfaction", "review_satisfaction", "phase_6_satisfaction"),
+    ) if ln])
+
+    scope_cuts = [Cut(s) for s in scope_secs]
+    follow_cuts = [Cut(s) for s in follow_secs]
+    fu_lines = bullets("- ", "follow_ups", "pre_existing_findings")
+    item_cut = Cut(fu_lines) if fu_lines else None
+    # Concerns are children of the Plan review line: dropped without it
+    concern_lines = bullets("  - ", "plan_review_concerns") if plan_line else []
+    concern_cut = Cut(concern_lines, "  " + TRUNC) if concern_lines else None
+
+    def join(cuts):
+        res = []
+        for c in cuts:
+            if res:
+                res.append("")
+            res.extend(c.out())
+        return res
+
+    def render():
+        blocks = []
+        if scope_cuts:
+            blocks.append(["## Scope", ""] + join(scope_cuts))
+        review = []
+        if plan_line:
+            review.append(plan_line)
+            if concern_cut:
+                review.extend(concern_cut.out())
+        review.extend(other_review)
+        if review:
+            blocks.append(["## Review", ""] + review)
+        fu = item_cut.out() if item_cut else []
+        secs = join(follow_cuts)
+        if fu or secs:
+            blocks.append(["## Follow-ups", ""] + fu + ([""] if fu and secs else []) + secs)
+        out = []
+        for b in blocks:
+            out.extend(b)
+            out.append("")
+        out.extend([FIXED, MARKER])
+        return "\n".join(out) + "\n"
+
+    def fits():
+        return len(render().encode("utf-8")) <= BODY_LIMIT
+
+    def shrink(cut):
+        lo, hi, best = 0, len(cut.lines) - 1, 0
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            cut.keep = mid
+            if fits():
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        cut.keep = best
+
+    # Cut order: spec Follow-ups, Scope, state follow-up items, plan concerns
+    for cut in [*reversed(follow_cuts), *reversed(scope_cuts), item_cut, concern_cut]:
+        if cut and not fits():
+            shrink(cut)
+    return render()
+
+
+# --------------------------------------------------------------------------- main
+
+
+def _emit(text):
+    sys.stdout.buffer.write(text.encode("utf-8"))
+    sys.stdout.buffer.flush()
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ship_pr_text.py")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    t = sub.add_parser("title")
+    t.add_argument("--state", required=True)
+    t.add_argument("--repo", default=".")
+    t.add_argument("--base", default=None)
+    b = sub.add_parser("body")
+    b.add_argument("--state", required=True)
+    args = ap.parse_args(argv)
+
+    with open(args.state, "rb") as fh:
+        state = parse_state(fh.read().decode("utf-8", "replace"))
+    if args.cmd == "title":
+        _emit(build_title(args.state, state, args.repo, args.base) + "\n")
+    else:
+        _emit(build_body(args.state, state))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
