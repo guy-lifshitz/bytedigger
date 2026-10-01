@@ -6801,12 +6801,15 @@ def _log_validation_reject(prev, gate_verdict: str, cycle: int, reason_code: str
     """
     try:
         from bytedigger_engine import reject_log
+        structured = prev.data.get("structured_verdict")
         reject_log.record_validation_reject(
             gate_verdict,
             cycle,
             prev.data.get("validation_raw", "") or "",
             reason_code,
             validation_doc_path=prev.data.get("validation_doc_path"),
+            reject_reason=getattr(structured, "reject_reason", None),
+            verdict_category=getattr(structured, "verdict_category", None),
         )
     except Exception:  # noqa: BLE001
         logger.warning("validation reject log failed", exc_info=True)

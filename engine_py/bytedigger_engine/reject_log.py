@@ -160,12 +160,35 @@ def record_plan_review_reject(
     )
 
 
-_FINDINGS_HEAD_RE = re.compile(
-    r"^#{2,4}\s+SEVERITY:\s*(?:CRITICAL|HIGH)\s*[—-]\s*(.+?)\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 _FINDINGS_HEAD_MAX = 5
 _FINDINGS_HEAD_CHARS = 120
+_BULLET_RE = re.compile(r"^\s*[-*]\s+(.+?)\s*$", re.MULTILINE)
+_GAP_RE = re.compile(r"(?:→|->)\s*(?:missing|partial)\b", re.IGNORECASE)
+
+
+def _section_bullets(text: str, heading: str) -> list[str]:
+    """Return bullet texts of the `## <heading>` section (up to the next `## `)."""
+    m = re.search(
+        r"^## " + re.escape(heading) + r"[ \t]*\n(.*?)(?=^## |\Z)",
+        text,
+        re.IGNORECASE | re.MULTILINE | re.DOTALL,
+    )
+    if m is None:
+        return []
+    return _BULLET_RE.findall(m.group(1))
+
+
+def _findings_head(reject_reason: object, findings_text: object) -> list[str]:
+    """Structured reject_reason, Spec Compliance missing|partial bullets, Quality Findings bullets."""
+    items: list[str] = []
+    if isinstance(reject_reason, str) and reject_reason.strip():
+        items.append(reject_reason.strip())
+    if isinstance(findings_text, str):
+        items.extend(b for b in _section_bullets(findings_text, "Spec Compliance") if _GAP_RE.search(b))
+        items.extend(
+            b for b in _section_bullets(findings_text, "Quality Findings") if b.strip().lower() != "none"
+        )
+    return [t[:_FINDINGS_HEAD_CHARS] for t in items][:_FINDINGS_HEAD_MAX]
 
 
 def record_validation_reject(
@@ -175,6 +198,8 @@ def record_validation_reject(
     reason_code: str | None = None,
     *,
     validation_doc_path: str | None = None,
+    reject_reason: str | None = None,
+    verdict_category: str | None = None,
     path: Path | None = None,
 ) -> None:
     """Record a phase_5 validation-gate rejection (bd#139 op2).
@@ -182,16 +207,12 @@ def record_validation_reject(
     verdict is the canonical gate verdict (never PASS on a reject).
     reason_code defaults to VALIDATION_UNKNOWN for an UNKNOWN verdict, else
     VALIDATION_FAILED; callers pass VALIDATION_SPEC_DEFECT explicitly.
-    findings_head: titles of the first <=5 CRITICAL/HIGH finding headers.
+    findings_head: <=5 items (<=120 chars) from the structured reject_reason,
+    Spec Compliance missing|partial bullets, then Quality Findings bullets.
     """
     if reason_code is None:
         reason_code = "VALIDATION_UNKNOWN" if str(verdict).upper() == "UNKNOWN" else "VALIDATION_FAILED"
-    head: list[str] = []
-    if isinstance(findings_text, str):
-        head = [
-            m.group(1)[:_FINDINGS_HEAD_CHARS]
-            for m in _FINDINGS_HEAD_RE.finditer(findings_text)
-        ][:_FINDINGS_HEAD_MAX]
+    head = _findings_head(reject_reason, findings_text)
     emit_reject_reason(
         "phase_5_implement",
         reason_code,
@@ -200,6 +221,7 @@ def record_validation_reject(
             "cycle": cycle,
             "verdict": verdict,
             "findings_head": head,
+            "verdict_category": verdict_category,
             "validation_doc_path": validation_doc_path,
         },
         path=path,
