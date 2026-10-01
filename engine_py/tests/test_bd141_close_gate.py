@@ -521,6 +521,22 @@ def test_G19_latch_oserror_other_than_exists_still_fires(tmp_path: Path) -> None
     assert "Traceback" not in proc.stderr, f"G19: traceback on stderr: {proc.stderr[-300:]!r}"
 
 
+def test_G19b_state_dir_is_regular_file_fires_every_run(tmp_path: Path) -> None:
+    """G19b: --state-dir itself an existing regular file -> every run fires, exit 0."""
+    spec = _spec(tmp_path)
+    state_file = tmp_path / "state_is_a_file"
+    state_file.write_text("x", encoding="utf-8")
+    transcript = tmp_path / "t.jsonl"
+    _write_jsonl(transcript, _transcript(_bashes(10), "Done."))
+    args = ("--transcript", str(transcript), "--spec", str(spec),
+            "--state-dir", str(state_file), "--run-id", "r")
+    for n in (1, 2):
+        v = _verdict(_cli(*args), f"G19b-run{n}")
+        # Red if: FileExistsError from mkdir on the file path was read as "already latched"
+        # (run 1 or 2 returns clear) instead of a latch failure that still fires.
+        assert v["outcome"] == "fire" and v["calls"] == 10, f"G19b run {n}: {v!r}"
+
+
 def test_G20_malformed_lines_are_skipped_not_counted(tmp_path: Path) -> None:
     """G20: junk lines interleaved in a firing fixture -> fire, calls == 10."""
     spec = _spec(tmp_path)
@@ -537,7 +553,8 @@ def test_G20_malformed_lines_are_skipped_not_counted(tmp_path: Path) -> None:
     transcript.write_text("\n".join(mixed) + "\n", encoding="utf-8")
     proc = _cli("--transcript", str(transcript), "--spec", str(spec))
     v = _verdict(proc, "G20")
-    # Red if: a bad line crashed the reader or was counted as a call.
+    # Red if: a bad line crashed the reader (rc!=0 / traceback) or a malformed assistant
+    # line (no tool_use block anywhere) shifted the count away from the 10 real Bash calls.
     assert v["outcome"] == "fire" and v["calls"] == 10, f"G20: {v!r}"
     assert "Traceback" not in proc.stderr, "G20: traceback on stderr"
 
@@ -581,18 +598,22 @@ def test_G22_blocks_are_counted_not_entries(tmp_path: Path) -> None:
 # Direct calls to the chokepoint API
 # --------------------------------------------------------------------------
 
-def test_evaluate_direct_call_returns_verdict(tmp_path: Path) -> None:
-    """evaluate(): the chokepoint returns the verdict dict without the CLI."""
+def test_G23_evaluate_direct_call_returns_verdict(tmp_path: Path) -> None:
+    """G23: evaluate() returns the verdict dict, equal to the CLI JSON for the same fixture."""
     spec = _spec(tmp_path)
     cg = _cg()
-    v = cg.evaluate(_transcript(_bashes(10), "Done."), str(spec))
+    entries = _transcript(_bashes(10), "Done.")
+    cli_v = _run(tmp_path, entries, spec, label="G23-cli")
+    # Red if: the CLI computed its verdict outside evaluate() so the two diverge.
+    assert dict(cg.evaluate(entries, str(spec))) == cli_v, "G23: evaluate() != CLI JSON"
+    v = cg.evaluate(entries, str(spec))
     # Red if: the logic lived only in main() (no evaluate) or the Verdict shape differed.
     assert dict(v) == {"outcome": "fire", "phrase": "Done", "calls": 10, "threshold": 10}, f"{v!r}"
     v3 = cg.evaluate(_transcript(_bashes(2), "Done."), str(spec), threshold=3)
     assert dict(v3) == {"outcome": "clear", "phrase": "Done", "calls": 2, "threshold": 3}, f"{v3!r}"
 
 
-def test_latch_direct_call_true_then_false(tmp_path: Path) -> None:
+def test_G23_latch_direct_call_true_then_false(tmp_path: Path) -> None:
     """latch(): True when it creates the file, False on the same run id afterwards."""
     cg = _cg()
     state = tmp_path / "a" / "b"
