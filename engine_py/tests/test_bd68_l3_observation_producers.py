@@ -130,14 +130,17 @@ def test_ac5_observable_requirements_have_producers_and_registry_is_current():
     )
 
 
-def test_ac6_r33_partial_observability_is_declared():
-    """D4: `observed_model` is written only in-session — this is declared, not hidden."""
+def test_ac6_r33_is_observable_on_both_paths():
+    """bd#141 item 4(e) inverted this (was: R3.3 partial observability declared).
+
+    `observed_model` is now written by `_invoke_subprocess` as well as
+    `_invoke_in_session`, so the registry has drained."""
     bd_l3 = _bd_l3()
-    assert "R3.3" in bd_l3.AWAITING_PRODUCER, (
-        "R3.3 is observable for one backend only — while that holds, it must be "
-        "listed as pending rather than passed off as fully observable"
+    assert "R3.3" not in bd_l3.AWAITING_PRODUCER, (
+        "bd#141 4(e): _invoke_subprocess now produces observed_model — R3.3 must "
+        "leave AWAITING_PRODUCER"
     )
-    assert _producers("observed_model") == 1
+    assert _producers("observed_model") == 2
 
 
 # ─── AC7/AC8: the neighbouring contract and the surface ──────────────────
