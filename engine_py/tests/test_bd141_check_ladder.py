@@ -1,6 +1,6 @@
 """RED tests for bd#141 item 3 -- check ladder (``check_ladder``).
 
-Spec: docs/decisions/2026-10-01-bd141-check-ladder.md (ACs L1-L19, r2 / RED rev2).
+Spec: docs/decisions/2026-10-01-bd141-check-ladder.md (ACs L1-L19, r3 / RED rev3).
 
 The module under test does not exist yet. Every AC reaches it through a real
 ``python -m bytedigger_engine.check_ladder`` subprocess or a lazy ``_cl()`` import
@@ -102,6 +102,8 @@ def test_L1_constants() -> None:
     assert cl.RUNGS == ("script", "classifier", "llm", "gate")
     assert cl.OUTCOMES == ("reject", "escalate")
     assert cl.MODES == ("shadow", "enforce")
+    assert cl.DEFAULT_THRESHOLD == 0.9
+    assert cl.DEFAULT_TIMEOUT_S == 30
 
 
 def test_L2_no_path_returns_approve(tmp_path: Path) -> None:
@@ -248,8 +250,10 @@ def test_L9_classifier_statuses(tmp_path: Path) -> None:
         r = run(_fake(tmp_path, f"bad_{key}", out=out))
         assert r["status"] == "error", f"L9: {key} must be error, got {r['status']}"
         assert r["label"] is None, f"L9: {key} label must be None"
+        assert r["rc"] == 0, f"L9: {key} exit-0 parse error must carry rc 0, got {r['rc']!r}"
     r = run(_fake(tmp_path, "empty"))
     assert r["status"] == "error", "L9: no stdout line must be error"
+    assert r["rc"] == 0, "L9: exit-0 with no stdout line must carry rc 0"
 
     r = run(_fake(tmp_path, "ok", out=_ans("reject", 0.7, reasons=["a", "b"], cost_usd=0.04)))
     assert r["status"] == "ok" and r["label"] == "reject" and r["confidence"] == 0.7
@@ -262,6 +266,8 @@ def test_L9_classifier_statuses(tmp_path: Path) -> None:
         assert r["status"] == "ok" and r["cost_usd"] is None, f"L9: cost {key}"
     r = run(_fake(tmp_path, "reasons_bad", out=_ans("pass", 0.5, reasons="nope")))
     assert r["status"] == "ok" and r["reasons"] == []
+    r = run(_fake(tmp_path, "reasons_mixed", out=_ans("pass", 0.5, reasons=[1, "a"])))
+    assert r["status"] == "ok" and r["reasons"] == [], "L9: non-str reasons element -> []"
 
 
 def test_L9_first_non_empty_line_is_used(tmp_path: Path) -> None:
@@ -307,6 +313,26 @@ def test_L11_argument_validation() -> None:
     for kw in bad_calls:
         with pytest.raises(ValueError):
             cl.prescreen(gate_input="g", **kw)
+
+
+def test_L11_value_error_spawns_no_classifier(tmp_path: Path) -> None:
+    """L11/op2: validation precedes any spawn; a ValueError leaves the side-effect file absent."""
+    cl = _cl()
+    bad_kwargs = [
+        dict(mode="block"),
+        dict(threshold=1.5),
+        dict(timeout_s=0),
+        dict(findings=[_f(severity="BLOCKER")]),
+        dict(findings="not a list"),
+    ]
+    for i, extra in enumerate(bad_kwargs):
+        flag = tmp_path / f"spawned_{i}"
+        cmd = _fake(tmp_path, f"ok_{i}", out=_ans("pass", 0.5), spawn_file=flag)
+        kw: dict = dict(findings=[], classifier_cmd=cmd, mode="shadow")
+        kw.update(extra)
+        with pytest.raises(ValueError):
+            cl.prescreen(gate_input="g", **kw)
+        assert not flag.exists(), f"L11: classifier spawned despite ValueError for {extra!r}"
 
 
 # --------------------------------------------------------------------------
@@ -383,7 +409,8 @@ def test_L13_cli_usage_errors_rc2(tmp_path: Path) -> None:
 def test_L14_cli_log_journal(tmp_path: Path) -> None:
     """L14: --log creates dir, appends one line per run, no gate text, reasons -> int."""
     secret = "SECRET-SPEC-TEXT-12345"
-    gate = _gate_file(tmp_path, secret + "\n")
+    gate = tmp_path / "gate_crlf.txt"
+    gate.write_bytes((secret + "\r\nline2\r\n").encode("utf-8"))  # CRLF: hash must be of raw bytes
     cmd = _fake(tmp_path, "rr", out=_ans("reject", 0.8, reasons=[secret, "second"]))
     log = tmp_path / "newdir" / "sub" / "journal.jsonl"
     args = ["prescreen", "--gate-input", str(gate), "--classifier-cmd", json.dumps(cmd),
@@ -488,16 +515,31 @@ def _assert_same_as_baseline(kw: dict, base: dict, what: str) -> None:
         f"{what}: extra_data differs from baseline beyond the prescreen key")
 
 
+def _assert_gate_result_passthrough(result: Any, call: dict, what: str) -> None:
+    """The returned result is exactly what the fake gate built for this call."""
+    assert result.status == "ok", f"{what}: status"
+    assert result.step_name == "invoke_validation_llm", f"{what}: step_name"
+    assert result.data == {"raw_response": "VERDICT: PASS\n", **call["extra_data"]}, (
+        f"{what}: the pre-screen must not rewrite the gate result")
+
+
 def _events(events: list) -> list[dict]:
     return [p for (t, p) in events if t == "prescreen_verdict"]
 
 
-@pytest.mark.parametrize("cfg", [_ABSENT, "x", None, [], {}, {"timeout_s": 5}],
-                         ids=["absent", "str", "none", "list", "empty-dict", "no-classifier-cmd"])
+@pytest.mark.parametrize("cfg", [_ABSENT, "x", None, [], {}, {"timeout_s": 5},
+                                 {"classifier_cmd": None}],
+                         ids=["absent", "str", "none", "list", "empty-dict", "no-classifier-cmd",
+                              "classifier-cmd-none"])
 def test_L16_no_prescreen_config_is_byte_for_byte_today(tmp_path: Path, monkeypatch, cfg) -> None:
     """L16: no/invalid-shape prescreen config -> no event, no key, kwargs == no-config baseline."""
     base = _baseline(monkeypatch, tmp_path, "PROMPT-A")
     assert base["prompt"] == "PROMPT-A" and base["hard_gate"] is True
+    p5 = _p5()
+    assert base["model"] == p5._default_validation_model()
+    assert base["gate_label"] == "validation"
+    assert base["allowed_tools"] == ["Read", "Grep", "Glob", "Bash(graphify-shim.sh:*)"]
+    assert base["timeout_sec"] == p5._resolve_validation_timeout_sec({"complexity": "SIMPLE"})
     assert "prescreen" not in base["extra_data"]
     assert set(base["extra_data"]) == {"doc_path", "spec_path", "red_log_path",
                                        "red_test_paths", "cycle", "red_commit_sha"}
@@ -526,7 +568,7 @@ def test_L17_shadow_call_event_and_gate_still_runs(tmp_path: Path, monkeypatch, 
     cmd = _fake(tmp_path, "rej", out=_ans("reject", 1.0, reasons=["quote of spec"], cost_usd=0.04),
                 stdin_file=seen)
     cfg = {"classifier_cmd": cmd, "timeout_s": 20, **extra_cfg}
-    _result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-B", prescreen=cfg)
+    result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-B", prescreen=cfg)
 
     evs = _events(events)
     assert len(evs) == 1, f"L17: exactly one prescreen_verdict event, got {len(evs)}"
@@ -544,7 +586,8 @@ def test_L17_shadow_call_event_and_gate_still_runs(tmp_path: Path, monkeypatch, 
     pre = calls[0]["extra_data"]["prescreen"]
     assert pre["outcome"] == "escalate"
     assert "reasons" not in pre["classifier"]
-    payload = json.loads(seen.read_text(encoding="utf-8"))
+    _assert_gate_result_passthrough(result, calls[0], "L17")
+    payload =json.loads(seen.read_text(encoding="utf-8"))
     assert payload["gate_input"] == "PROMPT-B" and payload["findings"] == []
 
 
@@ -570,10 +613,12 @@ def test_L17b_prescreen_reject_verdict_does_not_skip_gate(tmp_path: Path, monkey
     cl = _cl()  # fails inside the body while the module does not exist
     called: list[dict] = []
 
+    stub = {"outcome": "reject", "rung": "script", "mode": "shadow",
+            "findings": [_f()], "classifier": {**_off_classifier(), "reasons": None}}
+
     def fake_prescreen(**kw: Any) -> dict:
         called.append(kw)
-        return {"outcome": "reject", "rung": "script", "mode": "shadow",
-                "findings": [_f()], "classifier": _off_classifier()}
+        return stub
 
     monkeypatch.setattr(cl, "prescreen", fake_prescreen)
     cmd = _fake(tmp_path, "unused", out=_ans("pass", 0.5))
@@ -584,9 +629,18 @@ def test_L17b_prescreen_reject_verdict_does_not_skip_gate(tmp_path: Path, monkey
     assert called[0].get("gate_input") == "PROMPT-D" and called[0].get("classifier_cmd") == cmd
     assert len(calls) == 1, "L17b(a): reject verdict must not skip or replace the Opus call"
     _assert_same_as_baseline(calls[0], base, "L17b(a)")
+    assert called[0].get("timeout_s") == cl.DEFAULT_TIMEOUT_S, (
+        "L17b(a): config without timeout_s -> DEFAULT_TIMEOUT_S passed to prescreen")
     evs = _events(events)
-    assert len(evs) == 1 and set(evs[0]) == _EVENT_KEYS and evs[0]["outcome"] == "reject"
-    assert result.status == "ok"
+    assert len(evs) == 1
+    assert evs[0] == {"outcome": "reject", "rung": "script", "mode": "shadow",
+                      "classifier_status": "off", "classifier_label": None,
+                      "classifier_confidence": None, "classifier_ms": 0, "cost_usd": None,
+                      "cycle": 1, "phase": 5}
+    expected_pre = {**stub, "classifier": {k: v for k, v in stub["classifier"].items()
+                                           if k != "reasons"}}
+    assert calls[0]["extra_data"]["prescreen"] == expected_pre
+    _assert_gate_result_passthrough(result, calls[0], "L17b(a)")
 
 
 def test_L17b_prescreen_raising_is_config_error(tmp_path: Path, monkeypatch) -> None:

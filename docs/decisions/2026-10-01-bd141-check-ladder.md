@@ -1,6 +1,6 @@
 # bd#141 item 3 — check ladder: a pre-screen rung in front of the validation gate
 
-**Status: r2 (gate r1 REJECTED: 4 MAJOR + 7 MINOR fixed, see `2026-10-01-bd141-check-ladder-gate-r1.md`)** · **Tier:** 3 (one new engine prod `.py` module + a shadow call in
+**Status: r3 (gate r2 APPROVED; r3 applies its 7 MINOR advisories)** (r1 REJECTED: 4 MAJOR + 7 MINOR fixed, see `2026-10-01-bd141-check-ladder-gate-r{1,2}.md`) · **Tier:** 3 (one new engine prod `.py` module + a shadow call in
 `workflows/phase_5_implement.py`, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `check_ladder.prescreen` — the one function that turns (script findings, gate input
 text, classifier config) into a pre-screen verdict. The CLI, the phase-5 shadow call and every host
@@ -59,7 +59,7 @@ Statuses: `off`, `skipped`, `ok`, `error`, `timeout`.
 6. Exit 0: the first non-empty stdout line must parse as a JSON object with `label` in
    `{"reject", "pass"}` and `confidence` a finite real number (not bool, `math.isfinite`) in `[0, 1]`.
    Optional `reasons` (list of str; anything else → `[]`), optional `cost_usd` (finite non-negative
-   real, not bool; anything else, including `Infinity`/`NaN` → `None`). Valid → `status="ok"`. Anything else (no line, not JSON, not an object, unknown
+   real, not bool; anything else, including `Infinity`/`NaN` → `None`). Valid → `status="ok"`. `rc = 0` for every exit-0 result (`ok` and parse-`error`). A `reasons` list with any non-str element → `[]`. Anything else (no line, not JSON, not an object, unknown
    label — including `"approve"` — bad confidence) → `status="error"`, `label=None`.
 7. `ms` is wall time of the spawn in integer milliseconds (≥ 0) for every non-`off` status.
 8. Never raises.
@@ -73,6 +73,8 @@ Argument validation (raises `ValueError`, the CLI maps it to rc 2): `mode` not i
 bool); `classifier_cmd` not `None` and not a non-empty list whose elements are all str; `findings`
 not a list; a finding that is not a dict,
 or whose `rule`/`detail` is not a str, or whose `severity` is not `MAJOR`/`MINOR`.
+
+All validation happens before any spawn: a `ValueError` means no classifier process was started.
 
 Steps:
 1. `majors` = findings with `severity == "MAJOR"`, in input order.
@@ -105,7 +107,7 @@ argv), `--mode shadow|enforce` (default shadow), `--threshold F` (default 0.9),
   unreadable gate-input or findings file, findings not valid JSON / not a list, `--classifier-cmd`
   not a non-empty JSON array of strings, any op2 `ValueError`.
 - `--log`: appends one line `{"ts": <UTC ISO-8601 with Z>, "verdict": <verdict>, "gate_input_sha256":
-  <hex of the UTF-8 bytes>}` with a single `O_APPEND` write; parent dir created. The journal holds no
+  <hex of the raw gate-input file bytes>}` with a single `O_APPEND` write; parent dir created. The journal holds no
   gate-input text and no classifier `reasons` (they may quote spec text) — `classifier.reasons` is
   replaced by its length (`"reasons": <int>`) in the logged copy only. A journal I/O error is reported
   on stderr and does not change stdout or the exit code.
@@ -123,12 +125,18 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
 2. Emit one event `prescreen_verdict` via `_emit_safe` with payload
    with exactly the keys `{"outcome", "rung", "mode", "classifier_status", "classifier_label",
    "classifier_confidence", "classifier_ms", "cost_usd", "cycle", "phase"}` (`phase` = 5) — no
-   gate input, no reasons. `cost_usd` is the classifier's (token-ledger
+   gate input, no reasons. The payload is a pure projection of the verdict `prescreen` returned
+   (`classifier_status/label/confidence/ms` from `verdict["classifier"]`, `cost_usd` from
+   `verdict["classifier"]["cost_usd"]`); the op4.5 literals apply only to config-error. Exactly one
+   event per `_invoke_validation_llm` call when configured (the success event or the config-error
+   event, never both). `cost_usd` is the classifier's (token-ledger
    input; `derive_state` aggregation is out of scope).
 3. Add `"prescreen": <verdict without classifier.reasons>` to `extra_data`.
 4. The Opus call is made exactly as before: every `invoke_llm_subprocess` kwarg is equal to the
    no-config call (`prompt`, `model`, `timeout_sec`, `step_name`, `hard_gate`, `gate_label`,
-   `allowed_tools`, `stable_prefix`), and `extra_data` differs only by the added `prescreen` key. The phase-5
+   `allowed_tools`, `stable_prefix`), and `extra_data` differs only by the added `prescreen` key.
+   The pre-screen never rewrites the gate result: `_invoke_validation_llm` returns what it returned
+   before for the same `invoke_llm_subprocess` result. The phase-5
    call is **shadow-only in this PR**; `org_config["prescreen"]["mode"]` is ignored here (enforce on
    the gate path comes after the shadow recall measurement, hal-v2#2264: recall ≥ 90 % on the
    mechanical class).
@@ -138,12 +146,12 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
    `classifier_label`, `classifier_confidence`, `classifier_ms`, `cost_usd` all `None`; `extra_data`
    gets **no** `prescreen` key; the Opus call still runs with the baseline kwargs.
 6. `org_config["prescreen"]` that is not a dict (`"x"`, `None`, `[]`) or a dict without
-   `classifier_cmd` → silent no-op (no event, no key).
+   `classifier_cmd`, or with `classifier_cmd: None` → silent no-op (no event, no key).
 
 ## §3 Acceptance criteria
 
 - **L1** `RUNGS == ("script","classifier","llm","gate")`, `OUTCOMES == ("reject","escalate")`,
-  `MODES == ("shadow","enforce")`.
+  `MODES == ("shadow","enforce")`, `DEFAULT_THRESHOLD == 0.9`, `DEFAULT_TIMEOUT_S == 30`.
 - **L2** No path returns an approve: over every combination of {no findings, MINOR only, MAJOR} ×
   {off, ok-pass, ok-reject high/low conf, error, timeout} × {shadow, enforce}, `outcome ∈ OUTCOMES`.
 - **L3** MAJOR finding → `reject`/`script`, `findings` = only the MAJORs in order, both modes.
@@ -161,7 +169,7 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
   sleep past `timeout_s` → `timeout` within `timeout_s + 5` s; non-JSON line → `error`;
   `label "approve"` → `error`; confidence `1.5` / `true` / `"0.9"` / `NaN` → `error`; valid → `ok`;
   `cost_usd` passed through when valid, `None` when negative/bool/string/`Infinity`; `reasons`
-  non-list → `[]`. `off` (cmd `None`): every field except `status` and `ms` is `None`, `ms == 0`.
+  non-list → `[]`, `reasons` `[1, "a"]` → `[]`; `rc == 0` for exit-0 parse errors. `off` (cmd `None`): every field except `status` and `ms` is `None`, `ms == 0`.
 - **L10** classifier error/timeout in enforce with no MAJOR → `escalate` (fail-open).
 - **L11** `prescreen` `ValueError` on: bad mode, threshold 1.5 / `True`, timeout 0 / `True`, finding
   missing `rule`, severity `"BLOCKER"`, `classifier_cmd` = `[]` / `"python"` / `["a", 1]`.
@@ -178,7 +186,10 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
   rc 0, stderr non-empty.
 - **L16** phase-5, no `prescreen` config, and `prescreen` = `"x"` / `None` / `[]` / `{}`:
   `invoke_llm_subprocess` called once, no `prescreen` key in `extra_data`, no `prescreen_verdict`
-  event. The kwargs of these runs are the **baseline** for L17/L17b/L18.
+  event; also `{"classifier_cmd": None}`. The kwargs of these runs are the **baseline** for
+  L17/L17b/L18, anchored to `model == _default_validation_model()`, `gate_label == "validation"`,
+  `allowed_tools == ["Read","Grep","Glob","Bash(graphify-shim.sh:*)"]`, `timeout_sec ==
+  _resolve_validation_timeout_sec(<cfg>)`.
 - **L17** phase-5 with `prescreen.classifier_cmd` = a real fake classifier answering `reject` conf 1.0:
   one `prescreen_verdict` event with `outcome "escalate"`, `classifier_status "ok"`; the LLM call
   still happens once with kwargs equal to the baseline (all kwargs; `extra_data` equal after removing
@@ -188,7 +199,10 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
 - **L17b** phase-5 with a valid config and `check_ladder.prescreen` substituted (monkeypatched module
   attribute) by (a) a function returning `{"outcome": "reject", "rung": "script", ...}` and (b) a
   function raising `RuntimeError`: in both the Opus call runs exactly once with the baseline kwargs
-  (for (a) `extra_data` minus `prescreen`); (b) emits `config-error` per op4.5.
+  (for (a) `extra_data` minus `prescreen`); (b) emits `config-error` per op4.5. (a) asserts the full
+  projected payload, `extra_data["prescreen"]` == the stub minus `classifier.reasons`, the stub got
+  `timeout_s == DEFAULT_TIMEOUT_S` when config has none, and the returned result is the fake gate's
+  result unchanged (also in L17).
 - **L18** phase-5 with `prescreen = {"classifier_cmd": "not-a-list"}` and with
   `{"classifier_cmd": [<valid fake>], "timeout_s": 0}` → one event with `classifier_status
   "config-error"` and the op4.5 values, exact op4.2 key set, no `prescreen` key in `extra_data`, gate
@@ -212,6 +226,8 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
   validation cycle, only when configured.
 - `invoke_validation_llm` is a resume-sentinel step: a sentinel skip emits no `prescreen_verdict`, a
   retry cycle emits one more. Recall measurement keys events by run id + `cycle`.
+- The CLI journal keeps finding `detail` strings as given (they are script output, not spec text);
+  hosts that pass spec quotes in `detail` own that.
 - `gate_input` is sent to the classifier as-is; redaction is the host's job (HAL's `jev-shadow`
   already redacts).
 
