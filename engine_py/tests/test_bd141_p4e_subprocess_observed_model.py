@@ -31,7 +31,6 @@ from bytedigger_engine import telemetry_ctx
 
 SONNET = "claude-sonnet-5-5"
 OPUS = "claude-opus-5"
-HAIKU_MODEL = "claude-haiku-4-5"
 
 
 def _extractor():
@@ -128,6 +127,26 @@ def test_ac3_root_after_subagent_still_wins_and_subagent_after_root_does_not():
 def test_ac3b_first_root_init_wins():
     """AC3b: several root inits, no assistant model -> the first valid init wins."""
     assert _extractor()([_init("A-model"), _init("B-model")]) == "A-model"
+
+
+def test_ac3b_non_root_init_is_ignored():
+    """AC3b: an init with a non-empty parent_tool_use_id is not a root init."""
+    fn = _extractor()
+    sub_init = _init("B-model")
+    sub_init["parent_tool_use_id"] = "toolu_agent1"
+    only_sub = [_spawner(None), sub_init]
+    _assert_depth1_eligible(only_sub, sub_init)
+    assert fn(only_sub) is None
+    with_root = [_init("A-model"), _spawner(None), sub_init]
+    _assert_depth1_eligible(with_root, sub_init)
+    assert fn(with_root) == "A-model"
+
+
+def test_ac3b_invalid_first_init_is_skipped():
+    """AC3b: an invalid first root init does not block a later valid one."""
+    fn = _extractor()
+    assert fn([_init("<synthetic>"), _init("A-model")]) == "A-model"
+    assert fn([_init(""), _init("A-model")]) == "A-model"
 
 
 def test_ac3_key_less_events_count_as_root():

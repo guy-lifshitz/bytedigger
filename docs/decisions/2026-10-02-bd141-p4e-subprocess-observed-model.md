@@ -1,6 +1,6 @@
 # bd#141 item 4(e): the subprocess backend reports the model it invoked (R3.3 producer)
 
-**Status:** r2 (gate r1 REJECTED: 2 MAJOR + 6 MINOR, see `2026-10-02-bd141-p4e-gate-r1.md`) · **Tier:** 2 (one engine prod `.py`, one conformance registry line, Option D) ·
+**Status:** r3 (gate r2 APPROVED; r3 applies its MINOR advisories F-r2-2/F-r2-4 as two extra AC3b tests and a dead-constant removal. r1 REJECTED: 2 MAJOR + 6 MINOR. See `2026-10-02-bd141-p4e-gate-r{1,2}.md`) · **Tier:** 2 (one engine prod `.py`, one conformance registry line, Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `llm_subprocess._pin_mismatch_refusal` (already the single R3.3
 check for every backend, called from `_dispatch_backend`). This lot adds no new check. It adds the
 missing **producer** on the claude-subprocess (`claude -p` stream-json) path, so the existing chokepoint stops being inert there.
@@ -132,7 +132,7 @@ author greps for these and lists them in the RED report.
 - HAL-side changes. There is no host implementation to remove.
 - The straggler synthetic-ok branch (`:2032-2053`). It returns `ok` without the reserved-name override, so `extra_data` could
   shadow `observed_model` there. The sibling fields have the same gap, so this lot does not introduce it. It is a separate fix for the whole
-  sibling group (gate r1 F5).
+  sibling group (gate r1 F5). The in-session path has the same override (gate r2 F-r2-3). Both are tracked in bd#145.
 - Moving the stream-json extractors onto the provider (`lib/llm_provider.py`, next to `_claude_parse_result`). The extractor sits next
   to its sibling `_observed_tools_from_events`. Moving them is a separate refactor for the whole group (gate r1 F8).
 
