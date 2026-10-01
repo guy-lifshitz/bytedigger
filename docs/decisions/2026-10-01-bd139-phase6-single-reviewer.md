@@ -1,6 +1,6 @@
 # bd#139 — phase 6 runs one reviewer; phase 5 validation rejects are logged with reasons
 
-**Status: FROZEN r3 (gate r1 REJECT → 4 blockers; gate r2 REJECT → 1 blocker + 6 notes; see `2026-10-01-bd139-gate-r{1,2}.md`)** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** SYSTEMATIC ·
+**Status: FROZEN r3, gate r3 PASS (gate r1 REJECT → 4 blockers; gate r2 REJECT → 1 blocker + 6 notes; see `2026-10-01-bd139-gate-r{1,2}.md`)** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `_select_reviewers` (`engine_py/bytedigger_engine/workflows/phase_6_review.py:460`),
 the one place the reviewer set and its size are decided; every consumer (prompt, aggregator
 floor, straggler watchdog) reads its count. Second chokepoint: `reject_log.emit_reject_reason`
@@ -61,11 +61,13 @@ precede `invoke_validation_llm`. `verify_green_passing` / `green_lint` / `green_
   neutrally and keeps its `COMPOSITE AGGREGATION:` label, which 5D0D3BD1 `:126-137` relies on.
   New text: "do not trust any prior or delegated citation verbatim; re-quote each finding by
   re-reading the source file yourself." The fragment is also appended by `phase_5_implement.py:132`,
-  `phase_45_spec.py:95`, `phase_5_integrity.py:103` and `phase_6_fix_integrity.py:68`. The new
+  `phase_45_spec.py:95`, `phase_5_integrity.py:103`, `phase_6_fix_integrity.py:68` and the phase 6
+  satisfaction prompt (gate r3 NOTE D). The new
   wording is a strict generalisation of the old one, so their meaning is unchanged. Their tests
   are in the §1a audit.
 - Stale file guard: in single mode, `_invoke_review_llm` deletes every `reviews/role-*.md` before
-  invoking the LLM. Single mode produces only the composite file. Neither a composite from an
+  invoking the LLM. It skips the delete when no scratchpad/reviews dir is configured (gate r3 NOTE A:
+  bd82 tests call `_invoke_review_llm` with `org_config={}`). Single mode produces only the composite file. Neither a composite from an
   earlier cycle nor parallel role files from before a mode switch can then satisfy floor 1.
   Parallel mode is unchanged (§1v).
 - Aggregator floor: `min_floor = 1 if expected_reviewers == 1 else max(2, (expected_reviewers + 1) // 2)`.
@@ -121,7 +123,7 @@ RED (new): `engine_py/tests/test_bd139_single_reviewer.py`.
 `straggler_cfg`, orchestrator or sub-agent prompt text).
 - **Pinned:** `test_e8433b4e_aggregator_partial_floor.py`, `test_ccbb65dc_straggler_watchdog.py`,
   `test_phase_6_rubric_trim_5D0D3BD1.py`, `test_phase_6_subagent_prior_context_propagation_7ca211d2.py`.
-- **Pinned in RED r2:** `test_bd82_role_backend_effort.py` (`:184`, `:207`) and
+- **Pinned in RED r2:** `test_bd82_role_backend_effort.py` (r8/r8b, `:180`, `:203`) and
   `test_CF2EE8ED_in_session_cutover.py` AC3.
 - **Fragment co-consumers (audit only, expected no edit):** tests asserting
   `prompt_fragment.md` text or the phase 4.5/5/integrity prompts.
@@ -145,7 +147,7 @@ Audit grep over `engine_py/tests`: `_select_reviewers`, `reviewer_count`, `expec
   contains `Spawn 6 parallel` for FEATURE.
 - **AC3b** Single mode, with `reviews/last_findings.json` present and
   `security_classification="HIGH"`. The prompt contains the absolute `last_findings.json` path and
-  `PRIOR — still present`. It contains none of `dispatched Agent`, `sub-agent`, `Agent call`,
+  `PRIOR — still present`. Compared case-insensitively (gate r3 NOTE B), it contains none of `dispatched Agent`, `sub-agent`, `Agent call`,
   `Spawn`. Parallel mode with the same inputs still contains `Each dispatched Agent MUST read`.
 - **AC3c** The single-mode prompt names all six dimensions: correctness, silent failures, test
   adequacy, type design, simplification, comments. With `artifact_type="dockerfile"` it contains

@@ -159,7 +159,7 @@ def test_ac3b_single_mode_prior_findings_and_security_blocks_address_the_reviewe
     prompt = result.data["prompt"]
     assert str(lf) in prompt
     assert "PRIOR — still present" in prompt
-    leaked = [w for w in _SINGLE_MODE_FORBIDDEN if w in prompt]
+    leaked = [w for w in _SINGLE_MODE_FORBIDDEN if w.lower() in prompt.lower()]
     assert not leaked, f"single-mode prompt leaks delegation language: {leaked}"
 
 
