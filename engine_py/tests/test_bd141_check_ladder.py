@@ -1,6 +1,6 @@
 """RED tests for bd#141 item 3 -- check ladder (``check_ladder``).
 
-Spec: docs/decisions/2026-10-01-bd141-check-ladder.md (ACs L1-L19, r1).
+Spec: docs/decisions/2026-10-01-bd141-check-ladder.md (ACs L1-L19, r2 / RED rev2).
 
 The module under test does not exist yet. Every AC reaches it through a real
 ``python -m bytedigger_engine.check_ladder`` subprocess or a lazy ``_cl()`` import
@@ -186,6 +186,9 @@ def test_L7_spawn_decision_by_mode(tmp_path: Path) -> None:
     cl.prescreen([_f()], "g", classifier_cmd=en, mode="enforce")
     assert sh_flag.exists(), "L7: shadow + MAJOR must still spawn the classifier"
     assert not en_flag.exists(), "L7: enforce + MAJOR must not spawn the classifier"
+    v = cl.prescreen([_f()], "g", classifier_cmd=en, mode="enforce")
+    assert v["classifier"] == {"status": "skipped", "label": None, "confidence": None,
+                               "reasons": None, "rc": None, "ms": 0, "cost_usd": None}
 
 
 def test_L8_classifier_stdin_payload(tmp_path: Path) -> None:
@@ -212,6 +215,12 @@ def test_L9_classifier_statuses(tmp_path: Path) -> None:
 
     r = run(None)
     assert r["status"] == "off" and r["ms"] == 0
+    assert {k: v for k, v in r.items() if k not in ("status", "ms")} == {
+        "label": None, "confidence": None, "reasons": None, "rc": None, "cost_usd": None}
+
+    for bad_cmd in ([], "python", ["a", 1]):  # op1: malformed cmd -> error, never raises
+        r = run(bad_cmd)
+        assert r["status"] == "error" and r["rc"] is None, f"L9: malformed cmd {bad_cmd!r}"
 
     r = run([str(tmp_path / "no-such-binary")])
     assert r["status"] == "error" and r["rc"] is None
@@ -233,6 +242,7 @@ def test_L9_classifier_statuses(tmp_path: Path) -> None:
         "conf_bool": '{"label": "reject", "confidence": true}',
         "conf_str": _ans("reject", "0.9"),
         "conf_neg": _ans("reject", -0.1),
+        "conf_nan": '{"label": "reject", "confidence": NaN}',
     }
     for key, out in bad_outputs.items():
         r = run(_fake(tmp_path, f"bad_{key}", out=out))
@@ -246,7 +256,8 @@ def test_L9_classifier_statuses(tmp_path: Path) -> None:
     assert r["reasons"] == ["a", "b"] and r["cost_usd"] == 0.04 and r["rc"] == 0
     assert isinstance(r["ms"], int) and r["ms"] >= 0
 
-    for key, cost in {"neg": -1, "bool": True, "str": "0.04"}.items():
+    for key, cost in {"neg": -1, "bool": True, "str": "0.04",
+                      "inf": float("inf")}.items():
         r = run(_fake(tmp_path, f"cost_{key}", out=_ans("pass", 0.5, cost_usd=cost)))
         assert r["status"] == "ok" and r["cost_usd"] is None, f"L9: cost {key}"
     r = run(_fake(tmp_path, "reasons_bad", out=_ans("pass", 0.5, reasons="nope")))
@@ -284,9 +295,14 @@ def test_L11_argument_validation() -> None:
         dict(findings=[], threshold=1.5),
         dict(findings=[], threshold=True),
         dict(findings=[], timeout_s=0),
+        dict(findings=[], timeout_s=True),
         dict(findings=[{"severity": "MAJOR", "detail": "d"}]),
         dict(findings=[_f(severity="BLOCKER")]),
         dict(findings=["not a dict"]),
+        dict(findings="not a list"),
+        dict(findings=[], classifier_cmd=[]),
+        dict(findings=[], classifier_cmd="python"),
+        dict(findings=[], classifier_cmd=["a", 1]),
     ]
     for kw in bad_calls:
         with pytest.raises(ValueError):
@@ -337,6 +353,8 @@ def test_L13_cli_usage_errors_rc2(tmp_path: Path) -> None:
     not_json.write_text("{{{", encoding="utf-8")
     obj = tmp_path / "obj.json"
     obj.write_text("{}", encoding="utf-8")
+    bad_sev = tmp_path / "bad_sev.json"
+    bad_sev.write_text('[{"rule":"r","severity":"BLOCKER","detail":"d"}]', encoding="utf-8")
     g = str(gate)
     cases = {
         "no_subcommand": [],
@@ -351,6 +369,9 @@ def test_L13_cli_usage_errors_rc2(tmp_path: Path) -> None:
         "cmd_empty_array": ["prescreen", "--gate-input", g, "--classifier-cmd", "[]"],
         "cmd_string": ["prescreen", "--gate-input", g, "--classifier-cmd", '"x"'],
         "mode_block": ["prescreen", "--gate-input", g, "--mode", "block"],
+        "threshold_high": ["prescreen", "--gate-input", g, "--threshold", "1.5"],
+        "timeout_zero": ["prescreen", "--gate-input", g, "--timeout-s", "0"],
+        "finding_bad_severity": ["prescreen", "--gate-input", g, "--findings", str(bad_sev)],
     }
     for label, args in cases.items():
         proc = _cli(*args)
@@ -444,43 +465,82 @@ def _drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prompt: str, **org: 
     return result, calls, events
 
 
-def test_L16_no_prescreen_config_is_byte_for_byte_today(tmp_path: Path, monkeypatch) -> None:
-    """L16: no prescreen config -> no event, extra_data unchanged, same kwargs."""
-    _result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-A")
+_ABSENT = object()
+_EVENT_KEYS = {"outcome", "rung", "mode", "classifier_status", "classifier_label",
+               "classifier_confidence", "classifier_ms", "cost_usd", "cycle", "phase"}
+
+
+def _baseline(monkeypatch, tmp_path: Path, prompt: str) -> dict:
+    """Full kwargs of the no-config run (the L16 baseline)."""
+    _r, calls, _e = _drive(monkeypatch, tmp_path, prompt)
     assert len(calls) == 1
-    kw = calls[0]
-    assert kw["prompt"] == "PROMPT-A" and kw["hard_gate"] is True
-    assert "prescreen" not in kw["extra_data"]
-    assert set(kw["extra_data"]) == {"doc_path", "spec_path", "red_log_path",
-                                     "red_test_paths", "cycle", "red_commit_sha"}
-    assert not [e for e in events if e[0] == "prescreen_verdict"]
-    # Config present but without classifier_cmd is also a no-op.
-    _r, calls2, events2 = _drive(monkeypatch, tmp_path, "PROMPT-A", prescreen={"timeout_s": 5})
-    assert "prescreen" not in calls2[0]["extra_data"]
-    assert not [e for e in events2 if e[0] == "prescreen_verdict"]
+    return calls[0]
+
+
+def _assert_same_as_baseline(kw: dict, base: dict, what: str) -> None:
+    """All kwargs equal baseline; extra_data equal after removing ``prescreen``."""
+    assert set(kw) == set(base), f"{what}: kwarg names differ"
+    for k in base:
+        if k == "extra_data":
+            continue
+        assert kw[k] == base[k], f"{what}: kwarg {k!r} differs from baseline"
+    assert {k: v for k, v in kw["extra_data"].items() if k != "prescreen"} == base["extra_data"], (
+        f"{what}: extra_data differs from baseline beyond the prescreen key")
+
+
+def _events(events: list) -> list[dict]:
+    return [p for (t, p) in events if t == "prescreen_verdict"]
+
+
+@pytest.mark.parametrize("cfg", [_ABSENT, "x", None, [], {}, {"timeout_s": 5}],
+                         ids=["absent", "str", "none", "list", "empty-dict", "no-classifier-cmd"])
+def test_L16_no_prescreen_config_is_byte_for_byte_today(tmp_path: Path, monkeypatch, cfg) -> None:
+    """L16: no/invalid-shape prescreen config -> no event, no key, kwargs == no-config baseline."""
+    base = _baseline(monkeypatch, tmp_path, "PROMPT-A")
+    assert base["prompt"] == "PROMPT-A" and base["hard_gate"] is True
+    assert "prescreen" not in base["extra_data"]
+    assert set(base["extra_data"]) == {"doc_path", "spec_path", "red_log_path",
+                                       "red_test_paths", "cycle", "red_commit_sha"}
+    org = {} if cfg is _ABSENT else {"prescreen": cfg}
+    _result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-A", **org)
+    assert len(calls) == 1
+    assert calls[0] == base, "L16: every kwarg incl. extra_data must equal the no-config run"
+    assert "prescreen" not in calls[0]["extra_data"]
+    assert not _events(events)
+    # Today's behaviour must not even touch the new module.
+    assert "prescreen" not in calls[0]["extra_data"]
+    # Forcing: the same run WITH a valid config must differ only by the added key
+    # (proves this test pins the feature, not just emptiness).
+    if cfg is _ABSENT:
+        cmd = _fake(tmp_path, "pass", out=_ans("pass", 0.5))
+        _r2, calls2, events2 = _drive(monkeypatch, tmp_path, "PROMPT-A",
+                                      prescreen={"classifier_cmd": cmd})
+        assert len(_events(events2)) == 1 and "prescreen" in calls2[0]["extra_data"]
 
 
 @pytest.mark.parametrize("extra_cfg", [{}, {"mode": "enforce"}])
 def test_L17_shadow_call_event_and_gate_still_runs(tmp_path: Path, monkeypatch, extra_cfg) -> None:
     """L17: classifier reject 1.0 -> escalate event; Opus call identical; mode ignored."""
+    base = _baseline(monkeypatch, tmp_path, "PROMPT-B")
     seen = tmp_path / "stdin.json"
     cmd = _fake(tmp_path, "rej", out=_ans("reject", 1.0, reasons=["quote of spec"], cost_usd=0.04),
                 stdin_file=seen)
     cfg = {"classifier_cmd": cmd, "timeout_s": 20, **extra_cfg}
     _result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-B", prescreen=cfg)
 
-    evs = [p for (t, p) in events if t == "prescreen_verdict"]
+    evs = _events(events)
     assert len(evs) == 1, f"L17: exactly one prescreen_verdict event, got {len(evs)}"
     ev = evs[0]
+    assert set(ev) == _EVENT_KEYS, f"L17: event key set {sorted(ev)}"
     assert ev["outcome"] == "escalate"
     assert ev["classifier_status"] == "ok"
     assert ev["classifier_label"] == "reject" and ev["classifier_confidence"] == 1.0
     assert ev["cost_usd"] == 0.04 and ev["cycle"] == 1 and ev["phase"] == 5
     assert ev["mode"] == "shadow"
-    assert {"rung", "classifier_ms"} <= set(ev)
+    assert isinstance(ev["classifier_ms"], int)
 
     assert len(calls) == 1, "L17: the gate (Opus call) must still run exactly once"
-    assert calls[0]["prompt"] == "PROMPT-B" and calls[0]["hard_gate"] is True
+    _assert_same_as_baseline(calls[0], base, "L17")
     pre = calls[0]["extra_data"]["prescreen"]
     assert pre["outcome"] == "escalate"
     assert "reasons" not in pre["classifier"]
@@ -488,14 +548,82 @@ def test_L17_shadow_call_event_and_gate_still_runs(tmp_path: Path, monkeypatch, 
     assert payload["gate_input"] == "PROMPT-B" and payload["findings"] == []
 
 
-def test_L18_bad_config_swallowed_gate_runs(tmp_path: Path, monkeypatch) -> None:
-    """L18: classifier_cmd not a list -> config-error event, gate runs, no exception."""
-    result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-C",
-                                   prescreen={"classifier_cmd": "not-a-list"})
-    evs = [p for (t, p) in events if t == "prescreen_verdict"]
-    assert len(evs) == 1
-    assert evs[0]["classifier_status"] == "config-error"
-    assert len(calls) == 1 and calls[0]["prompt"] == "PROMPT-C" and calls[0]["hard_gate"] is True
+def _off_classifier() -> dict:
+    return {"status": "off", "label": None, "confidence": None, "reasons": None,
+            "rc": None, "ms": 0, "cost_usd": None}
+
+
+def _assert_config_error(evs: list[dict]) -> None:
+    assert len(evs) == 1, f"op4.5: exactly one event, got {len(evs)}"
+    ev = evs[0]
+    assert set(ev) == _EVENT_KEYS, f"op4.2: event key set {sorted(ev)}"
+    assert ev["classifier_status"] == "config-error"
+    assert ev["outcome"] == "escalate" and ev["mode"] == "shadow"
+    for k in ("rung", "classifier_label", "classifier_confidence", "classifier_ms", "cost_usd"):
+        assert ev[k] is None, f"op4.5: {k} must be None, got {ev[k]!r}"
+    assert ev["cycle"] == 1 and ev["phase"] == 5
+
+
+def test_L17b_prescreen_reject_verdict_does_not_skip_gate(tmp_path: Path, monkeypatch) -> None:
+    """L17b(a): a substituted prescreen returning reject/script -> Opus call still runs once."""
+    base = _baseline(monkeypatch, tmp_path, "PROMPT-D")
+    cl = _cl()  # fails inside the body while the module does not exist
+    called: list[dict] = []
+
+    def fake_prescreen(**kw: Any) -> dict:
+        called.append(kw)
+        return {"outcome": "reject", "rung": "script", "mode": "shadow",
+                "findings": [_f()], "classifier": _off_classifier()}
+
+    monkeypatch.setattr(cl, "prescreen", fake_prescreen)
+    cmd = _fake(tmp_path, "unused", out=_ans("pass", 0.5))
+    result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-D",
+                                   prescreen={"classifier_cmd": cmd})
+    assert len(called) == 1, "L17b: phase 5 must call check_ladder.prescreen via the module attribute"
+    assert called[0].get("mode") == "shadow" and called[0].get("findings") == []
+    assert called[0].get("gate_input") == "PROMPT-D" and called[0].get("classifier_cmd") == cmd
+    assert len(calls) == 1, "L17b(a): reject verdict must not skip or replace the Opus call"
+    _assert_same_as_baseline(calls[0], base, "L17b(a)")
+    evs = _events(events)
+    assert len(evs) == 1 and set(evs[0]) == _EVENT_KEYS and evs[0]["outcome"] == "reject"
+    assert result.status == "ok"
+
+
+def test_L17b_prescreen_raising_is_config_error(tmp_path: Path, monkeypatch) -> None:
+    """L17b(b): prescreen raises RuntimeError -> config-error event, Opus call baseline."""
+    base = _baseline(monkeypatch, tmp_path, "PROMPT-E")
+    cl = _cl()
+
+    def boom(**_kw: Any) -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cl, "prescreen", boom)
+    cmd = _fake(tmp_path, "unused", out=_ans("pass", 0.5))
+    result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-E",
+                                   prescreen={"classifier_cmd": cmd})
+    _assert_config_error(_events(events))
+    assert len(calls) == 1
+    assert "prescreen" not in calls[0]["extra_data"]
+    _assert_same_as_baseline(calls[0], base, "L17b(b)")
+    assert result.status == "ok"
+
+
+@pytest.mark.parametrize("bad", ["not-a-list", "valid-cmd-timeout-0"])
+def test_L18_bad_config_swallowed_gate_runs(tmp_path: Path, monkeypatch, bad) -> None:
+    """L18: bad classifier_cmd / timeout_s=0 -> config-error event, gate runs, no exception."""
+    base = _baseline(monkeypatch, tmp_path, "PROMPT-C")
+    spawned = tmp_path / "spawned"
+    if bad == "not-a-list":
+        cfg: dict = {"classifier_cmd": "not-a-list"}
+    else:
+        cmd = _fake(tmp_path, "v", out=_ans("pass", 0.5), spawn_file=spawned)
+        cfg = {"classifier_cmd": cmd, "timeout_s": 0}
+    result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-C", prescreen=cfg)
+    _assert_config_error(_events(events))
+    assert not spawned.exists(), "L18: an invalid config must not spawn the classifier"
+    assert len(calls) == 1
+    assert "prescreen" not in calls[0]["extra_data"]
+    _assert_same_as_baseline(calls[0], base, "L18")
     assert result.status == "ok"
 
 
@@ -531,3 +659,7 @@ def test_L19_registered_clean_stdlib_only() -> None:
     report = json.loads(proc.stdout)
     assert "check_ladder.py" not in json.dumps(report.get("violations", [])), (
         f"L19: boundary violation for check_ladder.py: {report.get('violations')}")
+    assert "check_ladder.py" not in json.dumps(report.get("errors", [])), (
+        f"L19: boundary lint error for check_ladder.py: {report.get('errors')}")
+    assert "HAL_" not in source, "L19: no HAL_ names in the module"
+    assert re.search(r"(?i)\bjev\b|typesafe", source) is None, "L19: no vendor name in the module"

@@ -1,6 +1,6 @@
 # bd#141 item 3 — check ladder: a pre-screen rung in front of the validation gate
 
-**Status: r1 (draft, before gate)** · **Tier:** 3 (one new engine prod `.py` module + a shadow call in
+**Status: r2 (gate r1 REJECTED: 4 MAJOR + 7 MINOR fixed, see `2026-10-01-bd141-check-ladder-gate-r1.md`)** · **Tier:** 3 (one new engine prod `.py` module + a shadow call in
 `workflows/phase_5_implement.py`, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `check_ladder.prescreen` — the one function that turns (script findings, gate input
 text, classifier config) into a pre-screen verdict. The CLI, the phase-5 shadow call and every host
@@ -44,18 +44,22 @@ closed), hal-v2 PR #2279 (HAL shadow seam `HAL_PRESCREEN_JEV_BIN` in `lot-prefli
 A dict `{"rule": str, "severity": "MAJOR" | "MINOR", "detail": str}`. Input validation in op2.
 
 ### op1 — `run_classifier(cmd, payload, timeout_s) -> ClassifierResult`
-`cmd` is an argv list (`list[str]`, non-empty) or `None`.
+`cmd` is an argv list (`list[str]`, non-empty, every element a str) or `None`; op2 validates it
+before op1 is reached (op1 itself never raises: a malformed `cmd` → `status="error"`, `rc=None`).
 `ClassifierResult = {"status", "label", "confidence", "reasons", "rc", "ms", "cost_usd"}`.
+Statuses: `off`, `skipped`, `ok`, `error`, `timeout`.
 1. `cmd is None` → `status="off"`, all other fields `None` except `ms=0`. No process is spawned.
+   The same shape with `status="skipped"` is what op2 records when it decides not to call a
+   configured classifier (enforce + MAJOR).
 2. Spawn `cmd` with `payload` as one JSON document on stdin (UTF-8), `shell=False`, stdout/stderr
    captured, `timeout=timeout_s`.
 3. Spawn failure (`OSError`, e.g. missing binary) → `status="error"`, `rc=None`.
 4. Timeout → `status="timeout"`, `rc=None`; the child is killed (the `subprocess.run` timeout path).
 5. Non-zero exit → `status="error"`, `rc=<code>`.
 6. Exit 0: the first non-empty stdout line must parse as a JSON object with `label` in
-   `{"reject", "pass"}` and `confidence` a real number (not bool) in `[0, 1]`. Optional `reasons`
-   (list of str; anything else → `[]`), optional `cost_usd` (non-negative real, not bool; anything
-   else → `None`). Valid → `status="ok"`. Anything else (no line, not JSON, not an object, unknown
+   `{"reject", "pass"}` and `confidence` a finite real number (not bool, `math.isfinite`) in `[0, 1]`.
+   Optional `reasons` (list of str; anything else → `[]`), optional `cost_usd` (finite non-negative
+   real, not bool; anything else, including `Infinity`/`NaN` → `None`). Valid → `status="ok"`. Anything else (no line, not JSON, not an object, unknown
    label — including `"approve"` — bad confidence) → `status="error"`, `label=None`.
 7. `ms` is wall time of the spawn in integer milliseconds (≥ 0) for every non-`off` status.
 8. Never raises.
@@ -65,7 +69,9 @@ A dict `{"rule": str, "severity": "MAJOR" | "MINOR", "detail": str}`. Input vali
 findings that drove a script reject (else `[]`), `classifier` is the op1 result.
 
 Argument validation (raises `ValueError`, the CLI maps it to rc 2): `mode` not in `MODES`;
-`threshold` not a real in `[0, 1]`; `timeout_s` not a positive real; a finding that is not a dict,
+`threshold` not a finite real (not bool) in `[0, 1]`; `timeout_s` not a finite positive real (not
+bool); `classifier_cmd` not `None` and not a non-empty list whose elements are all str; `findings`
+not a list; a finding that is not a dict,
 or whose `rule`/`detail` is not a str, or whose `severity` is not `MAJOR`/`MINOR`.
 
 Steps:
@@ -81,6 +87,8 @@ Steps:
      script rung is deterministic and never shadow).
    - else `mode == "enforce"` and classifier `status == "ok"`, `label == "reject"`,
      `confidence >= threshold` → `outcome="reject"`, `rung="classifier"`.
+   - `classifier` in the verdict: the op1 result when op1 ran; `status="off"` shape when
+     `classifier_cmd is None`; `status="skipped"` shape when enforce + MAJOR skipped the call.
    - else → `outcome="escalate"`, `rung=None`.
    In `shadow` mode the classifier never changes the outcome.
 5. Fail-open: any classifier status other than `ok` (off, error, timeout) → the outcome is decided by
@@ -106,19 +114,31 @@ argv), `--mode shadow|enforce` (default shadow), `--threshold F` (default 0.9),
 Config: `ctx.org_config["prescreen"]` — absent / not a dict / no `classifier_cmd` → no-op (today's
 behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
 `{"classifier_cmd": [str, ...], "timeout_s": number?}`.
-1. Before `invoke_llm_subprocess`, call `check_ladder.prescreen(findings=[], gate_input=prev.data["prompt"],
-   classifier_cmd=..., mode="shadow", timeout_s=...)`.
+1. Before `invoke_llm_subprocess`, call the pre-screen **as a module attribute**
+   (`from bytedigger_engine import check_ladder` … `check_ladder.prescreen(findings=[],
+   gate_input=prev.data["prompt"], classifier_cmd=..., mode="shadow", timeout_s=...)`), so a test
+   can substitute it. `timeout_s` defaults to `DEFAULT_TIMEOUT_S` when the key is absent.
+   Phase 5 **ignores the verdict's `outcome`**: whatever it is (`reject` included, which a future
+   script-rung wiring can produce), the Opus call runs.
 2. Emit one event `prescreen_verdict` via `_emit_safe` with payload
-   `{"outcome", "rung", "mode", "classifier_status", "classifier_label", "classifier_confidence",
-   "classifier_ms", "cost_usd", "cycle", "phase": 5}`. `cost_usd` is the classifier's (token-ledger
+   with exactly the keys `{"outcome", "rung", "mode", "classifier_status", "classifier_label",
+   "classifier_confidence", "classifier_ms", "cost_usd", "cycle", "phase"}` (`phase` = 5) — no
+   gate input, no reasons. `cost_usd` is the classifier's (token-ledger
    input; `derive_state` aggregation is out of scope).
 3. Add `"prescreen": <verdict without classifier.reasons>` to `extra_data`.
-4. The Opus call is made exactly as before: same prompt, same model, `hard_gate=True`. The phase-5
+4. The Opus call is made exactly as before: every `invoke_llm_subprocess` kwarg is equal to the
+   no-config call (`prompt`, `model`, `timeout_sec`, `step_name`, `hard_gate`, `gate_label`,
+   `allowed_tools`, `stable_prefix`), and `extra_data` differs only by the added `prescreen` key. The phase-5
    call is **shadow-only in this PR**; `org_config["prescreen"]["mode"]` is ignored here (enforce on
    the gate path comes after the shadow recall measurement, hal-v2#2264: recall ≥ 90 % on the
    mechanical class).
-5. Any exception from the pre-screen path (bad config shape, `ValueError`) is swallowed after one
-   `prescreen_verdict` event with `classifier_status="config-error"`; the Opus call still runs.
+5. Any exception from the pre-screen path (bad `classifier_cmd`/`timeout_s`, op2 `ValueError`, or
+   any other exception raised by `prescreen`) is swallowed after one `prescreen_verdict` event with
+   `classifier_status="config-error"`, `outcome="escalate"`, `mode="shadow"`, and `rung`,
+   `classifier_label`, `classifier_confidence`, `classifier_ms`, `cost_usd` all `None`; `extra_data`
+   gets **no** `prescreen` key; the Opus call still runs with the baseline kwargs.
+6. `org_config["prescreen"]` that is not a dict (`"x"`, `None`, `[]`) or a dict without
+   `classifier_cmd` → silent no-op (no event, no key).
 
 ## §3 Acceptance criteria
 
@@ -133,37 +153,50 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
 - **L6** shadow, no MAJOR, classifier ok `reject` conf 1.0 → `escalate` (classifier recorded in
   `classifier`, outcome unchanged).
 - **L7** shadow + MAJOR → classifier **is** spawned (proved by a side-effect file the fake classifier
-  writes); enforce + MAJOR → classifier **not** spawned (side-effect file absent).
+  writes); enforce + MAJOR → classifier **not** spawned (side-effect file absent) and
+  `verdict["classifier"]["status"] == "skipped"`, other fields `None` except `ms == 0`.
 - **L8** classifier receives `{"gate_input", "findings"}` on stdin exactly (fake writes stdin to a file;
   test parses it).
 - **L9** classifier statuses: missing binary → `error`/`rc None`; exit 3 → `error`/`rc 3`;
   sleep past `timeout_s` → `timeout` within `timeout_s + 5` s; non-JSON line → `error`;
-  `label "approve"` → `error`; confidence `1.5` / `true` / `"0.9"` → `error`; valid → `ok`;
-  `cost_usd` passed through when valid, `None` when negative/bool/string; `reasons` non-list → `[]`.
+  `label "approve"` → `error`; confidence `1.5` / `true` / `"0.9"` / `NaN` → `error`; valid → `ok`;
+  `cost_usd` passed through when valid, `None` when negative/bool/string/`Infinity`; `reasons`
+  non-list → `[]`. `off` (cmd `None`): every field except `status` and `ms` is `None`, `ms == 0`.
 - **L10** classifier error/timeout in enforce with no MAJOR → `escalate` (fail-open).
-- **L11** `prescreen` `ValueError` on: bad mode, threshold 1.5 / `True`, timeout 0, finding missing
-  `rule`, severity `"BLOCKER"`.
+- **L11** `prescreen` `ValueError` on: bad mode, threshold 1.5 / `True`, timeout 0 / `True`, finding
+  missing `rule`, severity `"BLOCKER"`, `classifier_cmd` = `[]` / `"python"` / `["a", 1]`.
 - **L12** CLI happy path prints exactly one JSON line equal to the op2 verdict for the same inputs;
   rc 0 for both `reject` and `escalate`.
 - **L13** CLI rc 2 + empty stdout for: no subcommand, unknown flag, missing `--gate-input`, missing
   gate-input file, findings not JSON, findings an object, `--classifier-cmd '[]'`,
-  `--classifier-cmd '"x"'`, `--mode block`.
+  `--classifier-cmd '"x"'`, `--mode block`, and the op2 `ValueError` mapping (no traceback, rc 2):
+  `--threshold 1.5`, `--timeout-s 0`, findings file `[{"rule":"r","severity":"BLOCKER","detail":"d"}]`.
 - **L14** CLI `--log` into a non-existent subdir: dir created, one line appended per run (two runs →
   two lines), line has `ts` ending `Z`, `gate_input_sha256` equal to sha256 of the file bytes,
   `verdict.classifier.reasons` an int, and the gate-input text does not appear in the journal.
 - **L15** CLI `--log` pointing at a path whose parent is a regular file → stdout verdict unchanged,
   rc 0, stderr non-empty.
-- **L16** phase-5, no `prescreen` config: `_invoke_validation_llm` calls `invoke_llm_subprocess` with
-  the same kwargs as before (no `prescreen` key in `extra_data`), no `prescreen_verdict` event.
+- **L16** phase-5, no `prescreen` config, and `prescreen` = `"x"` / `None` / `[]` / `{}`:
+  `invoke_llm_subprocess` called once, no `prescreen` key in `extra_data`, no `prescreen_verdict`
+  event. The kwargs of these runs are the **baseline** for L17/L17b/L18.
 - **L17** phase-5 with `prescreen.classifier_cmd` = a real fake classifier answering `reject` conf 1.0:
   one `prescreen_verdict` event with `outcome "escalate"`, `classifier_status "ok"`; the LLM call
-  still happens with the identical prompt and `hard_gate=True`; `extra_data["prescreen"]` present
-  with no `reasons` list. Even with `"mode": "enforce"` in config, the outcome is `escalate` and the
+  still happens once with kwargs equal to the baseline (all kwargs; `extra_data` equal after removing
+  `prescreen`); `extra_data["prescreen"]` present with no `reasons` list; the event's key set is
+  exactly the op4.2 set. Even with `"mode": "enforce"` in config, the outcome is `escalate` and the
   gate runs.
-- **L18** phase-5 with `prescreen = {"classifier_cmd": "not-a-list"}` → one event with
-  `classifier_status "config-error"`, gate still runs, no exception.
+- **L17b** phase-5 with a valid config and `check_ladder.prescreen` substituted (monkeypatched module
+  attribute) by (a) a function returning `{"outcome": "reject", "rung": "script", ...}` and (b) a
+  function raising `RuntimeError`: in both the Opus call runs exactly once with the baseline kwargs
+  (for (a) `extra_data` minus `prescreen`); (b) emits `config-error` per op4.5.
+- **L18** phase-5 with `prescreen = {"classifier_cmd": "not-a-list"}` and with
+  `{"classifier_cmd": [<valid fake>], "timeout_s": 0}` → one event with `classifier_status
+  "config-error"` and the op4.5 values, exact op4.2 key set, no `prescreen` key in `extra_data`, gate
+  runs once with the baseline kwargs, no exception.
 - **L19** Module hygiene: listed in `core_manifest.json` `core_modules` and
-  `mypy-strict-modules.txt`; `core-boundary-lint --json` clean; no Cyrillic; imports stdlib only.
+  `mypy-strict-modules.txt`; `core-boundary-lint --json` clean (neither `violations` nor `errors`
+  mention `check_ladder.py`); no Cyrillic; imports stdlib only; the source contains no `HAL_` and no
+  vendor name (`(?i)\bjev\b|typesafe`).
 
 ## §4 Declared limits
 
@@ -174,6 +207,11 @@ behaviour, byte-for-byte: no event, `extra_data` unchanged). When present:
   findings is a follow-up.
 - No enforce on the gate path, no `derive_state` cost aggregation, no Haiku/Sonnet "llm" rung call
   (the rung is named so hosts and later items share the order).
+- Timeout kills the direct child only (`subprocess.run`); a wrapper classifier's grandchildren are
+  not reaped. Hosts that wrap should `exec`. Added gate latency: up to `timeout_s` (default 30 s) per
+  validation cycle, only when configured.
+- `invoke_validation_llm` is a resume-sentinel step: a sentinel skip emits no `prescreen_verdict`, a
+  retry cycle emits one more. Recall measurement keys events by run id + `cycle`.
 - `gate_input` is sent to the classifier as-is; redaction is the host's job (HAL's `jev-shadow`
   already redacts).
 
