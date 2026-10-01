@@ -38,6 +38,7 @@ def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar") -> Workflow
         org_config={
             "scratchpad_dir": str(scratchpad),
             "current_worktree_path": str(fake_worktree),
+            "review_fanout": "parallel",  # bd#139: pin the PARALLEL DISPATCH block
         },
         question=question,
         session_id="test-session",

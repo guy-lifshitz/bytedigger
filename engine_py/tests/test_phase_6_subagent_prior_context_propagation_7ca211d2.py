@@ -43,6 +43,7 @@ def _make_ctx(tmp_path: Path, satisfaction_threshold: int = 80) -> WorkflowConte
         org_config={
             "scratchpad_dir": str(scratch),
             "satisfaction_threshold": satisfaction_threshold,
+            "review_fanout": "parallel",  # bd#139: pin the pre-single-reviewer dispatch prompt
         },
         question="add feature X",
         session_id="test-7CA211D2",
