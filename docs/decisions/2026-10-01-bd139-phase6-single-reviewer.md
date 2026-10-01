@@ -217,7 +217,7 @@ the aggregator slug parse; delegation is AC3's job. AC8b/AC8c redden if only the
 logged. AC8/AC9 redden if the call is
 missing or unguarded.
 
-## §5 Effect (PR «Эффект»)
+## §5 Effect (PR "Effect" section)
 - **Agents per phase 6 run:** 3/6/7 → 1 (structural, from `_select_reviewers`).
 - **Phase 6 cost:** token-ledger on the same task before and after (lot-1964 pins the BD arm at
   `2622727` for #2208; the after-run is separate).
