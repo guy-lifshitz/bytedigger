@@ -33,6 +33,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Pattern, Tuple, Union, cast
 
@@ -60,11 +61,7 @@ _FIELDS: Tuple[str, ...] = ("claim", "downgrade", "negation", "runner")
 
 
 def _merge(base: Tuple[str, ...], extra: Tuple[str, ...]) -> Tuple[str, ...]:
-    seen: List[str] = []
-    for item in base + extra:
-        if item not in seen:
-            seen.append(item)
-    return tuple(seen)
+    return tuple(dict.fromkeys(base + extra))
 
 
 @dataclass(frozen=True)
@@ -119,9 +116,12 @@ DEFAULT_VOCABULARY = Vocabulary(
 )
 
 
-def _bounded_pattern(alternatives: Tuple[str, ...]) -> str:
+@lru_cache(maxsize=None)
+def _compiled(alternatives: Tuple[str, ...], runner_start: bool = False) -> Pattern[str]:
+    """Compiled IGNORECASE join of the alternatives; word-bounded, or anchored at start."""
     joined = "|".join("(?:" + a + ")" for a in alternatives)
-    return r"(?<!\w)(?:" + joined + r")(?!\w)"
+    head = r"^(?:" if runner_start else r"(?<!\w)(?:"
+    return re.compile(head + joined + r")(?!\w)", re.IGNORECASE)
 
 
 def load_vocabulary(path: Union[str, Path]) -> Vocabulary:
@@ -150,7 +150,8 @@ def load_vocabulary(path: Union[str, Path]) -> Vocabulary:
                 raise ValueError("vocabulary key %r has an invalid regex %r: %s" % (key, alt, exc)) from exc
         if items:
             try:
-                re.compile(_bounded_pattern(items), re.IGNORECASE)
+                _compiled(items)
+                _compiled(items, True)
             except re.error as exc:
                 raise ValueError("vocabulary key %r has an invalid joined regex: %s" % (key, exc)) from exc
         fields[key] = items
@@ -255,7 +256,7 @@ def strip_quoted_text(text: str) -> str:
 def _bounded(alternatives: Tuple[str, ...]) -> Optional[Pattern[str]]:
     if not alternatives:
         return None
-    return re.compile(_bounded_pattern(alternatives), re.IGNORECASE)
+    return _compiled(alternatives)
 
 
 _CLAUSE_BOUNDARY = ".;!?—\n"
@@ -304,7 +305,7 @@ _TIMEOUT = re.compile(r"^timeout\s+\d+\S*\s+")
 def runner_id(command: str, vocab: Vocabulary = DEFAULT_VOCABULARY) -> Optional[str]:
     if not vocab.runner:
         return None
-    pattern = re.compile(r"^(?:" + "|".join("(?:" + a + ")" for a in vocab.runner) + r")(?!\w)", re.IGNORECASE)
+    pattern = _compiled(vocab.runner, True)
     for raw in _SEGMENT_SPLIT.split(command):
         seg = raw.strip()
         seg = _ENV_ASSIGN.sub("", seg)
@@ -353,15 +354,12 @@ def _result_text(content: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        parts: List[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict) and isinstance(cast(Dict[str, Any], item).get("text"), str):
-                parts.append(cast(str, cast(Dict[str, Any], item)["text"]))
-            else:
-                parts.append("")
-        return "\n".join(parts)
+        return "\n".join(
+            item if isinstance(item, str)
+            else t if isinstance(item, dict) and isinstance(t := cast(Dict[str, Any], item).get("text"), str)
+            else ""
+            for item in content
+        )
     return ""
 
 
@@ -373,10 +371,35 @@ def _verdict(outcome: str, phrase: Optional[str], runner: Optional[str]) -> Verd
     return {"outcome": outcome, "phrase": phrase, "runner": runner}
 
 
+_EXIT_CODE_NOT_RED_PREFIXES: Tuple[str, ...] = ("gh ",)
+
+
+def _result_is_red(runner: str, block: Dict[str, Any]) -> bool:
+    # gh exit 8 = checks pending, so is_error alone is not red for gh runners.
+    is_error = block.get("is_error") is True and not runner.startswith(_EXIT_CODE_NOT_RED_PREFIXES)
+    return is_error or text_is_red(_result_text(block.get("content")))
+
+
+def _collect_runner(block: Dict[str, Any], vocab: Vocabulary) -> Optional[Tuple[str, str]]:
+    """(tool_use id, runner id) for a foreground Bash runner call, else None."""
+    tid = block.get("id")
+    if block.get("name") != "Bash" or not isinstance(tid, str):
+        return None
+    inp = block.get("input")
+    if not isinstance(inp, dict):
+        return None
+    inp_d = cast(Dict[str, Any], inp)
+    cmd = inp_d.get("command")
+    if not isinstance(cmd, str) or inp_d.get("run_in_background") is True:
+        return None
+    rid = runner_id(cmd, vocab)
+    return None if rid is None else (tid, rid)
+
+
 def evaluate_turn(entries: List[Entry], vocab: Vocabulary = DEFAULT_VOCABULARY) -> Verdict:
     turn = slice_current_turn(entries)
-    final = final_assistant_text(turn) if turn else ""
-    if not turn or final == "":
+    final = final_assistant_text(turn)
+    if not final:
         return _verdict("no-turn", None, None)
     phrase = claim_phrase(strip_quoted_text(final), vocab)
     if phrase is None:
@@ -394,33 +417,21 @@ def evaluate_turn(entries: List[Entry], vocab: Vocabulary = DEFAULT_VOCABULARY) 
             block = cast(Dict[str, Any], raw_block)
             btype = block.get("type")
             if btype == "tool_use":
-                tid = block.get("id")
-                if block.get("name") != "Bash" or not isinstance(tid, str):
-                    continue
-                inp = block.get("input")
-                if not isinstance(inp, dict):
-                    continue
-                inp_d = cast(Dict[str, Any], inp)
-                cmd = inp_d.get("command")
-                if not isinstance(cmd, str) or inp_d.get("run_in_background") is True:
-                    continue
-                rid = runner_id(cmd, vocab)
-                if rid is not None:
-                    runner_by_id[tid] = rid
+                found = _collect_runner(block, vocab)
+                if found is not None:
+                    runner_by_id[found[0]] = found[1]
             elif btype == "tool_result":
                 use_id = block.get("tool_use_id")
                 if not isinstance(use_id, str) or use_id not in runner_by_id:
                     continue
-                rid2 = runner_by_id[use_id]
-                red = (block.get("is_error") is True and not rid2.startswith("gh ")) or text_is_red(
-                    _result_text(block.get("content")))
-                last_red.pop(rid2, None)
-                last_red[rid2] = red
+                rid = runner_by_id[use_id]
+                last_red.pop(rid, None)
+                last_red[rid] = _result_is_red(rid, block)
     if not last_red:
         return _verdict("no-runner", phrase, None)
-    for rid3, red3 in last_red.items():
-        if red3:
-            return _verdict("fire", phrase, rid3)
+    for rid, red in last_red.items():
+        if red:
+            return _verdict("fire", phrase, rid)
     return _verdict("clear", phrase, None)
 
 

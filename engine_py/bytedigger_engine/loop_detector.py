@@ -206,15 +206,14 @@ def observe(
     alert: Optional[Alert] = None
     if hits:
         last_alert = cast(Optional[int], new["last_alert_n"])
-        if any(key in live for _, key, _ in hits):
+        same_episode = any(key in live for _, key, _ in hits)
+        if same_episode or last_alert is None or n - last_alert > thresholds.cooldown:
+            if not same_episode:
+                new["last_alert_n"] = n
+                kind, key, detail = max(hits, key=lambda h: _RANK[h[0]])
+                alert = {"kind": kind, "key": key, "detail": detail}
             for _, key, _ in hits:
                 live[key] = n
-        elif last_alert is None or n - last_alert > thresholds.cooldown:
-            new["last_alert_n"] = n
-            for _, key, _ in hits:
-                live[key] = n
-            kind, key, detail = max(hits, key=lambda h: _RANK[h[0]])
-            alert = {"kind": kind, "key": key, "detail": detail}
     return new, alert
 
 
