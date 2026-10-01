@@ -221,6 +221,7 @@ def test_ac3_in_session_with_straggler_abort_warns_and_degrades(
         org_config={
             "scratchpad_dir": str(scratchpad),
             "straggler_abort": True,
+            "review_fanout": "parallel",
         }
     )
     prev_data = {

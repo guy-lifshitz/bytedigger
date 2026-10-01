@@ -177,7 +177,7 @@ def test_r8_phase6_straggler_check_resolves_the_reviewers_backend(monkeypatch, t
         "doc_path": "d", "spec_path": "s", "red_log_path": "r", "green_log_path": "g",
         "prompt": "review",
     })
-    ctx = types.SimpleNamespace(org_config={"straggler_abort": True,
+    ctx = types.SimpleNamespace(org_config={"straggler_abort": True, "review_fanout": "parallel",
                                             "scratchpad_dir": str(tmp_path)})
     with patch.object(p6, "invoke_llm_subprocess", _capture):
         p6._invoke_review_llm(ctx, prev)
@@ -200,7 +200,7 @@ def test_r8b_global_in_session_does_not_drop_a_subprocess_judges_straggler(monke
         "doc_path": "d", "spec_path": "s", "red_log_path": "r", "green_log_path": "g",
         "prompt": "review",
     })
-    ctx = types.SimpleNamespace(org_config={"straggler_abort": True,
+    ctx = types.SimpleNamespace(org_config={"straggler_abort": True, "review_fanout": "parallel",
                                             "scratchpad_dir": str(tmp_path)})
     with patch.object(p6, "invoke_llm_subprocess", _capture):
         p6._invoke_review_llm(ctx, prev)

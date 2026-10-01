@@ -134,6 +134,93 @@ def test_ac3_parallel_mode_prompt_still_spawns_6(tmp_path):
     assert "Spawn 6 parallel" in result.data["prompt"]
 
 
+_SINGLE_MODE_FORBIDDEN = ("dispatched Agent", "sub-agent", "Agent call", "Spawn")
+
+
+def _write_prior_findings(scratch: Path) -> Path:
+    reviews = scratch / "reviews"
+    reviews.mkdir(parents=True, exist_ok=True)
+    path = reviews / "last_findings.json"
+    path.write_text(json.dumps({
+        "attempt": 1, "score": 60, "threshold": 80,
+        "review_doc_path": str(reviews / "build-review.md"),
+        "structured_findings": [{"id": "1", "severity": "HIGH", "path": "src/foo.py", "description": "t"}],
+    }), encoding="utf-8")
+    return path
+
+
+# ─── AC3b ────────────────────────────────────────────────────────────────────
+
+def test_ac3b_single_mode_prior_findings_and_security_blocks_address_the_reviewer(tmp_path):
+    ctx = _ctx(tmp_path, "FEATURE", security_classification="HIGH")
+    lf = _write_prior_findings(Path(ctx.org_config["scratchpad_dir"]))
+    result = _build_review_prompt(ctx, None)
+    assert result.status == "ok", f"{result.error_code}: {result.error}"
+    prompt = result.data["prompt"]
+    assert str(lf) in prompt
+    assert "PRIOR — still present" in prompt
+    leaked = [w for w in _SINGLE_MODE_FORBIDDEN if w in prompt]
+    assert not leaked, f"single-mode prompt leaks delegation language: {leaked}"
+
+
+def test_ac3b_parallel_mode_same_inputs_keeps_dispatched_agent_wording(tmp_path):
+    ctx = _ctx(tmp_path, "FEATURE", security_classification="HIGH", review_fanout="parallel")
+    _write_prior_findings(Path(ctx.org_config["scratchpad_dir"]))
+    result = _build_review_prompt(ctx, None)
+    assert result.status == "ok", f"{result.error_code}: {result.error}"
+    assert "Each dispatched Agent MUST read" in result.data["prompt"]
+
+
+# ─── AC3c ────────────────────────────────────────────────────────────────────
+
+_SIX_DIMENSIONS = ("correctness", "silent failures", "test adequacy", "type design", "simplification", "comments")
+
+
+@pytest.mark.parametrize("artifact", [None, "dockerfile"])
+def test_ac3c_single_mode_prompt_carries_composite_table_with_all_dimensions(tmp_path, artifact):
+    extra = {"artifact_type": artifact} if artifact else {}
+    result = _build_review_prompt(_ctx(tmp_path, "FEATURE", **extra), None)
+    assert result.status == "ok", f"{result.error_code}: {result.error}"
+    prompt = result.data["prompt"]
+    table, count = _select_reviewers("FEATURE", artifact)
+    assert count == 1
+    # the dimensions live in the composite table AND that table reaches the model verbatim
+    missing = [d for d in _SIX_DIMENSIONS if d not in table.lower()]
+    assert not missing, f"composite table lacks dimensions {missing}: {table!r}"
+    assert table in prompt, "the composite table must be carried verbatim in the prompt"
+    assert "role-composite.md" in prompt
+    assert "role-devops" not in prompt
+    if artifact:
+        assert "CIS/OWASP/SLSA" in prompt
+    else:
+        assert "CIS/OWASP/SLSA" not in prompt
+
+
+# ─── AC4b ────────────────────────────────────────────────────────────────────
+
+_ABSENT = object()
+
+
+@pytest.mark.parametrize("value", [_ABSENT, None, "", " Single "])
+def test_ac4b_single_spellings_select_single_mode(tmp_path, value):
+    extra = {} if value is _ABSENT else {"review_fanout": value}
+    ctx = _ctx(tmp_path, "FEATURE", **extra)
+    result = _build_review_prompt(ctx, None)
+    assert result.status == "ok", f"{result.error_code}: {result.error}"
+    assert "Spawn" not in result.data["prompt"]
+    assert "role-composite.md" in result.data["prompt"]
+    scratch = Path(ctx.org_config["scratchpad_dir"])
+    _role_file(scratch / "reviews", "composite")
+    agg = _aggregate_review_findings(ctx, _agg_prev(scratch, "FEATURE"))
+    assert agg.status == "ok", f"{agg.error_code}: {agg.error}"
+
+
+def test_ac4b_uppercase_parallel_selects_parallel_mode(tmp_path):
+    result = _build_review_prompt(_ctx(tmp_path, "FEATURE", review_fanout="PARALLEL"), None)
+    assert result.status == "ok", f"{result.error_code}: {result.error}"
+    assert "Spawn 6 parallel" in result.data["prompt"]
+
+
 # ─── AC4 ─────────────────────────────────────────────────────────────────────
 
 def test_ac4_bogus_fanout_is_step_error(tmp_path):
@@ -180,6 +267,9 @@ def test_ac5_parallel_expected_6_keeps_floor_3(tmp_path):
 
 def _capture_invoke(tmp_path, monkeypatch, **org_extra) -> dict:
     captured: dict = {}
+    # gate NOTE: an ambient claude-in-session judge would degrade straggler_abort and mask the assertion
+    monkeypatch.setenv("HAL_RUNNER_BACKEND", "claude-subprocess")
+    monkeypatch.setenv("HAL_RUNNER_BACKEND_JUDGE", "claude-subprocess")
 
     def _fake_invoke(**kwargs):
         captured.update(kwargs)
@@ -213,6 +303,7 @@ def test_ac6_parallel_feature_passes_expected_n_6(tmp_path, monkeypatch):
 
 
 # ─── AC7 (side effect, §1l) ──────────────────────────────────────────────────
+# (AC6b, the stale-file guard, follows _install_fake_llm below.)
 
 def _install_fake_llm(tmp_path: Path, monkeypatch, *, role_file: Path | None, body: str):
     """Real executable script as the LLM, registered through the provider seam.
@@ -286,6 +377,8 @@ def test_ac7_single_reviewer_findings_reach_build_review_md(tmp_path, monkeypatc
     assert s4.status == "ok", f"{s4.error_code}: {s4.error}"
     doc = (scratch / "reviews" / "build-review.md").read_text(encoding="utf-8")
     assert "Composite widget leaks handle" in doc
+    assert "expected: 1" in doc, "fanout banner must report one expected reviewer"
+    assert "missing: (none)" in doc, "composite-row slug must parse so no role is reported missing"
     verified_titles = [f.get("title") for f in (s3.data.get("verified_findings") or [])]
     assert any("Composite widget leaks handle" in (t or "") for t in verified_titles), verified_titles
     assert (scratch / "reviews" / "role-composite.md").is_file()
@@ -303,6 +396,25 @@ def test_ac7_single_reviewer_writing_nothing_ends_no_role_files(tmp_path, monkey
     assert s2.status == "ok", f"{s2.error_code}: {s2.error}"
     assert s3.status == "error"
     assert s3.error_code == "E_NO_ROLE_FILES"
+
+
+# ─── AC6b (stale-file guard) ─────────────────────────────────────────────────
+
+def test_ac6b_stale_role_composite_is_cleared_before_the_llm_runs(tmp_path, monkeypatch):
+    ctx = _ctx(tmp_path, "FEATURE", review_model="m")
+    scratch = Path(ctx.org_config["scratchpad_dir"])
+    _role_file(scratch / "reviews", "composite", severity="HIGH", title="stale cycle-1 finding")
+    teardown = _install_fake_llm(tmp_path, monkeypatch, role_file=None, body="")
+    try:
+        s1 = _build_review_prompt(ctx, None)
+        s2 = _invoke_review_llm(ctx, s1)
+        s3 = _aggregate_review_findings(ctx, s2)
+    finally:
+        teardown()
+    assert s2.status == "ok", f"{s2.error_code}: {s2.error}"
+    assert not (scratch / "reviews" / "role-composite.md").exists()
+    assert s3.status == "error"
+    assert s3.error_code == "E_NO_ROLE_FILES", f"stale file satisfied the floor: {s3.error_code}"
 
 
 # ─── AC8 / AC9 (side effect, §1l) ────────────────────────────────────────────
@@ -332,13 +444,15 @@ def _gate_prev(verdict: str, raw: str, cycle: int | None = None) -> StepResult:
     )
 
 
-def _run_gate(monkeypatch, log: Path, prev: StepResult) -> StepResult:
+def _run_gate(monkeypatch, log: Path, prev: StepResult, ctx=None, *, with_run: bool = True) -> StepResult:
     from bytedigger_engine import telemetry_ctx
 
     monkeypatch.setenv("HAL_REJECT_LOG", str(log))
-    telemetry_ctx.set_current_run(event_log=None, run_id="bd139-run", step_name="gate_on_validation")
+    telemetry_ctx.clear_current_run()
+    if with_run:
+        telemetry_ctx.set_current_run(event_log=None, run_id="bd139-run", step_name="gate_on_validation")
     try:
-        return phase_5_implement._gate_on_validation(None, prev)
+        return phase_5_implement._gate_on_validation(ctx, prev)
     finally:
         telemetry_ctx.clear_current_run()
 
@@ -396,6 +510,105 @@ def test_ac8_pass_verdict_writes_no_row(tmp_path, monkeypatch):
     result = _run_gate(monkeypatch, log, _gate_prev("PASS", "## Verdict\nVerdict: PASS\n"))
     assert result.status == "ok"
     assert _rows(log) == []
+
+
+def test_ac8b_rejected_round_below_cap_is_logged_and_outcome_is_unchanged(tmp_path, monkeypatch):
+    log = tmp_path / "reject-reasons.jsonl"
+    result = _run_gate(monkeypatch, log, _gate_prev("FAIL", _FAIL_RAW, cycle=1))
+    # outcome exactly as without logging
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert result.data["cycle"] == 2
+    assert result.data["verdict"] == "FAIL"
+    rows = _rows(log)
+    assert len(rows) == 1, rows
+    assert rows[0]["phase"] == "phase_5_implement"
+    assert rows[0]["reason_code"] == "VALIDATION_FAILED"
+    assert rows[0]["detail"]["cycle"] == 1
+    assert rows[0]["detail"]["verdict"] == "FAIL"
+
+
+def _spec_defect_setup(tmp_path: Path, monkeypatch):
+    """Reach the SPEC_DEFECT reroute branches of _gate_on_validation (phase_5_implement.py:6845-6942)."""
+    scratch = tmp_path / "gate-scratch"
+    scratch.mkdir()
+    spec = tmp_path / "spec.md"
+    spec.write_text("# defective spec\n", encoding="utf-8")
+    monkeypatch.setenv("HAL_SPEC_DEFECT_REROUTE", "1")
+    ctx = types.SimpleNamespace(org_config={"scratchpad_dir": str(scratch)}, question="q-bd139")
+    structured = types.SimpleNamespace(
+        approve=False,
+        verdict_category=phase_5_implement.VERDICT_CATEGORY_SPEC_DEFECT,
+        reject_reason=None,
+    )
+    prev = _gate_prev("FAIL", _FAIL_RAW, cycle=1)
+    prev.data["structured_verdict"] = structured
+    prev.data["spec_path"] = str(spec)
+    return ctx, prev, scratch, spec
+
+
+def test_ac8c_spec_defect_reroute_exit_is_logged_with_its_own_reason(tmp_path, monkeypatch):
+    ctx, prev, _scratch, _spec = _spec_defect_setup(tmp_path, monkeypatch)
+    log = tmp_path / "reject-reasons.jsonl"
+    result = _run_gate(monkeypatch, log, prev, ctx)
+    assert result.status == "error"
+    assert result.error_code == "E_SPEC_DEFECT"  # unchanged
+    rows = _rows(log)
+    assert len(rows) == 1, rows
+    assert rows[0]["phase"] == "phase_5_implement"
+    assert rows[0]["reason_code"] == "VALIDATION_SPEC_DEFECT"
+    assert rows[0]["detail"]["cycle"] == 1
+
+
+def test_ac8c_spec_defect_no_progress_exit_is_logged(tmp_path, monkeypatch):
+    from bytedigger_engine.lib.spec_defect_ledger import record_reroute, spec_sha
+
+    ctx, prev, scratch, spec = _spec_defect_setup(tmp_path, monkeypatch)
+    # pre-stage the ledger (§1i): this spec sha was already rejected under this run id
+    assert record_reroute(scratch.resolve(), "bd139-run", spec_sha(spec)) is not None
+    log = tmp_path / "reject-reasons.jsonl"
+    result = _run_gate(monkeypatch, log, prev, ctx)
+    assert result.status == "error"
+    assert result.error_code == "E_SPEC_DEFECT_BUDGET"  # unchanged
+    rows = _rows(log)
+    assert len(rows) == 1, rows
+    assert rows[0]["reason_code"] == "VALIDATION_SPEC_DEFECT"
+
+
+@pytest.mark.parametrize("cycle,code,status", [
+    (1, None, "ok"),
+    (phase_5_implement.MAX_VALIDATION_CYCLES, "E_VALIDATION_FAILED", "error"),
+])
+def test_ac8d_no_current_run_writes_no_row_and_outcome_is_unchanged(tmp_path, monkeypatch, cycle, code, status):
+    log = tmp_path / "reject-reasons.jsonl"
+    result = _run_gate(monkeypatch, log, _gate_prev("FAIL", _FAIL_RAW, cycle=cycle), with_run=False)
+    assert result.status == status
+    assert result.error_code == code
+    assert _rows(log) == []
+
+
+def test_ac9_retry_branch_unwritable_log_still_returns_ok_next_cycle(tmp_path, monkeypatch):
+    log_dir = tmp_path / "reject-reasons.jsonl"
+    log_dir.mkdir()
+    result = _run_gate(monkeypatch, log_dir, _gate_prev("FAIL", _FAIL_RAW, cycle=1))
+    assert result.status == "ok"
+    assert result.data["cycle"] == 2
+
+
+def test_ac9_retry_branch_raising_writer_is_swallowed_and_was_called(tmp_path, monkeypatch):
+    from bytedigger_engine import reject_log
+
+    calls: list[tuple] = []
+
+    def _boom(*a, **kw):
+        calls.append((a, kw))
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(reject_log, "emit_reject_reason", _boom)
+    result = _run_gate(monkeypatch, tmp_path / "reject-reasons.jsonl", _gate_prev("FAIL", _FAIL_RAW, cycle=1))
+    assert len(calls) == 1, "the retry branch must route the reject through reject_log.emit_reject_reason"
+    assert result.status == "ok"
+    assert result.data["cycle"] == 2
 
 
 def test_ac9_unwritable_log_path_still_returns_e_validation_failed(tmp_path, monkeypatch):
