@@ -14,6 +14,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Added
 
+- **Close gate (bd#141, item 7).** New `bytedigger_engine/close_gate.py` (`python -m bytedigger_engine.close_gate --transcript PATH --spec PATH [--threshold N] [--vocab PATH] [--cwd DIR] [--state-dir DIR --run-id ID]`) returns a `fire` / `clear` / `latched` / `mentioned` / `no-claim` / `no-turn` / `no-spec` verdict when a turn claims "done" after N or more main-chain tool calls without a successful edit of the bound spec; optional once-per-run latch.
 - **Claim-vs-evidence check and tool-call loop detector (bd#141, items 1-2).** New
   `bytedigger_engine/claim_evidence.py` (`python -m bytedigger_engine.claim_evidence --transcript PATH
   [--vocab PATH]`) returns a `fire` / `clear` / `no-runner` / `no-claim` / `no-turn` verdict when a turn

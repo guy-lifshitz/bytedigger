@@ -94,7 +94,8 @@
     "lib/micro_scope.py",
     "lib/red_skeleton.py",
     "claim_evidence.py",
-    "loop_detector.py"
+    "loop_detector.py",
+    "close_gate.py"
   ],
   "host_modules": [
     "hal_config_provider.py",
