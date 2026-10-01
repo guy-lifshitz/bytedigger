@@ -92,7 +92,9 @@
     "core_boundary.py",
     "lib/corpus_parity.py",
     "lib/micro_scope.py",
-    "lib/red_skeleton.py"
+    "lib/red_skeleton.py",
+    "claim_evidence.py",
+    "loop_detector.py"
   ],
   "host_modules": [
     "hal_config_provider.py",

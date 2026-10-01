@@ -64,3 +64,5 @@ workflows/_recoverable_policy.py
 workflows/_task_description.py
 workflows/phase_45_spec.py
 mypy_strict_boyscout.py
+claim_evidence.py
+loop_detector.py

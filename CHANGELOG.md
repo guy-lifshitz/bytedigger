@@ -14,6 +14,14 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Added
 
+- **Claim-vs-evidence check and tool-call loop detector (bd#141, items 1-2).** New
+  `bytedigger_engine/claim_evidence.py` (`python -m bytedigger_engine.claim_evidence --transcript PATH
+  [--vocab PATH]`) returns a `fire` / `clear` / `no-runner` / `no-claim` / `no-turn` verdict when a turn
+  claims "done / tests pass" while the same turn's runner output is red; the vocabulary is data, hosts add
+  their own tokens. New `bytedigger_engine/loop_detector.py` (`python -m bytedigger_engine.loop_detector
+  --state-dir DIR [--log PATH]`) flags repeated, alternating and thrashing tool calls from a hook payload on
+  stdin, advisory only. Env: `BD_LOOP_DETECTOR=0`, `BD_LOOP_WINDOW`, `BD_LOOP_REPEAT`, `BD_LOOP_THRASH_SPAN`,
+  `BD_LOOP_THRASH_CALLS`, `BD_LOOP_THRASH_FAILS`, `BD_LOOP_COOLDOWN`.
 - **Weekly companion tuning (bd#117, Part B).** New `scripts/companion-tune collect|propose`
   (`bytedigger_engine/companion_tune.py`). `collect` reads maintainer corrections (a reopened issue closed
   by a BD-built PR, a watched label added or removed) into `signals.json`; `propose` asks one model call for
