@@ -13,7 +13,7 @@ ANTI-FABRICATION — evaluator rules in injection/quality-gate.md
       > path:line: <exact code from that line>
     Before filing each finding, re-read the cited path:line to confirm
     the code shown is an exact substring of the actual file line.
-  - COMPOSITE AGGREGATION: do not trust sub-agent citations verbatim;
+  - COMPOSITE AGGREGATION: do not trust any prior or delegated citation verbatim;
     re-quote each finding by re-reading the source file yourself.
   - FAILURE-MODE EXAMPLE (build 3E8E3A2A): reviewer claimed safeRealpath
     contained an empty catch block swallowing errors; the actual file

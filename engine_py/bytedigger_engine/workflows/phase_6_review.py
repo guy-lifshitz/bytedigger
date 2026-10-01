@@ -170,6 +170,7 @@ from bytedigger_engine.lib.plugins.review_schema import (  # noqa: E402  812D250
     lint_role_report,  # GH970 D2: malformed-header lint
     canonicalize_severity_headers,  # bd#84
 )
+from bytedigger_engine.lib.plugins.review_schema.canonical import SINGLE_REVIEW_FRAMING_TEMPLATE  # noqa: E402  bd#139
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402  DD34EEBF: scratchpad ref persistence
 from bytedigger_engine.reject_log import record_satisfaction_reject  # noqa: E402  EECA708D
 from bytedigger_engine.net_new_delta import delta_verdict  # noqa: E402  GH316 post-fix typecheck gate
@@ -457,7 +458,38 @@ def _resolve_complexity(ctx) -> str:
     return raw
 
 
-def _select_reviewers(complexity: str, artifact_type: str | None = None) -> tuple[str, int]:
+_ROW_COMPOSITE_REVIEWER = (
+    "  - pr-review-toolkit:composite — model: primary — focus: correctness, silent failures, "
+    "test adequacy, type design, simplification, comments"
+)
+_LINE_COMPOSITE_DEVOPS = (
+    "  - devops focus: CIS/OWASP/SLSA standards compliance for the detected devops artifact type"
+)
+
+
+def _resolve_review_fanout(org_config) -> str:
+    """bd#139: ``org_config["review_fanout"]`` → ``"single"`` (default) | ``"parallel"``.
+
+    Missing/None/"" → single; compared after strip().lower(). Anything else
+    raises ValueError (build_review_prompt maps it to E_REVIEW_FANOUT_INVALID).
+    """
+    raw = (org_config or {}).get("review_fanout")
+    if raw is None:
+        return "single"
+    value = str(raw).strip().lower()
+    if value in ("", "single"):
+        return "single"
+    if value == "parallel":
+        return "parallel"
+    raise ValueError(f"review_fanout must be 'single' or 'parallel', got {raw!r}")
+
+
+def _select_reviewers(complexity: str, artifact_type: str | None = None, fanout: str = "single") -> tuple[str, int]:
+    if fanout == "single":
+        rows = [_ROW_COMPOSITE_REVIEWER]
+        if artifact_type:
+            rows.append(_LINE_COMPOSITE_DEVOPS)
+        return "\n".join(rows), 1
     if complexity == "SIMPLE":
         rows_list = [_ROW_CODE_REVIEWER, _ROW_SILENT_FAILURE_HUNTER, _ROW_PR_TEST_ANALYZER]
         count = 3
@@ -705,7 +737,18 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
             _prior_findings_data = None
     complexity = _resolve_complexity(ctx)
     _artifact_type = (ctx.org_config or {}).get("artifact_type") if ctx else None
-    dispatch_table, reviewer_count = _select_reviewers(complexity, artifact_type=_artifact_type)
+    try:
+        _fanout = _resolve_review_fanout(ctx.org_config if ctx else None)
+    except ValueError as exc:
+        return StepResult(
+            status="error", data=None, duration_ms=0,
+            step_name="build_review_prompt",
+            error=str(exc),
+            error_code="E_REVIEW_FANOUT_INVALID",
+            recoverable=False,
+        )
+    _single_mode = _fanout == "single"
+    dispatch_table, reviewer_count = _select_reviewers(complexity, artifact_type=_artifact_type, fanout=_fanout)
     spec_path = scratchpad / SPEC_DOC_RELPATH
     red_log = scratchpad / RED_LOG_RELPATH
     green_log = scratchpad / GREEN_LOG_RELPATH
@@ -727,11 +770,18 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         parts.append("")
     parts.append(_read_first_block(scratchpad))
     parts.append("")
-    parts.append(
-        f"ROLE: You are a review orchestrator. Spawn {reviewer_count} parallel pr-review-toolkit "
-        "sub-agent reviews via the Agent tool, then aggregate their findings into "
-        f"{abs_review_doc}. VERIFICATION-ONLY — do NOT edit code or test files."
-    )
+    if _single_mode:
+        parts.append(
+            "ROLE: You are the sole reviewer. Review the work yourself, write your findings "
+            f"to {abs_reviews_dir}/role-composite.md, then write the aggregated review into "
+            f"{abs_review_doc}. VERIFICATION-ONLY — do NOT edit code or test files."
+        )
+    else:
+        parts.append(
+            f"ROLE: You are a review orchestrator. Spawn {reviewer_count} parallel pr-review-toolkit "
+            "sub-agent reviews via the Agent tool, then aggregate their findings into "
+            f"{abs_review_doc}. VERIFICATION-ONLY — do NOT edit code or test files."
+        )
     parts.append("")
     parts.append("FEATURE REQUEST:")
     parts.append(ctx.question or "(no feature request provided)")
@@ -788,7 +838,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         )
     parts.append("")
     parts.append(
-        PARALLEL_DISPATCH_FRAMING_TEMPLATE.format(
+        (SINGLE_REVIEW_FRAMING_TEMPLATE if _single_mode else PARALLEL_DISPATCH_FRAMING_TEMPLATE).format(
             reviewer_count=reviewer_count,
             abs_reviews_dir=abs_reviews_dir,
             per_role_schema=PER_ROLE_SCHEMA_TEMPLATE,
@@ -852,10 +902,15 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         _prop_structured = _prior_findings_data.get("structured_findings", [])
         _abs_last_findings = str(scratchpad / "reviews" / "last_findings.json")
         parts.append("")
+        _prop_heading, _prop_reader = (
+            ("## PRIOR-CONTEXT", "Before reviewing, read the prior findings file:")
+            if _single_mode else
+            ("## SUB-AGENT PRIOR-CONTEXT PROPAGATION", "Each dispatched Agent MUST read the prior findings file before reviewing:")
+        )
         parts.append(
-            f"## SUB-AGENT PRIOR-CONTEXT PROPAGATION\n"
+            f"{_prop_heading}\n"
             f"\n"
-            f"Each dispatched Agent MUST read the prior findings file before reviewing:\n"
+            f"{_prop_reader}\n"
             f"    {_abs_last_findings}\n"
             f"\n"
             f"For each finding in that file:\n"
@@ -908,7 +963,14 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
     parts.append("")
     parts.append("STRUCTURED FINDINGS")  # 812D2503 Ship B: marker-line escape valve — preserves sibling-test anchors (F34E2C82 R-B2 precedent)
     parts.append(STRUCTURED_FINDINGS_DIRECTIVE_SHORT)
-    if _security_high(ctx):
+    if _security_high(ctx) and _single_mode:
+        parts.append(
+            "\nSECURITY ADDENDUM (security_classification=HIGH): include an inline "
+            "security review covering OWASP Top 10 — injection vectors, auth bypass "
+            "paths, secret exposure — as an additional ## section in the aggregated "
+            "review."
+        )
+    elif _security_high(ctx):
         parts.append(
             "\nSECURITY ADDENDUM (security_classification=HIGH): after all sub-agent "
             "responses are collected, include an inline security-reviewer synthesis "
@@ -1007,19 +1069,37 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         try:
             _scratchpad = _resolve_scratchpad(ctx)
             _artifact_type = _scfg.get("artifact_type") if ctx else None
-            _, _reviewer_count = _select_reviewers(complexity or "FEATURE", _artifact_type)
-            straggler_cfg = {
-                "reviews_dir": str(_scratchpad / "reviews"),
-                "expected_n": int(_reviewer_count),
-                "patience_sec": float(_scfg.get("straggler_patience_sec") or STRAGGLER_PATIENCE_SEC),
-                "poll_interval_sec": float(_scfg.get("straggler_poll_interval_sec") or STRAGGLER_POLL_INTERVAL_SEC),
-            }
+            _, _reviewer_count = _select_reviewers(
+                complexity or "FEATURE", _artifact_type, fanout=_resolve_review_fanout(_scfg),
+            )
+            # bd#139: the watchdog arms at expected_n - 1 files, so a lone
+            # reviewer would be killed at zero files; only a fan-out is watched.
+            if _reviewer_count >= 2:
+                straggler_cfg = {
+                    "reviews_dir": str(_scratchpad / "reviews"),
+                    "expected_n": int(_reviewer_count),
+                    "patience_sec": float(_scfg.get("straggler_patience_sec") or STRAGGLER_PATIENCE_SEC),
+                    "poll_interval_sec": float(_scfg.get("straggler_poll_interval_sec") or STRAGGLER_POLL_INTERVAL_SEC),
+                }
         except Exception:
             logger.warning(
                 "failed to build straggler_cfg; disabling straggler abort for this call",
                 exc_info=True,
             )
             straggler_cfg = None
+
+    # bd#139 stale-file guard: single mode writes only role-composite.md, so a
+    # composite from an earlier cycle (or parallel role files from before a mode
+    # switch) must not satisfy floor 1. Fail-safe: never fails the step.
+    try:
+        if _resolve_review_fanout(cfg) == "single":
+            _reviews_dir = _resolve_scratchpad(ctx) / "reviews"
+            for _stale in _reviews_dir.glob("role-*.md"):
+                _stale.unlink()
+    except ValueError:
+        pass  # no scratchpad configured, or invalid fanout (reported by build_review_prompt)
+    except OSError:
+        logger.warning("failed to clear stale role files before single review", exc_info=True)
 
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
@@ -1529,9 +1609,13 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     if complexity:
         try:
             _agg_artifact_type = (ctx.org_config or {}).get("artifact_type") if ctx else None
-            dispatch_table, expected_reviewers = _select_reviewers(complexity, artifact_type=_agg_artifact_type)
+            dispatch_table, expected_reviewers = _select_reviewers(
+                complexity, artifact_type=_agg_artifact_type,
+                fanout=_resolve_review_fanout(ctx.org_config if ctx else None),
+            )
             expected_slugs = _extract_expected_slugs(dispatch_table)
-            min_floor = max(2, (expected_reviewers + 1) // 2)  # ceil(N/2), N>=1
+            # bd#139: a single reviewer needs floor 1; parallel floors stay 2/3.
+            min_floor = 1 if expected_reviewers == 1 else max(2, (expected_reviewers + 1) // 2)  # ceil(N/2)
         except Exception:
             # Defensive: bad complexity value → skip floor check, log and continue.
             logger.warning("E8433B4E: failed to compute floor for complexity=%r", complexity, exc_info=True)

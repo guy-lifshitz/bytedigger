@@ -51,6 +51,21 @@ PARALLEL_DISPATCH_FRAMING_TEMPLATE: str = (
     "{dispatch_table}"
 )
 
+# ── SINGLE_REVIEW_FRAMING_TEMPLATE (bd#139) ──────────────────────────────────
+# Single-reviewer counterpart of PARALLEL_DISPATCH_FRAMING_TEMPLATE: the model
+# reviews the work itself and writes ONE composite role file.
+SINGLE_REVIEW_FRAMING_TEMPLATE: str = (
+    "SINGLE REVIEW — you review the work yourself, covering every dimension of the "
+    "checklist below in one pass. Read SPEC, RED, and GREEN files by path.\n"
+    "\n"
+    "Use the Write tool to write your findings to ONE file:\n"
+    "    {abs_reviews_dir}/role-composite.md\n"
+    "Schema:\n"
+    "{per_role_schema}\n\n"
+    "Review checklist (dimensions):\n"
+    "{dispatch_table}"
+)
+
 # ── STRUCTURED_FINDINGS_JSON_TEMPLATE ────────────────────────────────────────
 # Verbatim move from workflows/phase_6_review.py lines 992-1002 (pre-Ship-B).
 # Do NOT compress — content must be byte-equivalent to what was inline.

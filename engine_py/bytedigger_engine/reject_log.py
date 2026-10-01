@@ -7,7 +7,7 @@ Schema (one JSON object per line in the reject-reasons.jsonl log):
     {
         "ts":          "<ISO-8601 UTC ending Z>",
         "build_id":    "<run_id | null>",
-        "phase":       "phase_45_spec | phase_6_review",
+        "phase":       "phase_45_spec | phase_5_implement | phase_6_review",
         "reason_code": "<str>",
         "axes":        ["§1w", ...],
         "detail":      { ... }
@@ -156,6 +156,52 @@ def record_plan_review_reject(
         "PLAN_REVIEW_REVISE",
         _extract_axes(findings),
         {"cycle": cycle, "n_unresolved": n_unresolved, "findings_source": findings_source},
+        path=path,
+    )
+
+
+_FINDINGS_HEAD_RE = re.compile(
+    r"^#{2,4}\s+SEVERITY:\s*(?:CRITICAL|HIGH)\s*[—-]\s*(.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_FINDINGS_HEAD_MAX = 5
+_FINDINGS_HEAD_CHARS = 120
+
+
+def record_validation_reject(
+    verdict: str,
+    cycle: int,
+    findings_text: str | None,
+    reason_code: str | None = None,
+    *,
+    validation_doc_path: str | None = None,
+    path: Path | None = None,
+) -> None:
+    """Record a phase_5 validation-gate rejection (bd#139 op2).
+
+    verdict is the canonical gate verdict (never PASS on a reject).
+    reason_code defaults to VALIDATION_UNKNOWN for an UNKNOWN verdict, else
+    VALIDATION_FAILED; callers pass VALIDATION_SPEC_DEFECT explicitly.
+    findings_head: titles of the first <=5 CRITICAL/HIGH finding headers.
+    """
+    if reason_code is None:
+        reason_code = "VALIDATION_UNKNOWN" if str(verdict).upper() == "UNKNOWN" else "VALIDATION_FAILED"
+    head: list[str] = []
+    if isinstance(findings_text, str):
+        head = [
+            m.group(1)[:_FINDINGS_HEAD_CHARS]
+            for m in _FINDINGS_HEAD_RE.finditer(findings_text)
+        ][:_FINDINGS_HEAD_MAX]
+    emit_reject_reason(
+        "phase_5_implement",
+        reason_code,
+        _extract_axes(findings_text),
+        {
+            "cycle": cycle,
+            "verdict": verdict,
+            "findings_head": head,
+            "validation_doc_path": validation_doc_path,
+        },
         path=path,
     )
 

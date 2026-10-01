@@ -116,7 +116,8 @@ the engine).
 Prod: `engine_py/bytedigger_engine/workflows/phase_6_review.py`, `engine_py/bytedigger_engine/lib/plugins/review_schema/canonical.py` (single-mode
 framing constant), `engine_py/bytedigger_engine/reject_log.py`, `engine_py/bytedigger_engine/workflows/phase_5_implement.py` (`_gate_on_validation`
 only), `engine_py/bytedigger_engine/lib/plugins/anti_hallucination/prompt_fragment.md` (line 16 only),
-`engine_py/ERROR_CODES.md`.
+`engine_py/ERROR_CODES.md`, `engine_py/bytedigger_engine/error_codes.py` (register
+`E_REVIEW_FANOUT_INVALID` in `ERROR_CODES`; GREEN r1 found it via sibling `test_gh1591_fix_gate_boundary.py` AC13, §1n).
 RED (new): `engine_py/tests/test_bd139_single_reviewer.py`.
 §1a siblings. The only allowed test edits pin `review_fanout="parallel"` /
 `fanout="parallel"` where a test asserts the old default (3/6/+1 reviewers, floor 2/3, non-None
