@@ -119,6 +119,11 @@ DEFAULT_VOCABULARY = Vocabulary(
 )
 
 
+def _bounded_pattern(alternatives: Tuple[str, ...]) -> str:
+    joined = "|".join("(?:" + a + ")" for a in alternatives)
+    return r"(?<!\w)(?:" + joined + r")(?!\w)"
+
+
 def load_vocabulary(path: Union[str, Path]) -> Vocabulary:
     """Read a JSON vocabulary file; return DEFAULT_VOCABULARY extended by it."""
     try:
@@ -143,6 +148,11 @@ def load_vocabulary(path: Union[str, Path]) -> Vocabulary:
                 re.compile(alt)
             except re.error as exc:
                 raise ValueError("vocabulary key %r has an invalid regex %r: %s" % (key, alt, exc)) from exc
+        if items:
+            try:
+                re.compile(_bounded_pattern(items), re.IGNORECASE)
+            except re.error as exc:
+                raise ValueError("vocabulary key %r has an invalid joined regex: %s" % (key, exc)) from exc
         fields[key] = items
     return DEFAULT_VOCABULARY.extended(Vocabulary(
         claim=fields["claim"],
@@ -245,7 +255,7 @@ def strip_quoted_text(text: str) -> str:
 def _bounded(alternatives: Tuple[str, ...]) -> Optional[Pattern[str]]:
     if not alternatives:
         return None
-    return re.compile(r"(?<!\w)(?:" + "|".join(alternatives) + r")(?!\w)", re.IGNORECASE)
+    return re.compile(_bounded_pattern(alternatives), re.IGNORECASE)
 
 
 _CLAUSE_BOUNDARY = ".;!?—\n"
@@ -294,7 +304,7 @@ _TIMEOUT = re.compile(r"^timeout\s+\d+\S*\s+")
 def runner_id(command: str, vocab: Vocabulary = DEFAULT_VOCABULARY) -> Optional[str]:
     if not vocab.runner:
         return None
-    pattern = re.compile(r"^(?:" + "|".join(vocab.runner) + r")(?!\w)", re.IGNORECASE)
+    pattern = re.compile(r"^(?:" + "|".join("(?:" + a + ")" for a in vocab.runner) + r")(?!\w)", re.IGNORECASE)
     for raw in _SEGMENT_SPLIT.split(command):
         seg = raw.strip()
         seg = _ENV_ASSIGN.sub("", seg)

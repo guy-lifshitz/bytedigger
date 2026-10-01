@@ -15,6 +15,7 @@ import json
 import re
 import subprocess
 import sys
+import pytest
 from pathlib import Path
 from typing import Any
 
@@ -324,6 +325,16 @@ def test_c16_load_vocabulary_rejects_bad_input(tmp_path: Path) -> None:
         pass
     else:
         raise AssertionError("C16: unreadable file must raise ValueError")
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="non-leading inline flags are an error only on 3.11+")
+def test_c16_load_vocabulary_rejects_pattern_invalid_only_when_joined(tmp_path: Path) -> None:
+    """C16 r3 — spec load_vocabulary: joined field pattern must compile."""
+    ce = _ce()
+    vocab_path = tmp_path / "vocab.json"
+    vocab_path.write_text('{"claim": ["(?i)shipped"]}', encoding="utf-8")
+    with pytest.raises(ValueError):
+        ce.load_vocabulary(vocab_path)
 
 
 # --------------------------------------------------------------------------

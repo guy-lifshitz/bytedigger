@@ -1,6 +1,6 @@
 # bd#141 items 1+2 — claim-vs-evidence check (VerificationGate TF) and LoopDetector move into the engine
 
-**Status: FROZEN r2 (gate r1 REJECT → 5 blockers fixed; gate r2 PASS, see `2026-10-01-bd141-gate-r{1,2}.md`)** · **Tier:** 3 (two new engine prod `.py` modules, Option D) · **Class:** SYSTEMATIC ·
+**Status: FROZEN r3 (r3 = /code-review amendment to `load_vocabulary` validation; gate r1 REJECT → 5 blockers fixed; gate r2 PASS, see `2026-10-01-bd141-gate-r{1,2}.md`)** · **Tier:** 3 (two new engine prod `.py` modules, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `claim_evidence.evaluate_turn` — the one function that turns a transcript into a
 TF verdict; the CLI and every host adapter call it and add nothing but I/O. Second chokepoint:
 `loop_detector.observe` — the one place a tool call is folded into the window and an alert is
@@ -53,7 +53,9 @@ duplicates dropped (first occurrence kept).
 `load_vocabulary(path) -> Vocabulary`: reads a JSON object whose keys are a subset of the four
 field names, each a list of strings; returns `DEFAULT_VOCABULARY.extended(<that>)`. Raises
 `ValueError` on: unreadable file, invalid JSON, non-object, unknown key, a value that is not a
-list of strings, or an alternative that fails `re.compile`.
+list of strings, an alternative that fails `re.compile`, or a field whose joined, word-bounded
+pattern (each alternative wrapped as `(?:alt)`) fails `re.compile` (r3, /code-review: e.g. a
+non-leading inline flag `(?i)` is legal alone but not once joined).
 
 **Transcript helpers** (entries = list of dicts parsed from Claude Code transcript JSONL):
 - Sidechain entries (`isSidechain is True`) are dropped before every step below.
