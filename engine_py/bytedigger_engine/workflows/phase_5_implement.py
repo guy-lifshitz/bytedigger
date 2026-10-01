@@ -113,6 +113,7 @@ from bytedigger_engine.io_utils import atomic_write  # noqa: E402  GH1123 4D6049
 from bytedigger_engine import flags_catalog  # noqa: E402  GH529
 from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine import verification_registry  # noqa: E402  bd#115
+from bytedigger_engine import check_ladder  # noqa: E402  bd#141 item 3
 from bytedigger_engine.suite_safety import scan_suite_safety
 from bytedigger_engine.stub_passability import scan_stub_passability
 from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema
@@ -6611,20 +6612,61 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
         )
     cfg = ctx.org_config or {}
     model = _resolve_model(cfg, "validation_model", _default_validation_model())
+    extra_data = {
+        "doc_path": prev.data["doc_path"],
+        "spec_path": prev.data["spec_path"],
+        "red_log_path": prev.data["red_log_path"],
+        "red_test_paths": prev.data.get("red_test_paths", []),
+        "cycle": prev.data.get("cycle", 1),
+        # 4C0056FA: carry red_commit_sha through to write_validation_doc.
+        "red_commit_sha": prev.data.get("red_commit_sha"),
+    }
+    # bd#141 item 3: shadow pre-screen. The verdict outcome is ignored; the gate always runs.
+    _ps_cfg = cfg.get("prescreen") if isinstance(cfg, dict) else None
+    if isinstance(_ps_cfg, dict) and _ps_cfg.get("classifier_cmd") is not None:
+        _ps_cycle = prev.data.get("cycle", 1)
+        try:
+            _ps_verdict = check_ladder.prescreen(
+                findings=[],
+                gate_input=prev.data["prompt"],
+                classifier_cmd=_ps_cfg["classifier_cmd"],
+                mode="shadow",
+                timeout_s=_ps_cfg.get("timeout_s", check_ladder.DEFAULT_TIMEOUT_S),
+            )
+            _ps_clf = _ps_verdict["classifier"]
+            _ps_event = {
+                "outcome": _ps_verdict["outcome"],
+                "rung": _ps_verdict["rung"],
+                "mode": _ps_verdict["mode"],
+                "classifier_status": _ps_clf["status"],
+                "classifier_label": _ps_clf["label"],
+                "classifier_confidence": _ps_clf["confidence"],
+                "classifier_ms": _ps_clf["ms"],
+                "cost_usd": _ps_clf["cost_usd"],
+                "cycle": _ps_cycle,
+                "phase": 5,
+            }
+            _ps_extra = {
+                **_ps_verdict,
+                "classifier": {k: v for k, v in _ps_clf.items() if k != "reasons"},
+            }
+        except Exception:  # noqa: BLE001 -- shadow path must never block the gate
+            _ps_extra = None
+            _ps_event = {
+                "outcome": "escalate", "rung": None, "mode": "shadow",
+                "classifier_status": "config-error", "classifier_label": None,
+                "classifier_confidence": None, "classifier_ms": None, "cost_usd": None,
+                "cycle": _ps_cycle, "phase": 5,
+            }
+        _emit_safe("prescreen_verdict", _ps_event)
+        if _ps_extra is not None:
+            extra_data["prescreen"] = _ps_extra
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=model,
         timeout_sec=_resolve_validation_timeout_sec(cfg),
         step_name="invoke_validation_llm",
-        extra_data={
-            "doc_path": prev.data["doc_path"],
-            "spec_path": prev.data["spec_path"],
-            "red_log_path": prev.data["red_log_path"],
-            "red_test_paths": prev.data.get("red_test_paths", []),
-            "cycle": prev.data.get("cycle", 1),
-            # 4C0056FA: carry red_commit_sha through to write_validation_doc.
-            "red_commit_sha": prev.data.get("red_commit_sha"),
-        },
+        extra_data=extra_data,
         hard_gate=True,
         gate_label="validation",
         allowed_tools=["Read", "Grep", "Glob", "Bash(graphify-shim.sh:*)"],
