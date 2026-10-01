@@ -1,6 +1,6 @@
 """RED tests for bd#141 item 7 -- close gate (``close_gate``).
 
-Spec: docs/decisions/2026-10-01-bd141-close-gate.md (ACs G1-G18).
+Spec: docs/decisions/2026-10-01-bd141-close-gate.md (ACs G1-G22, r2).
 
 The module under test does not exist yet. Every AC reaches it through a real
 ``python -m bytedigger_engine.close_gate`` subprocess or a lazy ``_cg()`` import
@@ -145,7 +145,8 @@ def test_G2_nine_calls_clears(tmp_path: Path) -> None:
     """G2: boundary, 9 calls -> clear."""
     spec = _spec(tmp_path)
     v = _run(tmp_path, _transcript(_bashes(9), "Done."), spec, label="G2")
-    # Red if: comparison were `calls > threshold` instead of `>=` (10 would clear), or `>= threshold - 1`.
+    # Red if: the comparison were `calls >= threshold - 1` (9 would fire). The opposite regression,
+    # `calls > threshold`, is NOT caught here (9 clears either way); G1 (10 calls must fire) catches it.
     assert v["outcome"] == "clear" and v["calls"] == 9, f"G2: {v!r}"
 
 
@@ -280,6 +281,9 @@ def test_G10_spec_basename_in_raw_text_is_mentioned(tmp_path: Path) -> None:
         # Red if: the mention check ran on stripped text (inline code removed) or was case-sensitive.
         assert v["outcome"] == "mentioned", f"G10: {label} -> {v!r}"
         assert v["calls"] is None and v["phrase"] == "Done", f"G10: {label} fields -> {v!r}"
+    v = _run(tmp_path, _transcript(_bashes(10), "Still working on spec.md."), spec, label="G10-no-claim")
+    # Red if: the mention check ran before claim detection (would answer mentioned).
+    assert v["outcome"] == "no-claim" and v["calls"] is None, f"G10: unclaimed mention -> {v!r}"
 
 
 # --------------------------------------------------------------------------
@@ -328,7 +332,8 @@ def test_G13_extended_vocab_makes_new_claim_fire(tmp_path: Path) -> None:
     assert without["outcome"] == "no-claim", f"G13: default vocab -> {without!r}"
     with_v = _run(tmp_path, entries, spec, "--vocab", str(vocab), label="G13-with")
     # Red if: --vocab were parsed but not passed through to claim_phrase.
-    assert with_v["outcome"] == "fire" and str(with_v["phrase"]).lower() == "shipped", f"G13: {with_v!r}"
+    # Also red if: the phrase were case-folded (matched text is reported as written).
+    assert with_v["outcome"] == "fire" and with_v["phrase"] == "Shipped", f"G13: {with_v!r}"
 
 
 def test_G14_threshold_flag(tmp_path: Path) -> None:
@@ -448,6 +453,18 @@ def test_G17_cli_stdout_is_one_json_line_with_exact_keys(tmp_path: Path) -> None
         assert v["outcome"] == expected, f"G17: expected {expected}, got {v!r}"
         assert v["threshold"] == 10, f"G17: {expected} threshold echoed"
         assert proc.stdout.endswith("\n") and proc.stdout.count("\n") == 1, f"G17: {expected} one line"
+    # latched: pre-stage the latch with a first firing run, then the second run is latched.
+    state = tmp_path / "latch-state"
+    transcript = tmp_path / "fire.jsonl"
+    args = ("--transcript", str(transcript), "--spec", str(spec),
+            "--state-dir", str(state), "--run-id", "g17")
+    assert _verdict(_cli(*args), "G17-latch-prime")["outcome"] == "fire"
+    proc = _cli(*args)
+    v = _verdict(proc, "G17-latched")
+    # Red if: the latched path built its dict with different keys or printed more than one line.
+    assert set(v) == {"calls", "outcome", "phrase", "threshold"}, f"G17: latched keys {sorted(v)}"
+    assert v["outcome"] == "latched" and v["threshold"] == 10, f"G17: latched -> {v!r}"
+    assert proc.stdout.endswith("\n") and proc.stdout.count("\n") == 1, "G17: latched one line"
 
 
 # --------------------------------------------------------------------------
@@ -467,5 +484,120 @@ def test_G18_registered_clean_and_reuses_claim_phrase() -> None:
     assert re.search(cyrillic, source) is None, "G18: Cyrillic char in module"
     assert "HAL_" not in source, "G18: HAL_ substring in module"
     ce = importlib.import_module("bytedigger_engine.claim_evidence")
-    # Red if: close_gate defined its own claim_phrase (a second claim regex) instead of importing it.
-    assert _cg().claim_phrase is ce.claim_phrase, "G18: claim_phrase must be the claim_evidence object"
+    cg = _cg()
+    names = ("Vocabulary", "DEFAULT_VOCABULARY", "load_vocabulary", "slice_current_turn",
+             "final_assistant_text", "strip_quoted_text", "claim_phrase")
+    # Red if: close_gate re-implemented any of these (a second claim pipeline) instead of importing it.
+    assert hasattr(cg, "claim_phrase"), "G18: close_gate must expose claim_phrase"
+    for name in names:
+        if hasattr(cg, name):
+            assert getattr(cg, name) is getattr(ce, name), f"G18: {name} must be the claim_evidence object"
+    proc = subprocess.run(
+        [sys.executable, "core-boundary-lint.py", "--json"],
+        cwd=str(ENGINE_PY.parent), capture_output=True, text=True, timeout=120,
+    )
+    report = json.loads(proc.stdout)
+    # Red if: close_gate.py breaks a core-boundary rule (non-stdlib import, HAL coupling).
+    assert "close_gate.py" not in json.dumps(report.get("violations", [])), (
+        f"G18: boundary violation for close_gate.py: {report.get('violations')}")
+
+
+# --------------------------------------------------------------------------
+# G19-G22 error paths and counting unit (real CLI subprocess)
+# --------------------------------------------------------------------------
+
+def test_G19_latch_oserror_other_than_exists_still_fires(tmp_path: Path) -> None:
+    """G19: state dir under a regular file -> exit 0, fire, no traceback."""
+    spec = _spec(tmp_path)
+    blocker = tmp_path / "afile"
+    blocker.write_text("x", encoding="utf-8")
+    transcript = tmp_path / "t.jsonl"
+    _write_jsonl(transcript, _transcript(_bashes(10), "Done."))
+    proc = _cli("--transcript", str(transcript), "--spec", str(spec),
+                "--state-dir", str(blocker / "sub"), "--run-id", "r")
+    v = _verdict(proc, "G19")
+    # Red if: latch() let the OSError (NotADirectoryError) escape -> rc 1 and a traceback.
+    assert v["outcome"] == "fire" and v["calls"] == 10, f"G19: {v!r}"
+    assert "Traceback" not in proc.stderr, f"G19: traceback on stderr: {proc.stderr[-300:]!r}"
+
+
+def test_G20_malformed_lines_are_skipped_not_counted(tmp_path: Path) -> None:
+    """G20: junk lines interleaved in a firing fixture -> fire, calls == 10."""
+    spec = _spec(tmp_path)
+    lines = [json.dumps(e) for e in _transcript(_bashes(10), "Done.")]
+    junk = ["this is not json {", json.dumps([1, 2]), json.dumps({"type": "assistant"}),
+            json.dumps({"type": "assistant", "message": {"content": "plain string"}})]
+    mixed: list[str] = []
+    for i, ln in enumerate(lines):
+        mixed.append(ln)
+        if i < len(junk) * 3 and i % 3 == 1:
+            mixed.append(junk[(i // 3) % len(junk)])
+    mixed.extend(j for j in junk if j not in mixed)
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text("\n".join(mixed) + "\n", encoding="utf-8")
+    proc = _cli("--transcript", str(transcript), "--spec", str(spec))
+    v = _verdict(proc, "G20")
+    # Red if: a bad line crashed the reader or was counted as a call.
+    assert v["outcome"] == "fire" and v["calls"] == 10, f"G20: {v!r}"
+    assert "Traceback" not in proc.stderr, "G20: traceback on stderr"
+
+
+def test_G21_unpaired_spec_edit_is_a_touch(tmp_path: Path) -> None:
+    """G21: Edit with no tool_result counts as a touch only when it names the spec."""
+    spec = _spec(tmp_path)
+    other = _spec(tmp_path, "other.md")
+
+    def unpaired(target: Path) -> list[dict]:
+        steps = _with(_bashes(12), 1, _tool_step("e1", "Edit", str(target)))
+        entries = _transcript(steps, "Done.")
+        return [e for e in entries
+                if not (e["type"] == "user" and isinstance(e["message"]["content"], list)
+                        and e["message"]["content"][0].get("tool_use_id") == "e1")]
+
+    v = _run(tmp_path, unpaired(spec), spec, label="G21-spec")
+    # Red if: a touch required a paired non-error tool_result (count would stay 12).
+    assert v["outcome"] == "fire" and v["calls"] == 10, f"G21: unpaired spec edit -> {v!r}"
+    v = _run(tmp_path, unpaired(other), spec, label="G21-other")
+    # Red if: any unpaired Edit were treated as a touch regardless of file (calls would be 10).
+    assert v["outcome"] == "fire" and v["calls"] == 12, f"G21: unpaired other edit -> {v!r}"
+
+
+def test_G22_blocks_are_counted_not_entries(tmp_path: Path) -> None:
+    """G22: 2 assistant entries x 5 Bash blocks -> calls == 10."""
+    spec = _spec(tmp_path)
+    entries: list[dict] = [_user("please finish the work")]
+    for e in range(2):
+        blocks = [_bash_step(f"p{e}-{i}")["block"] for i in range(5)]
+        entries.append(_assistant(tool_uses=blocks))
+        for b in blocks:
+            entries.append(_result(b["id"]))
+    entries.append(_assistant("Done."))
+    v = _run(tmp_path, entries, spec, label="G22")
+    # Red if: entries containing tool_use were counted instead of blocks (calls would be 2).
+    assert v["outcome"] == "fire" and v["calls"] == 10, f"G22: {v!r}"
+
+
+# --------------------------------------------------------------------------
+# Direct calls to the chokepoint API
+# --------------------------------------------------------------------------
+
+def test_evaluate_direct_call_returns_verdict(tmp_path: Path) -> None:
+    """evaluate(): the chokepoint returns the verdict dict without the CLI."""
+    spec = _spec(tmp_path)
+    cg = _cg()
+    v = cg.evaluate(_transcript(_bashes(10), "Done."), str(spec))
+    # Red if: the logic lived only in main() (no evaluate) or the Verdict shape differed.
+    assert dict(v) == {"outcome": "fire", "phrase": "Done", "calls": 10, "threshold": 10}, f"{v!r}"
+    v3 = cg.evaluate(_transcript(_bashes(2), "Done."), str(spec), threshold=3)
+    assert dict(v3) == {"outcome": "clear", "phrase": "Done", "calls": 2, "threshold": 3}, f"{v3!r}"
+
+
+def test_latch_direct_call_true_then_false(tmp_path: Path) -> None:
+    """latch(): True when it creates the file, False on the same run id afterwards."""
+    cg = _cg()
+    state = tmp_path / "a" / "b"
+    # Red if: latch() returned True twice (no O_EXCL) or never created the file.
+    assert cg.latch(str(state), "run-x") is True
+    assert (state / _latch_name("run-x")).is_file(), "latch file named by sha256(run_id)[:16]"
+    assert cg.latch(str(state), "run-x") is False
+    assert cg.latch(str(state), "run-y") is True
