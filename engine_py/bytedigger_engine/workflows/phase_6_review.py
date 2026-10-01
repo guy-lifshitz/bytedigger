@@ -504,6 +504,13 @@ def _select_reviewers(complexity: str, artifact_type: str | None = None, fanout:
     return "\n".join(rows_list), count
 
 
+def _review_plan(ctx, complexity: str, artifact_type: str | None) -> tuple[str, str, int]:
+    """Resolve (fanout, dispatch_table, reviewer_count) once. Raises ValueError on invalid fanout."""
+    fanout = _resolve_review_fanout(ctx.org_config if ctx else None)
+    dispatch_table, reviewer_count = _select_reviewers(complexity, artifact_type=artifact_type, fanout=fanout)
+    return fanout, dispatch_table, reviewer_count
+
+
 def _parse_review_verdict(raw: str) -> str:
     """Last-marker-wins: trailing VERDICT line is the final answer.
 
@@ -738,7 +745,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
     complexity = _resolve_complexity(ctx)
     _artifact_type = (ctx.org_config or {}).get("artifact_type") if ctx else None
     try:
-        _fanout = _resolve_review_fanout(ctx.org_config if ctx else None)
+        _fanout, dispatch_table, reviewer_count = _review_plan(ctx, complexity, _artifact_type)
     except ValueError as exc:
         return StepResult(
             status="error", data=None, duration_ms=0,
@@ -747,8 +754,34 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
             error_code="E_REVIEW_FANOUT_INVALID",
             recoverable=False,
         )
-    _single_mode = _fanout == "single"
-    dispatch_table, reviewer_count = _select_reviewers(complexity, artifact_type=_artifact_type, fanout=_fanout)
+    _single_mode = reviewer_count == 1
+    if _single_mode:
+        _role_line = (
+            "ROLE: You are the sole reviewer. Review the work yourself, write your findings "
+            f"to {str(scratchpad / 'reviews')}/role-composite.md, then write the aggregated review into "
+            f"{scratchpad / REVIEW_DOC_RELPATH}. VERIFICATION-ONLY — do NOT edit code or test files."
+        )
+        _framing_template = SINGLE_REVIEW_FRAMING_TEMPLATE
+        _security_addendum = (
+            "\nSECURITY ADDENDUM (security_classification=HIGH): include an inline "
+            "security review covering OWASP Top 10 — injection vectors, auth bypass "
+            "paths, secret exposure — as an additional ## section in the aggregated "
+            "review."
+        )
+    else:
+        _role_line = (
+            f"ROLE: You are a review orchestrator. Spawn {reviewer_count} parallel pr-review-toolkit "
+            "sub-agent reviews via the Agent tool, then aggregate their findings into "
+            f"{scratchpad / REVIEW_DOC_RELPATH}. VERIFICATION-ONLY — do NOT edit code or test files."
+        )
+        _framing_template = PARALLEL_DISPATCH_FRAMING_TEMPLATE
+        _security_addendum = (
+            "\nSECURITY ADDENDUM (security_classification=HIGH): after all sub-agent "
+            "responses are collected, include an inline security-reviewer synthesis "
+            "covering OWASP Top 10 — injection vectors, auth bypass paths, secret "
+            "exposure. No 7th Agent call — synthesize as an additional ## section "
+            "in the aggregated review."
+        )
     spec_path = scratchpad / SPEC_DOC_RELPATH
     red_log = scratchpad / RED_LOG_RELPATH
     green_log = scratchpad / GREEN_LOG_RELPATH
@@ -770,18 +803,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         parts.append("")
     parts.append(_read_first_block(scratchpad))
     parts.append("")
-    if _single_mode:
-        parts.append(
-            "ROLE: You are the sole reviewer. Review the work yourself, write your findings "
-            f"to {abs_reviews_dir}/role-composite.md, then write the aggregated review into "
-            f"{abs_review_doc}. VERIFICATION-ONLY — do NOT edit code or test files."
-        )
-    else:
-        parts.append(
-            f"ROLE: You are a review orchestrator. Spawn {reviewer_count} parallel pr-review-toolkit "
-            "sub-agent reviews via the Agent tool, then aggregate their findings into "
-            f"{abs_review_doc}. VERIFICATION-ONLY — do NOT edit code or test files."
-        )
+    parts.append(_role_line)
     parts.append("")
     parts.append("FEATURE REQUEST:")
     parts.append(ctx.question or "(no feature request provided)")
@@ -838,7 +860,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         )
     parts.append("")
     parts.append(
-        (SINGLE_REVIEW_FRAMING_TEMPLATE if _single_mode else PARALLEL_DISPATCH_FRAMING_TEMPLATE).format(
+        _framing_template.format(
             reviewer_count=reviewer_count,
             abs_reviews_dir=abs_reviews_dir,
             per_role_schema=PER_ROLE_SCHEMA_TEMPLATE,
@@ -963,21 +985,8 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
     parts.append("")
     parts.append("STRUCTURED FINDINGS")  # 812D2503 Ship B: marker-line escape valve — preserves sibling-test anchors (F34E2C82 R-B2 precedent)
     parts.append(STRUCTURED_FINDINGS_DIRECTIVE_SHORT)
-    if _security_high(ctx) and _single_mode:
-        parts.append(
-            "\nSECURITY ADDENDUM (security_classification=HIGH): include an inline "
-            "security review covering OWASP Top 10 — injection vectors, auth bypass "
-            "paths, secret exposure — as an additional ## section in the aggregated "
-            "review."
-        )
-    elif _security_high(ctx):
-        parts.append(
-            "\nSECURITY ADDENDUM (security_classification=HIGH): after all sub-agent "
-            "responses are collected, include an inline security-reviewer synthesis "
-            "covering OWASP Top 10 — injection vectors, auth bypass paths, secret "
-            "exposure. No 7th Agent call — synthesize as an additional ## section "
-            "in the aggregated review."
-        )
+    if _security_high(ctx):
+        parts.append(_security_addendum)
     parts.append("## Aggregated Findings")  # passthrough_stub conformance marker — Python aggregator owns the real schema (F34E2C82, parent 9D520664)
     parts.append("")
     parts.append(_get_anti_fab_prompt())
@@ -1065,13 +1074,21 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         cfg = {**cfg, "straggler_abort": False}
     straggler_cfg = None
     _scfg = cfg
+    # Resolve scratchpad + review plan once for the straggler block and stale-file guard.
+    _scratchpad: Path | None = None
+    _plan: tuple[str, str, int] | None = None
+    _plan_err: ValueError | None = None
+    try:
+        _scratchpad = _resolve_scratchpad(ctx)
+        _plan = _review_plan(ctx, complexity or "FEATURE", cfg.get("artifact_type"))
+    except ValueError as exc:
+        _plan_err = exc
     if _scfg.get("straggler_abort"):
         try:
-            _scratchpad = _resolve_scratchpad(ctx)
-            _artifact_type = _scfg.get("artifact_type") if ctx else None
-            _, _reviewer_count = _select_reviewers(
-                complexity or "FEATURE", _artifact_type, fanout=_resolve_review_fanout(_scfg),
-            )
+            if _plan_err is not None:
+                raise _plan_err
+            assert _scratchpad is not None and _plan is not None
+            _reviewer_count = _plan[2]
             # bd#139: the watchdog arms at expected_n - 1 files, so a lone
             # reviewer would be killed at zero files; only a fan-out is watched.
             if _reviewer_count >= 2:
@@ -1091,13 +1108,11 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     # bd#139 stale-file guard: single mode writes only role-composite.md, so a
     # composite from an earlier cycle (or parallel role files from before a mode
     # switch) must not satisfy floor 1. Fail-safe: never fails the step.
+    # No scratchpad configured, or invalid fanout (reported by build_review_prompt) → _plan is None.
     try:
-        if _resolve_review_fanout(cfg) == "single":
-            _reviews_dir = _resolve_scratchpad(ctx) / "reviews"
-            for _stale in _reviews_dir.glob("role-*.md"):
+        if _plan is not None and _scratchpad is not None and _plan[2] == 1:
+            for _stale in (_scratchpad / "reviews").glob("role-*.md"):
                 _stale.unlink()
-    except ValueError:
-        pass  # no scratchpad configured, or invalid fanout (reported by build_review_prompt)
     except OSError:
         logger.warning("failed to clear stale role files before single review", exc_info=True)
 
@@ -1609,10 +1624,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     if complexity:
         try:
             _agg_artifact_type = (ctx.org_config or {}).get("artifact_type") if ctx else None
-            dispatch_table, expected_reviewers = _select_reviewers(
-                complexity, artifact_type=_agg_artifact_type,
-                fanout=_resolve_review_fanout(ctx.org_config if ctx else None),
-            )
+            _, dispatch_table, expected_reviewers = _review_plan(ctx, complexity, _agg_artifact_type)
             expected_slugs = _extract_expected_slugs(dispatch_table)
             # bd#139: a single reviewer needs floor 1; parallel floors stay 2/3.
             min_floor = 1 if expected_reviewers == 1 else max(2, (expected_reviewers + 1) // 2)  # ceil(N/2)

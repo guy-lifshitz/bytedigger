@@ -163,19 +163,27 @@ def record_plan_review_reject(
 _FINDINGS_HEAD_MAX = 5
 _FINDINGS_HEAD_CHARS = 120
 _BULLET_RE = re.compile(r"^\s*[-*]\s+(.+?)\s*$", re.MULTILINE)
-_GAP_RE = re.compile(r"(?:→|->)\s*(?:missing|partial)\b", re.IGNORECASE)
+_ARROW_RE = re.compile(r"(?:→|->)\s*(\w+)")
+_GAP_STATUSES = {"missing", "partial"}
+_SPEC_COMPLIANCE_RE = re.compile(
+    r"^##\s+Spec Compliance\s*$(.*?)(?=^## |\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
+_QUALITY_FINDINGS_RE = re.compile(
+    r"^##\s+Quality Findings\s*$(.*?)(?=^## |\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
 
 
-def _section_bullets(text: str, heading: str) -> list[str]:
-    """Return bullet texts of the `## <heading>` section (up to the next `## `)."""
-    m = re.search(
-        r"^## " + re.escape(heading) + r"[ \t]*\n(.*?)(?=^## |\Z)",
-        text,
-        re.IGNORECASE | re.MULTILINE | re.DOTALL,
-    )
-    if m is None:
+def _is_gap(bullet: str) -> bool:
+    m = _ARROW_RE.search(bullet)
+    return m is not None and m.group(1).lower() in _GAP_STATUSES
+
+
+def _section_bullets(text: str, section_re: re.Pattern[str]) -> list[str]:
+    """Return bullet texts of the LAST section matching section_re (up to the next `## `)."""
+    matches = list(section_re.finditer(text))
+    if not matches:
         return []
-    return _BULLET_RE.findall(m.group(1))
+    return _BULLET_RE.findall(matches[-1].group(1))
 
 
 def _findings_head(reject_reason: object, findings_text: object) -> list[str]:
@@ -184,9 +192,9 @@ def _findings_head(reject_reason: object, findings_text: object) -> list[str]:
     if isinstance(reject_reason, str) and reject_reason.strip():
         items.append(reject_reason.strip())
     if isinstance(findings_text, str):
-        items.extend(b for b in _section_bullets(findings_text, "Spec Compliance") if _GAP_RE.search(b))
+        items.extend(b for b in _section_bullets(findings_text, _SPEC_COMPLIANCE_RE) if _is_gap(b))
         items.extend(
-            b for b in _section_bullets(findings_text, "Quality Findings") if b.strip().lower() != "none"
+            b for b in _section_bullets(findings_text, _QUALITY_FINDINGS_RE) if b.strip().lower() != "none"
         )
     return [t[:_FINDINGS_HEAD_CHARS] for t in items][:_FINDINGS_HEAD_MAX]
 
