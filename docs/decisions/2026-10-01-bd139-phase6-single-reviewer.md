@@ -1,6 +1,6 @@
 # bd#139 — phase 6 runs one reviewer; phase 5 validation rejects are logged with reasons
 
-**Status: FROZEN r2 (gate r1 REJECT → 4 blockers addressed, see `2026-10-01-bd139-gate-r1.md`)** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** SYSTEMATIC ·
+**Status: FROZEN r3 (gate r1 REJECT → 4 blockers; gate r2 REJECT → 1 blocker + 6 notes; see `2026-10-01-bd139-gate-r{1,2}.md`)** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `_select_reviewers` (`engine_py/bytedigger_engine/workflows/phase_6_review.py:460`),
 the one place the reviewer set and its size are decided; every consumer (prompt, aggregator
 floor, straggler watchdog) reads its count. Second chokepoint: `reject_log.emit_reject_reason`
@@ -56,10 +56,18 @@ precede `invoke_validation_llm`. `verify_green_passing` / `green_lint` / `green_
   (`:913`). In single mode they address the reviewer itself, for example "Before reviewing, read the
   prior findings file …", and contain none of `dispatched Agent`, `sub-agent`, `Agent call`,
   `Spawn`. Parallel wording is unchanged.
-- Stale file guard: in single mode, `_invoke_review_llm` deletes `reviews/role-composite.md`, if
-  present, before invoking the LLM. A file from an earlier cycle, or from a run resumed after a
-  mode switch, therefore cannot satisfy floor 1. Parallel mode is unchanged (pre-existing
-  behaviour, §1v).
+- Shared anti-fab fragment
+  (`engine_py/bytedigger_engine/lib/plugins/anti_hallucination/prompt_fragment.md:16`, gate r2 blocker, option a): line 16 is reworded
+  neutrally and keeps its `COMPOSITE AGGREGATION:` label, which 5D0D3BD1 `:126-137` relies on.
+  New text: "do not trust any prior or delegated citation verbatim; re-quote each finding by
+  re-reading the source file yourself." The fragment is also appended by `phase_5_implement.py:132`,
+  `phase_45_spec.py:95`, `phase_5_integrity.py:103` and `phase_6_fix_integrity.py:68`. The new
+  wording is a strict generalisation of the old one, so their meaning is unchanged. Their tests
+  are in the §1a audit.
+- Stale file guard: in single mode, `_invoke_review_llm` deletes every `reviews/role-*.md` before
+  invoking the LLM. Single mode produces only the composite file. Neither a composite from an
+  earlier cycle nor parallel role files from before a mode switch can then satisfy floor 1.
+  Parallel mode is unchanged (§1v).
 - Aggregator floor: `min_floor = 1 if expected_reviewers == 1 else max(2, (expected_reviewers + 1) // 2)`.
   Parallel floors stay 2/3.
 - Watchdog: `_invoke_review_llm` builds `straggler_cfg` only when `reviewer_count >= 2`.
@@ -70,24 +78,34 @@ precede `invoke_validation_llm`. `verify_green_passing` / `green_lint` / `green_
   `emit_reject_reason`. Like its siblings, it resolves `build_id` from `telemetry_ctx`. With no
   current run the row is suppressed (`engine_py/bytedigger_engine/reject_log.py:114` behaviour). It writes
   `phase="phase_5_implement"` and `reason_code` `VALIDATION_FAILED` | `VALIDATION_UNKNOWN` |
-  `VALIDATION_SPEC_DEFECT`. `verdict` is the verdict `_gate_on_validation` itself acts on
-  (`prev.data["verdict"]`). The row also carries
-  `axes=_extract_axes(findings_text)`, `detail={cycle, verdict, findings_head}`. `findings_head`
+  `VALIDATION_SPEC_DEFECT`. `verdict` is the canonical `gate_verdict` that `_gate_on_validation`
+  derives from `passed`
+  (`engine_py/bytedigger_engine/workflows/phase_5_implement.py:6828`, §1g single token). It is
+  never `PASS` on a reject. A markdown `PASS` with a structured reject therefore logs
+  `VALIDATION_FAILED`. The row also carries
+  `axes=_extract_axes(findings_text)`, `detail={cycle, verdict, findings_head, validation_doc_path}`. `findings_head`
   holds the titles of the first ≤5 `### SEVERITY: <CRITICAL|HIGH> — <title>` lines in the
   validation doc, ≤120 chars each.
 - **Every rejected round is logged, not only the terminal one** (gate r1 B4, option a).
-  `_gate_on_validation` calls it on every non-PASS outcome:
+  `_gate_on_validation` calls it on every validator reject:
   - the retry branch `cycle < cap` (status ok, next cycle);
   - the terminal `E_VALIDATION_FAILED`;
   - the spec-defect exits `E_SPEC_DEFECT` / `E_SPEC_DEFECT_BUDGET`, with reason
     `VALIDATION_SPEC_DEFECT`.
 
-  `detail.cycle` is the cycle that was rejected. A logging failure is swallowed and does **not**
+  The injection-block exit is not logged. It is an infrastructure block, not a validator
+  reject.
+
+  `detail.cycle` is the cycle that was rejected. `detail.validation_doc_path` identifies the
+  round. A §1ab resume re-enters the gate under a new run_id and may append the same round twice,
+  so the §5 classifier dedupes on (`detail.cycle`, `detail.validation_doc_path`,
+  `detail.findings_head`). A logging failure is swallowed and does **not**
   change the gate outcome (status, error code, next cycle).
 - `reject_log` module docstring phase list (`engine_py/bytedigger_engine/reject_log.py:10`) gains `phase_5_implement`.
 
 ### Out of scope (§1v)
-Clearing stale role files in parallel mode; quote filter / suspect withholding (`:1213-1218`, `:1668-1888`), satisfaction and decorr
+Clearing stale role files in parallel mode; the phase-level skip-on-error fallback that can
+surface a previous cycle's `build-review.md` (pre-existing, both modes); quote filter / suspect withholding (`:1213-1218`, `:1668-1888`), satisfaction and decorr
 steps, the fix loop, plan-review rounds, `PER_ROLE_SCHEMA_TEMPLATE` text, HAL `/build`
 (frozen; its engine copy is not touched), the classifier instrument (lives in the lot, not
 the engine).
@@ -95,15 +113,18 @@ the engine).
 ## §3 Files in scope
 Prod: `engine_py/bytedigger_engine/workflows/phase_6_review.py`, `engine_py/bytedigger_engine/lib/plugins/review_schema/canonical.py` (single-mode
 framing constant), `engine_py/bytedigger_engine/reject_log.py`, `engine_py/bytedigger_engine/workflows/phase_5_implement.py` (`_gate_on_validation`
-only), `engine_py/ERROR_CODES.md`.
+only), `engine_py/bytedigger_engine/lib/plugins/anti_hallucination/prompt_fragment.md` (line 16 only),
+`engine_py/ERROR_CODES.md`.
 RED (new): `engine_py/tests/test_bd139_single_reviewer.py`.
 §1a siblings. The only allowed test edits pin `review_fanout="parallel"` /
 `fanout="parallel"` where a test asserts the old default (3/6/+1 reviewers, floor 2/3, non-None
 `straggler_cfg`, orchestrator or sub-agent prompt text).
 - **Pinned:** `test_e8433b4e_aggregator_partial_floor.py`, `test_ccbb65dc_straggler_watchdog.py`,
   `test_phase_6_rubric_trim_5D0D3BD1.py`, `test_phase_6_subagent_prior_context_propagation_7ca211d2.py`.
-- **To pin (gate r1 B1):** `test_bd82_role_backend_effort.py` (`:184`, `:207`) and
+- **Pinned in RED r2:** `test_bd82_role_backend_effort.py` (`:184`, `:207`) and
   `test_CF2EE8ED_in_session_cutover.py` AC3.
+- **Fragment co-consumers (audit only, expected no edit):** tests asserting
+  `prompt_fragment.md` text or the phase 4.5/5/integrity prompts.
 - **Checked, no pin needed:** `test_phase_6_reviewer_suspect_rate_D3492E45.py`,
   `test_gh1591_fix_gate_boundary.py`.
 - **Tests that assert `_gate_on_validation` returns no side effect:** any that now see a row
@@ -111,7 +132,7 @@ RED (new): `engine_py/tests/test_bd139_single_reviewer.py`.
 
 Audit grep over `engine_py/tests`: `_select_reviewers`, `reviewer_count`, `expected_reviewers`,
 `expected_n`, `straggler_cfg`, `straggler_abort`, `parallel pr-review-toolkit`, `Spawn `,
-`dispatched Agent`, `SECURITY ADDENDUM`, `role-*.md`, `record_plan_review_reject`,
+`dispatched Agent`, `sub-agent`, `SECURITY ADDENDUM`, `COMPOSITE AGGREGATION`, `prompt_fragment`, `role-*.md`, `record_plan_review_reject`,
 `_gate_on_validation`, `reject-reasons`.
 
 ## §4 Acceptance (RED: `engine_py/tests/test_bd139_single_reviewer.py`)
@@ -141,8 +162,11 @@ Audit grep over `engine_py/tests`: `_select_reviewers`, `reviewer_count`, `expec
   the real `invoke_llm_subprocess` receives (patch at the call boundary, not the UUT). The test
   pins `HAL_RUNNER_BACKEND`/`HAL_RUNNER_BACKEND_JUDGE=claude-subprocess`, so the in-session degrade
   (`:993`) cannot mask it.
-- **AC6b** Single mode with a stale `reviews/role-composite.md` before `_invoke_review_llm`: a
-  fake LLM that writes nothing ends `E_NO_ROLE_FILES` in the aggregator, not ok.
+- **AC6b** Single mode with stale `reviews/role-composite.md` and `reviews/role-code-reviewer.md`
+  before `_invoke_review_llm`: a fake LLM that writes nothing ends `E_NO_ROLE_FILES` in the
+  aggregator, not ok.
+- **AC3d** `prompt_fragment.md` contains no `sub-agent` and still contains
+  `COMPOSITE AGGREGATION:` and `re-quote each finding`.
 - **AC7 (side effect, §1l)** Run the phase 6 review steps 1–4 on a tmp scratchpad with a fake
   LLM command, a real executable script that writes `reviews/role-composite.md` with one HIGH
   finding quoting a real line of a tmp file. `reviews/build-review.md` on disk then contains
@@ -158,6 +182,12 @@ Audit grep over `engine_py/tests`: `_select_reviewers`, `reviewer_count`, `expec
 - **AC8c** A spec-defect exit (`E_SPEC_DEFECT`) appends one row with
   `reason_code == "VALIDATION_SPEC_DEFECT"`. The error code is unchanged.
 - **AC8d** No current telemetry run → no row, gate outcome unchanged.
+- **AC8e** Budget-exhausted `E_SPEC_DEFECT_BUDGET` (the separate return at `:6904`,
+  `org_config["phase_reroute"]["attempt"]` above `_MAX_SPEC_DEFECT_REROUTES`) appends one
+  `VALIDATION_SPEC_DEFECT` row. The error code is unchanged.
+- **AC8f** Markdown `PASS` with structured `approve=False` → row `reason_code ==
+  "VALIDATION_FAILED"`, `detail.verdict` is the canonical reject token (`VERDICT_FAIL`). Every row carries
+  `detail.validation_doc_path`.
 - **AC9** If the reject log is unwritable (path is a directory), `_gate_on_validation` still
   returns `E_VALIDATION_FAILED` and raises nothing. The same holds for the retry branch: status ok,
   same next cycle.
@@ -166,7 +196,8 @@ Audit grep over `engine_py/tests`: `_select_reviewers`, `reviewer_count`, `expec
 `"parallel"`. AC2 reddens if parallel rows drift. AC5 reddens if `max(2, …)` is kept. AC6
 reddens if the watchdog guard is dropped. AC3/AC3b/AC3c redden if single-mode
 wording leaks sub-agent language, or drops the dimensions or the devops focus. AC4b reddens on
-naive comparison. AC6b reddens if the stale-file guard is missing. AC7 reddens only on the floor or
+naive comparison. AC6b reddens if the stale-file guard is missing or only unlinks the composite. AC3d reddens if
+the fragment is untouched. AC8e/AC8f redden on a missed return site or the wrong verdict source. AC7 reddens only on the floor or
 the aggregator slug parse; delegation is AC3's job. AC8b/AC8c redden if only the terminal round is
 logged. AC8/AC9 redden if the call is
 missing or unguarded.

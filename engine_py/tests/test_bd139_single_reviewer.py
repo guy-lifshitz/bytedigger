@@ -404,6 +404,7 @@ def test_ac6b_stale_role_composite_is_cleared_before_the_llm_runs(tmp_path, monk
     ctx = _ctx(tmp_path, "FEATURE", review_model="m")
     scratch = Path(ctx.org_config["scratchpad_dir"])
     _role_file(scratch / "reviews", "composite", severity="HIGH", title="stale cycle-1 finding")
+    _role_file(scratch / "reviews", "code-reviewer", severity="HIGH", title="stale parallel-mode finding")
     teardown = _install_fake_llm(tmp_path, monkeypatch, role_file=None, body="")
     try:
         s1 = _build_review_prompt(ctx, None)
@@ -413,6 +414,7 @@ def test_ac6b_stale_role_composite_is_cleared_before_the_llm_runs(tmp_path, monk
         teardown()
     assert s2.status == "ok", f"{s2.error_code}: {s2.error}"
     assert not (scratch / "reviews" / "role-composite.md").exists()
+    assert not (scratch / "reviews" / "role-code-reviewer.md").exists()
     assert s3.status == "error"
     assert s3.error_code == "E_NO_ROLE_FILES", f"stale file satisfied the floor: {s3.error_code}"
 
@@ -463,13 +465,19 @@ def _rows(log: Path) -> list[dict]:
     return [json.loads(ln) for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 
+def _assert_doc_path(row: dict, prev: StepResult) -> None:
+    assert row["detail"]["validation_doc_path"] == prev.data["validation_doc_path"], row["detail"]
+
+
 def test_ac8_fail_verdict_appends_one_validation_failed_row(tmp_path, monkeypatch):
     log = tmp_path / "reject-reasons.jsonl"
-    result = _run_gate(monkeypatch, log, _gate_prev("FAIL", _FAIL_RAW))
+    prev = _gate_prev("FAIL", _FAIL_RAW)
+    result = _run_gate(monkeypatch, log, prev)
     assert result.status == "error" and result.error_code == "E_VALIDATION_FAILED"
     rows = _rows(log)
     assert len(rows) == 1, rows
     row = rows[0]
+    _assert_doc_path(row, prev)
     assert row["phase"] == "phase_5_implement"
     assert row["reason_code"] == "VALIDATION_FAILED"
     assert row["axes"] == ["§1w"]
@@ -487,10 +495,12 @@ def test_ac8_findings_head_caps_at_five(tmp_path, monkeypatch):
     raw = "## Verdict\nVerdict: FAIL\n\n" + "".join(
         f"### SEVERITY: HIGH — Cap title {i}\n" for i in range(1, 8)
     )
-    result = _run_gate(monkeypatch, log, _gate_prev("FAIL", raw))
+    prev = _gate_prev("FAIL", raw)
+    result = _run_gate(monkeypatch, log, prev)
     assert result.error_code == "E_VALIDATION_FAILED"
     rows = _rows(log)
     assert len(rows) == 1, rows
+    _assert_doc_path(rows[0], prev)
     head = rows[0]["detail"]["findings_head"]
     assert len(head) == 5, head
     assert "Cap title 1" in head[0], head
@@ -498,11 +508,13 @@ def test_ac8_findings_head_caps_at_five(tmp_path, monkeypatch):
 
 def test_ac8_unknown_verdict_appends_validation_unknown_row(tmp_path, monkeypatch):
     log = tmp_path / "reject-reasons.jsonl"
-    result = _run_gate(monkeypatch, log, _gate_prev("UNKNOWN", _FAIL_RAW))
+    prev = _gate_prev("UNKNOWN", _FAIL_RAW)
+    result = _run_gate(monkeypatch, log, prev)
     assert result.error_code == "E_VALIDATION_FAILED"
     rows = _rows(log)
     assert len(rows) == 1, rows
     assert rows[0]["reason_code"] == "VALIDATION_UNKNOWN"
+    _assert_doc_path(rows[0], prev)
 
 
 def test_ac8_pass_verdict_writes_no_row(tmp_path, monkeypatch):
@@ -514,7 +526,8 @@ def test_ac8_pass_verdict_writes_no_row(tmp_path, monkeypatch):
 
 def test_ac8b_rejected_round_below_cap_is_logged_and_outcome_is_unchanged(tmp_path, monkeypatch):
     log = tmp_path / "reject-reasons.jsonl"
-    result = _run_gate(monkeypatch, log, _gate_prev("FAIL", _FAIL_RAW, cycle=1))
+    prev = _gate_prev("FAIL", _FAIL_RAW, cycle=1)
+    result = _run_gate(monkeypatch, log, prev)
     # outcome exactly as without logging
     assert result.status == "ok"
     assert result.error_code is None
@@ -526,6 +539,7 @@ def test_ac8b_rejected_round_below_cap_is_logged_and_outcome_is_unchanged(tmp_pa
     assert rows[0]["reason_code"] == "VALIDATION_FAILED"
     assert rows[0]["detail"]["cycle"] == 1
     assert rows[0]["detail"]["verdict"] == "FAIL"
+    _assert_doc_path(rows[0], prev)
 
 
 def _spec_defect_setup(tmp_path: Path, monkeypatch):
@@ -558,6 +572,7 @@ def test_ac8c_spec_defect_reroute_exit_is_logged_with_its_own_reason(tmp_path, m
     assert rows[0]["phase"] == "phase_5_implement"
     assert rows[0]["reason_code"] == "VALIDATION_SPEC_DEFECT"
     assert rows[0]["detail"]["cycle"] == 1
+    _assert_doc_path(rows[0], prev)
 
 
 def test_ac8c_spec_defect_no_progress_exit_is_logged(tmp_path, monkeypatch):
@@ -573,6 +588,52 @@ def test_ac8c_spec_defect_no_progress_exit_is_logged(tmp_path, monkeypatch):
     rows = _rows(log)
     assert len(rows) == 1, rows
     assert rows[0]["reason_code"] == "VALIDATION_SPEC_DEFECT"
+    _assert_doc_path(rows[0], prev)
+
+
+def test_ac8e_budget_exhausted_exit_is_logged(tmp_path, monkeypatch):
+    # Pre-stage (§1i): fresh ledger (so the :6872 no-progress branch is skipped) and a marker
+    # attempt at the cap, so attempts_floor = cap + 1 > _MAX_SPEC_DEFECT_REROUTES -> the :6904 return.
+    ctx, prev, _scratch, _spec = _spec_defect_setup(tmp_path, monkeypatch)
+    ctx.org_config["phase_reroute"] = {"attempt": phase_5_implement._MAX_SPEC_DEFECT_REROUTES}
+    log = tmp_path / "reject-reasons.jsonl"
+    result = _run_gate(monkeypatch, log, prev, ctx)
+    assert result.status == "error"
+    assert result.error_code == "E_SPEC_DEFECT_BUDGET"  # unchanged
+    assert "exhausted" in result.error, f"must be the budget-exhausted site, not no-progress: {result.error}"
+    rows = _rows(log)
+    assert len(rows) == 1, rows
+    assert rows[0]["phase"] == "phase_5_implement"
+    assert rows[0]["reason_code"] == "VALIDATION_SPEC_DEFECT"
+    assert rows[0]["detail"]["cycle"] == 1
+    _assert_doc_path(rows[0], prev)
+
+
+def test_ac8f_markdown_pass_with_structured_reject_logs_canonical_reject_token(tmp_path, monkeypatch):
+    log = tmp_path / "reject-reasons.jsonl"
+    prev = _gate_prev("PASS", "## Verdict\nVerdict: PASS\n\n### SEVERITY: HIGH — Structured reject title\n", cycle=1)
+    prev.data["structured_verdict"] = types.SimpleNamespace(
+        approve=False, verdict_category=None, reject_reason=None,
+    )
+    result = _run_gate(monkeypatch, log, prev)
+    assert result.status == "ok"  # retry branch, outcome unchanged
+    assert result.data["verdict"] == phase_5_implement.VERDICT_FAIL
+    rows = _rows(log)
+    assert len(rows) == 1, rows
+    assert rows[0]["reason_code"] == "VALIDATION_FAILED"
+    assert rows[0]["detail"]["verdict"] == phase_5_implement.VERDICT_FAIL
+    assert rows[0]["detail"]["verdict"] != phase_5_implement.VERDICT_PASS
+    _assert_doc_path(rows[0], prev)
+
+
+# ─── AC3d ────────────────────────────────────────────────────────────────────
+
+def test_ac3d_anti_hallucination_fragment_has_no_sub_agent_but_keeps_label():
+    text = (ENGINE_PY / "bytedigger_engine" / "lib" / "plugins" / "anti_hallucination"
+            / "prompt_fragment.md").read_text(encoding="utf-8")
+    assert "sub-agent" not in text
+    assert "COMPOSITE AGGREGATION:" in text
+    assert "re-quote each finding" in text
 
 
 @pytest.mark.parametrize("cycle,code,status", [
