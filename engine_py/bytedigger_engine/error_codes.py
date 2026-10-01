@@ -106,6 +106,7 @@ ERROR_CODES: dict[str, str] = {
     "E_INJECT_UNATTRIBUTED": "llm_subprocess: an injected prompt block lacked a source identifier, or its content was absent from the assembled prompt (bd#10 R3.2)",
     "E_INJECTION_MISSING": "phase_45_spec/phase_45_spec_lite/phase_5_implement: the worker declared STATUS=block while the READ_FIRST injection files are genuinely absent or empty — infrastructure failure, NOT reviewer/validator disagreement (hal#1674)",
     "E_INSUFFICIENT_FANOUT": "phase_6_review: reviewer fan-out produced fewer results than required",
+    "E_REVIEW_FANOUT_INVALID": "phase_6_review: org_config[review_fanout] is not single/parallel — non-recoverable config error",
     "E_INTEGRITY_ASSERTION_GAMING": "phase_5_integrity: RED/GREEN diff appears to game assertions",
     "E_INTEGRITY_NO_MARKER": "phase_5_integrity: integrity check output missing required marker",
     "E_INVALID_PREV_DATA": "phase_5_implement: forwarded previous-step data is malformed/invalid",

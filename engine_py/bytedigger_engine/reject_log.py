@@ -7,7 +7,7 @@ Schema (one JSON object per line in the reject-reasons.jsonl log):
     {
         "ts":          "<ISO-8601 UTC ending Z>",
         "build_id":    "<run_id | null>",
-        "phase":       "phase_45_spec | phase_6_review",
+        "phase":       "phase_45_spec | phase_5_implement | phase_6_review",
         "reason_code": "<str>",
         "axes":        ["§1w", ...],
         "detail":      { ... }
@@ -156,6 +156,82 @@ def record_plan_review_reject(
         "PLAN_REVIEW_REVISE",
         _extract_axes(findings),
         {"cycle": cycle, "n_unresolved": n_unresolved, "findings_source": findings_source},
+        path=path,
+    )
+
+
+_FINDINGS_HEAD_MAX = 5
+_FINDINGS_HEAD_CHARS = 120
+_BULLET_RE = re.compile(r"^\s*[-*]\s+(.+?)\s*$", re.MULTILINE)
+_ARROW_RE = re.compile(r"(?:→|->)\s*(\w+)")
+_GAP_STATUSES = {"missing", "partial"}
+_SPEC_COMPLIANCE_RE = re.compile(
+    r"^##\s+Spec Compliance\s*$(.*?)(?=^## |\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
+_QUALITY_FINDINGS_RE = re.compile(
+    r"^##\s+Quality Findings\s*$(.*?)(?=^## |\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
+
+
+def _is_gap(bullet: str) -> bool:
+    m = _ARROW_RE.search(bullet)
+    return m is not None and m.group(1).lower() in _GAP_STATUSES
+
+
+def _section_bullets(text: str, section_re: re.Pattern[str]) -> list[str]:
+    """Return bullet texts of the LAST section matching section_re (up to the next `## `)."""
+    matches = list(section_re.finditer(text))
+    if not matches:
+        return []
+    return _BULLET_RE.findall(matches[-1].group(1))
+
+
+def _findings_head(reject_reason: object, findings_text: object) -> list[str]:
+    """Structured reject_reason, Spec Compliance missing|partial bullets, Quality Findings bullets."""
+    items: list[str] = []
+    if isinstance(reject_reason, str) and reject_reason.strip():
+        items.append(reject_reason.strip())
+    if isinstance(findings_text, str):
+        items.extend(b for b in _section_bullets(findings_text, _SPEC_COMPLIANCE_RE) if _is_gap(b))
+        items.extend(
+            b for b in _section_bullets(findings_text, _QUALITY_FINDINGS_RE) if b.strip().lower() != "none"
+        )
+    return [t[:_FINDINGS_HEAD_CHARS] for t in items][:_FINDINGS_HEAD_MAX]
+
+
+def record_validation_reject(
+    verdict: str,
+    cycle: int,
+    findings_text: str | None,
+    reason_code: str | None = None,
+    *,
+    validation_doc_path: str | None = None,
+    reject_reason: str | None = None,
+    verdict_category: str | None = None,
+    path: Path | None = None,
+) -> None:
+    """Record a phase_5 validation-gate rejection (bd#139 op2).
+
+    verdict is the canonical gate verdict (never PASS on a reject).
+    reason_code defaults to VALIDATION_UNKNOWN for an UNKNOWN verdict, else
+    VALIDATION_FAILED; callers pass VALIDATION_SPEC_DEFECT explicitly.
+    findings_head: <=5 items (<=120 chars) from the structured reject_reason,
+    Spec Compliance missing|partial bullets, then Quality Findings bullets.
+    """
+    if reason_code is None:
+        reason_code = "VALIDATION_UNKNOWN" if str(verdict).upper() == "UNKNOWN" else "VALIDATION_FAILED"
+    head = _findings_head(reject_reason, findings_text)
+    emit_reject_reason(
+        "phase_5_implement",
+        reason_code,
+        _extract_axes(findings_text),
+        {
+            "cycle": cycle,
+            "verdict": verdict,
+            "findings_head": head,
+            "verdict_category": verdict_category,
+            "validation_doc_path": validation_doc_path,
+        },
         path=path,
     )
 

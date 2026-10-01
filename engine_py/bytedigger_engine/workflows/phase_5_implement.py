@@ -6794,6 +6794,27 @@ def _injection_block_result(
     )
 
 
+def _log_validation_reject(prev, gate_verdict: str, cycle: int, reason_code: str | None = None) -> None:
+    """bd#139 op2: append one reject-reasons row for a rejected validation round.
+
+    Logging must never change the gate outcome — any failure is swallowed.
+    """
+    try:
+        from bytedigger_engine import reject_log
+        structured = prev.data.get("structured_verdict")
+        reject_log.record_validation_reject(
+            gate_verdict,
+            cycle,
+            prev.data.get("validation_raw", "") or "",
+            reason_code,
+            validation_doc_path=prev.data.get("validation_doc_path"),
+            reject_reason=getattr(structured, "reject_reason", None),
+            verdict_category=getattr(structured, "verdict_category", None),
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("validation reject log failed", exc_info=True)
+
+
 def _gate_on_validation(_ctx, prev) -> StepResult:
     """HARD GATE — never_skip_opus_validation_gate. UNKNOWN treated as FAIL.
 
@@ -6869,6 +6890,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
                         "spec_defect_no_progress",
                         {"spec_sha": sha, "cycle": cycle, "attempts": len(ledger)},
                     )
+                    _log_validation_reject(prev, gate_verdict, cycle, "VALIDATION_SPEC_DEFECT")
                     return StepResult(
                         status="error",
                         data={
@@ -6901,6 +6923,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
                                 "spec_defect_budget_exhausted",
                                 {"spec_sha": sha, "attempts": floor, "build_key": bkey},
                             )
+                            _log_validation_reject(prev, gate_verdict, cycle, "VALIDATION_SPEC_DEFECT")
                             return StepResult(
                                 status="error",
                                 data={
@@ -6924,6 +6947,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
                             "spec_defect_detected",
                             {"spec_sha": sha, "cycle": cycle, "attempt": floor, "build_key": bkey},
                         )
+                        _log_validation_reject(prev, gate_verdict, cycle, "VALIDATION_SPEC_DEFECT")
                         return StepResult(
                             status="error",
                             data={
@@ -6955,6 +6979,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             reject_reason = getattr(structured, "reject_reason", None) if structured is not None else None
             if reject_reason:
                 findings = f"VALIDATOR REJECT_REASON (cycle {cycle}): {reject_reason}\n\n{findings}"
+            _log_validation_reject(prev, gate_verdict, cycle)
             return StepResult(
                 status="ok",
                 data={
@@ -6969,6 +6994,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
                 duration_ms=0,
                 step_name="gate_on_validation",
             )
+        _log_validation_reject(prev, gate_verdict, cycle)
         return StepResult(
             status="error",
             data={

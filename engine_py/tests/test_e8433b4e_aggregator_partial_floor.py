@@ -44,7 +44,7 @@ class _Ctx:
     """Minimal ctx stand-in. _resolve_scratchpad reads ctx.org_config['scratchpad_dir']."""
 
     def __init__(self, scratchpad: Path) -> None:
-        self.org_config = {"scratchpad_dir": str(scratchpad)}
+        self.org_config = {"scratchpad_dir": str(scratchpad), "review_fanout": "parallel"}  # bd#139 pin
 
 
 def _prev(complexity: str | None, scratchpad: Path) -> StepResult:
@@ -96,8 +96,8 @@ def test_feature_five_roles_above_floor_3_passes(tmp_path):
     scratchpad = tmp_path / "scratch"
     reviews = scratchpad / "reviews"
 
-    feature_dispatch_table, n = _select_reviewers("FEATURE")
-    assert n == 6, f"FEATURE reviewer count must be 6, got {n}"
+    feature_dispatch_table, n = _select_reviewers("FEATURE", fanout="parallel")
+    assert n == 6,f"FEATURE reviewer count must be 6, got {n}"
     slugs = _slugs_from_dispatch_table(feature_dispatch_table)
     assert len(slugs) == 6, f"expected 6 slugs from FEATURE table, got {slugs}"
 
@@ -118,8 +118,8 @@ def test_aggregator_output_contains_fanout_banner_with_expected_observed_missing
     scratchpad = tmp_path / "scratch"
     reviews = scratchpad / "reviews"
 
-    feature_dispatch_table, n = _select_reviewers("FEATURE")
-    slugs = _slugs_from_dispatch_table(feature_dispatch_table)
+    feature_dispatch_table, n = _select_reviewers("FEATURE", fanout="parallel")
+    slugs =_slugs_from_dispatch_table(feature_dispatch_table)
     assert len(slugs) == n, f"slug-extract sanity: {len(slugs)} vs n={n}"
 
     # Drop one slug — it becomes the "missing" one.

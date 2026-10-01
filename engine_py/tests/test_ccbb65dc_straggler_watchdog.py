@@ -381,6 +381,7 @@ def test_ac7_invoke_review_llm_passes_straggler_cfg_when_enabled(tmp_path, monke
         org_config={
             "scratchpad_dir": str(scratchpad),
             "straggler_abort": True,
+            "review_fanout": "parallel",  # bd#139 pin
             # No override for patience/poll — should use module defaults
         }
     )
@@ -414,7 +415,7 @@ def test_ac7_invoke_review_llm_passes_straggler_cfg_when_enabled(tmp_path, monke
     )
 
     # expected_n == count from _select_reviewers (no artifact_type → FEATURE → 6)
-    _, expected_count = _select_reviewers("FEATURE")
+    _, expected_count = _select_reviewers("FEATURE", fanout="parallel")
     assert cfg["expected_n"] == expected_count, (
         f"expected_n must equal len(selected_reviewers)={expected_count}, got {cfg['expected_n']}"
     )
@@ -530,6 +531,7 @@ def test_ac9b_invoke_review_llm_honours_patience_override(tmp_path, monkeypatch)
         org_config={
             "scratchpad_dir": str(scratchpad),
             "straggler_abort": True,
+            "review_fanout": "parallel",  # bd#139 pin
             "straggler_patience_sec": 7,  # override from org_config
         }
     )
