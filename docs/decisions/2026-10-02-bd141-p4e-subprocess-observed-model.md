@@ -1,9 +1,9 @@
 # bd#141 item 4(e): the subprocess backend reports the model it invoked (R3.3 producer)
 
-**Status:** r1 (pre-gate) · **Tier:** 2 (one engine prod `.py`, one conformance registry line, Option D) ·
+**Status:** r2 (gate r1 REJECTED: 2 MAJOR + 6 MINOR, see `2026-10-02-bd141-p4e-gate-r1.md`) · **Tier:** 2 (one engine prod `.py`, one conformance registry line, Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `llm_subprocess._pin_mismatch_refusal` (already the single R3.3
 check for every backend, called from `_dispatch_backend`). This lot adds no new check. It adds the
-missing **producer** on the default headless path, so the existing chokepoint stops being inert there.
+missing **producer** on the claude-subprocess (`claude -p` stream-json) path, so the existing chokepoint stops being inert there.
 **Side of the seam (decision 2026-07-26 §7.4, "model-identity verification ... belongs on the LLM
 seam"):** engine. The host contract (R3.3: "the adapter MUST report") is satisfied by the engine's own
 `claude -p` adapter. HAL has no host-side implementation of this control, so there is nothing to thin
@@ -21,6 +21,21 @@ out on the HAL side and no host-controls registry entry is needed.
    A `--model opus` dispatch answered by a sonnet (for example, a CLI-side fallback) passes silently.
 4. `bd_l3.AWAITING_PRODUCER = ("R3.3",)` (`conformance/bd_l3.py:63`) declares this gap.
    `test_bd68_l3_observation_producers.py::test_ac6` pins `_producers("observed_model") == 1`.
+5. **Live baseline (gate r1 F1, measured 2026-10-02 with CLI on this host).** Command:
+   `claude -p "Reply with the single word OK." --model <alias> --output-format stream-json --verbose --max-turns 1`.
+
+   | `--model` | root `system/init` `model` | root `assistant` `message.model` (all of them) | `parent_tool_use_id` | `_claude_model_family` (dispatch / observed) |
+   |---|---|---|---|---|
+   | `haiku` | `claude-haiku-4-5-20251001` | `claude-haiku-4-5-20251001` ×2 | key present, `null` | haiku / haiku |
+   | `sonnet` | `claude-sonnet-5-5` | `claude-sonnet-5-5` | key present, `null` | sonnet / sonnet |
+   | `opus` | `claude-opus-5-5` | `claude-opus-5-5` | key present, `null` | opus / opus |
+   | `fable` | `claude-fable-5-1` | `claude-fable-5-1` | key present, `null` | fable / fable |
+
+   In every case the init and assistant models are the same string, and the observed family equals the dispatched family. `fable`
+   does not report an opus id, so `decorrelated_verifier` runs are not affected. Aliases that have no family (`opusplan`, `default`)
+   resolve to `None` on the dispatch side, so the chokepoint returns not-checked (`:1246`), which is unchanged. `<synthetic>` was not
+   observed in these runs. Skipping it is a defensive rule taken from the CLI's known placeholder for API-error messages, and it is
+   pinned by AC2.
 
 ## §2 Design
 
@@ -34,8 +49,8 @@ defensive in the same way: it tolerates any missing key and never raises.
 - **Primary source:** `message.model` of the **last** root event with `type == "assistant"`, where the
   value is a non-empty `str` that does not start with `<`. The CLI's `"<synthetic>"` error/placeholder
   messages are skipped and never override a real value. This is the model that actually answered.
-- **Fallback:** the `model` of the root `{"type": "system", "subtype": "init"}` event, under the same
-  value rules. This is what the harness selected.
+- **Fallback:** the `model` of the **first** root `{"type": "system", "subtype": "init"}` event that
+  yields a valid value, under the same value rules. This is what the harness selected.
 - If neither source yields a value, the result is `None`. Absence is the existing first-class
   `not-checked` state (`_observed`, `[bd10:5]`). The function never substitutes the requested model.
 - It returns the raw reported string (for example `"claude-sonnet-5-5"`), not a family. Family comparison
@@ -61,8 +76,12 @@ absent on every error branch, unchanged.
 - **AC2** `"<synthetic>"` and other `<`-prefixed values, empty strings and non-str values are skipped.
   With root assistant `[C, "<synthetic>"]` the result is `C`. With only `"<synthetic>"` plus init `A`, the
   result is `A`.
-- **AC3** Subagent events are excluded. A transcript whose only assistant `message.model` sits on an event
-  with a non-empty `parent_tool_use_id`, plus init `A`, gives `A`. With no init event it gives `None`.
+- **AC3** Subagent events are excluded, **including depth-1 events that `_manifest_eligible_events` keeps**. The
+  fixtures contain a root assistant event with an `Agent` `tool_use` block of id `toolu_agent1`, and the subagent event's
+  `parent_tool_use_id` is `toolu_agent1`, so it is depth-1 eligible (gate r1 F2). A transcript whose only non-root
+  `message.model` is on that subagent event, plus init `A`, gives `A` (the spawning root assistant event carries no
+  model, or a `<`-prefixed one). With no init event it gives `None`.
+- **AC3b** If there are several root init events, the first valid one wins: inits `A` then `B`, with no assistant model, gives `A`.
 - **AC4** Defensive behaviour. `[]`, non-dict events, `message` missing or non-dict, and init without
   `model` all return `None` without raising.
 - **AC5 (production side effect, §1l)** Run `invoke_llm_subprocess` end to end on the claude-subprocess
@@ -85,7 +104,9 @@ absent on every error branch, unchanged.
 
 ## §4 Negative-test teeth (which code change turns each AC red)
 AC1/AC2 go red if the extractor returns the first value instead of the last, or does not skip `<`.
-AC3 goes red if the extractor walks `_manifest_eligible_events` (depth 1) instead of root.
+AC3 goes red if the extractor walks `_manifest_eligible_events` (depth 1) instead of root (the fixtures make the
+subagent event depth-1 eligible). AC3b goes red on last-init-wins. AC4 goes red if `ev.get` runs before the
+`isinstance(ev, dict)` guard. AC6 goes red if the §2.2 line is removed, or if it writes the requested model.
 AC5 goes red if the §2.2 line is removed. AC7 goes red if the extractor falls back to the requested
 model. AC8 goes red if the line moves before the `extra_data` merge. AC9 goes red if the registry is not
 drained.
@@ -109,6 +130,11 @@ author greps for these and lists them in the RED report.
 - Item 4(d): injection declarations in phases other than `phase_2_explore`. That is a separate PR.
 - Any change to `_pin_mismatch_refusal`, `_claude_model_family`, or the in-session path.
 - HAL-side changes. There is no host implementation to remove.
+- The straggler synthetic-ok branch (`:2032-2053`). It returns `ok` without the reserved-name override, so `extra_data` could
+  shadow `observed_model` there. The sibling fields have the same gap, so this lot does not introduce it. It is a separate fix for the whole
+  sibling group (gate r1 F5).
+- Moving the stream-json extractors onto the provider (`lib/llm_provider.py`, next to `_claude_parse_result`). The extractor sits next
+  to its sibling `_observed_tools_from_events`. Moving them is a separate refactor for the whole group (gate r1 F8).
 
 ## §7 Behaviour change and risk
 This is the one intended change: a headless run whose answering model differs **in family** from the

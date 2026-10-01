@@ -50,7 +50,7 @@ def _assistant(model, parent=None, *, key_less=False):
 
 
 def _init(model=...):
-    ev = {"type": "system", "subtype": "init"}
+    ev = {"type": "system", "subtype": "init", "parent_tool_use_id": None}
     if model is not ...:
         ev["model"] = model
     return ev
@@ -87,19 +87,47 @@ def test_ac2_init_value_obeys_the_same_rules():
     assert fn([_init(7)]) is None
 
 
-def test_ac3_subagent_events_are_excluded():
-    """AC3: an assistant model on an event with a non-empty parent_tool_use_id is ignored."""
+def _spawner(model=None):
+    """Root assistant event that spawns Agent `toolu_agent1` (makes depth-1 events eligible)."""
+    ev = _assistant(model)
+    ev["message"]["content"] = [
+        {"type": "tool_use", "id": "toolu_agent1", "name": "Agent", "input": {}}
+    ]
+    return ev
+
+
+def _assert_depth1_eligible(events, sub):
+    """Teeth: the subagent event must be kept by _manifest_eligible_events, so an
+    extractor that walks that helper instead of root-only would pick it up."""
+    eligible = llm_subprocess._manifest_eligible_events(events)
+    assert any(e is sub for e in eligible), "fixture sanity: subagent event must be depth-1 eligible"
+
+
+@pytest.mark.parametrize("spawner_model", [None, "<synthetic>"])
+def test_ac3_subagent_events_are_excluded(spawner_model):
+    """AC3: a depth-1 (manifest-eligible) subagent assistant model is ignored."""
     fn = _extractor()
-    events = [_init("A-model"), _assistant("SUB-model", parent="toolu_agent1")]
-    assert fn(events) == "A-model"
-    assert fn([_assistant("SUB-model", parent="toolu_agent1")]) is None
+    sub = _assistant("SUB-model", parent="toolu_agent1")
+    with_init = [_init("A-model"), _spawner(spawner_model), sub]
+    _assert_depth1_eligible(with_init, sub)
+    assert fn(with_init) == "A-model"
+    no_init = [_spawner(spawner_model), sub]
+    _assert_depth1_eligible(no_init, sub)
+    assert fn(no_init) is None
 
 
 def test_ac3_root_after_subagent_still_wins_and_subagent_after_root_does_not():
     """AC3 teeth: a depth-1 event arriving LAST must not displace the root value."""
     fn = _extractor()
-    events = [_assistant("ROOT-model"), _assistant("SUB-model", parent="toolu_agent1")]
+    sub = _assistant("SUB-model", parent="toolu_agent1")
+    events = [_spawner("ROOT-model"), sub]
+    _assert_depth1_eligible(events, sub)
     assert fn(events) == "ROOT-model"
+
+
+def test_ac3b_first_root_init_wins():
+    """AC3b: several root inits, no assistant model -> the first valid init wins."""
+    assert _extractor()([_init("A-model"), _init("B-model")]) == "A-model"
 
 
 def test_ac3_key_less_events_count_as_root():
