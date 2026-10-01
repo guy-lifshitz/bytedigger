@@ -58,9 +58,10 @@ LABEL_EXCEPTIONS: "tuple[str, ...]" = ("R3.4",)
 #: bd#68: requirements whose observation field is not yet written on every
 #: production path. Declared rather than silent — a checker adjudicating a
 #: field nothing writes stays green while observing nothing, which is how
-#: R3.5/R3.6 shipped inert under bd#28 and bd#63. `observed_model` is written
-#: only by `_invoke_in_session`, so R3.3 is observable for that backend alone.
-AWAITING_PRODUCER: "tuple[str, ...]" = ("R3.3",)
+#: R3.5/R3.6 shipped inert under bd#28 and bd#63. Drained by bd#141 4(e):
+#: `observed_model` is now written by `_invoke_subprocess`, `_invoke_in_session`
+#: and agent_sdk (SILENT_BACKENDS below still write neither field).
+AWAITING_PRODUCER: "tuple[str, ...]" = ()
 
 #: bd#71: reference backends that do NOT yet write the observation fields.
 #: Declared rather than silent — `agent-sdk` was the DEFAULT backend and wrote

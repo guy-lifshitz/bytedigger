@@ -2426,6 +2426,10 @@ def _invoke_subprocess(
     # had no producer anywhere in the tree and R3.5/R3.6 could only ever say
     # "not-checked" on a real log.
     data["observed_tools"] = _observed_tools_from_events(events or [])
+    # bd#141 4(e): the R3.3 producer for the claude -p path. Same discipline as
+    # its siblings (after the extra_data merge, absent on error branches);
+    # None when the stream names no model, which stays "not-checked".
+    data["observed_model"] = _observed_model_from_events(events or [])
     # 4C03CCED Ship 1C G1: harness-tool-record manifest (stream-json transcript).
     data["manifest_source"] = "harness_tool_record"
 
@@ -3116,6 +3120,46 @@ def _observed_tools_from_events(events: list[dict]) -> list[str]:
             if isinstance(name, str) and name:
                 names.add(name)
     return sorted(names)
+
+
+def _observed_model_from_events(events: list[dict]) -> "str | None":
+    """bd#141 4(e) / R3.3: the model that actually answered, per the harness.
+
+    Root events only (`_is_root_stream_event`): a subagent may legitimately run
+    on another model and R3.3 concerns the model the engine dispatched. The
+    `message.model` of the LAST root `assistant` event wins; failing that, the
+    `model` of the FIRST root `system`/`init` event. A value is valid iff it is
+    a non-empty str not starting with "<" (the CLI's "<synthetic>" placeholder
+    never overrides a real value).
+
+    Measured baseline (spec §1.5): for haiku/sonnet/opus/fable the init and
+    assistant models are the same string and the family matches the dispatch.
+
+    Returns the raw reported string, never a family, and never substitutes the
+    requested model: `None` is the first-class "not-checked" state. Defensive
+    like its sibling: tolerates every missing key, never raises.
+    """
+
+    def _valid(value: object) -> bool:
+        return isinstance(value, str) and bool(value) and not value.startswith("<")
+
+    last_assistant: "str | None" = None
+    first_init: "str | None" = None
+    for ev in events:
+        if not isinstance(ev, dict) or not _is_root_stream_event(ev):
+            continue
+        ev_type = ev.get("type")
+        if ev_type == "assistant":
+            message = ev.get("message")
+            if isinstance(message, dict):
+                model = message.get("model")
+                if isinstance(model, str) and _valid(model):
+                    last_assistant = model
+        elif ev_type == "system" and ev.get("subtype") == "init":
+            model = ev.get("model")
+            if first_init is None and isinstance(model, str) and _valid(model):
+                first_init = model
+    return last_assistant if last_assistant is not None else first_init
 
 
 # GH1193 §2.2a: 41.9 KB observed for a 2-subagent step; 2 MiB gives ~50x
