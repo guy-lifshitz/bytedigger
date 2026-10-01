@@ -421,16 +421,35 @@ def test_ac6b_stale_role_composite_is_cleared_before_the_llm_runs(tmp_path, monk
 
 # ─── AC8 / AC9 (side effect, §1l) ────────────────────────────────────────────
 
-_FAIL_RAW = (
-    "## Verdict\nVerdict: FAIL\n\n"
-    "### SEVERITY: HIGH — Missing edge case 1 for the §1w rule\n"
-    "### SEVERITY: HIGH — " + ("L" * 200) + "\n"
-    "### SEVERITY: HIGH — Missing edge case 3\n"
-    "### SEVERITY: MEDIUM — Missing edge case 4\n"
-    "### SEVERITY: MEDIUM — Missing edge case 5\n"
-    "### SEVERITY: MEDIUM — Missing edge case 6\n"
-    "### SEVERITY: LOW — Missing edge case 7\n"
+def _validation_doc(spec_bullets: list[str], quality: list[str] | None, verdict: str = "FAIL") -> str:
+    """A validation doc in the real `_VALIDATION_STABLE_PREFIX` contract (phase_5_implement.py:6275-6347)."""
+    q = "none" if quality is None else "\n".join(f"- {b}" for b in quality)
+    return (
+        "## Forward Map\n- AC1 -> test_one (the §1w rule)\n\n"
+        "## Reverse Map\n- test_one -> AC1\n\n"
+        "## Spec Compliance\n" + "\n".join(f"- {b}" for b in spec_bullets) + "\n\n"
+        "## Reachability & Cross-Check\n- none\n\n"
+        "## Quality Findings\n" + q + "\n\n"
+        "### Adversarial edges\nnone\n\n"
+        "## Verdict Category\nCategory: TEST_GAP\n\n"
+        f"## Verdict\nVerdict: {verdict}\n"
+    )
+
+
+def _structured(reject_reason: str | None, category: str = "TEST_GAP", approve: bool = False):
+    return types.SimpleNamespace(approve=approve, verdict_category=category, reject_reason=reject_reason)
+
+
+_FAIL_RAW = _validation_doc(
+    [
+        "AC2 → missing: " + ("L" * 200),
+        "AC3 → partial: Missing edge case 3",
+        "AC4 → present: Missing edge case 4",
+        "AC5 → present: Missing edge case 7",
+    ],
+    None,
 )
+_FAIL_REASON = "Missing edge case 1 for the §1w rule"
 
 
 def _gate_prev(verdict: str, raw: str, cycle: int | None = None) -> StepResult:
@@ -472,6 +491,7 @@ def _assert_doc_path(row: dict, prev: StepResult) -> None:
 def test_ac8_fail_verdict_appends_one_validation_failed_row(tmp_path, monkeypatch):
     log = tmp_path / "reject-reasons.jsonl"
     prev = _gate_prev("FAIL", _FAIL_RAW)
+    prev.data["structured_verdict"] = _structured(_FAIL_REASON)
     result = _run_gate(monkeypatch, log, prev)
     assert result.status == "error" and result.error_code == "E_VALIDATION_FAILED"
     rows = _rows(log)
@@ -492,10 +512,9 @@ def test_ac8_fail_verdict_appends_one_validation_failed_row(tmp_path, monkeypatc
 
 def test_ac8_findings_head_caps_at_five(tmp_path, monkeypatch):
     log = tmp_path / "reject-reasons.jsonl"
-    raw = "## Verdict\nVerdict: FAIL\n\n" + "".join(
-        f"### SEVERITY: HIGH — Cap title {i}\n" for i in range(1, 8)
-    )
+    raw = _validation_doc([f"AC{i} → missing: Cap title {i}" for i in range(2, 9)], None)
     prev = _gate_prev("FAIL", raw)
+    prev.data["structured_verdict"] = _structured("Cap title 1")
     result = _run_gate(monkeypatch, log, prev)
     assert result.error_code == "E_VALIDATION_FAILED"
     rows = _rows(log)
@@ -611,7 +630,7 @@ def test_ac8e_budget_exhausted_exit_is_logged(tmp_path, monkeypatch):
 
 def test_ac8f_markdown_pass_with_structured_reject_logs_canonical_reject_token(tmp_path, monkeypatch):
     log = tmp_path / "reject-reasons.jsonl"
-    prev = _gate_prev("PASS", "## Verdict\nVerdict: PASS\n\n### SEVERITY: HIGH — Structured reject title\n", cycle=1)
+    prev = _gate_prev("PASS", _validation_doc(["AC1 → missing: Structured reject title"], None, "PASS"), cycle=1)
     prev.data["structured_verdict"] = types.SimpleNamespace(
         approve=False, verdict_category=None, reject_reason=None,
     )
@@ -624,6 +643,44 @@ def test_ac8f_markdown_pass_with_structured_reject_logs_canonical_reject_token(t
     assert rows[0]["detail"]["verdict"] == phase_5_implement.VERDICT_FAIL
     assert rows[0]["detail"]["verdict"] != phase_5_implement.VERDICT_PASS
     _assert_doc_path(rows[0], prev)
+
+
+def _ac8g_prev(quality: list[str] | None) -> StepResult:
+    raw = _validation_doc(
+        ["AC3 → missing", "AC4 → present", "AC5 → partial"], quality,
+    )
+    prev = _gate_prev("FAIL", raw, cycle=1)
+    prev.data["structured_verdict"] = _structured("AC3 has no test", "TEST_GAP")
+    return prev
+
+
+def test_ac8g_findings_head_follows_the_real_validator_contract(tmp_path, monkeypatch):
+    log = tmp_path / "reject-reasons.jsonl"
+    prev = _ac8g_prev(["Threshold assertion is vacuous"])
+    _run_gate(monkeypatch, log, prev)
+    rows = _rows(log)
+    assert len(rows) == 1, rows
+    head = rows[0]["detail"]["findings_head"]
+    assert len(head) == 4, head
+    assert head[0] == "AC3 has no test", head
+    assert "AC3" in head[1] and "missing" in head[1], head
+    assert "AC5" in head[2] and "partial" in head[2], head
+    assert "Threshold assertion is vacuous" in head[3], head
+    assert not any("AC4" in t or "present" in t for t in head), head
+    assert rows[0]["detail"]["verdict_category"] == "TEST_GAP"
+
+
+def test_ac8g_quality_findings_none_adds_no_quality_item(tmp_path, monkeypatch):
+    log = tmp_path / "reject-reasons.jsonl"
+    prev = _ac8g_prev(None)
+    _run_gate(monkeypatch, log, prev)
+    rows = _rows(log)
+    assert len(rows) == 1, rows
+    head = rows[0]["detail"]["findings_head"]
+    assert len(head) == 3, head
+    assert head[0] == "AC3 has no test", head
+    assert not any(t.strip().lower() == "none" or "Quality" in t for t in head), head
+    assert rows[0]["detail"]["verdict_category"] == "TEST_GAP"
 
 
 # ─── AC3d ────────────────────────────────────────────────────────────────────

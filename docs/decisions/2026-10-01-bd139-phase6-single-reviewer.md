@@ -1,6 +1,6 @@
 # bd#139 — phase 6 runs one reviewer; phase 5 validation rejects are logged with reasons
 
-**Status: FROZEN r3, gate r3 PASS (gate r1 REJECT → 4 blockers; gate r2 REJECT → 1 blocker + 6 notes; see `2026-10-01-bd139-gate-r{1,2}.md`)** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** SYSTEMATIC ·
+**Status: FROZEN r4 (post-/code-review op2 source fix; gate r3 PASS (gate r1 REJECT → 4 blockers; gate r2 REJECT → 1 blocker + 6 notes; see `2026-10-01-bd139-gate-r{1,2,3}.md`))** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `_select_reviewers` (`engine_py/bytedigger_engine/workflows/phase_6_review.py:460`),
 the one place the reviewer set and its size are decided; every consumer (prompt, aggregator
 floor, straggler watchdog) reads its count. Second chokepoint: `reject_log.emit_reject_reason`
@@ -86,8 +86,15 @@ precede `invoke_validation_llm`. `verify_green_passing` / `green_lint` / `green_
   never `PASS` on a reject. A markdown `PASS` with a structured reject therefore logs
   `VALIDATION_FAILED`. The row also carries
   `axes=_extract_axes(findings_text)`, `detail={cycle, verdict, findings_head, validation_doc_path}`. `findings_head`
-  holds the titles of the first ≤5 `### SEVERITY: <CRITICAL|HIGH> — <title>` lines in the
-  validation doc, ≤120 chars each.
+  (r4, after /code-review: the validator never writes `### SEVERITY:` headers, its contract is
+  `_VALIDATION_STABLE_PREFIX`, `engine_py/bytedigger_engine/workflows/phase_5_implement.py:6275-6320`) holds, in this order and capped at 5 items of
+  ≤120 chars each:
+  - the structured `reject_reason`, when non-empty;
+  - the bullets under `## Spec Compliance` whose status is `missing` or `partial`;
+  - the bullets under `## Quality Findings`, unless that section is `none`.
+
+  `detail.verdict_category` carries the structured `verdict_category` when present. It is the
+  validator's own classification and is the first axis for the §5 classifier.
 - **Every rejected round is logged, not only the terminal one** (gate r1 B4, option a).
   `_gate_on_validation` calls it on every validator reject:
   - the retry branch `cycle < cap` (status ok, next cycle);
@@ -188,6 +195,11 @@ Audit grep over `engine_py/tests`: `_select_reviewers`, `reviewer_count`, `expec
 - **AC8e** Budget-exhausted `E_SPEC_DEFECT_BUDGET` (the separate return at `:6904`,
   `org_config["phase_reroute"]["attempt"]` above `_MAX_SPEC_DEFECT_REROUTES`) appends one
   `VALIDATION_SPEC_DEFECT` row. The error code is unchanged.
+- **AC8g** A FAIL doc written to the real validator contract: `## Spec Compliance` with `- AC3 → missing`,
+  `- AC4 → present` and `- AC5 → partial`; `## Quality Findings` with one bullet; structured
+  `reject_reason` "AC3 has no test". The result is `findings_head ==` [reject_reason, AC3 bullet,
+  AC5 bullet, quality bullet], with no `present` bullet, and `detail.verdict_category` equals the
+  structured value. With `## Quality Findings` set to `none`, no quality item appears.
 - **AC8f** Markdown `PASS` with structured `approve=False` → row `reason_code ==
   "VALIDATION_FAILED"`, `detail.verdict` is the canonical reject token (`VERDICT_FAIL`). Every row carries
   `detail.validation_doc_path`.
