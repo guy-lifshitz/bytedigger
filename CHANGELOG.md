@@ -14,6 +14,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Added
 
+- **Check ladder (bd#141, item 3).** New `bytedigger_engine/check_ladder.py` (`python -m bytedigger_engine.check_ladder prescreen --gate-input PATH [--findings PATH] [--classifier-cmd JSON] [--mode shadow|enforce] [--threshold F] [--timeout-s F] [--log PATH]`) puts a pre-screen rung in front of the validation gate: a MAJOR script finding or (enforce only) a confident classifier reject returns `reject`, everything else `escalate`; it never approves and fails open on classifier error or timeout. Phase 5 runs it in shadow mode when `org_config["prescreen"]["classifier_cmd"]` is set, emits a `prescreen_verdict` event and never skips the gate.
 - **Close gate (bd#141, item 7).** New `bytedigger_engine/close_gate.py` (`python -m bytedigger_engine.close_gate --transcript PATH --spec PATH [--threshold N] [--vocab PATH] [--cwd DIR] [--state-dir DIR --run-id ID]`) returns a `fire` / `clear` / `latched` / `mentioned` / `no-claim` / `no-turn` / `no-spec` verdict when a turn claims "done" after N or more main-chain tool calls without a successful edit of the bound spec; optional once-per-run latch.
 - **Claim-vs-evidence check and tool-call loop detector (bd#141, items 1-2).** New
   `bytedigger_engine/claim_evidence.py` (`python -m bytedigger_engine.claim_evidence --transcript PATH
