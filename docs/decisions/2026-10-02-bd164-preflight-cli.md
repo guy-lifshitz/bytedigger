@@ -51,7 +51,8 @@ front-matter → all `[]`. Unknown keys ignored. Never raises on any str.
 (`git ls-files -z --others --exclude-standard`, sorted bytewise) a line `<blob-sha> <path>\n` with
 the blob sha from `git hash-object --stdin-paths`. Consequence: any edit to a tracked file (staged or
 not), any staging change, any new/edited/deleted untracked non-ignored file, and any new commit
-changes the hash; gitignored files do not. Deterministic: same tree → same hash.
+changes the hash; gitignored files do not. Any git call failing (non-zero exit) raises
+`RuntimeError` — never hashes empty output. Deterministic: same tree → same hash.
 
 ### op3 `receipt_path(toplevel) -> Path`
 `<git rev-parse --absolute-git-dir>/bytedigger-preflight/receipt.json` (per-worktree, outside the
@@ -75,7 +76,7 @@ Order:
    receipt stale immediately.
 6. Run `STEPS` in order. Each step returns `(status, detail)`; it is timed (`ms`). After the first
    `red` step every later step is recorded `{"status": "skipped", "ms": 0, "detail": ""}` and not
-   run. An exception inside steps 1–7 → `red` with detail `internal error: <msg>` (fail closed).
+   run. An exception inside the first seven `STEPS` → `red` with detail `internal error: <msg>` (fail closed).
    `changed` = files differing from the merge-base (`git diff --name-only -z --diff-filter=d <mb>`)
    ∪ untracked non-ignored files, existing on disk only.
    - **syntax** — targets `changed ∪ red_tests` (existing). `.py` → builtin `compile(src, path,
@@ -141,7 +142,9 @@ lock). Checked in this order: receipt absent / unreadable / not JSON / `schema !
 → `run_preflight(...)`, returns its exit code. Human output: one line per step
 `<name>: <status> <detail>` then `preflight: ok` or `preflight: red <E_CODE> <error>`. `--json`:
 stdout is exactly one JSON document — the receipt (exit 0/1) or `{"ok": false, "error_code",
-"error"}` (exit 2). The parser uses `prog="bytedigger-engine preflight"`. `--classifier-cmd` not a non-empty JSON list of strings → exit 2 `E_PREFLIGHT_USAGE`.
+"error"}` (exit 2). The parser uses `prog="bytedigger-engine preflight"`; `--spec` and `--verify` form a required
+mutually-exclusive group (neither → argparse error, exit 2). `--classifier-cmd` is validated after
+parsing (so under `--json` it emits the JSON error document). `--classifier-cmd` not a non-empty JSON list of strings → exit 2 `E_PREFLIGHT_USAGE`.
 `bytedigger-engine preflight --verify --phase red|green [--cwd DIR]` → prints the
 `verify_receipt` word; exit 0 iff `fresh`, else 1. argparse usage errors → exit 2 with the usage message on stderr and nothing on stdout (also
 under `--json`; the one-JSON-document rule covers runs that reach `run_preflight`).
