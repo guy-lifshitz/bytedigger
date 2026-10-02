@@ -1,6 +1,6 @@
 # bd#141 item 6 (residue): the review-readiness gate inside engine Phase 6
 
-**Status: r1 DRAFT (not gated)** · **Tier:** 2 (two engine prod `.py` edits, `readiness.py` and
+**Status: r2 (gate r1 REJECTED: 1 MAJOR + 6 MINOR fixed, see `2026-10-02-bd141-review-gate-gate-r1.md`)** · **Tier:** 2 (two engine prod `.py` edits, `readiness.py` and
 `workflows/phase_6_review.py`, plus docs; Option D) ·
 **Class:** SYSTEMATIC ·
 **Chokepoint:** `readiness.verdict(repo, stage, spec_path)`, which stays the only readiness decision.
@@ -34,7 +34,9 @@ spec `2026-10-02-bd141-start-gate.md` §4 and bd#117 §1v deferred it to this lo
   `cfg.get("review_label")`. If the key is absent or JSON `null`, the value is `None`. A value that is
   not a non-empty `str`, or that equals `label` under `casefold()`, raises
   `_Unavailable("readiness has fields of the wrong type", policy=True)`, the same as the other field
-  errors, so every stage becomes UNAVAILABLE.
+  errors, so every stage becomes UNAVAILABLE. **Order (r2, m2):** the check runs together with the
+  other field checks, *before* `if not required: return None` (`readiness.py:292`), so a malformed
+  `review_label` is UNAVAILABLE even under `required: false`.
 - `_verdict` accepts `stage in ("start", "review", "ship")`. Any other value raises
   `ValueError` as today, and the message names all three stages.
 - At stage `review`:
@@ -52,7 +54,8 @@ spec `2026-10-02-bd141-start-gate.md` §4 and bd#117 §1v deferred it to this lo
   - Never posts, never consumes, never removes a label.
 - Stages `start` and `ship` are byte-for-byte unchanged. They ignore `review_label`, apart from the
   type check above.
-- CLI: `check --stage` choices become `start`, `review`, `ship`. `_report` treats `review` like
+- CLI: `check --stage` choices become `start`, `review`, `ship`; the usage comment in
+  `scripts/readiness:3` becomes `--stage {start|review|ship}` (r2, m4; comment only). Choices become `start`, `review`, `ship`. `_report` treats `review` like
   `start`: a policy-read UNAVAILABLE exits 0 (warn-only) and any other UNAVAILABLE exits 4.
   NOT_APPROVED still exits 3 with the line `E_READINESS_NOT_APPROVED <reason> #<N>`.
 
@@ -96,10 +99,20 @@ reviewer is spawned. The `steps` list of `phase_6_review_workflow` is **unchange
 `phase_45_spec_lite.py:543`) are separate functions and are **not** gated. Re-entry (a re-attempt or a
 resume that re-runs step 1) re-runs the gate. `review` never consumes, so this is idempotent.
 
+**Terminal path (r2, M1).** A refusal is a terminal phase error of a workflow that declares
+`error_handler=_on_phase_6_abort` (`phase_6_review.py:5924`). In production the engine therefore
+(a) runs the GH1626 B handler, which writes `reviews/build-satisfaction.md` as a NOT_ASSESSED stub
+naming `build_review_prompt` / `E_READINESS_NOT_APPROVED` (a later full Phase 6 run replaces the
+stub, per the handler's whitelist), and (b) because `recoverable=False`, emits the dispatcher report
+and a `terminal_failure` stuck-report (`engine.py:407-430`). This is intended: Phase 7 must not read
+the missing review as silence. No review prompt, role file or review doc is written.
+
 ### op4 — registries and docs
 
-- `error_codes.py`: the `E_READINESS_NOT_APPROVED` description also names `phase_6_review` (the
-  review gate). Regenerate both `ERROR_CODES.md` from `render_markdown()`.
+- `error_codes.py`: the `E_READINESS_NOT_APPROVED` description is rewritten so it names both labels
+  (r2, m6): the bound issue has no current `plan-approved` approval (refused by the
+  `phase_5_implement` start gate or the `phase_8_post_deploy` ship gate) **or** no current review
+  label (refused by the `phase_6_review` review gate, bd#141 item 6). Regenerate both `ERROR_CODES.md` from `render_markdown()`.
 - `docs/configuration.md` readiness section: add the row `readiness.review_label` | string | absent
   (off) | "the label a human adds to mark the implementation ready for review; when set, engine Phase 6
   refuses review without it". Extend `check --stage start|ship` to `start|review|ship`. Add one bullet
@@ -133,7 +146,8 @@ Events are captured by monkeypatching `p6._emit_safe`.
 - **R8 (no issue)** branch `feature-x`: `NOT_APPROVED`, `reason="no_issue"`, `issue=None`.
 - **R9 (policy type errors)** `review_label` is `""`, `5`, or `"Plan-Approved"` (equal to `label`
   under casefold): the verdict at **each** of `start`, `review`, `ship` is `UNAVAILABLE`, with reason
-  containing `wrong type`.
+  containing `wrong type`. Also with `required: false` and `review_label: 5`: `review` → `UNAVAILABLE`
+  (r2, m2).
 - **R10 (start/ship unchanged)** R4's rig (plan label only, no ready label): `verdict(repo, "start")`
   is `APPROVED`. A rig with a ready label but no plan label gives `start` → `label_absent`. (Reddens
   if `start` reads `review_label`.)
@@ -171,8 +185,8 @@ Events are captured by monkeypatching `p6._emit_safe`.
 - **R20 (production side-effect, §1l)** run the real `phase_6_review._build_review_prompt(ctx, None)`
   on R4's rig, with `p6._review_plan` replaced by a recorder that raises a sentinel. The test catches
   the sentinel so a pre-GREEN RED fails at the assert (§1q). Then: `error_code` is
-  `E_READINESS_NOT_APPROVED`, the recorder saw **zero** calls, and no file exists under
-  `<scratch>/reviews/`.
+  `E_READINESS_NOT_APPROVED`, and the recorder saw **zero** calls (r2, M1: the always-true
+  `reviews/` emptiness assertion is dropped; `_review_plan` not being reached is the signal).
 - **R21 (passes through when OFF)** R20 on an OFF rig: the recorder sees exactly one call. This
   proves the gate does not swallow the step.
 
@@ -181,14 +195,19 @@ Events are captured by monkeypatching `p6._emit_safe`.
   Both `ERROR_CODES.md` `E_READINESS` sections contain `phase_6_review`.
 - **R23** the readiness section of `docs/configuration.md` contains `review_label`,
   `start|review|ship` and `phase_6_review`. The `[Unreleased]` section of `CHANGELOG.md` contains
-  `bd#141 item 6` and `review_label`.
+  `bd#141 item 6` and `review_label`. `scripts/readiness` contains `{start|review|ship}`. The
+  `E_READINESS_NOT_APPROVED` description contains `review label`.
+- **R24 (abort-handler path, M1)** on R4's rig, take the refusal `StepResult` from the real
+  `_build_review_prompt` and pass it to `p6._on_phase_6_abort(result, ctx)`:
+  `<scratch>/reviews/build-satisfaction.md` exists and contains `E_READINESS_NOT_APPROVED` and
+  `build_review_prompt`. (Reddens if the refusal carries another code or step name.)
 
 Each negative AC names the change that reddens it:
 - R1/R2/R14 ⇐ gating without a `review_label`.
 - R4 ⇐ checking the plan label.
 - R5 ⇐ not comparing against the record time.
 - R6/R7 ⇐ dropping the approver rules.
-- R9 ⇐ no type check.
+- R9 ⇐ no type check, or the check placed after `required`.
 - R10 ⇐ `start` reading `review_label`.
 - R12 ⇐ the CLI choices not extended, or `review` fail-closed on a policy error.
 - R13 ⇐ adding a `StepContract`.
@@ -198,6 +217,7 @@ Each negative AC names the change that reddens it:
 - R19 ⇐ no ambient guard.
 - R20 ⇐ the gate placed after `_review_plan`, or not wired.
 - R21 ⇐ the gate always refusing.
+- R24 ⇐ a refusal with another `error_code` or `step_name`.
 
 ## §4 Declared limits
 
@@ -206,8 +226,18 @@ Each negative AC names the change that reddens it:
 - The ready label is **not consumed**, so it can outlive a build. The record-time check (R5) resets it
   when a new spec is posted for the same issue, but a second build on the same record reuses a stale
   ready label. A human removes the label when it should no longer count.
-- Phase 6 resumes that skip step 1 (`invoke_review_llm` resume sentinel) skip the gate. The gate runs
-  only when step 1 runs.
+- The gate runs on every Phase 6 entry, including resumes: step sentinels are per step
+  (`step_sentinel.py:139-163`) and step 1 is re-run on every execute (r2, m1). A resume whose review
+  is already cached still refuses if the ready label was removed or a newer record was posted. Only the
+  in-phase satisfaction fix loop (`phase_6_review.py:3699`) re-enters after step 1, after a gate that
+  already passed.
+- A malformed `review_label` makes every stage UNAVAILABLE, so `check --stage ship` exits 4 (fail
+  closed) even if review is never used (r2, m2). This matches every other readiness field error.
+- The bd#85 task driver does not list `E_READINESS_NOT_APPROVED` in `_STOP_CODES`
+  (`lib/task_resume.py:60`), so `plan_resume` re-runs a refused Phase 6 until the run cap
+  (`DEFAULT_MAX_RUNS = 3`) is spent. Each re-run refuses again at the gate before any reviewer
+  spawns, so the cost is the policy read only. This is inherited from the start gate; adding the code
+  to `_STOP_CODES` changes both gates and is a follow-up, not this lot (r2, m6).
 - Every Phase 6 step-1 entry with a non-ambient git_cwd and any `origin` does the policy read
   (`ls-remote` plus one fetch into `refs/bd/policy`), as Phases 5 and 8 already do. No origin means no
   network. No latency claim is made.
@@ -220,20 +250,16 @@ Each negative AC names the change that reddens it:
 In: `engine_py/bytedigger_engine/readiness.py`, `engine_py/bytedigger_engine/workflows/phase_6_review.py`,
 `engine_py/bytedigger_engine/error_codes.py`, `engine_py/ERROR_CODES.md`,
 `engine_py/bytedigger_engine/ERROR_CODES.md`, `docs/configuration.md`, `CHANGELOG.md`,
-`engine_py/tests/test_bd141_p6_review_gate.py` (new), and this spec.
+`scripts/readiness` (usage comment line 3 only), `engine_py/tests/test_bd141_p6_review_gate.py`
+(new), and this spec.
 
 ### Files NOT in scope (§1v)
-`phase_5_implement.py`, `phase_8_post_deploy.py`, `phase_45_spec*.py`, `scripts/readiness`,
+`phase_5_implement.py`, `phase_8_post_deploy.py`, `phase_45_spec*.py`, `lib/task_resume.py`,
 `scripts/ship.sh`, prompt files (`phases/*.md`, `commands/build.md`, `skills/bytedigger/SKILL.md`),
 `companion_tune.py`, `core_manifest.json`, `mypy-strict-modules.txt`, and HAL's tree.
 
 ### Sibling tests (§1a): must stay green
-`test_bd117a_readiness.py`, `test_bd141_p6_start_gate.py`, `test_bd141_p5_revert_signal.py`, and
-every test that calls `phase_6_review._build_review_prompt` or runs `phase_6_review_workflow()`:
-`grep -ln "phase_6_review" engine_py/tests | xargs grep -l "_build_review_prompt\|phase_6_review_workflow"`
-(about 20 files on `5d15316`, including `test_bd139_single_reviewer.py`,
-`test_BC45C403_phase6_step_sentinel_resume.py`, `test_phase_6_review_21792EE7.py`,
-`test_phase_6_review_E52F241F.py`, `test_bd82_role_backend_effort.py`,
-`test_bd141_p4d_role_template_injections.py`, `test_gh705_callsite_stable_prefix.py`). Most of them
+Exact list on `5d15316` (r2, m3; 39 files: every test file mentioning `phase_6_review` together with `_build_review_prompt` or `phase_6_review_workflow`, plus the readiness siblings): `test_291189a0_phase6_step_factory.py`, `test_906e37dc_review_findings_audit.py`, `test_bd117a_readiness.py`, `test_bd119_role_template.py`, `test_bd139_single_reviewer.py`, `test_bd141_p4d_role_template_injections.py`, `test_bd141_p5_revert_signal.py`, `test_bd141_p6_start_gate.py`, `test_bd85_retry_budgets.py`, `test_bd86_fact_pack.py`, `test_F7830037_insession_review_normalize.py`, `test_F9F7E4FD_out_of_role_injection.py`, `test_fix_watchdog.py`, `test_gh1591_fix_gate_boundary.py`, `test_gh1626b_satisfaction_on_abort.py`, `test_gh268_test_only_autodetect.py`, `test_gh379_decorr_verify.py`, `test_gh497_telemetry_hygiene.py`, `test_gh557_resume_seam_flips.py`, `test_gh705_callsite_stable_prefix.py`, `test_gh751_satisfaction_spec_anchor.py`, `test_phase_5_b4d83b40_red_rubric.py`, `test_phase_6_build_scope_prompt.py`, `test_phase_6_commit_fix_tests_8FE3D757.py`, `test_phase_6_last_findings_persist_c834481a.py`, `test_phase_6_mass_unverified_5F9817F6.py`, `test_phase_6_post_fix_pytest_gate_7A940850.py`, `test_phase_6_post_fix_typecheck_gate_GH316.py`, `test_phase_6_postfix_and_polish_3F5599A6.py`, `test_phase_6_review_21792EE7.py`, `test_phase_6_review_E52F241F.py`, `test_phase_6_review_return_discipline_CF838E6F.py`, `test_phase_6_review_simple_fastpath.py`, `test_phase_6_review_W2.py`, `test_phase_6_rubric_trim_5D0D3BD1.py`, `test_phase_6_step10_commit_fix_code.py`, `test_phase_6_step7_w1_disk_truth.py`, `test_phase_6_subagent_prior_context_propagation_7ca211d2.py`, `test_phase_6_test_only_note_FF2CB91D.py`. Local baseline before RED: 831 passed, 1 skipped.
+Most of them
 set no `git_cwd` (ambient ⇒ skip) or point it at a repo without `origin` (policy off). The full suite
 plus the delta against the RED baseline is the ship gate (§1r).

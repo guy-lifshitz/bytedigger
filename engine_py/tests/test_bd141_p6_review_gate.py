@@ -1,7 +1,9 @@
 """RED tests -- bd#141 item 6 (residue): review-readiness gate inside engine Phase 6.
 
-Spec: docs/decisions/2026-10-02-bd141-review-gate.md (section 3, ACs R1..R23).
+Spec: docs/decisions/2026-10-02-bd141-review-gate.md (section 3, ACs R1..R24).
 AC -> tests: test_r<N>_* (R9/R17 have several functions; R12 and R22/R23 are single functions).
+The `_verdict` helper turns the pre-GREEN ValueError for stage 'review' into pytest.fail, so
+R1-R8/R10 fail at assert time.
 
 Section 1i: every contested state (labels, comments, events, gh switch) is PRE-STAGED in the rig
 state file before the unit under test runs; nothing races.
@@ -101,7 +103,10 @@ def _rd():
 def _verdict(rig, stage):
     from bytedigger_engine import readiness
 
-    return readiness.verdict(rig.repo, stage)
+    try:
+        return readiness.verdict(rig.repo, stage)
+    except ValueError as e:  # pre-GREEN: stage 'review' is rejected -> fail at assert time
+        pytest.fail(f"stage 'review' not supported: {e}")
 
 
 def _write_policy_rig(tmp_path, monkeypatch, readiness_cfg, **kw):
@@ -216,6 +221,14 @@ def test_r9_review_label_type_errors_unavailable(tmp_path, monkeypatch, bad, sta
     rig = _write_policy_rig(tmp_path, monkeypatch, {"required": True, "review_label": bad})
     rig.seed(labels=[r117.LABEL], comments=[r117.record(1)], events=[r117.levent("LE_1", "alice", 300)])
     v = _verdict(rig, stage)
+    assert v["verdict"] == "UNAVAILABLE", v
+    assert "wrong type" in v["reason"]
+
+
+def test_r9_malformed_review_label_unavailable_even_when_not_required(tmp_path, monkeypatch):
+    rig = _write_policy_rig(tmp_path, monkeypatch, {"required": False, "review_label": 5})
+    rig.seed(labels=[r117.LABEL], comments=[r117.record(1)], events=[r117.levent("LE_1", "alice", 300)])
+    v = _verdict(rig, "review")
     assert v["verdict"] == "UNAVAILABLE", v
     assert "wrong type" in v["reason"]
 
@@ -477,8 +490,6 @@ def test_r20_real_step_refuses_before_review_plan(tmp_path, monkeypatch):
     res = _run_step(_ctx(rig))
     assert calls == [], "gate must run before _review_plan"
     assert res is not None and res.error_code == "E_READINESS_NOT_APPROVED"
-    reviews = rig.root / "scratch" / "reviews"
-    assert not reviews.exists() or list(reviews.rglob("*")) == []
 
 
 def test_r21_real_step_passes_through_when_off(tmp_path, monkeypatch):
@@ -495,6 +506,21 @@ def test_r21_real_step_passes_through_when_off(tmp_path, monkeypatch):
     res2 = _run_step(_ctx(rig2))
     assert len(calls) == 1
     assert res2 is not None and res2.error_code == "E_READINESS_NOT_APPROVED"
+
+
+def test_r24_abort_handler_writes_satisfaction_stub(tmp_path, monkeypatch):
+    rig = _plan_only_rig(tmp_path, monkeypatch)
+    _capture(monkeypatch)
+    _record_review_plan(monkeypatch)
+    ctx = _ctx(rig)
+    res = _run_step(ctx)
+    assert res is not None, "no refusal StepResult: the step reached _review_plan (gate not built)"
+    p6._on_phase_6_abort(res, ctx)
+    doc = rig.root / "scratch" / "reviews" / "build-satisfaction.md"
+    assert doc.is_file(), "abort handler wrote no build-satisfaction.md"
+    text = doc.read_text(encoding="utf-8")
+    assert "E_READINESS_NOT_APPROVED" in text
+    assert "build_review_prompt" in text
 
 
 # --------------------------------------------------------------------------- R22 / R23
@@ -526,6 +552,11 @@ def test_r23_docs_and_changelog():
     section = rest if not n else rest[:n.start()]
     for needle in ("review_label", "start|review|ship", "phase_6_review"):
         assert needle in section, needle
+    script = (REPO_ROOT / "scripts" / "readiness").read_text(encoding="utf-8")
+    assert "{start|review|ship}" in script
+    from bytedigger_engine import error_codes
+
+    assert "review label" in error_codes.ERROR_CODES["E_READINESS_NOT_APPROVED"]
     log = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     unreleased = _section(log, "[Unreleased]")
     assert "bd#141 item 6" in unreleased
