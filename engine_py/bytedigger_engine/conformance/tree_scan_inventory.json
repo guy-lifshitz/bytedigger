@@ -18,13 +18,10 @@
     "lib/step_sentinel.py::invalidate_cycle_sentinels::glob#0": {"class": "not-a-gate", "note": "Globs sentinel files inside the run scratchpad to invalidate them; engine-internal state, not a worktree scan."},
     "lib/step_sentinel.py::invalidate_validation_sentinels_for_run::glob#0": {"class": "not-a-gate", "note": "Globs sentinel files inside the run scratchpad; engine-internal state, not a worktree scan."},
     "verification_registry.py::discover::iterdir#0": {"class": "not-a-gate", "note": "Lists skill directories under the registry roots to load verification skills; no staging or hashing of the result."},
-    "llm_subprocess.py::_StragglerWatchdog.run::glob#0": {"class": "not-a-gate", "note": "Counts role-*.md review files in the scratchpad reviews dir for a watchdog log line; observability only."},
     "flags_catalog.py::discover_flag_reads::rglob#0": {"class": "not-a-gate", "note": "Walks the package source for flag-read tokens in .py files; lint input, not a gate over the worktree diff."},
     "ctx_floor.py::profile_floors::glob#0": {"class": "not-a-gate", "note": "Globs session jsonl files under a profile projects dir for context-floor stats; outside the build worktree."},
     "workflows/phase_5_implement.py::_derive_green_paths_from_git::rglob#0": {"class": "filters", "note": "Expands a dir entry of the green manifest; the result goes through drop_engine_owned(content_scan=True) at the end of the function (bd#94 row 1), which also covers the symlink rules the old inline check handled."},
     "workflows/phase_5_implement.py::_grep_import_sibling_tests::rglob#0": {"class": "not-a-gate", "note": "Greps .py files under a sibling root for imports of a module to find candidate sibling tests; advisory candidate list, never staged or hashed."},
-    "workflows/phase_6_review.py::_invoke_review_llm::glob#0": {"class": "not-a-gate", "note": "Clears stale role-*.md files in the scratchpad reviews dir; engine scratch, not the worktree."},
-    "workflows/phase_6_review.py::_aggregate_review_findings::glob#0": {"class": "not-a-gate", "note": "Collects role-*.md reviewer outputs from the scratchpad reviews dir; engine scratch, not the worktree."},
     "workflows/phase_8_post_deploy.py::_worktree_in_use::rglob#0": {"class": "not-a-gate", "note": "Deliberately walks the state dir itself to take the newest mtime as a liveness signal for a worktree; dropping the state dir here would break the check."},
     "workflows/phase_8_post_deploy.py::_cleanup_eval_rotation::iterdir#0": {"class": "not-a-gate", "note": "Lists the scratchpad evals dir to rotate old entries; engine scratch, not the worktree."},
 
