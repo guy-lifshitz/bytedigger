@@ -41,6 +41,8 @@ def _reset(monkeypatch):
     # Effort comes from the operator's models config; keep it out of these tests.
     monkeypatch.setattr(llm_subprocess, "_load_effort_gate", lambda *a, **kw: None)
     monkeypatch.setattr(llm_subprocess, "_load_effort", lambda *a, **kw: None)
+    monkeypatch.setattr(llm_subprocess, "_resolve_effort",
+                        lambda *a, **kw: llm_subprocess._EffortResolution(None, None, None))
     telemetry_ctx.clear_current_run()
     yield
     telemetry_ctx.clear_current_run()
@@ -500,27 +502,35 @@ def test_ac13_no_run_context_hard_gate_hook_raises_refuses_without_raising():
 def test_ac14a_gate_effort_keyed_on_requested_model(tmp_path, monkeypatch):
     _event_log(tmp_path)
     seen: list = []
-    monkeypatch.setattr(llm_subprocess, "_load_effort_gate",
-                        lambda *a, **kw: seen.append(a[0] if a else kw.get("model")))
+
+    def _rec(model, step_name=None, *a, hard_gate=None, **kw):
+        seen.append((model, hard_gate))
+        return llm_subprocess._EffortResolution(None, None, None)
+
+    monkeypatch.setattr(llm_subprocess, "_resolve_effort", _rec)
     _register_spy(effective_model=lambda m: "fable")
 
     res = _invoke(hard_gate=True, model="opus")
 
     assert res.status == "ok", res.error
-    assert seen == ["opus"]
+    assert seen == [("opus", True)]
 
 
 def test_ac14b_worker_effort_keyed_on_requested_model(tmp_path, monkeypatch):
     _event_log(tmp_path)
     seen: list = []
-    monkeypatch.setattr(llm_subprocess, "_load_effort",
-                        lambda *a, **kw: seen.append(a[0] if a else kw.get("model")))
+
+    def _rec(model, step_name=None, *a, hard_gate=None, **kw):
+        seen.append((model, hard_gate))
+        return llm_subprocess._EffortResolution(None, None, None)
+
+    monkeypatch.setattr(llm_subprocess, "_resolve_effort", _rec)
     _register_spy(effective_model=lambda m: "haiku")
 
     res = _invoke(hard_gate=False, model="opus")
 
     assert res.status == "ok", res.error
-    assert seen == ["opus"]
+    assert seen == [("opus", False)]
 
 
 # --- AC11 ------------------------------------------------------------------
