@@ -891,9 +891,8 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     runs through the BD66_LINT_DIR override; the canonical-default path is AC11
     and AC12, not this one.
 
-    Pre-GREEN: FAIL — precommit_lints has no DECLARED_ABSENT attribute at all
-    (0 declared against a denominator of 12), and the enforcement layer does not
-    exist.
+    Before bd#166 GREEN: FAIL — the lint is declared absent with no driver on
+    disk, so the on_disk pin fails.
     """
     names = ALL_REGISTRY_NAMES
     assert len(names) == 12, (

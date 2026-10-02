@@ -770,16 +770,27 @@ def test_ac27_control_side_is_not_refused(tmp_path):
     proc, lines = _run_enforce(repo, env)
 
     assert lines == [], f"controlled file must not be refused by the lint, got {lines!r}"
+    assert proc.returncode == 0, f"controlled file must commit, rc={proc.returncode} out={proc.stdout!r}"
 
 
 def test_ac27_driver_is_executable_in_git_and_has_shebang():
+    assert _DRIVER.is_file(), f"missing driver {_DRIVER}"
+    assert _DRIVER.read_text(encoding="utf-8").splitlines()[0].startswith("#!"), "driver needs a shebang"
+    assert os.stat(_DRIVER).st_mode & 0o111, "driver must have an exec bit in the working tree"
+
+    if not (_REPO_ROOT / ".git").exists():
+        pytest.skip(
+            "bd#166 AC27: this corpus is a `git archive` tree with no .git, so the "
+            "versioned index mode cannot be read; the working-tree exec bit and "
+            "shebang were asserted above."
+        )
     listed = subprocess.run(
         ["git", "ls-files", "-s", "one-sided-predicate-lint.py"],
         cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=60,
         stdin=subprocess.DEVNULL,
     )
+    assert listed.returncode == 0, f"git ls-files failed: {listed.stderr!r}"
     assert listed.stdout.startswith("100755 "), f"driver must be versioned as 100755, got {listed.stdout!r}"
-    assert _DRIVER.read_text(encoding="utf-8").splitlines()[0].startswith("#!"), "driver needs a shebang"
 
 
 # ------------------------------------------------------------ AC-L1 / AC-L2
