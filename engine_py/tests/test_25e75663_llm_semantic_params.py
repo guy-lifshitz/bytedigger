@@ -427,8 +427,7 @@ def test_ac8_resolve_model_returns_correct_str():
 def test_ac9_default_model_builders_return_str():
     """AC9: representative _default_*_model() functions return a str equal to getter.
 
-    Tests three representative builders:
-      - phase_1_discovery._default_model() == get_claude_discovery()
+    Tests two representative builders:
       - phase_5_implement._default_green_model() == get_claude_primary()
       - phase_45_spec._default_spec_model() == get_claude_spec_writer()
 
@@ -438,24 +437,9 @@ def test_ac9_default_model_builders_return_str():
     After GREEN: each returns a model string from its getter.
     """
     import importlib
-    from bytedigger_engine.lib.model_config import get_claude_discovery, get_claude_primary, get_claude_spec_writer
+    from bytedigger_engine.lib.model_config import get_claude_primary, get_claude_spec_writer
 
-    # -- phase_1_discovery._default_model()
-    p1 = importlib.import_module("bytedigger_engine.workflows.phase_1_discovery")
-    fn_discovery = getattr(p1, "_default_model", None)
-    assert fn_discovery is not None, (
-        "phase_1_discovery._default_model not found — not yet renamed from "
-        "_default_llm_command (25e75663 §2.7)"
-    )
-    result_discovery = fn_discovery()
-    assert isinstance(result_discovery, str), (
-        f"phase_1_discovery._default_model() must return str, got {type(result_discovery)!r}: "
-        f"{result_discovery!r}"
-    )
-    assert result_discovery == get_claude_discovery(), (
-        f"phase_1_discovery._default_model() must equal get_claude_discovery()="
-        f"{get_claude_discovery()!r}; got {result_discovery!r}"
-    )
+    # (the phase_1_discovery leg was retired by bd#89 P2a: the module is deleted)
 
     # -- phase_5_implement._default_green_model()
     p5 = importlib.import_module("bytedigger_engine.workflows.phase_5_implement")

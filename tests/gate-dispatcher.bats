@@ -27,7 +27,7 @@ EOF
 task: "test"
 complexity: FEATURE
 mode: AUTONOMOUS
-current_phase: "4"
+current_phase: "5"
 last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 EOF
 }
@@ -78,7 +78,7 @@ EOF
 EOF
   cd "$TMPDIR"
   run bash "$DISPATCHER" < /dev/null
-  # GREEN expectation: exit 2 (soft block, no build-architecture.md). RED stub returns 99 → fails.
+  # GREEN expectation: exit 2 (soft block, no build-plan-review.md). RED stub returns 99 → fails.
   [ "$status" -eq 2 ]
 }
 
@@ -106,7 +106,7 @@ EOF
   [ "$status" -eq 1 ]
   echo "$output" | grep -q "gate_backend=ts but bun not found"
   # Must NOT silently fall back to bash
-  ! echo "$output" | grep -q "phase_4_architect"
+  ! echo "$output" | grep -q "plan_review"
 }
 
 # ---------------------------------------------------------------------------
@@ -156,9 +156,9 @@ EOF
 task: "test"
 complexity: FEATURE
 mode: AUTONOMOUS
-current_phase: "4"
+current_phase: "5"
 last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-phase_4_architect: complete
+plan_review: pass
 EOF
   # Force divergence: bash stub prints a pass verdict; TS stub prints a
   # hard-block verdict. Different stdout AND different exit codes → the
@@ -251,7 +251,7 @@ EOF
 EOF
   cd "$TMPDIR"
   GATE_BACKEND=ts run bash "$DISPATCHER" < /dev/null
-  # GREEN: TS gate at phase 4 missing build-architecture.md → exit 2
+  # GREEN: TS gate at phase 5 missing build-plan-review.md → exit 2
   [ "$status" -eq 2 ]
 }
 

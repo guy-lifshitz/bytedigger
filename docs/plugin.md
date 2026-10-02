@@ -6,18 +6,14 @@ Full reference for the Claude Code orchestration layer: 9 phases, gate-enforced,
 
 ## What It Does
 
-A build pipeline that takes a feature request through classify, explore, architect, spec, implement (TDD+BDD), multi-agent review, and synthesize. Hooks enforce gates between phases -- agents can't skip steps, rationalize around them, or rubber-stamp their own work.
+A build pipeline that takes a feature request through classify, spec, implement (TDD+BDD), multi-agent review, and synthesize. Hooks enforce gates between phases -- agents can't skip steps, rationalize around them, or rubber-stamp their own work.
 
 ## Pipeline
 
 ```mermaid
 flowchart TD
     P0[Phase 0: Classify] -->|gate| P05[Phase 0.5: Pre-Build Gate]
-    P05 -->|gate| P1[Phase 1: Discover]
-    P1 -->|gate| P2[Phase 2: Explore]
-    P2 -->|gate| P3[Phase 3: Clarify]
-    P3 -->|gate| P4[Phase 4: Architect]
-    P4 -->|gate| P45[Phase 4.5: Spec]
+    P05 -->|gate| P45[Phase 4.5: Spec]
     P45 -->|gate| P5[Phase 5: Implement]
     P5 -->|gate| P6[Phase 6: Review]
     P6 -->|gate| P7[Phase 7: Synthesize]
@@ -175,17 +171,13 @@ Unknown values, missing `bun`, or dispatcher errors all fail closed with a JSON 
 |-------|------|------|---------------|
 | 0 | Classify | Determine complexity tier, create build-state.yaml | -- |
 | 0.5 | Pre-Build Gate | Worktree enforcement, session collision check, inject learnings | -- |
-| 1 | Discovery | Read task context, identify affected files | -- |
-| 2 | Explore | Deep codebase exploration, trace patterns and dependencies | skipped |
-| 3 | Clarify | Fill ambiguities before architecture | skipped |
-| 4 | Architect | Design implementation approach (Opus) | skipped |
-| 4.5 | Spec | Turn architecture into verifiable build-spec.md | skipped |
+| 4.5 | Spec | Turn the task into a verifiable build-spec.md | -- |
 | 5 | Implement | TDD implementation via worker agents | -- |
 | 6 | Review | Multi-agent quality review, Opus satisfaction scoring | -- |
 | 7 | Synthesize | Summarize build, extract learnings, update state | -- |
 | 8 | Post-Deploy | Cleanup: prune gone branches, remove temp files, remove merged worktrees | Never |
 
-SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
+Every tier runs phases 0, 0.5, 4.5, 5, 6, 7.
 
 ## Scripts
 
@@ -220,8 +212,6 @@ SIMPLE tasks run phases 0, 0.5, 1, 5, 6, 7.
 
 | Agent | Model | Role |
 |-------|-------|------|
-| architect | Opus | Designs implementation blueprints from codebase patterns |
-| explorer | Haiku/Sonnet | Traces execution paths, maps architecture layers |
 | synthesizer | Haiku | Post-build summary, learning extraction |
 
 ## Tests

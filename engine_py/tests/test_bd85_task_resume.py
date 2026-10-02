@@ -19,7 +19,7 @@ import pytest
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ENGINE_ROOT.parent
-PHASES = ["phase_1_discovery", "phase_45_spec", "phase_5_implement", "phase_6_review"]
+PHASES = ["phase_0_research", "phase_45_spec", "phase_5_implement", "phase_6_review"]
 
 
 def _tr():
@@ -53,19 +53,19 @@ def _log(tmp_path: Path, *rows: str) -> Path:
 
 def test_ac13_resume_from_the_failed_phase(tmp_path: Path) -> None:
     log = _log(tmp_path,
-               _finished("R", "phase_1_discovery", "ok"),
+               _finished("R", "phase_0_research", "ok"),
                _finished("R", "phase_45_spec", "ok"),
                _finished("R", "phase_5_implement", "error", "E_GREEN_TESTS_RED"),
                _finished("OTHER", "phase_5_implement", "ok"))
     plan = _tr().plan_resume(log, "R", PHASES)
     assert plan.action == "resume"
     assert plan.resume_from == "phase_5_implement"
-    assert plan.completed == ["phase_1_discovery", "phase_45_spec"]
+    assert plan.completed == ["phase_0_research", "phase_45_spec"]
 
 
 def test_ac13b_fresh_task_starts_at_the_first_phase(tmp_path: Path) -> None:
     plan = _tr().plan_resume(tmp_path / "missing.jsonl", "R", PHASES)
-    assert (plan.action, plan.resume_from, plan.completed) == ("resume", "phase_1_discovery", [])
+    assert (plan.action, plan.resume_from, plan.completed) == ("resume", "phase_0_research", [])
 
 
 def test_ac13c_all_done(tmp_path: Path) -> None:
@@ -76,36 +76,36 @@ def test_ac13c_all_done(tmp_path: Path) -> None:
 
 def test_ac13d_last_row_per_phase_wins(tmp_path: Path) -> None:
     log = _log(tmp_path,
-               _finished("R", "phase_1_discovery", "error", "E_X"),
-               _finished("R", "phase_1_discovery", "ok"))
+               _finished("R", "phase_0_research", "error", "E_X"),
+               _finished("R", "phase_0_research", "ok"))
     plan = _tr().plan_resume(log, "R", PHASES)
-    assert plan.resume_from == "phase_45_spec" and plan.completed == ["phase_1_discovery"]
+    assert plan.resume_from == "phase_45_spec" and plan.completed == ["phase_0_research"]
 
 
 def test_ac13e_shadowed_zombie_rows_are_ignored(tmp_path: Path) -> None:
     from bytedigger_engine.execution_provenance import SHADOW_EVENT_TYPE
     log = _log(tmp_path,
                _row("R", SHADOW_EVENT_TYPE, {"shadowed_event": "workflow_finished",
-                                             "workflow_name": "phase_1_discovery", "status": "ok"}))
+                                             "workflow_name": "phase_0_research", "status": "ok"}))
     plan = _tr().plan_resume(log, "R", PHASES)
-    assert plan.resume_from == "phase_1_discovery" and plan.completed == []
+    assert plan.resume_from == "phase_0_research" and plan.completed == []
 
 
 def test_ac13f_rerun_of_an_earlier_phase_makes_later_rows_stale(tmp_path: Path) -> None:
     log = _log(tmp_path,
-               _finished("R", "phase_1_discovery", "ok"),
+               _finished("R", "phase_0_research", "ok"),
                _finished("R", "phase_45_spec", "ok"),
                _finished("R", "phase_5_implement", "error", "E_SPEC_DEFECT"),
                _finished("R", "phase_45_spec", "ok"))  # rerouted spec re-ran
     plan = _tr().plan_resume(log, "R", PHASES)
     assert (plan.action, plan.resume_from) == ("resume", "phase_5_implement"), plan
-    assert plan.completed == ["phase_1_discovery", "phase_45_spec"]
+    assert plan.completed == ["phase_0_research", "phase_45_spec"]
 
 
 def test_ac13g_stale_ok_is_not_completed(tmp_path: Path) -> None:
     log = _log(tmp_path,
                _finished("R", "phase_45_spec", "ok"),
-               _finished("R", "phase_1_discovery", "ok"))  # earlier phase re-ran after
+               _finished("R", "phase_0_research", "ok"))  # earlier phase re-ran after
     plan = _tr().plan_resume(log, "R", PHASES)
     assert (plan.action, plan.resume_from) == ("resume", "phase_45_spec"), plan
 
@@ -118,14 +118,14 @@ def test_ac13g_stale_ok_is_not_completed(tmp_path: Path) -> None:
     ("error", "E_RESTART_SHORT_CIRCUIT"),
 ])
 def test_ac14_needs_a_human_means_stop(tmp_path: Path, status: str, code: str | None) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "ok"),
+    log = _log(tmp_path, _finished("R", "phase_0_research", "ok"),
                _finished("R", "phase_45_spec", status, code))
     plan = _tr().plan_resume(log, "R", PHASES)
     assert plan.action == "stop" and plan.resume_from is None, plan
 
 
 def test_ac14b_spec_defect_reroutes_to_spec(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "ok"),
+    log = _log(tmp_path, _finished("R", "phase_0_research", "ok"),
                _finished("R", "phase_45_spec", "ok"),
                _finished("R", "phase_5_implement", "error", "E_SPEC_DEFECT"))
     plan = _tr().plan_resume(log, "R", PHASES)
@@ -133,13 +133,13 @@ def test_ac14b_spec_defect_reroutes_to_spec(tmp_path: Path) -> None:
 
 
 def test_ac14c_paused_resumes_same_phase(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "paused"))
+    log = _log(tmp_path, _finished("R", "phase_0_research", "paused"))
     plan = _tr().plan_resume(log, "R", PHASES)
-    assert (plan.action, plan.resume_from, plan.last_status) == ("resume", "phase_1_discovery", "paused")
+    assert (plan.action, plan.resume_from, plan.last_status) == ("resume", "phase_0_research", "paused")
 
 
 @pytest.mark.parametrize("rows", [
-    [_finished("R", "phase_1_discovery", "escalate")],
+    [_finished("R", "phase_0_research", "escalate")],
     [_finished("R", p, "ok") for p in PHASES],
 ])
 def test_ac14e_resume_from_is_none_for_stop_and_done(tmp_path: Path, rows) -> None:
@@ -147,16 +147,16 @@ def test_ac14e_resume_from_is_none_for_stop_and_done(tmp_path: Path, rows) -> No
 
 
 def test_ac14d_reset_unsticks_a_stop(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "error", "E_RED_WORKTREE_DIRTY"),
+    log = _log(tmp_path, _finished("R", "phase_0_research", "error", "E_RED_WORKTREE_DIRTY"),
                _row("R", "task_cap_reset", {"reason": "cleaned"}))
     plan = _tr().plan_resume(log, "R", PHASES)
-    assert (plan.action, plan.resume_from) == ("resume", "phase_1_discovery"), plan
+    assert (plan.action, plan.resume_from) == ("resume", "phase_0_research"), plan
 
 
 def test_ac14f_governor_denial_is_a_stop(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "error", "E_X"),
+    log = _log(tmp_path, _finished("R", "phase_0_research", "error", "E_X"),
                _row("R", "restart_governor_denied",
-                    {"workflow": "phase_1_discovery", "deny_code": "E_RESTART_SHORT_CIRCUIT"}))
+                    {"workflow": "phase_0_research", "deny_code": "E_RESTART_SHORT_CIRCUIT"}))
     plan = _tr().plan_resume(log, "R", PHASES)
     assert (plan.action, plan.error_code) == ("stop", "E_RESTART_SHORT_CIRCUIT"), plan
     d = _begin(tmp_path, log)
@@ -164,22 +164,22 @@ def test_ac14f_governor_denial_is_a_stop(tmp_path: Path) -> None:
 
 
 def test_ac14g_oracle_refusal_after_ok_is_not_completed(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "ok"),
-               _row("R", "phase_refused", {"workflow": "phase_1_discovery", "error_code": "E_ORACLE_MUTATED"}))
+    log = _log(tmp_path, _finished("R", "phase_0_research", "ok"),
+               _row("R", "phase_refused", {"workflow": "phase_0_research", "error_code": "E_ORACLE_MUTATED"}))
     plan = _tr().plan_resume(log, "R", PHASES)
     assert plan.action == "stop" and plan.completed == [] and plan.error_code == "E_ORACLE_MUTATED", plan
 
 
 def test_ac14h_later_success_clears_a_denial(tmp_path: Path) -> None:
     log = _log(tmp_path,
-               _row("R", "restart_governor_denied", {"workflow": "phase_1_discovery", "deny_code": "E_RESTART_CAP"}),
-               _finished("R", "phase_1_discovery", "ok"))
+               _row("R", "restart_governor_denied", {"workflow": "phase_0_research", "deny_code": "E_RESTART_CAP"}),
+               _finished("R", "phase_0_research", "ok"))
     plan = _tr().plan_resume(log, "R", PHASES)
     assert (plan.action, plan.resume_from) == ("resume", "phase_45_spec"), plan
 
 
 def test_ac14i_stop_reports_why(tmp_path: Path) -> None:
-    d = _begin(tmp_path, _log(tmp_path, _finished("R", "phase_1_discovery", "error", "E_RED_WORKTREE_DIRTY")))
+    d = _begin(tmp_path, _log(tmp_path, _finished("R", "phase_0_research", "error", "E_RED_WORKTREE_DIRTY")))
     assert d.action == "stop" and d.plan_error_code == "E_RED_WORKTREE_DIRTY" and d.last_status == "error", d
 
 
@@ -192,7 +192,7 @@ def _begin(tmp_path: Path, log: Path, **kw):
 
 
 def test_ac15_counts_runs_and_caps_at_max_runs(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "error", "E_X"))
+    log = _log(tmp_path, _finished("R", "phase_0_research", "error", "E_X"))
     for n in (1, 2, 3):
         d = _begin(tmp_path, log)
         assert d.allowed and d.runs == n, d
@@ -202,7 +202,7 @@ def test_ac15_counts_runs_and_caps_at_max_runs(tmp_path: Path) -> None:
 
 def test_ac15b_caps_on_cost(tmp_path: Path) -> None:
     log = _log(tmp_path, _cost("R", 40.0), _cost("R", 25.0), _cost("OTHER", 500.0),
-               _finished("R", "phase_1_discovery", "error", "E_X"))
+               _finished("R", "phase_0_research", "error", "E_X"))
     d = _begin(tmp_path, log)
     assert not d.allowed and d.error_code == "E_TASK_CAP_REACHED", d
     assert d.cost_usd == pytest.approx(65.0)
@@ -216,15 +216,15 @@ def test_ac15c_unknown_cost_rows_are_reported(tmp_path: Path) -> None:
 
 
 def test_ac15d_paused_run_is_not_charged(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "error", "E_X"))
+    log = _log(tmp_path, _finished("R", "phase_0_research", "error", "E_X"))
     assert _begin(tmp_path, log).runs == 1
-    log.write_text(log.read_text() + _finished("R", "phase_1_discovery", "paused") + "\n")
+    log.write_text(log.read_text() + _finished("R", "phase_0_research", "paused") + "\n")
     d = _begin(tmp_path, log)
     assert d.allowed and d.runs == 1, f"the paused run's slot is reused: {d}"
 
 
 def test_ac15d2_paused_credit_is_single_use(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "paused"))
+    log = _log(tmp_path, _finished("R", "phase_0_research", "paused"))
     first = _begin(tmp_path, log, max_runs=1)
     assert first.allowed and first.runs == 0, f"the paused slot is credited once: {first}"
     # a refusal upstream writes no new workflow_finished row: the same paused row
@@ -263,8 +263,8 @@ def test_ac15g_reset_clears_the_ledger_and_logs_reason(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("rows, action", [
     ([_finished("R", p, "ok") for p in PHASES], "done"),
-    ([_finished("R", "phase_1_discovery", "escalate")], "stop"),
-    ([_finished("R", "phase_1_discovery", "error", "E_SPEC_DEFECT")], "reroute"),
+    ([_finished("R", "phase_0_research", "escalate")], "stop"),
+    ([_finished("R", "phase_0_research", "error", "E_SPEC_DEFECT")], "reroute"),
 ])
 def test_ac15h_done_stop_reroute_are_not_allowed(tmp_path: Path, rows, action) -> None:
     d = _begin(tmp_path, _log(tmp_path, *rows))
@@ -283,7 +283,7 @@ def _run_py(*args: str) -> subprocess.CompletedProcess:
 
 
 def test_ac16_cli_task_begin(tmp_path: Path) -> None:
-    log = _log(tmp_path, _finished("R", "phase_1_discovery", "ok"),
+    log = _log(tmp_path, _finished("R", "phase_0_research", "ok"),
                _finished("R", "phase_45_spec", "error", "E_X"))
     p = _run_py("--task-begin", ",".join(PHASES), "--run-id", "R", "--event-log", str(log))
     assert p.returncode == 0, p.stderr
@@ -297,17 +297,17 @@ def test_ac16_cli_task_begin(tmp_path: Path) -> None:
 
 
 def test_ac16b_cli_task_begin_requires_run_id_and_log(tmp_path: Path) -> None:
-    p = _run_py("--task-begin", "phase_1_discovery")
+    p = _run_py("--task-begin", "phase_0_research")
     assert p.returncode == 2
 
 
 def test_ac16c_cli_task_reset(tmp_path: Path) -> None:
     log = _log(tmp_path)
-    _run_py("--task-begin", "phase_1_discovery", "--run-id", "R", "--event-log", str(log),
+    _run_py("--task-begin", "phase_0_research", "--run-id", "R", "--event-log", str(log),
             "--task-max-runs", "1")
     p = _run_py("--task-reset", "manual unblock", "--run-id", "R", "--event-log", str(log))
     assert p.returncode == 0, p.stderr
-    again = _run_py("--task-begin", "phase_1_discovery", "--run-id", "R", "--event-log", str(log),
+    again = _run_py("--task-begin", "phase_0_research", "--run-id", "R", "--event-log", str(log),
                     "--task-max-runs", "1")
     assert again.returncode == 0, again.stdout
 
@@ -358,15 +358,15 @@ def test_ac17_template_resumes_from_plan_with_same_run_id(tmp_path: Path) -> Non
 
 
 def test_ac17b_template_stops_on_first_failure(tmp_path: Path) -> None:
-    plan = {"allowed": True, "action": "resume", "resume_from": "phase_1_discovery"}
+    plan = {"allowed": True, "action": "resume", "resume_from": "phase_0_research"}
     rc, calls = _drive(tmp_path, plan, fail_at="phase_45_spec")
     assert rc != 0
     ran = [c[c.index("--workflow") + 1] for c in calls[1:]]
-    assert ran == ["phase_1_discovery", "phase_45_spec"], ran
+    assert ran == ["phase_0_research", "phase_45_spec"], ran
 
 
 @pytest.mark.parametrize("plan", [
-    {"allowed": False, "action": "resume", "resume_from": "phase_1_discovery",
+    {"allowed": False, "action": "resume", "resume_from": "phase_0_research",
      "error_code": "E_TASK_CAP_REACHED"},
     {"allowed": False, "action": "stop", "resume_from": None},
     {"allowed": False, "action": "reroute", "resume_from": "phase_45_spec"},

@@ -32,11 +32,11 @@ AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<18 cases>]
        the pool path with every submitted call, both phase_45_spec review
        dispatches incl. the repoll, and phase_2's existing one as a guard; the
        two retries are the AC8 tests)
-AC6  test_ac6_attestation_carries_role_template[clarify|architect]
-AC7  test_ac7_no_template_no_declaration[clarify|architect]    (guard: green today)
+AC6  (retired, bd#89 P2a: clarify/architect deleted)
+AC7  (retired, bd#89 P2a: clarify/architect deleted)
 AC8  test_ac8_green_retry_declares_same_injections
      test_ac8_fix_retry_declares_same_injections
-AC9  test_ac9_phase_2_helper_equals_declared_injections
+AC9  (retired, bd#89 P2a: phase_2_explore deleted)
 
 Teeth (spec section 4): AC1 red if the record drops `source_id` or
 `_declared_injections` raises on a non-dict. AC2 red if any builder keeps
@@ -307,18 +307,6 @@ def test_ac2_builders_use_attributable_reader(tmp_path) -> None:
 # AC3 / AC4 - the 16 builders, driven for real
 # ---------------------------------------------------------------------------
 
-def _d_phase_1(env):
-    return _mod("phase_1_discovery")._build_discovery_prompt(env.ctx(), _prev(skipped=False))
-
-
-def _d_phase_3(env):
-    return _mod("phase_3_clarify")._build_clarify_prompt(env.ctx(), _prev(skipped=False))
-
-
-def _d_phase_4(env):
-    return _mod("phase_4_architect")._build_architect_prompt(env.ctx(), _prev(skipped=False))
-
-
 def _write_cycle1_review(env, text: str) -> None:
     rel = _mod("phase_45_spec")._review_cycle_relpath(1)
     target = env.scratch / rel
@@ -401,9 +389,6 @@ def _d_synthesizer(env):
 
 
 _DRIVERS = {
-    "phase_1_discovery": _d_phase_1,
-    "phase_3_clarify": _d_phase_3,
-    "phase_4_architect": _d_phase_4,
     "phase_45_spec_writer": _d_spec_writer,
     "phase_45_spec_review": _d_spec_review,
     "phase_5_red": _d_red,
@@ -417,7 +402,7 @@ _DRIVERS = {
     "phase_6_fix_integrity": _d_fix_integrity,
     "phase_7_synthesizer": _d_synthesizer,
 }
-assert len(_DRIVERS) == 15
+assert len(_DRIVERS) == 12
 
 
 def _drive(name: str, root: Path, role_path: "Path | None") -> StepResult:
@@ -597,10 +582,10 @@ def test_ac5_every_dispatch_declares_injections() -> None:
 
 
 def test_ac5_dispatch_call_count_is_pinned() -> None:
-    """Guard: 18 after bd#89 P2b (the dropped SIMPLE-only spec workflow had 2) + phase_2_explore:379.
+    """Guard: 15 after bd#89 P2a (phases 1-4 dropped: 4 sites removed, + the dropped phase_2_explore).
     A new call site is a visible change."""
     rows = _scan_dispatches()
-    assert len(rows) == 19, f"direct dispatch count changed: {len(rows)} (expected 19): {rows}"
+    assert len(rows) == 15, f"direct dispatch count changed: {len(rows)} (expected 15): {rows}"
 
 
 def test_ac5_dispatch_hidden_behind_executor_submit_declares() -> None:
@@ -709,18 +694,11 @@ def _d_satisfaction_complex(env):
               fix_doc_path=env.path("fix.md")))
 
 
-def _d_explore(env):
-    return _mod("phase_2_explore")._build_explore_prompt(env.ctx(), _prev(skipped=False))
-
-
 _SHIP = "## Verdict\n\nSHIP\n"
 _REVISE = "## Verdict\n\nREVISE\n"
 
 # case -> (build, module, invoke step, ctx extras, spy raw, min calls, stub ensure_graph)
 _MATRIX = {
-    "phase_1_discovery:470": (_d_phase_1, "phase_1_discovery", "_invoke_discovery_llm", {}, "x", 1, True),
-    "phase_3_clarify:244": (_d_phase_3, "phase_3_clarify", "_invoke_clarify_llm", {}, "x", 1, False),
-    "phase_4_architect:319": (_d_phase_4, "phase_4_architect", "_invoke_architect_llm", {}, "x", 1, False),
     "phase_45_spec:1357": (_d_spec_writer, "phase_45_spec", "_invoke_spec_llm", {}, "x", 1, False),
     "phase_45_spec:4201": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _SHIP, 1, False),
     "phase_45_spec:4150-repoll": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _REVISE, 2, False),
@@ -735,7 +713,6 @@ _MATRIX = {
     "phase_6_review:5514": (_d_decorr, "phase_6_review", "_invoke_decorr_llm", {}, "x", 1, False),
     "phase_6_fix_integrity:600": (_d_fix_integrity, "phase_6_fix_integrity", "_invoke_fix_integrity_llm", {}, "x", 1, False),
     "phase_7_synthesize:576": (_d_synthesizer, "phase_7_synthesize", "_invoke_synthesizer_llm", {}, "x", 1, False),
-    "phase_2_explore:379 (guard)": (_d_explore, "phase_2_explore", "_invoke_explore_llm", {}, "x", 1, True),
 }
 
 
@@ -750,8 +727,6 @@ def test_ac5b_dispatch_declares_role_template_behaviourally(case, tmp_path, monk
         f"fixture precondition ({case}): producer must return an ok prompt, got "
         f"status={getattr(built, 'status', None)!r} error_code={getattr(built, 'error_code', None)!r}")
     mod = _mod(modname)
-    if stub_graph:  # ensure_graph shells out to `graphify`; not the unit under test
-        monkeypatch.setattr(mod, "ensure_graph", lambda *_a, **_k: "grep")
     spy = _InvokeSpy(raw)
     monkeypatch.setattr(mod, "invoke_llm_subprocess", spy)
     getattr(mod, invoke_name)(env.ctx(**ctx_extra), built)
@@ -806,43 +781,8 @@ def _register(adapter) -> None:
     )
 
 
-def _run_workflow(kind: str, env: _Env):
-    if kind == "clarify":
-        wf = _mod("phase_3_clarify").phase_3_clarify_workflow()
-        raw = "clarified\n\nSTATUS: DONE\n"
-    else:
-        wf = _mod("phase_4_architect").phase_4_architect_workflow()
-        raw = "architecture\n\nSTATUS: DONE\n"
-    _register(_RecordingAdapter(raw))
-    log = _FakeEventLog()
-    engine = WorkflowEngine(event_log=log)
-    engine.register(kind, wf)
-    result, _ = engine.execute(kind, env.ctx())
-    assert result.status == "ok", (
-        f"fixture precondition: the {kind} workflow must complete; got status={result.status!r} "
-        f"error_code={result.error_code!r} error={result.error!r}"
-    )
-    return log
-
-
-@pytest.mark.parametrize("kind", ["clarify", "architect"])
-def test_ac6_attestation_carries_role_template(kind, tmp_path) -> None:
-    role_path, source_id = _make_role_file(tmp_path)
-    log = _run_workflow(kind, _Env(tmp_path / "run", role_path))
-    attests = log.attests()
-    assert len(attests) == 1, f"{kind}: expected one {EVENT_TYPE!r} event, got {len(attests)} ({sorted(set(log.types()))})"
-    assert attests[0]["injections"] == [{"source_id": source_id, "sha256": sha256_of(ROLE_CONTENT)}], (
-        f"{kind}: the role template must be attributed; got {attests[0]['injections']!r}"
-    )
-
-
-@pytest.mark.parametrize("kind", ["clarify", "architect"])
-def test_ac7_no_template_no_declaration(kind, tmp_path) -> None:
-    """Guard (green today, must stay green): no template -> no empty-source block."""
-    log = _run_workflow(kind, _Env(tmp_path / "run", None))
-    attests = log.attests()
-    assert len(attests) == 1
-    assert attests[0]["injections"] == []
+# AC6/AC7 (clarify/architect attestation through the real engine) retired by
+# bd#89 P2a: phase_3_clarify / phase_4_architect are deleted.
 
 
 # ---------------------------------------------------------------------------
@@ -909,16 +849,4 @@ def test_ac8_fix_retry_declares_same_injections(tmp_path, monkeypatch) -> None:
     _assert_retry_matches(calls, source_id, "fix retry")
 
 
-# ---------------------------------------------------------------------------
-# AC9 - phase_2 stays on the one implementation
-# ---------------------------------------------------------------------------
-
-def test_ac9_phase_2_helper_equals_declared_injections() -> None:
-    declared = _helper("_declared_injections")
-    p2 = _mod("phase_2_explore")
-    record = {"source_id": "/r/role.md", "content": "C\n\n"}
-    for data in ({"role_template": record, "prompt": "p"}, {"role_template": None}, {}, None):
-        prev = StepResult(status="ok", data=data, duration_ms=0, step_name="prev")
-        assert p2._role_template_injections(prev) == declared(data), f"diverged for data={data!r}"
-    assert p2._role_template_injections(_prev(role_template=record)) == (
-        InjectedBlock(source_id="/r/role.md", content="C\n\n"),)
+# AC9 (phase_2 helper == _declared_injections) retired by bd#89 P2a: phase_2_explore is deleted.

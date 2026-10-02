@@ -25,9 +25,6 @@ from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 from bytedigger_engine.workflows import phase_6_review  # noqa: E402
 from bytedigger_engine.workflows import phase_45_spec  # noqa: E402
 from bytedigger_engine.workflows import phase_7_synthesize  # noqa: E402
-from bytedigger_engine.workflows import phase_4_architect  # noqa: E402
-from bytedigger_engine.workflows import phase_2_explore  # noqa: E402
-from bytedigger_engine.workflows import phase_3_clarify  # noqa: E402
 from bytedigger_engine.workflows import phase_5_integrity  # noqa: E402
 
 
@@ -252,37 +249,7 @@ def test_synthesizer_prompt_includes_out_of_role_block(tmp_path):
     _assert_out_of_role(result, "_build_synthesizer_prompt")
 
 
-# ─── T09: phase_4_architect._build_architect_prompt ──────────────────────────
-
-
-def test_architect_prompt_includes_out_of_role_block(tmp_path):
-    scratch = tmp_path / "s"
-    _seed_injection(scratch)
-    ctx = _make_ctx(scratch)
-    result = phase_4_architect._build_architect_prompt(ctx, None)
-    _assert_out_of_role(result, "_build_architect_prompt")
-
-
-# ─── T10: phase_2_explore._build_explore_prompt ──────────────────────────────
-
-
-def test_explore_prompt_includes_out_of_role_block(tmp_path):
-    scratch = tmp_path / "s"
-    _seed_injection(scratch)
-    ctx = _make_ctx(scratch)
-    result = phase_2_explore._build_explore_prompt(ctx, None)
-    _assert_out_of_role(result, "_build_explore_prompt")
-
-
-# ─── T11: phase_3_clarify._build_clarify_prompt ──────────────────────────────
-
-
-def test_clarify_prompt_includes_out_of_role_block(tmp_path):
-    scratch = tmp_path / "s"
-    _seed_injection(scratch)
-    ctx = _make_ctx(scratch)
-    result = phase_3_clarify._build_clarify_prompt(ctx, None)
-    _assert_out_of_role(result, "_build_clarify_prompt")
+# T09-T11 (architect / explore / clarify) retired by bd#89 P2a: modules deleted.
 
 
 # ─── T12: phase_5_integrity._build_integrity_prompt ──────────────────────────

@@ -60,12 +60,13 @@ afterEach(() => {
 });
 
 describe("dispatchPhase — phase routing & exit code contract", () => {
-  test("U4 — phase 4 with missing build-architecture.md returns soft block", () => {
+  // bd#89 P2a: U4 (phase 4 + missing build-architecture.md) retired with phase 4.
+  test("U4 — phase 5 with missing plan_review returns soft block", () => {
     writeState({
       task: "x",
       complexity: "FEATURE",
       mode: "AUTONOMOUS",
-      current_phase: "4",
+      current_phase: "5",
       last_updated: nowIso(),
     });
     const v = dispatchPhase({ cwd: dir });
@@ -294,8 +295,8 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
   }
 
   test("count=0 increments to 1, no bypass", () => {
-    writeState({ current_phase: "4" });
-    const bypassed = loopPreventionCLI(statePath(), "4");
+    writeState({ current_phase: "5" });
+    const bypassed = loopPreventionCLI(statePath(), "5");
     expect(bypassed).toBe(false);
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/^gate_block_counter: 1$/m);
@@ -313,8 +314,8 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
   });
 
   test("counter is rewritten, not duplicated (strip + append)", () => {
-    writeState({ current_phase: "4", gate_block_counter: "1" });
-    loopPreventionCLI(statePath(), "4");
+    writeState({ current_phase: "5", gate_block_counter: "1" });
+    loopPreventionCLI(statePath(), "5");
     const content = readFileSync(statePath(), "utf8");
     const occurrences = content.match(/^gate_block_counter:/gm) || [];
     expect(occurrences.length).toBe(1);
@@ -325,9 +326,9 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
     // Build state file with explicitly quoted counter value.
     writeFileSync(
       statePath(),
-      'current_phase: "4"\ngate_block_counter: "2"\n',
+      'current_phase: "5"\ngate_block_counter: "2"\n',
     );
-    const bypassed = loopPreventionCLI(statePath(), "4");
+    const bypassed = loopPreventionCLI(statePath(), "5");
     expect(bypassed).toBe(false);
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/^gate_block_counter: 3$/m);
@@ -336,9 +337,9 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
   test("malformed counter (non-numeric) falls through to 0 → 1", () => {
     writeFileSync(
       statePath(),
-      'current_phase: "4"\ngate_block_counter: abc\n',
+      'current_phase: "5"\ngate_block_counter: abc\n',
     );
-    const bypassed = loopPreventionCLI(statePath(), "4");
+    const bypassed = loopPreventionCLI(statePath(), "5");
     expect(bypassed).toBe(false);
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/^gate_block_counter: 1$/m);
@@ -348,10 +349,10 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
     writeState({
       task: "x",
       complexity: "FEATURE",
-      current_phase: "4",
+      current_phase: "5",
       gate_block_counter: "1",
     });
-    loopPreventionCLI(statePath(), "4");
+    loopPreventionCLI(statePath(), "5");
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/task: "x"/);
     expect(content).toMatch(/complexity: "FEATURE"/);
@@ -360,12 +361,12 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
 });
 
 describe("CLI invocation — fail-closed posix_spawn ENOENT (commit 42f72651/f4feb1b2)", () => {
-  test("CLI smoke test: Phase 4 + no build-architecture.md must exit 2 (soft block)", () => {
+  test("CLI smoke test: Phase 5 + no plan_review must exit 2 (soft block)", () => {
     writeState({
       task: "x",
       complexity: "FEATURE",
       mode: "AUTONOMOUS",
-      current_phase: "4",
+      current_phase: "5",
       last_updated: nowIso(),
     });
     // F5: resolve script path relative to this test file, not a hard-coded worktree name.
@@ -928,13 +929,13 @@ describe("F7 — emit wiring: stderr observability events fire on lifecycle", ()
 
   // ---- WIRE-11: mainCLI soft-block emits build-complete(soft-block) --------
 
-  test("WIRE-11 — mainCLI emits build-complete(soft-block) when Phase 4 gate soft-blocks", () => {
-    // Phase 4 with missing build-architecture.md → soft block (exit 2).
+  test("WIRE-11 — mainCLI emits build-complete(soft-block) when Phase 5 gate soft-blocks", () => {
+    // Phase 5 with missing plan_review → soft block (exit 2).
     writeFileSync(join(dir, "build-state.yaml"), [
       'task: "x"',
       'complexity: "FEATURE"',
       'mode: "AUTONOMOUS"',
-      'current_phase: "4"',
+      'current_phase: "5"',
       `last_updated: "${nowIso()}"`,
     ].join("\n") + "\n");
 
@@ -1061,7 +1062,7 @@ describe("F4 TOCTOU wiring", () => {
       'task: "x"',
       'complexity: "FEATURE"',
       'mode: "AUTONOMOUS"',
-      'current_phase: "4"',
+      'current_phase: "5"',
     ].join("\n") + "\n");
     chmodSync(f4StatePath, 0o000);
     try {
@@ -1086,33 +1087,7 @@ describe("F4 TOCTOU wiring", () => {
     expect(verdict.decision).toBe("pass");
   });
 
-  // F4-2b: export-contract check — checkPhase4 must be exported in GREEN state.
-  test("F4-2b — checkPhase4 is exported (export contract)", () => {
-    expect(typeof _gateAny.checkPhase4).toBe("function");
-  });
-
-  // F4-3: checkPhase4 with chmod-000 YAML must return a hard-block verdict with
-  // reason containing "scratchpad_dir".
-  // Exercises the try/catch at readStateFieldOrThrow via direct checkPhase4 invocation —
-  // hard-blocks with reason referencing the unreadable field (scratchpad_dir).
-  test("F4-3 — checkPhase4 with chmod-000 build-state.yaml returns hard-block verdict naming scratchpad_dir", () => {
-    writeFileSync(f4StatePath, [
-      'task: "x"',
-      'complexity: "FEATURE"',
-      'current_phase: "4"',
-    ].join("\n") + "\n");
-    chmodSync(f4StatePath, 0o000);
-    let verdict: GateVerdict;
-    try {
-      verdict = _gateAny.checkPhase4(f4Dir) as GateVerdict;
-    } finally {
-      chmodSync(f4StatePath, 0o644);
-    }
-    expect(verdict.decision).toBe("block");
-    if (verdict.decision !== "block") throw new Error("unreachable: decision asserted above");
-    expect(verdict.severity).toBe("hard");
-    expect(verdict.reason).toMatch(/scratchpad_dir/);
-  });
+  // bd#89 P2a: F4-2b / F4-3 (checkPhase4 export + unreadable-state) retired with phase 4.
 
   // F4-4: checkPhase53 with chmod-000 YAML must return a hard-block verdict with
   // reason containing "phase_53_green".
@@ -1147,7 +1122,7 @@ describe("F4 TOCTOU wiring", () => {
       'task: "x"',
       'complexity: "FEATURE"',
       'mode: "AUTONOMOUS"',
-      'current_phase: "4"',
+      'current_phase: "5"',
     ].join("\n") + "\n");
     chmodSync(f4StatePath, 0o000);
 

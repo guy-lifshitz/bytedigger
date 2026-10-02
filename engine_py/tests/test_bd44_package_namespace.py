@@ -44,9 +44,10 @@ VENV_OWN = {"pip", "setuptools", "pkg_resources", "_distutils_hack",
 # Measured on the pre-move wheel by running `bytedigger-engine --list` in a clean
 # venv (spec §1c.1): exactly 21, rc=0 at bd#44. The count became 16 when bd#89 P1
 # dropped 5 devops/canary/smoke stages from register_all, and 14 when bd#89 P2b
-# dropped the SIMPLE-only spec and review side paths; AC1 of the bd89 P1 and P2b
-# tests hold the frozen set.
-EXPECTED_WORKFLOWS = 14
+# dropped the SIMPLE-only spec and review side paths, and 10 when bd#89 P2a dropped
+# phases 1-4 (discovery, explore, clarify, architect); AC1 of the bd89 P1, P2b and
+# P2a tests hold the frozen set.
+EXPECTED_WORKFLOWS = 10
 
 
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -297,13 +298,13 @@ def test_ac7_installed_package_makes_no_sys_path_calls(venv: Path):
 
 def test_ac7b_flat_generic_names_do_not_resolve(venv: Path):
     """The observable consequence, probed on the RIGHT side: rev1 probed
-    `phase_2_explore` (a workflows/ module), so an implementation that hid only
+    `phase_45_spec` (a workflows/ module), so an implementation that hid only
     workflows/ while leaving the flat generic names passed it."""
     code = (
         "import bytedigger_engine\n"
         "import importlib\n"
         "leaked = []\n"
-        "for m in ('contracts', 'config_provider', 'ctx_floor', 'io_utils', 'phase_2_explore'):\n"
+        "for m in ('contracts', 'config_provider', 'ctx_floor', 'io_utils', 'phase_45_spec'):\n"
         "    try:\n"
         "        importlib.import_module(m)\n"
         "    except ModuleNotFoundError:\n"
@@ -554,7 +555,7 @@ def test_ac11b_cli_invocation_does_not_widen_sys_path(venv: Path, tmp_path: Path
     )
 
     flat = {"contracts", "config_provider", "ctx_floor", "io_utils", "engine",
-            "event_log", "phase_2_explore", "workflows", "lib", "security", "scripts"}
+            "event_log", "phase_45_spec", "workflows", "lib", "security", "scripts"}
     leaked = sorted({m for m in imports if m.split(".")[0] in flat})
     assert leaked == [], f"AC11b: the run attempted top-level engine imports: {leaked}"
 

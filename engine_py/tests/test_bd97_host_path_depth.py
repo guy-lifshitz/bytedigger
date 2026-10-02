@@ -3,11 +3,13 @@
 The original bug was `HAL_DIR = Path(__file__).resolve().parents[5]` at import time
 in `workflows/phase_6_smoke.py`. bd#89 P1 deleted that module, so the ACs anchored on
 it (AC1, AC4, AC6, AC7, AC10) were retired with it; AC2, AC3, AC3b, AC3c, AC3d are
-ported to call `lib/tree_root.resolve_tree_root` directly.
+ported to call `lib/tree_root.resolve_tree_root` directly. AC8 was retired by bd#89 P2a:
+its site file (`tests/test_F3A8F4FC_phase12_sonnet_downgrade.py`) was deleted along
+with the discovery/explore model roles; tree-wide depth-arithmetic coverage remains
+in AC5a/AC5b/AC5c.
 
-What stays is the shared resolver `lib/tree_root.resolve_tree_root` and the two other
-sites of the same class, exercised directly:
-  AC8  `tests/test_F3A8F4FC_phase12_sonnet_downgrade.py:44` (module level)
+What stays is the shared resolver `lib/tree_root.resolve_tree_root` and the other
+site of the same class, exercised directly:
   AC9  `tests/test_GH375_tier_model_dispatch.py:663` (in a function, so it raises
        when the test runs, before that test's own portability `pytest.skip` guard)
 
@@ -29,7 +31,6 @@ HERE = Path(__file__).parent
 ENGINE_PY = HERE.parent
 sys.path.insert(0, str(ENGINE_PY))
 
-_SITE2_SRC = HERE / "test_F3A8F4FC_phase12_sonnet_downgrade.py"
 _SITE3_SRC = HERE / "test_GH375_tier_model_dispatch.py"
 
 # Ancestor indexes that can walk out of the package root. parents[0]/[1] stay
@@ -37,11 +38,9 @@ _SITE3_SRC = HERE / "test_GH375_tier_model_dispatch.py"
 _UNSAFE_INDEX = 3
 
 # Guards against AC5a being satisfied by deleting a line or a whole file.
-_SITE2_TEST_FUNCS = 10
 _SITE3_TEST_FUNCS = 19
-# The sole consumer of each site's resolved path. Pinning the count alone lets a
+# The sole consumer of the site's resolved path. Pinning the count alone lets a
 # GREEN delete the consumer and add a dummy to keep the floor.
-_SITE2_GUARDED_TEST = "test_ac1_models_json_has_discovery_and_explore_keys"
 _SITE3_GUARDED_TEST = "test_ac12_hal_models_json_has_model_by_tier_simple_sonnet"
 
 _MODELS_REL = ("SHARED", "config", "models.json")
@@ -91,22 +90,6 @@ def _parents_indexes(path: Path) -> list[tuple[int, int, bool]]:
 
 def _module_tree(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"))
-
-
-def _toplevel_assignment(tree: ast.Module, name: str) -> ast.expr | None:
-    """The module-level value expression assigned to `name`, if any."""
-    for node in tree.body:
-        targets = (
-            node.targets
-            if isinstance(node, ast.Assign)
-            else [node.target]
-            if isinstance(node, ast.AnnAssign)
-            else []
-        )
-        for target in targets:
-            if isinstance(target, ast.Name) and target.id == name:
-                return node.value
-    return None
 
 
 def _test_func_names(tree: ast.Module) -> set[str]:
@@ -233,61 +216,6 @@ def test_ac3d_resolver_falls_back_to_the_clamped_package_root(tmp_path):
 
 
 # ─── AC8 / AC9: the other two sites keep their semantics ───────────────────
-
-
-def test_ac8_site2_resolves_repo_root_without_depth_arithmetic(tmp_path):
-    """AC8: tests/test_F3A8F4FC_phase12_sonnet_downgrade.py:44 — REAL_CONFIG_PATH
-    must come from a `resolve_tree_root` call, and that resolution must land on
-    <repo root>/SHARED/config/models.json for a checkout root.
-
-    Also pins the file's test inventory AND the name of REAL_CONFIG_PATH's only
-    consumer, so AC5a cannot be satisfied by deleting the offending line (which
-    would turn 10 upstream assertions into permanent skips), the whole file, or
-    the one test that reads the path while padding the count with a dummy.
-
-    PRE-GREEN FAILURE: the value is still `Path(__file__).resolve().parents[5] / …`.
-    """
-    _require_no_git_above(tmp_path)
-    tree = _module_tree(_SITE2_SRC)
-
-    names = _test_func_names(tree)
-    assert len(names) >= _SITE2_TEST_FUNCS, (
-        f"{_SITE2_SRC.name} must keep its {_SITE2_TEST_FUNCS} test functions; "
-        f"found {len(names)}: {sorted(names)}"
-    )
-    assert _SITE2_GUARDED_TEST in names, (
-        f"{_SITE2_SRC.name} must keep {_SITE2_GUARDED_TEST} — the only reader "
-        "of REAL_CONFIG_PATH; without it the resolution is dead code and the "
-        "inventory floor can be met with a dummy"
-    )
-
-    binding = _toplevel_assignment(tree, "REAL_CONFIG_PATH")
-    assert binding is not None, "REAL_CONFIG_PATH must stay a module-level name"
-    assert "resolve_tree_root" in _called_func_names(binding), (
-        "REAL_CONFIG_PATH must be built from a resolve_tree_root(...) call "
-        f"instead of ancestor arithmetic; AST shows {ast.dump(binding)[:200]}"
-    )
-
-    offenders = [
-        (lineno, idx)
-        for lineno, idx, _ in _parents_indexes(_SITE2_SRC)
-        if idx >= _UNSAFE_INDEX
-    ]
-    assert not offenders, (
-        f"{_SITE2_SRC.name} still indexes a fixed ancestor depth: "
-        + ", ".join(f"L{ln}: parents[{idx}]" for ln, idx in offenders)
-    )
-
-    # The resolution itself, on a synthetic checkout root.
-    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415 — post-GREEN module
-
-    root = tmp_path / "repo"
-    (root / "engine_py" / "tests").mkdir(parents=True)
-    models = _plant_models_json(root)
-
-    start = root / "engine_py" / "tests" / _SITE2_SRC.name
-    got = resolve_tree_root(start).joinpath(*_MODELS_REL)
-    assert got == models, f"expected {models}, got {got}"
 
 
 def test_ac9_site3_guarded_test_no_longer_raises_before_its_skip(tmp_path):

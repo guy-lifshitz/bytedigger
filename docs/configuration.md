@@ -22,9 +22,9 @@ bash gates and `scripts/learning-store.sh` extract keys with `python3`.
 
 | Key | Type | Default | Consumed by |
 |---|---|---|---|
-| `validation_model` | string | `"opus"` | Phase prompts (`commands/build.md`, `phases/phase-4-architect.md`) — model for architecture/validation agents |
+| `validation_model` | string | `"opus"` | Phase prompts (`commands/build.md`, `phases/phase-45-spec.md`) — model for validation agents |
 | `agent_model` | string | `"sonnet"` | Phase prompts (`commands/build.md`, `phases/phase-5-implement.md`) — model for code-gen (GREEN) workers |
-| `exploration_model` | string | `"haiku"` | Documented in `docs/plugin.md`; no script reads it today (declared expectation for Phase 2 explorers) |
+| `exploration_model` | string | `"haiku"` | Documented in `docs/plugin.md`; no script reads it today (kept for compatibility; the explore phase was removed) |
 | `satisfaction_thresholds` | object | `{SIMPLE:80, FEATURE:85, COMPLEX:90}` | `phases/phase-6-review.md` — per-tier satisfaction score floors |
 | `reviewers` | object | `{"mode":"auto"}` | `scripts/ts/build-phase-gate.ts` — reviewer selection mode: `"toolkit"` / `"generic"` / `"auto"` |
 | `simple_reviewers` | int | `3` | Both gate backends; declared expectation (Phase 6 roster is fixed per tier today) |
@@ -35,7 +35,7 @@ bash gates and `scripts/learning-store.sh` extract keys with `python3`.
 | `tdd_mandatory` | bool | `true` | Both gate backends — enforce RED-before-GREEN checkpoints |
 | `worktree_auto` | bool | `true` | Reserved — no script reads it yet; worktrees are driven by `--worktree` / FEATURE+-on-main rule |
 | `constitution_path` | string | `"./constitution.md"` | Phase 0.5 injection (also mirrored engine-side: `engine_py/workflows/phase_05_inject.py` reads `org_config["constitution_path"]`) |
-| `omitProjectContext` | bool | `false` | `scripts/ts/build-phase-gate.ts`, `phases/phase-2-explore.md`, engine `phase_2_explore.py` — skip CLAUDE.md/project context in Explorer prompts |
+| `omitProjectContext` | bool | `false` | `scripts/ts/build-phase-gate.ts` — accepted for compatibility; no pipeline phase reads it now that exploration is removed |
 | `logging` | bool | `false` | Reserved — no script reads it; event emission is `observability.enabled` |
 | `learning` | object | `{backend:"file", max_inject:10, max_stored:200, storage_path:".bytedigger/learnings"}` | `scripts/learning-store.sh` — learning backend (`file` / `sqlite` / `none`), injection and storage caps |
 | `observability` | object | `{enabled:true}` | `scripts/ts/build-phase-gate.ts` — controls event emission |
@@ -155,8 +155,9 @@ org_config["<step>_model"]  >  org_config["model"]  >  built-in role default
 Per-step override keys read by the workflows: `spec_model`, `red_model`,
 `green_model`, `validation_model`, `review_model` (plus
 `review_model_retry`), `fix_model`, `integrity_model`, `fix_integrity_model`,
-`satisfaction_model`, `architect_model`, `clarify_model`, `discovery_model`,
-`explore_model`, `synthesizer_model`.
+`satisfaction_model`, `synthesizer_model`. The former `architect_model`,
+`clarify_model`, `discovery_model` and `explore_model` keys are accepted but
+ignored, since those phases were removed.
 
 Example `org_config` fragment — pin validation to opus, everything else to
 sonnet:
@@ -266,12 +267,10 @@ text.
 | `contains_nul` | any NUL byte in the file |
 | `empty` | zero length, or only whitespace |
 
-Steps that read the template: phase 1 discovery, phase 2 `build_explore_prompt`
-(read once; `invoke_explore_llm` reuses the stored block), phase 3 clarify, phase 4
-architect, phase 4.5 spec and review, phase 5 red, validation, green and integrity,
-phase 6 review, fix, fix-integrity, satisfaction and decorrelated verifier, and
-phase 7 synthesizer. Delta-retry prompts, the restricted spec reviewer and writer,
-and the phase 2 decision-doc skip path carry no template and do not read the file.
+Steps that read the template: phase 4.5 spec and review, phase 5 red, validation,
+green and integrity, phase 6 review, fix, fix-integrity, satisfaction and
+decorrelated verifier, and phase 7 synthesizer. Delta-retry prompts and the
+restricted spec reviewer and writer carry no template and do not read the file.
 In phase 6 a template error runs the abort handler, which writes the
 `NOT_ASSESSED` satisfaction stub.
 
@@ -279,9 +278,7 @@ Trust and handling:
 
 - The file is operator-trusted and inserted verbatim at the head of the prompt. It is
   sent to the provider on every step that takes it, persisted in request artifacts and
-  step sentinels, and is covered by the whole-prompt hash recorded in the event log. Only
-  phase 2 (explore) additionally declares the template as an injection, so only there are
-  its path and sha256 recorded in the event log on their own.
+  step sentinels, and is covered by the whole-prompt hash recorded in the event log.
 - It MUST contain no credentials, tokens, private hostnames or personal data.
 - Keep it outside any tree the build writes. A template inside the workspace can be
   edited by an agent and steers later gates; that is a gate-integrity misconfiguration.

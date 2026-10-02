@@ -22,8 +22,6 @@ from __future__ import annotations
 # internal routing but keeps public signatures and module paths identical).
 from bytedigger_engine.workflows.phase_6_review import _parse_review_verdict, _parse_fix_status  # noqa: E402
 from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_status  # noqa: E402
-from bytedigger_engine.workflows.phase_2_explore import _parse_status_marker as _p2_parse_status_marker  # noqa: E402
-from bytedigger_engine.workflows.phase_3_clarify import _parse_status_marker as _p3_parse_status_marker  # noqa: E402
 
 # ─── ACB1: P2 — line-start match vs prose-embedded non-match ─────────────────
 
@@ -276,79 +274,5 @@ def test_acb_p3_synthesizer_no_marker_returns_no_marker_sentinel():
     )
 
 
-# ─── ACB-P4: phase_2_explore + phase_3_clarify tightening ────────────────────
-#
-# _parse_status_marker uses rfind today; prose-embedded marker appearing AFTER
-# a standalone marker (later in string) overrides it (BUG).  After GREEN routes
-# through P2, only line-anchored matches count.
-#
-# Contract: returns payload string (e.g. "DONE") or None on no match.
-#
-# §1y: Point = _parse_status_marker bodies (phase_2_explore.py L349,
-#              phase_3_clarify.py L243),
-#       Host = those functions directly,
-#       Test-path = direct import + call with crafted raw string.
-
-
-def test_acb_p4_phase2_standalone_done_wins_over_prose_blocked():
-    """ACB-P4 phase_2: standalone STATUS: DONE before prose-embedded
-    STATUS: BLOCKED → returns 'DONE'; rfind bug returns 'BLOCKED'."""
-    raw = (
-        "Exploration finished.\n"
-        "STATUS: DONE\n"
-        "Note: prior iteration said `STATUS: BLOCKED` in the middle of a sentence.\n"
-    )
-    result = _p2_parse_status_marker(raw)
-    assert result == "DONE", (
-        f"prose-embedded BLOCKED after standalone DONE must not override "
-        f"(phase_2_explore); got {result!r} (rfind bug still present)"
-    )
-
-
-def test_acb_p4_phase2_no_marker_returns_none():
-    """ACB-P4 phase_2 payload+None contract: no marker → None."""
-    result = _p2_parse_status_marker("No status marker present.\n")
-    assert result is None, (
-        f"absent marker must return None (phase_2_explore); got {result!r}"
-    )
-
-
-def test_acb_p4_phase2_standalone_done_with_concerns_payload():
-    """ACB-P4 phase_2: standalone STATUS: DONE_WITH_CONCERNS → payload 'DONE_WITH_CONCERNS'."""
-    raw = "STATUS: DONE_WITH_CONCERNS\n"
-    result = _p2_parse_status_marker(raw)
-    assert result == "DONE_WITH_CONCERNS", (
-        f"payload should be 'DONE_WITH_CONCERNS'; got {result!r}"
-    )
-
-
-def test_acb_p4_phase3_standalone_done_wins_over_prose_blocked():
-    """ACB-P4 phase_3: standalone STATUS: DONE before prose-embedded
-    STATUS: BLOCKED → returns 'DONE'; rfind bug returns 'BLOCKED'."""
-    raw = (
-        "Clarification complete.\n"
-        "STATUS: DONE\n"
-        "Earlier draft wrote `STATUS: BLOCKED` in prose.\n"
-    )
-    result = _p3_parse_status_marker(raw)
-    assert result == "DONE", (
-        f"prose-embedded BLOCKED after standalone DONE must not override "
-        f"(phase_3_clarify); got {result!r} (rfind bug still present)"
-    )
-
-
-def test_acb_p4_phase3_no_marker_returns_none():
-    """ACB-P4 phase_3 payload+None contract: no marker → None."""
-    result = _p3_parse_status_marker("Nothing here.\n")
-    assert result is None, (
-        f"absent marker must return None (phase_3_clarify); got {result!r}"
-    )
-
-
-def test_acb_p4_phase3_standalone_needs_context_payload():
-    """ACB-P4 phase_3: standalone STATUS: NEEDS_CONTEXT → payload 'NEEDS_CONTEXT'."""
-    raw = "STATUS: NEEDS_CONTEXT\n"
-    result = _p3_parse_status_marker(raw)
-    assert result == "NEEDS_CONTEXT", (
-        f"payload should be 'NEEDS_CONTEXT'; got {result!r}"
-    )
+# ACB-P4 (phase_2_explore / phase_3_clarify `_parse_status_marker` tightening)
+# retired by bd#89 P2a: both modules are deleted.

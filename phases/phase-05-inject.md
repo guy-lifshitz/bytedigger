@@ -45,7 +45,7 @@ Results written to build-state.yaml:
 - `security_patterns_found: [categories]`
 
 **HIGH** classification triggers:
-- Security architect agent in Phase 4
+- Security review emphasis in the Phase 4.5 spec
 - Security reviewer agent in Phase 6
 
 ## State Log

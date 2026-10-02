@@ -118,20 +118,12 @@ def _seed_spec(scratchpad: Path, body: str) -> None:
     spec.write_text(body, encoding="utf-8")
 
 
-def _seed_arch(scratchpad: Path, body: str) -> None:
-    from bytedigger_engine.workflows.phase_5_implement import ARCHITECTURE_DOC_RELPATH  # noqa: PLC0415
-    arch = scratchpad / ARCHITECTURE_DOC_RELPATH
-    arch.parent.mkdir(parents=True, exist_ok=True)
-    arch.write_text(body, encoding="utf-8")
-
-
 def _build_red(tmp_path: Path, *, question: str, spec_body: str, findings: str | None = None):
     from bytedigger_engine.workflows.phase_5_implement import _build_red_prompt  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
     ctx = _make_ctx(scratchpad, question=question)
     _seed_spec(scratchpad, spec_body)
-    _seed_arch(scratchpad, "## Approach\nbuild it\n")
     prev = StepResult(status="ok", data={}, duration_ms=0, step_name="prev")
     return _build_red_prompt(ctx, prev, findings=findings)
 

@@ -28,7 +28,6 @@ from bytedigger_engine.derive_state import replay  # noqa: E402
 from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
 from bytedigger_engine.event_log import EventLog  # noqa: E402
 from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
-    ARCHITECTURE_DOC_RELPATH,
     DEFAULT_REVIEW_LLM_COMMAND,
     DEFAULT_REVIEW_TIMEOUT_SEC,
     DEFAULT_SPEC_LLM_COMMAND,
@@ -348,13 +347,6 @@ def make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra)
     )
 
 
-def seed_arch(scratchpad: Path, body: str = "## Approach\nbuild it\n") -> Path:
-    arch = scratchpad / ARCHITECTURE_DOC_RELPATH
-    arch.parent.mkdir(parents=True, exist_ok=True)
-    arch.write_text(body)
-    return arch
-
-
 # ─── shape ────────────────────────────────────────────────────────────────────
 
 
@@ -404,24 +396,9 @@ def test_canonical_doc_paths():
 # ─── prompt builders ──────────────────────────────────────────────────────────
 
 
-def test_spec_prompt_references_arch_doc_by_path_not_inlined(tmp_path):
-    """Token-spend guard: spec prompt must point at architecture.md by path."""
-    scratchpad = tmp_path / "scratch"
-    seed_arch(scratchpad, "ARCH_BODY_DO_NOT_INLINE\n")
-
-    # Passthrough: spec writer echoes prompt → spec doc carries prompt content.
-    # Review writer also echoes prompt → review doc carries review prompt.
-    _register_stub(_passthrough_spec_stub())
-
-    eng = WorkflowEngine()
-    eng.register("p45", phase_45_spec_workflow())
-    eng.execute("p45", make_ctx(scratchpad))
-
-    spec = (scratchpad / SPEC_DOC_RELPATH).read_text()
-    arch_path = scratchpad / ARCHITECTURE_DOC_RELPATH
-    assert str(arch_path) in spec
-    # Token-spend guard: arch contents NOT inlined
-    assert "ARCH_BODY_DO_NOT_INLINE" not in spec
+# test_spec_prompt_references_arch_doc_by_path_not_inlined retired by bd#89 P2a:
+# phase 4 is dropped, so the spec prompt no longer references architecture.md
+# (inverse pinned in test_bd89_p2a_phases_1_4_dropped.py, AC5).
 
 
 def test_spec_schema_is_speckit_style_with_anti_fabrication(tmp_path):
@@ -450,10 +427,10 @@ def test_spec_schema_is_speckit_style_with_anti_fabrication(tmp_path):
     assert "Validation:" in spec
     # Q4 refactor: universal ANTI-FAB lives in injection/quality-gate.md;
     # FEATURE/COMPLEX spec keeps a short surface-specific addendum naming
-    # the authoritative sources (FEATURE REQUEST + ARCHITECTURE DECISION).
+    # the authoritative sources (FEATURE REQUEST; bd#89 P2a dropped ARCHITECTURE DECISION).
     assert "ANTI-FABRICATION" in spec
     assert "quality-gate.md" in spec
-    assert "ARCHITECTURE DECISION" in spec  # surface-specific source-of-truth
+    assert "ARCHITECTURE DECISION" not in spec  # phase 4 is gone: no architecture source
     assert "Write" in spec and "## Context" in spec  # write-to-file output discipline (FD2592D9)
     assert "STATUS:" in spec  # forbidden marker example
 
@@ -474,15 +451,8 @@ def test_review_schema_calls_out_fabrication_and_validation_gaps(tmp_path):
     assert "Do NOT approve by default" in review
 
 
-def test_spec_prompt_handles_missing_arch_gracefully(tmp_path):
-    scratchpad = tmp_path / "scratch"
-    _register_stub(_passthrough_spec_stub())
-    eng = WorkflowEngine()
-    eng.register("p45", phase_45_spec_workflow())
-    eng.execute("p45", make_ctx(scratchpad))
-
-    spec = (scratchpad / SPEC_DOC_RELPATH).read_text()
-    assert "ARCHITECTURE DECISION: (none" in spec
+# test_spec_prompt_handles_missing_arch_gracefully retired by bd#89 P2a: the
+# "ARCHITECTURE DECISION: (none" line is gone (inverse pinned in the P2a file).
 
 
 def test_review_prompt_references_just_written_spec_by_path(tmp_path):
@@ -516,24 +486,9 @@ def test_review_prompt_includes_anti_hallucination_fragment(tmp_path):
     assert "build 3E8E3A2A" in review
 
 
-def test_review_prompt_lists_research_files_when_present(tmp_path):
-    scratchpad = tmp_path / "scratch"
-    research = scratchpad / "research"
-    research.mkdir(parents=True, exist_ok=True)
-    (research / "explore.md").write_text("EXPLORE_BODY")
-    (research / "clarify.md").write_text("CLARIFY_BODY")
-
-    _register_stub(_passthrough_spec_stub())
-    eng = WorkflowEngine()
-    eng.register("p45", phase_45_spec_workflow())
-    eng.execute("p45", make_ctx(scratchpad))
-
-    review = (scratchpad / REVIEW_DOC_RELPATH).read_text()
-    assert str(research / "clarify.md") in review
-    assert str(research / "explore.md") in review
-    # Token-spend guard
-    assert "EXPLORE_BODY" not in review
-    assert "CLARIFY_BODY" not in review
+# test_review_prompt_lists_research_files_when_present retired by bd#89 P2a:
+# the reviewer no longer lists research/explore.md / research/clarify.md (the
+# inverse is pinned in test_bd89_p2a_phases_1_4_dropped.py, AC5).
 
 
 def test_both_prompts_list_read_first_paths(tmp_path):

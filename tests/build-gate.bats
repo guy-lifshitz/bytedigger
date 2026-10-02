@@ -45,7 +45,7 @@ EOF
 task: "test"
 complexity: FEATURE
 mode: AUTONOMOUS
-current_phase: "4"
+current_phase: "5"
 last_updated: "2026-04-10T12:00:00Z"
 EOF
   run bash "$SCRIPT" < /dev/null
@@ -57,7 +57,7 @@ EOF
 task: "test"
 complexity: FEATURE
 mode: AUTONOMOUS
-current_phase: "4"
+current_phase: "5"
 last_updated: "2026-04-10T12:00:00Z"
 EOF
   # Make the file 700 seconds old
@@ -70,41 +70,8 @@ EOF
 # 2. Phase gate checks
 # ---------------------------------------------------------------------------
 
-@test "test_phase_4_missing_architect_blocks — phase 4 without phase_4_architect → exit 2" {
-  cat > "$TMPDIR/build-state.yaml" <<'EOF'
-task: "test"
-complexity: FEATURE
-mode: AUTONOMOUS
-current_phase: "4"
-last_updated: "NOW"
-EOF
-  # Patch last_updated to now via python
-  python3 -c "
-import yaml, datetime, sys
-with open('$TMPDIR/build-state.yaml') as f:
-    d = yaml.safe_load(f)
-d['last_updated'] = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-with open('$TMPDIR/build-state.yaml', 'w') as f:
-    yaml.dump(d, f)
-" 2>/dev/null || sed -i.bak "s/last_updated: \"NOW\"/last_updated: \"$(date -u '+%Y-%m-%dT%H:%M:%SZ')\"/" "$TMPDIR/build-state.yaml"
-
-  run bash "$SCRIPT" < /dev/null
-  [ "$status" -eq 2 ]
-}
-
-@test "test_phase_4_complete_passes — phase 4 with architect complete and findings → exit 0" {
-  cat > "$TMPDIR/build-state.yaml" <<EOF
-task: "test"
-complexity: FEATURE
-mode: AUTONOMOUS
-current_phase: "4"
-last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-phase_4_architect: complete
-findings_total: 3
-EOF
-  run bash "$SCRIPT" < /dev/null
-  [ "$status" -eq 0 ]
-}
+# bd#89 P2a: test_phase_4_missing_architect_blocks / test_phase_4_complete_passes
+# are retired -- phase 4 and its gate are dropped (phase-5 entry is covered below).
 
 @test "test_phase_5_entry_missing_plan_review_blocks — FEATURE phase 5 without plan_review → exit 2" {
   cat > "$TMPDIR/build-state.yaml" <<EOF
@@ -118,7 +85,7 @@ EOF
   [ "$status" -eq 2 ]
 }
 
-@test "test_phase_5_simple_skips_plan_review — SIMPLE phase 5 without plan_review → exit 0" {
+@test "test_phase_5_simple_requires_plan_review — SIMPLE phase 5 without plan_review → exit 2" {
   cat > "$TMPDIR/build-state.yaml" <<EOF
 task: "test"
 complexity: SIMPLE
@@ -127,7 +94,7 @@ current_phase: "5"
 last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 EOF
   run bash "$SCRIPT" < /dev/null
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
 }
 
 @test "test_phase_51_missing_red_output_blocks — phase 5.1 without build-red-output.log → exit 2" {
@@ -284,40 +251,8 @@ EOF
 # C3: scratchpad_stale check
 # ---------------------------------------------------------------------------
 
-@test "C3_phase_4_missing_findings_md_hard_blocks — no findings-*.md in research → exit 1" {
-  cat > "$TMPDIR/build-state.yaml" <<EOF
-task: "test"
-complexity: FEATURE
-mode: AUTONOMOUS
-current_phase: "4"
-last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-phase_4_architect: complete
-scratchpad_dir: "$TMPDIR/scratch"
-EOF
-  mkdir -p "$TMPDIR/scratch/research"
-  # No findings-*.md files
-  run bash "$SCRIPT" < /dev/null
-  [ "$status" -eq 1 ]
-  grep -q "scratchpad_stale" "$TMPDIR/build-state.yaml"
-}
-
-@test "C3_phase_4_with_findings_md_passes — findings-*.md present → exit 0" {
-  cat > "$TMPDIR/build-state.yaml" <<EOF
-task: "test"
-complexity: FEATURE
-mode: AUTONOMOUS
-current_phase: "4"
-last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-phase_4_architect: complete
-scratchpad_dir: "$TMPDIR/scratch"
-EOF
-  mkdir -p "$TMPDIR/scratch/research" "$TMPDIR/scratch/architecture"
-  echo "findings" > "$TMPDIR/scratch/research/findings-codebase.md"
-  # bd#127 AC4b: a non-empty architecture/approach-*.md is now part of the phase-4 gate
-  echo "approach" > "$TMPDIR/scratch/architecture/approach-a.md"
-  run bash "$SCRIPT" < /dev/null
-  [ "$status" -eq 0 ]
-}
+# bd#89 P2a: the two C3 cases (phase-4 scratchpad_stale on findings-*.md) are
+# retired -- phase 4 and its gate are dropped. Phase 5 never reads research/.
 
 # ---------------------------------------------------------------------------
 # C4: findings_skipped and post_review_gate hard blocks
@@ -454,10 +389,10 @@ EOF
 task: "test"
 complexity: FEATURE
 mode: AUTONOMOUS
-current_phase: "4"
+current_phase: "5"
 last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 EOF
-  # Without config, gates default ON → missing phase_4_architect → should block (exit 2)
+  # Without config, gates default ON → missing plan_review → should block (exit 2)
   run bash "$SCRIPT" < /dev/null
   [ "$status" -eq 2 ]
 }
@@ -490,7 +425,7 @@ EOF
 task: "test"
 complexity: FEATURE
 mode: AUTONOMOUS
-current_phase: "4"
+current_phase: "5"
 last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 EOF
   # Pipe a SubagentStop JSON payload via stdin; script must not block reading it

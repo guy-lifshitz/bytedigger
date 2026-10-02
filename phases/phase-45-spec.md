@@ -14,7 +14,7 @@ SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[
 [ -n "$SCRATCHPAD" ] && { [ -d "$SCRATCHPAD" ] || mkdir -p "$SCRATCHPAD"/{research,architecture,specs,tests,reviews}; }
 ```
 
-Turn architecture into a concrete, verifiable specification. This is the contract between "what to build" and "what gets built."
+Turn the feature request into a concrete, verifiable specification (the same path for every tier). This is the contract between "what to build" and "what gets built."
 
 **WORKER AGENT CONSTRAINTS (include in every agent prompt):**
 - You are a worker inside /build pipeline. Use Read/Edit/Write/Bash directly.
@@ -25,8 +25,7 @@ Turn architecture into a concrete, verifiable specification. This is the contrac
 ## What You Receive
 
 - Feature request text
-- Architecture decision (from Phase 4)
-- Exploration findings (from Phase 2)
+- Repo facts (deterministic facts pack) and, when present, the decision document
 - Constitution block
 - Mode (AUTONOMOUS / SUPERVISED)
 
@@ -73,7 +72,7 @@ What to test, expected outcomes (derived from acceptance criteria).
 
 ## After Writing Spec
 
-- Verify against explorer findings — conflicts with existing patterns?
+- Verify against the codebase — conflicts with existing patterns?
 
 **Orchestrator flow:**
 1. Read `mode` from build-state.yaml — strip surrounding quotes before comparing (`grep '^mode:' build-state.yaml | sed "s/^mode:[[:space:]]*//;s/^['\"]//;s/['\"]$//"`)
@@ -104,7 +103,7 @@ Write spec to `./build-spec.md`, proceed.
 
 | Complexity | Model |
 |-----------|-------|
-| SIMPLE | Orchestrator (inline, merged with Phase 1) |
+| SIMPLE | Sonnet |
 | FEATURE | Sonnet |
 | COMPLEX | Sonnet |
 
@@ -127,12 +126,12 @@ CONTEXT_NEEDED: [what's missing, only if NEEDS_CONTEXT]
 - [ ] **Concrete**: file paths, function names, types — no vague descriptions
 - [ ] **Testable**: every behavior has a test case
 - [ ] **Bounded**: clear IN and OUT of scope
-- [ ] **Compatible**: doesn't contradict existing patterns (verified against explorer)
+- [ ] **Compatible**: doesn't contradict existing patterns (verified against the codebase)
 - [ ] **Story-driven**: every feature maps to a user story with acceptance criteria
 - [ ] **Model-complete**: all entities defined with fields, types, and relationships
 - [ ] SUPERVISED: user approved
 
-## Plan-Review Gate (MANDATORY for FEATURE/COMPLEX)
+## Plan-Review Gate (MANDATORY, every tier)
 
 **Before proceeding to Phase 5**, the spec MUST be validated by an independent reviewer.
 This is the most cost-effective gate — design errors caught here save entire implementation cycles.
@@ -142,7 +141,6 @@ This is the most cost-effective gate — design errors caught here save entire i
 1. Launch a **separate Opus Task agent** (NOT the one that wrote the spec) with:
    - The generated spec (build-spec.md)
    - The original feature request
-   - The exploration summary from Phase 2 (scratchpad research findings)
    - Instruction: "You are a spec reviewer. Find gaps, contradictions, missing edge cases, and impossible requirements. Do NOT approve by default. Write your verdict and findings to `build-plan-review.md` in CWD before returning."
 
 2. Reviewer returns one of:
@@ -157,9 +155,9 @@ This is the most cost-effective gate — design errors caught here save entire i
    plan_review: pass
    plan_review_concerns: []
    ```
-5. Verify `build-plan-review.md` exists and is non-empty before proceeding. **Phase 5 gate BLOCKS if missing** (FEATURE/COMPLEX only).
+5. Verify `build-plan-review.md` exists and is non-empty before proceeding. **Phase 5 gate BLOCKS if missing** (every tier, SIMPLE included).
 
-6. **SIMPLE tasks skip this gate** — direct to Phase 5.
+There is no tier exemption: SIMPLE/FEATURE/COMPLEX all run the reviewer and write `plan_review: pass` before Phase 5.
 
 ### Scores and `review.json`
 
@@ -184,4 +182,4 @@ The engine records every review in `specs/review.json` (cycle 1) or
 ### Why separate agent:
 The agent that wrote the spec has confirmation bias. A fresh agent catches what the author assumes is obvious.
 
-**BLOCKER**: Phase 5 Entry Gate MUST verify `plan_review: pass` (for FEATURE/COMPLEX).
+**BLOCKER**: Phase 5 Entry Gate MUST verify `plan_review: pass` for every tier, including SIMPLE.

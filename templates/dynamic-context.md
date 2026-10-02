@@ -6,11 +6,7 @@
 
 | Phase | SIMPLE | FEATURE | COMPLEX |
 |-------|--------|---------|---------|
-| 1 Spec | Orchestrator | — | — |
-| 2 Explore | — | Haiku | Sonnet |
-| 3 Clarify | — | Haiku | Sonnet |
-| 4 Architect | — | Opus | Opus |
-| 4.5 Spec | — | Sonnet | Sonnet |
+| 4.5 Spec | Sonnet | Sonnet | Sonnet |
 | 5.1 Red | Haiku | Sonnet | Opus |
 | 5.2a Gherkin | Sonnet | Sonnet | Sonnet |
 | 5.2b Validate | Opus | Opus | Opus |

@@ -28,10 +28,6 @@ import pytest
 
 PARITY_TABLE = [
     # step, base, FEATURE, COMPLEX, opus, override_key
-    ("discovery.llm", 300, None, None, None, "llm_timeout_sec"),
-    ("explore.llm", 600, None, None, None, "explore_llm_timeout_sec"),
-    ("clarify.llm", 300, None, None, None, "clarify_llm_timeout_sec"),
-    ("architect.llm", 600, None, None, None, "llm_timeout_sec"),
     ("spec.writer", 600, None, 1800, 900, "spec_llm_timeout_sec"),
     ("spec.reviewer", 300, 600, 900, 600, "review_llm_timeout_sec"),
     ("implement.red", 1200, 2400, 2400, None, "red_llm_timeout_sec"),

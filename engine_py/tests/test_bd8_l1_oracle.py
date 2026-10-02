@@ -108,7 +108,7 @@ ALL_TOKENS = (TOKEN_CONTENT, TOKEN_ADDED, TOKEN_REMOVED)
 # Registry names (workflows/__init__.py:34-36).
 ORACLE_WORKFLOW = "phase_45_spec"
 IMPL_WORKFLOW = "phase_5_implement"
-UNMAPPED_WORKFLOW = "phase_2_explore"
+UNMAPPED_WORKFLOW = "phase_6_review"  # bd#89 P2a: phase_2_explore is deleted
 
 FROZEN_EVENT = "oracle_frozen"
 AMENDED_EVENT = "oracle_amended"

@@ -378,7 +378,6 @@ def _red_log_relpath(cycle: int) -> str:
 def _validation_doc_relpath(cycle: int) -> str:
     return VALIDATION_DOC_RELPATH if cycle <= 1 else f"reviews/build-validation-cycle-{cycle}.md"
 SPEC_DOC_RELPATH = "specs/build-spec.md"
-ARCHITECTURE_DOC_RELPATH = "architecture/architecture.md"
 
 VERDICT_PASS = "PASS"
 VERDICT_FAIL = "FAIL"
@@ -1273,7 +1272,6 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     """
     scratchpad = _resolve_scratchpad(ctx)
     spec_path = scratchpad / SPEC_DOC_RELPATH
-    arch_path = scratchpad / ARCHITECTURE_DOC_RELPATH
 
     cycle = 1
     if isinstance(_prev, dict):
@@ -1312,7 +1310,6 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
                 "log_path": str(red_log_path),
                 "spec_path": str(spec_path),
                 "spec_present": spec_path.is_file(),
-                "arch_present": arch_path.is_file(),
                 "prompt_bytes": len(prompt.encode("utf-8")),
                 "cycle": cycle,
                 "delta_retry": True,
@@ -1347,10 +1344,11 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         parts.append(f"SPEC (read this file): {spec_path}")
     else:
         parts.append(f"SPEC: (none at {spec_path} — phase 4.5 missing; STATUS=block)")
-    if arch_path.is_file():
-        parts.append(f"ARCHITECTURE (read this file): {arch_path}")
     parts.append("")
-    facts = spec_facts_block(ctx, scratchpad, spec_path, "red")
+    try:
+        facts = spec_facts_block(ctx, scratchpad, spec_path, "red")
+    except Exception:  # noqa: BLE001 — facts degrade to no block, never crash
+        facts = ""
     if facts:
         parts.append(facts)
         parts.append("")
@@ -1452,7 +1450,6 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
             "log_path": str(red_log_path),
             "spec_path": str(spec_path),
             "spec_present": spec_path.is_file(),
-            "arch_present": arch_path.is_file(),
             "prompt_bytes": len(prompt.encode("utf-8")),
             "cycle": cycle,
             "stable_prefix": _RED_STABLE_PREFIX,
@@ -6459,7 +6456,10 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
         "Do NOT trust the report summary."
     )
     parts.append("")
-    facts = spec_facts_block(ctx, scratchpad, spec_path, "gate")
+    try:
+        facts = spec_facts_block(ctx, scratchpad, spec_path, "gate")
+    except Exception:  # noqa: BLE001 — facts degrade to no block, never crash
+        facts = ""
     if facts:
         parts.append(facts)
         parts.append("")
@@ -7333,7 +7333,10 @@ def _build_green_prompt(ctx, prev) -> StepResult:
     parts.append(f"RED WORKER REPORT (lists test files to satisfy): {red_log}")
     parts.append(f"OPUS VALIDATION (verdict PASS — proceed): {validation_doc}")
     parts.append("")
-    facts = spec_facts_block(ctx, scratchpad, spec_path, "green")
+    try:
+        facts = spec_facts_block(ctx, scratchpad, spec_path, "green")
+    except Exception:  # noqa: BLE001 — facts degrade to no block, never crash
+        facts = ""
     if facts:
         parts.append(facts)
         parts.append("")
@@ -7378,7 +7381,7 @@ def _build_green_prompt(ctx, prev) -> StepResult:
         "    test fix — NOT permission to roam the repo. If a file doesn't\n"
         "    need a change to pass tests, don't open it for cleanup.\n"
         "  - No new abstractions (factories, plugin layers, single-impl\n"
-        "    interfaces) unless the SPEC + ARCHITECTURE require them. Three\n"
+        "    interfaces) unless the SPEC requires them. Three\n"
         "    similar lines beats a premature abstraction.\n"
         "  - No unrequested error handling or validation for scenarios the\n"
         "    SPEC + RED tests do not cover — but never silence a missing or\n"

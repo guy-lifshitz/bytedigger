@@ -1,11 +1,7 @@
-"""Shared skip logic for phases that self-skip when a decision_doc is present.
+"""Frozen-spec detection and decision_doc path resolution.
 
-Used by phase_2_explore and phase_3_clarify (05F83B1B surface 6).
-
-Condition: cfg["decision_doc"] is a non-empty string, cfg["complexity"] == "FEATURE"
-(case-insensitive), AND the path actually exists on disk as a non-empty file.
-
-If all three hold → phase returns early with status="ok", data={"skipped": True, ...}.
+Used by phase_45_spec (frozen-spec ingest, decision-doc injection). The
+phase self-skip helpers were removed with phases 1-4 (bd#89 P2a).
 
 Path resolution replicates orchestrator's pre-build-gate two-root probe:
     1. If absolute: use as-is (must be an existing non-empty file).
@@ -16,13 +12,11 @@ First candidate that is_file() + non-empty wins.
 from __future__ import annotations
 
 import logging
-import os
 import re
 import sys
 from pathlib import Path
 
 from bytedigger_engine import telemetry_ctx
-from bytedigger_engine.contracts import StepResult
 
 from bytedigger_engine.config_provider import hal_root as _hal_root_fn  # noqa: E402
 
@@ -132,89 +126,4 @@ def _resolve_decision_doc_path(decision_doc: str) -> Path | None:
     if candidate.is_file() and candidate.stat().st_size > 0 and _is_contained(candidate):
         return candidate
 
-    return None
-
-
-def frozen_short_circuit_enabled() -> bool:
-    """Kill-switch for the GH531 frozen-spec SIMPLE-gate relax. Default ON."""
-    return os.environ.get("HAL_FROZEN_SHORT_CIRCUIT", "1") != "0"  # core-boundary: allow + # flag-routing: allow — kill-switch env read pending config_provider gate_enabled seam migration (GH877 promotion; OFI filed)
-
-
-def should_skip_phase(cfg: dict) -> tuple[bool, str | None]:
-    """Return (skip, decision_doc_path_str | None).
-
-    True when decision_doc resolves to an existing non-empty file AND either:
-    - complexity is in ("FEATURE", "COMPLEX"), or
-    - complexity == "SIMPLE" AND the kill-switch is ON AND the doc is frozen
-      (GH531: is_frozen_spec_text detects an AC-table heading + §1-PREFLIGHT marker).
-
-    When decision_doc resolves but complexity is a non-empty variant that does
-    not skip, emits a telemetry event so future variants surface in the event log.
-    """
-    decision_doc = cfg.get("decision_doc") or ""
-    complexity = str(cfg.get("complexity") or "").upper()
-
-    if not decision_doc:
-        return False, None
-
-    resolved = _resolve_decision_doc_path(decision_doc)
-
-    if resolved is None:
-        return False, None
-
-    if complexity in ("FEATURE", "COMPLEX"):
-        return True, str(resolved)
-
-    if complexity == "SIMPLE":
-        if frozen_short_circuit_enabled():
-            frozen, frozen_path = detect_frozen_spec(str(resolved))
-            if frozen:
-                return True, str(frozen_path)
-        # SIMPLE + (flag OFF OR not frozen) — fall through to drift emit below.
-
-    # decision_doc resolves but complexity variant won't skip — emit drift event.
-    if complexity:
-        _emit_safe("decision_doc_skip_complexity_drift", {
-            "decision_doc": str(resolved),
-            "complexity": complexity,
-        })
-    return False, None
-
-
-def make_skip_result(step_name: str, decision_doc_path: str) -> StepResult:
-    """Return the canonical early-skip StepResult and emit phase_self_skipped telemetry."""
-    _emit_safe("phase_self_skipped", {
-        "phase": step_name,
-        "step_name": step_name,
-        "decision_doc": decision_doc_path,
-        "reason": "decision_doc present + FEATURE complexity",
-    })
-    return StepResult(
-        status="ok",
-        data={
-            "skipped": True,
-            "reason": "decision_doc present + FEATURE complexity",
-            "decision_doc": decision_doc_path,
-        },
-        duration_ms=0,
-        step_name=step_name,
-    )
-
-
-def passthrough_if_skipped(prev: StepResult, step_name: str) -> StepResult | None:
-    """If prev was a skip result, return a passthrough so subsequent steps no-op.
-
-    Returns a new StepResult with updated step_name, or None if not a skip.
-    """
-    if (
-        isinstance(prev, StepResult)
-        and isinstance(prev.data, dict)
-        and prev.data.get("skipped")
-    ):
-        return StepResult(
-            status="ok",
-            data=prev.data,
-            duration_ms=0,
-            step_name=step_name,
-        )
     return None

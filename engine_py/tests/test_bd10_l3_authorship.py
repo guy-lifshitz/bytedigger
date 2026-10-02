@@ -1151,15 +1151,24 @@ def test_ac_i5_phase_2_explore_role_template_declared_through_injections(tmp_pat
         "otherwise the digest assertion cannot distinguish the two readings"
     )
 
-    from bytedigger_engine.workflows.phase_2_explore import phase_2_explore_workflow
+    # bd#89 P2a: phase_2_explore is deleted; the same chain is driven on the
+    # surviving spec writer (real build step -> real invoke step, real engine).
+    from bytedigger_engine.contracts import StepContract, WorkflowDefinition
+    from bytedigger_engine.workflows import phase_45_spec as p45
 
     register("claude-subprocess", _RecordingAdapter(
-        "i5", data={"raw_response": "findings\n\nSTATUS: DONE\n"}
+        "i5", data={"raw_response": "spec\n\nSTATUS: DONE\n"}
     ), capabilities=("manifest", "progress_since", "abort"))
 
     log = _FakeEventLog()
     engine = WorkflowEngine(event_log=log)
-    engine.register("p2", phase_2_explore_workflow())
+    engine.register("p2", WorkflowDefinition(
+        name="p45_build_invoke",
+        steps=[
+            StepContract(name="build_spec_prompt", execute=p45._build_spec_prompt),
+            StepContract(name="invoke_spec_llm", execute=p45._invoke_spec_llm),
+        ],
+    ))
     result, _ = engine.execute("p2", WorkflowContext(
         tenant_id="hal",
         scope=None,
@@ -1167,6 +1176,7 @@ def test_ac_i5_phase_2_explore_role_template_declared_through_injections(tmp_pat
         org_config={
             "scratchpad_dir": str(scratchpad),
             "model": "sonnet",
+            "complexity": "COMPLEX",
             "role_template_path": str(role_path),
         },
         question="bd10 AC-I5 feature request",
@@ -1204,7 +1214,7 @@ def _explore_ctx(*, scratchpad, role_path, session_id: str) -> WorkflowContext:
     configured — everything else (scratchpad, question, persona) is identical,
     which is what makes AC-I6's byte comparison attributable to the role
     template alone."""
-    org_config = {"scratchpad_dir": str(scratchpad), "model": "sonnet"}
+    org_config = {"scratchpad_dir": str(scratchpad), "model": "sonnet", "complexity": "COMPLEX"}
     if role_path is not None:
         org_config["role_template_path"] = str(role_path)
     return WorkflowContext(
@@ -1256,21 +1266,32 @@ def test_ac_i6_migrated_phase_prompt_is_byte_identical(tmp_path) -> None:
     role_path.write_text(role_file_text, encoding="utf-8")
     expected_content = role_file_text.rstrip() + "\n\n"
 
-    from bytedigger_engine.workflows.phase_2_explore import phase_2_explore_workflow
+    # bd#89 P2a: re-pointed from the deleted phase_2_explore to the spec writer.
+    from bytedigger_engine.contracts import StepContract, WorkflowDefinition
+    from bytedigger_engine.workflows import phase_45_spec as p45
 
-    adapter = _RecordingAdapter("i6", data={"raw_response": "findings\n\nSTATUS: DONE\n"})
+    def _p45_build_invoke_workflow() -> WorkflowDefinition:
+        return WorkflowDefinition(
+            name="p45_build_invoke",
+            steps=[
+                StepContract(name="build_spec_prompt", execute=p45._build_spec_prompt),
+                StepContract(name="invoke_spec_llm", execute=p45._invoke_spec_llm),
+            ],
+        )
+
+    adapter = _RecordingAdapter("i6", data={"raw_response": "spec\n\nSTATUS: DONE\n"})
     register("claude-subprocess", adapter,
              capabilities=("manifest", "progress_since", "abort"))
 
     log = _FakeEventLog()
     engine = WorkflowEngine(event_log=log)
-    engine.register("p2", phase_2_explore_workflow())
+    engine.register("p2", _p45_build_invoke_workflow())
     with_role, _ = engine.execute("p2", _explore_ctx(
         scratchpad=scratchpad, role_path=role_path, session_id="bd10-i6-role"))
 
     baseline_log = _FakeEventLog()
     baseline_engine = WorkflowEngine(event_log=baseline_log)
-    baseline_engine.register("p2", phase_2_explore_workflow())
+    baseline_engine.register("p2", _p45_build_invoke_workflow())
     without_role, _ = baseline_engine.execute("p2", _explore_ctx(
         scratchpad=scratchpad, role_path=None, session_id="bd10-i6-plain"))
 
