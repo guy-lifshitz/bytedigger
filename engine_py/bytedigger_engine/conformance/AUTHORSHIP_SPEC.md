@@ -368,7 +368,7 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   | Key | Value | Why |
   |---|---|---|
   | `R3.1` | `host-attested-within-run-context` | `[bd10:25]` two narrowings, not one — see below |
-  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; one of eight role-template inlining sites is migrated |
+  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)), other non-literal prompt segments are tracked in bd#147 |
   | `R3.3` | `in-session-warn-only` | `[bd10:2]` — enforced at the chokepoint for reporting adapters; the in-session path still warns (bd#29) |
   | `R3.5` | `adapter-declared` | `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a mechanism outside the actor's reach |
   | `R3.6` | `tool-head-only` | AC-C6 — the operand never leaves the adapter |
@@ -455,9 +455,11 @@ governs blocks the **engine assembles on the caller's behalf** through the `inje
 Prompt text a phase authors by string concatenation is not an "injected block" in this sense; it is
 covered whole by R3.1's hash. The attestation says exactly this and claims nothing more.
 **Re-open criterion:** the first phase that inlines file-sourced content into a prompt without
-routing it through `injections` — `_maybe_role_template`
-(in `workflows/phase_workflows_common.py`) is today's live example and is migrated by AC-I5 so
-that ADV-8 tests a door the pipeline actually uses rather than an unused one.
+routing it through `injections` — the role template was the live example. AC-I5 migrated
+`phase_2_explore` so that ADV-8 tests a door the pipeline actually uses, and bd#141 4(d) migrated
+every remaining role-template site (each builder records the block, each dispatch declares it via
+`_declared_injections`). The remaining non-literal prompt segments (decision doc, standards context,
+facts pack, inlined test files) are tracked in bd#147; the label value is unchanged.
 *bd#119 amendment:* the cite was stale; the wrapper is located by function name, and it now delegates the
 single file read to `role_template.py::load_role_template`.
 

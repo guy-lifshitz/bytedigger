@@ -52,7 +52,7 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
     get_out_of_role_block as _get_out_of_role_block,
 )
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402
-from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # noqa: E402
+from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record  # noqa: E402
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.skip_logic import make_skip_result, passthrough_if_skipped, should_skip_phase  # noqa: E402
 from bytedigger_engine import telemetry_ctx  # noqa: E402
@@ -211,10 +211,15 @@ def _output_schema_block(doc_path: str) -> str:
     )
 
 
-def _build_prompt(ctx, scratchpad: Path, security: str, research_files: list[Path]) -> str:
+_UNSET = object()
+
+
+def _build_prompt(ctx, scratchpad: Path, security: str, research_files: list[Path], *, role_template=_UNSET) -> str:
     parts: list[str] = []
 
-    role = _maybe_role_template(ctx)
+    # bd#141 4(d): callers pass the RoleTemplate they already read (one read per build).
+    rt = _role_template(ctx) if role_template is _UNSET else role_template
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -277,12 +282,14 @@ def _build_architect_prompt(ctx, prev) -> StepResult:
     scratchpad = _resolve_scratchpad(ctx)
     security = _resolve_security_classification(ctx)
     research_files = _list_research_files(scratchpad)
-    prompt = _build_prompt(ctx, scratchpad, security, research_files) + "\n\n" + _get_out_of_role_block()
+    rt = _role_template(ctx)
+    prompt = _build_prompt(ctx, scratchpad, security, research_files, role_template=rt) + "\n\n" + _get_out_of_role_block()
     doc_path = scratchpad / ARCHITECTURE_DOC_RELPATH
     return StepResult(
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(doc_path),
             "security_classification": security,
             "research_file_count": len(research_files),
@@ -326,6 +333,7 @@ def _invoke_architect_llm(ctx, prev) -> StepResult:
             "security_classification": prev.data["security_classification"],
         },
         allowed_tools=["Read", "Grep", "Glob", "Write"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
 

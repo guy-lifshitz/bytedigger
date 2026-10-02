@@ -78,7 +78,7 @@ from bytedigger_engine.io_utils import atomic_write  # noqa: E402
 from bytedigger_engine.lib.model_config import get_claude_fallback  # noqa: E402
 from bytedigger_engine.lib.plugins.disk_truth import git_diff_files, resolve_pre_phase_sha, parse_structured_block, enforce, SynthesizerVerdict, SchemaViolation  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
-from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # noqa: E402  bd#119
+from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record  # noqa: E402  bd#119  bd#141
 from bytedigger_engine.lib.worktree_root import resolve_worktree_root as _resolve_worktree_root  # noqa: E402
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
@@ -435,7 +435,8 @@ def _build_synthesizer_prompt(ctx, _prev) -> StepResult:
     report_path = scratchpad / REPORT_DOC_RELPATH
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -543,6 +544,7 @@ def _build_synthesizer_prompt(ctx, _prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(report_path),
             "spec_path": str(spec_path),
             "review_doc_path": str(review_doc),
@@ -587,6 +589,7 @@ def _invoke_synthesizer_llm(ctx, prev) -> StepResult:
         },
         allowed_tools=["Read", "Write", "Glob"],
         stable_prefix=prev.data.get("stable_prefix", ""),
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
 

@@ -48,7 +48,7 @@ from pathlib import Path
 
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
-from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template
+from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record
 
 from bytedigger_engine.skip_logic import make_skip_result, passthrough_if_skipped, should_skip_phase  # noqa: E402
 from bytedigger_engine.lib.model_config import get_claude_fallback  # noqa: E402
@@ -180,7 +180,8 @@ def _build_clarify_prompt(ctx, prev) -> StepResult:
     explore_doc = scratchpad / EXPLORATION_DOC_RELPATH
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -212,6 +213,7 @@ def _build_clarify_prompt(ctx, prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(doc_path),
             "explore_doc_present": explore_doc.is_file(),
             "prompt_bytes": len(prompt.encode("utf-8")),
@@ -248,6 +250,7 @@ def _invoke_clarify_llm(ctx, prev) -> StepResult:
         step_name="invoke_clarify_llm",
         extra_data={"doc_path": prev.data["doc_path"]},
         allowed_tools=["Read", "Glob", "Write"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
 

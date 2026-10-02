@@ -56,6 +56,7 @@ from pathlib import Path
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowDefinition  # noqa: E402
 from bytedigger_engine.conformance.attest import InjectedBlock  # noqa: E402  bd#10 R3.2 (AC-I5)
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess  # noqa: E402
+from bytedigger_engine.workflows.phase_workflows_common import _declared_injections  # noqa: E402  bd#141 4(d)
 from bytedigger_engine.role_template import load_role_template  # noqa: E402
 from bytedigger_engine.skip_logic import make_skip_result, passthrough_if_skipped, should_skip_phase  # noqa: E402
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
@@ -190,15 +191,7 @@ def _role_template_injections(prev) -> "tuple[InjectedBlock, ...]":
     symlinked home does not change the recorded identifier) and `content` is
     the loader's normalised text, trailing newlines included.
     """
-    block = prev.data.get("role_template") if isinstance(prev.data, dict) else None
-    if not block:
-        return ()
-    return (
-        InjectedBlock(
-            source_id=block["source_id"],
-            content=block["content"],
-        ),
-    )
+    return _declared_injections(prev.data)  # bd#141 4(d): one implementation
 
 
 def _perspectives_block(complexity: str) -> str:

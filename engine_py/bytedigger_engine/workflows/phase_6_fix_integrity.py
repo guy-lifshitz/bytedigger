@@ -71,7 +71,9 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
 from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  bd#84
-    _maybe_role_template,
+    _declared_injections,
+    _role_template,
+    _role_template_record,
     reroll_until_verdict,
 )
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
@@ -506,6 +508,7 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
                 "diff_bytes": 0,
                 "verdict_override": VERDICT_NO_CHANGES,
                 "prompt": None,
+                "role_template": None,  # bd#141 4(d): no prompt, no role
                 "diff_command": diff_cmd,
                 "pre_fix_sha": pre_fix_sha,
                 "fix_commit_sha": fix_commit_sha,
@@ -517,7 +520,8 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
     # 7. Build prompt for non-empty diff.
     spec_path = scratchpad / SPEC_DOC_RELPATH
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -553,6 +557,7 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
             "diff_bytes": len(diff_text.encode("utf-8")),
             "spec_doc_present": spec_path.is_file(),
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "prompt_bytes": len(prompt.encode("utf-8")),
             "diff_command": diff_cmd,
             "pre_fix_sha": pre_fix_sha,
@@ -609,6 +614,7 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
             hard_gate=True,
             gate_label="fix_integrity",
             allowed_tools=["Read"],
+            injections=_declared_injections(prev.data),  # bd#141 4(d): every re-roll declares the same
         )
 
     # bd#84: a reply without a standalone verdict is re-rolled with the

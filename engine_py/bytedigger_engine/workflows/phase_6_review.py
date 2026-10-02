@@ -147,9 +147,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._baseline_delta import run_baseline_delta_gate  # type: ignore[no-redef]  # noqa: E402  GH561 §1r lane-2
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 # Step 7 (95D3E5F6) — W1 + disk-truth wiring. Phase 6 reviews CODE
 # (schema {id, severity, path, description}), not specs
@@ -797,7 +797,8 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
     abs_reviews_dir = str(reviews_dir)
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -1010,6 +1011,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(review_doc_path),
             "spec_path": str(spec_path),
             "spec_sha": spec_sha,
@@ -1127,6 +1129,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         stable_prefix=prev.data.get("stable_prefix", ""),
         fresh_session=True,  # bd#82: a reviewer must not resume an earlier transcript
         role="judge",
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
     return result
 
@@ -2405,7 +2408,8 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
     sat_loop = prev.data.get("fix_loop_source") == SATISFACTION_FIX_LOOP_SOURCE
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -2515,6 +2519,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "log_path": str(fix_doc_path),
             "spec_path": str(spec_path),
             "review_doc_path": str(review_doc),
@@ -2558,11 +2563,14 @@ def _invoke_fix_llm(ctx, prev) -> StepResult:
             "review_doc_path": prev.data["review_doc_path"],
             "verdict": prev.data["verdict"],
             "prompt": prev.data["prompt"],
+            # bd#141 4(d): the retry re-sends this prompt, so it declares the same block.
+            "role_template": prev.data.get("role_template"),
         },
         # idle_timeout disabled — outer timeout_sec is sufficient (6923B6AC 2026-05-08).
         # BB8BFEFE proved 60s false-positives on legitimate tool-use sessions
         # with 60+s inter-event gaps; outer timeout_sec catches genuine hangs.
         allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
     # F3 cross-tree edit guard (A4479061): observability only, no auto-revert.
     if result.status == "ok":
@@ -2689,6 +2697,7 @@ def _write_fix_artifact(ctx, prev) -> StepResult:
                 # Mirrors primary _invoke_fix_llm callsite; both opt out together
                 # to keep contract symmetric.
                 allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
+                injections=_declared_injections(prev.data),  # bd#141 4(d): same as first attempt
             )
         finally:
             if prev_run_ctx is not None:
@@ -2815,7 +2824,8 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
     sat_doc_path = scratchpad / SATISFACTION_DOC_RELPATH
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -3000,6 +3010,7 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "stable_prefix": _SATISFACTION_STABLE_PREFIX,
             "doc_path": str(sat_doc_path),
             "spec_path": str(spec_path),
@@ -3024,6 +3035,7 @@ def _run_satisfaction_evaluators_parallel(
     extra_data: dict,
     n: int = 3,
     stable_prefix: str = "",
+    injections: tuple = (),
 ) -> "list[StepResult]":
     """Dispatch n identical invoke_llm_subprocess calls concurrently via ThreadPoolExecutor.
 
@@ -3051,6 +3063,7 @@ def _run_satisfaction_evaluators_parallel(
                 gate_label="satisfaction",
                 allowed_tools=["Read"],
                 stable_prefix=stable_prefix,
+                injections=injections,  # bd#141 4(d): every pooled call declares the same block
             )
             for _ in range(n)
         ]
@@ -3255,12 +3268,14 @@ def _invoke_satisfaction_llm(ctx, prev) -> StepResult:
             hard_gate=True,
             gate_label="satisfaction",
             allowed_tools=["Read", "Write"],
+            injections=_declared_injections(prev.data),  # bd#141 4(d)
         )
 
     # COMPLEX: 3 parallel evaluators via ThreadPoolExecutor (spec §1, 021D8FAE)
     results: list[StepResult] = _run_satisfaction_evaluators_parallel(
         prev.data["prompt"], sat_model, timeout_sec, extra_data, n=3,
         stable_prefix=prev.data.get("stable_prefix", ""),
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
     ok_results = [r for r in results if r.status == "ok"]
     if not ok_results:
@@ -5461,7 +5476,8 @@ def _build_decorr_prompt(ctx, prev) -> StepResult:
     green_log_path = scratchpad / GREEN_LOG_RELPATH
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -5489,7 +5505,8 @@ def _build_decorr_prompt(ctx, prev) -> StepResult:
         "DECORR VERDICT: SUSPECT"
     )
     prompt = "\n".join(parts)
-    return StepResult(status="ok", data={**_prev_data, "prompt": prompt}, duration_ms=0, step_name="build_decorr_prompt")
+    # bd#141 4(d): set explicitly (record or None) so a stale record in prev.data cannot leak.
+    return StepResult(status="ok", data={**_prev_data, "prompt": prompt, "role_template": _role_template_record(rt)}, duration_ms=0, step_name="build_decorr_prompt")
 
 
 def _invoke_decorr_llm(ctx, prev) -> StepResult:
@@ -5519,6 +5536,7 @@ def _invoke_decorr_llm(ctx, prev) -> StepResult:
         hard_gate=False,
         fresh_session=True,  # bd#82: a judge must not resume its earlier verdict
         role="judge",
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
     if result.status != "ok" or not isinstance(result.data, dict):
         error_code = result.error_code or "E_DECORR_INVOKE_FAILED"

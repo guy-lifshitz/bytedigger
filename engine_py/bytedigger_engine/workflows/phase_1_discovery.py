@@ -64,9 +64,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows.graph_source import ensure_graph  # type: ignore[no-redef]  # noqa: E402
 try:
-    from .phase_workflows_common import _maybe_role_template  # noqa: E402
+    from .phase_workflows_common import _declared_injections, _role_template, _role_template_record  # noqa: E402
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # type: ignore[no-redef]  # noqa: E402
+    from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record  # type: ignore[no-redef]  # noqa: E402
 from bytedigger_engine.lib.project_root import resolve_project_root  # noqa: E402
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
@@ -346,10 +346,15 @@ def _output_schema_block(complexity: str, doc_path: str) -> str:
     )
 
 
-def _build_prompt(ctx, scratchpad: Path, complexity: str) -> str:
+_UNSET = object()
+
+
+def _build_prompt(ctx, scratchpad: Path, complexity: str, *, role_template=_UNSET) -> str:
     parts: list[str] = []
 
-    role = _maybe_role_template(ctx)
+    # bd#141 4(d): callers pass the RoleTemplate they already read (one read per build).
+    rt = _role_template(ctx) if role_template is _UNSET else role_template
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -427,12 +432,14 @@ def _build_discovery_prompt(ctx, prev) -> StepResult:
         return pt
     scratchpad = _resolve_scratchpad(ctx)
     complexity = _resolve_complexity(ctx)
-    prompt = _build_prompt(ctx, scratchpad, complexity)
+    rt = _role_template(ctx)
+    prompt = _build_prompt(ctx, scratchpad, complexity, role_template=rt)
     doc_path = _doc_path_for(scratchpad, complexity)
     return StepResult(
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(doc_path),
             "complexity": complexity,
             "prompt_bytes": len(prompt.encode("utf-8")),
@@ -478,6 +485,7 @@ def _invoke_discovery_llm(ctx, prev) -> StepResult:
             "graph_source": graph_src,
         },
         allowed_tools=["Read", "Grep", "Glob", "Write", "Bash(graphify-shim.sh:*)"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
 
