@@ -16,10 +16,9 @@ MAX_REVIEW_CYCLES=2). Pattern:
   - Cycle 2 REVISE yields E_REVIEW_FAILED (recoverable=False) — terminal abort.
   - UNKNOWN treated as REVISE (fail-closed).
 
-Token-spend guards (same playbook as phase_1 / phase_4):
+Token-spend guards:
     - Prompts list READ_FIRST pointer paths only — never inline injection
-      files. Spec writer additionally points to architecture/architecture.md
-      (Phase 4 output) by path, not inline.
+      files. The spec writer's repo-facts input is facts_pack (bd#86).
     - Reviewer prompt points to the just-written spec by path so the LLM
       reads it once on disk, not twice in two contexts.
     - Optional `role_template_path` for ~3KB role-reviewer instead of
@@ -336,7 +335,6 @@ def _resolve_review_timeout_sec(cfg: dict[str, Any] | None) -> int:
 
 SPEC_DOC_RELPATH = "specs/build-spec.md"
 REVIEW_DOC_RELPATH = "specs/build-plan-review.md"
-ARCHITECTURE_DOC_RELPATH = "architecture/architecture.md"
 
 # Cap matches Phase 5 validation pattern. Hard-coded
 # for v1; configurable in v2 once telemetry data exists.
@@ -555,8 +553,8 @@ def _spec_output_schema(doc_path: str) -> str:
         "\n"
         "ANTI-FABRICATION — producer rules in injection/producer-rules.md\n"
         "(## Anti-Fabrication — Producer Rules) apply. Surface-specific for FEATURE/COMPLEX spec:\n"
-        "  - The FEATURE REQUEST and ARCHITECTURE DECISION are the only\n"
-        "    authoritative sources for scope. Anything not in either of them is\n"
+        "  - The FEATURE REQUEST (and the decision document, when one is inlined) is the only\n"
+        "    authoritative source for scope. Anything not in it is\n"
         "    out of scope unless you list it under ## Open Questions.\n"
         "\n"
         "SECURE-CODING DEFAULTS — security rules in injection/security-rules.md\n"
@@ -568,8 +566,8 @@ def _spec_output_schema(doc_path: str) -> str:
         "\n"
         "PRE-SUBMISSION CHECKLIST — verify your spec answers YES to each before responding:\n"
         "\n"
-        "  [ ] Every file under ## Files comes from the FEATURE REQUEST or ARCHITECTURE\n"
-        "      DECISION verbatim. No added MODIFY: paths the request doesn't touch.\n"
+        "  [ ] Every file under ## Files comes from the FEATURE REQUEST or the inlined\n"
+        "      decision document verbatim. No added MODIFY: paths the request doesn't touch.\n"
         "      (F2 path-divergence guard.)\n"
         "\n"
         "  [ ] Every interface, function, type added under ## Interfaces / ## Data Model\n"
@@ -749,8 +747,8 @@ def _review_output_schema() -> str:
         "  deactivates W1 cycle-2 restricted review and forces REVISE-cap on the\n"
         "  next iteration. If verdict is SHIP and no issues, emit `[]`.\n"
         "  Each finding REQUIRES a `root` field: \"spec\" (fixable by rewriting\n"
-        "  the spec), \"upstream\" (defect lives in the architecture doc /\n"
-        "  discovery / task inputs — no spec rewrite can fix it), or\n"
+        "  the spec), \"upstream\" (defect lives in the feature request /\n"
+        "  decision document / task inputs — no spec rewrite can fix it), or\n"
         "  \"already-done\" (the cited defect is verified already fixed at HEAD —\n"
         "  no spec change or code change is needed).\n"
         "  ```json\n"
@@ -1038,7 +1036,6 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     gate_retry = _prev_fields.get("retry_source") == SPEC_GATES_RETRY_SOURCE
 
     scratchpad = _resolve_scratchpad(ctx)
-    arch_doc = scratchpad / ARCHITECTURE_DOC_RELPATH
     spec_path = scratchpad / SPEC_DOC_RELPATH
 
     # GH443 parts 1+2: hoist cycle≥2 delta-retry detection ahead of scaffold
@@ -1100,7 +1097,6 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
                 data=_fwd_frozen(_prev_data_delta, {
                     "prompt": prompt,
                     "doc_path": str(spec_path),
-                    "arch_doc_present": arch_doc.is_file(),
                     "prompt_bytes": len(prompt.encode("utf-8")),
                     "cycle": cycle,
                     "delta_retry": True,
@@ -1130,7 +1126,6 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             data=_fwd_frozen(_prev_data_delta, {
                 "prompt": prompt,
                 "doc_path": str(spec_path),
-                "arch_doc_present": arch_doc.is_file(),
                 "prompt_bytes": len(prompt.encode("utf-8")),
                 "cycle": cycle,
                 "delta_retry": True,
@@ -1141,14 +1136,12 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             step_name="build_spec_prompt",
         )
 
-    # GH823 §2.4: hoist arch_text/probe computation above parts assembly so
-    # both the reentry-block gate (below) and the existing L1082/L1090
-    # consumers reuse a single computation (§1g).
-    try:
-        arch_text = arch_doc.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        arch_text = None
-    probe = (arch_text or "") + "\n" + (ctx.question or "")
+    # GH823 §2.4: hoist the probe computation above parts assembly so
+    # both the reentry-block gate (below) and the existing py/fmt-wants
+    # consumers reuse a single computation (§1g). bd#89 P2a: the probe is the
+    # feature request plus the inlined decision doc (no architecture doc).
+    decision_block, decision_records = _decision_doc_inline(ctx.org_config)  # bd#147
+    probe = (ctx.question or "") + "\n" + decision_block
 
     parts: list[str] = []
     reroute = (getattr(ctx, "org_config", None) or {}).get("phase_reroute")
@@ -1163,37 +1156,38 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     parts.append(_read_first_block(scratchpad))
     parts.append("")
     parts.append(
-        "ROLE: You are a spec writer. Turn the architecture into a concrete, "
+        "ROLE: You are a spec writer. Turn the feature request into a concrete, "
         "verifiable specification. Open files yourself — do NOT trust summaries."
     )
     parts.append("")
     # GH823 §2.4: re-entry AC prompt block — axis-B high-binding position,
     # immediately after the ROLE paragraph and before FEATURE REQUEST:.
-    # Gated on stateful-token match over the probe (arch text + question).
+    # Gated on stateful-token match over the probe (question + decision doc).
     if (cycle == 1 or get_config().gate_enabled("HAL_SPEC_HIGH_BINDING_PARITY")) and stateful_probe(probe):
         parts.append(_spec_reentry_block())
         parts.append("")
     parts.append("FEATURE REQUEST:")
     parts.append(ctx.question or "(no feature request provided)")
     parts.append("")
-    if arch_doc.is_file():
-        parts.append(f"ARCHITECTURE DECISION (read this file — do NOT trust summaries): {arch_doc}")
-    else:
-        parts.append(f"ARCHITECTURE DECISION: (none at {arch_doc} — proceed without)")
-    parts.append("")
-    # Subtask C (8A9C0F24) — inline decision_doc text after architecture, before
+    # Subtask C (8A9C0F24) — decision_doc text is inlined after the request
+    # (decision_block is computed above, before the probe), before
     # grounding rules + OUTPUT schema, so writer reads the decision text before
     # being told how to format the response.
-    decision_block, decision_records = _decision_doc_inline(ctx.org_config)  # bd#147
     if decision_block:
         parts.append(decision_block)
         parts.append("")
-    # bd#86: repo facts for what the request, architecture and decision doc
-    # name — collected before the writer runs, so it cites what exists. A frozen
-    # spec has no writer (invoke_spec_llm skips), so nothing is collected for it.
-    facts = "" if _prev_fields.get("is_frozen") else facts_pack.facts_block_for(
-        ctx, scratchpad, "\n".join((ctx.question or "", arch_text or "", decision_block)), "spec",
-    )
+    # bd#86: repo facts for what the request and decision doc name — collected
+    # before the writer runs, so it cites what exists. A frozen spec has no
+    # writer (invoke_spec_llm skips), so nothing is collected for it. A facts
+    # failure degrades to no facts block; it never crashes the prompt build.
+    facts = ""
+    if not _prev_fields.get("is_frozen"):
+        try:
+            facts = facts_pack.facts_block_for(
+                ctx, scratchpad, "\n".join((ctx.question or "", decision_block)), "spec",
+            )
+        except Exception:  # noqa: BLE001 — degrade, don't fail
+            facts = ""
     if facts:
         parts.append(facts)
         parts.append("")
@@ -1302,7 +1296,6 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
         data=_fwd_frozen(_prev_data_bsp, {
             "prompt": prompt,
             "doc_path": str(spec_path),
-            "arch_doc_present": arch_doc.is_file(),
             "prompt_bytes": len(prompt.encode("utf-8")),
             "cycle": cycle,
             "delta_retry": False,
@@ -4032,14 +4025,6 @@ def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
     parts.append("")
     parts.append(f"SPEC TO REVIEW (read this file): {spec_path}")
     parts.append("")
-    research_dir = scratchpad / "research"
-    if research_dir.is_dir():
-        research_files = sorted(p for p in research_dir.glob("*.md") if p.is_file())
-        if research_files:
-            parts.append("EXPLORATION FINDINGS (read for context — do NOT trust summaries):")
-            for p in research_files:
-                parts.append(f"- {p}")
-            parts.append("")
     # A813CA08: reviewer-side citation-grounding rubric. Must precede the
     # output schema — LLM reads top-down and starts emitting once it has the
     # schema; instructions arriving after risk being honored as afterthought.

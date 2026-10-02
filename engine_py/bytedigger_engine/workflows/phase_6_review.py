@@ -867,7 +867,10 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         parts.append(f"RED WORKER REPORT (read this file for test paths): {red_log}")
     if green_log.is_file():
         parts.append(f"GREEN WORKER REPORT (read this file for impl paths): {green_log}")
-    facts = spec_facts_block(ctx, scratchpad, spec_path, "review")
+    try:
+        facts = spec_facts_block(ctx, scratchpad, spec_path, "review")
+    except Exception:  # noqa: BLE001 — facts degrade to no block, never crash
+        facts = ""
     if facts:
         parts.append("")
         parts.append(facts)

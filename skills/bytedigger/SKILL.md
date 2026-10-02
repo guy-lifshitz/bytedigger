@@ -1,7 +1,7 @@
 ---
 name: ByteDigger
 title: ByteDigger — Feature Development Pipeline
-description: Full-cycle feature development with research, architecture, TDD enforcement, and deep code review. Structured pipeline from requirements to production-ready code. USE WHEN building non-trivial features end-to-end. Invoked via /build.
+description: Full-cycle feature development with spec, TDD enforcement, and deep code review. Structured pipeline from requirements to production-ready code. USE WHEN building non-trivial features end-to-end. Invoked via /build.
 metadata:
   overridable: "project-conventions"
 ---
@@ -9,12 +9,12 @@ metadata:
 # ByteDigger — Feature Development Pipeline
 
 **PURPOSE:** Take a feature from requirements to production-ready code.
-**PIPELINE:** CLASSIFY → EXPLORE → CLARIFY → ARCHITECT → SPEC → IMPLEMENT (TDD) → REVIEW → SYNTHESIZE
+**PIPELINE:** CLASSIFY → SPEC → IMPLEMENT (TDD) → REVIEW → SYNTHESIZE (phases 0 -> 0.5 -> 4.5 -> 5 -> 6 -> 7, the same for every tier)
 
 ## When to Use
 
 - `/build "add X feature"` — full pipeline, mode auto-detected
-- `/build "fix bug Y"` — classifies as SIMPLE, streamlined pipeline (skip explore/architect)
+- `/build "fix bug Y"` — classifies as SIMPLE, same flow with lighter knobs (3 review agents, fewer Gherkin scenarios)
 - `/build "task" --supervised` — always show checkpoints
 - `/build "task" --auto` — skip all human gates
 - `/build "task" --pr` — SHIP Protocol after implementation (branch → stage → commit → push → PR)
@@ -33,7 +33,7 @@ metadata:
 ## Complexity Routing (Phase 0)
 
 - **TRIVIAL**: docs/config → direct edit
-- **SIMPLE**: bug fix, 1-3 files → streamlined 8-agent pipeline (skip Phases 2-4, 3 review agents, 1-2 Gherkin scenarios)
+- **SIMPLE**: bug fix, 1-3 files → same flow as every tier, lighter knobs (3 review agents, 1-2 Gherkin scenarios)
 - **FEATURE**: non-trivial, 1-3 files → full pipeline, AUTONOMOUS
 - **COMPLEX**: 4+ files, architecture → full pipeline, SUPERVISED
 
@@ -41,7 +41,7 @@ metadata:
 
 Opt-in per repo (`readiness.required` in `bytedigger.json` on the push target's default branch; see `docs/configuration.md`). Phase 0 parses `--issue <N>` and runs `scripts/readiness check --stage start --json` only to read `readiness.required`; exit 3 is expected here (no spec record yet, or not yet on the `gh<N>-` branch) and is not a stop — read the JSON and continue; exit 4 warns and continues. When `readiness.required` is true: no issue → STOP (`no_issue`); `--issue <N>` on a branch that parses to another number → STOP (`issue_mismatch`); otherwise the build runs on `gh<N>-<slug>`.
 
-**Start gate** — before the first write outside the scratchpad: TRIVIAL (after a minimal `build-spec.md`, before the direct edit), SIMPLE (after its Phase 1 spec), FEATURE and COMPLEX (after Phase 4.5). Run `scripts/readiness check --stage start --spec ./build-spec.md`: 0 continues; 3 runs `scripts/readiness post --spec ./build-spec.md`, sets `current_phase: awaiting_approval` and `awaiting_stage: start`, prints `Waiting for "<label>" on #<N>` and STOPs in every mode, AUTONOMOUS included; anything else warns and continues. The ship gate (`scripts/ship.sh --pr`, engine Phase 8) then refuses unapproved work deterministically.
+**Start gate** — before the first write outside the scratchpad: TRIVIAL (after a minimal `build-spec.md`, before the direct edit), SIMPLE, FEATURE and COMPLEX (after Phase 4.5). Run `scripts/readiness check --stage start --spec ./build-spec.md`: 0 continues; 3 runs `scripts/readiness post --spec ./build-spec.md`, sets `current_phase: awaiting_approval` and `awaiting_stage: start`, prints `Waiting for "<label>" on #<N>` and STOPs in every mode, AUTONOMOUS included; anything else warns and continues. The ship gate (`scripts/ship.sh --pr`, engine Phase 8) then refuses unapproved work deterministically.
 
 ## CRITICAL: Load Pipeline
 
@@ -63,10 +63,6 @@ Follow it phase by phase. Do NOT improvise or skip phases.
 **Per-phase instructions** for Task agents (each agent reads ONLY its phase):
 ```
 phases/phase-0-classify.md
-phases/phase-1-discovery.md
-phases/phase-2-explore.md
-phases/phase-3-clarify.md
-phases/phase-4-architect.md
 phases/phase-45-spec.md
 phases/phase-5-implement.md
 phases/phase-6-review.md

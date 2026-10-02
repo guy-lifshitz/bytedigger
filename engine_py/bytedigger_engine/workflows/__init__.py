@@ -2,10 +2,6 @@
 from .echo import echo_workflow
 from .phase_0_research import phase_0_research_workflow
 from .phase_05_inject import phase_05_inject_workflow
-from .phase_1_discovery import phase_1_discovery_workflow
-from .phase_2_explore import phase_2_explore_workflow
-from .phase_3_clarify import phase_3_clarify_workflow
-from .phase_4_architect import phase_4_architect_workflow
 from .phase_45_spec import phase_45_spec_workflow
 from .phase_5_implement import phase_5_implement_workflow
 from .phase_5_integrity import phase_5_integrity_workflow
@@ -19,10 +15,6 @@ def register_all(engine) -> None:
     engine.register("echo", echo_workflow())
     engine.register("phase_0_research", phase_0_research_workflow())
     engine.register("phase_05_inject", phase_05_inject_workflow())
-    engine.register("phase_1_discovery", phase_1_discovery_workflow())
-    engine.register("phase_2_explore", phase_2_explore_workflow())
-    engine.register("phase_3_clarify", phase_3_clarify_workflow())
-    engine.register("phase_4_architect", phase_4_architect_workflow())
     engine.register("phase_45_spec", phase_45_spec_workflow())
     engine.register("phase_5_implement", phase_5_implement_workflow())
     engine.register("phase_5_integrity", phase_5_integrity_workflow())

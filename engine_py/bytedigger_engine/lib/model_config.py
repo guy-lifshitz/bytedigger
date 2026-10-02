@@ -32,8 +32,6 @@ FALLBACK_CONFIG: dict = {
         "fallback": "haiku",
         "critical": "opus",
         "spec_writer": "opus",
-        "discovery": "sonnet",
-        "explore": "sonnet",
         # GH386: role value widens to str | list[str] — a chain of
         # successors, resolved by get_role_model against unavailable entries.
         "decorrelated_verifier": ["fable", "opus"],
@@ -167,14 +165,6 @@ def get_claude_critical() -> str:
 
 def get_claude_spec_writer() -> str:
     return _required_role("spec_writer")
-
-
-def get_claude_discovery() -> str:
-    return _required_role("discovery")
-
-
-def get_claude_explore() -> str:
-    return _required_role("explore")
 
 
 def get_claude_decorrelated_verifier() -> str:

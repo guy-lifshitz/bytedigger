@@ -1,13 +1,13 @@
 ---
 name: build
 title: ByteDigger — Feature Development Pipeline
-description: Full-cycle feature development with research, architecture, TDD enforcement, and deep code review. Spec → RED → gate → GREEN, structured pipeline from requirements to production-ready code. USE WHEN building non-trivial features end-to-end. Invoked via /build.
+description: Full-cycle feature development with spec, TDD enforcement, and deep code review. Spec → RED → gate → GREEN, structured pipeline from requirements to production-ready code. USE WHEN building non-trivial features end-to-end. Invoked via /build.
 ---
 
 # ByteDigger — Feature Development Pipeline
 
 **PURPOSE:** Take a feature from requirements to production-ready code.
-**PIPELINE:** CLASSIFY → EXPLORE → CLARIFY → ARCHITECT → SPEC → IMPLEMENT (TDD) → REVIEW → SYNTHESIZE
+**PIPELINE:** CLASSIFY → SPEC → IMPLEMENT (TDD) → REVIEW → SYNTHESIZE (phases 0 -> 0.5 -> 4.5 -> 5 -> 6 -> 7, the same for every tier)
 
 > Drop-in copy of the plugin skill for manual installs. Set `BYTEDIGGER_HOME`
 > below to your checkout path -- all pipeline files resolve relative to it.
@@ -20,7 +20,7 @@ BYTEDIGGER_HOME: ~/tools/bytedigger
 ## When to Use
 
 - `/build "add X feature"` — full pipeline, mode auto-detected
-- `/build "fix bug Y"` — classifies as SIMPLE, streamlined pipeline (skip explore/architect)
+- `/build "fix bug Y"` — classifies as SIMPLE, same flow with lighter knobs (3 review agents)
 - `/build "task" --supervised` — always show checkpoints
 - `/build "task" --auto` — skip all human gates
 - `/build "task" --pr` — SHIP Protocol after implementation (branch → stage → commit → push → PR)
@@ -34,7 +34,7 @@ BYTEDIGGER_HOME: ~/tools/bytedigger
 ## Complexity Routing (Phase 0)
 
 - **TRIVIAL**: docs/config → direct edit
-- **SIMPLE**: bug fix, 1-3 files → streamlined pipeline (skip Phases 2-4, 3 review agents)
+- **SIMPLE**: bug fix, 1-3 files → same flow as every tier, lighter knobs (3 review agents)
 - **FEATURE**: non-trivial, 1-3 files → full pipeline, AUTONOMOUS
 - **COMPLEX**: 4+ files, architecture → full pipeline, SUPERVISED
 
@@ -67,10 +67,6 @@ Follow it phase by phase. Do NOT improvise or skip phases.
 **Per-phase instructions** for Task agents (each agent reads ONLY its phase):
 ```
 $BYTEDIGGER_HOME/phases/phase-0-classify.md
-$BYTEDIGGER_HOME/phases/phase-1-discovery.md
-$BYTEDIGGER_HOME/phases/phase-2-explore.md
-$BYTEDIGGER_HOME/phases/phase-3-clarify.md
-$BYTEDIGGER_HOME/phases/phase-4-architect.md
 $BYTEDIGGER_HOME/phases/phase-45-spec.md
 $BYTEDIGGER_HOME/phases/phase-5-implement.md
 $BYTEDIGGER_HOME/phases/phase-6-review.md

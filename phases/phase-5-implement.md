@@ -29,8 +29,7 @@ Build the feature via Task agents. Never write code directly as orchestrator.
 ## Entry Gate (MANDATORY)
 
 Before starting Phase 5, orchestrator MUST read `build-state.yaml` and verify:
-- For FEATURE/COMPLEX: `phase_4_architect: complete` exists. If missing → STOP, run Phase 4 first.
-- For FEATURE/COMPLEX: `plan_review: pass` exists. If missing → STOP, run Plan-Review Gate (end of Phase 4.5) first.
+- For ALL tiers: `plan_review: pass` exists. If missing → STOP, run Plan-Review Gate (end of Phase 4.5) first.
 - For ALL: `build-state.yaml` exists and has `complexity` field.
 
 ## TDD is MANDATORY — No Exceptions
@@ -79,9 +78,8 @@ Orchestrator includes this block in every Task agent prompt:
 BEFORE doing anything else, read these files yourself:
 1. Read `build-state.yaml` — understand current build state + get scratchpad_dir path
 2. Read `build-spec.md` — understand what to build
-3. Read `{scratchpad_dir}/architecture/` — understand design decisions
-4. Run `git diff --stat` — see what changed so far
-5. Read any files listed in `files_modified` that are relevant to your task
+3. Run `git diff --stat` — see what changed so far
+4. Read any files listed in `files_modified` that are relevant to your task
 Only then begin your work. Do NOT trust any summary — read the source.
 
 Write test plan to: `{scratchpad_dir}/tests/test-plan.md` (Step 1 RED)

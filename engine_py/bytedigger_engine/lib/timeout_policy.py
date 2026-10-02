@@ -15,10 +15,6 @@ import json
 from pathlib import Path
 
 DEFAULT_POLICY: dict[str, dict] = {
-    "discovery.llm": {"base": 300, "override_key": "llm_timeout_sec"},
-    "explore.llm": {"base": 600, "override_key": "explore_llm_timeout_sec"},
-    "clarify.llm": {"base": 300, "override_key": "clarify_llm_timeout_sec"},
-    "architect.llm": {"base": 600, "override_key": "llm_timeout_sec"},
     "spec.writer": {
         "base": 600,
         "COMPLEX": 1800,

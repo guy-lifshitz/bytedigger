@@ -20,7 +20,7 @@ Five event types represent the full build lifecycle:
 |-------|---------|--------------|
 | `phase-start` | Phase began executing | dispatchPhase entry (after global pre-phase checks) |
 | `phase-end` | Phase completed with verdict | dispatchPhase exit (before returning verdict) |
-| `phase-skip` | Phase skipped due to complexity/tier | SIMPLE tier skips phases 2–4; TRIVIAL tier skips phase 6 |
+| `phase-skip` | Phase skipped due to complexity/tier | TRIVIAL tier skips phase 6 |
 | `gate-result` | Gate verdict (pass/block) | After phase-specific checks complete |
 | `build-complete` | Build finished (success/failure/fatal) | mainCLI exit (all phases done or error caught) |
 
@@ -119,9 +119,9 @@ Emitted when a phase is skipped (not executed due to complexity tier or build mo
 ```json
 {
   "event": "phase-skip",
-  "phase": "2",
+  "phase": "6",
   "metadata": {
-    "reason": "SIMPLE complexity skips exploratory phases"
+    "reason": "TRIVIAL skip"
   },
   "timestamp": "2026-04-16T14:23:50.234Z"
 }
@@ -130,7 +130,7 @@ Emitted when a phase is skipped (not executed due to complexity tier or build mo
 **Fields:**
 
 - `phase` — Phase being skipped
-- `metadata.reason` (optional) — Explanation (e.g., "SIMPLE complexity", "TRIVIAL skip")
+- `metadata.reason` (optional) — Explanation (e.g., "TRIVIAL skip")
 
 ---
 

@@ -277,7 +277,6 @@ export function runGlobalPrePhaseChecks(cwd: string): GlobalResult {
         "build-opus-validation.md",
         "build-tests.md",
         "build-red-output.log",
-        "build-architecture.md",
         "build-plan-review.md",
       ];
       for (const a of ARTIFACTS) {
@@ -348,94 +347,12 @@ function fieldMissing(
   return null;
 }
 
-export function checkPhase4(cwd: string): GateVerdict {
-  const statePath = join(cwd, "build-state.yaml");
-  const missing: string[] = [];
-
-  const m = fieldMissing(statePath, "phase_4_architect", "complete");
-  if (m) missing.push(m);
-
-  // scratchpad_stale: research dir must contain findings-*.md
-  // Use OrThrow here so an unreadable state file produces a hard block rather than
-  // being silently treated as field-missing (which would let the gate pass).
-  let scratchpad: string;
-  try {
-    scratchpad = (readStateFieldOrThrow(statePath, "scratchpad_dir") ?? "").trim();
-  } catch (err) {
-    if (err instanceof StateReadError) {
-      return hardBlock(`FATAL: build-state.yaml unreadable (scratchpad_dir): ${err.message}`, "4");
-    }
-    throw err;
-  }
-  if (scratchpad) {
-    const researchDir = join(scratchpad, "research");
-    let hasFindings = false;
-    if (existsSync(researchDir)) {
-      try {
-        hasFindings = hasNonEmptyMatch(researchDir, /^findings-.*\.md$/);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        // Permission error is fail-closed (triggers hard block below) but
-        // surface the cause so operators can diagnose.
-        process.stderr.write(
-          `[gate] WARN: readdir ${researchDir} failed: ${msg}\n`,
-        );
-        hasFindings = false;
-      }
-    }
-    if (!hasFindings) {
-      // Mirror bash strip-then-append: if a prior scratchpad_stale line exists,
-      // remove it and re-append so the persisted state is `scratchpad_stale: true`.
-      try {
-        const content = readFileSync(statePath, "utf8");
-        const filtered = content
-          .split("\n")
-          .filter((l) => !/^scratchpad_stale:/.test(l))
-          .join("\n");
-        const normalized = filtered.endsWith("\n") ? filtered : filtered + "\n";
-        writeFileAtomic(statePath, normalized + "scratchpad_stale: true\n");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(
-          `[gate] WARN: failed to persist scratchpad_stale: ${msg}\n`,
-        );
-      }
-      return hardBlock(
-        `scratchpad_stale: no non-empty findings-*.md found in ${researchDir} — Phase 2 exploration must complete before Phase 4`,
-        "4",
-      );
-    }
-
-    // bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
-    const archDir = join(scratchpad, "architecture");
-    const hasApproach = (() => {
-      try {
-        return hasNonEmptyMatch(archDir, /^approach-.*\.md$/);
-      } catch {
-        return false; // dir absent/unreadable → missing deliverable
-      }
-    })();
-    if (!hasApproach) {
-      missing.push(`missing deliverable: ${scratchpad}/architecture/approach-*.md`);
-    }
-  }
-
-  if (missing.length > 0) return softBlock(joinMissing(missing), "4");
-  return pass("4");
-}
-
 function isNonEmptyFile(path: string): boolean {
   try {
     return statSync(path).size > 0;
   } catch {
     return false;
   }
-}
-
-// True if `dir` holds a non-empty file whose name matches `re`. Throws if the
-// directory cannot be read (callers decide how to handle that).
-function hasNonEmptyMatch(dir: string, re: RegExp): boolean {
-  return readdirSync(dir).some((f) => re.test(f) && isNonEmptyFile(join(dir, f)));
 }
 
 // Bash uses `printf '%s; ' "${MISSING_FIELDS[@]}"` which appends `"; "` after
@@ -567,9 +484,8 @@ export function scanSemanticSkipPhrases(cwd: string): SemanticScanResult {
 
 function checkPhase45(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
-  if (getComplexity(cwd) === "SIMPLE") return pass("4.5");
-  const planReview = (readStateField(statePath, "plan_review") ?? "").trim();
-  if (planReview !== "pass") return softBlock("plan_review=pass", "4.5");
+  const m = fieldMissing(statePath, "plan_review", "pass");
+  if (m) return softBlock(joinMissing([m]), "4.5");
   return pass("4.5");
 }
 
@@ -631,16 +547,14 @@ export function checkPhase53(cwd: string): GateVerdict {
 
 function checkPhase5(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
-  if (getComplexity(cwd) === "SIMPLE") return pass("5");
   const missing: string[] = [];
   for (const [field, expected] of [
-    ["phase_4_architect", "complete"],
     ["plan_review", "pass"],
     ["phase_5_implement", "complete"],
     ["opus_validation", "pass"],
   ] as const) {
-    const v = (readStateField(statePath, field) ?? "").trim();
-    if (v !== expected) missing.push(`${field}=${expected}`);
+    const m = fieldMissing(statePath, field, expected);
+    if (m) missing.push(m);
   }
   if (missing.length > 0) return softBlock(joinMissing(missing), "5");
   return pass("5");
@@ -786,9 +700,6 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
     case "05":
       verdict = checkPhase05(cwd);
       break;
-    case "4":
-      verdict = checkPhase4(cwd);
-      break;
     case "4.5":
     case "45":
       verdict = checkPhase45(cwd);
@@ -822,6 +733,7 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
     case "1":
     case "2":
     case "3":
+    case "4": // phases 1-4 were dropped (bd#89 P2a); a stale in-flight state passes through
     case "8":
     default:
       emitPhaseEnd(phase, "pass", Date.now() - dispatchStart);

@@ -69,7 +69,7 @@ The mechanisms doing the heavy lifting, each one shipping as code in `engine_py/
 
 ## Under the hood
 
-The pipeline sketch above is seven boxes; the engine behind it is 14 workflow modules, phase 0 research through phase 8 post-deploy, with one spec path and one review path for every task size. The engine installs with zero runtime dependencies and no LLM vendor baked in.
+The pipeline sketch above is seven boxes; the engine behind it is 10 workflow modules, phase 0 research through phase 8 post-deploy, with one spec path and one review path for every task size. The engine installs with zero runtime dependencies and no LLM vendor baked in.
 
 The spec itself has a machine-readable half. Alongside the prose, an `AC-checks` yaml block maps each acceptance criterion to a mechanical check from a closed registry -- file-contains, command-exit-code and friends -- validated at spec-freeze time and executed as code. A criterion that can't live without judgment has to declare itself as one (`llm_rubric`), which keeps the escape hatch visible instead of ambient. Specs stop being documentation that drifts; they compile.
 

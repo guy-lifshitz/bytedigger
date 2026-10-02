@@ -18,9 +18,9 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **Issue intake + readiness (bd#117):** Parse `--issue <N>`; run `bash scripts/readiness check --stage start --json` only to read `readiness.required` (exit 3 is expected here — no spec record yet, or not yet on the `gh<N>-` branch — and is not a stop: read the JSON, continue; exit 4 → warn, continue). When `readiness.required` is true: no issue → STOP (`no_issue`) before `build-state.yaml` is written; `--issue <N>` on a branch that parses to another number → STOP (`issue_mismatch`); otherwise the build runs on branch `gh<N>-<slug>` for every tier, worktree or not.
 
-**Start gate (only when `readiness.required` is true):** before the first write outside the scratchpad — TRIVIAL: after writing a minimal `build-spec.md` (`Task | Files | Change`), before the direct edit | SIMPLE: after its Phase 1 spec | FEATURE/COMPLEX: after Phase 4.5. Run `bash scripts/readiness check --stage start --spec ./build-spec.md`: **0** → continue | **3** → `bash scripts/readiness post --spec ./build-spec.md`, set `current_phase: awaiting_approval` + `awaiting_stage: start`, print `Waiting for "<label>" on #<N>`, STOP — in every mode, AUTONOMOUS included | **anything else** → warn with the stderr line, continue (the ship gate still holds). Every readiness STOP prints the verdict line and, for `no_spec_record` / `label_predates_spec`, the recovery: `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue`.
+**Start gate (only when `readiness.required` is true):** before the first write outside the scratchpad — TRIVIAL: after writing a minimal `build-spec.md` (`Task | Files | Change`), before the direct edit | SIMPLE/FEATURE/COMPLEX: after Phase 4.5. Run `bash scripts/readiness check --stage start --spec ./build-spec.md`: **0** → continue | **3** → `bash scripts/readiness post --spec ./build-spec.md`, set `current_phase: awaiting_approval` + `awaiting_stage: start`, print `Waiting for "<label>" on #<N>`, STOP — in every mode, AUTONOMOUS included | **anything else** → warn with the stderr line, continue (the ship gate still holds). Every readiness STOP prints the verdict line and, for `no_spec_record` / `label_predates_spec`, the recovery: `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue`.
 
-**Rules:** Every phase RUNS. Code/review/test = always agent. No skipping. **SYNTHESIS RULE:** Before spawning implementation workers, orchestrator MUST read scratchpad findings and write prompts with exact file paths + line numbers. Never "based on findings".
+**Rules:** Every phase RUNS. Code/review/test = always agent. No skipping. **SYNTHESIS RULE:** Before spawning implementation workers, orchestrator MUST read the spec (`build-spec.md`) and write prompts with exact file paths + line numbers. Never "based on findings".
 
 **WORKER LIFECYCLE MATRIX:**
 | Situation | Action | Why |
@@ -46,51 +46,21 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **Tool Guard:** Phase 0 runs `touch .bytedigger-orchestrator-pid` to arm the guard. PreToolUse hook blocks orchestrator from Edit/Write on code files (.ts/.py/.swift). Agent detection via env vars (`CLAUDE_AGENT_ID`, `SIDECHAIN`, etc.) → agents allowed. Phase 7 cleans up `.bytedigger-orchestrator-pid`.
 
-**Outputs:** Complexity + mode | Project context | Active phases (SIMPLE skips 2-4) | Model allocation (from `bytedigger.json`) | **Immutable metadata:** Write `build-metadata.json` with complexity + mode + created_at. This file prevents complexity downgrade bypass — never modify after Phase 0. | Dependency pre-check: lock file + quick validation → `deps_checked` to build-state.yaml (soft, never blocks)
+**Outputs:** Complexity + mode | Project context | Active phases (all tiers: 0 -> 0.5 -> 4.5 -> 5 -> 6 -> 7) | Model allocation (from `bytedigger.json`) | **Immutable metadata:** Write `build-metadata.json` with complexity + mode + created_at. This file prevents complexity downgrade bypass — never modify after Phase 0. | Dependency pre-check: lock file + quick validation → `deps_checked` to build-state.yaml (soft, never blocks)
 
 **--dry-run flag:** Display table → STOP
 
-**Resumable:** First run `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger` again (absolute plugin root and exit rules as in the first Phase 0 step). Then, if `build-state.yaml` exists + `current_phase != "completed"` → read, skip to next. On resume, verify scratchpad_dir exists. If missing, recreate directory structure and re-run Phase 2 (explore) to regenerate findings. If `current_phase: awaiting_approval`: `awaiting_stage: start` → re-run the start gate (0 → next phase); `awaiting_stage: ship` → re-run only SHIP (7.1c), no re-implementation, then the rest of Phase 7.
+**Resumable:** First run `BD_ROOT="${CLAUDE_PLUGIN_ROOT}"; "${BD_ROOT:-$BYTEDIGGER_HOME}/scripts/skill-companion" render --core bytedigger` again (absolute plugin root and exit rules as in the first Phase 0 step). Then, if `build-state.yaml` exists + `current_phase != "completed"` → read, skip to next. On resume, verify scratchpad_dir exists. If missing, recreate directory structure and continue (the engine no longer reads research findings). A stale `current_phase` of 1-4 (a build started before the discovery/explore/clarify/architect phases were dropped) resumes at Phase 4.5: the gates pass 1-4 through. If `current_phase: awaiting_approval`: `awaiting_stage: start` → re-run the start gate (0 → next phase); `awaiting_stage: ship` → re-run only SHIP (7.1c), no re-implementation, then the rest of Phase 7.
 
 **Worktree:** If `--worktree` or FEATURE+ on main → `git worktree add` then **MUST copy build-state.yaml to worktree**: `cp build-state.yaml <worktree-path>/`. Without state file, ALL gates are blind and pipeline runs unprotected.
 
-## PHASE 1: DISCOVERY
+## PHASE 4.5: SPEC GENERATION (all tiers)
 
-**SIMPLE:** Orchestrator writes `build-spec.md` directly with: Files | Interfaces | Behavior | Tests. Skip Phase 1 agent.
-
-**FEATURE/COMPLEX:** Agent summarizes requirements, identifies scope (IN/OUT), proceeds to Phase 2
-
-## PHASE 2: CODEBASE EXPLORATION (Skip if SIMPLE)
-
-Launch 2-3 Explore agents (FEATURE: Haiku | COMPLEX: Sonnet, use `name:` param): Similar features + data flow | Dependencies + testing patterns | (COMPLEX) Security + error handling. **Agents write findings to `{scratchpad_dir}/research/findings-{name}.md`** (file paths, line numbers, patterns). Agents complete and return — findings persist in scratchpad files, not in agent memory.
-
-**Scratchpad health (enforced at Phase 4 gate):** At least one `findings-*.md` must exist in `{scratchpad_dir}/research/` before Phase 4 can proceed. Missing findings → gate sets `scratchpad_stale: true` and blocks. If Phase 2 agents failed silently, re-run them before continuing.
-
-## PHASE 3: CLARIFYING QUESTIONS (Skip if SIMPLE)
-
-**SUPERVISED:** Present questions to user | **AUTONOMOUS:** Document assumptions, proceed
-
-**Orchestrator flow:**
-1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
-2. If mode == "AUTONOMOUS": agent documents assumptions, writes them to scratchpad, proceeds to Phase 4 — no user interaction
-3. If mode == "SUPERVISED": agent presents questions to user, waits for answers before proceeding
-
-## PHASE 4: ARCHITECTURE DESIGN (Skip if SIMPLE)
-
-Agents read `{scratchpad_dir}/research/` first. Always launch fresh architect agents (2-3) (COMPLEX or HIGH security_classification: add security architect) | Model: Opus (configurable via `bytedigger.json` → `validation_model`). Write decisions to `{scratchpad_dir}/architecture/`. **SUPERVISED:** Save to `build-architecture.md`, wait approval | **AUTONOMOUS:** Select best approach
-
-**Orchestrator flow:**
-1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
-2. If mode == "AUTONOMOUS": select best approach from architect outputs, log chosen approach + reasoning to `build-state.yaml` (`phase_4_approach`, `phase_4_files_count`), proceed to Phase 4.5 immediately — no `build-architecture.md`, no wait
-3. If mode == "SUPERVISED": save `build-architecture.md`, wait for explicit approval before writing state and continuing
-
-**State log:** `phase_4_architect: complete | phase_4_approach: "<summary>" | phase_4_files_count: <N>`
-
-## PHASE 4.5: SPEC GENERATION (Skip if SIMPLE)
+There are no discovery, exploration, clarification or architecture phases. The spec writer reads the codebase itself; its repo-facts input is the deterministic facts pack. Cost scales with the tier's knobs (spec length, reviewer count, timeouts), not with a second path.
 
 Sonnet writes `build-spec.md`: User Stories (min 2, BDD) | Files (CREATE/MODIFY) | Interfaces | Data Model | Behavior | Tests
 
-**Plan-Review Gate (MANDATORY FEATURE/COMPLEX):** Separate Opus reviewer → SHIP or REVISE (max 2 cycles) → Write `plan_review: pass` to build-state.yaml
+**Plan-Review Gate (MANDATORY, every tier):** Separate Opus reviewer → SHIP or REVISE (max 2 cycles) → Write `plan_review: pass` to build-state.yaml
 
 **Phase 5 entry blocks** on missing `plan_review: pass`
 
@@ -103,11 +73,11 @@ Sonnet writes `build-spec.md`: User Stories (min 2, BDD) | Files (CREATE/MODIFY)
 
 **TEST INTEGRITY (applies to ALL phases that touch tests):** Tests verify REAL behavior against spec. If a test fails → fix the CODE, not the test. NEVER adjust assertions to match broken behavior. Only change tests if the SPEC changed. Include this rule verbatim in every worker prompt that runs or fixes tests.
 
-**Entry Gate:** Verify `phase_4_architect: complete` (FEATURE/COMPLEX) + `plan_review: pass` (FEATURE/COMPLEX)
+**Entry Gate:** Verify `plan_review: pass` (every tier)
 
 **5.0 Test Infrastructure:** Detect framework (jest, pytest, XCTest). If missing, create. **Run existing tests first.** If pre-existing tests fail → fix them immediately as Boy Scout Rule (don't ask user, don't skip). Log as `PRE-EXISTING FIX` in Boy Scout Report.
 
-**5.1 RED (tests first):** Generate tests (use `name: "tdd-worker"`, read `{scratchpad_dir}/architecture/`) → `<test-cmd> 2>&1 | tee build-red-output.log` (MUST contain ≥1 FAIL/ERROR). **RED agent returns normally with summary** (test names, failure count, file paths) ending with `RED COMPLETE — [N] tests written, all failing. Files: [list]`. Orchestrator captures output for Opus validation + GREEN worker context. **After RED returns → agent is DONE. Do NOT SendMessage to it.** Model: SIMPLE=Haiku | FEATURE=Sonnet | COMPLEX=Opus (configurable via `bytedigger.json`)
+**5.1 RED (tests first):** Generate tests (use `name: "tdd-worker"`, read `build-spec.md`) → `<test-cmd> 2>&1 | tee build-red-output.log` (MUST contain ≥1 FAIL/ERROR). **RED agent returns normally with summary** (test names, failure count, file paths) ending with `RED COMPLETE — [N] tests written, all failing. Files: [list]`. Orchestrator captures output for Opus validation + GREEN worker context. **After RED returns → agent is DONE. Do NOT SendMessage to it.** Model: SIMPLE=Haiku | FEATURE=Sonnet | COMPLEX=Opus (configurable via `bytedigger.json`)
 
 **5.2a Gherkin (Sonnet, ALL tiers):** Generate `./build-tests.md` — BDD Gherkin scenarios. SIMPLE=1–2 scenarios, FEATURE/COMPLEX=full suite. Writer only, no validation. Write `phase_52a_gherkin: complete` to build-state.yaml.
 **5.2b Validation (Opus HARD GATE, ALL tiers):** Opus 4-step audit on Gherkin vs test code: Forward Map | Reverse Map | Spec Compliance | Quality Checks → PASS (write `opus_validation: pass`) or FAIL (fix test code, re-validate). Opus is validator only — does NOT write or modify tests.
@@ -156,7 +126,7 @@ Process: Collect ALL issues (single list) → Task agent fixes EVERY finding →
 
 **Entry Gate:** `review_complete: pass` exists
 
-**7.1 Summary:** Launch Haiku with: original request | files modified | review verdicts | architecture → What was built (3-5 bullets) + learnings. **AUTONOMOUS:** log output only, do NOT stop for user review. **SUPERVISED:** present to user before proceeding.
+**7.1 Summary:** Launch Haiku with: original request | files modified | review verdicts | spec → What was built (3-5 bullets) + learnings. **AUTONOMOUS:** log output only, do NOT stop for user review. **SUPERVISED:** present to user before proceeding.
 
 **Orchestrator flow:**
 1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
@@ -179,7 +149,7 @@ Steps: (1) `git fetch --prune` — prune remote refs. (2) Delete gone branches (
 
 ## build-state.yaml Fields
 
-`task | complexity (SIMPLE|FEATURE|COMPLEX) | mode (AUTONOMOUS|SUPERVISED) | current_phase | files_modified: [] | forge_run_id | started_at | last_updated | spec_path: ./build-spec.md | test_spec_path: ./build-tests.md | worktree_path | constitution_loaded: true|none | security_classification: HIGH|MEDIUM|LOW | security_patterns_found: [] | phase_4_architect: complete | phase_4_approach | phase_4_files_count | plan_review: pass | phase_5_started: "<ISO timestamp>" | phase_5_implement: complete | phase_51_red: complete | phase_52a_gherkin: complete | phase_52_validation: complete | phase_53_green: complete | opus_validation: pass | test_integrity_check: pass | assertion_gaming_detected: true/false | plan_drift: [...] | test_files_modified_after_red: <count> | phase_5_files_changed | phase_5_workers_done (COMPLEX only) | phase_6_reviewers_launched | phase_6_reviewers_expected: <3|4|6|7> | security_review_enabled: true/false | phase_6_findings_total | phase_6_findings_fixed | phase_6_findings_skipped: 0 | review_complete: pass | review_satisfaction: <PCT>% | review_issues_found | semantic_skip_check: pass|fail | semantic_skip_phrases_found: <N> | post_review_gate: pass | scratchpad_stale: true (set by gate if Phase 2 findings missing) | deps_checked: true | deps_issues: "<summary if issues found>" | deps_lock_missing: true (if lock file missing) | learnings_injected: <N> | learnings_extracted: <N> | learning_skip_reason: disabled|error|sqlite_unavailable | learning_backend: none|file|sqlite`
+`task | complexity (SIMPLE|FEATURE|COMPLEX) | mode (AUTONOMOUS|SUPERVISED) | current_phase | files_modified: [] | forge_run_id | started_at | last_updated | spec_path: ./build-spec.md | test_spec_path: ./build-tests.md | worktree_path | constitution_loaded: true|none | security_classification: HIGH|MEDIUM|LOW | security_patterns_found: [] | plan_review: pass | phase_5_started: "<ISO timestamp>" | phase_5_implement: complete | phase_51_red: complete | phase_52a_gherkin: complete | phase_52_validation: complete | phase_53_green: complete | opus_validation: pass | test_integrity_check: pass | assertion_gaming_detected: true/false | plan_drift: [...] | test_files_modified_after_red: <count> | phase_5_files_changed | phase_5_workers_done (COMPLEX only) | phase_6_reviewers_launched | phase_6_reviewers_expected: <3|4|6|7> | security_review_enabled: true/false | phase_6_findings_total | phase_6_findings_fixed | phase_6_findings_skipped: 0 | review_complete: pass | review_satisfaction: <PCT>% | review_issues_found | semantic_skip_check: pass|fail | semantic_skip_phrases_found: <N> | post_review_gate: pass | deps_checked: true | deps_issues: "<summary if issues found>" | deps_lock_missing: true (if lock file missing) | learnings_injected: <N> | learnings_extracted: <N> | learning_skip_reason: disabled|error|sqlite_unavailable | learning_backend: none|file|sqlite`
 
 ## Model Allocation Table
 **→ See `templates/dynamic-context.md`** for full Model Allocation table (loaded as attachment, not cached).
@@ -187,12 +157,11 @@ Models are configurable via `bytedigger.json`.
 
 ## Gates — Hook Enforcement (hooks/build-gate.sh)
 
-**Total: 10 gates across 8 phases. All enforced via SubagentStop hook.**
+**Total: 9 gates across 7 phases. All enforced via SubagentStop hook.**
 
 | Gate | Phase | Check | Type |
 |------|-------|-------|------|
 | Security Classification | 0 | security_classification in state | Soft |
-| Architecture | 4 | architecture artifacts + security review if HIGH | Soft |
 | Plan-Review | 4.5 | plan_review: pass | Soft |
 | RED Output | 5.1 | build-red-output.log exists + phase_51_red: complete | Soft |
 | Opus Validation | 5.2 | opus_validation: pass | Soft |
@@ -207,7 +176,7 @@ Models are configurable via `bytedigger.json`.
 
 ## Common Mistakes (Avoid)
 
-Skip test framework setup | Tests pass in RED (tests wrong — fix first) | Missing `plan_review: pass` before Phase 5 (FEATURE/COMPLEX) | Missing `opus_validation: pass` before GREEN | Boy Scout violations | Reviewer count mismatch (SIMPLE=3, FEATURE/COMPLEX=6) | Skipping findings ("acceptable"/"pre-existing") | Post-review gate failure → STOP (no workarounds)
+Skip test framework setup | Tests pass in RED (tests wrong — fix first) | Missing `plan_review: pass` before Phase 5 (every tier) | Missing `opus_validation: pass` before GREEN | Boy Scout violations | Reviewer count mismatch (SIMPLE=3, FEATURE/COMPLEX=6) | Skipping findings ("acceptable"/"pre-existing") | Post-review gate failure → STOP (no workarounds)
 
 ## Worker Output Schema
 
@@ -224,11 +193,10 @@ Issues: [problems found, or "none"]
 Workers: Do NOT emit text between tool calls. Use tools silently, then report once at the end using this schema.
 
 Phase-specific additions:
-- Phase 2 (Explore): write findings to scratchpad BEFORE reporting
 - Phase 5 (RED/GREEN): output schema fields, then completion marker as absolute final line (`RED COMPLETE — ...` / `GREEN COMPLETE — ...`)
 - Phase 6 (Review): output schema fields, then `VERDICT: PASS/FAIL/PARTIAL` as absolute final line
 - Phase 7 (Synthesize): output schema
-- SUPERVISED phases (3, 4): "work silently" does not suppress interactive user Q&A
+- SUPERVISED phase 4.5: "work silently" does not suppress interactive user Q&A
 - Opus validators (Step 2b): exempt from "work silently" — reasoning must be visible
 
 ## Agent Status Protocol

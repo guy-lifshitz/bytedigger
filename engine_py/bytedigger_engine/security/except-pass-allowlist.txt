@@ -14,11 +14,7 @@ SYSTEM/cli/build/engine_py/llm_subprocess.py 6  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/run.py 1  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/telemetry_ctx.py 1  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_05_inject.py 1  # kill-by:2026-09-30 GH825
-SYSTEM/cli/build/engine_py/workflows/phase_1_discovery.py 1  # kill-by:2026-09-30 GH825
-SYSTEM/cli/build/engine_py/workflows/phase_2_explore.py 1  # kill-by:2026-09-30 GH825
-SYSTEM/cli/build/engine_py/workflows/phase_3_clarify.py 1  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_45_spec.py 6  # kill-by:2026-09-30 GH825
-SYSTEM/cli/build/engine_py/workflows/phase_4_architect.py 1  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_5_implement.py 3  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_6_review.py 7  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_7_synthesize.py 1  # kill-by:2026-09-30 GH825

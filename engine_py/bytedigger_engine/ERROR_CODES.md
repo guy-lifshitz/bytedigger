@@ -18,12 +18,6 @@
 - `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED` — conformance/bd_l3: a backend declared runtime capability enforcement and the SAME invocation recorded a capability escape — the claim is refuted by its own evidence (bd#63 R3.5)
 - `E_CAPABILITY_ESCAPE` — llm_subprocess: an adapter reported a tool head outside the step's declared capability set (bd#10 R3.6)
 
-## E_CLARIFY
-
-- `E_CLARIFY_BLOCKED` — phase_3_clarify: subagent returned BLOCKED verdict, cannot proceed
-- `E_CLARIFY_NEEDS_CONTEXT` — phase_3_clarify: subagent requested more context to proceed
-- `E_CLARIFY_NO_MARKER` — phase_3_clarify: subagent output missing required completion marker
-
 ## E_CLEANUP
 
 - `E_CLEANUP_REPORT_WRITE_FAILED` — phase_8_post_deploy: failed writing the post-ship cleanup report
@@ -67,12 +61,6 @@
 ## E_EMPTY
 
 - `E_EMPTY_RUN` — lib/corpus_parity: --results log had a parseable summary reporting zero tests — a zero-test run is not proof of comparability (GH1338 §10 MAJOR-3)
-
-## E_EXPLORE
-
-- `E_EXPLORE_BLOCKED` — phase_2_explore: subagent returned BLOCKED verdict, cannot proceed
-- `E_EXPLORE_NEEDS_CONTEXT` — phase_2_explore: subagent requested more context to proceed
-- `E_EXPLORE_NO_MARKER` — phase_2_explore: subagent output missing required completion marker
 
 ## E_FILE
 

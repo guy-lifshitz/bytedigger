@@ -6,7 +6,7 @@
 #
 #   RUN_ID      one id per task; reuse it on every run so finished phases and
 #               finished steps are served from the engine's caches
-#   PHASES_CSV  phase order, e.g. phase_1_discovery,phase_45_spec,phase_5_implement
+#   PHASES_CSV  phase order, e.g. phase_45_spec,phase_5_implement,phase_6_review
 #   CTX_JSON    WorkflowContext JSON file passed to every phase
 #   EVENT_LOG   event log; the task ledger lives in the same directory
 #

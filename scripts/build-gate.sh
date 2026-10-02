@@ -210,43 +210,7 @@ yaml_get() {
   printf '%s' "$val"
 }
 
-# has_nonempty_match <dir> <glob> — true if a non-empty file matching glob exists in dir.
-has_nonempty_match() {
-  local dir="$1" glob="$2" f
-  [ -d "$dir" ] || return 1
-  for f in "$dir"/$glob; do
-    if [ -s "$f" ]; then return 0; fi
-  done
-  return 1
-}
-
-gate_phase_4() {
-  yaml_field_equals "phase_4_architect" "complete" || true
-
-  # C3: scratchpad_stale check — at least one findings-*.md must exist in research/
-  local scratchpad_dir=""
-  scratchpad_dir=$(yaml_get "scratchpad_dir")
-  if [ -n "$scratchpad_dir" ]; then
-    local research_dir="$scratchpad_dir/research"
-    if ! has_nonempty_match "$research_dir" "findings-*.md"; then
-      # Mark stale in build-state.yaml
-      if grep -q "^scratchpad_stale:" "$BUILD_STATE" 2>/dev/null; then
-        local tmp_file="${BUILD_STATE}.tmp"
-        grep -v "^scratchpad_stale:" "$BUILD_STATE" > "$tmp_file" && mv "$tmp_file" "$BUILD_STATE"
-      fi
-      echo "scratchpad_stale: true" >> "$BUILD_STATE"
-      hard_block "scratchpad_stale: no non-empty findings-*.md found in $research_dir — Phase 2 exploration must complete before Phase 4"
-    fi
-
-    # bd#127: architect must have written a non-empty approach-*.md (soft, best-effort nudge)
-    if ! has_nonempty_match "$scratchpad_dir/architecture" "approach-*.md"; then
-      MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/architecture/approach-*.md")
-    fi
-  fi
-}
-
 gate_phase_45() {
-  [ "$COMPLEXITY" = "SIMPLE" ] && return 0
   yaml_field_equals "plan_review" "pass" || true
 }
 
@@ -282,8 +246,6 @@ gate_phase_55() {
 }
 
 gate_phase_5() {
-  [ "$COMPLEXITY" = "SIMPLE" ] && return 0
-  yaml_field_equals "phase_4_architect" "complete" || true
   yaml_field_equals "plan_review" "pass" || true
   yaml_field_equals "phase_5_implement" "complete" || true
   yaml_field_equals "opus_validation" "pass" || true
@@ -443,8 +405,7 @@ load_state
 MISSING_FIELDS=()
 
 case "$CURRENT_PHASE" in
-  0|1|2|3) exit 0 ;;
-  4)   gate_phase_4 ;;
+  0|1|2|3|4) exit 0 ;;  # 1-4 kept as pass-through: an in-flight build may still carry them
   4.5) gate_phase_45 ;;
   5)   gate_phase_5 ;;
   5.1) gate_phase_51 ;;

@@ -14,6 +14,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Removed
 
+- **Phases 1-4 dropped (bd#89 P2a).** The pipeline is now 0 -> 0.5 -> 4.5 -> 5 -> 6 -> 7 for every tier. The engine no longer registers `phase_1_discovery`, `phase_2_explore`, `phase_3_clarify` and `phase_4_architect` (10 workflows remain), and the `architect` and `explorer` agents, the `graph_source` module, the frozen short-circuit helpers in `skip_logic` and the `HAL_FROZEN_SHORT_CIRCUIT` flag are gone, with the six `E_CLARIFY_*` / `E_EXPLORE_*` error codes and the matching timeout-policy and model-role keys. `build-gate.sh` and `build-phase-gate.ts` no longer check `phase_4_architect` or `build-architecture.md`; `plan_review: pass` is now required for all tiers at 4.5 and 5. A resumed run whose recorded stage names a dropped phase fails with `KeyError` ("not registered"); restart it from `phase_45_spec`.
 - **One spec path, one review path (bd#89 P2b).** The engine no longer registers the `phase_45_spec_lite` and `phase_6_review_simple_fastpath` stages; SIMPLE builds use the full `phase_45_spec` and `phase_6_review` workflows. The `spec_lite.writer` and `spec_lite.reviewer` timeout-policy keys and the lite oracle member are gone. No flag or error code is removed. A resumed run whose recorded stage names a dropped stage now fails with `KeyError` ("not registered"); restart such a run from the full stages.
 
 ### Fixed

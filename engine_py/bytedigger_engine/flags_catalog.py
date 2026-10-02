@@ -114,12 +114,6 @@ FLAGS: dict[str, dict] = {
         "module": "lib/dbos_setup.py",
         "description": "HAL install-root override used to derive default paths.",
     },
-    "HAL_FROZEN_SHORT_CIRCUIT": {
-        "kind": "gate",
-        "default": "1",
-        "module": "skip_logic.py",
-        "description": "Kill-switch for GH531 frozen-spec short-circuit (phase_1 self-skip + SIMPLE relax); '0' restores pre-GH531 behavior.",
-    },
     "HAL_IN_SESSION_ENFORCES_TOOLS": {
         "kind": "flag",
         "default": None,

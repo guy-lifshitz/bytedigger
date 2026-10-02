@@ -63,7 +63,7 @@ echo "Scratchpad created: $SCRATCHPAD"
 
 `.bytedigger/` lives in project CWD — persists with worktree and survives reboots. Add to `.gitignore` if not already present. **Always store absolute path** in build-state.yaml so agents in any CWD (including worktrees) can locate it.
 
-**Inject prior learnings** (after scratchpad creation, before Phase 1):
+**Inject prior learnings** (after scratchpad creation, before Phase 4.5):
 ```bash
 SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[[:space:]]*//; s/^"//; s/"$//')
 KEYWORDS=$(grep '^task:' build-state.yaml | sed 's/^task:[[:space:]]*//; s/^"//; s/"$//' | tr ' ' '\n' | awk 'length>3' | tr '\n' ' ')
@@ -72,7 +72,7 @@ bash scripts/learning-store.sh inject "$KEYWORDS" > "${SCRATCHPAD}/research/prio
 # Remove empty prior-learnings.md (no learnings found)
 [ -s "${SCRATCHPAD}/research/prior-learnings.md" ] || rm -f "${SCRATCHPAD}/research/prior-learnings.md"
 ```
-If `learning.backend` is `none`, this exits immediately and writes no files. Agents in Phase 2+ will find `research/prior-learnings.md` if learnings exist.
+If `learning.backend` is `none`, this exits immediately and writes no files. Later agents will find `research/prior-learnings.md` if learnings exist.
 
 **Arm orchestrator guard** (tool enforcement — blocks orchestrator from editing code files):
 ```bash
@@ -81,9 +81,10 @@ touch .bytedigger-orchestrator-pid
 This file arms the orchestrator guard hook. Agent detection uses env vars (`CLAUDE_AGENT_ID`, `SIDECHAIN`, etc.) — agents are allowed, orchestrator is blocked. Cleanup: Phase 7 deletes this file alongside build-state.yaml.
 
 Workers write findings to scratchpad files instead of returning only in chat. This enables:
-- Phase 2 → Phase 4: architect reads `research/` findings directly
-- Phase 4 → Phase 5: implementer reads `architecture/` decisions
+- Phase 4.5 → Phase 5: implementer reads `specs/build-spec.md`
 - Phase 6: reviewers read `reviews/` for dedup
+
+Every tier runs the same flow: 0 -> 0.5 -> 4.5 -> 5 -> 6 -> 7. The tier only changes the knobs (spec length, reviewer count, timeouts).
 
 You are the orchestrator performing initial classification and pipeline setup for a /build run.
 
@@ -130,8 +131,7 @@ Runs after `skill-companion render` when that step exists, and before `build-sta
 Runs before the first write outside the scratchpad:
 
 - **TRIVIAL**: write a minimal `build-spec.md` (`Task | Files | Change`) first, run the gate, then make the direct edit.
-- **SIMPLE**: after its Phase 1 spec.
-- **FEATURE / COMPLEX**: after Phase 4.5.
+- **SIMPLE / FEATURE / COMPLEX**: after Phase 4.5 (the same spec path for every tier).
 
 Run `bash scripts/readiness check --stage start --spec ./build-spec.md`:
 
@@ -143,7 +143,7 @@ Every readiness STOP message prints the verdict line and, for `no_spec_record` /
 
 ## Complexity Classification
 
-- **TRIVIAL**: docs/config edit <10 lines → write `build-state.yaml` with `complexity: TRIVIAL` and `mode: AUTONOMOUS`, do direct edit, then proceed directly to Phase 7 (skips Phases 1–6; Phase 7 gate bypasses `review_complete` and `phase_5_implement` checks for TRIVIAL)
+- **TRIVIAL**: docs/config edit <10 lines → write `build-state.yaml` with `complexity: TRIVIAL` and `mode: AUTONOMOUS`, do direct edit, then proceed directly to Phase 7 (skips Phases 4.5–6; Phase 7 gate bypasses `review_complete` and `phase_5_implement` checks for TRIVIAL)
 - **SIMPLE**: bug fix ONLY — fixing broken behavior, 1-3 files, clear root cause, NO new functionality. Examples: null pointer fix, typo fix, broken import, test fix. If the task adds ANY new behavior or capability → it is NOT SIMPLE.
 - **FEATURE**: adds new functionality OR changes existing behavior, any file count, clear spec -> AUTONOMOUS mode, full pipeline. Examples: new endpoint, new UI component, new skill, refactoring a module, adding a config option. **DEFAULT for ambiguous cases** — when in doubt, classify as FEATURE, not SIMPLE.
 - **COMPLEX**: 4+ files, architecture/refactor/design, ambiguous scope, cross-cutting concerns -> SUPERVISED mode, full pipeline
@@ -171,7 +171,7 @@ Default: determined by complexity — SIMPLE/FEATURE → AUTONOMOUS, COMPLEX →
 
 ### Dependency Pre-Check
 
-After manifest detection, validate dependency health (MUST complete before Phase 1):
+After manifest detection, validate dependency health (MUST complete before Phase 4.5):
 
 1. **Lock file presence** — If manifest found, check for corresponding lock file:
    - package.json → package-lock.json OR yarn.lock OR pnpm-lock.yaml
@@ -198,8 +198,8 @@ After manifest detection, validate dependency health (MUST complete before Phase
 
 1. Project context check
 2. Classify complexity (TRIVIAL / SIMPLE / FEATURE / COMPLEX)
-3. If TRIVIAL: write `build-state.yaml` fields (`complexity: TRIVIAL`, `mode: AUTONOMOUS`), do the direct edit, then skip ahead to Phase 7 (do NOT run Phases 1–6)
-4. Create todo list with phases (SIMPLE skips Phases 2-4)
+3. If TRIVIAL: write `build-state.yaml` fields (`complexity: TRIVIAL`, `mode: AUTONOMOUS`), do the direct edit, then skip ahead to Phase 7 (do NOT run Phases 4.5–6)
+4. Create todo list with phases (all tiers run 0 -> 0.5 -> 4.5 -> 5 -> 6 -> 7)
 5. Determine and display mode: `Mode: [AUTONOMOUS|SUPERVISED] -- [reason] | Complexity: [level]`
 6. Look up model allocation from the Model Allocation table based on complexity level
 7. Display: `Project: [manifest] | Language: [lang] | Test cmd: [cmd] | Build cmd: [cmd] | Models: [allocation]`
@@ -207,7 +207,7 @@ After manifest detection, validate dependency health (MUST complete before Phase
 
 ## --dry-run Early Exit
 
-If `--dry-run` flag is set, display the following and STOP (do not proceed to Phase 1):
+If `--dry-run` flag is set, display the following and STOP (do not proceed to Phase 0.5):
 
 | Aspect | Value |
 |--------|-------|
@@ -279,11 +279,7 @@ At EVERY phase transition: update `current_phase`, append to `completed_phases`,
 
 | Phase | SIMPLE | FEATURE | COMPLEX |
 |-------|--------|---------|---------|
-| 1 Spec | Orchestrator | — | — |
-| 4.5 Spec | — | Sonnet | Sonnet |
-| 2 Explore | -- | Haiku | Sonnet |
-| 3 Clarify | -- | Haiku | Sonnet |
-| 4 Architect | -- | Opus | Opus |
+| 4.5 Spec | Sonnet | Sonnet | Sonnet |
 | 5.1 Red | Haiku | Sonnet | Opus |
 | 5.2 Validate | Opus | Opus | Opus |
 | 5.3 Green | Sonnet | Sonnet | Sonnet |
