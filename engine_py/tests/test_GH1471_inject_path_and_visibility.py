@@ -12,25 +12,15 @@ AC1-AC7 below. AC8 (no guard weakened) is already covered by the existing
 sibling suites (test_gh878_seam_rename.py, test_GH1468_inject_failure_diagnosability.py,
 test_09F250F4_inject_callout.py) and is deliberately NOT duplicated here.
 
-Module trap (OFI 74b135e9): engine_py/ AND engine_py/bytedigger_engine/workflows/ are BOTH on
-sys.path, so phase_05_inject exists as TWO distinct module objects — a bare
-top-level "phase_05_inject" (resolved because engine_py/bytedigger_engine/workflows/ is itself
-on sys.path) and "workflows.phase_05_inject" (resolved because engine_py/
-is on sys.path and workflows/ is a real package — workflows/__init__.py does
-`from .phase_05_inject import phase_05_inject_workflow`). run.py's real engine
-only ever touches the SECOND one. Every import/monkeypatch/assert below
-targets `workflows.phase_05_inject` explicitly (aliased locally as
-`phase_05_inject` for readability) — never the bare top-level name, which a
-different test module elsewhere in the suite may have already cached in
-sys.modules["phase_05_inject"] as an independent, un-patched copy.
+Single module object (bd#44): phase_05_inject exists only as
+bytedigger_engine.workflows.phase_05_inject (no top-level copy). Every
+import/monkeypatch/assert below targets that module (aliased locally as
+`phase_05_inject` for readability).
 
-config_provider.py and hal_config_provider.py each have exactly ONE module
-location (engine_py/bytedigger_engine/config_provider.py, engine_py/bytedigger_engine/hal_config_provider.py —
-neither is duplicated under engine_py/bytedigger_engine/workflows/), so a bare `import
-config_provider` / `import hal_config_provider` IS the single canonical copy
-that workflows.phase_05_inject itself binds via
-`from config_provider import get_config` — there is no second copy to
-diverge from, unlike phase_05_inject itself.
+config_provider.py and hal_config_provider.py likewise have exactly ONE module
+location (bytedigger_engine.config_provider, bytedigger_engine.hal_config_provider),
+which is the canonical copy that bytedigger_engine.workflows.phase_05_inject
+itself binds — there is no second copy to diverge from.
 
 §1i: every test below that installs a fake provider factory via
 config_provider.set_default_config_provider_factory restores it with

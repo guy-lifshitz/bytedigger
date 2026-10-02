@@ -6,8 +6,8 @@ ACs 1-12 (spec §3).
 Conventions (§1q / D1CF5FDF collectability guard, 81F97F3D no module-level
 sys.path mutation): ``lib.authored_boundary``, ``lib.run_allowlist``, and
 ``workflows.phase_5_implement`` (imported here as ``phase_5_implement`` —
-conftest.py's import-time singleton already puts the engine_py root +
-``workflows`` on sys.path) all exist TODAY, so they are imported at module
+conftest.py's import-time singleton already exposes engine_py/ (package
+parent) and tests/) all exist TODAY, so they are imported at module
 top level (collectable). The NEW symbols this ship adds —
 ``authored_boundary.compute_red_test_hashes``, ``authored_boundary.verify_red_test_hashes``,
 ``run_allowlist.parse_authorized_test_edits_with_reasons``,

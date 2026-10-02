@@ -37,7 +37,7 @@ from typing import Any
 
 import pytest
 
-# sys.path is already set by conftest.py (engine_py root + workflows/).
+# sys.path is already set by conftest.py (engine_py/ package parent + tests/).
 # Do NOT add sys.path.insert here (§1q / 81F97F3D gate).
 
 

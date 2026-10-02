@@ -32,7 +32,7 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 _ENGINE_PY_ROOT = HERE.parent
-# sys.path (engine_py root + workflows/) is already set by conftest.py's
+# sys.path (engine_py/ package parent + tests/) is already set by conftest.py's
 # conftest-import-time singleton. Do NOT add sys.path.insert here.
 
 from bytedigger_engine import config_provider  # noqa: E402

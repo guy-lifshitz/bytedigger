@@ -5,28 +5,13 @@ Per §4 (D1CF5FDF): `verdict_parse` imported INSIDE each test body so the
 file COLLECTS cleanly and test functions FAIL on assertions, never on
 collection-time ImportError.
 
-The conftest-singleton already adds engine_root + workflows to sys.path;
-`lib/` is added inside each test body that needs verdict_parse (no
-module-level sys.path.insert per §1q / 81F97F3D).
+The conftest exposes engine_py/ (package parent) and tests/; verdict_parse is
+imported via its package path bytedigger_engine.lib.verdict_parse (no sys.path
+manipulation per §1q / 81F97F3D).
 
 Agreement: EEFD480F · Wave A ACs: AC1, AC2, AC3, AC4, AC-P2 (bug fix).
 """
 from __future__ import annotations
-
-from pathlib import Path
-
-HERE = Path(__file__).parent
-ENGINE_ROOT = HERE.parent
-_LIB_PATH = str(ENGINE_ROOT / "bytedigger_engine" / "lib")
-
-
-# ─── helpers ─────────────────────────────────────────────────────────────────
-
-def _ensure_lib_path() -> None:
-    """Insert lib/ into sys.path inside a test body (not at module level)."""
-    import sys
-    if _LIB_PATH not in sys.path:
-        sys.path.insert(0, _LIB_PATH)
 
 
 # ─── AC1: P1 — standalone vs inline discrimination ───────────────────────────
@@ -34,7 +19,6 @@ def _ensure_lib_path() -> None:
 
 def test_ac1_p1_standalone_line_returns_token():
     """AC1: P1 standalone `VERDICT: SPEC_CHANGE` → SPEC_CHANGE."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "Final classification:\nVERDICT: SPEC_CHANGE\n"
@@ -48,7 +32,6 @@ def test_ac1_p1_standalone_line_returns_token():
 
 def test_ac1_p1_inline_only_returns_fallback():
     """AC1: inline-only `...VERDICT: ASSERTION_GAMING...` in prose → UNKNOWN."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "The reviewer noted VERDICT: ASSERTION_GAMING inline only.\n"
@@ -67,7 +50,6 @@ def test_ac1_p1_inline_only_returns_fallback():
 
 def test_ac2_p1_first_inline_second_standalone_returns_second():
     """AC2: first line has trailing `.` (inline), only second standalone → ASSERTION_GAMING."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     # "VERDICT: SPEC_CHANGE." — trailing period makes it NOT a standalone line
@@ -85,7 +67,6 @@ def test_ac2_p1_first_inline_second_standalone_returns_second():
 
 def test_ac2_p1_two_standalone_last_wins():
     """AC2: two genuine standalone VERDICT lines → LAST wins."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE\nsome prose\nVERDICT: LEGITIMATE_REFACTOR\n"
@@ -101,7 +82,6 @@ def test_ac2_p1_two_standalone_last_wins():
 
 def test_ac2_p1_bold_lowercase_tolerated():
     """AC2: `**Verdict: spec_change**` (bold + lowercase) → SPEC_CHANGE."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "Reviewed.\n**Verdict: spec_change**\n"
@@ -120,7 +100,6 @@ def test_ac2_p1_bold_lowercase_tolerated():
 
 def test_ac3_p3_token_under_heading():
     """AC3: token directly under `## Verdict` → that token."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     raw = "## Verdict\nSHIP"
@@ -135,7 +114,6 @@ def test_ac3_p3_token_under_heading():
 
 def test_ac3_p3_prose_token_before_heading_ignored():
     """AC3: prose REVISE before `## Verdict` does not pollute result."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     raw = "Discussion: avoid REVISE pattern.\n## Verdict\nSHIP\n"
@@ -150,7 +128,6 @@ def test_ac3_p3_prose_token_before_heading_ignored():
 
 def test_ac3_p3_codeblock_token_before_heading_ignored():
     """AC3: token in code block before `## Verdict` heading is ignored."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     raw = "```\nREVISE this\n```\n## Verdict\nSHIP\n"
@@ -165,7 +142,6 @@ def test_ac3_p3_codeblock_token_before_heading_ignored():
 
 def test_ac3_p3_pass_alias_maps_to_ship():
     """AC3: PASS under ## Verdict → SHIP via alias."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     raw = "## Verdict\nPASS"
@@ -180,7 +156,6 @@ def test_ac3_p3_pass_alias_maps_to_ship():
 
 def test_ac3_p3_mixed_case_header_and_token():
     """AC3: `## verdict\nship` (mixed-case header + token) → SHIP."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     raw = "## verdict\nship"
@@ -195,7 +170,6 @@ def test_ac3_p3_mixed_case_header_and_token():
 
 def test_ac3_p3_empty_input_returns_fallback():
     """AC3: empty string → fallback UNKNOWN."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     result = verdict_under_heading(
@@ -209,7 +183,6 @@ def test_ac3_p3_empty_input_returns_fallback():
 
 def test_ac3_p3_no_heading_returns_fallback():
     """AC3: no `## Verdict` heading → fallback UNKNOWN."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     result = verdict_under_heading(
@@ -226,7 +199,6 @@ def test_ac3_p3_no_heading_returns_fallback():
 
 def test_ac4_p4_returns_last_match_with_usable_end():
     """AC4: REPRODUCED: then REFUTED: then REPRODUCED: → last is REPRODUCED, .end() usable."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import find_last_standalone_marker  # noqa: PLC0415
 
     raw = "REFUTED:\nreason: x\n\nREPRODUCED:\nfile: a\n"
@@ -241,7 +213,6 @@ def test_ac4_p4_returns_last_match_with_usable_end():
 
 def test_ac4_p4_no_marker_returns_none():
     """AC4: no marker in text → None."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import find_last_standalone_marker  # noqa: PLC0415
 
     result = find_last_standalone_marker("no marker\n", ("REPRODUCED", "REFUTED", "UNVERIFIED"))
@@ -270,7 +241,7 @@ def test_ac_p2_prose_quoted_assertion_gaming_does_not_flip_standalone_spec_chang
     After GREEN routes through P1 → returns SPEC_CHANGE (FIXED).
     """
     import sys  # noqa: PLC0415
-    # workflows/ is already on sys.path via conftest singleton
+    # bytedigger_engine is importable via the conftest singleton (engine_py/ on sys.path)
     from bytedigger_engine.workflows.phase_6_fix_integrity import _parse_verdict  # noqa: PLC0415
 
     # The standalone line comes FIRST; then prose text quotes
@@ -313,7 +284,6 @@ def test_7c80a9ce_ac1_p1_plain_crlf_returns_token():
     Current: [ \\t]*$ does not match \\r before \\n → returns fallback UNKNOWN.
     After GREEN (_normalize): \\r\\n → \\n → match succeeds → SPEC_CHANGE.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE\r\n"
@@ -333,7 +303,6 @@ def test_7c80a9ce_ac2_p1_bold_crlf_returns_token():
     **VERDICT: SPEC_CHANGE**\\r\\n — existing test_ac2_p1_bold_lowercase_tolerated
     passes with LF; this covers the same emphasis pattern with CRLF ending.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "**VERDICT: SPEC_CHANGE**\r\n"
@@ -354,7 +323,6 @@ def test_7c80a9ce_ac3_p1_mixed_endings_last_crlf_wins():
     a) CRLF preamble line then LF-terminated APPROVED → APPROVED
     b) LF APPROVED first then CRLF SPEC_CHANGE last → last-wins = SPEC_CHANGE
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     # sub-case a: CRLF preamble, LF verdict
@@ -386,7 +354,6 @@ def test_7c80a9ce_ac4_p2_crlf_marker_invariant():
     P2 already uses ^\\s* (\\s includes \\r) so this passes pre-fix and
     post-fix — locks the contract against regression.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     raw = "STATUS: DONE\r\n"
@@ -402,7 +369,6 @@ def test_7c80a9ce_ac5_p3_crlf_heading_invariant():
     P3 already uses \\s* (which includes \\r) so this passes pre-fix — locks
     the heading-anchored contract against CRLF regression.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: PLC0415
 
     raw = "## Verdict\r\n\r\nAPPROVED\r\n"
@@ -428,7 +394,6 @@ def test_7c80a9ce_ac6_p4_crlf_marker_offset_contract():
     regex uses \\s*$ which includes \\r, so it matches CRLF. The body slice
     must remain coherent on the unnormalized raw.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import find_last_standalone_marker  # noqa: PLC0415
 
     raw = "REPRODUCED:\r\nrepro: did the thing\r\n"
@@ -446,7 +411,6 @@ def test_7c80a9ce_ac8_p1_lf_only_regression():
     Ensures _normalize (when added) does not break plain-LF inputs.
     Passes before AND after the fix.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: APPROVED\n"

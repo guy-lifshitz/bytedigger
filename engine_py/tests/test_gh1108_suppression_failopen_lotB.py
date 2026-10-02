@@ -12,7 +12,7 @@ OFIs shipped this lot:
 Conventions (§1q / D1CF5FDF collectability guard, 81F97F3D no module-level
 sys.path mutation): existing modules (phase_5_implement, telemetry_ctx,
 lib.authored_boundary, contracts) import at module top — conftest.py's
-import-time singleton puts engine_py root + workflows on sys.path. The
+import-time singleton exposes engine_py/ (package parent) and tests/. The
 NOT-YET-EXISTING symbol ``forbidden_tokens_for`` is resolved via
 getattr(...) INSIDE each test body; ``apply_surgical_patches`` (module exists,
 new behaviour absent) is imported inside each P7 body — so this file COLLECTS

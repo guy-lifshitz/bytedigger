@@ -254,11 +254,8 @@ def test_ac7_phase1_discovery_uses_get_claude_discovery(monkeypatch, tmp_path):
     monkeypatch.setattr(model_config, "_CONFIG_PATH", cfg_path)
     model_config.reset_cache()
 
-    # Import phase_1_discovery lazily inside the test to avoid module-level side-effects
-    # contaminating other tests (per §1q / FBB5EB25).
-    if "phase_1_discovery" in sys.modules:
-        del sys.modules["bytedigger_engine.workflows.phase_1_discovery"]
-    import bytedigger_engine.workflows.phase_1_discovery as phase_1_discovery  # noqa: E402  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
+    # Lazy package import (§1q / FBB5EB25); the model resolves at call time.
+    from bytedigger_engine.workflows import phase_1_discovery  # noqa: E402
 
     result = phase_1_discovery._default_llm_command()
     assert result == ["claude", "-p", "--model", "sonnet"], (
@@ -311,10 +308,8 @@ def test_ac8_phase2_explore_uses_get_claude_explore(monkeypatch, tmp_path):
     monkeypatch.setattr(model_config, "_CONFIG_PATH", cfg_path)
     model_config.reset_cache()
 
-    # Import lazily to avoid module-level side-effects (§1q / FBB5EB25).
-    if "phase_2_explore" in sys.modules:
-        del sys.modules["bytedigger_engine.workflows.phase_2_explore"]
-    import bytedigger_engine.workflows.phase_2_explore as phase_2_explore  # noqa: E402  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
+    # Lazy package import (§1q / FBB5EB25); the model resolves at call time.
+    from bytedigger_engine.workflows import phase_2_explore  # noqa: E402
 
     result = phase_2_explore._default_llm_command()
     assert result == ["claude", "-p", "--model", "sonnet"], (

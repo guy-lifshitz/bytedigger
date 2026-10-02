@@ -37,9 +37,6 @@ from typing import Any
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-LIB = ENGINE_PY / "bytedigger_engine" / "lib"
-if str(LIB) not in sys.path:
-    sys.path.insert(0, str(LIB))
 
 # ─── Production imports — symbols that exist pre-GREEN ────────────────────────
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402

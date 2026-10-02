@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 # Import the module at top level — conftest-import-time singleton already put
-# engine_py root + workflows on sys.path (§1q / 81F97F3D gate).
+# engine_py/ (package parent) and tests/ on sys.path (§1q / 81F97F3D gate).
 from bytedigger_engine.workflows import phase_5_implement as mod
 
 # NOTE: _resolve_frozen_pre_red_sha and _persist_pre_red_ref do NOT exist yet.

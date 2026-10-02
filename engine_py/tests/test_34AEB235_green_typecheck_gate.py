@@ -10,7 +10,7 @@ the test body (AttributeError at assert time, not ImportError at collect time �
 
 Import pattern: modules imported at top level (both collect fine today);
 not-yet-existing attrs accessed inside test body.  Mirrors the conftest-path-
-singleton pattern (conftest.py inserts engine_py root + workflows on sys.path
+singleton pattern (conftest.py exposes engine_py/ and tests/ on sys.path
 at import time) — no module-level sys.path manipulation here (§1q / 81F97F3D).
 """
 from __future__ import annotations

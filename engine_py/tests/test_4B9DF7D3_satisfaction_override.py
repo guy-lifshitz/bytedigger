@@ -33,7 +33,7 @@ All 13 tests MUST FAIL against current production code:
 
 Import discipline (D1CF5FDF §1q): ALL from-phase_6_review imports deferred to
 function bodies with # noqa: PLC0415 — file COLLECTS even before GREEN.
-Conftest puts engine root + workflows/ on sys.path at import time.
+Conftest exposes engine_py/ (package parent) and tests/ on sys.path at import time.
 """
 from __future__ import annotations
 

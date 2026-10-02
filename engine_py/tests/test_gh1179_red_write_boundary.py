@@ -28,7 +28,7 @@ import uuid
 from pathlib import Path
 
 # Conftest singleton (§1q, tests/conftest.py:24-37) already put engine_py
-# root, workflows/ and lib/ on sys.path — no module-level sys.path edits here.
+# exposed engine_py/ (package parent) and tests/ — no module-level sys.path edits here.
 from bytedigger_engine.workflows import phase_5_implement as p5_mod
 from bytedigger_engine.contracts import StepResult, WorkflowContext
 

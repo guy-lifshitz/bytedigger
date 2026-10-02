@@ -47,7 +47,7 @@ class _StubRunCtx:
 
 
 def _patch_telemetry(monkeypatch, log: _CaptureEventLog | None = None):
-    from bytedigger_engine import telemetry_ctx  # deferred — reached via workflows/ on sys.path
+    from bytedigger_engine import telemetry_ctx  # deferred package import
 
     stub = _StubRunCtx(log) if log is not None else _StubRunCtx(_CaptureEventLog())
     monkeypatch.setattr(telemetry_ctx, "get_current_run", lambda: stub)

@@ -28,8 +28,8 @@ import pytest
 def _ensure_anti_hallucination_on_path() -> None:
     """Function-scoped sys.path mutation (NOT module-level — §1q / 81F97F3D).
 
-    conftest.py's import-time singleton adds the engine_py root + lib/ +
-    workflows/ to sys.path, but not lib/plugins/anti_hallucination/ itself,
+    conftest.py's import-time singleton exposes engine_py/ (package parent) and
+    tests/ only, not lib/plugins/anti_hallucination/ itself,
     which sibling tests (test_semantic_verifier_W15.py,
     test_semantic_verifier_F60FED11.py) reach via a module-level
     sys.path.insert. That pattern is now flagged by suite_safety's

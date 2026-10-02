@@ -14,7 +14,7 @@ AC9  Happy path still emits red_files_drift(chosen="git"); recovery event absent
 AC10 All fallbacks absent AND git empty → E_RED_NO_MARKER still returned.
 
 Import idiom: plain `import bytedigger_engine.workflows.phase_5_implement as p5` (conftest-import-time
-singleton adds engine_py root + workflows to sys.path — §1q / 81F97F3D gate).
+singleton exposes engine_py/ (package parent) and tests/ — §1q / 81F97F3D gate).
 New symbols accessed via getattr() INSIDE test bodies so the file COLLECTS
 cleanly even before GREEN ships them (D1CF5FDF §1q-ext).
 """

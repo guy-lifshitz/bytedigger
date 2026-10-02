@@ -478,7 +478,7 @@ def test_ac9_fix_verdict_schema_unchanged_and_e_fix_blocked_present():
     import dataclasses
 
     # Import deferred inside test body (§1q/D1CF5FDF — import at assert time, not collect time)
-    # ENGINE_ROOT/lib is on sys.path so the package path is plugins.disk_truth.schema
+    # package path: bytedigger_engine.lib.plugins.disk_truth.schema
     from bytedigger_engine.lib.plugins.disk_truth.schema import FixVerdict  # noqa: E402
 
     assert dataclasses.is_dataclass(FixVerdict), (

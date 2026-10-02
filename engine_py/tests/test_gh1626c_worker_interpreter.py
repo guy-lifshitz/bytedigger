@@ -57,7 +57,7 @@ AC → test map
 §1q (assert-time RED, 81F97F3D): `lib.interpreter` does NOT exist yet.  It is
 reached ONLY inside test bodies via importlib, so collection never trips.  No
 module-level `sys.path` mutation and no `from conftest import` — the engine_py
-root and `workflows/` are already on sys.path via tests/conftest.py's
+root (package parent) and tests/ are already exposed via tests/conftest.py's
 import-time singleton.
 
 §1l (real side-effect / no mocked UUT): every fixture is a real on-disk layout

@@ -14,7 +14,7 @@ branch, adds `phase_8_post_deploy._cleanup_run_allowlist` (registered in
 D1CF5FDF: all not-yet-existing symbols are imported INSIDE each test body so the
 file collects cleanly today (module + symbols genuinely absent — verified by
 `grep -r run_allowlist SYSTEM/cli/build/engine_py/lib/` = 0 hits pre-GREEN).
-Conftest already inserts ENGINE_ROOT + ENGINE_ROOT/workflows onto sys.path
+Conftest already exposes engine_py/ (package parent) and tests/
 (§1q singleton) — no module-level sys.path manipulation here.
 """
 from __future__ import annotations

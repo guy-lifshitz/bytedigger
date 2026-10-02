@@ -10,7 +10,7 @@ Conventions (§1q / 81F97F3D no module-level sys.path mutation): imports at
 module top level only for symbols that already exist today
 (`phase_5_implement`, `lib.authored_boundary`, `lib.git_port`,
 `error_codes`, `contracts`) — conftest.py's import-time singleton already
-puts the engine_py root + `workflows` on sys.path. The new behaviour under
+exposes engine_py/ (package parent) and tests/ on sys.path. The new behaviour under
 test (the refusal check, `E_RED_TESTS_IN_EXISTING_FILE`) does not exist yet,
 so every test FAILS at assert time against real production code, never at
 collection time — EXCEPT AC7 and AC8a, which are regression pins that

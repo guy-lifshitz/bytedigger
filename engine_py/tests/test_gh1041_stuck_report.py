@@ -18,7 +18,7 @@ time. `lib.restart_governor`, `engine`, `contracts`, `event_log` already
 exist today (only new call-sites/behavior are added by GREEN) so they are
 imported at module level, matching the precedent in
 test_GH374_restart_governor.py / test_gh750_same_cycle_invalidation.py.
-Conftest already puts ENGINE_ROOT (+lib, +workflows) on sys.path (§1q
+Conftest already exposes engine_py/ (package parent) and tests/ (§1q
 singleton) — no module-level sys.path manipulation here.
 
 §1i: AC1/AC2/AC5 pre-stage deterministic governor/report state on disk

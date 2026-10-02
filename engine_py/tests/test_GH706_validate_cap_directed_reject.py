@@ -45,7 +45,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
-from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: E402  (import first — wires lib/plugins onto sys.path)
+from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: E402  (package import)
 from bytedigger_engine.lib.plugins.disk_truth import ValidationVerdict  # noqa: E402
 
 

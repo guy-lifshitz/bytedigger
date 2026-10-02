@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# conftest.py already wires engine_py root / workflows / lib onto sys.path
+# conftest.py already exposes engine_py/ (package parent) and tests/
 # (§1q / 81F97F3D conftest-import-time singleton) — no module-level
 # sys.path manipulation here.
 

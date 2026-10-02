@@ -26,8 +26,8 @@ from pathlib import Path
 
 import pytest
 
-# Import the module at top level — conftest-import-time singleton already put
-# engine_py root + workflows on sys.path (§1q / 81F97F3D gate). Both
+# Import the module at top level — conftest-import-time singleton already exposed
+# engine_py/ (package parent) and tests/ on sys.path (§1q / 81F97F3D gate). Both
 # `_commit_red_tests` and `_persist_pre_red_ref` already exist today (this is
 # a reorder bug, not a missing-symbol bug), so this import is safe at
 # collection time (D1CF5FDF).

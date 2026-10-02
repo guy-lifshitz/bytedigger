@@ -6,7 +6,7 @@ Class 3 SYSTEMATIC: unbounded restart without progress detection.
 D1CF5FDF: `lib.restart_governor` does not exist yet — every import of it is
 INSIDE the test body so this file COLLECTS cleanly (module genuinely absent,
 verified via Glob pre-write: no `restart_governor.py` under lib/). Conftest
-already puts ENGINE_ROOT + ENGINE_ROOT/workflows on sys.path (§1q singleton) —
+already exposes engine_py/ (package parent) and tests/ (§1q singleton) —
 no module-level sys.path manipulation here.
 
 No UUT mocking (stub-passability lint, §1l): governor functions and

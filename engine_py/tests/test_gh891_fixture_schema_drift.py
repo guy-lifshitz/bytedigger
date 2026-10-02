@@ -376,10 +376,6 @@ def test_ac11_data_model_ground_truth_axis_registered() -> None:
 def test_ac12_find_missing_ground_truth_three_cases() -> None:
     """AC12: find_missing_ground_truth — .db mention w/o header -> missing-ground-truth-ddl;
     header+fence -> []; header w/o fence & w/o opt-out -> empty-ground-truth-ddl."""
-    engine_root = Path(__file__).resolve().parent.parent
-    lib_dir = str(engine_root / "bytedigger_engine" / "scripts" / "lib")
-    if lib_dir not in sys.path:
-        sys.path.insert(0, lib_dir)
     from bytedigger_engine.scripts.lib.ground_truth_verifier import find_missing_ground_truth  # ImportError -> FAIL
 
     missing = find_missing_ground_truth(_NO_HEADER_SPEC_TEXT, "/dummy")

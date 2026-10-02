@@ -20,9 +20,6 @@ import sys
 from pathlib import Path
 
 _ENGINE_ROOT = Path(__file__).resolve().parent.parent
-_LIB_DIR = str(_ENGINE_ROOT / "bytedigger_engine" / "scripts" / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 if str(_ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(_ENGINE_ROOT))
 

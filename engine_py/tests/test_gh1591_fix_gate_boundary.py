@@ -21,12 +21,10 @@ silently degrading to a no_python_scope skip.
 C2 (chokepoint _persist_fix_feed): when the reviewer suspect rate exceeds its
 own threshold, suspect findings must be WITHHELD from the fix worker's feed.
 
-Module trap (OFI 74b135e9): `engine_py` root AND `engine_py/bytedigger_engine/workflows` are
-BOTH on sys.path, so `phase_6_review` and `workflows.phase_6_review` are two
-distinct module objects; the engine executes `workflows.phase_6_review`. This
-file imports and patches EXCLUSIVELY through `workflows.phase_6_review`
-(bound to the local name `p6`) and asserts that identity explicitly below —
-never the bare `phase_6_review` name.
+Single module object (bd#44): phase_6_review exists only as
+`bytedigger_engine.workflows.phase_6_review`. This file imports and patches
+through it (bound to the local name `p6`) and asserts that identity
+explicitly below.
 
 AC4, AC10, and AC12's pre-existing-behaviour clauses (verbatim honouring +
 single rev-parse) describe behaviour that already holds today — they must

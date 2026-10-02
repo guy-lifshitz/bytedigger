@@ -30,8 +30,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-# conftest.py (conftest-import-time singleton, §1q / 81F97F3D) already adds
-# engine_py root + engine_py/workflows to sys.path before this module loads.
+# conftest.py (conftest-import-time singleton, §1q / 81F97F3D) already exposes
+# engine_py/ (package parent) and tests/ on sys.path before this module loads.
 # No sys.path manipulation here.
 
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402

@@ -16,8 +16,8 @@ test body (never imported at module top level) so this file COLLECTS
 cleanly today and only FAILS at assertion time.
 
 No module-level `sys.path` manipulation here (81F97F3D / §1q) — this
-directory's `conftest.py` already registers the engine_py root, `lib/`, and
-`workflows/` dirs on `sys.path` at conftest-import time (singleton pattern),
+directory's `conftest.py` already registers engine_py/ (package parent) and
+tests/ on `sys.path` at conftest-import time (singleton pattern),
 so plain top-level imports of already-shipped symbols resolve fine.
 
 Do NOT implement the contract here — RED-only file.

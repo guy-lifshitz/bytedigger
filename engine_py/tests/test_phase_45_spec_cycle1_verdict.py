@@ -21,9 +21,8 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-for p in (str(ENGINE_ROOT), str(ENGINE_ROOT / "bytedigger_engine" / "lib")):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+if str(ENGINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(ENGINE_ROOT))
 
 from bytedigger_engine.workflows import phase_45_spec  # noqa: E402  (monkeypatch target for _emit_safe)
 from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
