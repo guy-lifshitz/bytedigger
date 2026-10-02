@@ -1,7 +1,8 @@
 """RED tests for bd#136 -- write guard follow-ups (Bash writes, stale main-checkout
 state, atomic state rewrites).
 
-Spec: docs/decisions/2026-10-02-bd136-write-guard-followups.md (FROZEN Rev 1), A1-A9.
+Spec: docs/decisions/2026-10-02-bd136-write-guard-followups.md (FROZEN Rev 2, section R2
+overrides sections 3-6), A1-A9.  Rev 2 phrase list: see test_a8_new_limit_phrases_stated.
 The real hook hooks/worker-write-guard.sh is run as a subprocess with JSON on stdin
 inside tmp_path project dirs. Nothing is imported from the repo; no sys.path changes.
 
@@ -167,8 +168,8 @@ def _forms(proj):
         ("cat BUILD-STATE.YAML", "build-state.yaml"),
         ("cat build-*.yaml", "build-state.yaml"),
         ("cat build-stat?.yaml", "build-state.yaml"),
-        ("cat *.yaml", "build-state.yaml"),
         ("cat build-*.json", "build-metadata.json"),
+        ("ls .bytedigger-*", ".bytedigger-orchestrator-pid"),
         ("touch .bytedigger-orchestrator-pid", ".bytedigger-orchestrator-pid"),
         ("rm -f .bytedigger-orchestrator-pid", ".bytedigger-orchestrator-pid"),
         ("cat 'build-state.yaml'", "build-state.yaml"),
@@ -207,6 +208,7 @@ def test_a2_forging_form_blocked_for_prefixed_agent(tmp_path, idx):
     "pytest -q 2>&1 | tee ./build-red-output.log",
     "pytest -q 2>&1 | tee -a ./build-green-output.log",
     "pytest -q 2>&1 | tee build-red-output.log  ",
+    "pytest tests/* 2>&1 | tee build-red-output.log",   # M3: bare glob is not a reference
 ])
 def test_a3_tee_exemption_allowed(tmp_path, cmd):
     proj = _project(tmp_path)
@@ -224,6 +226,10 @@ def test_a3_tee_exemption_allowed(tmp_path, cmd):
     ("pytest | tee build-red-output.log && echo done", "build-red-output.log"),
     ("pytest | tee build-red-output.log | tee build-state.yaml",
      ("build-state.yaml", "build-red-output.log")),
+    ("pytest -q | tee build-red-output.log build-state.yaml",
+     ("build-state.yaml", "build-red-output.log")),
+    ("pytest -q | tee build-red-output.log\nsed -i x build-state.yaml",
+     ("build-state.yaml", "build-red-output.log")),
 ])
 def test_a3_tee_exemption_not_applicable_blocked(tmp_path, cmd, name):
     proj = _project(tmp_path)
@@ -240,10 +246,26 @@ def test_a3_tee_exemption_not_applicable_blocked(tmp_path, cmd, name):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("cmd", ["pytest", "cat README.md", "grep state src/",
-                                 "python3 -m pytest tests/ -q", "git diff --stat"])
+                                 "python3 -m pytest tests/ -q", "git diff --stat",
+                                 # M3: globs without a literal build/bytedigger are not references
+                                 "pytest tests/* 2>&1 | tee build-red-output.log",
+                                 "rm -rf dist/*", "grep -r --include=*.json x .",
+                                 "find . -name '*.log'", "cat *.yaml"])
 def test_a4_unrelated_command_allowed(tmp_path, cmd):
     proj = _project(tmp_path)
     _allow(_run(proj, _bash(cmd)))
+
+
+@pytest.mark.parametrize("agent_id", [None, ""])
+@pytest.mark.parametrize("command", [None, "", 5, ["ls"], "MISSING"])
+def test_a4_m5_main_thread_malformed_command_allowed(tmp_path, command, agent_id):
+    # B1 is evaluated before B2: a main-thread Bash with a bad command is allowed
+    proj = _project(tmp_path)
+    ti = {} if command == "MISSING" else {"command": command}
+    p = {"tool_name": "Bash", "tool_input": ti}
+    if agent_id is not None:
+        p["agent_id"] = agent_id
+    _allow(_run(proj, p))
 
 
 @pytest.mark.parametrize("cmd", ["sed -i x build-state.yaml", "echo x > build-metadata.json",
@@ -349,15 +371,26 @@ def test_a7_current_phase_one_liner_uses_os_replace(tmp_path, fname):
 
 
 def test_a7_no_truncating_state_writes_in_phase_prompts():
-    open_w = re.compile(r"""open\(\s*['"]build-state\.yaml['"]\s*,\s*['"]w""")
+    # m1: a write/open('w') on a line that names the state file must target
+    # build-state.yaml.tmp (os.replace is pinned per one-liner / in phase-0 separately).
+    open_w = re.compile(r"""open\(\s*['"][^'"]*build-state\.yaml(\.tmp)?['"]\s*,\s*['"][wa]""")
     bad = []
     for f in sorted(PHASES.glob("*.md")):
         for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            if open_w.search(line):
-                bad.append(f"{f.name}:{n}: open(build-state.yaml,'w')")
-            if "write_text(" in line and "build-state.yaml" in line:
-                bad.append(f"{f.name}:{n}: write_text( on build-state.yaml")
+            writes = open_w.search(line) or "write_text(" in line
+            if not (writes and "build-state.yaml" in line):
+                continue
+            if "build-state.yaml.tmp" not in line:
+                bad.append(f"{f.name}:{n}: truncating write on build-state.yaml")
     assert not bad, "non-atomic state writes remain:\n" + "\n".join(bad)
+
+
+def test_a7_phase0_creation_and_worktree_rewrite_use_tmp_and_replace():
+    text = (PHASES / "phase-0-classify.md").read_text(encoding="utf-8")
+    assert "build-state.yaml.tmp" in text
+    assert "os.replace" in text
+    # the initial creation block must not open the state file itself for writing
+    assert not re.search(r"""open\(\s*['"]build-state\.yaml['"]\s*,\s*['"]w""", text)
 
 
 def _worktree_section():
@@ -377,6 +410,50 @@ def test_a7_worktree_step_no_cp_of_state_files():
     sec = _worktree_section()
     assert not re.search(r"\bcp\s+(-\S+\s+)*build-state\.yaml\b", sec)
     assert not re.search(r"\bcp\s+(-\S+\s+)*build-metadata\.json\b", sec)
+
+
+# M2: no cp of the state files anywhere in the phase prompts or commands/build.md
+COPY_FILES = sorted(PHASES.glob("*.md")) + [REPO_ROOT / "commands" / "build.md"]
+
+
+@pytest.mark.parametrize("f", COPY_FILES, ids=lambda p: p.name)
+def test_a7_m2_no_cp_of_state_files(f):
+    bad = [l.strip()[:100] for l in f.read_text(encoding="utf-8").splitlines()
+           if re.search(r"\bcp\b[^\n|;&]*\bbuild-(state\.yaml|metadata\.json)", l)]
+    assert not bad, f"{f.name}: state file is copied, not moved: {bad}"
+
+
+def test_a7_m2_build_md_worktree_line_uses_mv_for_both():
+    lines = [l for l in (REPO_ROOT / "commands" / "build.md").read_text(encoding="utf-8").splitlines()
+             if l.startswith("**Worktree:**")]
+    assert len(lines) == 1
+    assert re.search(r"\bmv\s+build-state\.yaml\b", lines[0])
+    assert re.search(r"\bmv\s+build-metadata\.json\b", lines[0])
+
+
+# M4: /build continue from the main checkout points at the worktree
+WT_GLOB = ".bytedigger/worktrees/*/build-state.yaml"
+WT_MSG = re.compile(r"Build state is in worktree [^\n]*?: cd there and run /build continue")
+
+
+def _resume_section():
+    text = (PHASES / "phase-0-classify.md").read_text(encoding="utf-8")
+    m = re.search(r"^## Resume Check\b[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    assert m, "phase-0-classify.md has no '## Resume Check' section"
+    return m.group(1)
+
+
+def test_a7_m4_phase0_resume_check_looks_in_worktrees_before_no_state():
+    sec = _resume_section()
+    assert WT_GLOB in sec
+    assert WT_MSG.search(sec)
+    assert sec.index(WT_GLOB) < sec.index("No build state found")
+
+
+def test_a7_m4_build_md_resumable_text_looks_in_worktrees():
+    text = (REPO_ROOT / "commands" / "build.md").read_text(encoding="utf-8")
+    assert WT_GLOB in text
+    assert WT_MSG.search(text)
 
 
 # ---------------------------------------------------------------------------
@@ -400,14 +477,32 @@ def test_a8_stale_worktree_state_limit_removed():
     assert "stale state after a worktree build" not in _guard_section()
 
 
-@pytest.mark.parametrize("phrase", ["name match", "not a sandbox", "computed name", "script file"])
-def test_a8_name_match_not_a_sandbox_limit_stated(phrase):
+def test_a8_synthesizer_has_no_bash_kept():
+    assert "the synthesizer has no bash" in _guard_section()
+
+
+def test_a8_intro_names_bash():
+    sec = _guard_section()
+    intro = sec.split("known limits", 1)[0]
+    assert "bash" in intro
+
+
+@pytest.mark.parametrize("phrase", [
+    "name match", "not a sandbox", "computed name", "brace expansion", "script file",
+    "hook-less backend", "shape, not content", "empty file only", "build-state.yaml.tmp",
+])
+def test_a8_new_limit_phrases_stated(phrase):
     assert phrase in _guard_section()
 
 
-@pytest.mark.parametrize("phrase", ["pretooluse plugin hooks", "hook-less backend", "build-gate.sh"])
-def test_a8_hookless_backend_limit_stated(phrase):
-    assert phrase in _guard_section()
+@pytest.mark.parametrize("phrase", ["api-token", "claude -p"])
+def test_a8_engine_py_bullet_reused_not_duplicated(phrase):
+    assert _guard_section().count(phrase) == 1
+
+
+def test_a8_hook_script_header_names_bash():
+    head = "\n".join((REPO_ROOT / "hooks" / "worker-write-guard.sh").read_text().splitlines()[:8])
+    assert "Bash" in head
 
 
 # ---------------------------------------------------------------------------
