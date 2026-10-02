@@ -4765,15 +4765,38 @@ def _tree_identical_to_head_for_paths(paths: list[str], git_cwd: str) -> bool:
     paying for a worktree checkout? A plain READ via `git_port.git_read` —
     never a mechanism that leaves a stack entry behind, and never the write
     port a `worktree add` failure fixture answers with a bare success.
+
+    bd#168 — `git diff` cannot see untracked files, so a second read
+    (`git ls-files --others --exclude-standard`) must also come back empty.
+    True only when both reads succeed and show nothing. Any git failure
+    (rc other than 0/1 on diff, rc != 0 on ls-files) or exception returns
+    False — the safe direction — after a `baseline_tree_identity_check_failed`
+    warning event. Never raises.
     """
+    def _fail(reason: str) -> bool:
+        _emit_safe("baseline_tree_identity_check_failed", {
+            "phase": 5, "step": "tree_identical_to_head_for_paths", "reason": reason,
+        }, severity="warning")
+        return False
+
     try:
         res = git_port.git_read(
             ["diff", "--quiet", "HEAD", "--", *paths],
             cwd=git_cwd, timeout=30,
         )
-    except Exception:
-        return False
-    return res.returncode == 0
+        if res.returncode == 1:
+            return False
+        if res.returncode != 0:
+            return _fail(f"diff rc={res.returncode}")
+        ls = git_port.git_read(
+            ["ls-files", "--others", "--exclude-standard", "--", *paths],
+            cwd=git_cwd, timeout=30,
+        )
+        if ls.returncode != 0:
+            return _fail(f"ls-files rc={ls.returncode}")
+        return not (ls.stdout or "").strip()
+    except Exception as e:  # noqa: BLE001
+        return _fail(str(e))
 
 
 def _compute_baseline_typecheck_count(

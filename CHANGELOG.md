@@ -125,6 +125,14 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   the review fields from `build-state.yaml` (new `scripts/ship_pr_text.py`; any helper failure falls
   back to the task string). `build-*-cycle*.md` and `.bytedigger-sessions.json` are now gitignored and
   deleted by Phase 7 State Cleanup.
+- **Phase 5 typecheck baseline sees untracked files (bd#168).** The clean-tree check in front of the
+  typecheck baseline (`_tree_identical_to_head_for_paths`) only ran `git diff --quiet HEAD`, which
+  cannot see untracked files, so a GREEN that only added a module with a type error was judged
+  "identical to HEAD", the baseline degraded to `None` and the errors became warnings. It now also
+  runs `git ls-files --others --exclude-standard` and reports "not identical" when anything is
+  untracked, so the baseline is computed (0 for a new module) and the delta gate can block. A git
+  failure or exception on either read also returns "not identical" and emits
+  `baseline_tree_identity_check_failed` (severity `warning`) instead of failing silently.
 
 ## [0.2.0] — 2026-09-30
 
