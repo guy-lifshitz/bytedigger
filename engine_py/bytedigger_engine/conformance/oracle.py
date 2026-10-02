@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any, Iterable, Protocol
 
 # ── `[bd8:7]` The mapping is DECLARED, under registry names, never inferred ──
-ORACLE_WORKFLOWS: frozenset[str] = frozenset({"phase_45_spec", "phase_45_spec_lite"})
+ORACLE_WORKFLOWS: frozenset[str] = frozenset({"phase_45_spec"})
 IMPLEMENTING_WORKFLOWS: frozenset[str] = frozenset({"phase_5_implement"})
 
 # `[bd8:1]` The document directory, relative to scratchpad_dir. External

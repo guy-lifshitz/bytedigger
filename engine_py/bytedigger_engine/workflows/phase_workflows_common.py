@@ -17,7 +17,7 @@ Do NOT add helpers to this file that are not in the 13-list — those belong in
 their respective phase module or a future Stage 1/2 package.  ONE exception,
 section 8a (hal#1674): the injection-input contract lives here because §4.1
 of that spec prescribes this module as its home and §1g requires a single owner
-for it — the three gates that consume it span phase_45_spec, phase_45_spec_lite
+for it — the three gates that consume it span phase_45_spec
 and phase_5_implement, so no one phase module can own it.  Section 8a's names
 are NOT re-exported by any phase module and must not be: every consumer imports
 `detect_injection_block` from here directly.

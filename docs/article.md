@@ -84,7 +84,7 @@ This is also why the process stays fixed rather than agentic. Agent teams negoti
 
 ## The engine
 
-The current core is a Python workflow engine, `engine_py/`, with zero runtime dependencies and no LLM vendor baked in. The pipeline diagram above is five boxes; underneath sit 21 workflow modules, phase 0 research through phase 8 post-deploy, including a spec-lite lane for small tasks, an integrity phase, and a review fastpath for simple changes.
+The current core is a Python workflow engine, `engine_py/`, with zero runtime dependencies and no LLM vendor baked in. The pipeline diagram above is five boxes; underneath sit 14 workflow modules, phase 0 research through phase 8 post-deploy, with one spec path and one review path for every task size.
 
 State is an append-only JSONL event log. There is no mutable state file to drift or race; the engine derives the current state of a build by replaying its events. It writes phase and step sentinels on success only, so if the process dies mid-build -- crash, laptop restart, network drop -- the run resumes from the log instead of starting over, and a sticky error can never replay as progress. A run never pays for a completed model call twice. Cost and token rollups per run, phase, and cycle come from the same log.
 

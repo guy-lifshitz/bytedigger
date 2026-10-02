@@ -3688,7 +3688,7 @@ def _render_satisfaction_findings(fixes: list, fallback: str) -> str:
 @functools.cache
 def _fix_step_index(workflow_name: "str | None") -> "int | None":
     """Index of the fix step in the workflow that is running, or None when that
-    workflow has no fix step (the SIMPLE fast path)."""
+    workflow has no fix step."""
     if workflow_name != "phase_6_review":
         return None
     names = [s.name for s in phase_6_review_workflow().steps]

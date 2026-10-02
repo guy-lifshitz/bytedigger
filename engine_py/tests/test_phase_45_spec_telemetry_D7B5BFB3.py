@@ -398,8 +398,37 @@ def test_ac10_abort_not_emitted_on_revise_retry(
         f"got {len(abort_events)} events; all: {[(et, p) for et, p in captured]}"
     )
 
-# AC11 (exact n_findings_unresolved payload, dropped SIMPLE-only gate) and AC12
-# (legacy cycle2-abort event, same gate) retired by bd#89 P2b. The full path's
-# revise payload carries extra keys (findings_source) and has its own tests.
+# AC12 (legacy cycle2-abort event, dropped SIMPLE-only gate) retired by bd#89 P2b.
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AC11 — phase_45_spec_revise payload (subset: full path adds findings_source)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("module, write_fn, gate_fn, phase_label", BOTH_PHASES)
+def test_ac11_revise_payload_carries_unresolved_count(
+    module, write_fn, gate_fn, phase_label, tmp_path, monkeypatch
+):
+    """AC11 (re-pointed by bd#89 P2b): the revise event payload is a superset of
+    {phase, cycle, n_findings_unresolved}; the full path adds findings_source."""
+    raw = (
+        "## Verdict\nREVISE\n## Findings (structured)\n```json\n"
+        '[{"id":"1","type":"missing","evidence":"a","required_action":"b"},'
+        '{"id":"2","type":"missing","evidence":"c","required_action":"d"},'
+        '{"id":"3","type":"missing","evidence":"e","required_action":"f"}]\n```\n'
+    )
+    prev = _make_gate_prev(tmp_path, VERDICT_REVISE, cycle=1, raw_review=raw)
+    captured = _patch_emit(monkeypatch, module)
+
+    gate_fn(None, prev)
+
+    events = _events_of(captured, "phase_45_spec_revise")
+    assert len(events) == 1, f"[{phase_label}] expected 1 phase_45_spec_revise, got {captured}"
+    payload = events[0]
+    expected = {"phase": phase_label, "cycle": 1}
+    assert {k: payload.get(k) for k in expected} == expected, payload
+    assert payload.get("n_findings_unresolved") == 3, payload
+    assert payload.get("findings_source") == "structured", payload
 
 

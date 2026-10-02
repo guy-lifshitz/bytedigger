@@ -1,5 +1,5 @@
-"""Single source of truth for pure helpers shared between phase_45_spec and
-phase_45_spec_lite.
+"""Single source of truth for pure helpers used by the phase_45_spec
+retry cycle.
 
 Extracted by CF480CAE (2026-06-16) — parent SYSTEMATIC DC87240D (build-engine
 architecture hardening / SSOT-01 closure).

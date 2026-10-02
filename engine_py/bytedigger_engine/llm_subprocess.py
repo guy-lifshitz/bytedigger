@@ -1821,7 +1821,7 @@ def invoke_llm_subprocess(
         Falls back to ``step_name`` when ``gate_label`` is None.
 
         Single-point enforcement closes the N+1-opt-in pattern that previously
-        let phase_5_integrity (haiku default) and phase_45_spec_lite silently
+        let phase_5_integrity (haiku default) and other workflows silently
         skip the gate. ``run_ctx`` is read from ``telemetry_ctx.get_current_run()``
         inside the chokepoint, so the ``hard_gate_refused`` event always fires
         when an active run is set — fixing HIGH #2 (workflows previously passed

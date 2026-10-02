@@ -32,10 +32,9 @@ AC10  autouse fixture `_no_claude_no_api_key` + test_ac10_environment_has_no_cla
 AC11  test_ac11_configuration_doc_has_no_fastpath_or_simple_rewrite_needles
 
 Expected RED today: AC1, AC1b, AC2 (files/importable/manifest), AC3, AC4, AC5
-(descriptions), AC7, AC9 (corpus + counts are edited in this RED commit, but the
-seven whole-file retirements are still on disk until the orchestrator `git rm`s
-them), AC11.  Green today by design: the guards labeled above, AC8 (a)(b)(c),
-AC10, the GAP-4 port section.
+(descriptions), AC7, AC11.  Green today by design: the guards labeled above, AC8 (a)(b)(c),
+AC9 (corpus and counts are edited in this RED commit and the seven whole-file
+retirements are removed by the orchestrator), AC10, the GAP-4 port section.
 
 Section "GAP-4 port" re-homes the retired lite step5 telemetry cases onto the
 kept spec path (`phase_45_spec._write_review_doc`).  They PASS today (the

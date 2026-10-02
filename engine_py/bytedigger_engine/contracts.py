@@ -355,7 +355,7 @@ class LoopStepContract:
     """Declarative loop primitive (E2440DB5).
 
     Mirrors Archon's loop-node schema (packages/workflows/src/schemas/loop.ts).
-    One declarative loop replaces hand-rolled cycle logic across phase_45_spec_lite
+    One declarative loop replaces hand-rolled cycle logic across phase_45_spec
     (cycle-2 spec rewrite), phase_5_implement (RED→GREEN retry), and phase_6_review
     (iteration). Termination order each iteration: until_marker → until_bash →
     max_iterations.
