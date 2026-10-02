@@ -1,6 +1,6 @@
 # bd#147: the R3.2 boundary, and the file-sourced prompt segments that cross it
 
-**Status:** r2 (gate r1 REJECTED: 3 MAJOR + 4 MINOR + 1 NIT, `2026-10-02-bd147-gate-r1.md`; r2 closes all, disposition in §9) · **Tier:** 2 (one shared helper extended, three producers, three dispatch sites, one
+**Status:** r3 (gate r2 REJECTED: 1 MAJOR + 4 MINOR + 1 NIT, `2026-10-02-bd147-gate-r2.md`, spec-text only; r3 closes all, §10. r2: gate r1 REJECTED, 3 MAJOR + 4 MINOR + 1 NIT, §9) · **Tier:** 2 (one shared helper extended, three producers, three dispatch sites, one
 spec section; Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `llm_subprocess._injection_refusal` stays the only R3.2 check; on the declare side
 `phase_workflows_common._declared_injections` stays the only reader of a builder's declarations (bd#141 4(d)). This lot widens
@@ -28,10 +28,11 @@ the host side (standards context) is deferred for exactly that reason (§6).
    | S5 | facts pack | `facts_pack.facts_block` / `render` (`:301`) | **engine-computed** from repo files, ledger and graph (possibly served from the engine's own cache file `:356-359`); rendered with `FACTS_HEADER`, a per-audience lead, line cap with `(truncated)` | engine schema over extracted fields; individual fields (e.g. KNOWN REDS ledger cells, `:326-327`) are verbatim, no file body or slice is | spec `:1191`, p5 `:1356/:6439/:7313`, p6 `:838` |
    | S6 | `task_description` | `_task_description.normalize_task_description` (`:17`) | `org_config` string, `.strip()` | verbatim under `TASK CONTEXT:` / `FEATURE REQUEST:` | `phase_1_discovery:378-390` only (spec_lite does **not** inline it; bd#147's text is stale on that point) |
    | S6′ | `ctx.question` | run input | run parameter | verbatim, many prompts | many |
-   | S7 | prior-step findings | `prev.data["findings"]` | **model output** of an earlier invocation, held in memory (the structured-findings sidecar read back from disk at `phase_45_spec:1051` is a separate segment, S10) | verbatim after an engine header | spec `:1273`, spec_lite `:425`, RED `:1442`, fix `:2436` |
+   | S7 | prior-step findings | `prev.data["findings"]` | **model output** of an earlier invocation, held in memory | verbatim after an engine header | spec `:1273`, spec_lite `:425`, RED `:1442`, fix `:2436` |
    | S8 | semantic-verifier findings | `semantic_verifier.py:129` | reviewer **model output** fields (`severity/file/line/quote/claim`) | interpolated | dispatch `:180` |
-   | S9 | directed-repair findings | `directed_repair._render_findings` (`:232`) | **engine** (deterministic gate) fields; `evidence` may quote the artifact verbatim (`:241-243`) | rendered `- {path}:{line} [{rule}]: {evidence}` | `:279` |
-| S10 | scratchpad round-trips (gate r1 F1) | `phase_45_spec:1064` reads `spec.md` → `build_surgical_revise_prompt` (`:1082`, `surgical_revise.py:85-86`), `build_delta_retry_prompt` (`:1113`), `_restricted_writer_prompt` (`:1250-1257`); `load_findings_thread` (`:1051`, `findings_sidecar.py:36-37`); spec_lite review doc + spec (`:388`, `:397-402`, `:570-573`) | files in the run's scratchpad, written earlier in the run (by a model or by the engine from model output) | whole file bodies | those builders; **not migrated by this lot** (§6) |
+   | S7′ | findings sidecar | `findings_sidecar.load_findings_thread` (`:34-40`) → `phase_45_spec:1051`, rendered by `surgical_revise.py:57` | **model-output** fields, JSON-parsed from a scratchpad record | fields re-rendered under the engine's schema, no file body | surgical prompt |
+| S9 | directed-repair findings | `directed_repair._render_findings` (`:232`) | **engine** (deterministic gate) fields; `evidence` may quote the artifact verbatim (`:241-243`) | rendered `- {path}:{line} [{rule}]: {evidence}` | `:279` |
+| S10 | scratchpad round-trips (gate r1 F1) | `phase_45_spec:1064` reads `spec.md` → `build_surgical_revise_prompt` (`:1082`, `surgical_revise.py:85-86`), `build_delta_retry_prompt` (`:1113`), `_restricted_writer_prompt` (`:1250-1257`); spec_lite review doc + spec (`:388`, `:397-402`, `:570-573`) | files in the run's scratchpad, written earlier in the run (by a model or by the engine from model output) | whole file bodies | those builders; **not migrated by this lot** (§6) |
 
 3. **Survey scope and method (gate r1 F1).** The table covers every segment bd#147 names, plus every file read whose text reaches
    a prompt inside the functions this lot edits (`_build_spec_prompt` and its siblings in `phase_45_spec.py`, `_build_fix_prompt`,
@@ -54,29 +55,41 @@ The rule is **structural** (gate r1 F2): it asks what *unit* of read bytes is in
   or the **whole stdout of a subprocess**, read at build time and inlined as one unit. The writer of the file does not matter:
   an operator's file, a repo file a model edited, and a scratchpad file a model wrote earlier in this run are all class I.
   These bytes are not fixed anywhere else in the event log, and a declaration `{path, sha256(inlined text)}` is true about them
-  whoever wrote them. **Every class-I segment is required to be declared on `injections`; the ones not yet declared are listed
-  by name in §6 with a follow-up issue, and nothing else is exempt.** Declared here: role template (bd#141 4(d)), S1, S2, S3.
-  Not yet declared: S4, S10.
-- **Class E — engine-authored (R3.1).** Text the engine's code composes under **its own schema**, by extracting named fields,
-  tokens, rows or lines and re-rendering them, each field bounded. Individual fields may be verbatim (a ledger cell, a gate's
-  `evidence` line, a path). A field is not a file body or a slice, so it is not class I. An engine-written cache of the engine's
-  own computation (the facts-pack cache) is class E. Members: S5, S9, and every wrapper, header, marker and instruction around a
-  class-I segment. R3.1's whole-prompt hash covers them.
+  whoever wrote them. **Every class-I segment is required to be declared on `injections`. A class-I segment not yet declared
+  is either named in §6 with its follow-up issue, or it is unsurveyed and falls under the inventory issue #150. No class-I
+  segment is exempt.** Declared here: role template (bd#141 4(d)), S1, S2, S3. Not yet declared: S4 (#151) and S10 (#150).
+- **Class E — engine-authored (R3.1).** Text the engine's code composes under **its own schema**. It extracts named fields,
+  tokens, rows or lines and re-renders them. The fields' **values** come from the engine's own computation or from repo and
+  operator sources. A field may be verbatim, such as a ledger cell, a gate's `evidence` line or a path. A field may also be
+  unbounded: S9's `evidence` is unbounded (`directed_repair.py:241-243`, gate r2 N3), so size is not part of the test. A field
+  is not a file body or a slice, so it is not class I. The facts-pack cache is class E because its field values are engine
+  computation, not because the engine wrote the file. Members: S5, S9, and every wrapper, header, marker and instruction
+  around a class-I segment. R3.1's whole-prompt hash covers them.
+- **Parsed records are classified by the origin of their field values (gate r2 N1).**
+  - When the engine parses a structured record and re-renders its fields, the rendered text takes the class of where those
+    values came from. Which process wrote the record file does not matter.
+  - Engine-computed values or values taken from repo or operator sources: class E.
+  - Values that are a model's output: class M.
+  - This is the same structural test applied one level down. A whole body is classified by where it is read from; a re-rendered
+    field is classified by what produced its value.
 - **Class P — run parameters (R3.1).** Values the invoker passes to the run: S6′ `ctx.question` and `org_config` strings
   inlined as text, S6 `task_description`. They are the principal's instruction, not content injected into it. A `source_id`
   could only be synthetic (`org_config.task_description`). Its digest would be the digest of a substring of a prompt that
   R3.1 already hashes, so declaring it adds no information. A file **path** in `org_config` is not a class-P value. The file it
   names is class I.
-- **Class M — carried model output (R3.1, declared limit).** Text a previous model invocation returned, passed along **in memory**
-  in `prev.data` and never read back from a file: S7, S8. Once the same text has been written to a file and read back, the read
-  is a class-I file body (S10). Gate r1 F1 proposed widening M to cover scratchpad round-trips instead. That would classify by
-  writer, which this section rules out, and it would split S3 into two classes at a single site, because `artifact_path` is
-  `spec.md` in the scratchpad for the phase_45 callers (`phase_45_spec.py:1847` and siblings) and a repo file for the phase_5
-  callers (`phase_5_implement.py:3866`). It is not file-sourced. It is also not attested anywhere, because the event log records no output.
-  Declaring it here would attest a provenance the log cannot back. **Declared limit:** a prompt injection that reaches a model
-  through an earlier model's output is covered only by R3.1's hash of the later prompt. **Re-open criterion:** the event log
-  records an output digest per invocation (follow-up issue, §6). Then a class-M block can carry `source_id =
-  "invocation:<step_name>:<invocation id>"` and a digest a consumer can match.
+- **Class M — carried model output (R3.1, declared limit).** Text a previous model invocation returned, reaching the prompt
+  as values. It is either carried in memory in `prev.data` (S7, S8) or held in the fields of a parsed record and re-rendered by the
+  engine (S7′, the findings sidecar).
+  - A **file body or slice** that a model wrote, read back and inlined whole, is class I (S10), not class M.
+  - Class M is not attested anywhere, because the event log records no model output. Declaring it would attest a provenance
+    the log cannot back.
+  - **Declared limit:** a prompt injection that reaches a model through an earlier model's output is covered only by R3.1's
+    hash of the later prompt.
+  - **Re-open criterion:** the event log records an output digest per invocation (#152). Then a class-M block can carry
+    `source_id = "invocation:<step_name>:<invocation id>"` and a digest a consumer can match.
+  - *Why M is not widened to cover scratchpad round-trips (gate r1 F1, declined; upheld by gate r2):* that would classify by
+    writer. It would also put one site into two classes: `artifact_path` is the scratchpad `spec.md` for the phase_45 callers
+    (`phase_45_spec.py:1039`, `:1847` and siblings) and a repo test file for the phase_5 callers (`phase_5_implement.py:3866`).
 
 ### §2.2 Chunk rule (how a class-I segment is declared)
 
@@ -120,7 +133,14 @@ The re-open criterion is unchanged.
   - **Elements fail closed (gate r1 F5).** Inside a bound record, each element becomes
     `InjectedBlock(el.get("source_id"), el.get("content"))` when it is a dict, and `InjectedBlock(None, None)` when it is not.
     A malformed element is therefore passed to the chokepoint, which refuses it with `E_INJECT_UNATTRIBUTED`. It is never
-    dropped. The helper does not raise on any input.
+    dropped. **The new branch does not raise on any input** (gate r2 N4). The role-template branch is unchanged and keeps
+    today's behaviour, including its `KeyError` on a role record that is missing a key (`phase_workflows_common.py:602`).
+  - **Binding invariant (gate r2 N5, normative).** Every dispatch site that passes `injections=_declared_injections(d)`
+    dispatches exactly `d["prompt"]`. At `6dd7ff4` all 22 such sites do so (gate r2 audit). A future site that alters the prompt
+    after its builder (a suffix, a retry nonce) must either re-bind the record over the altered prompt or declare nothing
+    extra. If it does neither, the binding is false. The recorded blocks would still be contained, because the prompt's original
+    text survives a suffix, but the binding would rest on a prompt that was never sent. AC6 enforces the invariant for the three
+    producers in this lot. For any later site, the enforcement is this rule plus review.
   - **What the ignore branch hides (gate r1 F4).** A builder that binds its record to the wrong prompt (for example, it hashes
     before the standards block is prepended) hits the same branch as a forwarded record. It loses its declarations without a
     refusal. No event is emitted, because forwarded records reach this branch on most downstream steps and an event there
@@ -219,18 +239,18 @@ The RED file is `engine_py/tests/test_bd147_injected_segments.py`. It reuses the
 | drop malformed elements instead of passing them to the chokepoint | AC8 (elements) |
 | declare `""` chunks | AC10 |
 
-## §6 Not in scope (declared; follow-ups filed with this PR)
+## §6 Not in scope (declared; follow-ups #150, #151, #152)
 
 - **S4 standards context.** It is class I, but its sources are chosen by a **host** shim the engine cannot see. A `source_id`
   naming the shim invocation would attribute the bytes to a process rather than to the files that shaped them. The shim has
-  to report its sources (a host-side contract, seam §7.4), so this gets its own issue.
-- **S10 and any further class-I hit (gate r1 F1).** One follow-up issue does the exhaustive inventory of `workflows/` and `lib/`
+  to report its sources (a host-side contract, seam §7.4), so this gets its own issue: #151.
+- **S10 and any further class-I hit (gate r1 F1), #150.** It does the exhaustive inventory of `workflows/` and `lib/`
   (§1.3) and migrates every class-I segment it finds. S10 is the known starting list. These segments carry the same R3.2
   status as the role template had before bd#141 4(d): undeclared, covered only by R3.1.
-- **S7/S8 class M.** They need output attestation first (§2.1). That is a separate issue against R3.1/R3.2.
+- **S7/S7′/S8 class M, #152.** They need output attestation first (§2.1).
 - S5, S6, S6′ and S9 are classes E and P, so nothing is migrated. The decision is recorded in the spec.
 - The label value for R3.2 in `AUTHORSHIP_SPEC.md` (`injections-channel-only`) is unchanged. Its note is updated to cite the
-  class boundary and the two follow-ups.
+  class boundary and the three follow-ups (#150, #151, #152).
 
 ## §7 Scope (files)
 
@@ -239,10 +259,11 @@ The RED file is `engine_py/tests/test_bd147_injected_segments.py`. It reuses the
 - `engine_py/bytedigger_engine/workflows/phase_6_review.py`: `_inscope_test_files_inline`, `_build_fix_prompt` data, the fix
   invoke `extra_data`.
 - `engine_py/bytedigger_engine/lib/directed_repair.py`: `injections=` at the dispatch.
+- `engine_py/bytedigger_engine/conformance/attest.py`: the R3.2 comment above `REQUIREMENT_LABELS` (`:108-109`) is updated to a pointer to AUTHORSHIP_SPEC §4. It is a comment only; the label value is unchanged (gate r2 N6).
 - `engine_py/bytedigger_engine/conformance/AUTHORSHIP_SPEC.md` §4 and the §3 label note.
 - `engine_py/tests/test_bd147_injected_segments.py` (RED, new). `CHANGELOG.md`.
 
-**Files NOT in scope (§1v):** `llm_subprocess.py` (the chokepoint is unchanged), `conformance/attest.py`, `_standards_context.py`,
+**Files NOT in scope (§1v):** `llm_subprocess.py` (the chokepoint is unchanged), `conformance/attest.py` code (only its comment changes), `_standards_context.py`,
 `facts_pack.py`, `semantic_verifier.py`, `phase_1_discovery.py`, and every other dispatch site. The other sites keep calling
 `_declared_injections(prev.data)`. For them the new branch is inert, because no other builder writes `injected_blocks`, and
 AC7 covers the case where the record is forwarded to them.
@@ -254,9 +275,15 @@ AC7 covers the case where the record is forwarded to them.
   intended posture. AC6 pins the current bytes, so such an edit reddens in CI before it ships.
 - **Data-dict size (gate r1 F7).** The record holds full chunk content: up to 75 000 chars for S1, and N × 20 000 chars for S2.
   Each downstream `{**prev.data}` spread forwards it by reference, not by copy, until a builder replaces the data dict. It is
-  never written to the event log. A step that serialises its whole data dict would write it to disk; this lot does not audit
-  for such steps, and the same holds for `prompt` today, which carries the same bytes. The bytes were already in memory as part of
-  `prompt`, so the added cost is one more reference to text that is already held.
+  never written to the event log.
+  - In memory, the cost is one more reference to text `prompt` already holds.
+  - **On disk it is a real copy (gate r2 N2).** Each step's output is persisted as a DBOS `operation_outputs` row, so every
+    step whose output still carries the record stores the chunk text again, next to the `prompt` that already contains it.
+    That is roughly ×2 the S1/S2 bytes per persisted step output that carries the prompt.
+  - The cost is bounded per row: at most 75 000 chars for S1, and N × 20 000 chars for S2, where N is the number of in-scope
+    test files.
+  - It is accepted for v1. Storing offsets into `prompt` instead of content would remove the copy. The re-open criterion is a
+    measured `operation_outputs` growth that someone acts on.
 - Attestation events grow by one `{source_id, sha256}` per chunk. The event payload size is bounded by the number of files, not
   by their size.
 
@@ -272,3 +299,14 @@ AC7 covers the case where the record is forwarded to them.
 | F6 MINOR, empty-chunk rule | AC10 added. |
 | F7 MINOR, size | §8 extended. |
 | F8 NIT | AC6 wording changed to containment, the S1 dispatch cite is now `:1361`, and AUTHORSHIP_SPEC :461-462 is updated. |
+
+## §10 Gate r2 disposition
+
+| Finding | Disposition |
+|---|---|
+| N1 MAJOR, findings sidecar in two classes | Parsed records are now classified by the origin of their field values (§2.1). The sidecar is a new row, S7′, in class M, and it is removed from S10. The facts-pack cache's class-E reason is restated as value origin, so it no longer rests on who wrote the file. AUTHORSHIP_SPEC is mirrored. |
+| N2 MINOR, DBOS persistence | §8 now states the on-disk copy per persisted step output, its bound, and the re-open criterion. |
+| N3 MINOR, "each field bounded" | Dropped. Size is explicitly not part of the class-E test. |
+| N4 MINOR, "does not raise" | Narrowed to the new branch. The role branch's existing `KeyError` is stated. |
+| N5 MINOR, binding invariant unwritten | Written as normative in §3.1, with its enforcement. |
+| N6 NIT | "Listed by name" is reconciled with the inventory issue. Follow-ups #150, #151, #152 are cited. The `attest.py:108` comment is added to GREEN scope. |
