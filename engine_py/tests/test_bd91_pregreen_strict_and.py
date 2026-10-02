@@ -1160,7 +1160,7 @@ def test_ac29_verdict_verify_half_parses_bare_acceptance_and_documents_divergenc
     assert verdict_verify.parse_spec_ac_ids(_SPEC_BARE_ACCEPTANCE) == {"AC1", "AC2"}
     doc = (verdict_verify.parse_spec_ac_ids.__doc__ or "").lower()
     assert "phase_6_review" in doc
-    assert any(w in doc for w in ("diverge", "differ", "расхожд")), doc
+    assert any(w in doc for w in ("diverge", "differ", "\N{CYRILLIC SMALL LETTER ER}\N{CYRILLIC SMALL LETTER A}\N{CYRILLIC SMALL LETTER ES}\N{CYRILLIC SMALL LETTER HA}\N{CYRILLIC SMALL LETTER O}\N{CYRILLIC SMALL LETTER ZHE}\N{CYRILLIC SMALL LETTER DE}")), doc
 
 
 def test_ac29_phase6_half_is_unchanged_shield():
