@@ -31,6 +31,9 @@ equality. Every import below is therefore bound to an underscore-prefixed name.
 # both bind PUBLIC module attributes (`annotations`, `Any`, `TYPE_CHECKING`) and
 # would break the `__all__`-equality this module owes (B-2). Every annotation
 # here is a string literal instead, so nothing needs to be imported for typing.
+import argparse as _argparse
+import json as _json
+import sys as _sys
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from . import attest as _attest
@@ -249,8 +252,9 @@ _CHECKS = {"R3.1": _r31, "R3.2": _r32, "R3.3": _r33,
 def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:
     """Adjudicate R3.3/R3.6 over `events`, returning an `L0Report`.
 
-    Only events whose `type` is `attest.EVENT_TYPE` are read; every other event
-    type is ignored. That filter is not incidental — a real event log is
+    Only events whose `event_type` (the on-disk key written by
+    `EventLog.append`) or `type` (the harness shape) is `attest.EVENT_TYPE` are
+    read; every other event type is ignored. That filter is not incidental — a real event log is
     heterogeneous while a fixture corpus tends to be uniform, so a checker
     without it is indistinguishable on the corpus and wrong on the real log.
     """
@@ -260,7 +264,7 @@ def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:
     for event in events:
         if not isinstance(event, dict):
             continue
-        if event.get("type") != _attest.EVENT_TYPE:
+        if _attest.EVENT_TYPE not in (event.get("event_type"), event.get("type")):
             continue
         payload = event.get("payload")
         if not isinstance(payload, dict):
@@ -343,3 +347,54 @@ def validate_report(report: _L0Report) -> "tuple[str, ...]":
         )
 
     return tuple(complaints)
+
+
+def _main(argv: "list[str] | None" = None) -> int:
+    """Read-only host CLI: adjudicate an on-disk event log, print one JSON line."""
+
+    class _Parser(_argparse.ArgumentParser):
+        def error(self, message):
+            _sys.stderr.write(f"bd_l3: {message}\n")
+            raise SystemExit(2)
+
+    parser = _Parser(prog="bd_l3")
+    parser.add_argument("--event-log", required=True)
+    parser.add_argument("--run-id", default=None)
+    args = parser.parse_args(argv)
+
+    path = args.event_log
+    try:
+        with open(path, "rb") as fh:
+            text = fh.read().decode("utf-8")
+    except (OSError, ValueError) as exc:
+        _sys.stderr.write(f"bd_l3: {path}: {exc}\n")
+        return 2
+
+    events: "list[object]" = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            events.append(_json.loads(line))
+        except ValueError as exc:
+            _sys.stderr.write(f"bd_l3: {path}: line {lineno}: {exc}\n")
+            return 2
+    if args.run_id is not None:
+        events = [e for e in events
+                  if isinstance(e, dict) and e.get("run_id") == args.run_id]
+
+    report = check_bd_l3(events)  # type: ignore[arg-type]
+    print(_json.dumps({
+        "passed": report.passed,
+        "requirements": list(report.requirements),
+        "violations": list(report.violations),
+        "labels": dict(report.labels),
+        "complaints": list(validate_report(report)),
+        "events_read": len(events),
+        "run_id": args.run_id,
+    }, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    _sys.exit(_main())
