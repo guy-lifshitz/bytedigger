@@ -337,7 +337,7 @@ raised but unregistered fails its own check):
 | --- | --- |
 | `E_ORACLE_MUTATED` | verify: recomputed digest ≠ frozen digest (content changed, member added, or member removed) |
 | `E_ORACLE_UNFROZEN` | verify: no freeze event in this invocation's event log (including: no event log was given), or a freeze event whose `run_id` contradicts this invocation's |
-| `E_ORACLE_INDETERMINATE` | freeze or verify could not read a declared member, or the log could not be read |
+| `E_ORACLE_INDETERMINATE` | freeze or verify could not read a declared member, or the log could not be read, or a freeze/amendment row whose payload is malformed (bd#158) |
 | `E_ORACLE_AMENDMENT_UNREASONED` | amendment emitted with an absent/empty `reason` |
 
 ## 6. Acceptance criteria
