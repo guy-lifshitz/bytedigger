@@ -70,7 +70,8 @@ Environment:
 - `AZURE_OPENAI_KEY` (required)
 - `AZURE_OPENAI_ENDPOINT` (required)
 - `PYDANTIC_BACKEND_DEPLOYMENT` (optional) -- deployment name; defaults to the
-  model string the engine passes in
+  model string the engine passes in. A hard gate floor-checks the deployment
+  name (the declared name, not the weights served behind it)
 - `AZURE_OPENAI_API_VERSION` (optional, default `2024-10-21`)
 - `HAL_AGENTIC_BASH_UNRESTRICTED=1` (optional escape) -- lifts the default
   argv0 allowlist on the agent's bash / run_tests tools. The allowlist is
@@ -123,6 +124,15 @@ register_backend("mine", my_backend, manifest_source="orchestrator_observed")
 result = invoke_llm_subprocess(prompt=..., model=..., timeout_sec=60,
                                step_name="step", backend="mine")
 ```
+
+If your backend runs a different model than the one it is asked for (a
+deployment name, a router), pass `effective_model=` -- a callable
+`(model) -> str` returning the model it will actually run. The hard-gate floor
+check, the attestation (`model_requested`) and the model-pin check use that
+value; your backend is still called with the requested model. A hook that
+raises or returns a non-string/blank value refuses a hard gate and degrades a
+worker to the requested model. A registration without the kwarg clears an
+earlier hook.
 
 A complete runnable example (keyless stub, ~20 lines of backend code) is at
 [`examples/library/custom_backend.py`](../examples/library/custom_backend.py).

@@ -513,6 +513,12 @@ def _policy_tools(
     return [tool for tool in tools if tool.__name__ in enabled]
 
 
+def _effective_deployment(model: str) -> str:
+    """bd#103: the deployment the backend runs for `model`; registered as the
+    `effective_model` hook so the chokepoint floor-checks the same value."""
+    return os.environ.get("PYDANTIC_BACKEND_DEPLOYMENT") or model
+
+
 def pydantic_openai_backend(
     *,
     prompt: str,
@@ -578,22 +584,8 @@ def pydantic_openai_backend(
             recoverable=False,
         )
 
-    deployment = os.environ.get("PYDANTIC_BACKEND_DEPLOYMENT") or model
-    if hard_gate and deployment != model:
-        # bd#82: the chokepoint checked the gate floor against `model`; a
-        # deployment override would run the gate on a model nobody checked.
-        return StepResult(
-            status="error",
-            data=None,
-            duration_ms=0,
-            step_name=step_name,
-            error=(
-                f"hard gate pinned to {model!r} would run on deployment {deployment!r} "
-                "(PYDANTIC_BACKEND_DEPLOYMENT); refusing an unchecked model"
-            ),
-            error_code="E_HARD_GATE_MODEL_DOWNGRADE",
-            recoverable=False,
-        )
+    # bd#103: the chokepoint floor-checks this same value via `effective_model=`.
+    deployment = _effective_deployment(model)
 
     from pydantic_ai import Agent, UsageLimits
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -765,6 +757,7 @@ def register() -> None:
         manifest_source="git_diff",
         capabilities=frozenset({"tool_allowlist"}),
         overwrite=True,
+        effective_model=_effective_deployment,
     )
 
 

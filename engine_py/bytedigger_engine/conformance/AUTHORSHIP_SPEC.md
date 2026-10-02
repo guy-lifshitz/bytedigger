@@ -640,13 +640,16 @@ Normative for this lot:
   `StepResult(status="error", error_code="E_MODEL_PIN_MISMATCH", recoverable=False)`, carrying both
   `observed_model` and `pinned_model` in `data`. Positive control on the same fixture shape: an
   adapter reporting the **same** family returns `ok`.
-- **AC-M3** `[bd10:7]` **(G4) `model_requested` in the payload is the POST-rebind dispatched model**,
+- **AC-M3** `[bd10:7]` **(G4) `model_requested` in the payload is the POST-rebind dispatched model
+  as resolved by the backend's `effective_model` hook (amended by bd#103; equal to the dispatched
+  model when the backend has no hook)**,
   the same value the comparison uses — pinned here because v1 named the payload key and left its
   relationship to the tier rebind unstated, so a GREEN could honestly record either side of
   `:1273` and the RED could only assert it on fixtures where the two coincide. Recording the
   pre-rebind value would put a model in the log that was never invoked, which is the one thing an
   attestation may not do.
-  The comparison target is likewise the **dispatched request model**, not the caller's original
+  The comparison target is likewise the **dispatched request model as resolved by the backend's
+  `effective_model` hook** (amended by bd#103), not the caller's original
   `model` argument. `llm_subprocess.py:1254-1273` deliberately rebinds `model` to a tier model when
   tier dispatch applies, and `:1270` calls the pre-rebind value `pinned_model`. Asserted with tier
   dispatch **active**: an adapter reporting the tier model MUST return `ok`. A GREEN comparing
