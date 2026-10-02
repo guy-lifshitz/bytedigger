@@ -20,7 +20,18 @@ import pytest
 
 HERE = Path(__file__).parent
 
+from bytedigger_engine import telemetry_ctx  # noqa: E402
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
+
+# bd#92: the thread is keyed by (run_id, producing cycle); every test runs under this run id.
+RID = "gh636-run"
+
+
+@pytest.fixture(autouse=True)
+def _current_run():
+    telemetry_ctx.set_current_run(event_log=None, run_id=RID, step_name="gh636", phase="phase_45_spec")
+    yield
+    telemetry_ctx.clear_current_run()
 
 
 # ─── shared fixtures / helpers ─────────────────────────────────────────────
@@ -93,7 +104,7 @@ def test_ac1_persist_writes_sidecar(tmp_path):
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
 
-    written = persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1)
+    written = persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1, run_id=RID)
 
     sidecar = scratchpad / SIDECAR_RELNAME
     assert sidecar.is_file(), "persist must write the sidecar file"
@@ -110,9 +121,9 @@ def test_ac2_roundtrip(tmp_path):
 
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
-    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1)
+    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1, run_id=RID)
 
-    loaded = load_findings_thread(scratchpad)
+    loaded = load_findings_thread(scratchpad, run_id=RID, for_cycle=2)
     assert loaded == STRUCTURED_FINDINGS
 
 
@@ -125,7 +136,7 @@ def test_ac3_load_absent_returns_none(tmp_path):
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
 
-    assert load_findings_thread(scratchpad) is None
+    assert load_findings_thread(scratchpad, run_id=RID, for_cycle=2) is None
 
 
 # ─── AC4 ────────────────────────────────────────────────────────────────────
@@ -137,15 +148,15 @@ def test_ac4_persist_empty_and_unwritable_returns_none(tmp_path):
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir(parents=True, exist_ok=True)
 
-    assert persist_findings_thread(scratchpad, [], cycle=1) is None
+    assert persist_findings_thread(scratchpad, [], cycle=1, run_id=RID) is None
     assert not (scratchpad / SIDECAR_RELNAME).exists()
 
-    assert persist_findings_thread(scratchpad, "not-a-list", cycle=1) is None  # type: ignore[arg-type]
+    assert persist_findings_thread(scratchpad, "not-a-list", cycle=1, run_id=RID) is None  # type: ignore[arg-type]
     assert not (scratchpad / SIDECAR_RELNAME).exists()
 
     unwritable = tmp_path / "scratch_is_a_file"
     unwritable.write_text("not a directory", encoding="utf-8")
-    assert persist_findings_thread(unwritable, STRUCTURED_FINDINGS, cycle=1) is None
+    assert persist_findings_thread(unwritable, STRUCTURED_FINDINGS, cycle=1, run_id=RID) is None
 
 
 # ─── AC5 ────────────────────────────────────────────────────────────────────
@@ -158,7 +169,7 @@ def test_ac5_build_spec_prompt_recovers_from_sidecar_post_evict(tmp_path, monkey
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
-    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1)
+    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1, run_id=RID)
 
     ctx = make_ctx(scratchpad)
     # Post-evict: prev carries a cycle marker but NO threaded structured_findings
@@ -226,7 +237,7 @@ def test_ac7_sidecar_wins_over_broken_fence_fallback(tmp_path, monkeypatch):
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
-    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1)
+    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1, run_id=RID)
 
     ctx = make_ctx(scratchpad)
     # GH615: `findings` is a fence-less STRINGIFIED list — the status-quo
@@ -253,7 +264,7 @@ def test_ac8_cycle1_no_recovery_and_idempotent(tmp_path, monkeypatch):
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
-    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1)
+    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1, run_id=RID)
     ctx = make_ctx(scratchpad)
 
     cycle1_prev = StepResult(
