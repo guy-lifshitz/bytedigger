@@ -198,23 +198,11 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_45_spec.py",
         "description": "Kill-switch: HAL_SPEC_DELTA_RETRY=0 restores legacy cycle>=2 scaffold assembly.",
     },
-    "HAL_SURGICAL_REVISE": {
-        "kind": "gate",
-        "default": "1",
-        "module": "workflows/phase_45_spec.py",
-        "description": "Kill-switch: HAL_SURGICAL_REVISE=0 disables point-patch surgical revise (falls back to full-rewrite delta retry).",
-    },
     "HAL_SPEC_HIGH_BINDING_PARITY": {
         "kind": "gate",
         "default": "1",
         "module": "workflows/phase_45_spec.py",
         "description": "Kill-switch: HAL_SPEC_HIGH_BINDING_PARITY=0 restores the pre-GH729 cycle>=2 bodies byte-identically (drops the high-binding spec-rule block).",
-    },
-    "HAL_DELTA_REREVIEW": {
-        "kind": "gate",
-        "default": "1",
-        "module": "workflows/phase_45_spec.py",
-        "description": "Kill-switch: HAL_DELTA_REREVIEW=0 disables delta re-review — restricted reviewer falls back to full-spec embed.",
     },
     "HAL_IMPL_DELTA_RETRY": {
         "kind": "gate",

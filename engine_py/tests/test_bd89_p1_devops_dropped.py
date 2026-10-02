@@ -16,7 +16,6 @@ AC5  test_ac5_select_reviewers_has_no_artifact_type_parameter
      test_ac5_review_plan_has_no_artifact_type_and_no_devops_row
      test_ac5_review_prompt_with_artifact_type_has_no_devops_and_one_reviewer
 AC6  test_ac6_write_spec_doc_normal_path_has_no_canary_sidecar_event_or_data_key
-     test_ac6_write_spec_doc_surgical_path_has_no_canary_sidecar_event_or_data_key
 AC7  test_ac7_no_get_standards_context_attribute
      test_ac7_spec_and_red_prompts_do_not_shell_out_to_devops_prompt_context
 AC8  test_ac8_no_devops_in_md_flow_and_gate_script
@@ -339,18 +338,6 @@ def _assert_no_canary_artifacts(result, scratch: Path, doc_path: Path, log: _Fak
 
 def test_ac6_write_spec_doc_normal_path_has_no_canary_sidecar_event_or_data_key(tmp_path):
     result, scratch, doc_path, log = _run_write_spec_doc(tmp_path, {"cycle": 1}, _CANARY_SPEC)
-    _assert_no_canary_artifacts(result, scratch, doc_path, log)
-
-
-def test_ac6_write_spec_doc_surgical_path_has_no_canary_sidecar_event_or_data_key(tmp_path):
-    patches = [{"finding_id": "F1", "old": "OLD_MARK_BD89", "new": "NEW_MARK_BD89"}]
-    raw = "```json\n" + json.dumps(patches) + "\n```\n"
-    result, scratch, doc_path, log = _run_write_spec_doc(
-        tmp_path,
-        {"surgical_revise": True, "surgical_base_spec": _CANARY_SPEC, "cycle": 2},
-        raw,
-    )
-    assert "NEW_MARK_BD89" in _text(doc_path), "fixture precondition: surgical patch applied"
     _assert_no_canary_artifacts(result, scratch, doc_path, log)
 
 

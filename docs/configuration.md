@@ -270,7 +270,7 @@ text.
 Steps that read the template: phase 4.5 spec and review, phase 5 red, validation,
 green and integrity, phase 6 review, fix, fix-integrity, satisfaction and
 decorrelated verifier, and phase 7 synthesizer. Delta-retry prompts and the
-restricted spec reviewer and writer carry no template and do not read the file.
+restricted spec writer carry no template and do not read the file.
 In phase 6 a template error runs the abort handler, which writes the
 `NOT_ASSESSED` satisfaction stub.
 

@@ -270,7 +270,6 @@ def test_ac6b_preflight_infra_finding_stays_terminal(tmp_path: Path, monkeypatch
 
 def test_ac7_gate_retry_prompt_uses_gate_findings_not_stale_thread(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     from bytedigger_engine.findings_sidecar import persist_findings_thread
 
     scratch = tmp_path / "scratch"
@@ -291,9 +290,9 @@ def test_ac7_gate_retry_prompt_uses_gate_findings_not_stale_thread(tmp_path: Pat
     assert "GATE_FINDING_GHOST_PATH" in prompt, "the writer must see the gate findings"
     assert "STALE_REVIEWER_ACTION" not in prompt, "a gate retry must not replay the old review thread"
     assert "address reviewer findings" not in prompt, "gate findings are not reviewer findings"
-    assert "spec gate findings" in prompt
-    assert r.data.get("surgical_revise") is True, (
-        "a gate retry patches the spec in place, so reviewer-driven fixes survive")
+    assert "spec gate findings" in prompt, "the prompt must name the spec gate as the findings source"
+    assert r.data.get("delta_retry") is True, (
+        "a gate retry takes the delta lane")
 
 
 def test_ac8_frozen_fallback_threads_gate_attempts(tmp_path: Path, monkeypatch) -> None:

@@ -20,7 +20,7 @@ AC3  test_ac3_every_builder_records_role_template_verbatim[<15 producers>]
        (the builders; the two `str` builders through their step wrappers)
 AC4  test_ac4_prompt_bytes_unchanged[<15 producers>]           (guard: green today)
 AC4b test_ac4b_restricted_writer_does_not_inherit_role_template (guard: green today)
-     test_ac4b_restricted_reviewer_does_not_inherit_role_template (guard: green today)
+     test_ac4b_cycle2_reviewer_inherits_role_template_like_cycle1 (bd#89 P3a)
      test_ac4b_decorr_does_not_inherit_stale_record            (red today: `{**prev.data}`)
 AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_call_count_is_pinned                    (guard: green today)
@@ -629,8 +629,8 @@ def _stale_record() -> dict:
 
 
 def test_ac4b_restricted_writer_does_not_inherit_role_template(tmp_path) -> None:
-    """Guard (green today): the phase_45_spec cycle-2 revise writer (surgical /
-    delta branch, taken whenever structured findings are threaded) carries no
+    """Guard (green today): the phase_45_spec cycle-2 revise writer (delta
+    branch, taken whenever structured findings are threaded) carries no
     role, so its data must not carry the record a previous step left in
     `prev.data`. Re-pointed from the dropped SIMPLE-only writer by bd#89 P2b."""
     role_path, _ = _make_role_file(tmp_path)
@@ -646,24 +646,26 @@ def test_ac4b_restricted_writer_does_not_inherit_role_template(tmp_path) -> None
     assert ROLE_CONTENT not in res.data["prompt"]
 
 
-def test_ac4b_restricted_reviewer_does_not_inherit_role_template(tmp_path, monkeypatch) -> None:
-    """Guard (green today): phase_45_spec `_build_review_prompt` cycle 2 with structured
-    findings is role-less; neither its data nor its dispatch may declare a role.
-    Re-pointed from the dropped SIMPLE-only reviewer by bd#89 P2b."""
+def test_ac4b_cycle2_reviewer_inherits_role_template_like_cycle1(tmp_path, monkeypatch) -> None:
+    """bd#89 P3a: phase_45_spec `_build_review_prompt` cycle 2 with structured
+    findings is the cycle-1 reviewer prompt (the restricted reviewer is dropped),
+    so it carries the configured role template in its data and its dispatch."""
     mod = _mod("phase_45_spec")
-    role_path, _ = _make_role_file(tmp_path)
+    role_path, source_id = _make_role_file(tmp_path)
     env = _Env(tmp_path / "run", role_path)
     _write_cycle1_review(env, _STRUCTURED_REVIEW)
     res = mod._build_review_prompt(
         env.ctx(), _prev(cycle=2, spec_path=env.path("spec.md"), role_template=_stale_record()))
-    assert res.status == "ok" and res.data.get("restricted_reviewer") is True, "fixture precondition"
-    assert res.data.get("role_template") is None
-    assert ROLE_CONTENT not in res.data["prompt"]
+    assert res.status == "ok", "fixture precondition"
+    assert res.data.get("role_template") == {"source_id": source_id, "content": ROLE_CONTENT}
+    assert ROLE_CONTENT in res.data["prompt"]
     spy = _InvokeSpy()
     monkeypatch.setattr(mod, "invoke_llm_subprocess", spy)
     mod._invoke_review_llm(env.ctx(), res)
     assert len(spy.calls) >= 1
-    assert all(tuple(c.get("injections") or ()) == () for c in spy.calls)
+    for call in spy.calls:
+        injections = tuple(call.get("injections") or ())
+        assert injections and injections[0].source_id == source_id
 
 
 def test_ac4b_decorr_does_not_inherit_stale_record(tmp_path) -> None:

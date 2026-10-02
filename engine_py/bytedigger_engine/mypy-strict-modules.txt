@@ -33,7 +33,6 @@ lib/plugins/anti_hallucination/__init__.py
 lib/plugins/checklist_convergence/__init__.py
 lib/plugins/checklist_convergence/delta_retry_prompt.py
 lib/plugins/checklist_convergence/impl_delta_retry_prompt.py
-lib/plugins/checklist_convergence/restricted_reviewer_prompt.py
 lib/plugins/checklist_convergence/restricted_writer_prompt.py
 lib/plugins/disk_truth/__init__.py
 lib/plugins/disk_truth/suite_boyscout.py

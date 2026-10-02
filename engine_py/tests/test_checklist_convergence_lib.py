@@ -19,7 +19,6 @@ from bytedigger_engine.lib.plugins.checklist_convergence import (  # noqa: E402 
     extract_structured_findings,
     extract_findings_for_writer,
     build_writer_prompt,
-    build_reviewer_prompt,
     parse_per_finding_verdicts,
 )
 
@@ -180,39 +179,6 @@ class TestRestrictedWriterPrompt:
         assert "Output ONLY the full revised spec markdown" in prompt, (
             "missing output instruction"
         )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# restricted_reviewer_prompt
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_SAMPLE_NEW_SPEC = "## Context\nBuild a batch-resume feature.\n\n## Open Questions\n1. Exit codes?\n"
-
-
-class TestRestrictedReviewerPrompt:
-    """T8 — build_reviewer_prompt."""
-
-    def test_prompt_contains_required_substrings(self) -> None:
-        prompt = build_reviewer_prompt(
-            findings=_SAMPLE_FINDINGS,
-            new_spec=_SAMPLE_NEW_SPEC,
-        )
-
-        assert "CYCLE-1 FINDINGS" in prompt, "missing CYCLE-1 FINDINGS header"
-        assert "may NOT introduce new findings" in prompt, (
-            "missing no-new-findings constraint"
-        )
-        assert "FINDING_<id>: <RESOLVED|UNRESOLVED>" in prompt or (
-            "FINDING_1:" in prompt and ("RESOLVED" in prompt or "UNRESOLVED" in prompt)
-        ), "missing per-finding line-format instruction"
-        assert "VERDICT: <PASS|REVISE>" in prompt or "VERDICT:" in prompt, (
-            "missing VERDICT line format instruction"
-        )
-        assert "VERDICT=PASS iff ALL findings RESOLVED" in prompt, (
-            "missing VERDICT=PASS rule"
-        )
-        assert "CYCLE-2 SPEC:" in prompt, "missing CYCLE-2 SPEC header"
-        assert _SAMPLE_NEW_SPEC in prompt, "new_spec not verbatim in prompt"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

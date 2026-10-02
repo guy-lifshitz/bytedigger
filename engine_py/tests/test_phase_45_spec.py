@@ -1257,8 +1257,6 @@ def test_unknown_nonempty_review_triggers_retry(tmp_path):
 
 def test_phase_retry_triggered_event_emitted(tmp_path, monkeypatch):
     """On REVISE cycle 1, engine emits phase_retry_triggered with expected fields."""
-    # GH592: pin surgical OFF — asserts exactly 1 gate-retry event (surgical adds a fallback retry hop)
-    monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
     scratchpad = tmp_path / "scratch"
     seed_spec(scratchpad)
     log = EventLog(tmp_path / "events.jsonl")

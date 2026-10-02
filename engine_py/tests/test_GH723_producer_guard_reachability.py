@@ -154,6 +154,6 @@ def test_ac7_cycle2_single_occurrence(tmp_path, monkeypatch):
     prompt, _ = build_prompt(scratchpad, cycle=2, findings=STRUCTURED_FINDINGS_FENCE_TEXT)
 
     # Branch-identity guard: must land on restricted-writer scaffold (calls
-    # _spec_output_schema), not a delta/surgical early-return path.
+    # _spec_output_schema), not a delta early-return path.
     assert "ADDRESS EACH FINDING (by id):" in prompt
     assert prompt.count("## Producer Guard Reachability") == 1

@@ -96,8 +96,7 @@ STRUCTURED_FINDINGS_FENCE_TEXT = (
 )
 
 
-def build_prompt(scratchpad: Path, *, cycle: int, findings=None, structured_findings=None,
-                  surgical_fallback=None):
+def build_prompt(scratchpad: Path, *, cycle: int, findings=None, structured_findings=None):
     from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: PLC0415
 
     ctx = make_ctx(scratchpad)
@@ -106,8 +105,6 @@ def build_prompt(scratchpad: Path, *, cycle: int, findings=None, structured_find
         prev["findings"] = findings
     if structured_findings is not None:
         prev["structured_findings"] = structured_findings
-    if surgical_fallback is not None:
-        prev["surgical_fallback"] = surgical_fallback
     result = _build_spec_prompt(ctx, prev)
     assert isinstance(result.data, dict), "expected dict data on _build_spec_prompt"
     return result.data["prompt"], result.data
@@ -135,25 +132,7 @@ def test_ac1_axes_constant_and_block_helper_exist(tmp_path):
 
 
 # ─── AC-2 ───────────────────────────────────────────────────────────────────
-
-
-def test_ac2_cycle2_surgical_path_carries_all_axes(tmp_path, monkeypatch):
-    monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
-    try:
-        from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
-    except ImportError:
-        pytest.fail("phase_45_spec.missing_high_binding_axes does not exist yet")
-
-    scratchpad = tmp_path / "scratch"
-    _write_prev_spec(scratchpad)
-    prompt, data = build_prompt(
-        scratchpad, cycle=2, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
-    )
-
-    assert data.get("surgical_revise") is True
-    assert missing_high_binding_axes(prompt) == []
-    assert data.get("high_binding_missing") == []
+# retired by bd#89 P3a: the cycle>=2 point-patch lane is gone; AC-3 below is its twin.
 
 
 # ─── AC-3 ───────────────────────────────────────────────────────────────────
@@ -161,7 +140,6 @@ def test_ac2_cycle2_surgical_path_carries_all_axes(tmp_path, monkeypatch):
 
 def test_ac3_cycle2_delta_path_carries_all_axes(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
     try:
         from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
     except ImportError:
@@ -174,7 +152,6 @@ def test_ac3_cycle2_delta_path_carries_all_axes(tmp_path, monkeypatch):
     )
 
     assert data.get("delta_retry") is True
-    assert not data.get("surgical_revise")
     assert missing_high_binding_axes(prompt) == []
 
 
@@ -234,7 +211,6 @@ def test_ac6_grep_parity_axes_present_in_cycle1_equal_axes_present_in_cycle2(tmp
         pytest.fail("phase_45_spec.SPEC_HIGH_BINDING_AXES does not exist yet")
 
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
 
     scratchpad1 = tmp_path / "scratch_c1"
     p1, _ = build_prompt(scratchpad1, cycle=1)
@@ -243,19 +219,11 @@ def test_ac6_grep_parity_axes_present_in_cycle1_equal_axes_present_in_cycle2(tmp
 
     scenarios = {}
 
-    scratchpad_surg = tmp_path / "scratch_surgical"
-    _write_prev_spec(scratchpad_surg)
-    scenarios["surgical"], _ = build_prompt(
-        scratchpad_surg, cycle=2, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
-    )
-
-    monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
     scratchpad_delta = tmp_path / "scratch_delta"
     _write_prev_spec(scratchpad_delta)
     scenarios["delta"], _ = build_prompt(
         scratchpad_delta, cycle=2, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
     )
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
 
     monkeypatch.setenv("HAL_SPEC_DELTA_RETRY", "0")
     scratchpad_restricted = tmp_path / "scratch_restricted"
@@ -284,28 +252,19 @@ def test_ac6_grep_parity_axes_present_in_cycle1_equal_axes_present_in_cycle2(tmp
 # ─── AC-7 ───────────────────────────────────────────────────────────────────
 
 
-def test_ac7_reentry_cycle3_surgical_and_post_fallback_delta_both_carry_all_axes(tmp_path, monkeypatch):
+def test_ac7_reentry_cycle3_delta_carries_all_axes(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     try:
         from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes
     except ImportError:
         pytest.fail("phase_45_spec.missing_high_binding_axes does not exist yet")
 
-    scratchpad_a = tmp_path / "scratch_c3_surgical"
-    _write_prev_spec(scratchpad_a)
-    prompt_a, data_a = build_prompt(
-        scratchpad_a, cycle=3, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
-    )
-    assert missing_high_binding_axes(prompt_a) == []
-
     scratchpad_b = tmp_path / "scratch_c3_delta"
     _write_prev_spec(scratchpad_b)
     prompt_b, data_b = build_prompt(
         scratchpad_b, cycle=3, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
-        surgical_fallback=True,
     )
-    assert data_b.get("surgical_revise") is not True
+    assert data_b.get("delta_retry") is True
     assert missing_high_binding_axes(prompt_b) == []
 
 
@@ -314,7 +273,6 @@ def test_ac7_reentry_cycle3_surgical_and_post_fallback_delta_both_carry_all_axes
 
 def test_ac8_guard_miss_revise_regression_shield_carries_reachability_and_citeverify_axes(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
@@ -332,7 +290,6 @@ def test_ac8_guard_miss_revise_regression_shield_carries_reachability_and_citeve
 
 def test_ac9_no_double_injection_and_cycle1_unchanged(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     from bytedigger_engine.workflows.phase_45_spec import _SPEC_STABLE_PREFIX  # exists today
 
     scratchpad_c1 = tmp_path / "scratch_c1"
@@ -354,7 +311,6 @@ def test_ac9_no_double_injection_and_cycle1_unchanged(tmp_path, monkeypatch):
 
 def test_ac10_byte_cap_and_bounded_growth_vs_kill_switch_off(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     try:
         from bytedigger_engine.workflows.phase_45_spec import _spec_high_binding_block
     except ImportError:
@@ -389,7 +345,6 @@ def test_ac10_byte_cap_and_bounded_growth_vs_kill_switch_off(tmp_path, monkeypat
 
 def test_ac11_kill_switch_restores_status_quo_byte_identically(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     monkeypatch.setenv("HAL_SPEC_HIGH_BINDING_PARITY", "0")
     try:
         from bytedigger_engine.workflows.phase_45_spec import SPEC_HIGH_BINDING_AXES, missing_high_binding_axes
@@ -414,7 +369,6 @@ def test_ac11_kill_switch_restores_status_quo_byte_identically(tmp_path, monkeyp
 
 def test_ac12_event_emitted_once_with_path_and_cycle(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
@@ -433,7 +387,7 @@ def test_ac12_event_emitted_once_with_path_and_cycle(tmp_path, monkeypatch):
         f"of {[c.args[0] for c in mock_emit.call_args_list if c.args]!r}"
     )
     payload = matching[0].args[1]
-    assert payload["path"] == "surgical"
+    assert payload["path"] == "delta"
     assert payload["cycle"] == 2
     assert payload["missing"] == []
 
@@ -451,22 +405,13 @@ def test_ac13_gh443_economics_preserved_scaffold_still_dropped(tmp_path, monkeyp
 
     scratchpad_delta = tmp_path / "scratch_delta"
     _write_prev_spec(scratchpad_delta)
-    monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
     delta_prompt, _ = build_prompt(
         scratchpad_delta, cycle=2, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
     )
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
 
-    scratchpad_surg = tmp_path / "scratch_surgical"
-    _write_prev_spec(scratchpad_surg)
-    surgical_prompt, _ = build_prompt(
-        scratchpad_surg, cycle=2, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
-    )
-
-    for prompt in (delta_prompt, surgical_prompt):
-        assert "FEATURE REQUEST:" not in prompt
-        assert "ARCHITECTURE DECISION" not in prompt
-        assert schema_first_line not in prompt
+    assert "FEATURE REQUEST:" not in delta_prompt
+    assert "ARCHITECTURE DECISION" not in delta_prompt
+    assert schema_first_line not in delta_prompt
 
     monkeypatch.setenv("HAL_SPEC_DELTA_RETRY", "0")
     scratchpad_legacy = tmp_path / "scratch_legacy"

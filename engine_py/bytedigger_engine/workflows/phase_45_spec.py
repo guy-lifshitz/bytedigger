@@ -101,7 +101,6 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._recoverable_policy import resolve_policy  # type: ignore[no-redef]  # noqa: E402  E843349F
 from bytedigger_engine.lib.plugins.checklist_convergence import (  # noqa: E402
-    build_reviewer_prompt as _restricted_reviewer_prompt,
     build_writer_prompt as _restricted_writer_prompt,
     extract_structured_findings,
     extract_findings_for_writer,
@@ -110,15 +109,7 @@ from bytedigger_engine.lib.plugins.checklist_convergence import (  # noqa: E402
 from bytedigger_engine.lib.plugins.checklist_convergence.delta_retry_prompt import (  # noqa: E402  GH443
     build_delta_retry_prompt,
 )
-from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import (  # noqa: E402  GH592
-    apply_surgical_patches,
-    build_surgical_revise_prompt,
-    extract_surgical_patches,
-)
-from bytedigger_engine.lib.plugins.checklist_convergence.delta_reviewer_prompt import (  # noqa: E402  GH605
-    extract_affected_sections,
-    build_delta_reviewer_prompt,
-)
+from bytedigger_engine.lib.step_sentinel import invalidate_cycle_sentinels  # noqa: E402  bd#89 P3a op2c
 from bytedigger_engine.lib.project_root import resolve_project_root  # noqa: E402
 from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: E402  GH381
 from bytedigger_engine.lib.directed_repair import (  # noqa: E402  457DC7DC GH371 §2.2
@@ -1064,54 +1055,14 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             spec_text = spec_path.read_text(encoding="utf-8")
         except OSError:
             spec_text = ""
-        # GH592: prefer point-patch surgical revise over full-rewrite delta
-        # retry, unless the kill-switch is off, the prior cycle already
-        # fell back to full-rewrite (surgical_fallback), or there is no
-        # spec text on disk to patch.
-        surgical_fallback_flag = None
-        if isinstance(_prev, dict):
-            surgical_fallback_flag = _prev.get("surgical_fallback")
-        elif isinstance(_prev, StepResult) and isinstance(_prev.data, dict):
-            surgical_fallback_flag = _prev.data.get("surgical_fallback")
-        surgical_enabled = get_config().gate_enabled("HAL_SURGICAL_REVISE")
         _prev_data_delta = _prev.data if isinstance(_prev, StepResult) and isinstance(_prev.data, dict) else {}
         # GH729 §2.2 kill-switch: HAL_SPEC_HIGH_BINDING_PARITY=0 restores the
         # pre-GH729 cycle>=2 bodies byte-identically.
         high_binding_enabled = get_config().gate_enabled("HAL_SPEC_HIGH_BINDING_PARITY")
-        if surgical_enabled and not surgical_fallback_flag and spec_text:
-            surgical_prompt = build_surgical_revise_prompt(
-                str(spec_path), spec_text, structured_findings,
-                verbatim_reviewer_context=findings,
-                **({"findings_source": "spec gate"} if gate_retry else {}),
-            )
-            if high_binding_enabled:
-                prompt = _spec_high_binding_block() + "\n\n" + surgical_prompt + "\n\n" + _get_out_of_role_block()
-            else:
-                prompt = surgical_prompt + "\n\n" + _get_out_of_role_block()
-            high_binding_missing = missing_high_binding_axes(prompt)
-            _emit_safe("spec_prompt_high_binding", {
-                "cycle": cycle, "path": "surgical", "missing": high_binding_missing,
-            })
-            return StepResult(
-                status="ok",
-                data=_fwd_frozen(_prev_data_delta, {
-                    "prompt": prompt,
-                    "doc_path": str(spec_path),
-                    "prompt_bytes": len(prompt.encode("utf-8")),
-                    "cycle": cycle,
-                    "delta_retry": True,
-                    "role_template": None,  # bd#141 4(d): surgical prompt carries no role
-                    "surgical_revise": True,
-                    "surgical_base_spec": spec_text,
-                    "structured_findings": structured_findings,
-                    "high_binding_missing": high_binding_missing,
-                }),
-                duration_ms=0,
-                step_name="build_spec_prompt",
-            )
         delta_prompt = build_delta_retry_prompt(
             str(spec_path), spec_text, structured_findings,
             verbatim_reviewer_context=findings,
+            **({"findings_source": "spec gate"} if gate_retry else {}),
         )
         if high_binding_enabled:
             prompt = _spec_high_binding_block() + "\n\n" + delta_prompt + "\n\n" + _get_out_of_role_block()
@@ -1130,6 +1081,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
                 "cycle": cycle,
                 "delta_retry": True,
                 "role_template": None,  # bd#141 4(d): delta prompt carries no role
+                "structured_findings": structured_findings,
                 "high_binding_missing": high_binding_missing,
             }),
             duration_ms=0,
@@ -1326,11 +1278,8 @@ def _invoke_spec_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
             step_name="invoke_spec_llm",
         )
     cfg = ctx.org_config or {}
-    is_surgical = bool(prev.data.get("surgical_revise"))
     _doc = prev.data.get("doc_path")
-    if _doc and not is_surgical:
-        # GH592: base spec must survive on disk for the surgical apply/fallback
-        # branch of _write_spec_doc — skip the unlink on the surgical path.
+    if _doc:
         try:
             Path(_doc).unlink()
         except FileNotFoundError:
@@ -1347,11 +1296,6 @@ def _invoke_spec_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
         **_frozen_fwd,
     }
     allowed_tools = ["Read", "Write", "Glob"]
-    if is_surgical:
-        extra_data["surgical_revise"] = True
-        extra_data["surgical_base_spec"] = prev.data.get("surgical_base_spec")
-        extra_data["structured_findings"] = prev.data.get("structured_findings")
-        allowed_tools = ["Read"]
     return invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=_resolve_model(cfg, "spec_model", _default_spec_model()),
@@ -1462,6 +1406,29 @@ def _resolve_spec_source(doc_path: str, raw_response: str) -> tuple[str, str]:
     return (raw_response, "raw_response_fallback")
 
 
+def _is_patch_array(raw: Any) -> bool:
+    """True when ``raw`` is exactly one fenced json block holding a non-empty
+    list of dicts that each carry finding_id, old and new (surrounding
+    whitespace tolerated; any other prose means not a patch array)."""
+    if not isinstance(raw, str):
+        return False
+    text = raw.strip()
+    if not (text.startswith("```json") and text.endswith("```")) or len(text) < 10:
+        return False
+    try:
+        parsed = json.loads(text[len("```json"):-len("```")])
+    except ValueError:
+        return False
+    return (
+        isinstance(parsed, list)
+        and bool(parsed)
+        and all(
+            isinstance(el, dict) and all(k in el for k in ("finding_id", "old", "new"))
+            for el in parsed
+        )
+    )
+
+
 def _write_spec_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -1478,111 +1445,46 @@ def _write_spec_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
             duration_ms=0,
             step_name="write_spec_doc",
         )
-    # GH592: point-patch surgical revise — raw_response is a patches JSON
-    # array, not a spec body; _resolve_spec_source does NOT apply here.
-    if prev.data.get("surgical_revise"):
-        cycle = int(prev.data.get("cycle", 1))
-        base = prev.data.get("surgical_base_spec") or ""
-        structured_findings_fwd = prev.data.get("structured_findings") or []
-
-        def _surgical_fallback(reason: str, finding_id: str | None = None) -> StepResult:
-            _emit_safe("surgical_revise_fallback", {
-                "cycle": cycle,
-                "reason": reason,
-                "finding_id": finding_id,
-            })
-            # GH592 amendment 1: invalidate the poisoned resume sentinel — otherwise the engine's
-            # resume_sentinel would replay the cached surgical LLM result on the same-cycle retry.
+    # bd#89 P3a: a replayed pre-upgrade `invoke_spec_llm` sentinel can carry a
+    # patch array instead of a spec body. It is never written as a spec; drop
+    # the sentinel and re-run the same cycle as a full revise.
+    if _is_patch_array(prev.data.get("raw_response")):
+        stale_cycle = int(prev.data.get("cycle", 1))
+        stale_run = telemetry_ctx.get_current_run()
+        if stale_run is not None:
             try:
-                scratchpad = _resolve_scratchpad(_ctx)
-                try:
-                    for p in (scratchpad / "resume").glob(f"invoke_spec_llm_done_c{cycle}_*.json"):
-                        p.unlink()
-                except OSError:
-                    pass
-                # GH605: unlink same-cycle delta sidecar so a same-cycle retry
-                # (full rewrite fallback) never leaves a stale surgical-delta
-                # sidecar behind for a later review to pick up.
-                try:
-                    sidecar = scratchpad / "specs" / f"surgical-delta-cycle-{cycle}.json"
-                    if sidecar.exists():
-                        sidecar.unlink()
-                except OSError:
-                    pass
-            except ValueError:
+                invalidate_cycle_sentinels(
+                    _ctx,
+                    [StepContract(
+                        name="invoke_spec_llm",
+                        execute=lambda ctx, prev: _invoke_spec_llm(ctx, prev),
+                        resume_sentinel=True,
+                    )],
+                    stale_cycle,
+                    stale_run.run_id,
+                    workflow_name="phase_45_spec",
+                )
+            except (OSError, ValueError):
                 pass
-            _sf_data = {
-                "retry_from_step": 0,
-                "cycle_count": cycle - 1,
-                "surgical_fallback": True,
-                "structured_findings": structured_findings_fwd,
-                "findings": prev.data.get("findings", "") or "",
-            }
-            # GH625: thread gate_attempts through the fallback-retry data or
-            # the accumulated spend is wiped every time the surgical patch
-            # fails to parse, restarting the revise gate at attempts=0.
-            if isinstance(prev.data.get("gate_attempts"), dict):
-                _sf_data["gate_attempts"] = prev.data["gate_attempts"]
-            return StepResult(
-                status="error",
-                data=_sf_data,
-                duration_ms=0,
-                step_name="write_spec_doc",
-                error=f"surgical revise patches inapplicable (reason={reason}) — falling back to full rewrite",
-                error_code="E_VALIDATION_RETRY",
-                recoverable=True,
-            )
-
-        patches = extract_surgical_patches(prev.data.get("raw_response", ""))
-        if patches is None:
-            return _surgical_fallback("parse_error")
-        patched, meta = apply_surgical_patches(base, patches)
-        if patched is None:
-            return _surgical_fallback(meta["reason"], meta.get("finding_id"))
-
-        _emit_safe("surgical_revise_applied", {
-            "cycle": cycle,
-            "n_patches": meta["n_patches"],
-            "spec_bytes": len(patched.encode("utf-8")),
-        })
-        # GH605: sidecar carries the applied patch diffs so the delta re-review
-        # path can vote on the diff instead of re-embedding the full spec.
-        scratchpad_for_delta = _resolve_scratchpad(_ctx)
-        delta_sidecar = scratchpad_for_delta / "specs" / f"surgical-delta-cycle-{cycle}.json"
-        delta_sidecar.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write(delta_sidecar, json.dumps({"cycle": cycle, "patches": patches}))
-        raw = patched
-        canonical = Path(prev.data["doc_path"])
-        canonical.parent.mkdir(parents=True, exist_ok=True)
-        git_cwd = Path(resolve_git_cwd(_ctx.org_config or {}))
-        raw = _autoprefix_bare_citations(raw, git_cwd)
-
-        surgical_cycle_path: str | None = None
-        if cycle >= 2:
-            versioned = canonical.parent / Path(_spec_cycle_relpath(cycle)).name
-            atomic_write(versioned, raw)
-            surgical_cycle_path = str(versioned)
-        atomic_write(canonical, raw)
-
-        surgical_data = {
-            "spec_path": str(canonical),
-            "spec_bytes_written": len(raw.encode("utf-8")),
-            "cycle": cycle,
-            "surgical_revise": True,
+        retry_data: dict[str, Any] = {
+            "retry_from_step": 0,
+            "cycle_count": stale_cycle - 1,
+            "gate_budget_ok": True,
+            "findings": prev.data.get("findings", "") or "",
+            "structured_findings": prev.data.get("structured_findings"),
         }
-        if surgical_cycle_path is not None:
-            surgical_data["spec_cycle_path"] = surgical_cycle_path
-
-        # GH625: surgical_data is hand-built (no **prev.data spread), thread
-        # gate_attempts through explicitly or the gate never sees prior spend.
-        if isinstance(prev.data, dict) and isinstance(prev.data.get("gate_attempts"), dict):
-            surgical_data["gate_attempts"] = prev.data["gate_attempts"]
-
+        if isinstance(prev.data.get("gate_attempts"), dict):
+            retry_data["gate_attempts"] = prev.data["gate_attempts"]
+        if "retry_source" in prev.data:
+            retry_data["retry_source"] = prev.data["retry_source"]
         return StepResult(
-            status="ok",
-            data=surgical_data,
+            status="error",
+            data=retry_data,
             duration_ms=0,
             step_name="write_spec_doc",
+            error="replayed spec writer result is a patch array, not a spec body — re-running the full revise",
+            error_code="E_VALIDATION_RETRY",
+            recoverable=True,
         )
 
     raw, source = _resolve_spec_source(
@@ -3892,26 +3794,6 @@ def _verify_spec_citations(ctx: WorkflowContext, prev: Any) -> StepResult:
     )
 
 
-def _load_surgical_delta(scratchpad: Path, cycle: int) -> tuple[dict[str, Any] | None, str | None]:
-    """GH605: load the surgical-delta sidecar for this cycle.
-
-    Returns (delta_dict, None) on success, or (None, reason) where reason is
-    one of: no_sidecar, parse_error, cycle_mismatch.
-    """
-    sidecar = scratchpad / "specs" / f"surgical-delta-cycle-{cycle}.json"
-    if not sidecar.is_file():
-        return None, "no_sidecar"
-    try:
-        data = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, "parse_error"
-    if not isinstance(data, dict) or "patches" not in data:
-        return None, "parse_error"
-    if data.get("cycle") != cycle:
-        return None, "cycle_mismatch"
-    return data, None
-
-
 def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -3924,87 +3806,6 @@ def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
     scratchpad = _resolve_scratchpad(ctx)
     spec_path = Path(prev.data["spec_path"])
     review_path = scratchpad / _review_cycle_relpath(cycle)
-
-    # Cycle ≥2: if prev cycle-1 review on disk carries a structured findings
-    # JSON block, use the restricted reviewer (per-finding RESOLVED|UNRESOLVED).
-    # Falls through to free-form below when no structured findings present.
-    if cycle >= 2:
-        prev_review_path = scratchpad / _review_cycle_relpath(cycle - 1)
-        prev_review_text = ""
-        if prev_review_path.exists():
-            try:
-                prev_review_text = prev_review_path.read_text(encoding="utf-8")
-            except OSError:
-                prev_review_text = ""
-        structured_findings = extract_structured_findings(prev_review_text) or []
-        if structured_findings:
-            try:
-                spec_text = spec_path.read_text(encoding="utf-8")
-            except OSError:
-                spec_text = ""
-            rule_axes_suffix = (
-                "\n\nRULE-AXES REQUIREMENT (GH497): on REVISE (any finding left "
-                "UNRESOLVED), also emit `RULE-AXES: §<rule>, §<rule>, ...` citing "
-                "every workflows.md rule axis invoked (or `RULE-AXES: NONE`)."
-            )
-            _prev_data_brp = prev.data if isinstance(prev.data, dict) else {}
-
-            # GH605: delta-only re-review — vote on the surgical patch diff +
-            # affected spec sections instead of re-embedding the full spec.
-            delta_extra: dict[str, Any] | None = None
-            if get_config().gate_enabled("HAL_DELTA_REREVIEW"):
-                delta, reason = _load_surgical_delta(scratchpad, cycle)
-                if delta is None:
-                    _emit_safe("delta_rereview_fallback", {"cycle": cycle, "reason": reason})
-                else:
-                    sections = extract_affected_sections(spec_text, delta["patches"])
-                    if not sections:
-                        _emit_safe("delta_rereview_fallback", {"cycle": cycle, "reason": "no_sections"})
-                    else:
-                        delta_prompt = build_delta_reviewer_prompt(
-                            structured_findings, delta["patches"], sections
-                        ) + rule_axes_suffix
-                        delta_extra = {
-                            "prompt": delta_prompt,
-                            "doc_path": str(review_path),
-                            "spec_path": str(spec_path),
-                            "cycle": cycle,
-                            "prompt_bytes": len(delta_prompt.encode("utf-8")),
-                            "restricted_reviewer": True,
-                            "delta_rereview": True,
-                            "role_template": None,  # bd#141 4(d): delta reviewer carries no role
-                        }
-                        _emit_safe("delta_rereview_used", {
-                            "cycle": cycle,
-                            "prompt_bytes": len(delta_prompt.encode("utf-8")),
-                            "full_spec_bytes": len(spec_text.encode("utf-8")),
-                            "n_patches": len(delta["patches"]),
-                            "n_sections": len(sections),
-                        })
-
-            if delta_extra is not None:
-                return StepResult(
-                    status="ok",
-                    data=_fwd_frozen(_prev_data_brp, delta_extra),
-                    duration_ms=0,
-                    step_name="build_review_prompt",
-                )
-
-            prompt = _restricted_reviewer_prompt(structured_findings, spec_text) + rule_axes_suffix
-            return StepResult(
-                status="ok",
-                data=_fwd_frozen(_prev_data_brp, {
-                    "prompt": prompt,
-                    "doc_path": str(review_path),
-                    "spec_path": str(spec_path),
-                    "cycle": cycle,
-                    "prompt_bytes": len(prompt.encode("utf-8")),
-                    "restricted_reviewer": True,
-                    "role_template": None,  # bd#141 4(d): restricted reviewer carries no role
-                }),
-                duration_ms=0,
-                step_name="build_review_prompt",
-            )
 
     parts: list[str] = []
     rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object

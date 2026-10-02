@@ -7,7 +7,8 @@ for constraints/findings/spec rendering, reused verbatim).
 
 Public API:
     build_delta_retry_prompt(spec_path, spec, findings,
-                              verbatim_reviewer_context=None) -> str
+                              verbatim_reviewer_context=None,
+                              findings_source="reviewer") -> str
 
 No host paths, env reads, or host-tree string refs in this file
 (core-boundary clean).
@@ -35,12 +36,18 @@ def build_delta_retry_prompt(
     spec: str,
     findings: Sequence[Mapping[str, str]],
     verbatim_reviewer_context: str | None = None,
+    findings_source: str = "reviewer",
 ) -> str:
     """Return the compact delta-retry prompt for a cycle >=2 REVISE retry."""
     parts: list[str] = [
         _INVARIANT_HEADER.format(spec_path=spec_path),
         "",
-        build_writer_prompt(spec, findings, verbatim_reviewer_context=verbatim_reviewer_context),
+        build_writer_prompt(
+            spec,
+            findings,
+            verbatim_reviewer_context=verbatim_reviewer_context,
+            findings_source=findings_source,
+        ),
         "",
         "ADDRESS EACH FINDING (by id):",
     ]

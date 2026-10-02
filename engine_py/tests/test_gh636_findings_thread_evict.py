@@ -42,7 +42,7 @@ def make_ctx(scratchpad: Path, *, question: str = "GH636 findings-thread evict s
 
 BASE_SPEC = (
     "## Context\n"
-    "Section 1 body, prior cycle-1 spec text used as the surgical/delta base.\n"
+    "Section 1 body, prior cycle-1 spec text used as the delta base.\n"
     "\n"
     "## Findings\n"
     "OLD_FRAGMENT_TO_REPLACE_F1\n"
@@ -82,7 +82,6 @@ def _write_prev_spec(scratchpad: Path, text: str = BASE_SPEC) -> Path:
 
 def _clear_gates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
 
 
 # ─── AC1 ────────────────────────────────────────────────────────────────────
@@ -179,7 +178,7 @@ def test_ac5_build_spec_prompt_recovers_from_sidecar_post_evict(tmp_path, monkey
 # ─── AC6 ────────────────────────────────────────────────────────────────────
 
 
-def test_ac6_reentry_chain_surgical_stays_on(tmp_path, monkeypatch):
+def test_ac6_reentry_chain_delta_lane_recovers_findings(tmp_path, monkeypatch):
     _clear_gates(monkeypatch)
     from bytedigger_engine.workflows.phase_45_spec import _gate_on_review, _build_spec_prompt
 
@@ -214,7 +213,7 @@ def test_ac6_reentry_chain_surgical_stays_on(tmp_path, monkeypatch):
     )
     result = _build_spec_prompt(ctx, post_evict_prev)
 
-    assert result.data.get("surgical_revise") is True
+    assert result.data.get("delta_retry") is True
 
 
 # ─── AC7 ────────────────────────────────────────────────────────────────────
@@ -241,7 +240,7 @@ def test_ac7_sidecar_wins_over_broken_fence_fallback(tmp_path, monkeypatch):
 
     result = _build_spec_prompt(ctx, prev)
 
-    assert result.data.get("surgical_revise") is True
+    assert result.data.get("delta_retry") is True
 
 
 # ─── AC8 ────────────────────────────────────────────────────────────────────
@@ -264,7 +263,7 @@ def test_ac8_cycle1_no_recovery_and_idempotent(tmp_path, monkeypatch):
         step_name="gate_on_review",
     )
     cycle1_result = _build_spec_prompt(ctx, cycle1_prev)
-    assert cycle1_result.data.get("surgical_revise") is not True
+    assert cycle1_result.data.get("delta_retry") is not True
 
     cycle2_prev = StepResult(
         status="ok",

@@ -109,7 +109,6 @@ def test_imports_checklist_convergence_symbols() -> None:
 
     expected = (
         "_restricted_writer_prompt",
-        "_restricted_reviewer_prompt",
         "extract_structured_findings",
         "parse_per_finding_verdicts",
     )
@@ -140,8 +139,9 @@ def test_build_spec_prompt_cycle2_uses_restricted_writer_when_structured_finding
     plugins.checklist_convergence.restricted_writer_prompt) and skip the
     legacy `## REVISION (cycle 2 — address reviewer findings)` header.
     """
-    # GH592: pin surgical OFF — this test covers the legacy restricted-writer lane
-    monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
+    # bd#89 P3a: the delta lane now precedes the scaffold lane; pin it OFF to
+    # reach the restricted-writer scaffold this test covers.
+    monkeypatch.setenv("HAL_SPEC_DELTA_RETRY", "0")
     from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: F401
 
     # Mirror the on-disk layout that phase_45_spec produces during a cycle-1 run.
@@ -229,48 +229,8 @@ def test_build_spec_prompt_cycle2_falls_back_to_free_rewrite_without_structured_
 # ── 5. Cycle-2 reviewer uses restricted reviewer when prev review structured ─
 
 
-def test_build_review_prompt_cycle2_uses_restricted_reviewer_when_prev_review_has_structured_findings(
-    tmp_path: Path,
-) -> None:
-    """RED: cycle-2 _build_review_prompt must produce a restricted reviewer
-    prompt (asks per-finding `FINDING_<id>: RESOLVED|UNRESOLVED` lines) when
-    the prev cycle-1 review on disk carries a structured findings block.
-
-    Today _build_review_prompt is free-form regardless of cycle.
-    """
-    from bytedigger_engine.workflows.phase_45_spec import _build_review_prompt  # noqa: F401
-
-    specs_dir = tmp_path / "specs"
-    specs_dir.mkdir(parents=True)
-
-    # Cycle-2 spec to review (the one a cycle-2 writer just produced).
-    spec_path = specs_dir / "build-spec-cycle-2.md"
-    spec_path.write_text(
-        "## Context\nFeature with revisions.\n\n"
-        "## Open Questions\n1. Exit codes?\n\n"
-        "## Acceptance Criteria\n1. AC1\n"
-    )
-
-    # Prev cycle-1 review on disk with structured findings (read by restricted reviewer builder).
-    cycle1_review = specs_dir / "build-plan-review.md"
-    cycle1_review.write_text(_STRUCTURED_REVIEW_TEXT)
-
-    ctx = FakeCtx(scratchpad_dir=str(tmp_path))
-    prev = _make_step_result({
-        "cycle": 2,
-        "spec_path": str(spec_path),
-    })
-
-    result = _build_review_prompt(ctx, prev)
-    assert result.status == "ok", f"_build_review_prompt failed: {result.error!r}"
-
-    prompt = result.data["prompt"]
-    # Restricted reviewer asks for per-finding RESOLVED|UNRESOLVED lines.
-    for token in ("FINDING_", "RESOLVED", "UNRESOLVED"):
-        assert token in prompt, (
-            f"cycle-2 reviewer prompt must contain {token!r} (per-finding "
-            "checklist verdict format) — RED until W1 port lands"
-        )
+# bd#89 P3a: the restricted cycle-2 reviewer test was retired with the lane; the
+# cycle-2 reviewer is the cycle-1 reviewer prompt (see test_bd89_p3a AC7).
 
 
 # ── 6. write_review_doc cycle-2 maps PASS+all-RESOLVED → VERDICT_SHIP ────────
