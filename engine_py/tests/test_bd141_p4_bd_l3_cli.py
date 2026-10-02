@@ -1,6 +1,6 @@
 """RED tests for bd#141 item 4 (c/d/e) -- `bd_l3` host CLI and the on-disk event filter.
 
-Spec: docs/decisions/2026-10-02-bd141-p4-bd-l3-cli.md (AC1-AC10).
+Spec: docs/decisions/2026-10-02-bd141-p4-bd-l3-cli.md (AC1-AC12, r2).
 
 Every `bytedigger_engine.*` import is inside a test body, so the file collects
 cleanly and each AC fails at assert time. Logs are written with the real
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -135,25 +136,34 @@ def test_ac7_empty_file_is_not_a_pass(tmp_path):
         assert out["labels"][f"verdict:{req}"] == "not-checked"
 
 
+def _valid_log(tmp_path: Path) -> Path:
+    return _write_log(tmp_path / "valid.jsonl",
+                      [(_event_type(), _payload("sonnet", "haiku"), "run-1")])
+
+
 def _malformed(tmp_path: Path) -> "list[str]":
     p = tmp_path / "bad.jsonl"
-    p.write_text('{"a": 1}\n{not json\n', encoding="utf-8")
+    p.write_text('{"a": 1}\n{"b": 2}\n{not json\n', encoding="utf-8")
     return ["--event-log", str(p)]
 
 
 def _bad_utf8(tmp_path: Path) -> "list[str]":
     p = tmp_path / "utf8.jsonl"
-    p.write_bytes(b"\xff\xfe\x00\n")
+    p.write_bytes(b'{"a": "x\xffy"}\n')
     return ["--event-log", str(p)]
 
 
 @pytest.mark.parametrize("case", [
-    "no_event_log", "unknown_flag", "missing_file", "malformed_line", "invalid_utf8"])
+    "no_event_log", "unknown_flag", "positional", "missing_file",
+    "directory_as_log", "malformed_line", "invalid_utf8"])
 def test_ac8_usage_and_input_errors_exit_2(tmp_path, case):
+    missing_parent = tmp_path / "nodir"
     args = {
         "no_event_log": lambda: [],
-        "unknown_flag": lambda: ["--event-log", str(tmp_path / "x.jsonl"), "--bogus"],
-        "missing_file": lambda: ["--event-log", str(tmp_path / "nope.jsonl")],
+        "unknown_flag": lambda: ["--event-log", str(_valid_log(tmp_path)), "--bogus"],
+        "positional": lambda: ["--event-log", str(_valid_log(tmp_path)), "extra"],
+        "missing_file": lambda: ["--event-log", str(missing_parent / "x.jsonl")],
+        "directory_as_log": lambda: ["--event-log", str(tmp_path)],
         "malformed_line": lambda: _malformed(tmp_path),
         "invalid_utf8": lambda: _bad_utf8(tmp_path),
     }[case]()
@@ -162,19 +172,20 @@ def test_ac8_usage_and_input_errors_exit_2(tmp_path, case):
     assert proc.stdout == ""
     assert proc.stderr.startswith("bd_l3: "), proc.stderr
     if case == "malformed_line":
-        assert "2" in proc.stderr
+        assert re.search(r"\bline 3\b", proc.stderr), proc.stderr
+    if case == "missing_file":
+        assert not missing_parent.exists(), "CLI must never create a directory"
 
 
 def test_ac9_public_surface_unchanged():
     from bytedigger_engine.conformance import bd_l3  # noqa: PLC0415
-    import types  # noqa: PLC0415
 
-    assert set(bd_l3.__all__) == {
+    expected = {
         "REQUIREMENTS", "AWAITING_PRODUCER", "SILENT_BACKENDS",
         "LABEL_EXCEPTIONS", "check_bd_l3", "validate_report"}
-    public = {n for n, v in vars(bd_l3).items()
-              if not n.startswith("_") and not isinstance(v, types.ModuleType)}
-    assert public == set(bd_l3.__all__), sorted(public - set(bd_l3.__all__))
+    assert set(bd_l3.__all__) == expected
+    public = {n for n in vars(bd_l3) if not n.startswith("_")}
+    assert public == set(bd_l3.__all__), sorted(public ^ set(bd_l3.__all__))
 
 
 def test_ac10_cli_is_read_only(tmp_path):
@@ -184,3 +195,32 @@ def test_ac10_cli_is_read_only(tmp_path):
     out = _report(_cli("--event-log", str(p)))
     assert out["events_read"] == 1, "CLI must actually have read the log"
     assert hashlib.sha256(p.read_bytes()).hexdigest() == before
+
+
+def test_ac11_non_object_lines_counted_and_run_id_filtered(tmp_path):
+    p = _write_log(tmp_path / "events.jsonl",
+                   [(_event_type(), _payload("sonnet", "haiku"), "A")])
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write('[1,2]\n"x"\nnull\n')
+    unfiltered = _report(_cli("--event-log", str(p)))
+    assert unfiltered["events_read"] == 4
+    assert unfiltered["labels"]["verdict:R3.3"] == "failed"
+    filtered = _report(_cli("--event-log", str(p), "--run-id", "A"))
+    assert filtered["events_read"] == 1
+    assert filtered["labels"]["verdict:R3.3"] == "failed"
+
+
+def test_ac12_main_does_not_import_llm_subprocess(tmp_path):
+    p = _valid_log(tmp_path)
+    code = (
+        "import sys\n"
+        "from bytedigger_engine.conformance import bd_l3\n"
+        f"rc = bd_l3._main(['--event-log', {str(p)!r}])\n"
+        "print('RC=%s' % rc, file=sys.stderr)\n"
+        "print('bytedigger_engine.llm_subprocess' in sys.modules)\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", code], cwd=str(ENGINE_PY),
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    assert "RC=0" in proc.stderr, proc.stderr
+    assert proc.stdout.strip().splitlines()[-1] == "False", proc.stdout
