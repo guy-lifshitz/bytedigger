@@ -44,6 +44,7 @@ from bytedigger_engine.lib.bounded_spawn import TIMEOUT_RETURNCODE, bounded_run
 from bytedigger_engine.lib.frontmatter import FrontmatterError
 from bytedigger_engine.lib.git_port import GitResult
 from bytedigger_engine.lib.git_write_port import git_op_capture
+from bytedigger_engine.lib.util.engine_owned import drop_engine_owned
 from bytedigger_engine.skill_companion import COMPANION_DIR, default_plugin_root, overridable_sections
 
 CODE_REFUSED ="E_COMPANION_TUNE_REFUSED"
@@ -461,6 +462,7 @@ def _add_worktree(repo: Path, path: str, rev: str) -> GitResult:
 
 
 def _stage_files(wt: str, paths: list[str]) -> GitResult:
+    paths = drop_engine_owned(paths, wt, step="companion_stage", content_scan=False)
     return readiness.guard_git(
         lambda: git_op_capture(["git", "add", "--", *paths], cwd=wt, timeout=_GIT_WRITE_TIMEOUT_S,
                                env=readiness.git_env()),

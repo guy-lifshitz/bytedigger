@@ -4,7 +4,8 @@ The repository is English-only. This module is the detector behind the
 `cyrillic-prose-lint` registry name; the driver that runs it lives at the repo
 root (`cyrillic-prose-lint.py`), which is where the `sys.path` bootstrap is
 allowed to live — bd#44 AC7 forbids one inside the package, so there is none
-here and this module imports nothing outside the standard library.
+here and this module imports nothing outside the standard library at import time
+(the non-git walk fallback imports the engine-owned dir pruner lazily, bd#94).
 
 The allowlist is deliberately awkward to extend. Each entry carries a reason
 AND the exact number of Cyrillic characters the file is licensed to hold, so a
@@ -127,10 +128,13 @@ def tracked_files(root: str) -> List[str]:
         if result.returncode == 0:
             return [p for p in result.stdout.split("\0") if p]
 
+    from bytedigger_engine.lib.util.engine_owned import prune_engine_owned_dirs
+
     found: List[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames
                        if d not in _WALK_SKIP_DIRS and not d.endswith(".egg-info")]
+        prune_engine_owned_dirs(dirnames)
         for name in filenames:
             abs_path = os.path.join(dirpath, name)
             found.append(os.path.relpath(abs_path, root).replace(os.sep, "/"))

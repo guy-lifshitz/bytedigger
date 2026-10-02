@@ -386,6 +386,8 @@ def test_ac4_commit_fix_tests_rev_parse_failure_returns_error(
     )
     monkeypatch.setattr(phase_6_review, "_paths_have_staged_changes", lambda *a, **k: True)  # 3F5599A6 §2.6: keep single-git_read spy premise
     monkeypatch.setattr(phase_6_review, "_assert_clean_tree", lambda *a, **k: True)  # 3F5599A6 §2.6
+    # bd#94: the manifest filter's `check-ignore` is a second git_read; it is not the unit under test here.
+    monkeypatch.setattr(phase_6_review, "_filter_gitignored_paths", lambda paths, cwd: list(paths))
 
     # Materialize test file on disk
     tests_dir = tmp_path / "repo" / "tests"

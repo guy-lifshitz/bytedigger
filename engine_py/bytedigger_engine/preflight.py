@@ -75,6 +75,7 @@ from bytedigger_engine import (
     stub_passability,
     tier_gate,
 )
+from bytedigger_engine.lib.util.engine_owned import drop_engine_owned, engine_owned_pathspecs
 
 STEPS = ("syntax", "tier", "cite", "stub", "scoped", "siblings", "facts", "prescreen")
 STEP_CODES = {
@@ -205,15 +206,16 @@ def compute_state_hash(toplevel: str | Path) -> str:
     """sha256 over HEAD, status, both binary diffs and the untracked non-ignored blobs."""
     top = str(toplevel)
     digest = hashlib.sha256()
+    excl = ("--", ".", *engine_owned_pathspecs())
     for args in (
         ("rev-parse", "HEAD"),
-        ("status", "--porcelain=v1", "--untracked-files=all"),
-        ("diff", "--binary", "HEAD"),
-        ("diff", "--binary", "--cached", "HEAD"),
+        ("status", "--porcelain=v1", "--untracked-files=all", *excl),
+        ("diff", "--binary", "HEAD", *excl),
+        ("diff", "--binary", "--cached", "HEAD", *excl),
     ):
         digest.update(_git(top, *args))
         digest.update(b"\0")
-    raw = _git(top, "ls-files", "-z", "--others", "--exclude-standard")
+    raw = _git(top, "ls-files", "-z", "--others", "--exclude-standard", *excl)
     names = sorted(n for n in raw.split(b"\0") if n)
     hashable: list[bytes] = []
     for name in names:
@@ -358,7 +360,8 @@ class _Run:
             for n in (diff.split(b"\0") + other.split(b"\0"))
             if n
         }
-        return {n for n in names if (self.top / n).is_file()}
+        kept = drop_engine_owned(sorted(names), self.top, step="preflight_changed", content_scan=True)
+        return {n for n in kept if (self.top / n).is_file()}
 
     def _run_tests(self, rel: str) -> tuple[int, int, list[str]] | None:
         tmpdir = tempfile.mkdtemp(prefix="bd-preflight-")

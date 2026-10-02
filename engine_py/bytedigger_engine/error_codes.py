@@ -14,12 +14,13 @@ from pathlib import Path
 
 from bytedigger_engine.lib.scan_roots import git_ignored_dirs, is_pruned_dir  # noqa: E402
 
-# Both host state-dirname conventions are listed statically on purpose: this module is
-# imported by the harvest tooling before any config provider registers, so reading
-# config_provider.foreign_state_dirname() here would create an import-order dependency.
+# The engine state dirname is NOT listed here: harvest_codes reads it at walk time through
+# engine_owned.prune_engine_owned_dirs (bd#94), imported lazily inside the function so this
+# module keeps importing only lib.scan_roots at import time (no import-order dependency on
+# a config provider). ".hal-build" stays: it is the HAL host dir, not this engine's.
 HARVEST_EXCLUDE_DIRS: frozenset[str] = frozenset({
     "tests", "__tests__", "__pycache__", "scripts", "_w6_tmp_p45", "_w6_tmp_p5i",
-    ".venv", "venv", "SHARED", ".hal-build", ".bytedigger",
+    ".venv", "venv", "SHARED", ".hal-build",
 })
 
 CODE_RE = re.compile(r"[\"']E_[A-Z0-9_]+[\"']")
@@ -290,6 +291,8 @@ ERROR_CODES: dict[str, str] = {
 
 def harvest_codes(root: Path) -> set[str]:
     """Walk root, prune excluded dirs, return quote-stripped E_* code matches."""
+    from bytedigger_engine.lib.util.engine_owned import prune_engine_owned_dirs
+
     root = Path(root)
     ignored = git_ignored_dirs(root)
     found: set[str] = set()
@@ -298,6 +301,7 @@ def harvest_codes(root: Path) -> set[str]:
             d for d in dirnames
             if not is_pruned_dir(d, ignored) and d not in HARVEST_EXCLUDE_DIRS
         ]
+        prune_engine_owned_dirs(dirnames)
         for fname in filenames:
             if not fname.endswith(".py"):
                 continue

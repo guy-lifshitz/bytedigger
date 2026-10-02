@@ -121,6 +121,7 @@ from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, manifest_fro
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
 from bytedigger_engine.lib import git_port  # noqa: E402
+from bytedigger_engine.lib.util.engine_owned import engine_owned_pathspecs  # noqa: E402  bd#94 — engine-owned paths
 from bytedigger_engine.lib import interpreter  # noqa: E402  GH1626 C — canonical project-interpreter resolver (§1g)
 from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381/GH1220
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
@@ -4272,7 +4273,7 @@ def _autocommit_fix_tail(
             )
 
     add, add_outcome = _git_op_with_lock_retry(
-        ["git", "add", "--"] + tail_paths, cwd=git_cwd, timeout=30
+        ["git", "add", "--"] + tail_paths + engine_owned_pathspecs(), cwd=git_cwd, timeout=30
     )
     if add_outcome == "lock_persisted":
         return StepResult(
@@ -4956,6 +4957,9 @@ def _commit_fix_tests(ctx, prev) -> StepResult:
             recoverable=False,
         )
     test_paths = [p for p in manifest if _is_test_path(p)]
+    # bd#94: engine state and gitignored paths never reach `git add`; an all-state manifest
+    # becomes empty here and takes the existing no_test_paths branch below.
+    test_paths = _filter_gitignored_paths(test_paths, git_cwd)
 
     # AC13 (R-MEDIUM-1): telemeter manifest resolution BEFORE git add.
     _emit_safe(
@@ -4990,7 +4994,7 @@ def _commit_fix_tests(ctx, prev) -> StepResult:
 
     # ── git add ───────────────────────────────────────────────────────────────
     add, add_outcome = _git_op_with_lock_retry(
-        ["git", "add", "--"] + test_paths, cwd=git_cwd, timeout=30
+        ["git", "add", "--"] + test_paths + engine_owned_pathspecs(), cwd=git_cwd, timeout=30
     )
     if add_outcome == "lock_persisted":
         return StepResult(

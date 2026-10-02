@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from .lib.frontmatter import FrontmatterError, parse_frontmatter  # re-exported (bd#116)
+from .lib.util.engine_owned import engine_owned_pathspecs
 
 DEFAULT_TIMEOUT_SEC = 300
 OUTPUT_TAIL_CHARS = 2000
@@ -237,7 +238,7 @@ def _tree_snapshot(repo: Path, index: Path) -> str | None:
                 shutil.copyfile(index, tmp_index)
         except OSError:
             return None
-        add = _git(["add", "-A"], repo, index_file=tmp_index)
+        add = _git(["add", "-A", "--", ".", *engine_owned_pathspecs()], repo, index_file=tmp_index)
         if add is None or add.returncode != 0:
             return None
         tree = _git(["write-tree"], repo, index_file=tmp_index)
