@@ -8,7 +8,8 @@ AC -> test map
         test_ac1_guard_kept_symbols
   AC2   test_ac2_ignored_fanout_value_gives_unchanged_single_prompt[*]
   AC3   test_ac3_ignored_value_emits_one_event[*], test_ac3_single_spellings_emit_no_event[*]
-  AC4   test_ac4_single_prompt_is_byte_exact_render[*], test_ac4_complex_prompt_under_37000_bytes
+  AC4   test_ac4_single_prompt_is_byte_exact_render[*], test_ac4_complex_prompt_under_37000_bytes,
+        test_ac4_guard_template_constants_sha256_pinned[*], test_ac4_guard_composite_row_sha256_pinned
   AC5   test_ac5_prompt_identical_across_provider_envs[*], test_ac5_resolve_backend_unaffected
   AC6   test_ac6_one_composite_file_has_no_floor[*]
   AC7   test_ac7_removed_error_code_not_registered[*], test_ac7_removed_error_code_not_documented[*],
@@ -33,6 +34,7 @@ AC -> test map
 Expected RED today (fail pre-GREEN):
   AC1 all except the GUARD; AC2 for "parallel"/"PARALLEL"/" parallel "/"bogus"/7; AC3 for
   "parallel"/"bogus"/7; AC6 all; AC7 removal half (codes registered, documented, in source);
+  AC8b cells partial-1-specialist and mixed-composite-plus-specialists (floor still rejects today);
   AC8d; AC10; AC12 docs half + no-other-md; AC15 matrix cells with straggler_abort=True
   (parallel or in-session), residue symbols, literal-only check.
 
@@ -43,10 +45,10 @@ GUARD (green today on purpose): AC1 kept symbols, AC2 for None/""/"single", AC3 
 orchestrator: git rm  -- none. Sibling files are re-pointed/retired IN PLACE (no whole file is retired).
 
 Notes for the orchestrator
-  - AC4: no sha256 constants are recorded (RED agent cannot execute code to compute them). The
-    single prompt is pinned byte-exact instead: the test re-renders the role line, the framing
-    template and the security addendum from the surviving real constants and asserts the prompt
-    contains each verbatim. If a sha256 pin is wanted, compute it on the base HEAD and add it.
+  - AC4: sha256 pins (computed by the orchestrator at base HEAD) cover SINGLE_REVIEW_FRAMING_TEMPLATE,
+    PER_ROLE_SCHEMA_TEMPLATE and _ROW_COMPOSITE_REVIEWER; they are GUARDs (green today). The
+    substring/re-render pins on the rendered prompt are kept as well.
+  - AC8a is a premise GUARD for step_sentinel, not UUT coverage.
   - AC12 "scripts unchanged": checked by content (both gate scripts still parse the
     *_reviewers keys), not by a git diff against a merge-base (no git call in the test).
   - AC15 "source residue": checked on the AST (names, imports, string constants), not on raw text.
@@ -354,6 +356,28 @@ def test_ac4_single_prompt_is_byte_exact_render(tmp_path, complexity, security):
     assert (_SECURITY_ADDENDUM in prompt) is (security == "HIGH")
 
 
+_TEMPLATE_SHA256 = {
+    "SINGLE_REVIEW_FRAMING_TEMPLATE": "f42cf190c77b4392d942c22a55e0b81cb8fdec723fe1fbe36665ca9527356fec",
+    "PER_ROLE_SCHEMA_TEMPLATE": "b99ae1ececcc4b956d3c9db16d8843ca51b1cfe3cbdc71bc7574d0646f0cb16a",
+}
+_ROW_COMPOSITE_SHA256 = "bacfccc4a9f38d1c2d76e99c05b33a674e08098d625f5e9a2ec1814d0f6cd774"
+
+
+@pytest.mark.parametrize("name", sorted(_TEMPLATE_SHA256))
+def test_ac4_guard_template_constants_sha256_pinned(name):
+    import hashlib
+
+    value = getattr(rs_canonical, name)
+    assert hashlib.sha256(value.encode()).hexdigest() == _TEMPLATE_SHA256[name], \
+        f"{name} bytes changed (spec: byte-identical)"
+
+
+def test_ac4_guard_composite_row_sha256_pinned():
+    import hashlib
+
+    assert hashlib.sha256(p6._ROW_COMPOSITE_REVIEWER.encode()).hexdigest() == _ROW_COMPOSITE_SHA256
+
+
 def test_ac4_complex_prompt_under_37000_bytes(tmp_path):
     ctx = _ctx(tmp_path, "COMPLEX", security_classification="HIGH")
     scratch = _scratch(ctx)
@@ -483,6 +507,7 @@ def test_ac7_guard_error_codes_check_cli():
 # ─── AC8 resume of a pre-upgrade run ─────────────────────────────────────────
 
 def test_ac8a_guard_pre_upgrade_sentinel_replays(tmp_path, monkeypatch):
+    # PREMISE GUARD for step_sentinel (prompt not hashed); NOT coverage of the UUT (gate F7).
     ctx = _ctx(tmp_path, "FEATURE", review_fanout="parallel", straggler_abort=True,
                task_description="bd89 p3b1 pre-upgrade run")
     scratch = _scratch(ctx)
@@ -497,18 +522,28 @@ def test_ac8a_guard_pre_upgrade_sentinel_replays(tmp_path, monkeypatch):
     assert spy.calls == []
 
 
-def test_ac8b_guard_leftover_role_files_aggregate(tmp_path):
+_FULL_PANEL = ["code-reviewer", "silent-failure-hunter", "type-design-analyzer",
+               "pr-test-analyzer", "code-simplifier", "comment-analyzer"]
+
+
+# Cells 2-3 document the accepted upgrade-window change (gate F2/F3): a partial or mixed
+# pre-upgrade panel replayed via task_resume now aggregates (no floor) instead of
+# E_INSUFFICIENT_FANOUT -> SUSPECT. Red today (floor still rejects), green after GREEN.
+@pytest.mark.parametrize("slugs", [
+    pytest.param(_FULL_PANEL, id="full-panel-6"),
+    pytest.param(["comment-analyzer"], id="partial-1-specialist"),
+    pytest.param(["composite", "code-reviewer", "comment-analyzer"], id="mixed-composite-plus-specialists"),
+])
+def test_ac8b_guard_leftover_role_files_aggregate(tmp_path, slugs):
     ctx = _ctx(tmp_path, "FEATURE", review_fanout="parallel")
     scratch = _scratch(ctx)
     src = _target(tmp_path)
-    slugs = ["code-reviewer", "silent-failure-hunter", "type-design-analyzer",
-             "pr-test-analyzer", "code-simplifier", "comment-analyzer"]
     for slug in slugs:
         _write_role(scratch, slug, _report(src, title=f"Finding from {slug}"))
     result = p6._aggregate_review_findings(ctx, _agg_prev(scratch, "FEATURE"))
     assert result.status == "ok", f"{result.error_code}: {result.error}"
     assert result.error_code is None
-    assert "observed: 6" in result.data["aggregated_content"]
+    assert f"observed: {len(slugs)}" in result.data["aggregated_content"]
     assert result.data.get("verdict")
 
 
