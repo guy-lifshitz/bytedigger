@@ -1,6 +1,6 @@
 # bd#206: class-M blocks declared at the carry sites
 
-**Status:** r2, post gate r1 (REJECTED: 3 MAJOR + 8 MINOR + 4 NIT, `2026-10-02-bd206-gate-r1.md`; all folded, §8) · **Tier:** 3 (two phase-6 carry chains, the semantic verifier, the checker, one new lib
+**Status:** r3, post gate r2 (REJECTED: 1 MAJOR + 3 MINOR + 4 NIT, `2026-10-02-bd206-gate-r2.md`; folded, §9) · r2 post gate r1 (REJECTED: 3 MAJOR + 8 MINOR + 4 NIT, `2026-10-02-bd206-gate-r1.md`; all folded, §8) · **Tier:** 3 (two phase-6 carry chains, the semantic verifier, the checker, one new lib
 module; Option D) · **Class:** SYSTEMATIC · **Chokepoint:** declaration goes through the existing channel only:
 builders record `{source_id, content}` in `data["injected_blocks"]` (`_injected_blocks_record`) and the dispatch passes
 `_declared_injections(...)`; `_dispatch_backend` verifies and attests as today (AUTHORSHIP_SPEC §4 Binding). The review
@@ -13,7 +13,7 @@ rule (fixed by #152).
 1. `_dispatch_backend` stamps `result.data["invocation_id"]` (#152) but no producer keeps it. Three class-M carries
    reach a later prompt undeclared, covered by R3.1's hash only:
    - **M1 satisfaction → fix.** `invoke_satisfaction_llm` (single: `phase_6_review.py:3203`; COMPLEX: n=3 via
-     `_run_satisfaction_evaluators_parallel`, merged at `:3225-3236`, where each evaluator's `invocation_id` is dropped).
+     `_run_satisfaction_evaluators_parallel`, merged at `:3227-3249`, where each evaluator's `invocation_id` is dropped).
      Fixes (`structured.fixes_required`, or `_aggregate_satisfaction`'s concatenation over `valid` evaluators at `:3152`) are rendered
      by `_render_satisfaction_findings` (`:3569`), forwarded by `_satisfaction_fix_loop` (`:3589`) as
      `forwarded["findings"]`, survive the retry (`engine.py:700`, `:1172`, non-control keys forwarded) and are inlined
@@ -37,8 +37,9 @@ rule (fixed by #152).
    inlined>}`. `<invocation_id>` matches `^[0-9a-f]{32}$`. A site declares nothing when it has no valid id (no run
    context / no event log / legacy record). Empty content is not declared. All content is re-rendered, so none is
    expected to equal the named attestation's `output_sha256`; the check is existence (§2.6).
-   **`run_id` everywhere** is `telemetry_ctx.get_current_run().run_id` (as `phase_6_review.py:4080`), never
-   `ctx.session_id`. With no current run nothing is written, the sidecar `run_id` is `null`, and nothing is declared.
+   **`run_id` everywhere** is `telemetry_ctx.get_current_run().run_id` (as `phase_6_review.py:4061`), never
+   `ctx.session_id`. With no current run no provenance file is written; the sidecar is still written (C834481A), with `run_id: null`
+   and `source_id: null`; nothing is declared.
    **Class-M chunk rule:** one block per carried unit (M1: one evaluator's rendered lines; M2: the inlined prior-findings
    JSON; M3: one finding field), content = the string exactly as inlined. Engine markers inside a unit (M1 `"- "`,
    `": "`; M2 JSON syntax) stay inside the block: declared limit (§5).
@@ -48,7 +49,8 @@ rule (fixed by #152).
    never reaches the fix loop (`E_REVIEW_DEGRADED` at `:3934-3944`, `:4013`); GREEN adds no code for it. One block per group with
    non-empty fixes: content = that group's lines joined by `"\n"`; the full findings string stays byte-identical to today
    (`"\n".join` of the groups). `_satisfaction_fix_loop` forwards `forwarded["findings_blocks"]` (list of block dicts);
-   absent when no group has an id. The fallback text (`error_msg`, class E) is never declared.
+   forwarded only when every group with fixes has a valid id (a partial set would not
+   join to the inlined string). The fallback text (`error_msg`, class E) is never declared.
    `_build_fix_prompt` adds `prev.data["findings_blocks"]` to `_declared_blocks` only when `sat_loop` is true and the
    inlined findings string equals `"\n".join(b["content"] for b in findings_blocks)`; otherwise none (stale/forged guard).
    Order: findings blocks are declared in prompt order relative to the test-file records.
@@ -74,15 +76,16 @@ rule (fixed by #152).
    (a caller may pass `"line": 1`), in prompt order,
    all with that source_id, and passes `injections=` **only when** it declares at least one block (existing fakes
    without the kwarg keep working when there is no provenance). Both the haiku call and the opus escalation declare.
-6. **Checker (`bd_l3._r32` + payload form).** `check_bd_l3` keeps, in log order, the set of `(event["run_id"],
+6. **Checker (`bd_l3._r32` + payload form).** `check_bd_l3` keeps, in log order, the set of `(event.get("run_id"),
    step_name, invocation_id)` of attestations already seen. For a block whose `source_id` starts with `"invocation:"`:
    it must match `^invocation:([^:]+):([0-9a-f]{32})$` and name a triple with the **current event's `run_id`** from a
-   **strictly earlier** event, else an `R3.2:` violation. Order: check the payload's blocks first, then add the
+   **strictly earlier** event, else an `R3.2:` violation. An `invocation:` block in an event whose `run_id` is `None` never resolves (R3.2 violation). Order: check the payload's blocks first, then add the
    payload's own triple (self-reference fails). A cross-run reference fails even when the CLI runs without `--run-id`. A payload whose `output_sha256` is present and not `None` must be `sha256:` + 64 lowercase hex, and
    `invocation_id`, when present, must match `^[0-9a-f]{32}$`; else an `R3.2:` violation, and the payload counts as
    R3.2-observed. `output_sha256: null` is not a violation (real `data=None` results, `llm_subprocess.py:1311-1314`).
    Payloads without those keys (pre-#152 logs) are not violations. These form checks sit under R3.2, not R3.1, because
-   both fields exist to resolve class-M `source_id`s; R3.1 stays the prompt-hash requirement.
+   both fields exist to resolve class-M `source_id`s; R3.1 stays the prompt-hash requirement. Form-valid
+   `invocation_id`/`output_sha256` do not by themselves make R3.2 observed; only a block or a form violation does.
 7. **AUTHORSHIP_SPEC.** §4 class M: declared at M1/M2/M3 (bd#206); the "deferred to bd#206" sentence is replaced; the
    still-undeclared class-M carries are listed (§5); the class-M chunk rule of §2.1 is added; the literal
    `invocation:<step_name>:<invocation_id>` stays (bd152 AC10). §2.2 R3.2 row: the phrase "class-M block declarations are a follow-up (bd#206)" becomes "class-M blocks are
@@ -93,7 +96,8 @@ rule (fixed by #152).
 ## §3 Acceptance criteria
 
 Fixtures: real `telemetry_ctx` run with a real `EventLog` on `tmp_path`; a recording backend via `register_backend`
-returning a fixed `raw_response`; assertions read `model_invocation_attested` events back from the log (§1l), never the
+returning a distinct `raw_response` per call (AC2 maps evaluator i to its event by
+`output_sha256 == hash_text(evaluator_responses[i]["raw_response"])`, since the thread pool reorders the log); assertions read `model_invocation_attested` events back from the log (§1l), never the
 builder's in-memory record alone.
 
 - **AC1 (M1 single, end-to-end).** Satisfaction FAIL (fixable reason) with 2 fixes → retry → `invoke_fix_llm` event's
@@ -118,7 +122,7 @@ builder's in-memory record alone.
   `_build_review_prompt` + `_invoke_review_llm` in the same run → the review event's `injections` contains a block with
   that `source_id` and the digest of the inlined `json.dumps(structured_findings, indent=2)`. Same sidecar with a
   different `run_id`, a legacy sidecar without the keys, and a same-run sidecar with `structured_findings: []` → no
-  class-M block; prompt bytes identical across the first three.
+  class-M block; the fixture sets `ctx.session_id` ≠ the telemetry run id and the sidecar's `run_id` equals the latter; prompt bytes identical across the first three.
 - **AC6 (M3).** With provenance present, each `verify_findings_semantic` attestation (haiku and opus escalation)
   carries blocks for the non-empty fields of its finding, in `file, line, quote, claim` order, source_id = the review
   id; fixture sets `ctx.session_id` ≠ the telemetry run id and a finding with `"line": 1` (content `"1"`). Without
@@ -127,8 +131,10 @@ builder's in-memory record alone.
   self-reference (names its own payload's id); malformed `invocation:x:short`; right id, wrong step; run B naming run
   A's attestation with A and B interleaved in one log; `output_sha256: "deadbeef"`; `invocation_id: "XYZ"`. `passed`
   cases, asserted as R3.2 `passed` **and** `violations == ()`: the same block placed after the attestation it names (same
-  run); `{"invocation_id": <valid>, "output_sha256": null}`; a pre-#152 payload without both keys. A real log from AC1 →
-  R3.2 `passed`.
+  run); `{"invocation_id": <valid>, "output_sha256": null}`; a pre-#152 payload without both keys. Every `passed`-case
+  payload also carries one attributed non-`invocation:` block (`{"source_id": "role-template", "sha256": "sha256:" +
+  "0"*64}`). A form-valid post-#152 payload with no injections → R3.2 `not-checked`. An `invocation:` block in an event
+  with no `run_id` → `failed`. Every AC7 fixture sets `run_id` explicitly. A real log from AC1 → R3.2 `passed`.
 - **AC8 (docs + lint).** AUTHORSHIP_SPEC §4 class-M paragraph (sliced `**Class M,` to `**Chunk rule.**`) no longer
   contains "deferred to bd#206", contains `invoke_satisfaction_llm`, `last_findings.json`, `verify_findings_semantic`
   and still `invocation:<step_name>:<invocation_id>`; the R3.2 `REQUIREMENT_LABELS` row no longer contains "class-M
@@ -177,7 +183,7 @@ the sidecar's key set; listed per site in RED's report.
 
 ## §7 Scope (GREEN)
 
-`workflows/phase_6_review.py` (`_invoke_satisfaction_llm` merge, `_aggregate`/render grouping, `_write_satisfaction_doc`
+`workflows/phase_6_review.py` (`_invoke_satisfaction_llm` merge, `_aggregate_satisfaction`/render grouping, `_write_satisfaction_doc`
 FAIL paths, `_satisfaction_fix_loop`, `_build_fix_prompt`, `_invoke_review_llm`, `_persist_satisfaction_last_findings`,
 `_build_review_prompt`), `lib/plugins/anti_hallucination/semantic_verifier.py`, `lib/findings_provenance.py` (new),
 `conformance/bd_l3.py`, `conformance/AUTHORSHIP_SPEC.md`, `conformance/class_i_inventory.json`, `CHANGELOG.md`.
@@ -191,3 +197,10 @@ AC7. M-3 `run_id` pinned to the telemetry run → §2.1, AC4, AC6. m-1 survivor 
 m-5 class-M chunk rule + `str(value)` → §2.1, §2.5, §2.7. m-6 `invoke_fix_llm_retry` → AC1. m-7 siblings → §4,
 re-measured. m-8 in-tree comparison → AC1. N-1 rename. N-2 position → §2.4. N-3 reason kept under R3.2 → §2.6. N-4 → §5.
 Decoy `sat_loop` edge → AC3(d).
+
+## §9 r3 changes (gate r2)
+
+F-1 passed cases carry a non-invocation block; form-valid fields alone are not an R3.2 observation; `not-checked` case →
+§2.6, AC7. F-2 `event.get("run_id")`, `None` run never resolves → §2.6, AC7. F-3 sidecar still written without a run →
+§2.1. F-4 AC5 session_id ≠ run id. F-5 drift (§1, §2.1, §7). F-6 partial ids → §2.2. F-7 distinct responses + mapping →
+§3 fixture.
