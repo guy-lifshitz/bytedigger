@@ -1,3 +1,21 @@
+---
+red_tests:
+  - engine_py/tests/test_bd92_per_cycle_artifacts.py
+sibling_tests:
+  - engine_py/tests/test_gh636_findings_thread_evict.py
+  - engine_py/tests/test_bd85_retry_budgets.py
+  - engine_py/tests/test_bd150_class_i_inventory.py
+red_pins:
+  - engine_py/tests/test_gh636_findings_thread_evict.py
+  - engine_py/tests/test_bd85_retry_budgets.py
+paths:
+  - engine_py/bytedigger_engine/findings_sidecar.py
+  - engine_py/bytedigger_engine/workflows/phase_45_spec.py
+  - engine_py/bytedigger_engine/workflows/phase_6_review.py
+  - engine_py/bytedigger_engine/lib/resume_keying.py
+  - engine_py/bytedigger_engine/lib/step_sentinel.py
+  - engine_py/bytedigger_engine/engine.py
+---
 # bd#92 — per-cycle artifacts are cleared or keyed before a later cycle can read them
 
 **Status:** DRAFT r1 (gate pending).
@@ -122,9 +140,7 @@ only, if those docs list events).
   empty `_prev` thread and a sidecar from a different run does not put that
   sidecar's findings into the prompt, and emits `spec_findings_thread_rejected`.
   The same setup with a same-run cycle-1 sidecar does include them.
-- **AC5** (op2): a cycle-1 sidecar is not applied on a cycle-2 spec-gate retry
-  (`retry_source == SPEC_GATES_RETRY_SOURCE`). This is a regression lock for
-  bd#85.
+- **AC5** (op2, regression lock, no new test): `test_bd85_retry_budgets.py::test_ac7` (updated in this lot) persists a same-run cycle-2 thread and asserts a gate retry's prompt uses the gate findings. It is red until op2 lands (new `run_id` kwarg) and then locks the bd#85 exclusion. It is a pinned sibling, not a RED-file test, because a RED file may not contain a passing test.
 - **AC6** (op2): the REVISE branch of `_gate_on_review` persists `run_id` and
   `cycle` into the sidecar on disk.
 - **AC7** (op3): spec-lint `rc == 0` does not create `.build-spec.ship.json`.

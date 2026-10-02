@@ -9,7 +9,7 @@ AC -> test map
   AC3  test_ac3_load_rejects_other_run / _cycle_mismatch / _legacy_payload,
        test_ac3_load_returns_list_for_same_run_previous_cycle (+ persist round trip)
   AC4  test_ac4_prompt_ignores_other_run_thread_and_emits_rejected_event
-  AC5  test_ac5_gate_retry_does_not_apply_cycle1_thread   (regression lock, passes today)
+  AC5  covered by pinned sibling tests/test_bd85_retry_budgets.py::test_ac7 (not in this file)
   AC6  test_ac6_revise_branch_persists_run_id_and_cycle
   AC7  test_ac7_lint_pass_does_not_write_ship_sidecar
   AC8  test_ac8_ship_verdict_writes_verdict_sidecar (+ direct _write_ship_sidecar check)
@@ -256,21 +256,6 @@ def test_ac4_prompt_ignores_other_run_thread_and_emits_rejected_event(tmp_path):
     _write_thread(same, run_id=RUN_B, cycle=1)
     r2 = phase_45_spec._build_spec_prompt(_wf_ctx(same), prev)
     assert "MARKER_BD92_FINDING_ACTION" in r2.data["prompt"]
-
-
-def test_ac5_gate_retry_does_not_apply_cycle1_thread(tmp_path):
-    scratch = tmp_path / "gate"
-    _write_spec(scratch)
-    _write_thread(scratch, run_id=RUN_B, cycle=2)
-    _set_run(tmp_path, RUN_B, cycle=3)
-    prev = StepResult(
-        status="ok",
-        data={"cycle": 3, "findings": "spec_cite_lint: GATE_BD92_GHOST", "retry_source": "spec_gates"},
-        duration_ms=0, step_name="detect_frozen_spec",
-    )
-    r = phase_45_spec._build_spec_prompt(_wf_ctx(scratch), prev)
-    assert "GATE_BD92_GHOST" in r.data["prompt"]
-    assert "MARKER_BD92_FINDING_ACTION" not in r.data["prompt"]
 
 
 # --- AC6: REVISE persists run_id and cycle ------------------------------------
