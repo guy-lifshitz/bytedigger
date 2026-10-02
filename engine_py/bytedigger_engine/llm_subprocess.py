@@ -71,6 +71,33 @@ logger = logging.getLogger(__name__)
 
 _TAIL_BYTES = 2048
 
+# bd#145: observation fields only a backend's own producer may set; a caller's
+# ``extra_data`` must never shadow them (R3.3/R3.5/R3.6 adjudicate them).
+RESERVED_OBSERVATION_FIELDS: frozenset[str] = frozenset({
+    "observed_model",
+    "observed_tools",
+    "worker_written_paths",
+    "manifest_source",
+    "mcp_server_losses",
+})
+RESERVED_DROP_LOG_PREFIX = "extra_data reserved observation fields dropped: "
+
+
+def _strip_reserved_observations(extra_data):
+    """Return ``extra_data`` without reserved observation fields (bd#145).
+
+    Only a Mapping is filtered, into a NEW dict (the caller's is never mutated);
+    anything else (None, non-Mapping) is returned unchanged. Logs one warning
+    naming the dropped fields, only when something was dropped.
+    """
+    if not isinstance(extra_data, Mapping):
+        return extra_data
+    dropped = sorted(k for k in extra_data if k in RESERVED_OBSERVATION_FIELDS)
+    if not dropped:
+        return extra_data
+    logger.warning(RESERVED_DROP_LOG_PREFIX + ", ".join(dropped))
+    return {k: v for k, v in extra_data.items() if k not in RESERVED_OBSERVATION_FIELDS}
+
 # GH1194 (spec §2.2a): per-process de-duplication of MCP-loss warnings, keyed on
 # (name, reason).  A permanently broken ambient environment would otherwise warn
 # on every single LLM call and the signal would be trained away.  De-dup applies
@@ -1441,12 +1468,15 @@ def _dispatch_backend(
     if "warm_resume" in caps:
         # bd#82: resolved here, so no dispatch path can forget that a gate is fresh.
         optional["fresh_session"] = fresh_session or hard_gate
+    # bd#145: the dispatcher is the single point that hands extra_data to every
+    # backend (including third-party ones), so reserved observation fields are
+    # stripped here, before any backend can merge a forged value into result.data.
     result = _BACKENDS[resolved_backend](
         prompt=prompt,
         model=model,
         timeout_sec=timeout_sec,
         step_name=step_name,
-        extra_data=extra_data,
+        extra_data=_strip_reserved_observations(extra_data),
         allowed_tools=allowed_tools,
         run_ctx=run_ctx,
         hard_gate=hard_gate,
@@ -1559,7 +1589,9 @@ def invoke_llm_subprocess(
 
     Success:
         status="ok", data merges {raw_response, response_bytes, command} with
-        the caller's ``extra_data`` (caller's keys win on collision).
+        the caller's ``extra_data`` (caller's keys win on collision, except the
+        reserved observation fields (``RESERVED_OBSERVATION_FIELDS``), which are
+        dropped).
     Error codes:
         E_LLM_CMD_MISSING            — binary not found (recoverable=False)
         E_LLM_TIMEOUT                — exceeded timeout_sec (deadline check

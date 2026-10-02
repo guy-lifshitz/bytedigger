@@ -204,7 +204,12 @@ class _WarningCapture(logging.Handler):
     @property
     def mcp_messages(self) -> list[str]:
         """Warnings attributable to the GH1194 MCP-loss code path."""
-        return [m for m in self.messages if "mcp" in m.lower()]
+        drop_prefix = getattr(llm_subprocess, "RESERVED_DROP_LOG_PREFIX", None)
+        return [
+            m for m in self.messages
+            if "mcp" in m.lower()
+            and not (isinstance(drop_prefix, str) and drop_prefix and m.startswith(drop_prefix))
+        ]
 
 
 @contextlib.contextmanager
