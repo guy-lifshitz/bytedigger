@@ -147,3 +147,18 @@ Where this section and §3–§6 disagree, this section wins.
   `pytest tests/* 2>&1 | tee build-red-output.log` allowed.
 - Out of scope, noted: the stale `.bytedigger-orchestrator-pid` in the main checkout (no hook reads
   it; see #190).
+
+### §R2.1 gate r2 advisories (PASS-WITH-ADVISORIES)
+
+- **A6 shape:** `worker-write-guard.sh` is added as the **second hook of the existing `Bash`
+  entry** in `hooks/hooks.json` (after `build-state-guard.sh`); no new entry, and the Write matcher is unchanged.
+- **Docs:** the security.md guard section keeps the word "worktree" (the stale-state/`mv` text).
+  The sentence "it is blocked only when the tool input is malformed" gains "(file tools)": a
+  malformed **main-thread** Bash call is allowed (m5), unlike the file tools (R3 before R4).
+- **Stale text above:** §4's `*.yaml` example, §5's "`/build continue` runs from the worktree"
+  and §6 A8's "API-token engine path" wording are superseded by §R2 (do not copy them).
+- **Glob limit wording:** "globs without a literal `build`/`bytedigger`" (e.g. `*.yaml`,
+  `b*-state.yaml`, `[b]uild-state.yaml`) are not caught. Known false positives: a subagent grepping
+  for `build-state.yaml` (e.g. in this repo) and `pytest -k 'build*' | tee …` are blocked.
+- Recorded as known MINORs, not fixed: the test docstring lists two pins dropped in rev 2; the
+  m1 per-line pin excuses any line that names `build-state.yaml.tmp`.
