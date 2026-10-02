@@ -108,7 +108,7 @@ def _stub_ok_path_helpers(monkeypatch):
     on unrelated dependencies (scratchpad/worktree/cross-tree warning)."""
     monkeypatch.setattr(p5, "_resolve_scratchpad", lambda ctx: "/tmp/fake-scratchpad")
     monkeypatch.setattr(p5, "_resolve_worktree_root", lambda ctx, sp: "/tmp/fake-worktree")
-    monkeypatch.setattr(p5, "_maybe_emit_cross_tree_warning", lambda result, root: result)
+    monkeypatch.setattr(p5, "_maybe_emit_cross_tree_warning", lambda result, root, **_kw: result)
 
 
 def test_ac1_exactly_one_failed_event_emitted(monkeypatch):

@@ -144,6 +144,12 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   modifies a path the task asks for is no longer turned into REVISE. `_D3_MUTATION_VERB_RE` now also
   counts the noun forms `modifications`, `edits` and `changes` ("no changes to `src/z.py`"); known
   limit: "`x` never changes in `src/a.py`" still prohibits `src/a.py`.
+- **Cross-tree auto-revert keeps edits that predate the run (bd#170).** The RED, GREEN and fix steps
+  now snapshot the main checkout's dirty tracked paths just before the worker runs. After the run, an
+  owned cross-tree path that was already dirty is no longer reset to HEAD: it is held back with a
+  `cross_tree_revert_prestate_refused` event (`changed_since_start` says whether the worker touched it
+  again) and `cross_tree_prestate_refused_files` on the result. A missing or unusable snapshot holds
+  back every owned path (fail closed). Clean paths are reverted as before.
 
 ## [0.2.0] — 2026-09-30
 

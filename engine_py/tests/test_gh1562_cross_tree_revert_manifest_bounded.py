@@ -230,7 +230,9 @@ def test_ac2_owned_file_reverted_and_event_carries_owned_files_only(tmp_path, mo
         "manifest_source": "harness_tool_record",
     })
 
-    phase_workflows_common._maybe_emit_cross_tree_warning(result, wt)
+    phase_workflows_common._maybe_emit_cross_tree_warning(
+        result, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
     assert leaked_path.read_bytes() == leaked_original, (
         f"AC2: expected {LEAKED_RELPATH!r} reverted to HEAD bytes "
@@ -289,7 +291,9 @@ def test_ac3_mixed_manifest_exact_partition_reverted_vs_refused(tmp_path, monkey
         "manifest_source": "harness_tool_record",
     })
 
-    out = phase_workflows_common._maybe_emit_cross_tree_warning(result, wt)
+    out = phase_workflows_common._maybe_emit_cross_tree_warning(
+        result, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
     assert leaked_path.read_bytes() == leaked_original, (
         f"AC3: expected {LEAKED_RELPATH!r} reverted; actual "
@@ -459,7 +463,9 @@ def test_ac6_manifest_entry_through_var_alias_matches_via_realpath(tmp_path):
         "worker_written_paths": manifest, "manifest_source": "harness_tool_record",
     })
 
-    phase_workflows_common._maybe_emit_cross_tree_warning(result, wt)
+    phase_workflows_common._maybe_emit_cross_tree_warning(
+        result, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
     actual_bytes = leaked_path.read_bytes()
     assert actual_bytes == original_bytes, (
@@ -717,7 +723,9 @@ def test_ac12_two_invocations_different_manifests_no_accumulation(tmp_path, monk
     result1 = _make_result({
         "worker_written_paths": [str(a_path)], "manifest_source": "harness_tool_record",
     })
-    phase_workflows_common._maybe_emit_cross_tree_warning(result1, wt)
+    phase_workflows_common._maybe_emit_cross_tree_warning(
+        result1, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
     assert a_path.read_bytes() == a_original, (
         f"AC12 call1: expected {a_relpath!r} reverted (owned by call1's "
@@ -743,7 +751,9 @@ def test_ac12_two_invocations_different_manifests_no_accumulation(tmp_path, monk
     result2 = _make_result({
         "worker_written_paths": [str(b_path)], "manifest_source": "harness_tool_record",
     })
-    phase_workflows_common._maybe_emit_cross_tree_warning(result2, wt)
+    phase_workflows_common._maybe_emit_cross_tree_warning(
+        result2, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
     assert b_path.read_bytes() == b_original, (
         f"AC12 call2: expected {b_relpath!r} reverted (owned by call2's OWN "
@@ -790,7 +800,9 @@ def test_ac13_idempotent_second_invocation_reverts_nothing(tmp_path, monkeypatch
     result1 = _make_result({
         "worker_written_paths": list(manifest), "manifest_source": "harness_tool_record",
     })
-    phase_workflows_common._maybe_emit_cross_tree_warning(result1, wt)
+    phase_workflows_common._maybe_emit_cross_tree_warning(
+        result1, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
     assert leaked_path.read_bytes() == leaked_original, (
         f"AC13 setup: expected first call to revert {LEAKED_RELPATH!r}; "
@@ -805,9 +817,11 @@ def test_ac13_idempotent_second_invocation_reverts_nothing(tmp_path, monkeypatch
     result2 = _make_result({
         "worker_written_paths": list(manifest), "manifest_source": "harness_tool_record",
     })
-    phase_workflows_common._maybe_emit_cross_tree_warning(result2, wt)
+    phase_workflows_common._maybe_emit_cross_tree_warning(
+        result2, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
-    reverted2 = [e for e in events2 if e["type"] == "cross_tree_edit_reverted"]
+    reverted2 =[e for e in events2 if e["type"] == "cross_tree_edit_reverted"]
     assert reverted2 == [], (
         f"AC13: expected NO cross_tree_edit_reverted event on the second, "
         f"idempotent invocation (the owned file is already clean); actual "
@@ -1008,7 +1022,9 @@ def test_ac17_relative_manifest_entry_resolves_against_main_repo_root(tmp_path, 
         "manifest_source": "harness_tool_record",
     })
 
-    phase_workflows_common._maybe_emit_cross_tree_warning(result, wt)
+    phase_workflows_common._maybe_emit_cross_tree_warning(
+        result, wt, pre_state={"ok": True, "main_repo_root": str(main), "dirty": {}},
+    )
 
     assert leaked_path.read_bytes() == leaked_original, (
         f"AC17: expected {LEAKED_RELPATH!r} reverted via the RELATIVE "

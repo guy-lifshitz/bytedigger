@@ -364,7 +364,7 @@ def test_ac4_invoke_fix_llm_unlinks_stale_log_path_before_dispatch(tmp_path, mon
     monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **kw: None)
     monkeypatch.setattr(
         phase_6_review, "_maybe_emit_cross_tree_warning",
-        lambda result, worktree_root: result, raising=False,
+        lambda result, worktree_root, **_kw: result, raising=False,
     )
 
     spec_path = scratchpad / SPEC_DOC_RELPATH

@@ -359,12 +359,92 @@ def _revert_cross_tree_modifications(main_repo_root: Path, files: list[str]) -> 
 # 6. _maybe_emit_cross_tree_warning  (phase_5 version: if None guard DC1CB656)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _maybe_emit_cross_tree_warning(result: StepResult, worktree_root: Path) -> StepResult:
+def _hash_worktree_blobs(root: str, paths: list[str]) -> "dict[str, str | None]":
+    """One read-only ``git hash-object -- <paths>`` (no ``-w``) in <root>.
+
+    Returns {path: blob_sha}; every value is None on any failure (the caller
+    still treats the path as dirty).  Never raises.
+    """
+    unknown: dict[str, str | None] = {p: None for p in paths}
+    if not paths:
+        return unknown
+    try:
+        proc = git_port.git_read(["hash-object", "--", *paths], cwd=root, timeout=10)
+        if proc.returncode != 0:
+            return unknown
+        shas = proc.stdout.split()
+        if len(shas) != len(paths):
+            return unknown
+        return dict(zip(paths, shas))
+    except Exception:  # noqa: BLE001 — helper contract: never raises
+        return unknown
+
+
+def _snapshot_main_checkout_state(worktree_root: Path) -> dict:
+    """bd#170: record which tracked paths of the MAIN checkout are already
+    dirty BEFORE a worker runs, so the cross-tree auto-revert never resets a
+    user's pre-existing edit.  Read-only (git_port.git_read); never raises.
+
+    Returns ``{"ok": True, "main_repo_root": str, "dirty": {relpath: blob|None}}``
+    or ``{"ok": False, "reason": str}``.
+    """
+    try:
+        proc = git_port.git_read(["worktree", "list", "--porcelain"], cwd=str(worktree_root), timeout=10)
+        if proc.returncode != 0:
+            return {"ok": False, "reason": f"worktree_list_rc_{proc.returncode}"}
+        main_root: Path | None = None
+        for line in proc.stdout.splitlines():
+            if line.startswith("worktree "):
+                main_root = Path(line[len("worktree "):]).resolve()
+                break
+        if main_root is None:
+            return {"ok": False, "reason": "main_root_not_found"}
+        wt_resolved = Path(worktree_root).resolve()
+        if main_root == wt_resolved or wt_resolved.is_relative_to(main_root):
+            return {"ok": True, "main_repo_root": str(main_root), "dirty": {}}
+        st = git_port.git_read(["status", "--porcelain"], cwd=str(main_root), timeout=10)
+        if st.returncode != 0:
+            return {"ok": False, "reason": f"status_rc_{st.returncode}"}
+        paths: list[str] = []
+        for raw_line in st.stdout.splitlines():
+            path = raw_line[3:].strip() if len(raw_line) > 3 else ""
+            if path and raw_line[:2] != "??":
+                paths.append(path)
+        return {
+            "ok": True,
+            "main_repo_root": str(main_root),
+            "dirty": _hash_worktree_blobs(str(main_root), paths),
+        }
+    except Exception as exc:  # noqa: BLE001 — helper contract: never raises
+        return {"ok": False, "reason": f"{exc.__class__.__name__}: {exc}"}
+
+
+def _pre_state_usable(pre_state: object, main_repo_root: object) -> bool:
+    """True iff pre_state is a well-formed snapshot of THIS main checkout."""
+    try:
+        return bool(
+            isinstance(pre_state, dict)
+            and pre_state.get("ok") is True
+            and isinstance(pre_state.get("dirty"), dict)
+            and os.path.realpath(str(pre_state.get("main_repo_root")))
+            == os.path.realpath(str(main_repo_root))
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _maybe_emit_cross_tree_warning(
+    result: StepResult, worktree_root: Path, pre_state: "dict | None" = None,
+) -> StepResult:
     """If the result is OK and helper detects cross-tree edits, emit telemetry,
     tag ``result.data``, and best-effort auto-revert via ``git checkout --``.
 
     Pure observability for the warning path; auto-revert is best-effort
     remediation. Does NOT change result.status.
+
+    bd#170: ``pre_state`` is the ``_snapshot_main_checkout_state`` taken before
+    the worker ran.  An owned path that was already dirty then (or any owned
+    path when no usable snapshot exists) is held back, never reset.
     """
     if result.status != "ok" or not isinstance(result.data, dict):
         return result
@@ -409,6 +489,37 @@ def _maybe_emit_cross_tree_warning(result: StepResult, worktree_root: Path) -> S
             },
             severity="warning",
         )
+    held: list[str] = []
+    if _pre_state_usable(pre_state, main_repo_root):
+        assert isinstance(pre_state, dict)
+        start_dirty = pre_state["dirty"]
+        held = [p for p in owned if p in start_dirty]
+        hold_reason = "dirty_at_start"
+    else:
+        start_dirty = {}
+        held = list(owned)
+        hold_reason = "pre_state_unavailable"
+    if held:
+        now_blobs = _hash_worktree_blobs(str(main_repo_root), held)
+        changed: dict[str, bool | None] = {}
+        for p in held:
+            before = start_dirty.get(p) if hold_reason == "dirty_at_start" else None
+            after = now_blobs.get(p)
+            changed[p] = None if before is None or after is None else (before != after)
+        result.data["cross_tree_prestate_refused_files"] = list(held)
+        result.metadata["cross_tree_prestate_refused_files"] = list(held)
+        _emit_safe(
+            "cross_tree_revert_prestate_refused",
+            {
+                "step": result.step_name,
+                "main_repo_root": main_repo_root,
+                "files": list(held),
+                "reason": hold_reason,
+                "changed_since_start": changed,
+            },
+            severity="warning",
+        )
+        owned = [p for p in owned if p not in held]
     if not owned:
         return result
     try:

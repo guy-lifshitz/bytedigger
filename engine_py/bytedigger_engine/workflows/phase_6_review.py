@@ -148,9 +148,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._baseline_delta import run_baseline_delta_gate  # type: ignore[no-redef]  # noqa: E402  GH561 §1r lane-2
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 # Step 7 (95D3E5F6) — W1 + disk-truth wiring. Phase 6 reviews CODE
 # (schema {id, severity, path, description}), not specs
@@ -2610,6 +2610,12 @@ def _invoke_fix_llm(ctx, prev) -> StepResult:
             pass
         except OSError:
             pass
+    # bd#170: main-checkout pre-state, so the cross-tree revert keeps edits that predate this run.
+    try:
+        _pre_state = _snapshot_main_checkout_state(
+            _resolve_worktree_root(ctx, _resolve_scratchpad(ctx)))
+    except ValueError:
+        _pre_state = None  # fail closed: no snapshot, no reset
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=_resolve_model(cfg, "fix_model", _default_fix_model()),
@@ -2635,7 +2641,7 @@ def _invoke_fix_llm(ctx, prev) -> StepResult:
     if result.status == "ok":
         scratchpad = _resolve_scratchpad(ctx)
         worktree_root = _resolve_worktree_root(ctx, scratchpad)
-        result = _maybe_emit_cross_tree_warning(result, worktree_root)
+        result = _maybe_emit_cross_tree_warning(result, worktree_root, pre_state=_pre_state)
     return result
 
 
