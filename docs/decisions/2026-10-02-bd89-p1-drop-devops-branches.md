@@ -1,13 +1,13 @@
 # bd#89 P1: drop devops_scan / devops_pipeline / canary / smoke / artifact-detect from the engine and the /build flow
 
-**Status: DRAFT r2 (gate r1 REJECT → 2 blockers + minors, see `2026-10-02-bd89-p1-gate-r1.md`)** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** PROCESS (scope-of-build decision) ·
+**Status: FROZEN r3 (gate r2 PASS; gate r1 REJECT → 2 blockers + minors, see `2026-10-02-bd89-p1-gate-r1.md`)** · **Tier:** 3 (engine prod `.py`, Option D) · **Class:** PROCESS (scope-of-build decision) ·
 **Chokepoint:** the stage registry `register_all` (`engine_py/bytedigger_engine/workflows/__init__.py:25`). It is the only place an engine stage becomes reachable. The /build orchestrator flow `commands/build.md` is the md-side counterpart.
 **Side of the seam (decision 2026-07-26 §7.1):** engine + orchestrator md. No host mechanism is needed.
 **Source:** bd#89 checklist row 5 ("never exercised in the measured run window … drop from the default path"). The split plan is in issue comment 5947880163: P1 covers row 5; P2 covers rows 1 and 4 (phases 1–4, spec_lite, SIMPLE fast path); P3 covers rows 2, 3, 6 and 7.
 
 ## §1 Problem (measured on `24dbd13`)
 
-1. The registry registers five devops-only stages (`workflows/__init__.py:29,36,37,39,43`): `phase_0_6_artifact_detect`, `phase_5_devops_scan`, `phase_devops_pipeline`, `phase_5_integration_canary` and `phase_6_smoke`. Nothing in `commands/`, `phases/`, `skills/` or `scripts/` invokes them by name.
+1. The registry registers five devops-only stages (`workflows/__init__.py:29,37,38,39,44`): `phase_0_6_artifact_detect`, `phase_5_devops_scan`, `phase_devops_pipeline`, `phase_5_integration_canary` and `phase_6_smoke`. Nothing in `commands/`, `phases/`, `skills/` or `scripts/` invokes them by name.
 2. Nothing in the engine writes `org_config["artifact_type"]`. The only producer is the dropped artifact-detect stage's own result. Every `artifact_type` consumer is therefore dead code in practice:
    - `_select_reviewers` / `_review_plan` devops rows (`workflows/phase_6_review.py:261,466-467,488-511,792-794,1131,1686-1687`).
    - `get_standards_context` (`workflows/_standards_context.py`), which also hard-wires a HAL path, `SYSTEM/cli/build/devops-prompt-context.ts` (`:55`). It is called from `phase_45_spec.py:85-87,1301-1303` and `phase_5_implement.py:149-151,1449-1451,7461-7463`.
@@ -31,7 +31,7 @@ Row 5 allows "reintroduce only behind an explicit flag *if a real use case shows
 - **op2 (artifact_type):** delete `_standards_context.py` and its three call sites. `_select_reviewers(complexity, fanout="single")` loses the `artifact_type` parameter. `_review_plan(ctx, complexity)` drops it too. `_ROW_DEVOPS_REVIEWER` and `_LINE_COMPOSITE_DEVOPS` are deleted. An `artifact_type` key in `org_config` is ignored.
 - **op3 (canary sidecar):** delete `CANARY_META_RELPATH`, `_CANARY_EVENT_TYPE_RE`, `_parse_canary_integration`, the sidecar write, the `canary_event_type` data key and the `canary_integration_parsed` emit at both sites in `_write_spec_doc`. Any "Canary Integration" prompt text in phase_45_spec is deleted as well.
 - **op4 (residue):**
-  - Remove the 7 error codes from `error_codes.py` and from both `ERROR_CODES.md` copies, which stay byte-identical.
+  - Remove the 7 error codes from `error_codes.py` and from both `ERROR_CODES.md` copies, which stay byte-identical. A section left empty is removed together with its heading.
   - Remove the 3 `HAL_DEVOPS_SCAN_*` flags and the `ROUTED_MODULES` entry.
   - Remove the 5 entries from `core_manifest.json`. `_standards_context.py` is not listed there; if it is, remove it as well.
   - Delete the `("CANARY_", "engine")` prefix rule in `lib/dispatcher_report.py:80`. It becomes dead once the `E_CANARY_*` codes are gone.
@@ -59,7 +59,7 @@ Provider principles: P1 adds no LLM call and no provider dependency. It removes 
 ## §4 Out of scope (§1v)
 
 - Phases 1–4, spec_lite, the SIMPLE fast path and `findings-*.md` gates (P2).
-- phase_6 `parallel` fan-out, the decorrelated verifier, reviewer-count keys and the `security_classification` +3 logic (P3).
+- phase_6 `parallel` fan-out, the decorrelated verifier, reviewer-count keys (P3). The dead M7 block in build-gate.sh, including its `security_classification` read, is deleted here per op5.
 - phase_7_synthesize and the surgical/restricted revise (P3).
 - Enforce-flag resolution (P3).
 - `lib/tree_root.py` stays: tests and `test_engine_path_closure` still use it.
@@ -74,7 +74,7 @@ Prod edits:
 - `workflows/__init__.py`, `workflows/phase_6_review.py`, `workflows/phase_45_spec.py`, `workflows/phase_5_implement.py`
 - `error_codes.py`, `engine_py/ERROR_CODES.md`, `engine_py/bytedigger_engine/ERROR_CODES.md`
 - `flags_catalog.py`, `engine_py/core_manifest.json`
-- `scripts/build-gate.sh`
+- `lib/dispatcher_report.py`, `scripts/build-gate.sh`
 - the md list in op5
 
 Test retirements (RED commit; §1a sibling audit):
