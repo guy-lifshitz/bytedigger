@@ -21,6 +21,13 @@
    sanitising and parse-error counting. They differ on decoding: file uses `errors='replace'`,
    sqlite uses strict utf-8 and turns bad bytes into a failed extract.
 
+7. **Found by the RED guard: bash 5.5 crashes.** `gate_phase_55` runs
+   `grep "^assertion_gaming_detected:" … | sed …` under `set -euo pipefail` without `|| true`.
+   When the key is absent (the normal case), the script exits 1 with empty stdout. Under
+   SubagentStop that is a non-zero exit with no verdict, and `gate-dispatcher.sh` shadow mode turns
+   it into a hard block. GREEN fixes it: an absent key means "not detected". It is pinned by
+   `test_guard_satisfied_state_passes[5.5-bash]`, which is RED today.
+
 ## §2 Scope
 
 In: items 4–6. Out: the phase-6 checks (bash soft "unfixed findings" vs TS hard "Boy Scout"
@@ -135,6 +142,7 @@ Initial content (it must reproduce today's **bash** reasons byte-for-byte):
   exactly. The file backend's category files and the sqlite DB rows (if `sqlite3` is present,
   else skip) contain the same (category, lesson) set, and both write the same
   `learnings_parse_errors`.
+- **A2** note: the fixture already carries `gate_block_phase`, so A2 passes today (a GUARD for C2).
 - **A10** Regression guards: existing `tests/build-gate.bats`, `tests/learning-store*.bats` and
   `tests/test_worker_deliverables.py` stay green.
 
