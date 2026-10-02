@@ -93,7 +93,7 @@ Explicit matches: `src/../.bytedigger/x`, `sub/.bytedigger/x`, `./.bytedigger/x`
 **`porcelain_path(line)`** (gate r2 edge 3)
 - Drops the 3-char `XY ` status prefix.
 - A rename/copy `old -> new` yields `new`.
-- A path wrapped in double quotes is C-unquoted: `\\`, `\"`, `\t`, `\n` and 3-digit octal escapes; octal bytes are decoded as UTF-8 (`errors="replace"`). So `?? ".bytedigger/caf\303\251.json"` gives `.bytedigger/café.json`.
+- A path wrapped in double quotes is C-unquoted: `\\`, `\"`, `\t`, `\n` and 3-digit octal escapes; octal bytes are decoded as UTF-8 (`errors="replace"`). So `?? ".bytedigger/caf\303\251.json"` gives `.bytedigger/caf<U+00E9>.json`.
 - It never raises; a line shorter than 4 chars yields `""`.
 
 **`drop_engine_owned_porcelain(lines, repo_root, *, step)`** keeps the order of `lines` and drops each line where `is_engine_state_path(porcelain_path(line), repo_root)`. Blank lines are dropped too. It emits the same `engine_owned_paths_dropped` event as `drop_engine_owned` (payload `content_scan: False`, `paths` = the dropped `porcelain_path` values) under the same emit rules.
@@ -193,7 +193,7 @@ This mirrors `class_i_lint.py` (bd#150).
 
 ## §3 Acceptance (RED file: `engine_py/tests/test_bd94_engine_owned_paths.py`)
 
-**Hermetic git (gate r2 N7).** An autouse fixture sets `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` to `os.devnull` in the process env (monkeypatch), so the units under test (`git_port.git_read`, `git_op_with_lock_retry`) do not inherit `commit.gpgsign`, `core.hooksPath`, `core.excludesFile` or `status.showUntrackedFiles`. It `delenv`s the `HAL_`, `BD_` and `BYTEDIGGER_` spellings of `GREEN_CHECKPOINT_GATE` and `AUTHORED_BOUNDARY_GATE` unless a test sets them.
+**Hermetic git (gate r2 N7).** An autouse fixture sets `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` to `os.devnull` in the process env (monkeypatch), so the units under test (`git_port.git_read`, `git_op_with_lock_retry`) do not inherit `commit.gpgsign`, `core.hooksPath`, `core.excludesFile` or `status.showUntrackedFiles`. It also removes `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT` (gate r3 F2). It `delenv`s the `HAL_`, `BD_` and `BYTEDIGGER_` spellings of `GREEN_CHECKPOINT_GATE` and `AUTHORED_BOUNDARY_GATE` unless a test sets them.
 
 **AC1: predicate unit.**
 - Every R1 match and non-match in §2.1, including the `..` cases, an absolute path outside the root, and a repo under a `.bytedigger` ancestor.
@@ -217,7 +217,7 @@ This mirrors `class_i_lint.py` (bd#150).
 - Exactly one `engine_owned_paths_dropped` event carries `step`, `n_dropped`, `content_scan`, and sorted, 20-capped `paths`.
 - No event when nothing is dropped.
 - An emitter that raises does not propagate.
-- `porcelain_path`: `"?? .bytedigger/"` → `.bytedigger/`; `" M src/a.py"` → `src/a.py`; `"R  old.py -> .bytedigger/x"` → `.bytedigger/x`; `'?? ".bytedigger/caf\303\251.json"'` → `.bytedigger/café.json`; `'?? "a b\\c.py"'` → `a b\c.py`; `""` and `"??"` → `""`.
+- `porcelain_path`: `"?? .bytedigger/"` → `.bytedigger/`; `" M src/a.py"` → `src/a.py`; `"R  old.py -> .bytedigger/x"` → `.bytedigger/x`; `'?? ".bytedigger/caf\303\251.json"'` → `.bytedigger/caf<U+00E9>.json`; `'?? "a b\\c.py"'` → `a b\c.py`; `""` and `"??"` → `""`.
 - `drop_engine_owned_porcelain`: keeps order; drops the state lines above (quoted and rename-target included) and blank lines; keeps `R  .bytedigger/x -> src/y.py`; one event with step, `n_dropped`, `content_scan: False`; no event when nothing is dropped.
 
 **AC3: `engine_owned_pathspecs()` and `prune_engine_owned_dirs`.**
