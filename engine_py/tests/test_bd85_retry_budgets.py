@@ -276,9 +276,11 @@ def test_ac7_gate_retry_prompt_uses_gate_findings_not_stale_thread(tmp_path: Pat
     spec_path = scratch / phase_45_spec.SPEC_DOC_RELPATH
     spec_path.parent.mkdir(parents=True, exist_ok=True)
     spec_path.write_text("## Context\nprior spec\n", encoding="utf-8")
+    # same run + producing cycle 2 => only the gate_retry exclusion keeps it out of the prompt
     persist_findings_thread(
         scratch, [{"id": "F1", "type": "gap", "evidence": "e",
-                   "required_action": "STALE_REVIEWER_ACTION"}], cycle=1)
+                   "required_action": "STALE_REVIEWER_ACTION"}], cycle=2, run_id="r85")
+    _under_cycle(3)
     prev = StepResult(
         status="ok",
         data={"cycle": 3, "findings": "spec_cite_lint: GATE_FINDING_GHOST_PATH",

@@ -13,6 +13,10 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Per-cycle artifacts are cleared or keyed (bd#92).** The phase-6 review doc is unlinked before the reviewer runs; the findings thread is keyed by run id and producing cycle (new event `spec_findings_thread_rejected`); the ship sidecar is written only on a reviewer SHIP and needs `verdict: SHIP` to be reused (new event `spec_prior_base_unverified`); sentinel globs come from one builder (`resume_sentinel_glob`), match `norun` names, and a phase reroute clears every cycle.
+
 ### Removed
 
 - **Phase-6 aggregation step, role glob and fanout banner removed (bd#89 P3b1b-ii).** The `aggregate_review_findings` step is folded into `write_review_artifact` (phase 6 goes from 21 steps to 20). Aggregation now reads only the fixed `reviews/role-composite.md`; leftover `role-<slug>.md` files are ignored, the `## Fanout` banner (`expected:` / `observed:` / `missing:`) and the `expected_reviewers` / `observed_role_count` result keys are gone, and the `E_NO_ROLE_FILES` error code is removed. A missing composite is no longer an error; the writer falls back to stdout/disk as before.

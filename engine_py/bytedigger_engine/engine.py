@@ -325,7 +325,7 @@ class WorkflowEngine:
             if not reroute_already_consumed(context, rid, workflow_name, _attempt) \
                     and mark_reroute_consumed(context, rid, workflow_name, _attempt):
                 _removed = invalidate_cycle_sentinels(
-                    context, workflow.steps, 1, rid, self._emit, workflow_name=workflow_name,
+                    context, workflow.steps, None, rid, self._emit, workflow_name=workflow_name,
                 )
                 self._emit(
                     "phase_reroute_entry",

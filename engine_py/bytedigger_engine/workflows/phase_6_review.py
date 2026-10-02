@@ -1057,7 +1057,9 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     try:
         if _scratchpad is not None:
             (_scratchpad / "reviews" / _COMPOSITE_ROLE_FILE).unlink(missing_ok=True)
-    except OSError:
+        # bd#92: the previous cycle's aggregate review doc must not be re-read as a fallback.
+        Path(prev.data["doc_path"]).unlink(missing_ok=True)
+    except (OSError, KeyError, TypeError):
         logger.warning("failed to clear stale role files before single review", exc_info=True)
 
     result = invoke_llm_subprocess(
