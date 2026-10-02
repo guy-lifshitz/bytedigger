@@ -206,6 +206,8 @@
 ## E_NO
 
 - `E_NO_ROLE_FILES` — phase_6_review: no reviewer role files found to drive the fan-out
+- `E_NO_SCOPE_FILES` — sibling_coupling: the audit was called with no scope files
+- `E_NO_TEST_CORPUS` — sibling_coupling: no test files matched the corpus globs or the default corpus walk
 
 ## E_NOT
 
@@ -223,6 +225,10 @@
 
 - `E_ORCHESTRATOR_CHECKLIST_MALFORMED` — phase_05_inject: orchestrator checklist file could not be parsed
 - `E_ORCHESTRATOR_CHECKLIST_MISSING` — phase_05_inject: orchestrator checklist file not found
+
+## E_PARTIAL
+
+- `E_PARTIAL_CHANNELS_GATE` — sibling_coupling: --require-clean was combined with a partial channel set
 
 ## E_POST
 
@@ -334,6 +340,10 @@
 - `E_SCHEMA_SMOKE_MISMATCH` — phase_5_integrity: schema-smoke dry-run detected a real schema mismatch (category FIXTURE_SCHEMA_MISMATCH)
 - `E_SCHEMA_SMOKE_UNAVAILABLE` — phase_5_integrity: schema-smoke target snapshot unavailable (missing schema, restore failure, or timeout)
 
+## E_SCOPE
+
+- `E_SCOPE_FILE_UNREADABLE` — sibling_coupling: a --scope-file or --spec path cannot be read
+
 ## E_SEC
 
 - `E_SEC_FRAGMENT_MISSING` — phase_5_implement: security-codegen prompt fragment file not found
@@ -361,6 +371,10 @@
 - `E_SHIP_PUSH_FAILED` — phase_8_post_deploy: git push at ship time failed
 - `E_SHIP_REBASE_CONFLICT` — phase_8_post_deploy: rebase onto origin/main conflicted at ship time
 - `E_SHIP_UNALLOWLISTED_RED` — phase_8_post_deploy: ship-time suite showed a red not covered by the allowlist
+
+## E_SIBLING
+
+- `E_SIBLING_AUDIT_INTERNAL` — sibling_coupling: the audit raised an unexpected internal exception; exit 2, never aliased to exit 1 (MISSING present)
 
 ## E_SKILL
 
@@ -433,6 +447,10 @@
 ## E_TOOL
 
 - `E_TOOL_RESTRICTION_UNSUPPORTED` — llm_subprocess: a hard gate's allowed_tools cannot be enforced by the resolved backend (bd#82)
+
+## E_UNKNOWN
+
+- `E_UNKNOWN_CHANNEL` — sibling_coupling: --channels names a channel outside the seven known channels
 
 ## E_VALIDATION
 

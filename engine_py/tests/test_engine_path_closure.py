@@ -47,7 +47,6 @@ ESCAPE_ALLOWLIST = {
     "security-lint.py": "legacy upstream location; packaged fallback security/security_lint.py resolves via default_security_asset, fail-closed E_SEC_LINT_UNAVAILABLE if both missing",
     "secure-codegen-rules.md": "legacy upstream location; packaged fallback via default_security_asset, fail-closed E_SECURITY_RULES_MISSING",
     "secure-codegen-fragment.md": "legacy upstream location; packaged fallback via default_security_asset, fail-closed E_SEC_FRAGMENT_MISSING",
-    "sibling-test-audit.sh": "warn-only pass; emits red_sibling_audit_skipped(script_missing) and continues; env seam HAL_SIBLING_AUDIT_BIN",
     "persist-learnings.ts": "best-effort learnings upsert; cfg persist_learnings_disabled seam, subprocess failure recorded not raised",
     "suite-boyscout-allowlist.txt": "missing file means empty allowlist (stricter, never weaker)",
     "deregister-session.ts": "best-effort session dereg; failure recorded not raised",
