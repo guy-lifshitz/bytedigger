@@ -114,6 +114,7 @@ from bytedigger_engine import flags_catalog  # noqa: E402  GH529
 from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine import verification_registry  # noqa: E402  bd#115
 from bytedigger_engine import check_ladder  # noqa: E402  bd#141 item 3
+from bytedigger_engine import readiness as _readiness  # noqa: E402  bd#141 item 6 — start-time readiness gate
 from bytedigger_engine.suite_safety import scan_suite_safety
 from bytedigger_engine.stub_passability import scan_stub_passability
 from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema
@@ -7872,6 +7873,53 @@ def build_validation_loop_contract(max_cycles: int = MAX_VALIDATION_CYCLES) -> L
     )
 
 
+def _readiness_start_gate(ctx: Any, prev: Any) -> "StepResult | None":
+    """bd#141 item 6: readiness start gate. Refuses (E_READINESS_NOT_APPROVED)
+    only on NOT_APPROVED; OFF/APPROVED/UNAVAILABLE and any internal error
+    proceed (fail-open; the Phase 8 ship gate is the fail-closed layer).
+    An ambient git_cwd is never touched (GH1220). Never posts or consumes."""
+    gate: "dict[str, Any]"
+    try:
+        repo, source = _resolve_git_cwd_with_source(ctx, prev)
+        if is_ambient_git_cwd(source):
+            gate = {"verdict": "UNAVAILABLE", "reason": "ambient_git_cwd",
+                    "issue": None, "record_sha256": None}
+        else:
+            try:
+                spec = _resolve_scratchpad(ctx) / SPEC_DOC_RELPATH
+                spec_path: "str | None" = str(spec) if spec.is_file() else None
+            except Exception:  # noqa: BLE001
+                spec_path = None
+            gate = _readiness.verdict(repo, "start", spec_path)
+    except Exception as exc:  # noqa: BLE001
+        gate = {"verdict": "UNAVAILABLE",
+                "reason": "internal error: " + " ".join(repr(exc).split()),
+                "issue": None, "record_sha256": None}
+    verdict = gate.get("verdict")
+    if verdict == "OFF":
+        return None
+    _emit_safe("readiness_start_verdict", {
+        "stage": "start",
+        "verdict": verdict,
+        "reason": gate.get("reason"),
+        "issue": gate.get("issue"),
+        "record_sha256": gate.get("record_sha256"),
+    })
+    if verdict != "NOT_APPROVED":
+        return None
+    issue = gate.get("issue")
+    issue_tag = "" if issue is None else str(issue)
+    return StepResult(
+        status="error",
+        data=None,
+        duration_ms=0,
+        step_name="validation_cycle_loop",
+        error=f"readiness: not approved ({gate.get('reason')}) #{issue_tag}",
+        error_code="E_READINESS_NOT_APPROVED",
+        recoverable=False,
+    )
+
+
 def _validation_cycle_loop_execute(ctx, prev) -> StepResult:
     """Composite step: drive the validation-cycle LoopStepContract via
     LoopRunner. Override step_name so observers see the composite name, not
@@ -7887,9 +7935,12 @@ def _validation_cycle_loop_execute(ctx, prev) -> StepResult:
     LoopRunner drives the body so the re-invoked cycle genuinely re-derives
     against the revised spec.
     """
+    refusal = _readiness_start_gate(ctx, prev)  # bd#141 item 6: before any repo write
+    if refusal is not None:
+        return refusal
     cap = _resolve_validation_cycle_cap(getattr(ctx, "org_config", None))
     contract = build_validation_loop_contract(cap)
-    reroute = (getattr(ctx, "org_config", None) or {}).get("phase_reroute")
+    reroute =(getattr(ctx, "org_config", None) or {}).get("phase_reroute")
     run_ctx = telemetry_ctx.get_current_run()
     if reroute and run_ctx is not None:
         attempt = reroute.get("attempt")

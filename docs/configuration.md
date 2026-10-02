@@ -72,10 +72,13 @@ How it works:
   a missing `python3` to 4, so `ship.sh --pr` requires `python3`.
 - v1 supports github.com only (`https://github.com/<o>/<n>` or `git@github.com:<o>/<n>` push URLs); any
   other push target with `required: true` is unavailable.
-- Engine-driven builds (`engine_py` phases 4.5 to 5) get only the ship gate. Under `required: true`
-  their Phase 8 fails `E_READINESS_NOT_APPROVED` until a record exists. Recovery:
+- Engine-driven builds get the start gate in Phase 5 (`phase_5_implement`, before RED, bd#141 item 6)
+  as well as the ship gate in Phase 8. Under `required: true` an unapproved build stops at Phase 5 with
+  `E_READINESS_NOT_APPROVED` before any RED test is written; `start` never consumes the approval, and an
+  unavailable policy or issue read lets Phase 5 continue (the ship gate stays fail-closed). A revised
+  spec needs a new record and label (`spec_changed`). Recovery:
   `scripts/readiness post --spec $SCRATCHPAD/specs/build-spec.md`, a human adds the label, resume
-  Phase 8.
+  Phase 5.
 
 Residual risk: the gate is advisory against the orchestrating model. It has `git` and `gh` and can add
 the label itself or skip both ship paths with a direct `git push` / `gh pr create`. `approvers` and
