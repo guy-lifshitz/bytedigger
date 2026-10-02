@@ -241,7 +241,7 @@ def test_ac4_capabilities_stored_and_watchdog_gate_accepts():
     """AC4: register_backend("oss3", spy, manifest_source="harness_tool_record",
     capabilities={"progress_since","abort"}) ⇒
     _BACKEND_CAPABILITIES["oss3"] == frozenset({"progress_since","abort"}) AND
-    _assert_backend_supports_watchdog("oss3", idle_enabled=True, straggler_enabled=True) is None.
+    _assert_backend_supports_watchdog("oss3", idle_enabled=True) is None.
 
     FAILS today: register_backend absent (AttributeError).
     """
@@ -262,7 +262,7 @@ def test_ac4_capabilities_stored_and_watchdog_gate_accepts():
         f"got {llm_subprocess._BACKEND_CAPABILITIES.get('oss3')!r}"
     )
     watchdog_result = llm_subprocess._assert_backend_supports_watchdog(
-        "oss3", idle_enabled=True, straggler_enabled=True
+        "oss3", idle_enabled=True
     )
     assert watchdog_result is None, (
         f"_assert_backend_supports_watchdog('oss3', ...) must return None after "

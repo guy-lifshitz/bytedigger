@@ -1067,7 +1067,6 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         step_name="invoke_review_llm",
         extra_data=extra,
         allowed_tools=["Read", "Grep", "Glob", "Write"],
-        straggler_cfg=None,
         stable_prefix=prev.data.get("stable_prefix", ""),
         fresh_session=True,  # bd#82: a reviewer must not resume an earlier transcript
         role="judge",

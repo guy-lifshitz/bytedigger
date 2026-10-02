@@ -40,7 +40,6 @@ import threading
 import time
 import typing
 import uuid  # 4C03CCED Ship 1B: request_nonce generation for in-session file-protocol
-from pathlib import Path
 
 from bytedigger_engine.contracts import StepResult
 from bytedigger_engine.package_meta import EXTRA_AGENTIC_PYDANTIC, install_hint
@@ -591,16 +590,13 @@ def _assert_backend_supports_watchdog(
     backend: str,
     *,
     idle_enabled: bool,
-    straggler_enabled: bool,
 ) -> "StepResult | None":
-    if not idle_enabled and not straggler_enabled:
+    if not idle_enabled:
         return None
     caps = _BACKEND_CAPABILITIES.get(backend, frozenset())
     missing: list[str] = []
-    if idle_enabled and "progress_since" not in caps:
+    if "progress_since" not in caps:
         missing.append("progress_since")
-    if straggler_enabled and "abort" not in caps:
-        missing.append("abort")
     if not missing:
         return None
     return StepResult(
@@ -657,100 +653,6 @@ _POLL_INTERVAL_SEC = 0.05  # bounded-poll wait granularity
 # ``idle_timeout_sec=0`` or ``idle_timeout_sec=None``.
 _DEFAULT_IDLE_TIMEOUT_SEC = None
 POST_RESULT_WAIT_SEC = 5  # F4F26513/3C54A029: grace + post-kill reap timeout (seconds)
-
-# CCBB65DC: straggler-abort watchdog defaults (opt-in via straggler_cfg kwarg).
-STRAGGLER_PATIENCE_SEC = 60       # seconds the N-1 condition may persist before abort
-STRAGGLER_POLL_INTERVAL_SEC = 5   # how often the watchdog scans the reviews dir
-STRAGGLER_KILL_GRACE_SEC = 5      # SIGTERM → SIGKILL grace
-
-
-class _StragglerWatchdog:
-    """Module-private background watchdog for phase_6 composite-reviewer straggler abort.
-
-    CCBB65DC: polls ``reviews_dir / role-*.md`` while the outer reviewer subprocess
-    runs. Once N-1 of N role files exist AND ``patience_sec`` elapses since that
-    condition was first observed → terminates then kills the subprocess.
-    Strictly opt-in: constructed only when ``straggler_cfg`` is provided to
-    ``invoke_llm_subprocess``. Daemon thread; never joined on the hot path.
-    """
-
-    def __init__(
-        self,
-        *,
-        proc,
-        reviews_dir,
-        expected_n: int,
-        patience_sec: float,
-        poll_interval_sec: float,
-        kill_grace_sec: float = STRAGGLER_KILL_GRACE_SEC,
-    ) -> None:
-        self.proc = proc
-        self.reviews_dir = Path(reviews_dir)
-        self.expected_n = int(expected_n)
-        self.patience_sec = float(patience_sec)
-        self.poll_interval_sec = float(poll_interval_sec)
-        self.kill_grace_sec = float(kill_grace_sec)
-        self.aborted: bool = False
-        self._stop_evt = threading.Event()
-        self._thread: threading.Thread | None = None
-        self._timer_started: float | None = None
-
-    def run(self) -> None:
-        """Thread target: poll loop until subprocess exits, all files appear, or patience elapses."""
-        while True:
-            if self._stop_evt.is_set():
-                return
-            try:
-                if self.proc.poll() is not None:
-                    return
-                try:
-                    if self.reviews_dir.is_dir():
-                        n = len(list(self.reviews_dir.glob("role-*.md")))
-                    else:
-                        n = 0
-                except Exception:
-                    n = 0
-                if self._timer_started is None:
-                    # WAITING_FOR_N_MINUS_1 state
-                    if n >= self.expected_n:
-                        return  # all done, no straggler
-                    elif n >= self.expected_n - 1:
-                        self._timer_started = time.monotonic()
-                    # else: below N-1, keep waiting
-                else:
-                    # STRAGGLER_TIMER_RUNNING state
-                    if n >= self.expected_n:
-                        return  # straggler finished on its own
-                    elif time.monotonic() - self._timer_started >= self.patience_sec:
-                        # Abort: SIGTERM then SIGKILL after grace
-                        self.proc.terminate()
-                        try:
-                            self.proc.wait(timeout=self.kill_grace_sec)
-                        except Exception:
-                            pass
-                        try:
-                            self.proc.kill()
-                        except Exception:
-                            pass
-                        self.aborted = True
-                        return
-            except Exception:
-                logger.warning("straggler watchdog poll failed", exc_info=True)
-            self._stop_evt.wait(self.poll_interval_sec)
-
-    def start(self) -> None:
-        """Start the background watchdog daemon thread."""
-        self._thread = threading.Thread(
-            target=self.run,
-            name="llm-straggler-watchdog",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def stop(self) -> None:
-        """Signal the watchdog to stop (non-blocking)."""
-        self._stop_evt.set()
-
 
 def _resolve_backend(
     kwarg: str | None,
@@ -1832,7 +1734,6 @@ def _fallback_hang_attempts(
     result: StepResult,
     *,
     idle_enabled: bool,
-    straggler_enabled: bool,
 ) -> int | None:
     """GH1169 §2.2.2: ALL conjuncts must hold for the one-shot agent-sdk ->
     claude-subprocess fallback. Extracted so `invoke_llm_subprocess` stays
@@ -1860,7 +1761,7 @@ def _fallback_hang_attempts(
     if _assert_backend_supports_manifest("claude-subprocess") is not None:
         return None
     if _assert_backend_supports_watchdog(
-        "claude-subprocess", idle_enabled=idle_enabled, straggler_enabled=straggler_enabled,
+        "claude-subprocess", idle_enabled=idle_enabled,
     ) is not None:
         return None
     return hang_attempts
@@ -2059,11 +1960,17 @@ def invoke_llm_subprocess(
         return capability_err
     # 4C03CCED Ship 1D G2-AC1: watchdog capability probe.
     idle_enabled = bool(idle_timeout_sec) and float(idle_timeout_sec) > 0  # type: ignore[arg-type]
-    straggler_enabled = straggler_cfg is not None
+    # bd#89 P3b1b-i: straggler_cfg is deprecated (#202). A non-None value is
+    # ignored with one event, then dropped so no probe/backend ever sees it.
+    if straggler_cfg is not None:
+        if run_ctx is not None and run_ctx.event_log is not None:
+            _emit_safe(run_ctx.event_log, "straggler_cfg_ignored", {
+                "step_name": step_name,
+            }, run_ctx.run_id)
+        straggler_cfg = None
     watchdog_err = _assert_backend_supports_watchdog(
         resolved_backend,
         idle_enabled=idle_enabled,
-        straggler_enabled=straggler_enabled,
     )
     if watchdog_err is not None:
         if run_ctx is not None and run_ctx.event_log is not None:
@@ -2071,7 +1978,6 @@ def invoke_llm_subprocess(
                 "backend": resolved_backend,
                 "reason": "no_watchdog_support",
                 "idle_enabled": idle_enabled,
-                "straggler_enabled": straggler_enabled,
             }, run_ctx.run_id)
         watchdog_err.step_name = (
             (run_ctx.step_name if run_ctx is not None else None) or step_name
@@ -2126,7 +2032,7 @@ def invoke_llm_subprocess(
     # a slow-but-alive run under D1's arm-only-if-the-full-gap-fits rule) is
     # re-dispatched exactly once to claude-subprocess, same kwargs.
     hang_attempts = _fallback_hang_attempts(
-        resolved_backend, result, idle_enabled=idle_enabled, straggler_enabled=straggler_enabled,
+        resolved_backend, result, idle_enabled=idle_enabled,
     )
     if hang_attempts is not None:
         _emit_fallback_event(
@@ -2143,7 +2049,7 @@ def invoke_llm_subprocess(
             run_ctx=run_ctx,
             hard_gate=hard_gate,
             gate_label=gate_label,
-            straggler_cfg=straggler_cfg,
+            straggler_cfg=None,
             idle_timeout_sec=idle_timeout_sec,
             stable_prefix=stable_prefix,
             injections=injections,
@@ -2172,10 +2078,11 @@ def _invoke_subprocess(
     """Claude-subprocess backend handler (68E964FB: extracted from inline tail).
 
     Handles the claude-subprocess path: hard-gate Opus assert, flag auto-injection,
-    Popen spawn, straggler/idle watchdog, StepResult return. Body is byte-identical
+    Popen spawn, idle watchdog, StepResult return. Body is byte-identical
     to the former inline tail of invoke_llm_subprocess (L936→L1425 pre-68E964FB).
     25e75663: command param replaced by model:str; argv built internally via
     _build_claude_argv(model).
+    ``straggler_cfg`` is deprecated and ignored (#202).
     """
     # Build the base argv from the model string (25e75663 §1.2 / §2.4).
     base_argv = _build_claude_argv(model)
@@ -2274,24 +2181,6 @@ def _invoke_subprocess(
             "cycle": run_ctx.cycle,
         }, run_ctx.run_id)
 
-    # CCBB65DC: straggler-abort watchdog — strictly opt-in via straggler_cfg kwarg.
-    # Constructed only after proc.pid is available; wrapped in try/except so a
-    # watchdog construction failure never breaks the LLM call.
-    straggler_watchdog = None
-    if straggler_cfg is not None:
-        try:
-            straggler_watchdog = _StragglerWatchdog(
-                proc=proc,
-                reviews_dir=straggler_cfg["reviews_dir"],
-                expected_n=int(straggler_cfg["expected_n"]),
-                patience_sec=float(straggler_cfg.get("patience_sec") or STRAGGLER_PATIENCE_SEC),
-                poll_interval_sec=float(straggler_cfg.get("poll_interval_sec") or STRAGGLER_POLL_INTERVAL_SEC),
-            )
-            straggler_watchdog.start()
-        except Exception:
-            logger.warning("failed to start straggler watchdog", exc_info=True)
-            straggler_watchdog = None
-
     # 23680DDA: stream-json path uses an incremental read loop with a
     # deadline-based timeout (no communicate(timeout=)). Legacy path
     # (caller-supplied flags / shell commands) keeps the single-shot
@@ -2349,10 +2238,6 @@ def _invoke_subprocess(
         )
         events = None  # legacy path doesn't pre-parse events
 
-    # CCBB65DC: stop the straggler watchdog now that the subprocess call is done.
-    if straggler_watchdog is not None:
-        straggler_watchdog.stop()
-
     duration_ms = int((time.monotonic() - started_monotonic) * 1000)
     exit_code = proc.returncode if proc.returncode is not None else -1
 
@@ -2373,35 +2258,6 @@ def _invoke_subprocess(
         }, run_ctx.run_id)
     if cli_lingered:
         exit_code = 0
-
-    # CCBB65DC: synthetic-ok branch — placed AFTER the F4F26513 cli_lingered
-    # salvage block but BEFORE all error-determination branches (idle_aborted,
-    # timed_out, non-zero exit_code, E_LLM_NO_RESULT_EVENT). A watchdog-killed
-    # proc exits non-zero; without this check, E_LLM_EXIT fires first and the
-    # feature is inert. The intentional kill is NOT an error — return status="ok"
-    # so the workflow continues to aggregate_review_findings on the N-1 role files.
-    if straggler_watchdog is not None and getattr(straggler_watchdog, "aborted", False):
-        if run_ctx is not None:
-            _emit_safe(run_ctx.event_log, "straggler_abort", {
-                "expected_n": int(straggler_cfg["expected_n"]) if straggler_cfg else None,
-                "phase": getattr(run_ctx, "phase", None),
-                "step_name": getattr(run_ctx, "step_name", None) or step_name,
-                "pid": proc.pid,
-            }, run_ctx.run_id)
-        straggler_data: dict = {
-            "raw_response": "",
-            "response_bytes": 0,
-            "command": effective_command,
-            "straggler_aborted": True,
-        }
-        if extra_data:
-            straggler_data.update(extra_data)
-        return StepResult(
-            status="ok",
-            data=straggler_data,
-            duration_ms=duration_ms,
-            step_name=step_name,
-        )
 
     # Tokens + cost extraction. Stream-json: walk events for the last result
     # event. Legacy: existing _parse_claude_json (last-non-empty-line of

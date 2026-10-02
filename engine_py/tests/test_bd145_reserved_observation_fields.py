@@ -13,8 +13,6 @@ Seams (external only; `invoke_llm_subprocess`, `_dispatch_backend`,
 `_invoke_in_session`, `_invoke_subprocess`, `_pin_mismatch_refusal` run for real):
   * in-session: the runner `.res.json` file written by a daemon thread after the
     `.req.json` appears (pattern of tests/test_bd29_in_session_pin_fail_closed.py);
-  * straggler: `_StragglerWatchdog` stub that is `aborted` + fake `subprocess.Popen`
-    (pattern of tests/test_ccbb65dc_straggler_watchdog.py::test_ac10);
   * any backend: a test backend via `register_backend` (cleaned by `reset_backends`);
   * claude-subprocess success: fake Popen with stream-json stdout
     (pattern of tests/test_bd141_p4e_subprocess_observed_model.py).
@@ -202,83 +200,7 @@ def test_ac3b_in_session_forged_model_cannot_cause_false_refusal(tmp_path, monke
     assert log.payloads("model_pin_mismatch") == []
 
 
-# --- straggler driver -------------------------------------------------------
-
-def _drive_straggler(tmp_path, monkeypatch, *, model="opus", extra_data=None,
-                     allowed_tools=None):
-    class _AbortingWatchdog:
-        aborted = False
-
-        def __init__(self, **kwargs):
-            pass
-
-        def start(self):
-            self.aborted = True
-
-        def stop(self):
-            pass
-
-    monkeypatch.setattr(llm_subprocess, "_StragglerWatchdog", _AbortingWatchdog)
-
-    class _FakeProc:
-        pid = 7777
-        returncode = 0
-        stdout = io.StringIO("")
-        stderr = io.StringIO("")
-        stdin = io.StringIO()
-
-        def communicate(self, input=None, timeout=None):
-            return ("", "")
-
-        def poll(self):
-            return 0
-
-        def wait(self, timeout=None):
-            return 0
-
-        def kill(self):
-            pass
-
-    class _Ctor:
-        def __new__(cls, *a, **kw):
-            return _FakeProc()
-
-    monkeypatch.setattr(llm_subprocess.subprocess, "Popen", _Ctor)
-    log = _FakeEventLog()
-    _set_run(log)
-    result = llm_subprocess.invoke_llm_subprocess(
-        prompt="x", model=model, timeout_sec=5, step_name="bd145",
-        backend="claude-subprocess", extra_data=extra_data, allowed_tools=allowed_tools,
-        straggler_cfg={"reviews_dir": str(tmp_path / "reviews"), "expected_n": 6},
-    )
-    return result, log
-
-
-def test_ac4_straggler_synthetic_ok_drops_all_reserved(tmp_path, monkeypatch):
-    """AC4: no reserved name survives into the synthetic-ok data; no pin refusal."""
-    forged = _forged_all()
-    forged["observed_model"] = SONNET
-    result, log = _drive_straggler(tmp_path, monkeypatch, model="opus", extra_data=forged)
-    assert result.status == "ok", (
-        f"forged observed_model refused the straggler run: {result.error_code!r}"
-    )
-    assert result.data.get("straggler_aborted") is True
-    leaked = [n for n in NAMES if n in result.data]
-    assert leaked == [], f"reserved fields shadowed into straggler data: {leaked!r}"
-    assert log.payloads("model_pin_mismatch") == []
-
-
-def test_ac5_straggler_forged_tools_not_capability_escape(tmp_path, monkeypatch):
-    """AC5: forged observed_tools=['Bash'] with allowed_tools=['Read'] is not an escape."""
-    result, _ = _drive_straggler(
-        tmp_path, monkeypatch, allowed_tools=["Read"],
-        extra_data={"observed_tools": ["Bash"]},
-    )
-    assert result.error_code != "E_CAPABILITY_ESCAPE", (
-        f"forged observed_tools adjudicated as the adapter's report: {result.data!r}"
-    )
-    assert result.status == "ok", (result.status, result.error_code)
-
+# (AC4/AC5 straggler drivers retired by bd#89 P3b1b-i: the watchdog is gone.)
 
 # --- any registered backend -------------------------------------------------
 

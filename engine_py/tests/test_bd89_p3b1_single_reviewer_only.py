@@ -802,7 +802,7 @@ def test_ac15_phase6_never_arms_straggler(tmp_path, monkeypatch, caplog, abort, 
     with caplog.at_level(logging.WARNING):
         p6._invoke_review_llm(types.SimpleNamespace(org_config=org), _review_prev())
     assert len(spy.calls) == 1
-    assert "straggler_cfg" in spy.calls[0] and spy.calls[0]["straggler_cfg"] is None
+    assert "straggler_cfg" not in spy.calls[0]
     assert "straggler_abort_skipped_in_session" not in sink.names()
     assert "auto-degrading" not in caplog.text
 
@@ -829,16 +829,9 @@ def test_ac15_phase6_straggler_residue_symbols_gone():
 
 
 def test_ac15_phase6_only_literal_straggler_cfg_none():
-    tree = ast.parse(Path(p6.__file__).read_text(encoding="utf-8"))
-    straggler_refs = []
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Name) and "straggler" in n.id.lower():
-            straggler_refs.append(n.id)
-        elif isinstance(n, ast.keyword) and n.arg and "straggler" in n.arg.lower():
-            ok = n.arg == "straggler_cfg" and isinstance(n.value, ast.Constant) and n.value.value is None
-            if not ok:
-                straggler_refs.append(f"{n.arg}=<non-None>")
-    assert not straggler_refs, straggler_refs
+    # bd#89 P3b1b-i: the literal is gone too; zero occurrences of straggler_cfg.
+    src = Path(p6.__file__).read_text(encoding="utf-8")
+    assert src.count("straggler_cfg") == 0
 
 
 def test_ac15_guard_no_other_workflow_arms_straggler():
