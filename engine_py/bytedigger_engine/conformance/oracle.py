@@ -91,6 +91,54 @@ class OracleRefusal(Exception):
         self.message = message
 
 
+class OracleMalformedFreeze(OracleRefusal):
+    """`[bd8:6a]` bd#158: an `oracle_frozen` / `oracle_amended` row whose shape is
+    unreadable. Is an `OracleRefusal`, so `run.py`'s existing handler reports it
+    as `E_ORACLE_INDETERMINATE` (recoverable=False); the record is unreadable,
+    which is not a mutation."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("E_ORACLE_INDETERMINATE", "malformed freeze event: " + message)
+
+
+def check_freeze_payload(payload: Any) -> None:
+    """bd#158: pure shape check of a freeze/amendment payload; raises
+    `OracleMalformedFreeze`. Shape only: empty strings pass, extra keys are
+    ignored, legacy bare-`str` members and absent/`None` members/scope pass."""
+    if not isinstance(payload, dict):
+        raise OracleMalformedFreeze(f"payload is {type(payload).__name__}, not an object")
+    if not isinstance(payload.get("digest"), str):
+        raise OracleMalformedFreeze("digest is missing or not a string")
+    paths: list[str] = []
+    members = payload.get("members")
+    if members is not None:
+        if not isinstance(members, list):
+            raise OracleMalformedFreeze("members is not a list")
+        for m in members:
+            if isinstance(m, str):
+                paths.append(m)
+            elif isinstance(m, dict):
+                if not isinstance(m.get("path"), str):
+                    raise OracleMalformedFreeze("member path is missing or not a string")
+                if not isinstance(m.get("digest"), str):
+                    raise OracleMalformedFreeze("member digest is missing or not a string")
+                paths.append(m["path"])
+            else:
+                raise OracleMalformedFreeze(
+                    f"member is {type(m).__name__}, not a string or object")
+    scope = payload.get("scope")
+    if scope is not None and scope != []:
+        if not isinstance(scope, list):
+            raise OracleMalformedFreeze("scope is not a list")
+        if not all(isinstance(s, str) for s in scope):
+            raise OracleMalformedFreeze("scope holds a non-string entry")
+        paths.extend(scope)
+    if not isinstance(payload.get("scope_digest"), str):
+        raise OracleMalformedFreeze("scope_digest is missing or not a string")
+    if any("\x00" in p for p in paths):  # the OS path layer rejects NUL with ValueError
+        raise OracleMalformedFreeze("a member path or scope entry contains a NUL byte")
+
+
 def is_oracle_workflow(workflow_name: str) -> bool:
     return workflow_name in ORACLE_WORKFLOWS
 
@@ -323,11 +371,21 @@ def find_last_freeze(events: list[dict[str, Any]], run_id: str | None) -> dict[s
     for e in events:
         if e.get("event_type") not in (FROZEN_EVENT, AMENDED_EVENT):
             continue
-        ev_run = e.get("run_id") or (e.get("payload") or {}).get("run_id")
+        row_payload = e.get("payload")  # bd#158: a non-dict payload must not raise here
+        ev_run = e.get("run_id") or (
+            row_payload.get("run_id") if isinstance(row_payload, dict) else None)
         if run_id and ev_run and ev_run != run_id:
             continue  # `[bd8:8a]` fail-closed cross-check
         candidates.append(e)
-    return candidates[-1] if candidates else None
+    if not candidates:
+        return None
+    last = candidates[-1]
+    # bd#158: only the SELECTED row is shape-checked, so callers can index
+    # `last["payload"]` as a well-formed dict.
+    if "payload" not in last:
+        raise OracleMalformedFreeze("row has no payload")
+    check_freeze_payload(last["payload"])
+    return last
 
 
 def last_phase_artifacts(events: list[dict[str, Any]], phase: str,
@@ -369,57 +427,64 @@ def verify_against(frozen_payload: dict[str, Any], scratchpad_dir: str | Path) -
     exactly-one-token rule: removal before scope, unreadable before content,
     content before addition.
     """
-    frozen_members = [
-        m["path"] if isinstance(m, dict) else m
-        for m in frozen_payload.get("members") or []
-    ]
-    scope = list(frozen_payload.get("scope") or compute_scope(frozen_members))
+    check_freeze_payload(frozen_payload)  # bd#158: public entry, may get a bare payload
+    try:
+        frozen_members = [
+            m["path"] if isinstance(m, dict) else m
+            for m in frozen_payload.get("members") or []
+        ]
+        scope = list(frozen_payload.get("scope") or compute_scope(frozen_members))
 
-    # 1. Removal — a member gone, or the whole scope directory gone.
-    #    compute_scope_digest raises mutated:removed for the directory case.
-    missing = [rel for rel in frozen_members
-               if not (Path(scratchpad_dir) / rel).exists()]
-    live_scope_digest = compute_scope_digest(scratchpad_dir, scope, when="verify")
-    if missing:
-        raise OracleRefusal(
-            "E_ORACLE_MUTATED",
-            f"{TOKEN_REMOVED}: frozen oracle member(s) no longer exist: "
-            f"{', '.join(sorted(missing))}",
-        )
+        # 1. Removal — a member gone, or the whole scope directory gone.
+        #    compute_scope_digest raises mutated:removed for the directory case.
+        missing = [rel for rel in frozen_members
+                   if not (Path(scratchpad_dir) / rel).exists()]
+        live_scope_digest = compute_scope_digest(scratchpad_dir, scope, when="verify")
+        if missing:
+            raise OracleRefusal(
+                "E_ORACLE_MUTATED",
+                f"{TOKEN_REMOVED}: frozen oracle member(s) no longer exist: "
+                f"{', '.join(sorted(missing))}",
+            )
 
-    # 2. Content — reads each member; an unreadable one is INDETERMINATE
-    #    (AC-17(i)), not a zero-byte member and not a content mismatch.
-    changed = []
-    for m in frozen_payload.get("members") or []:
-        if not isinstance(m, dict):
-            continue
-        live = member_digest(scratchpad_dir, m["path"], when="verify")
-        if live != m.get("digest"):
-            changed.append(m["path"])
-    if changed:
-        raise OracleRefusal(
-            "E_ORACLE_MUTATED",
-            f"{TOKEN_CONTENT}: frozen oracle member(s) rewritten: "
-            f"{', '.join(sorted(changed))}",
-        )
+        # 2. Content — reads each member; an unreadable one is INDETERMINATE
+        #    (AC-17(i)), not a zero-byte member and not a content mismatch.
+        changed = []
+        for m in frozen_payload.get("members") or []:
+            if not isinstance(m, dict):
+                continue
+            live = member_digest(scratchpad_dir, m["path"], when="verify")
+            if live != m.get("digest"):
+                changed.append(m["path"])
+        if changed:
+            raise OracleRefusal(
+                "E_ORACLE_MUTATED",
+                f"{TOKEN_CONTENT}: frozen oracle member(s) rewritten: "
+                f"{', '.join(sorted(changed))}",
+            )
 
-    live_digest = compute_digest(scratchpad_dir, frozen_members, when="verify")
-    if live_digest != frozen_payload.get("digest"):
-        raise OracleRefusal(
-            "E_ORACLE_MUTATED",
-            f"{TOKEN_CONTENT}: oracle digest mismatch over members "
-            f"{sorted(frozen_members)}",
-        )
+        live_digest = compute_digest(scratchpad_dir, frozen_members, when="verify")
+        if live_digest != frozen_payload.get("digest"):
+            raise OracleRefusal(
+                "E_ORACLE_MUTATED",
+                f"{TOKEN_CONTENT}: oracle digest mismatch over members "
+                f"{sorted(frozen_members)}",
+            )
 
-    # 3. Addition — membership is inside `digest`, but a NEW file beside the
-    #    members leaves it invariant (`[bd8:2b]`), so the scope digest carries
-    #    this half.
-    if live_scope_digest != frozen_payload.get("scope_digest"):
+        # 3. Addition — membership is inside `digest`, but a NEW file beside the
+        #    members leaves it invariant (`[bd8:2b]`), so the scope digest carries
+        #    this half.
+        if live_scope_digest != frozen_payload.get("scope_digest"):
+            raise OracleRefusal(
+                "E_ORACLE_MUTATED",
+                f"{TOKEN_ADDED}: oracle scope changed in {scope} — a file was added "
+                "to the oracle set without re-entering the oracle phase",
+            )
+    except (ValueError, OSError) as e:  # bd#158: path-layer error, never an escape
         raise OracleRefusal(
-            "E_ORACLE_MUTATED",
-            f"{TOKEN_ADDED}: oracle scope changed in {scope} — a file was added "
-            "to the oracle set without re-entering the oracle phase",
-        )
+            "E_ORACLE_INDETERMINATE",
+            f"verify: path layer error ({e.__class__.__name__}: {e})",
+        ) from e
 
 
 def _main(argv: "list[str] | None" = None) -> int:
@@ -465,6 +530,9 @@ def _main(argv: "list[str] | None" = None) -> int:
             frozen_digest = payload["digest"]
             try:
                 verify_against(payload, args.scratchpad_dir)
+            except OracleMalformedFreeze as e:  # bd#158: before OracleRefusal
+                sys.stderr.write(f"oracle: {e.message}\n")
+                return 2
             except OracleRefusal as e:
                 refusal = e
             paths = [
@@ -475,6 +543,9 @@ def _main(argv: "list[str] | None" = None) -> int:
                 current_digest = compute_digest(args.scratchpad_dir, paths, when="verify")
             except OracleRefusal:
                 current_digest = None
+    except OracleMalformedFreeze as e:  # bd#158: before OracleRefusal
+        sys.stderr.write(f"oracle: {e.message}\n")
+        return 2
     except OracleRefusal as e:
         refusal = e
     except (KeyError, TypeError, AttributeError, ValueError) as e:

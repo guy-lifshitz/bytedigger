@@ -236,7 +236,7 @@
 ## E_ORACLE
 
 - `E_ORACLE_AMENDMENT_UNREASONED` — conformance/oracle: oracle-phase re-entry amended the frozen set with an absent/empty reason (bd#8 R1.5)
-- `E_ORACLE_INDETERMINATE` — conformance/oracle: freeze or verify could not read a declared member, the document directory, or the event log (bd#8)
+- `E_ORACLE_INDETERMINATE` — conformance/oracle: freeze or verify could not read a declared member, the document directory, or the event log (bd#8), or a freeze/amendment row whose payload is malformed (bd#158)
 - `E_ORACLE_MUTATED` — conformance/oracle: recomputed oracle digest or scope digest differs from the frozen one (bd#8 R1.4)
 - `E_ORACLE_UNFROZEN` — conformance/oracle: implementing phase found no freeze event in its event log, or one whose run_id contradicts it (bd#8)
 - `E_ORACLE_VACUOUS` — conformance/bd_l2: the oracle substitutes the subject of its own assertions (mocks its UUT) and so constrains nothing (bd#9 R2.2 / ADV-3)

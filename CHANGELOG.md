@@ -12,6 +12,10 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A malformed oracle freeze row refuses instead of escaping (bd#158).** `find_last_freeze` and `verify_against` now shape-check the freeze/amendment payload (`check_freeze_payload`: object, string `digest`/`scope_digest`, list members of string or `{path, digest}` strings, list-of-string `scope`, no NUL in a path) and raise `OracleMalformedFreeze`, an `OracleRefusal` with `E_ORACLE_INDETERMINATE`. Before this, a hand-written or corrupted row raised `KeyError`/`TypeError`/`AttributeError` past `run.py` and was reported as a non-oracle code. A re-entry amendment over a malformed previous row refuses rather than recording a non-string `previous_digest`; a path-layer `ValueError`/`OSError` during verify is `E_ORACLE_INDETERMINATE`. The `oracle verify` CLI keeps rc 2 for a malformed row. No new error code.
+
 ### Added
 
 - **Readiness review gate in engine Phase 6 (bd#141 item 6).** New optional policy key `readiness.review_label` and stage `review`: when set under `required: true`, `phase_6_review` refuses to start the review (`E_READINESS_NOT_APPROVED`, non-recoverable) until a human has added that label after the current spec record, before any reviewer spawns. `review` never consumes or posts; an unavailable read, an internal error or an ambient git cwd fails open and emits a `readiness_review_verdict` event. No new step or error code.
