@@ -33,11 +33,23 @@ What turns each negative AC red (the code change that must NOT be made):
 - AC9: omitting `tags: ["v*"]`, `fetch-depth: 0`, the `--check-release` step
   with the ref name, or the pytest step for this file from ci.yml.
 - AC10: returning after the first problem instead of collecting all of them.
+- AC11: picking the "newest" tag by git's lexical listing order (last of
+  `sorted(tags)`) instead of the integer maximum.
+- AC12: comparing only major.minor (patch ignored).
+- AC13: catching only a non-zero git exit and letting FileNotFoundError /
+  OSError (git absent from PATH) escape as a Traceback or fail open.
+- AC14: not aborting on an unreadable canonical (continuing with an
+  undefined C), or int-parsing a non-X.Y.Z canonical (ValueError).
+- AC9 env part: interpolating `${{ github.ref_name }}` straight into the
+  `run:` string instead of passing it through a step `env:` variable.
+All UUT/git subprocesses run through a local hermetic runner (GIT_DIR,
+GIT_WORK_TREE, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, GIT_COMMON_DIR scrubbed).
 """
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -46,11 +58,35 @@ import test_version_parity as tvp
 _SEMVER_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
+_SCRUB = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_COMMON_DIR",
+)
+
+
 def _git_env() -> dict:
     env = dict(os.environ)
+    for key in _SCRUB:
+        env.pop(key, None)
     env["GIT_CONFIG_GLOBAL"] = "/dev/null"
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     return env
+
+
+def _uut(root, *args, env=None, python=None) -> subprocess.CompletedProcess:
+    """Local hermetic runner for the UUT (tvp._run has no env parameter).
+    Explicit --root, neutral cwd, scrubbed git env."""
+    return subprocess.run(
+        [python or tvp.sys.executable, str(tvp.SCRIPT), "--root", str(root), *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=str(tvp.NEUTRAL_CWD),
+        env=env if env is not None else _git_env(),
+    )
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -112,7 +148,7 @@ class TestVersionReleaseGuard:
         release tag, incl. v1.1.0) and prints the OK line for the real
         canonical version."""
         canonical = tvp._canonical_version(tvp.REPO_ROOT)
-        result = tvp._run(tvp.REPO_ROOT, "--check-release")
+        result = _uut(tvp.REPO_ROOT, "--check-release")
         assert result.returncode == 0, (
             f"--check-release on the real repo must exit 0, got "
             f"{result.returncode}, stdout={result.stdout!r} "
@@ -127,7 +163,7 @@ class TestVersionReleaseGuard:
         stdout has `OK: release version C`."""
         C = "0.2.0"
         repo = _make_git_repo(tmp_path, C)
-        result = tvp._run(repo, "--check-release")
+        result = _uut(repo, "--check-release")
         assert result.returncode == 0, (
             f"zero tags must be fine: rc={result.returncode} "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
@@ -141,7 +177,7 @@ class TestVersionReleaseGuard:
         names v1.1.0 and 0.2.0 in the frozen `git tags:` line."""
         C = "0.2.0"
         repo = _make_git_repo(tmp_path, C, tags=["v1.1.0"])
-        result = tvp._run(repo, "--check-release")
+        result = _uut(repo, "--check-release")
         combined = _out(result)
         assert result.returncode == 1, (
             f"a tag ahead of canonical must fail: rc={result.returncode} "
@@ -158,7 +194,7 @@ class TestVersionReleaseGuard:
         triples; a lexical compare would let it pass)."""
         C = "0.9.0"
         repo = _make_git_repo(tmp_path, C, tags=["v0.10.0"])
-        result = tvp._run(repo, "--check-release")
+        result = _uut(repo, "--check-release")
         combined = _out(result)
         assert result.returncode == 1, (
             f"v0.10.0 is ahead of 0.9.0 numerically and must fail: "
@@ -174,7 +210,7 @@ class TestVersionReleaseGuard:
         ignored -> still exit 0."""
         C = "0.2.0"
         repo_a = _make_git_repo(tmp_path / "a", C, tags=["v0.1.0", "v0.2.0"])
-        result_a = tvp._run(repo_a, "--check-release")
+        result_a = _uut(repo_a, "--check-release")
         assert result_a.returncode == 0, (
             f"equal/older tags must pass: rc={result_a.returncode} "
             f"out={_out(result_a)!r}"
@@ -195,7 +231,7 @@ class TestVersionReleaseGuard:
         assert not any(
             _SEMVER_TAG_RE.match(t) and t not in ("v0.1.0", "v0.2.0") for t in listed
         )
-        result_b = tvp._run(repo_b, "--check-release")
+        result_b = _uut(repo_b, "--check-release")
         assert result_b.returncode == 0, (
             f"non-semver tags must be ignored: rc={result_b.returncode} "
             f"out={_out(result_b)!r}"
@@ -210,7 +246,7 @@ class TestVersionReleaseGuard:
         C = "0.2.0"
         repo = _make_git_repo(tmp_path, C)
 
-        ok = tvp._run(repo, "--check-release", "--tag", "v0.2.0")
+        ok = _uut(repo, "--check-release", "--tag", "v0.2.0")
         assert ok.returncode == 0, (
             f"--tag v0.2.0 must match C={C}: rc={ok.returncode} out={_out(ok)!r}"
         )
@@ -218,7 +254,7 @@ class TestVersionReleaseGuard:
             f"missing OK line: {ok.stdout!r}"
         )
 
-        bad = tvp._run(repo, "--check-release", "--tag", "v0.2.1")
+        bad = _uut(repo, "--check-release", "--tag", "v0.2.1")
         bad_out = _out(bad)
         assert bad.returncode == 1, (
             f"--tag v0.2.1 must fail: rc={bad.returncode} out={bad_out!r}"
@@ -228,7 +264,7 @@ class TestVersionReleaseGuard:
             f"{bad_out!r}"
         )
 
-        malformed = tvp._run(repo, "--check-release", "--tag", "0.2.0")
+        malformed = _uut(repo, "--check-release", "--tag", "0.2.0")
         mal_out = _out(malformed)
         assert malformed.returncode == 1, (
             f"--tag 0.2.0 (no v prefix) must fail: rc={malformed.returncode} "
@@ -249,7 +285,7 @@ class TestVersionReleaseGuard:
             f"precondition broken: fixture root {repo} is inside a git "
             f"repo ({probe.stdout!r}); the not-a-repo case is not exercised"
         )
-        result = tvp._run(repo, "--check-release")
+        result = _uut(repo, "--check-release")
         combined = _out(result)
         assert result.returncode == 1, (
             f"an unreadable tag list must fail closed: rc={result.returncode} "
@@ -267,7 +303,7 @@ class TestVersionReleaseGuard:
         of a script that has no such mode."""
         repo = _make_git_repo(tmp_path, "0.2.0")
 
-        lone_tag = tvp._run(repo, "--tag", "v1.0.0")
+        lone_tag = _uut(repo, "--tag", "v1.0.0")
         assert lone_tag.returncode == 2, (
             f"--tag without --check-release must exit 2, got "
             f"{lone_tag.returncode}"
@@ -280,7 +316,7 @@ class TestVersionReleaseGuard:
             f"the error must name --tag and --check-release: {lone_tag.stderr!r}"
         )
 
-        both = tvp._run(repo, "--check-release", "--write", "1.0.0")
+        both = _uut(repo, "--check-release", "--write", "1.0.0")
         assert both.returncode == 2, (
             f"--check-release with --write must exit 2, got {both.returncode}"
         )
@@ -331,12 +367,20 @@ class TestVersionReleaseGuard:
         assert release_steps, (
             "no manifests step runs `version_parity.py --check-release`"
         )
+        def _env_carries_ref(step: dict) -> bool:
+            env = step.get("env")
+            return isinstance(env, dict) and any(
+                "github.ref_name" in str(v) for v in env.values()
+            )
+
         assert any(
-            "ref_name" in str(s).lower() or "ref_name" in str(s)
+            _env_carries_ref(s) and "${{" not in str(s.get("run", ""))
             for s in release_steps
         ), (
-            f"the --check-release step must reference the tag ref name "
-            f"(github.ref_name / GITHUB_REF_NAME): {release_steps!r}"
+            f"the --check-release step must receive the tag ref name via a "
+            f"step env: mapping referencing github.ref_name, with no "
+            f"`${{{{` interpolation inside run: (script injection): "
+            f"{release_steps!r}"
         )
 
         pytest_steps = [
@@ -351,12 +395,94 @@ class TestVersionReleaseGuard:
             "no manifests step runs pytest on tests/test_version_release_guard.py"
         )
 
+    def test_ac11_newest_tag_is_integer_max_over_several_tags(self, tmp_path):
+        """AC11: tags v0.9.0 and v0.10.0, C=0.9.0 -> exit 1 and the output
+        names v0.10.0 (an alphabetical 'newest' picks v0.9.0)."""
+        C = "0.9.0"
+        repo = _make_git_repo(tmp_path, C, tags=["v0.9.0", "v0.10.0"])
+        result = _uut(repo, "--check-release")
+        combined = _out(result)
+        assert result.returncode == 1, (
+            f"v0.10.0 is the newest tag and is ahead of {C}: "
+            f"rc={result.returncode} out={combined!r}"
+        )
+        assert f"newest release tag v0.10.0 is ahead of {C}" in combined, (
+            f"output must name v0.10.0 as the newest tag: {combined!r}"
+        )
+
+    def test_ac12_patch_component_counts(self, tmp_path):
+        """AC12: C=0.2.0, tag v0.2.1 -> exit 1 (a major.minor-only compare
+        lets it pass)."""
+        C = "0.2.0"
+        repo = _make_git_repo(tmp_path, C, tags=["v0.2.1"])
+        result = _uut(repo, "--check-release")
+        combined = _out(result)
+        assert result.returncode == 1, (
+            f"v0.2.1 is ahead of {C} by patch only and must fail: "
+            f"rc={result.returncode} out={combined!r}"
+        )
+        assert "v0.2.1" in combined and C in combined, (
+            f"output must name v0.2.1 and {C}: {combined!r}"
+        )
+
+    def test_ac13_git_absent_from_path_reports_tags_unreadable(self, tmp_path):
+        """AC13: PATH without git (a dir holding only a `python3` symlink to
+        sys.executable) -> exit 1, `git tags: unreadable`, no Traceback."""
+        C = "0.2.0"
+        repo = _make_git_repo(tmp_path / "fx", C)  # built WITH git, before PATH is stripped
+        bindir = tmp_path / "nogit-bin"
+        bindir.mkdir()
+        (bindir / "python3").symlink_to(tvp.sys.executable)
+        assert shutil.which("git", path=str(bindir)) is None, (
+            f"precondition broken: git is resolvable on PATH={bindir}"
+        )
+        env = _git_env()
+        env["PATH"] = str(bindir)
+        result = _uut(repo, "--check-release", env=env, python=str(bindir / "python3"))
+        combined = _out(result)
+        assert result.returncode == 1, (
+            f"git not runnable must fail closed: rc={result.returncode} "
+            f"out={combined!r}"
+        )
+        assert "git tags: unreadable" in combined, (
+            f"expected `git tags: unreadable`: {combined!r}"
+        )
+        assert "Traceback" not in combined, f"uncaught exception: {combined!r}"
+
+    def test_ac14_unreadable_or_non_xyz_canonical_aborts_cleanly(self, tmp_path):
+        """AC14: canonical file deleted -> exit 1 naming engine_py/pyproject.toml;
+        canonical `version = "1.2"` -> exit 1 naming `1.2` and `X.Y.Z`."""
+        canonical = tvp.CANONICAL_RELPATH
+        repo_a = _make_git_repo(tmp_path / "a", "0.2.0")
+        (repo_a / canonical).unlink()
+        res_a = _uut(repo_a, "--check-release")
+        out_a = _out(res_a)
+        assert res_a.returncode == 1, (
+            f"missing canonical must exit 1: rc={res_a.returncode} out={out_a!r}"
+        )
+        assert canonical in out_a, f"must name {canonical}: {out_a!r}"
+        assert "Traceback" not in out_a
+
+        repo_b = _make_git_repo(tmp_path / "b", "0.2.0")
+        tvp._write_declaration(
+            repo_b / canonical, tvp.DECL_KINDS[canonical], "1.2"
+        )
+        res_b = _uut(repo_b, "--check-release")
+        out_b = _out(res_b)
+        assert res_b.returncode == 1, (
+            f"non-X.Y.Z canonical must exit 1: rc={res_b.returncode} out={out_b!r}"
+        )
+        assert "1.2" in out_b and "X.Y.Z" in out_b, (
+            f"must name the offending value and X.Y.Z: {out_b!r}"
+        )
+        assert "Traceback" not in out_b
+
     def test_ac10_all_problems_reported_in_one_run(self, tmp_path):
         """AC10: C=0.2.0, tag v1.1.0, `--tag v3.0.0` -> exit 1 and stdout has
         BOTH the tag-floor line and the --tag mismatch line."""
         C = "0.2.0"
         repo = _make_git_repo(tmp_path, C, tags=["v1.1.0"])
-        result = tvp._run(repo, "--check-release", "--tag", "v3.0.0")
+        result = _uut(repo, "--check-release", "--tag", "v3.0.0")
         assert result.returncode == 1, (
             f"expected exit 1: rc={result.returncode} out={_out(result)!r}"
         )
