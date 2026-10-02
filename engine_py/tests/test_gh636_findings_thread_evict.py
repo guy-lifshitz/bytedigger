@@ -264,7 +264,6 @@ def test_ac8_cycle1_no_recovery_and_idempotent(tmp_path, monkeypatch):
 
     scratchpad = tmp_path / "scratch"
     _write_prev_spec(scratchpad)
-    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1, run_id=RID)
     ctx = make_ctx(scratchpad)
 
     cycle1_prev = StepResult(
@@ -275,6 +274,8 @@ def test_ac8_cycle1_no_recovery_and_idempotent(tmp_path, monkeypatch):
     )
     cycle1_result = _build_spec_prompt(ctx, cycle1_prev)
     assert cycle1_result.data.get("delta_retry") is not True
+    # the cycle-1 REVISE persists the thread AFTER the cycle-1 prompt build
+    persist_findings_thread(scratchpad, STRUCTURED_FINDINGS, cycle=1, run_id=RID)
 
     cycle2_prev = StepResult(
         status="ok",

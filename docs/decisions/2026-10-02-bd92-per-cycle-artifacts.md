@@ -19,7 +19,7 @@ paths:
 ---
 # bd#92 — per-cycle artifacts are cleared or keyed before a later cycle can read them
 
-**Status:** DRAFT r2 (gate r1 REJECT: M1, M2, m1–m8 addressed; see `2026-10-02-bd92-gate-r1.md`).
+**Status:** DRAFT r3 (gate r1 REJECT: M1, M2, m1–m8; gate r2 REJECT: M-r2-1, M-r2-2, m-r2-2..6; see `2026-10-02-bd92-gate-r1.md`, `-gate-r2.md`).
 **Tier:** OPTION_D (engine_py prod `.py`).
 **Class:** SYSTEMATIC. **Chokepoint:** each per-cycle artifact has exactly one
 owner step. The owner either unlinks the artifact before the step that
@@ -84,15 +84,18 @@ own unlinks or are not read back as a fallback.
   `for_cycle=cycle`. The `gate_retry` exclusion (bd#85) is unchanged.
 - When the status reason is `legacy`, `run_mismatch`, `cycle_mismatch` or
   `malformed`, `_build_spec_prompt` emits `spec_findings_thread_rejected`
-  `{reason, cycle}` through `_emit_safe`. `absent` emits nothing.
+  `{reason, cycle}` (exactly these two keys; the stored cycle is not reported) through `_emit_safe`. `absent` emits nothing.
 
 ### op3 — the ship sidecar means "the reviewer said SHIP"
 - Remove the `_write_ship_sidecar` call from the spec-lint `rc == 0` branch.
 - `_finalize_ship_verdict` calls `_write_ship_sidecar(prev.data["spec_path"])`.
   The sidecar gains `"verdict": "SHIP"`. It stays fail-open.
 - **Single site (gate M1).** `_gate_on_review` unlinks the ship sidecar
-  (fail-safe) immediately after the SHIP branch returns (after `:4596`), i.e.
-  before any non-SHIP branch: UNKNOWN/empty, infrastructure block, the
+  (fail-safe; `prev.data.get("spec_path")`, missing/TypeError swallowed) as
+  its first act after the verdict is read (before the SHIP branch at :4588).
+  A SHIP that clears the D3 prohibition gate then rewrites it in
+  `_finalize_ship_verdict`; a SHIP rejected by D3 (:4592-4594) leaves none.
+  So every outcome except a finalized SHIP ends with no sidecar, including: UNKNOWN/empty, infrastructure block, the
   exhausted-counter terminal (:4738-4761), the frozen-fallback retry
   (:4768-4790), the cap-reached terminal and the engine-retry REVISE. A spec
   the reviewer sent back is never a "prior shipped base". This matters
@@ -107,8 +110,12 @@ own unlinks or are not read back as a fallback.
 - `lib/resume_keying.py` adds `resume_sentinel_glob(step_name, cycle,
   run_id, workflow_name=None, *, hashed: bool) -> str`. `cycle` is an int or
   the literal `"*"`. It lives in `lib/resume_keying.py` and builds the name by calling
-  `resume_sentinel_name` with a placeholder cycle/hash and substituting the
-  wildcard, so no inline `_done_c…json` f-string is added there (the
+  `resume_sentinel_name(step, -1, run_id, "h" * 12 if hashed else None,
+  workflow_name)` (cycle placeholder `-1` keeps `cycle: int` mypy-strict and
+  never occurs as a real cycle; hash placeholder is 12 chars so it survives
+  the `[:12]` truncation), then substitutes in this order: `_h` + 12×`h` +
+  `.json` → `_h*.json`, then `_c-1_r` → `_c<cycle|*>_r`. A step or workflow
+  name containing those anchored tokens is out of contract, so no inline `_done_c…json` f-string is added there (the
   `resume_key_lint` sibling `test_resume_key_lint_00321AB4.py` and mypy strict
   must stay clean). It applies the same `run_id or _NO_RUN` normalization
   and prefix as `resume_sentinel_name`. For every input, a name built by
@@ -132,6 +139,10 @@ own unlinks or are not read back as a fallback.
 - Ordinary durable resume within one attempt keeps replaying sentinels. That
   is the purpose of sentinels; they are keyed by run_id + ctx hash.
 - Phase 4.5 review doc (item 2): not present.
+- Phase 7 reads `reviews/build-review.md` directly (`phase_7_synthesize.py:433`,
+  `phase_6_review.py:5365`). op1's unlink covers it only when phase 6 ran in
+  this attempt; a run that skips phase 6 and reads a prior run's doc is out of
+  scope here (follow-up comment on bd#92).
 - PR #210 (bd#94) touches other hunks of `phase_6_review.py` (imports,
   `_autocommit_fix_tail`, test-commit `git add`). There is no overlap with
   `_invoke_review_llm`.
@@ -192,6 +203,7 @@ only, if those docs list events).
 - **AC13** (op4, side-effect): `invalidate_cycle_sentinels(..., cycle=None)`
   removes cycle-1, cycle-2 and cycle-3 sentinels (legacy and hashed) for the
   run and workflow, and leaves another run's and another workflow's untouched.
+  Each `step_sentinel_invalidated` event it emits carries `cycle == "all"`.
 - **AC14** (op4, restart): an engine `execute` with an unconsumed
   `phase_reroute` and a stale cycle-2 sentinel of the same run on disk
   deletes that sentinel before the first step runs (`phase_reroute_entry`

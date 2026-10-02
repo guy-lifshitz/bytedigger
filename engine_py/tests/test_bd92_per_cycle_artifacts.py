@@ -252,7 +252,7 @@ def test_ac4_prompt_ignores_other_run_thread_and_emits_rejected_event(tmp_path):
     rejected = _events(log, "spec_findings_thread_rejected")
     assert len(rejected) == 1, rejected
     assert rejected[0]["payload"]["reason"] == "run_mismatch"
-    assert rejected[0]["payload"]["stored_cycle"] == 1 and rejected[0]["payload"]["cycle"] == 2
+    assert rejected[0]["payload"] == {"reason": "run_mismatch", "cycle": 2}
 
     # positive control: same run, producing cycle 1 -> applied
     same = tmp_path / "same"
@@ -304,8 +304,6 @@ def test_ac15_cycle2_prompt_build_does_not_unlink_same_run_cycle1_thread(tmp_pat
     r = phase_45_spec._build_spec_prompt(_wf_ctx(scratch), prev2)
     assert (scratch / SIDECAR_RELNAME).is_file(), "cycle-2 build must not unlink the thread"
     assert "MARKER_BD92_FINDING_ACTION" in r.data["prompt"]
-    # forcing: today the cycle-1 build leaves nothing to distinguish; require the keyed payload
-    assert json.loads((scratch / SIDECAR_RELNAME).read_text())["run_id"] == RUN_A
     from bytedigger_engine.findings_sidecar import findings_thread_status
     assert findings_thread_status(scratch, run_id=RUN_A, for_cycle=2)[0] == FINDINGS
 
@@ -478,6 +476,22 @@ def test_ac9_frozen_fallback_retry_unlinks_ship_sidecar(tmp_path):
     assert not sc.exists(), "frozen-fallback retry must not leave a prior shipped base"
 
 
+def test_ac9_d3_rejected_ship_unlinks_ship_sidecar(tmp_path):
+    """Unlink is the first act after the verdict is read, before the SHIP branch (op3)."""
+    scratch = tmp_path / "s9d3"
+    prev = _gate_prev(scratch, "SHIP")
+    spec = Path(prev.data["spec_path"])
+    spec.write_text(
+        "# Test Spec\n\n## Files\n- MODIFY tests/test_x.py\n\n## §3 Acceptance Criteria\n", encoding="utf-8",
+    )
+    sc = _plant_ship_sidecar(spec)
+    ctx = _wf_ctx(scratch, task_description="Do NOT modify `tests/test_x.py` — this file is frozen and off-limits.",
+                  complexity="SIMPLE")
+    r = phase_45_spec._gate_on_review(ctx, prev)
+    assert r.status == "error" and r.error_code == "E_VALIDATION_RETRY", f"D3 must reject the SHIP: {r}"
+    assert not sc.exists(), "a SHIP rejected by the D3 gate must not leave a prior shipped base"
+
+
 def test_ac10_prior_base_requires_ship_verdict(tmp_path):
     log = _set_run(tmp_path, RUN_B)
     spec = _write_spec(tmp_path / "s10")
@@ -578,9 +592,16 @@ def test_ac13_cycle_none_clears_every_cycle_scoped_to_run_and_workflow(tmp_path)
             _touch(d, resume_sentinel_name("leg", c, RUN_A, None, "wf_other")),
             _touch(d, resume_sentinel_name("inp", c, RUN_A, "feedfacecafe", "wf_other")),
         ]
-    invalidate_cycle_sentinels(ctx, [_step("leg"), _step("inp", "field")], None, RUN_A, None, workflow_name="wf")
+    captured: list[tuple] = []
+    invalidate_cycle_sentinels(
+        ctx, [_step("leg"), _step("inp", "field")], None, RUN_A,
+        lambda name, payload, rid: captured.append((name, payload)), workflow_name="wf",
+    )
     assert [p.name for p in targets if p.exists()] == [], "all cycles of the run+workflow must be cleared"
     assert [p.name for p in keep if not p.exists()] == [], "another run's / workflow's sentinels must stay"
+    invalidated = [p for n, p in captured if n == "step_sentinel_invalidated"]
+    assert invalidated, "cycle=None invalidation must emit step_sentinel_invalidated events"
+    assert all(p["cycle"] == "all" for p in invalidated), invalidated
 
 
 # --- AC14: reroute entry clears every cycle -----------------------------------
