@@ -45,6 +45,13 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   --state-dir DIR [--log PATH]`) flags repeated, alternating and thrashing tool calls from a hook payload on
   stdin, advisory only. Env: `BD_LOOP_DETECTOR=0`, `BD_LOOP_WINDOW`, `BD_LOOP_REPEAT`, `BD_LOOP_THRASH_SPAN`,
   `BD_LOOP_THRASH_CALLS`, `BD_LOOP_THRASH_FAILS`, `BD_LOOP_COOLDOWN`.
+- **Subagent write guard (bd#133).** New PreToolUse hook `hooks/worker-write-guard.sh`
+  (logic in `hooks/worker_write_guard.py`) on `Write|Edit|MultiEdit|NotebookEdit`. During an active
+  build it blocks subagent writes to `build-state.yaml`, `build-metadata.json`,
+  `build-red-output.log`, `build-green-output.log` and `.bytedigger-orchestrator-pid`, and
+  confines `synthesizer` to `<scratchpad>/reviews/`. These rules (R5–R7) never apply to the
+  main thread, which is blocked only on malformed tool input; unreadable input fails closed. Known limits (Bash writes and
+  others) are listed in `docs/security.md`. engine_py runs (any backend) and their `claude -p` workers get no guard.
 - **Weekly companion tuning (bd#117, Part B).** New `scripts/companion-tune collect|propose`
   (`bytedigger_engine/companion_tune.py`). `collect` reads maintainer corrections (a reopened issue closed
   by a BD-built PR, a watched label added or removed) into `signals.json`; `propose` asks one model call for

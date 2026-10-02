@@ -1,0 +1,1031 @@
+"""RED tests for bd#133 -- PreToolUse path guard for subagent Write/Edit.
+
+Spec: docs/decisions/2026-09-30-bd133-worker-write-path-guard.md (Rev 4: ROLE_DIR is
+{"synthesizer": "reviews"} only; explorer/architect are ordinary subagents, R8).
+Covers A1-A9 and decision rows R1-R8 (+ gate fixes F1-F6, m1, m3, m5, m8, m11, m12).
+The hook hooks/worker-write-guard.sh is driven through `bash <hook>` (and, for
+F5, directly by exec) with JSON on stdin inside tmp_path project dirs.
+
+Nothing is imported from the repo; no sys.path manipulation. None are skipped or xfail.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+HOOK = REPO_ROOT / "hooks" / "worker-write-guard.sh"
+PFX = "BLOCKED (bytedigger write guard): "
+WARN = "WARN (bytedigger write guard): python3 not found; write guard disabled"
+RO_ROLES = ["synthesizer"]
+ORDINARY_AGENTS = ["explorer", "architect", "bytedigger:explorer", "bytedigger:architect",
+                   "general-purpose", "other:synthesizer"]
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+def _rp(p) -> str:
+    return os.path.realpath(str(p))
+
+
+def _project(tmp_path: Path, phase="4", scratch_value="default", raw_state=None) -> Path:
+    """Project dir with build-state.yaml; scratchpad at <proj>/scratch/{research,architecture,reviews}."""
+    proj = tmp_path / "proj"
+    proj.mkdir(exist_ok=True)
+    scratch = proj / "scratch"
+    for d in ("research", "architecture", "reviews"):
+        (scratch / d).mkdir(parents=True, exist_ok=True)
+    if raw_state is not None:
+        (proj / "build-state.yaml").write_text(raw_state)
+        return proj
+    lines = ['task: "t"', "mode: AUTONOMOUS"]
+    if phase is not None:
+        lines.append(f'current_phase: "{phase}"')
+    if scratch_value == "default":
+        scratch_value = f'"{scratch}"'
+    if scratch_value is not None:
+        lines.append(f"scratchpad_dir: {scratch_value}")
+    (proj / "build-state.yaml").write_text("\n".join(lines) + "\n")
+    return proj
+
+
+def _run(proj: Path, payload, *, cwd_in_json=True, env=None, raw_stdin=None):
+    if raw_stdin is None:
+        if isinstance(payload, dict) and cwd_in_json and "cwd" not in payload:
+            payload = {**payload, "cwd": str(proj)}
+        raw_stdin = json.dumps(payload)
+    return subprocess.run(
+        ["bash", str(HOOK)], input=raw_stdin, capture_output=True, text=True,
+        cwd=str(proj), env=env, timeout=60,
+    )
+
+
+def _call(tool="Write", path=None, agent_type="general-purpose", agent_id="a1", key=None):
+    key = key or ("notebook_path" if tool == "NotebookEdit" else "file_path")
+    d = {"tool_name": tool, "tool_input": {key: str(path)}}
+    if agent_id is not None:
+        d["agent_id"] = agent_id
+    if agent_type is not None:
+        d["agent_type"] = agent_type
+    return d
+
+
+def _allow(proc):
+    assert proc.returncode == 0, f"rc={proc.returncode} out={proc.stdout!r} err={proc.stderr!r}"
+    assert "BLOCKED" not in proc.stderr and "BLOCKED" not in proc.stdout
+
+
+def _block(proc, line: str):
+    assert proc.returncode == 2, f"rc={proc.returncode} out={proc.stdout!r} err={proc.stderr!r}"
+    assert proc.stderr.strip() == line
+    assert line in proc.stdout.splitlines() or proc.stdout.strip() == line
+
+
+def _r5(name):
+    return f"{PFX}subagents may not write {name}; it is orchestrator state"
+
+
+def _oneline(s: str) -> str:
+    return s.replace("\r", "\\r").replace("\n", "\\n")
+
+
+ROLE_DIR = {"synthesizer": "reviews"}
+
+
+def _r7(role, scratch, target):
+    return _oneline(f"{PFX}{role} may write only under {_rp(scratch)}/"
+                    f"{ROLE_DIR[role]}/, not {_rp(target)}")
+
+
+# ---------------------------------------------------------------------------
+# A1 -- hooks.json
+# ---------------------------------------------------------------------------
+
+def test_a1_hooks_json_registers_worker_write_guard():
+    data = json.loads((REPO_ROOT / "hooks" / "hooks.json").read_text())
+    pre = data["hooks"]["PreToolUse"]
+    entries = [e for e in pre if e.get("matcher") == "Write|Edit|MultiEdit|NotebookEdit"]
+    assert len(entries) == 1
+    assert entries[0]["hooks"] == [{
+        "type": "command",
+        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/worker-write-guard.sh",
+        "timeout": 10,
+    }]
+
+
+def test_a1_bash_entry_unchanged_and_hook_file_exists():
+    data = json.loads((REPO_ROOT / "hooks" / "hooks.json").read_text())
+    bash = [e for e in data["hooks"]["PreToolUse"] if e.get("matcher") == "Bash"]
+    assert len(bash) == 1
+    assert bash[0]["hooks"][0]["command"] == "${CLAUDE_PLUGIN_ROOT}/hooks/build-state-guard.sh"
+    assert bash[0]["hooks"][0]["timeout"] == 10
+    assert HOOK.is_file(), "hooks/worker-write-guard.sh must exist"
+
+
+# ---------------------------------------------------------------------------
+# R1 -- tools outside the write set
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("tool", ["Read", "Bash", "Grep", "Glob"])
+def test_r1_non_write_tool_allowed(tmp_path, tool):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call(tool, proj / "build-state.yaml")))
+
+
+# ---------------------------------------------------------------------------
+# R2 / A6 -- build not active
+# ---------------------------------------------------------------------------
+
+def test_r2_a6_no_state_file_allows_everything(tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _allow(_run(proj, _call("Write", proj / "build-state.yaml", agent_type="synthesizer")))
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type="synthesizer")))
+
+
+def test_r2_a6_phase_completed_allows_state_file(tmp_path):
+    proj = _project(tmp_path, phase="completed")
+    _allow(_run(proj, _call("Write", proj / "build-state.yaml")))
+    _allow(_run(proj, _call("Write", proj / "build-metadata.json")))
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type="synthesizer")))
+
+
+def test_r2_empty_current_phase_is_not_active(tmp_path):
+    proj = _project(tmp_path, phase=None)
+    _allow(_run(proj, _call("Write", proj / "build-state.yaml")))
+
+
+def test_r2_no_state_and_garbage_stdin_allows(tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _allow(_run(proj, None, raw_stdin="not json {{"))
+
+
+# ---------------------------------------------------------------------------
+# R3 -- fail closed while a build is active
+# ---------------------------------------------------------------------------
+
+R3 = f"{PFX}unreadable tool input during an active build"
+
+
+def test_r3_invalid_json_blocks(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, None, raw_stdin="this is not json"), R3)
+
+
+def test_r3_empty_stdin_blocks(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, None, raw_stdin=""), R3)
+
+
+def test_r3_no_target_path_blocks(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, {"tool_name": "Write", "tool_input": {}, "agent_id": "a1",
+                       "agent_type": "general-purpose"}), R3)
+
+
+def test_r3_no_target_path_blocks_even_for_main_thread(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, {"tool_name": "Edit", "tool_input": {}}), R3)
+
+
+def test_r3_notebook_edit_with_file_path_only_has_no_target(tmp_path):
+    # NotebookEdit reads notebook_path; file_path must not be used as fallback.
+    proj = _project(tmp_path)
+    p = _call("NotebookEdit", proj / "src" / "n.ipynb", key="file_path")
+    _block(_run(proj, p), R3)
+
+
+# ---------------------------------------------------------------------------
+# R4 -- main thread never blocked
+# ---------------------------------------------------------------------------
+
+def test_r4_main_thread_writes_state_file_allowed(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "build-state.yaml", agent_id=None, agent_type=None)))
+    _allow(_run(proj, _call("Write", proj / "build-metadata.json", agent_id=None, agent_type=None)))
+
+
+def test_r4_empty_agent_id_is_main_thread(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "build-state.yaml", agent_id="", agent_type="synthesizer")))
+
+
+# ---------------------------------------------------------------------------
+# R5 -- orchestrator state files
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["build-state.yaml", "build-metadata.json"])
+@pytest.mark.parametrize("tool", ["Write", "Edit", "MultiEdit", "NotebookEdit"])
+def test_r5_subagent_state_file_blocked_all_tools(tmp_path, name, tool):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call(tool, proj / name)), _r5(name))
+
+
+def test_r5_blocked_for_read_only_role_too(tmp_path):
+    proj = _project(tmp_path)
+    # inside an allowed dir, still the orchestrator-state file name
+    _block(_run(proj, _call("Write", proj / "scratch" / "reviews" / "build-state.yaml",
+                            agent_type="synthesizer")), _r5("build-state.yaml"))
+
+
+def test_r5_state_file_in_subdir_blocked(tmp_path):
+    proj = _project(tmp_path)
+    (proj / "sub" / "deep").mkdir(parents=True)
+    _block(_run(proj, _call("Write", proj / "sub" / "deep" / "build-state.yaml")),
+           _r5("build-state.yaml"))
+
+
+def test_r5_symlink_to_state_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    link = proj / "notes.md"
+    link.symlink_to(proj / "build-state.yaml")
+    _block(_run(proj, _call("Write", link)), _r5("build-state.yaml"))
+
+
+def test_r5_symlink_to_metadata_blocked(tmp_path):
+    proj = _project(tmp_path)
+    (proj / "build-metadata.json").write_text("{}")
+    link = proj / "meta-link.txt"
+    link.symlink_to(proj / "build-metadata.json")
+    _block(_run(proj, _call("Edit", link)), _r5("build-metadata.json"))
+
+
+# ---------------------------------------------------------------------------
+# R6 -- read-only role, no scratchpad_dir
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("scratch_value", [None, '""'])
+@pytest.mark.parametrize("role", RO_ROLES)
+def test_r6_read_only_role_without_scratchpad_blocked(tmp_path, role, scratch_value):
+    proj = _project(tmp_path, scratch_value=scratch_value)
+    _block(_run(proj, _call("Write", proj / "scratch" / "reviews" / "f.md", agent_type=role)),
+           f"{PFX}{role} may write only its scratchpad deliverable, "
+           "but build-state.yaml has no scratchpad_dir")
+
+
+def test_r6_prefixed_role_is_stripped_in_message(tmp_path):
+    proj = _project(tmp_path, scratch_value=None)
+    _block(_run(proj, _call("Write", proj / "x.md", agent_type="bytedigger:synthesizer")),
+           f"{PFX}synthesizer may write only its scratchpad deliverable, "
+           "but build-state.yaml has no scratchpad_dir")
+
+
+def test_r6_general_purpose_without_scratchpad_allowed(tmp_path):
+    proj = _project(tmp_path, scratch_value=None)
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py")))
+
+
+@pytest.mark.parametrize("agent_type", ["explorer", "architect", "bytedigger:explorer",
+                                        "bytedigger:architect"])
+def test_r6_explorer_architect_without_scratchpad_allowed(tmp_path, agent_type):
+    proj = _project(tmp_path, scratch_value=None)
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type=agent_type)))
+
+
+# ---------------------------------------------------------------------------
+# R7 / A3 -- allowed dirs and escapes (synthesizer -> reviews/)
+# ---------------------------------------------------------------------------
+
+def test_r7_source_file_blocked_for_read_only(tmp_path):
+    proj = _project(tmp_path)
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+def test_r7_a3_dotdot_out_of_reviews_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    t = Path(f"{scratch}/reviews/../../src/a.py")
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", scratch, t))
+
+
+def test_r7_a3_dotdot_within_allowed_dir_is_resolved(tmp_path):
+    # reviews/sub/../learnings-raw.md resolves back inside reviews/ -> allowed
+    proj = _project(tmp_path)
+    t = Path(f"{proj}/scratch/reviews/sub/../learnings-raw.md")
+    _allow(_run(proj, _call("Write", t, agent_type="synthesizer")))
+
+
+def test_r7_a3_dotdot_into_other_scratch_dir_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    t = Path(f"{scratch}/reviews/../research/x.md")
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", scratch, t))
+
+
+def test_r7_a3_sibling_prefix_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    (scratch / "reviews-evil").mkdir()
+    t = scratch / "reviews-evil" / "x.md"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", scratch, t))
+
+
+def test_r7_a3_scratchpad_root_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    t = scratch / "notes.md"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", scratch, t))
+
+
+def test_r7_a3_symlinked_dir_inside_reviews_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (scratch / "reviews" / "link").symlink_to(outside)
+    t = scratch / "reviews" / "link" / "x.md"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", scratch, t))
+    assert _rp(outside) in _rp(t)
+
+
+def test_r7_a3_relative_file_path_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    p = _call("Write", "src/a.py", agent_type="synthesizer")
+    _block(_run(proj, p), _r7("synthesizer", scratch, proj / "src" / "a.py"))
+
+
+def test_r7_a3_relative_file_path_inside_allowed_dir_allowed(tmp_path):
+    proj = _project(tmp_path)
+    p = _call("Write", "scratch/reviews/learnings-raw.md", agent_type="synthesizer")
+    _allow(_run(proj, p))
+
+
+def test_r7_notebook_path_outside_blocked(tmp_path):
+    proj = _project(tmp_path)
+    t = proj / "src" / "n.ipynb"
+    _block(_run(proj, _call("NotebookEdit", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+@pytest.mark.parametrize("tool", ["Edit", "MultiEdit"])
+def test_r7_edit_tools_use_file_path(tmp_path, tool):
+    proj = _project(tmp_path)
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call(tool, t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+# ---------------------------------------------------------------------------
+# R8 -- allowed
+# ---------------------------------------------------------------------------
+
+def test_r8_synthesizer_scratchpad_deliverable_allowed(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "scratch" / "reviews" / "learnings-raw.md",
+                            agent_type="synthesizer")))
+
+
+@pytest.mark.parametrize("agent_type", ["explorer", "architect", "bytedigger:explorer",
+                                        "bytedigger:architect"])
+@pytest.mark.parametrize("rel", ["src/a.py", "scratch/reviews/x.md", "scratch/notes.md",
+                                 "scratch/research/x.md"])
+def test_r8_explorer_architect_are_ordinary_subagents(tmp_path, agent_type, rel):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / rel, agent_type=agent_type)))
+
+
+@pytest.mark.parametrize("role,other_dir", [
+    (r, d) for r in RO_ROLES for d in ("research", "architecture", "reviews") if ROLE_DIR[r] != d
+])
+def test_r7_cr3_read_only_role_in_another_roles_dir_blocked(tmp_path, role, other_dir):
+    proj = _project(tmp_path)
+    t = proj / "scratch" / other_dir / "x.md"
+    _block(_run(proj, _call("Write", t, agent_type=role)), _r7(role, proj / "scratch", t))
+
+
+def test_r8_nested_path_inside_allowed_dir_allowed(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "scratch" / "reviews" / "sub" / "f.md",
+                            agent_type="synthesizer")))
+
+
+def test_r8_general_purpose_source_file_allowed(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py")))
+    _allow(_run(proj, _call("Edit", proj / "src" / "a.py")))
+
+
+def test_r8_phase_7_is_active_and_synthesizer_allowed_in_reviews(tmp_path):
+    proj = _project(tmp_path, phase="7")
+    _allow(_run(proj, _call("Write", proj / "scratch" / "reviews" / "learnings-raw.md",
+                            agent_type="synthesizer")))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+def test_r8_phase_unquoted_yaml_active(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, raw_state=f'current_phase: 7\nscratchpad_dir: "{scratch}"\n')
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+# ---------------------------------------------------------------------------
+# A4 -- role parsing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("agent_type", ["synthesizer", "bytedigger:synthesizer"])
+def test_a4_restricted_roles(tmp_path, agent_type):
+    proj = _project(tmp_path)
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type=agent_type)),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+@pytest.mark.parametrize("agent_type", ORDINARY_AGENTS + ["bytedigger:foo", None])
+def test_a4_unrestricted_roles_only_hit_r5(tmp_path, agent_type):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type=agent_type)))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml", agent_type=agent_type)),
+           _r5("build-state.yaml"))
+    _block(_run(proj, _call("Write", proj / "build-metadata.json", agent_type=agent_type)),
+           _r5("build-metadata.json"))
+
+
+# ---------------------------------------------------------------------------
+# A5 -- scratchpad_dir forms
+# ---------------------------------------------------------------------------
+
+def test_a5_spaces_in_double_quoted_scratchpad(tmp_path):
+    scratch = tmp_path / "proj" / "my scratch"
+    proj = _project(tmp_path, scratch_value=f'"{scratch}"')
+    (scratch / "reviews").mkdir(parents=True)
+    _allow(_run(proj, _call("Write", scratch / "reviews" / "learnings-raw.md",
+                            agent_type="synthesizer")))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")), _r7("synthesizer", scratch, t))
+
+
+def test_a5_single_quoted_scratchpad_with_spaces(tmp_path):
+    scratch = tmp_path / "proj" / "my scratch"
+    proj = _project(tmp_path, scratch_value=f"'{scratch}'")
+    (scratch / "reviews").mkdir(parents=True)
+    _allow(_run(proj, _call("Write", scratch / "reviews" / "learnings-raw.md",
+                            agent_type="synthesizer")))
+
+
+def test_a5_relative_scratchpad_resolves_against_cwd(tmp_path):
+    proj = _project(tmp_path, scratch_value='"scratch"')
+    scratch = proj / "scratch"
+    _allow(_run(proj, _call("Write", scratch / "reviews" / "learnings-raw.md",
+                            agent_type="synthesizer")))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")), _r7("synthesizer", scratch, t))
+
+
+def test_a5_relative_scratchpad_with_space(tmp_path):
+    proj = _project(tmp_path, scratch_value='"rel scratch"')
+    scratch = proj / "rel scratch"
+    (scratch / "reviews").mkdir(parents=True)
+    _allow(_run(proj, _call("Write", scratch / "reviews" / "learnings-raw.md",
+                            agent_type="synthesizer")))
+    t = scratch / "other.md"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")), _r7("synthesizer", scratch, t))
+
+
+# ---------------------------------------------------------------------------
+# cwd fallback
+# ---------------------------------------------------------------------------
+
+def test_cwd_absent_in_json_falls_back_to_process_cwd(tmp_path):
+    proj = _project(tmp_path)
+    p = _call("Write", proj / "build-state.yaml")
+    assert "cwd" not in p
+    _block(_run(proj, p, cwd_in_json=False), _r5("build-state.yaml"))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer"), cwd_in_json=False),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+def test_cwd_in_json_wins_over_process_cwd(tmp_path):
+    proj = _project(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    p = {**_call("Write", proj / "build-state.yaml"), "cwd": str(proj)}
+    proc = subprocess.run(["bash", str(HOOK)], input=json.dumps(p), capture_output=True,
+                          text=True, cwd=str(elsewhere), timeout=60)
+    _block(proc, _r5("build-state.yaml"))
+
+
+# ---------------------------------------------------------------------------
+# A7 -- python3 absent
+# ---------------------------------------------------------------------------
+
+def test_a7_no_python3_allows_with_warn(tmp_path):
+    proj = _project(tmp_path)
+    bindir = tmp_path / "nopy-bin"
+    bindir.mkdir()
+    tools = ["bash", "cat", "grep", "sed", "tr", "head", "dirname", "basename", "cut", "awk",
+             "tail", "wc", "sort", "uname", "env", "printf", "realpath", "readlink", "mkdir",
+             "sh", "expr", "test", "echo", "ls", "rm", "mktemp", "tee", "xargs", "sleep", "jq"]
+    for t in tools:
+        src = shutil.which(t)
+        if src and not (bindir / t).exists():
+            (bindir / t).symlink_to(src)
+    assert not (bindir / "python3").exists() and not (bindir / "python").exists()
+    env = {"PATH": str(bindir), "HOME": str(tmp_path)}
+    proc = subprocess.run(
+        [str(bindir / "bash"), str(HOOK)],
+        input=json.dumps({**_call("Write", proj / "build-state.yaml"), "cwd": str(proj)}),
+        capture_output=True, text=True, cwd=str(proj), env=env, timeout=60,
+    )
+    assert proc.returncode == 0, f"rc={proc.returncode} out={proc.stdout!r} err={proc.stderr!r}"
+    assert proc.stderr.strip() == WARN
+
+
+# ---------------------------------------------------------------------------
+# A8 -- docs / changelog / CI
+# ---------------------------------------------------------------------------
+
+def test_a8_plugin_md_hooks_table_row():
+    text = (REPO_ROOT / "docs" / "plugin.md").read_text(encoding="utf-8")
+    m = re.search(r"^## Hooks\b[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    assert m, "docs/plugin.md has no '## Hooks' section"
+    rows = [l for l in m.group(1).splitlines()
+            if l.startswith("|") and "hooks/worker-write-guard.sh" in l]
+    assert rows, "hooks table has no row for hooks/worker-write-guard.sh"
+    assert "PreToolUse" in rows[0]
+
+
+def test_a8_changelog_topmost_section_mentions_bd133():
+    text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    heads = list(re.finditer(r"^## \[", text, re.M))
+    assert heads, "CHANGELOG has no version sections"
+    end = heads[1].start() if len(heads) > 1 else len(text)
+    top = text[heads[0].start():end]
+    assert re.search(r"bd#133|#133\b", top), "topmost CHANGELOG section must mention bd#133"
+
+
+def test_a8_ci_manifests_job_runs_this_suite():
+    text = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    m = re.search(r"^  manifests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\Z)", text, re.S | re.M)
+    assert m, "ci.yml has no manifests job"
+    lines = [l for l in m.group(1).splitlines()
+             if "tests/test_worker_write_guard.py" in l]
+    assert lines, "manifests job does not run tests/test_worker_write_guard.py"
+    assert "pytest" in m.group(1)
+
+
+# ===========================================================================
+# Rev 2 additions (Opus gate r1: F1-F6, m1, m3, m5, m8, m11, m12)
+# ===========================================================================
+
+def _run_direct(proj: Path, payload):
+    """Run the hook exactly as the host does: exec the file, no `bash` prefix."""
+    assert HOOK.is_file(), "hooks/worker-write-guard.sh must exist"
+    return subprocess.run(
+        [str(HOOK)], input=json.dumps({**payload, "cwd": str(proj)}),
+        capture_output=True, text=True, cwd=str(proj), timeout=60,
+    )
+
+
+# --- F5 / A1: exec bit, shebang, direct exec --------------------------------
+
+def test_f5_hook_is_executable():
+    assert HOOK.is_file(), "hooks/worker-write-guard.sh must exist"
+    assert os.access(HOOK, os.X_OK), "hook must have the exec bit (host execs it directly)"
+
+
+def test_f5_hook_starts_with_bash_shebang():
+    assert HOOK.is_file(), "hooks/worker-write-guard.sh must exist"
+    first = HOOK.read_text(encoding="utf-8").splitlines()[0].strip()
+    assert first in {"#!/bin/bash", "#!/usr/bin/env bash"}
+
+
+def test_f5_direct_exec_blocks(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run_direct(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+def test_f5_direct_exec_allows(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run_direct(proj, _call("Write", proj / "src" / "a.py")))
+
+
+# --- F1: missing/invalid tool_name falls to R3, not R1 allow ----------------
+
+def test_f1_valid_json_without_tool_name_blocks(tmp_path):
+    proj = _project(tmp_path)
+    p = {"tool_input": {"file_path": str(proj / "build-state.yaml")}, "agent_id": "a1"}
+    _block(_run(proj, p), R3)
+
+
+@pytest.mark.parametrize("tool_name", ["", 5, None, ["Write"]])
+def test_f1_empty_or_non_string_tool_name_blocks(tmp_path, tool_name):
+    proj = _project(tmp_path)
+    p = {"tool_name": tool_name, "tool_input": {"file_path": str(proj / "x.md")}, "agent_id": "a1"}
+    _block(_run(proj, p), R3)
+
+
+@pytest.mark.parametrize("raw", ["[]", '"Write"', "42", "null"])
+def test_f1_non_object_json_blocks(tmp_path, raw):
+    proj = _project(tmp_path)
+    _block(_run(proj, None, raw_stdin=raw), R3)
+
+
+# --- F2: case variants of protected names -----------------------------------
+
+def test_f2_case_variant_state_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Write", proj / "Build-State.yaml")), _r5("build-state.yaml"))
+
+
+def test_f2_case_variant_metadata_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Edit", proj / "BUILD-METADATA.JSON")), _r5("build-metadata.json"))
+
+
+def test_f2_case_variant_in_allowed_dir_for_read_only_role_blocked(tmp_path):
+    proj = _project(tmp_path)
+    t = proj / "scratch" / "reviews" / "BUILD-STATE.YAML"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")), _r5("build-state.yaml"))
+
+
+# --- F3: state parsing ------------------------------------------------------
+
+def test_f3_task_line_with_current_phase_text_does_not_disable_guard(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, raw_state=(
+        'task: "fix current_phase: completed handling"\n'
+        'current_phase: "4"\n'
+        f'scratchpad_dir: "{scratch}"\n'))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+def test_f3_indented_current_phase_line_is_ignored(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, raw_state=(
+        'notes:\n'
+        '  current_phase: completed\n'
+        'current_phase: "4"\n'
+        f'scratchpad_dir: "{scratch}"\n'))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+
+
+def test_f3_crlf_state_file_parses(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, raw_state=(
+        'task: "t"\r\ncurrent_phase: "4"\r\n'
+        f'scratchpad_dir: "{scratch}"\r\n'))
+    _allow(_run(proj, _call("Write", scratch / "reviews" / "x.md", agent_type="synthesizer")))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")), _r7("synthesizer", scratch, t))
+
+
+@pytest.mark.parametrize("value", ["'completed'", "completed", '"completed"', "completed\r"])
+def test_f3_completed_quote_forms_not_active(tmp_path, value):
+    proj = _project(tmp_path, raw_state=f"current_phase: {value}\n")
+    _allow(_run(proj, _call("Write", proj / "build-state.yaml")))
+
+
+def test_f3_trailing_slash_scratchpad_allows_deliverable(tmp_path):
+    scratch = tmp_path / "proj" / "scratch"
+    proj = _project(tmp_path, scratch_value=f'"{scratch}/"')
+    _allow(_run(proj, _call("Write", scratch / "reviews" / "x.md", agent_type="synthesizer")))
+    t = scratch / "notes.md"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")), _r7("synthesizer", scratch, t))
+
+
+# --- F4: no interpolation of agent-controlled strings -----------------------
+
+def test_f4_shell_metacharacters_in_path_blocked_and_nothing_runs(tmp_path):
+    proj = _project(tmp_path)
+    name = "a'\"$(touch PWNED1)`touch PWNED2`.py"
+    t = proj / "src" / name
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+    for d in (proj, tmp_path, proj / "src"):
+        assert not list(d.glob("PWNED*")), f"command ran in {d}"
+
+
+def test_f4_metacharacters_in_agent_type_run_nothing(tmp_path):
+    proj = _project(tmp_path)
+    at = "x'; touch PWNED3; echo '$(touch PWNED4)"
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type=at)))
+    for d in (proj, tmp_path):
+        assert not list(d.glob("PWNED*")), f"command ran in {d}"
+
+
+def test_f4_quote_and_dollar_in_scratchpad_value_allowed(tmp_path):
+    scratch = tmp_path / "proj" / "it's $HOME `x` scratch"
+    proj = _project(tmp_path, scratch_value=f'"{scratch}"')
+    (scratch / "reviews").mkdir(parents=True)
+    _allow(_run(proj, _call("Write", scratch / "reviews" / "learnings-raw.md",
+                            agent_type="synthesizer")))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")), _r7("synthesizer", scratch, t))
+
+
+# --- F6: symlinked alias of the project, either direction -------------------
+
+def test_f6_scratchpad_via_alias_target_real_allowed(tmp_path):
+    proj = _project(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(proj)
+    (proj / "build-state.yaml").write_text(
+        f'current_phase: "4"\nscratchpad_dir: "{alias}/scratch"\n')
+    _allow(_run(proj, _call("Write", proj / "scratch" / "reviews" / "x.md", agent_type="synthesizer")))
+
+
+def test_f6_scratchpad_real_target_via_alias_allowed(tmp_path):
+    proj = _project(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(proj)
+    _allow(_run(proj, _call("Write", f"{alias}/scratch/reviews/x.md", agent_type="synthesizer")))
+
+
+def test_f6_alias_source_file_blocked_with_realpath_message(tmp_path):
+    proj = _project(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(proj)
+    (proj / "build-state.yaml").write_text(
+        f'current_phase: "4"\nscratchpad_dir: "{alias}/scratch"\n')
+    t = f"{alias}/src/a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+# --- m1: hardlink / dangling symlink ----------------------------------------
+
+def test_m1_hardlink_to_state_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    os.link(proj / "build-state.yaml", proj / "notes-hl.md")
+    _block(_run(proj, _call("Write", proj / "notes-hl.md")), _r5("build-state.yaml"))
+
+
+def test_m1_hardlink_to_metadata_file_blocked(tmp_path):
+    proj = _project(tmp_path)
+    (proj / "build-metadata.json").write_text("{}")
+    os.link(proj / "build-metadata.json", proj / "meta-hl.txt")
+    _block(_run(proj, _call("Edit", proj / "meta-hl.txt")), _r5("build-metadata.json"))
+
+
+def test_m1b_dangling_leaf_symlink_out_of_reviews_blocked(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    (proj / "src").mkdir()
+    (scratch / "reviews" / "x.md").symlink_to(proj / "src" / "new.py")
+    _block(_run(proj, _call("Write", scratch / "reviews" / "x.md", agent_type="synthesizer")),
+           _r7("synthesizer", scratch, proj / "src" / "new.py"))
+
+
+# --- m3: other plugin's roles are unrestricted ------------------------------
+
+def test_m3_other_plugin_explorer_unrestricted_except_r5(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type="other:explorer")))
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type="other:explorer"),
+                cwd_in_json=False))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml", agent_type="other:explorer")),
+           _r5("build-state.yaml"))
+
+
+def test_m3_other_plugin_synthesizer_unrestricted_except_r5(tmp_path):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "src" / "a.py", agent_type="other:synthesizer")))
+    _block(_run(proj, _call("Write", proj / "build-state.yaml", agent_type="other:synthesizer")),
+           _r5("build-state.yaml"))
+
+
+# --- m5: docs/security.md ---------------------------------------------------
+
+def test_m5_security_md_names_hook_and_bash_write_limit():
+    text = (REPO_ROOT / "docs" / "security.md").read_text(encoding="utf-8")
+    assert "hooks/worker-write-guard.sh" in text, "docs/security.md must name the hook"
+    tail = text[text.index("hooks/worker-write-guard.sh"):]
+    section = re.split(r"^## ", tail, maxsplit=1, flags=re.M)[0]
+    assert re.search(r"\bBash\b", section) and re.search(r"writ", section, re.I), \
+        "docs/security.md must state the Bash-write limit next to the hook"
+    # n1: every other known limit of spec section 4 is named in the same section
+    assert "2.1.69" in section, "security.md must name the Claude Code < 2.1.69 limit"
+    assert re.search(r"worktree", section, re.I), "security.md must name the stale-worktree-state limit"
+    assert "NTFS" in section, "security.md must name the NTFS alias-name limit"
+    assert re.search(r"cd |subdir", section, re.I), \
+        "security.md must name the orchestrator cd-into-subdir limit"
+
+
+# --- m8: empty / null / non-string path, non-object tool_input --------------
+
+@pytest.mark.parametrize("fp", [None, "", 5, ["a"], {"x": 1}])
+def test_m8_bad_file_path_blocks(tmp_path, fp):
+    proj = _project(tmp_path)
+    p = {"tool_name": "Write", "tool_input": {"file_path": fp}, "agent_id": "a1",
+         "agent_type": "general-purpose"}
+    _block(_run(proj, p), R3)
+
+
+@pytest.mark.parametrize("ti", ["x", [], None, 5])
+def test_m8_non_object_tool_input_blocks(tmp_path, ti):
+    proj = _project(tmp_path)
+    p = {"tool_name": "Write", "tool_input": ti, "agent_id": "a1", "agent_type": "general-purpose"}
+    _block(_run(proj, p), R3)
+
+
+def test_m8_notebook_path_null_blocks(tmp_path):
+    proj = _project(tmp_path)
+    p = {"tool_name": "NotebookEdit", "tool_input": {"notebook_path": None}}
+    _block(_run(proj, p), R3)
+
+
+# --- m11 / A9: newline in path keeps the reason on one line -----------------
+
+def test_a9_newline_in_path_reason_is_one_line(tmp_path):
+    proj = _project(tmp_path)
+    t = f"{proj}/src/a\nb.py"
+    proc = _run(proj, _call("Write", t, agent_type="synthesizer"))
+    _block(proc, _r7("synthesizer", proj / "scratch", t))
+    assert "\\n" in proc.stderr
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+def test_a9_carriage_return_in_path_reason_is_one_line(tmp_path):
+    proj = _project(tmp_path)
+    t = f"{proj}/src/a\rb.py"
+    proc = _run(proj, _call("Write", t, agent_type="synthesizer"))
+    _block(proc, _r7("synthesizer", proj / "scratch", t))
+    assert "\\r" in proc.stderr
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+# --- m12: `reviews` itself a symlink to the project root --------------------
+
+def test_m12_reviews_symlink_to_project_root_grants_nothing(tmp_path):
+    proj = _project(tmp_path)
+    scratch = proj / "scratch"
+    (scratch / "reviews").rmdir()
+    (scratch / "reviews").symlink_to(proj)
+    (proj / "src").mkdir()
+    t = scratch / "reviews" / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", scratch, t))
+    assert _rp(t) == _rp(proj / "src" / "a.py")
+
+
+# --- A10 (n2): NUL byte in file_path -> R3 block, never exit 1 --------------
+
+def test_a10_nul_byte_in_file_path_blocks_with_r3(tmp_path):
+    proj = _project(tmp_path)
+    t = f"{proj}/scratch/reviews/a\x00b.md"
+    raw = json.dumps({**_call("Write", t, agent_type="synthesizer"), "cwd": str(proj)})
+    assert "\\u0000" in raw
+    _block(_run(proj, None, raw_stdin=raw), R3)
+
+
+# --- n3: R5 names the resolved file when it differs from the raw name -------
+
+def test_n3_symlink_named_state_file_to_metadata_names_metadata(tmp_path):
+    proj = _project(tmp_path)
+    (proj / "build-metadata.json").write_text("{}")
+    link = proj / "scratch" / "reviews" / "build-state.yaml"
+    link.symlink_to(proj / "build-metadata.json")
+    _block(_run(proj, _call("Write", link, agent_type="synthesizer")), _r5("build-metadata.json"))
+
+
+# --- A11 (CR1): gate-evidence logs and pid file are protected ---------------
+
+PROTECTED_LOGS = ["build-red-output.log", "build-green-output.log", ".bytedigger-orchestrator-pid"]
+
+
+@pytest.mark.parametrize("name", PROTECTED_LOGS)
+def test_a11_cr1_subagent_write_to_added_protected_names_blocked(tmp_path, name):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Write", proj / name)), _r5(name))
+
+
+def test_a11_cr1_case_variant_red_log_blocked_naming_canonical(tmp_path):
+    proj = _project(tmp_path)
+    _block(_run(proj, _call("Write", proj / "Build-Red-Output.LOG")), _r5("build-red-output.log"))
+
+
+@pytest.mark.parametrize("name", PROTECTED_LOGS)
+def test_a11_cr1_main_thread_may_write_added_protected_names(tmp_path, name):
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / name, agent_id=None, agent_type=None)))
+
+
+# --- A11 (CR3): per-role allowed dir ----------------------------------------
+
+def test_a11_cr3_explorer_to_reviews_allowed(tmp_path):
+    # Rev 4: explorer is an ordinary subagent; no dir confinement
+    proj = _project(tmp_path)
+    _allow(_run(proj, _call("Write", proj / "scratch" / "reviews" / "x.md", agent_type="explorer")))
+
+
+def test_a11_cr3_synthesizer_to_research_blocked(tmp_path):
+    proj = _project(tmp_path)
+    t = proj / "scratch" / "research" / "x.md"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+# --- A11 (CR7): docs do not claim the main thread is never blocked ----------
+
+def test_a11_cr7_security_md_guard_section_does_not_say_never_blocked():
+    text = (REPO_ROOT / "docs" / "security.md").read_text(encoding="utf-8")
+    section = re.split(r"^## ", text[text.index("hooks/worker-write-guard.sh"):],
+                       maxsplit=1, flags=re.M)[0]
+    assert "never blocked" not in section
+    assert "R5" in section or "malformed" in section
+
+
+def test_a11_cr7_changelog_bd133_entry_does_not_say_never_blocked():
+    text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    heads = list(re.finditer(r"^## \[", text, re.M))
+    end = heads[1].start() if len(heads) > 1 else len(text)
+    top = text[heads[0].start():end]
+    assert re.search(r"bd#133|#133\b", top)
+    assert "never blocked" not in top
+
+
+def test_awaiting_approval_phase_is_active(tmp_path):
+    proj = _project(tmp_path, phase="awaiting_approval")
+    _block(_run(proj, _call("Write", proj / "build-state.yaml")), _r5("build-state.yaml"))
+    t = proj / "src" / "a.py"
+    _block(_run(proj, _call("Write", t, agent_type="synthesizer")),
+           _r7("synthesizer", proj / "scratch", t))
+
+
+# ===========================================================================
+# Rev 4 additions (Opus gate r3): only synthesizer is confined; docs say so
+# ===========================================================================
+
+def _security_guard_section() -> str:
+    text = (REPO_ROOT / "docs" / "security.md").read_text(encoding="utf-8")
+    m = re.search(r"^## Subagent write guard\b[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    assert m, "docs/security.md has no '## Subagent write guard' section"
+    return m.group(1)
+
+
+def _top_changelog_section() -> str:
+    text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    heads = list(re.finditer(r"^## \[", text, re.M))
+    end = heads[1].start() if len(heads) > 1 else len(text)
+    return text[heads[0].start():end]
+
+
+def test_rev4_security_md_names_only_synthesizer_role():
+    section = _security_guard_section()
+    assert re.search(r"synthesizer", section)
+    assert not re.search(r"\bexplorer\b|\barchitect\b", section, re.I), \
+        "security.md guard section must not name explorer/architect roles (Rev 4)"
+    assert "reviews/" in section
+
+
+def test_rev4_plugin_md_hook_row_names_only_synthesizer_role():
+    text = (REPO_ROOT / "docs" / "plugin.md").read_text(encoding="utf-8")
+    rows = [l for l in text.splitlines() if "hooks/worker-write-guard.sh" in l and l.startswith("|")]
+    assert rows
+    assert "synthesizer" in rows[0] and "reviews/" in rows[0]
+    assert not re.search(r"\bexplorer\b|\barchitect\b", rows[0], re.I)
+
+
+def test_rev4_changelog_bd133_entry_names_only_synthesizer_role():
+    top = _top_changelog_section()
+    lines = top.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if l.startswith("- **Subagent write guard (bd#133).**")), None)
+    assert start is not None, "CHANGELOG top section has no '- **Subagent write guard (bd#133).**' bullet"
+    bullet = [lines[start]]
+    for l in lines[start + 1:]:
+        if l.strip() == "" or l.startswith("- ") or l.startswith("#"):
+            break
+        bullet.append(l)
+    bullet_text = "\n".join(bullet)
+    assert "synthesizer" in bullet_text
+    assert not re.search(r"\bexplorer\b|\barchitect\b", bullet_text, re.I)
+
+
+def test_rev4_hook_header_names_only_synthesizer_role():
+    head = "\n".join(HOOK.read_text(encoding="utf-8").splitlines()[:15])
+    assert "synthesizer" in head
+    assert not re.search(r"\bexplorer\b|\barchitect\b", head, re.I)
+
+
+def test_rev4_security_md_limit_claude_p_and_api_token_backends():
+    section = _security_guard_section().lower()
+    assert "claude -p" in section, "security.md must say `claude -p` workers get no subagent guard"
+    assert "api-token" in section, "security.md must say API-token (engine_py) backends get no guard"
+
+
+def test_rev4_security_md_limit_without_agent_id_is_main_thread():
+    section = _security_guard_section().lower()
+    assert "without agent_id" in section, \
+        "security.md must say any host/runner sending no agent_id is treated as the main thread"

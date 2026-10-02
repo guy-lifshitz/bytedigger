@@ -51,6 +51,39 @@ bypasses are security bugs and belong in a private report (see
 [SECURITY.md](../SECURITY.md)); host escapes from generated code are an
 isolation problem on your side of the line above.
 
+## Subagent write guard
+
+`hooks/worker-write-guard.sh` is a PreToolUse hook on `Write|Edit|MultiEdit|NotebookEdit`.
+While a build is active (`build-state.yaml` in the working directory has a
+`current_phase` other than `completed`) it enforces two things for subagent calls:
+no subagent may write `build-state.yaml`, `build-metadata.json`, `build-red-output.log`,
+`build-green-output.log` or `.bytedigger-orchestrator-pid` (names compared
+case-insensitively, symlinks and hardlinks resolved), and the `synthesizer` role may write
+only under `<scratchpad_dir>/reviews/`.
+The protected-name and per-role rules (R5–R7) never apply to the orchestrator (main thread);
+it is blocked only when the tool input is malformed. If the tool input is unreadable during
+an active build, or the check itself fails, the hook blocks (fail closed).
+
+Known limits, not fixed by this hook:
+
+- Bash writes. The hook sees file tools only; a general worker with Bash can still
+  write with `echo > build-state.yaml`. The synthesizer has no Bash.
+- Orchestrator `cd` into a subdir that persists. The hook reads `build-state.yaml` only
+  from the working directory, so with no state file there the guard is off.
+- Stale state after a worktree build. A `build-state.yaml` left in the main checkout
+  keeps the guard on there. A FAILED build also keeps `build-state.yaml`, so the guard
+  stays on in that checkout until it is cleaned up.
+- engine_py runs on any backend, including API-token backends. It keeps no
+  `build-state.yaml` and fires no plugin hooks, so it gets no subagent guard. Those runs rely on
+  the engine's own write manifest and test-integrity diff guard (above); `build-gate.sh`
+  covers only the plugin path. Engine workers started as
+  `claude -p` are separate main-thread sessions, not subagents.
+- NTFS alias names (trailing dot or space, 8.3 short names) are not recognised as the
+  protected file names.
+- Any host or runner that calls the hook without agent_id is treated as the main
+  thread and allowed (for example Claude Code older than 2.1.69).
+- Without python3 on PATH the hook allows everything and prints a WARN line.
+
 ## What gets published
 
 The public package is exactly the manifest-driven core extracted into this
