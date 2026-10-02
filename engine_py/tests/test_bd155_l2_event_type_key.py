@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -152,6 +153,10 @@ def test_ac6_precedence_bd_l3():
                            "type": attest.EVENT_TYPE, "payload": payload}])
     assert report.violations == ()
 
+    control = check_bd_l3([{"event_type": attest.EVENT_TYPE,
+                            "type": "some_other_event", "payload": payload}])
+    assert control.labels["verdict:R3.3"] == "failed"
+
 
 def test_ac6_resolver_event_type_wins_over_type():
     from bytedigger_engine.conformance._event_type import event_type_of  # noqa: PLC0415
@@ -196,6 +201,18 @@ def test_ac7_no_inline_event_type_key_read(name):
     assert _inline_key_reads(CONFORMANCE / f"{name}.py") == []
 
 
+@pytest.mark.parametrize("name,func", [("bd_l2", "check_bd_l2"), ("bd_l3", "check_bd_l3")])
+def test_ac7_checker_function_calls_resolver(name, func):
+    tree = ast.parse((CONFORMANCE / f"{name}.py").read_text())
+    fdefs = [n for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef) and n.name == func]
+    assert len(fdefs) == 1, f"{func} FunctionDef not found exactly once"
+    calls = [n for n in ast.walk(fdefs[0])
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "_event_type_of"]
+    assert calls, f"{func} does not call _event_type_of"
+
+
 def test_ac7_both_checkers_bind_the_shared_resolver():
     from bytedigger_engine.conformance import _event_type, bd_l2, bd_l3  # noqa: PLC0415
 
@@ -218,12 +235,15 @@ def test_ac8_public_surfaces_unchanged():
 def test_ac8_importing_resolver_adds_only_itself():
     code = (
         "import sys, json\n"
+        f"sys.path.insert(0, {str(ENGINE_PY)!r})\n"
         "import bytedigger_engine.conformance\n"
         "before = set(sys.modules)\n"
         "import bytedigger_engine.conformance._event_type\n"
         "print(json.dumps(sorted(set(sys.modules) - before)))\n"
     )
-    proc = subprocess.run([sys.executable, "-c", code], cwd=str(ENGINE_PY),
+    env = os.environ.copy()
+    env.pop("PYTHONSAFEPATH", None)
+    proc = subprocess.run([sys.executable, "-c", code], cwd=str(ENGINE_PY), env=env,
                           capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     delta = json.loads(proc.stdout.strip().splitlines()[-1])

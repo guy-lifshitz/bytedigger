@@ -1,9 +1,9 @@
 # bd#155: `check_bd_l2` reads the on-disk `event_type` key, through one shared resolver
 
-**Status:** r1 (frozen for gate) · **Tier:** 2 (one new private `conformance/` module, two checker edits, one new test file; Option D) ·
-**Class:** SYSTEMATIC · **Chokepoint:** `conformance/_event_type.event_type_of`, the single place a
-conformance checker turns an event dict into its event-type name. `check_bd_l2` and `check_bd_l3` both
-route through it.
+**Status:** r2 (gate r1 REJECTED: 2 MAJOR + 3 MINOR, all addressed; see `2026-10-02-bd155-gate-r1.md`) · **Tier:** 2 (one new private `conformance/` module, two checker edits, one new test file; Option D) ·
+**Class:** SYSTEMATIC · **Chokepoint:** `conformance/_event_type.event_type_of`, the single place an
+L-checker (`check_bd_l2`, `check_bd_l3`; any future `check_bd_lN`) that accepts both the on-disk and the
+harness event shape turns an event dict into its event-type name. Both checkers route through it.
 **Source:** bd#155, found by the bd#141 item 4 (c/d/e) gate r1 MAJOR 3
 (`2026-10-02-bd141-p4-bd-l3-cli-gate-r1.md`). Sibling of the bd_l3 fix in #156.
 
@@ -34,8 +34,9 @@ def event_type_of(event: "Mapping[str, object]") -> "object":
 
 - If `event.get("event_type")` is a non-empty `str`, return it (the on-disk key wins).
 - Otherwise return `event.get("type")` (the harness shape; may be `None` or any value).
-- Pure: no I/O, no imports beyond `typing.TYPE_CHECKING`; module-level code is the function only.
-  Importing it does no work (same rule as `conformance/__init__.py` AC-C1).
+- Pure: no I/O and **no import statements at all** (annotations are string literals; nothing is
+  needed at runtime). Module-level code is the docstring and the function only. Importing it loads
+  no other module (AC8; gate r1 MAJOR 2).
 
 **2.2 `check_bd_l2`.** Line 261 becomes `event_type = _event_type_of(event)`, imported as
 `from ._event_type import event_type_of as _event_type_of` (underscore-bound, per the B-2 note at
@@ -49,7 +50,11 @@ EVENT_TYPE` is no longer read (one event, one type). No production writer emits 
 **2.4 Out of scope (§1v).** No bd_l2 CLI. No change to `harness.py`, `event_log.py`, producers,
 `_CHECKS`, verdict tokens, `__all__` of either checker. No change to the non-conformance
 `get("type")` readers (`llm_subprocess.py`, `close_gate.py`, `claim_evidence.py`): those read Claude
-transcript blocks, a different format.
+transcript blocks, a different format. No change to `conformance/oracle.py` (`find_last_freeze`,
+`last_phase_artifacts`, `has_sentinel_resume`, `:309,323,338`): it reads only events the engine
+itself wrote through `EventLog.append` (`spec_frozen`, `phase_artifacts`, `phase_sentinel_resumed`),
+never the harness shape, so `event_type` alone is correct there and routing it through the
+two-shape resolver would widen what it accepts (gate r1 MAJOR 1).
 
 ## §3 Acceptance criteria (test file `engine_py/tests/test_bd155_l2_event_type_key.py`)
 
@@ -75,14 +80,19 @@ parsing the file's JSONL lines (no hand-built production-shape dicts).
 - **AC6 (precedence, both checkers).** `{"event_type": "some_other_event", "type": "red_test_outcome",
   "payload": <R2.1-violating>}` → bd_l2 R2.1 `not-checked`. `{"event_type": "some_other_event",
   "type": attest.EVENT_TYPE, "payload": the R3.3-violating payload of `test_bd141_p4_bd_l3_cli._payload("sonnet","haiku")`, rebuilt inline}`
-  → bd_l3 `violations == ()`. Resolver unit cases: `event_type` non-empty str wins over `type`;
+  → bd_l3 `violations == ()`. Positive control (gate r1 MINOR 5): the same payload under
+  `{"event_type": attest.EVENT_TYPE, "type": "some_other_event"}` → bd_l3 `verdict:R3.3 == "failed"`. Resolver unit cases: `event_type` non-empty str wins over `type`;
   `event_type` absent / `""` / `None` / `5` → returns `type`; neither key → `None`.
 - **AC7 (single chokepoint).** AST scan of `bd_l2.py` and `bd_l3.py`: no `Call` whose func is an
   attribute `get` with first argument the string constant `"type"` or `"event_type"`, and no
   `Subscript` with either string as its slice. Both modules bind a name to
   `_event_type.event_type_of` (`bd_l2._event_type_of is _event_type.event_type_of`, same for bd_l3).
-  Turns red if either checker re-inlines its own key read.
-- **AC8 (surfaces unchanged).** `set(bd_l2.__all__) == {"REQUIREMENTS","AWAITING_PRODUCER","ENFORCEMENT","check_bd_l2","validate_report"}`; bd_l3 per
+  Turns red if either checker re-inlines its own key read. Plus (gate r1 MINOR 3): the AST of
+  `check_bd_l2` and of `check_bd_l3` each contains a `Call` whose func is the `Name` `_event_type_of`.
+  Residual, accepted: an indirection (e.g. `getattr(event, "get")("type")`) is not caught by AST;
+  AC1–AC6 still catch any behaviour it produces.
+- **AC8 (surfaces unchanged).** The import-delta subprocess runs with `PYTHONSAFEPATH` removed from
+  its env and `ENGINE_PY` inserted at `sys.path[0]` by the child code itself (gate r1 MINOR 4). `set(bd_l2.__all__) == {"REQUIREMENTS","AWAITING_PRODUCER","ENFORCEMENT","check_bd_l2","validate_report"}`; bd_l3 per
   `test_bd141_p4_bd_l3_cli::test_ac9`; public names of each equal its `__all__`. Importing
   `conformance._event_type` in a fresh interpreter adds no module outside `sys.modules` baseline
   other than itself and `bytedigger_engine`/`bytedigger_engine.conformance`.
