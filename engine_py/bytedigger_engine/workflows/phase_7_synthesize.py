@@ -73,12 +73,13 @@ from bytedigger_engine import telemetry_ctx
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_producer_prompt_fragment as _get_producer_anti_fab_prompt,
     get_out_of_role_block as _get_out_of_role_block,
+    PRODUCER_PROMPT_FRAGMENT_SOURCE_ID as _PRODUCER_PROMPT_FRAGMENT_SOURCE_ID,
 )
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402
 from bytedigger_engine.lib.model_config import get_claude_fallback  # noqa: E402
 from bytedigger_engine.lib.plugins.disk_truth import git_diff_files, resolve_pre_phase_sha, parse_structured_block, enforce, SynthesizerVerdict, SchemaViolation  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
-from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record  # noqa: E402  bd#119  bd#141
+from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _injected_blocks_record, _role_template, _role_template_record  # noqa: E402  bd#119  bd#141  bd#150
 from bytedigger_engine.lib.worktree_root import resolve_worktree_root as _resolve_worktree_root  # noqa: E402
 from bytedigger_engine.config_provider import timeout_policy_path  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
@@ -501,6 +502,7 @@ def _build_synthesizer_prompt(ctx, _prev) -> StepResult:
         "no code was produced; an empty working diff is NOT evidence the build halted."
     )
     parts.append("")
+    _f2_text = _get_producer_anti_fab_prompt()  # bd#150 F2: one read, inlined and declared below
     parts.append(
         "OUTPUT — your response IS the file content of\n"
         "post-deploy/post-deploy-report.md. Start your response DIRECTLY with\n"
@@ -534,17 +536,21 @@ def _build_synthesizer_prompt(ctx, _prev) -> StepResult:
         "   Concerns must trace to evidence in review/fix/satisfaction docs —\n"
         "   do NOT invent a concern, do NOT swallow a real one.>\n"
         "\n"
-        + _get_producer_anti_fab_prompt()
+        + _f2_text
         + "\n"
         + _SYNTHESIZER_STABLE_PREFIX
     )
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
+    _declared_blocks: list[dict] = []
+    if _f2_text:
+        _declared_blocks.append({"source_id": _PRODUCER_PROMPT_FRAGMENT_SOURCE_ID, "content": _f2_text})
     return StepResult(
         status="ok",
         data={
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _declared_blocks),  # bd#150
             "doc_path": str(report_path),
             "spec_path": str(spec_path),
             "review_doc_path": str(review_doc),

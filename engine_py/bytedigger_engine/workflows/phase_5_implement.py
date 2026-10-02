@@ -133,6 +133,8 @@ from bytedigger_engine.lib import red_write_boundary  # noqa: E402  GH1179 6B282
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
     get_producer_prompt_fragment as _get_producer_anti_fab_prompt,
+    PROMPT_FRAGMENT_SOURCE_ID as _PROMPT_FRAGMENT_SOURCE_ID,
+    PRODUCER_PROMPT_FRAGMENT_SOURCE_ID as _PRODUCER_PROMPT_FRAGMENT_SOURCE_ID,
     get_behavioral_assertion_rubric as _get_behavioral_rubric,
     get_out_of_role_block as _get_out_of_role_block,
     verify_validation_doc as _verify_validation_doc_impl,
@@ -175,9 +177,9 @@ from bytedigger_engine.lib import step_sentinel as _step_sentinel  # noqa: E402 
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 def _default_red_model() -> str:
     return get_claude_primary()
@@ -981,12 +983,18 @@ def _derive_green_paths_from_git(git_cwd: str) -> list[str]:
     return sorted(final)
 
 
-def _get_security_fragment(cfg: dict) -> str:
-    """SECBUILD Child 1c (gh-340): static secure-codegen fragment for RED/GREEN
+def _security_fragment_block(cfg: dict) -> dict:
+    """bd#150 F3: {"source_id": str(path read), "content": text} from ONE read.
+
+    SECBUILD Child 1c (gh-340): static secure-codegen fragment for RED/GREEN
     prompts. Path overridable via org_config['security_fragment_path'] (B2 OSS
     seam). Raises FileNotFoundError — callers fail CLOSED (E_SEC_FRAGMENT_MISSING)."""
     path = Path(cfg.get("security_fragment_path") or default_security_asset("secure-codegen-fragment.md", Path(__file__).parents[3] / "security" / "secure-codegen-fragment.md"))
-    return path.read_text(encoding="utf-8")
+    return {"source_id": str(path), "content": path.read_text(encoding="utf-8")}
+
+
+def _get_security_fragment(cfg: dict) -> str:
+    return str(_security_fragment_block(cfg)["content"])
 
 
 _RE_1P_WANTS = re.compile(r"\.sh\b")
@@ -1314,6 +1322,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
                 "cycle": cycle,
                 "delta_retry": True,
                 "role_template": None,  # bd#141 4(d): delta prompt carries no role
+                "injected_blocks": None,  # bd#150: delta prompt inlines no declared file
                 "sentinel_input": prompt + "\0" + _content_digest,
             },
             duration_ms=0,
@@ -1413,10 +1422,12 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         f"{RED_SIBLING_MOCK_RULE}"
         f"{RED_COLLECTABILITY_RULE}"
     )
-    parts.append(_get_producer_anti_fab_prompt())
+    _f2_text = _get_producer_anti_fab_prompt()  # bd#150 F2
+    parts.append(_f2_text)
     cfg = ctx.org_config or {}
     try:
-        parts.append(_get_security_fragment(cfg))
+        _f3_block = _security_fragment_block(cfg)  # bd#150 F3
+        parts.append(_f3_block["content"])
     except FileNotFoundError as e:
         return StepResult(
             status="error", data=None, duration_ms=0,
@@ -1443,6 +1454,11 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     _content_digest = _verdict_content_digest(
         [str(spec_path), str(scratchpad / VALIDATION_DOC_RELPATH)]
     )
+    _declared_blocks: list[dict] = []  # bd#150 F2, F3 (prompt order)
+    if _f2_text:
+        _declared_blocks.append({"source_id": _PRODUCER_PROMPT_FRAGMENT_SOURCE_ID, "content": _f2_text})
+    if _f3_block["content"]:
+        _declared_blocks.append(_f3_block)
     return StepResult(
         status="ok",
         data={
@@ -1454,6 +1470,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
             "cycle": cycle,
             "stable_prefix": _RED_STABLE_PREFIX,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _declared_blocks),  # bd#150
             "sentinel_input": prompt + "\0" + _content_digest,
         },
         duration_ms=0,
@@ -6570,7 +6587,8 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
         "Use grep/Read ONLY when graphify query returns no relevant node OR the staleness\n"
         "gate is dirty (graph.json missing or stale).\n"
     )
-    parts.append(_get_anti_fab_prompt())
+    _f1_text = _get_anti_fab_prompt()  # bd#150 F1
+    parts.append(_f1_text)
     red_test_paths: list[str] = prev.data.get("red_test_paths", [])
     red_paths_bullet_list = "\n".join(f"  - {p}" for p in red_test_paths) if red_test_paths else "  (none reported)"
     parts.append(
@@ -6598,11 +6616,15 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
     _content_digest = _verdict_content_digest([*red_test_paths, str(spec_path)])
+    _declared_blocks: list[dict] = (  # bd#150 F1
+        [{"source_id": _PROMPT_FRAGMENT_SOURCE_ID, "content": _f1_text}] if _f1_text else []
+    )
     return StepResult(
         status="ok",
         data={
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _declared_blocks),  # bd#150 F1
             "doc_path": str(validation_doc_path),
             "spec_path": str(spec_path),
             "red_log_path": str(red_log),
@@ -7433,10 +7455,12 @@ def _build_green_prompt(ctx, prev) -> StepResult:
             "    wrong signatures, and bad imports block the build.\n"
         )
         parts.append(_GREEN_STRICT_RAMP_BLOCK)
-    parts.append(_get_producer_anti_fab_prompt())
+    _f2_text = _get_producer_anti_fab_prompt()  # bd#150 F2
+    parts.append(_f2_text)
     cfg = ctx.org_config or {}
     try:
-        parts.append(_get_security_fragment(cfg))
+        _f3_block = _security_fragment_block(cfg)  # bd#150 F3
+        parts.append(_f3_block["content"])
     except FileNotFoundError as e:
         return StepResult(
             status="error", data=None, duration_ms=0,
@@ -7561,11 +7585,17 @@ def _build_green_prompt(ctx, prev) -> StepResult:
         green_log_path.write_text(prompt, encoding="utf-8")
     except Exception as exc:
         logger.warning("_build_green_prompt: could not write prompt to log: %s", exc)
+    _declared_blocks: list[dict] = []  # bd#150 F2, F3 (prompt order)
+    if _f2_text:
+        _declared_blocks.append({"source_id": _PRODUCER_PROMPT_FRAGMENT_SOURCE_ID, "content": _f2_text})
+    if _f3_block["content"]:
+        _declared_blocks.append(_f3_block)
     return StepResult(
         status="ok",
         data={
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _declared_blocks),  # bd#150
             "log_path": str(green_log_path),
             "green_prompt_path": str(green_log_path),
             "spec_path": str(spec_path),
@@ -7681,6 +7711,8 @@ def _invoke_green_llm(ctx, prev) -> StepResult:
             "prompt": prev.data["prompt"],
             # bd#141 4(d): the retry re-sends this prompt, so it declares the same block.
             "role_template": prev.data.get("role_template"),
+            # bd#150 §1ab: the retry re-sends this prompt, so it declares the same blocks.
+            "injected_blocks": prev.data.get("injected_blocks"),
             # 4C0056FA: carry red_commit_sha through to write_green_artifact.
             "red_commit_sha": prev.data.get("red_commit_sha"),
             "red_test_paths": prev.data.get("red_test_paths", []),
@@ -7777,6 +7809,7 @@ def _write_green_artifact(ctx, prev) -> StepResult:
                     "validation_doc_path": prev_data["validation_doc_path"],
                     "verdict": prev_data.get("verdict", ""),
                     "prompt": prev_data["prompt"],
+                    "injected_blocks": prev_data.get("injected_blocks"),  # bd#150 §1ab
                     # 4C0056FA: carry red_commit_sha in case retry error propagates.
                     "red_commit_sha": prev_data.get("red_commit_sha"),
                     "red_test_paths": prev_data.get("red_test_paths", []),

@@ -48,14 +48,34 @@ VERDICT_PARTIAL = "PARTIAL"
 VERDICT_FAIL = "FAIL"
 
 
+PROMPT_FRAGMENT_SOURCE_ID = "bytedigger_engine/lib/plugins/anti_hallucination/prompt_fragment.md"
+PRODUCER_PROMPT_FRAGMENT_SOURCE_ID = "bytedigger_engine/lib/plugins/anti_hallucination/producer_prompt_fragment.md"
+
+
+def get_prompt_fragment_block() -> dict:
+    """bd#150 (R3.2): the EVALUATOR fragment with its stable package-relative source_id, from one read."""
+    return {
+        "source_id": PROMPT_FRAGMENT_SOURCE_ID,
+        "content": (_PLUGIN_DIR / "prompt_fragment.md").read_text(encoding="utf-8"),
+    }
+
+
+def get_producer_prompt_fragment_block() -> dict:
+    """bd#150 (R3.2): the PRODUCER fragment with its stable package-relative source_id, from one read."""
+    return {
+        "source_id": PRODUCER_PROMPT_FRAGMENT_SOURCE_ID,
+        "content": (_PLUGIN_DIR / "producer_prompt_fragment.md").read_text(encoding="utf-8"),
+    }
+
+
 def get_prompt_fragment() -> str:
     """Read and return the EVALUATOR (reviewer) anti-fabrication prompt fragment."""
-    return (_PLUGIN_DIR / "prompt_fragment.md").read_text(encoding="utf-8")
+    return get_prompt_fragment_block()["content"]
 
 
 def get_producer_prompt_fragment() -> str:
     """Read and return the PRODUCER anti-fabrication prompt fragment."""
-    return (_PLUGIN_DIR / "producer_prompt_fragment.md").read_text(encoding="utf-8")
+    return get_producer_prompt_fragment_block()["content"]
 
 
 _BEHAVIORAL_ASSERTION_RUBRIC = """\

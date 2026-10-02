@@ -368,7 +368,7 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   | Key | Value | Why |
   |---|---|---|
   | `R3.1` | `host-attested-within-run-context` | `[bd10:25]` two narrowings, not one — see below |
-  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)); bd#147 drew the class I/E/P/M boundary (§4) and declared three more class-I segments (decision doc, inlined test files, directed-repair artifact); the standards context (#151), scratchpad round-trips (#150) and class-M output attestation (#152) are follow-ups |
+  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)); bd#147 drew the class I/E/P/M boundary (§4) and declared three more class-I segments (decision doc, inlined test files, directed-repair artifact); the call-site inventory (bd#150) declares the rest of the class-I sites; the test-run output tails (bd#192) and class-M output attestation (#152) are follow-ups |
   | `R3.3` | `in-session-warn-only` | `[bd10:2]` — enforced at the chokepoint for reporting adapters; the in-session path still warns (bd#29) |
   | `R3.5` | `adapter-declared` | `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a mechanism outside the actor's reach |
   | `R3.6` | `tool-head-only` | AC-C6 — the operand never leaves the adapter |
@@ -474,13 +474,14 @@ The rule is structural. It asks what unit of read bytes is inlined, not whether 
   time and inlined as one unit. It does not matter who wrote the file: an operator's file, a repo
   file a model edited, and a scratchpad file a model wrote earlier in the run are all class I.
   - **Declared:** the role template; the `phase_45_spec` decision doc; the fix worker's inlined
-    in-scope test files; the directed-repair artifact.
+    in-scope test files; the directed-repair artifact; the anti-fabrication, producer and security
+    fragments; the `spec.md` and prior-ship base inlined by the spec prompts; the post-fix pytest
+    report in the review prompt.
   - **Not yet declared:**
-    - the standards context (#151);
-    - scratchpad round-trips (#150): `spec.md` re-inlined by the surgical, delta and
-      restricted-writer prompts, and the spec_lite review doc and spec.
-  - Any class-I segment the bd#147 survey did not reach falls under the inventory in #150. The
-    survey is not exhaustive; its scope and method are stated in the decision doc §1.3. No class-I
+    - the GREEN test-run stdout tail and the RED collect-probe tail, bd#192 (inventory keys
+      `_verify_green_passing::_read_text_or_empty#0` and `_red_collect_probe::bounded_run#0`).
+  - Any class-I segment the survey did not reach falls under the inventory in
+    `conformance/class_i_inventory.json`, enforced by `conformance/class_i_lint.py`. No class-I
     segment is exempt.
 - **Class E, engine-authored (R3.1).** Text the engine composes under its own schema by extracting
   named fields, tokens, rows or lines and re-rendering them.
@@ -528,11 +529,9 @@ while `data["prompt"]` still hashes to the recorded `prompt_sha256`. A record fo
   A site that alters the prompt after its builder must re-bind or declare nothing extra.
 
 **Deferred class-I segments:**
-- **The standards context (#151).** Its bytes come from a host shim that chooses its own sources, so a
-  correct `source_id` needs the shim to report them. That is a host-side contract.
-- **Scratchpad round-trips, and anything else an exhaustive inventory of `workflows/` and `lib/`
-  finds (#150).** These are the same status the role template had before bd#141 4(d): undeclared, and
-  covered only by R3.1.
+- **The two test-run output tails (bd#192).** The GREEN test-run stdout tail and the RED
+  collect-probe tail are the only inventoried class-I sites still undeclared. They have the same
+  status the role template had before bd#141 4(d): covered only by R3.1.
 
 - **AC-I1** `assemble(prompt, blocks)` returns `prompt` followed by each block's `content` in list
   order, each separated by exactly `"\n\n"`. Pinned rather than described, because an unpinned

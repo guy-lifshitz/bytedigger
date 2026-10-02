@@ -608,18 +608,32 @@ def test_ac7_forwarded_stale_record_dispatches_ok_through_chokepoint(tmp_path) -
     p6 = _mod("phase_6_review")
     fix_built = _fix_built(env)
     record = fix_built.data.get("injected_blocks")
-    assert isinstance(record, dict) and len(record.get("blocks") or ()) == 2, (
+    assert isinstance(record, dict), (
         f"precondition: the fix builder must produce an injected_blocks record; got {record!r}")
+    # bd#150 AC13b: test-file blocks (2) are counted apart from the spec 2.1 fragment blocks
+    # each site declares. Fix site: no F1/F2/F3 block (spec 2.1); decorr site: none either.
+    fix_site_fragments: list = []
+    decorr_site_fragments: list = []
+    test_file_ids = {_SMALL_REL, _BIG_REL}
+    test_blocks = [b for b in record.get("blocks") or () if b["source_id"] in test_file_ids]
+    fragment_blocks = [b for b in record.get("blocks") or () if b["source_id"] not in test_file_ids]
+    assert len(test_blocks) == 2, f"precondition: expected the 2 in-scope test-file blocks; got {record!r}"
+    assert [b["source_id"] for b in fragment_blocks] == fix_site_fragments, (
+        f"the fix site declares exactly its spec 2.1 fragment set; got {fragment_blocks!r}")
     # A real later builder that spreads prev.data into its own data and replaces the prompt.
     later = p6._build_decorr_prompt(env.ctx(complexity="FEATURE"), fix_built)
     assert later.status == "ok" and not later.data.get("decorr_skipped"), "fixture precondition: decorr builder"
-    assert later.data.get("injected_blocks") == record, "fixture precondition: the stale record is forwarded"
+    assert later.data.get("injected_blocks") is None, "the stale fix-builder record must not leak into the decorr data"
     assert later.data["prompt"] != fix_built.data["prompt"]
     result, adapter, log = _through_chokepoint(p6._invoke_decorr_llm, env.ctx(), later, "invoke_decorr_llm")
     assert result.status == "ok" and "decorr_error" not in result.data, (
         f"the later dispatch must not be refused: {result.data.get('decorr_error')!r}")
     assert len(adapter.calls) == 1
-    assert log.attests()[0]["injections"] == [], "the later prompt contains no test files: nothing to declare"
+    later_declared = log.attests()[0]["injections"]
+    assert not [d for d in later_declared if d["source_id"] in test_file_ids], (
+        "the later prompt contains no test files: no test-file block may be declared")
+    assert [d["source_id"] for d in later_declared] == decorr_site_fragments, (
+        f"only the decorr site's spec 2.1 fragment blocks remain; got {later_declared!r}")
 
 
 def test_ac7_injected_blocks_record_helper() -> None:
