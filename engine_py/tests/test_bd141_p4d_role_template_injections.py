@@ -699,28 +699,69 @@ def _d_satisfaction_complex(env):
 _SHIP = "## Verdict\n\nSHIP\n"
 _REVISE = "## Verdict\n\nREVISE\n"
 
-# case -> (build, module, invoke step, ctx extras, spy raw, min calls, stub ensure_graph)
+# bd#150 AC13a: the fragment blocks (spec 2.1) each call site declares besides the role template.
+# F1 = evaluator fragment, F2 = producer fragment, F3 = secure-codegen fragment.
+_F1, _F2, _F3 = "F1", "F2", "F3"
+
+
+def _real_fragment_files() -> dict:
+    """key -> (expected source_id or None when it is the resolved default path, real file)."""
+    pkg = _workflows_dir().parent
+    ah = pkg / "lib" / "plugins" / "anti_hallucination"
+    return {
+        _F1: ("bytedigger_engine/lib/plugins/anti_hallucination/prompt_fragment.md",
+              ah / "prompt_fragment.md"),
+        _F2: ("bytedigger_engine/lib/plugins/anti_hallucination/producer_prompt_fragment.md",
+              ah / "producer_prompt_fragment.md"),
+        _F3: (None, pkg / "security" / "secure-codegen-fragment.md"),
+    }
+
+
+def _assert_declares_role_plus_fragments(declared: tuple, source_id: str, frag_keys: tuple, what: str) -> None:
+    """Exactly one role template (first), then exactly the named fragment blocks in order,
+    each matched by source_id and by sha256 of the real fragment file. Nothing else."""
+    declared = tuple(declared)
+    assert len(declared) == 1 + len(frag_keys), (
+        f"{what}: expected role template + {list(frag_keys)}, declared={declared!r}")
+    assert declared[0] == InjectedBlock(source_id=source_id, content=ROLE_CONTENT), (
+        f"{what}: first declared block must be the role template, got {declared[0]!r}")
+    assert sum(1 for b in declared if b.source_id == source_id) == 1, (
+        f"{what}: role template must be declared exactly once")
+    files = _real_fragment_files()
+    for blk, key in zip(declared[1:], frag_keys):
+        want_id, real = files[key]
+        real_text = real.read_text(encoding="utf-8")
+        if want_id is None:
+            assert Path(blk.source_id).name == real.name, f"{what}: {key} source_id {blk.source_id!r}"
+        else:
+            assert blk.source_id == want_id, f"{what}: {key} source_id {blk.source_id!r} != {want_id!r}"
+        assert hashlib.sha256(blk.content.encode("utf-8")).hexdigest() == \
+            hashlib.sha256(real_text.encode("utf-8")).hexdigest(), (
+            f"{what}: {key} content is not the real fragment file {real}")
+
+
+# case -> (build, module, invoke step, ctx extras, spy raw, min calls, stub ensure_graph, fragments declared)
 _MATRIX = {
-    "phase_45_spec:1357": (_d_spec_writer, "phase_45_spec", "_invoke_spec_llm", {}, "x", 1, False),
-    "phase_45_spec:4201": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _SHIP, 1, False),
-    "phase_45_spec:4150-repoll": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _REVISE, 2, False),
-    "phase_5_implement:1553": (_d_red, "phase_5_implement", "_invoke_red_llm", {}, "x", 1, False),
-    "phase_5_implement:6664": (_d_validation, "phase_5_implement", "_invoke_validation_llm", {}, "x", 1, False),
-    "phase_5_implement:7556": (_d_green, "phase_5_implement", "_invoke_green_llm", {}, "x", 1, False),
-    "phase_5_integrity:424": (_d_integrity, "phase_5_integrity", "_invoke_integrity_llm", {}, "x", 1, False),
-    "phase_6_review:1119": (_d_review, "phase_6_review", "_invoke_review_llm", {}, "x", 1, False),
-    "phase_6_review:2550": (_d_fix, "phase_6_review", "_invoke_fix_llm", {}, "x", 1, False),
-    "phase_6_review:3249": (_d_satisfaction, "phase_6_review", "_invoke_satisfaction_llm", {}, "x", 1, False),
-    "phase_6_review:3044-pool": (_d_satisfaction_complex, "phase_6_review", "_invoke_satisfaction_llm", {"complexity": "COMPLEX"}, "x", 3, False),
-    "phase_6_review:5514": (_d_decorr, "phase_6_review", "_invoke_decorr_llm", {}, "x", 1, False),
-    "phase_6_fix_integrity:600": (_d_fix_integrity, "phase_6_fix_integrity", "_invoke_fix_integrity_llm", {}, "x", 1, False),
-    "phase_7_synthesize:576": (_d_synthesizer, "phase_7_synthesize", "_invoke_synthesizer_llm", {}, "x", 1, False),
+    "phase_45_spec:1357": (_d_spec_writer, "phase_45_spec", "_invoke_spec_llm", {}, "x", 1, False, ()),
+    "phase_45_spec:4201": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _SHIP, 1, False, (_F1,)),
+    "phase_45_spec:4150-repoll": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _REVISE, 2, False, (_F1,)),
+    "phase_5_implement:1553": (_d_red, "phase_5_implement", "_invoke_red_llm", {}, "x", 1, False, (_F2, _F3)),
+    "phase_5_implement:6664": (_d_validation, "phase_5_implement", "_invoke_validation_llm", {}, "x", 1, False, (_F1,)),
+    "phase_5_implement:7556": (_d_green, "phase_5_implement", "_invoke_green_llm", {}, "x", 1, False, (_F2, _F3)),
+    "phase_5_integrity:424": (_d_integrity, "phase_5_integrity", "_invoke_integrity_llm", {}, "x", 1, False, (_F1,)),
+    "phase_6_review:1119": (_d_review, "phase_6_review", "_invoke_review_llm", {}, "x", 1, False, (_F1,)),
+    "phase_6_review:2550": (_d_fix, "phase_6_review", "_invoke_fix_llm", {}, "x", 1, False, ()),
+    "phase_6_review:3249": (_d_satisfaction, "phase_6_review", "_invoke_satisfaction_llm", {}, "x", 1, False, (_F1,)),
+    "phase_6_review:3044-pool": (_d_satisfaction_complex, "phase_6_review", "_invoke_satisfaction_llm", {"complexity": "COMPLEX"}, "x", 3, False, (_F1,)),
+    "phase_6_review:5514": (_d_decorr, "phase_6_review", "_invoke_decorr_llm", {}, "x", 1, False, ()),
+    "phase_6_fix_integrity:600": (_d_fix_integrity, "phase_6_fix_integrity", "_invoke_fix_integrity_llm", {}, "x", 1, False, (_F1,)),
+    "phase_7_synthesize:576": (_d_synthesizer, "phase_7_synthesize", "_invoke_synthesizer_llm", {}, "x", 1, False, (_F2,)),
 }
 
 
 @pytest.mark.parametrize("case", sorted(_MATRIX))
 def test_ac5b_dispatch_declares_role_template_behaviourally(case, tmp_path, monkeypatch) -> None:
-    build, modname, invoke_name, ctx_extra, raw, min_calls, stub_graph = _MATRIX[case]
+    build, modname, invoke_name, ctx_extra, raw, min_calls, stub_graph, frag_keys = _MATRIX[case]
     role_path, source_id = _make_role_file(tmp_path)
     env = _Env(tmp_path / "run", role_path)
     built = build(env)
@@ -734,12 +775,9 @@ def test_ac5b_dispatch_declares_role_template_behaviourally(case, tmp_path, monk
     getattr(mod, invoke_name)(env.ctx(**ctx_extra), built)
     assert len(spy.calls) >= min_calls, (
         f"{case}: expected >= {min_calls} dispatch(es), the invoke step made {len(spy.calls)}")
-    expected = (InjectedBlock(source_id=source_id, content=ROLE_CONTENT),)
     got = [tuple(c.get("injections") or ()) for c in spy.calls]
-    wrong = [i for i, g in enumerate(got) if g != expected]
-    assert not wrong, (
-        f"{case}: dispatch(es) {wrong} of {len(got)} did not declare exactly the role template; "
-        f"declared={got!r}")
+    for i, g in enumerate(got):
+        _assert_declares_role_plus_fragments(g, source_id, frag_keys, f"{case} dispatch {i}")
 
 
 # ---------------------------------------------------------------------------
@@ -806,12 +844,11 @@ def _two_call_spy(calls: list):
     return spy
 
 
-def _assert_retry_matches(calls: list, source_id: str, what: str) -> None:
+def _assert_retry_matches(calls: list, source_id: str, what: str, frag_keys: tuple = ()) -> None:
     assert len(calls) == 2, f"fixture precondition ({what}): expected first dispatch + retry, got {len(calls)}"
-    expected = (InjectedBlock(source_id=source_id, content=ROLE_CONTENT),)
     first = tuple(calls[0].get("injections") or ())
     retry = tuple(calls[1].get("injections") or ())
-    assert first == expected, f"{what}: first dispatch must declare the role template, got {first!r}"
+    _assert_declares_role_plus_fragments(first, source_id, frag_keys, f"{what} first dispatch")
     assert retry == first, f"{what}: the retry must declare exactly what its first attempt did, got {retry!r}"
 
 
@@ -829,7 +866,7 @@ def test_ac8_green_retry_declares_same_injections(tmp_path, monkeypatch) -> None
     first = p5._invoke_green_llm(ctx, built)
     assert first.status == "ok"
     p5._write_green_artifact(ctx, first)
-    _assert_retry_matches(calls, source_id, "GREEN retry")
+    _assert_retry_matches(calls, source_id, "GREEN retry", (_F2, _F3))
 
 
 def test_ac8_fix_retry_declares_same_injections(tmp_path, monkeypatch) -> None:
