@@ -1,0 +1,13 @@
+# phase-deliverables.tsv -- soft per-phase deliverable checks, read by build-gate.sh and build-phase-gate.ts.
+# Columns are TAB-separated: phase, kind, arg, [arg2]. Kinds: field_eq (field, expected), field_set (field),
+# log_red (file), scratch_file (path under scratchpad_dir). Rows are evaluated in file order.
+4.5	field_eq	plan_review	pass
+5	field_eq	plan_review	pass
+5	field_eq	phase_5_implement	complete
+5	field_eq	opus_validation	pass
+5.1	log_red	build-red-output.log
+5.2	field_eq	opus_validation	pass
+5.2	field_eq	phase_52a_gherkin	complete
+5.5	field_set	test_integrity_check
+7	field_eq	review_complete	pass
+7	scratch_file	reviews/learnings-raw.md

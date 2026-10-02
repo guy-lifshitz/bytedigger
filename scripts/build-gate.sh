@@ -162,29 +162,6 @@ PYEOF
 # Section 4: Helpers
 # ---------------------------------------------------------------------------
 
-yaml_field_equals() {
-  local field="$1"
-  local expected="$2"
-  local value
-  value=$(grep "^${field}:" "$BUILD_STATE" | sed "s/^${field}:[[:space:]]*//" | tr -d '"' | tr -d "'" | tr -d ' ')
-  if [ "$value" != "$expected" ]; then
-    MISSING_FIELDS+=("${field}=${expected} (got: ${value:-<missing>})")
-    return 1
-  fi
-  return 0
-}
-
-yaml_key_has_value() {
-  local field="$1"
-  local value
-  value=$(grep "^${field}:" "$BUILD_STATE" | sed "s/^${field}:[[:space:]]*//" | tr -d '"' | tr -d "'" | tr -d ' ')
-  if [ -z "$value" ]; then
-    MISSING_FIELDS+=("${field} has no value")
-    return 1
-  fi
-  return 0
-}
-
 get_complexity() {
   echo "$COMPLEXITY"
 }
@@ -210,23 +187,119 @@ yaml_get() {
   printf '%s' "$val"
 }
 
-gate_phase_45() {
-  yaml_field_equals "plan_review" "pass" || true
-}
-
-gate_phase_51() {
-  if [ ! -s "$CWD/build-red-output.log" ]; then
-    MISSING_FIELDS+=("missing artifact: build-red-output.log")
-    return
+# check_deliverables <phase> — soft deliverable checks driven by phase-deliverables.tsv
+# (bd#136), which sits next to this script. The whole table is validated on every
+# load: validation entries first (physical line order), then the failing rows of
+# <phase> in file order. Kinds: field_eq, field_set, log_red, scratch_file.
+# Pure bash 3.2: manual TAB split (consecutive TABs keep their empty field).
+check_deliverables() {
+  local phase="$1"
+  local table content
+  table="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/phase-deliverables.tsv"
+  if ! content=$(cat "$table" 2>/dev/null); then
+    MISSING_FIELDS+=("deliverable table unreadable: $table")
+    return 0
   fi
-  if ! grep -qE "FAIL|ERROR|FAILED|not ok" "$CWD/build-red-output.log" 2>/dev/null; then
-    MISSING_FIELDS+=("build-red-output.log contains no failures (tests must be RED)")
-  fi
-}
 
-gate_phase_52() {
-  yaml_field_equals "opus_validation" "pass" || true
-  yaml_field_equals "phase_52a_gherkin" "complete" || true
+  local line t rest kind want val nf i bad e
+  local n=0
+  local ws=$' \t\v\f\r'
+  local tab=$'\t' cr=$'\r'
+  local phase_re='^[0-9]+(\.[0-9]+)?$'
+  local fields row_list
+  fields=()
+  row_list=()
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    line="${line%$cr}"
+    t="${line#"${line%%[!$ws]*}"}"
+    case "$t" in
+      ""|"#"*) continue ;;
+    esac
+
+    fields=()
+    rest="$line"
+    while :; do
+      case "$rest" in
+        *"$tab"*)
+          fields+=("${rest%%$tab*}")
+          rest="${rest#*$tab}"
+          ;;
+        *)
+          fields+=("$rest")
+          break
+          ;;
+      esac
+    done
+    nf="${#fields[@]}"
+
+    # 1. fewer than 2 fields, an empty field or a bad phase -> malformed row
+    bad=0
+    [ "$nf" -lt 2 ] && bad=1
+    i=0
+    while [ "$i" -lt "$nf" ]; do
+      if [ -z "${fields[$i]}" ]; then bad=1; fi
+      i=$((i + 1))
+    done
+    if ! [[ "${fields[0]}" =~ $phase_re ]]; then bad=1; fi
+    if [ "$bad" -eq 1 ]; then
+      MISSING_FIELDS+=("deliverable table: malformed row (line $n)")
+      continue
+    fi
+
+    # 2. unknown kind
+    kind="${fields[1]}"
+    case "$kind" in
+      field_eq) want=4 ;;
+      field_set|log_red|scratch_file) want=3 ;;
+      *)
+        MISSING_FIELDS+=("deliverable table: unknown kind '$kind' (line $n)")
+        continue
+        ;;
+    esac
+
+    # 3. wrong arity for the kind -> malformed row
+    if [ "$nf" -ne "$want" ]; then
+      MISSING_FIELDS+=("deliverable table: malformed row (line $n)")
+      continue
+    fi
+
+    [ "${fields[0]}" = "$phase" ] || continue
+
+    case "$kind" in
+      field_eq)
+        val=$(yaml_get "${fields[2]}")
+        if [ "$val" != "${fields[3]}" ]; then
+          row_list+=("${fields[2]}=${fields[3]} (got: ${val:-<missing>})")
+        fi
+        ;;
+      field_set)
+        val=$(yaml_get "${fields[2]}")
+        if [ -z "$val" ]; then
+          row_list+=("${fields[2]} has no value")
+        fi
+        ;;
+      log_red)
+        if [ ! -s "$CWD/${fields[2]}" ]; then
+          row_list+=("missing artifact: ${fields[2]}")
+        elif ! grep -qE "FAIL|ERROR|FAILED|not ok" "$CWD/${fields[2]}" 2>/dev/null; then
+          row_list+=("${fields[2]} contains no failures (tests must be RED)")
+        fi
+        ;;
+      scratch_file)
+        val=$(yaml_get "scratchpad_dir")
+        if [ -n "$val" ] && [ ! -s "$val/${fields[2]}" ]; then
+          row_list+=("missing deliverable: $val/${fields[2]}")
+        fi
+        ;;
+    esac
+  done <<< "$content"
+
+  for e in "${row_list[@]+"${row_list[@]}"}"; do
+    MISSING_FIELDS+=("$e")
+  done
+  return 0
 }
 
 gate_phase_53() {
@@ -237,18 +310,13 @@ gate_phase_53() {
 }
 
 gate_phase_55() {
+  # An absent key means "not detected" (yaml_get never fails).
   local gaming
-  gaming=$(grep "^assertion_gaming_detected:" "$BUILD_STATE" 2>/dev/null | sed 's/^assertion_gaming_detected:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+  gaming=$(yaml_get "assertion_gaming_detected")
   if [ "$gaming" = "true" ]; then
     hard_block "assertion_gaming_detected — tests were written to pass without real implementation"
   fi
-  yaml_key_has_value "test_integrity_check" || true
-}
-
-gate_phase_5() {
-  yaml_field_equals "plan_review" "pass" || true
-  yaml_field_equals "phase_5_implement" "complete" || true
-  yaml_field_equals "opus_validation" "pass" || true
+  check_deliverables "5.5"
 }
 
 gate_phase_6() {
@@ -285,7 +353,6 @@ gate_phase_6() {
 
 gate_phase_7() {
   [ "$COMPLEXITY" = "TRIVIAL" ] && return 0
-  yaml_field_equals "review_complete" "pass" || true
 
   # Soft learning validation: when backend != none, warn if learnings_extracted is missing.
   # This never hard-blocks — learning failures must never stop the pipeline.
@@ -300,14 +367,8 @@ gate_phase_7() {
     fi
   fi
 
-  # bd#127: synthesizer must have written reviews/learnings-raw.md (soft, best-effort nudge).
-  local scratchpad_dir=""
-  scratchpad_dir=$(yaml_get "scratchpad_dir")
-  if [ -n "$scratchpad_dir" ]; then
-    if [ ! -s "$scratchpad_dir/reviews/learnings-raw.md" ]; then
-      MISSING_FIELDS+=("missing deliverable: $scratchpad_dir/reviews/learnings-raw.md")
-    fi
-  fi
+  # Review result + bd#127 synthesizer deliverable come from the table (soft).
+  check_deliverables "7"
 }
 
 # ---------------------------------------------------------------------------
@@ -354,28 +415,54 @@ scan_semantic_skip() {
 # ---------------------------------------------------------------------------
 # Section 7: loop_prevention
 # ---------------------------------------------------------------------------
+# canon_phase <p> — alias map shared with the TS gate: 45 51 52 53 55 -> 4.5 5.1 5.2 5.3 5.5
+canon_phase() {
+  case "$1" in
+    45) printf '%s' "4.5" ;;
+    51) printf '%s' "5.1" ;;
+    52) printf '%s' "5.2" ;;
+    53) printf '%s' "5.3" ;;
+    55) printf '%s' "5.5" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# Per-phase counter (bd#136): C1 no stored phase -> count+1; C2 same phase -> count+1;
+# C3 different phase -> 1; C4 missing / non-numeric counter -> 0.
 loop_prevention() {
-  local phase="$1"
+  local phase
+  phase="$(canon_phase "$1")"
 
-  # Read gate_block_counter from build-state.yaml
-  local count
-  count=$(grep "^gate_block_counter:" "$BUILD_STATE" 2>/dev/null | sed 's/^gate_block_counter:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
-  count="${count:-0}"
+  local count stored_phase
+  count=$(yaml_get "gate_block_counter")
+  if ! [[ "$count" =~ ^[0-9]+$ ]]; then count=0; fi
+  stored_phase=$(canon_phase "$(yaml_get "gate_block_phase")")
 
-  # Increment counter
-  local new_count=$((count + 1))
-
-  # Update counter in build-state.yaml
-  if grep -q "^gate_block_counter:" "$BUILD_STATE" 2>/dev/null; then
-    # Replace existing
-    local tmp_file="${BUILD_STATE}.tmp"
-    grep -v "^gate_block_counter:" "$BUILD_STATE" > "$tmp_file" && mv "$tmp_file" "$BUILD_STATE"
+  local new_count
+  if [ -n "$stored_phase" ] && [ "$stored_phase" != "$phase" ]; then
+    new_count=1
+  else
+    new_count=$((10#$count + 1))
   fi
-  echo "gate_block_counter: $new_count" >> "$BUILD_STATE"
+
+  # One atomic rewrite (unique temp name, then rename). Best-effort: the verdict is
+  # emitted even when the state file cannot be written.
+  local tmp_file="${BUILD_STATE}.$$.${RANDOM}${RANDOM}.tmp"
+  if ! {
+    grep -v -e '^gate_block_counter:' -e '^gate_block_phase:' \
+            -e '^gate_bypass:' -e '^gate_bypass_phase:' "$BUILD_STATE" 2>/dev/null || true
+    echo "gate_block_counter: $new_count"
+    echo "gate_block_phase: $phase"
+    if [ "$new_count" -gt 3 ]; then
+      echo "gate_bypass: true"
+      echo "gate_bypass_phase: $phase"
+    fi
+  } > "$tmp_file" || ! mv "$tmp_file" "$BUILD_STATE"; then
+    echo "[gate] WARN: loop_prevention could not update $BUILD_STATE" >&2
+    rm -f "$tmp_file" 2>/dev/null || true
+  fi
 
   if [ "$new_count" -gt 3 ]; then
-    echo "gate_bypass: true" >> "$BUILD_STATE"
-    echo "gate_bypass_phase: $phase" >> "$BUILD_STATE"
     return 0  # bypass
   fi
 
@@ -386,7 +473,10 @@ loop_prevention() {
 # Section 8: block / hard_block
 # ---------------------------------------------------------------------------
 block() {
-  echo "{\"decision\":\"block\",\"reason\":\"$1\"}"
+  # JSON-escape the reason: backslash first, then double quote.
+  local reason
+  reason=$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+  echo "{\"decision\":\"block\",\"reason\":\"$reason\"}"
   exit 2
 }
 
@@ -406,10 +496,7 @@ MISSING_FIELDS=()
 
 case "$CURRENT_PHASE" in
   0|1|2|3|4) exit 0 ;;  # 1-4 kept as pass-through: an in-flight build may still carry them
-  4.5) gate_phase_45 ;;
-  5)   gate_phase_5 ;;
-  5.1) gate_phase_51 ;;
-  5.2) gate_phase_52 ;;
+  4.5|5|5.1|5.2) check_deliverables "$CURRENT_PHASE" ;;
   5.3) gate_phase_53 ;;  # hard block handled inside
   5.5) gate_phase_55 ;;  # assertion gaming = hard block inside
   6)   gate_phase_6 ;;

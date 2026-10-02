@@ -323,22 +323,22 @@ cmd_extract() {
     [ -n "$fid" ] && forge_run_id="$fid"
   fi
 
-  # Use python3 for robust cross-platform parsing (bash regex unreliable on macOS 3.2)
-  local extracted_count
-  extracted_count=$(python3 - "$raw_md" "$storage_abs" "$forge_run_id" "$MAX_STORED" <<'PYEOF' 2>/dev/null || echo "0"
+  # Parse via the one shared parser (bd#136): scripts/learnings_parse.py. Its output is
+  # handed to the storage python below through a temp file; this script never re-parses.
+  local parser_script parsed_file
+  parser_script="$(_script_dir)/learnings_parse.py"
+  parsed_file=$(mktemp) || parsed_file=""
+  local extracted_count="0"
+  if [ -n "$parsed_file" ] && python3 "$parser_script" "$raw_md" > "$parsed_file" 2>/dev/null; then
+  # Storage only: tags, append, trim (bash regex unreliable on macOS 3.2, so python3)
+  extracted_count=$(python3 - "$parsed_file" "$storage_abs" "$forge_run_id" "$MAX_STORED" <<'PYEOF' 2>/dev/null || echo "0"
 import sys, re, os, datetime
 
-raw_md      = sys.argv[1]
+parsed_file  = sys.argv[1]
 storage_abs = sys.argv[2]
 forge_run_id = sys.argv[3]
 max_stored  = int(sys.argv[4])
 today       = datetime.date.today().isoformat()
-
-def sanitize_category(raw):
-    """Lowercase, replace non-alnum chars with dashes, strip leading/trailing dashes."""
-    s = raw.lower()
-    s = re.sub(r'[^a-z0-9]+', '-', s)
-    return s.strip('-')
 
 def generate_tags(lesson):
     """Extract lowercase words >3 chars from lesson, deduplicated, max 20."""
@@ -378,32 +378,17 @@ def trim_entries(file_path, max_stored):
     except Exception:
         pass
 
-# Pattern: "- [category] --- lesson" or "- [category] — lesson"
-pattern = re.compile(r'^-\s+\[([^\]]+)\]\s+(?:---?|—)\s+(.+)$')
-
 try:
-    with open(raw_md, 'r', errors='replace') as f:
-        lines = f.readlines()
+    with open(parsed_file, 'r', encoding='utf-8') as f:
+        lines = f.read().split('\n')
+    parse_errors = int(lines[0])
+    parsed = [l.split('\x1f', 1) for l in lines[1:] if l]
 except Exception:
     print(0)
     sys.exit(0)
 
 count = 0
-parse_errors = 0
-for line in lines:
-    stripped = line.strip()
-    if not stripped or stripped.startswith(('#', '```')):
-        continue  # blank / heading / code fence: not a parse error
-    m = pattern.match(stripped)
-    if not m:
-        parse_errors += 1
-        continue
-    raw_category = m.group(1)
-    lesson       = m.group(2).strip()
-    category = sanitize_category(raw_category)
-    if not category:
-        parse_errors += 1
-        continue
+for category, lesson in parsed:
     tags = generate_tags(lesson)
     cat_file = os.path.join(storage_abs, f"{category}.md")
     try:
@@ -425,6 +410,8 @@ for line in lines:
 print(count, parse_errors)
 PYEOF
   ) || extracted_count=0
+  fi
+  [ -n "$parsed_file" ] && rm -f "$parsed_file" 2>/dev/null
 
   # python prints "<count> <parse_errors>"; the `|| echo "0"` failure path is a bare "0"
   # (no second field) => parser failed, so learnings_parse_errors is not written.
