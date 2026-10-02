@@ -86,9 +86,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._standards_context import get_standards_context  # type: ignore[no-redef]
 try:
-    from .phase_workflows_common import _maybe_role_template
+    from .phase_workflows_common import _declared_injections, _role_template, _role_template_record
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # type: ignore[no-redef]
+    from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record  # type: ignore[no-redef]
 
 from bytedigger_engine import telemetry_ctx  # noqa: E402
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
@@ -1101,6 +1101,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
                     "prompt_bytes": len(prompt.encode("utf-8")),
                     "cycle": cycle,
                     "delta_retry": True,
+                    "role_template": None,  # bd#141 4(d): surgical prompt carries no role
                     "surgical_revise": True,
                     "surgical_base_spec": spec_text,
                     "structured_findings": structured_findings,
@@ -1130,6 +1131,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
                 "prompt_bytes": len(prompt.encode("utf-8")),
                 "cycle": cycle,
                 "delta_retry": True,
+                "role_template": None,  # bd#141 4(d): delta prompt carries no role
                 "high_binding_missing": high_binding_missing,
             }),
             duration_ms=0,
@@ -1150,7 +1152,8 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     if reroute:
         parts.append(_spec_defect_nudge_block(reroute))
         parts.append("")
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -1303,6 +1306,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             "prompt_bytes": len(prompt.encode("utf-8")),
             "cycle": cycle,
             "delta_retry": False,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "stable_prefix": _SPEC_STABLE_PREFIX,
             "high_binding_missing": high_binding_missing,
         }),
@@ -1362,6 +1366,7 @@ def _invoke_spec_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
         extra_data=extra_data,
         allowed_tools=allowed_tools,
         stable_prefix=prev.data.get("stable_prefix", ""),
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
 
@@ -4024,6 +4029,7 @@ def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
                             "prompt_bytes": len(delta_prompt.encode("utf-8")),
                             "restricted_reviewer": True,
                             "delta_rereview": True,
+                            "role_template": None,  # bd#141 4(d): delta reviewer carries no role
                         }
                         _emit_safe("delta_rereview_used", {
                             "cycle": cycle,
@@ -4051,13 +4057,15 @@ def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
                     "cycle": cycle,
                     "prompt_bytes": len(prompt.encode("utf-8")),
                     "restricted_reviewer": True,
+                    "role_template": None,  # bd#141 4(d): restricted reviewer carries no role
                 }),
                 duration_ms=0,
                 step_name="build_review_prompt",
             )
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -4104,6 +4112,7 @@ def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
         status="ok",
         data=_fwd_frozen(_prev_data_brp2, {
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(review_path),
             "spec_path": str(spec_path),
             "cycle": cycle,
@@ -4197,6 +4206,7 @@ def _invoke_review_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
         hard_gate=True,
         gate_label="plan-review",
         allowed_tools=["Read"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d): repolls reuse invoke_kwargs
     )
     res = invoke_llm_subprocess(**invoke_kwargs)
     if (

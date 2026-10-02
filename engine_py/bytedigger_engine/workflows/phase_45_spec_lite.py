@@ -89,9 +89,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows.phase_1_discovery import _build_prompt as _build_phase1_prompt  # type: ignore[no-redef]
 try:
-    from .phase_workflows_common import _maybe_role_template
+    from .phase_workflows_common import _declared_injections, _role_template, _role_template_record
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import _maybe_role_template  # type: ignore[no-redef]
+    from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record  # type: ignore[no-redef]
 try:
     from .phase_45_spec import (
         _verify_spec_cite_prelint,
@@ -411,6 +411,7 @@ def _maybe_rewrite_simple_spec_prompt(ctx, _prev) -> StepResult:
                 "prompt_bytes": len(prompt.encode("utf-8")),
                 "findings": findings or "",
                 "restricted_writer": True,
+                "role_template": None,  # bd#141 4(d): restricted writer carries no role
                 "findings_count": len(structured_findings),
             },
             duration_ms=0,
@@ -418,7 +419,8 @@ def _maybe_rewrite_simple_spec_prompt(ctx, _prev) -> StepResult:
         )
 
     # Fallback: free-rewrite path (prev review had no structured findings block).
-    base_prompt = _build_phase1_prompt(ctx, scratchpad, "SIMPLE")
+    rt = _role_template(ctx)  # bd#141 4(d): one read; embedded phase_1 prompt + record
+    base_prompt = _build_phase1_prompt(ctx, scratchpad, "SIMPLE", role_template=rt)
     parts = [base_prompt, ""]
     parts.append(f"## REVISION (cycle {cycle} — address reviewer findings)")
     parts.append("")
@@ -441,6 +443,7 @@ def _maybe_rewrite_simple_spec_prompt(ctx, _prev) -> StepResult:
             "spec_path": str(spec_path),
             "rewrite": True,
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "prompt_bytes": len(prompt.encode("utf-8")),
             "findings": findings or "",
         },
@@ -489,6 +492,7 @@ def _maybe_invoke_spec_rewrite(ctx, prev) -> StepResult:
             "rewrite": True,
         },
         allowed_tools=["Read", "Write", "Glob"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
     return sub
 
@@ -576,6 +580,7 @@ def _build_review_prompt(ctx, prev) -> StepResult:
                     "cycle": cycle,
                     "prompt_bytes": len(prompt.encode("utf-8")),
                     "restricted_reviewer": True,
+                    "role_template": None,  # bd#141 4(d): restricted reviewer carries no role
                 },
                 duration_ms=0,
                 step_name="build_review_prompt",
@@ -583,7 +588,8 @@ def _build_review_prompt(ctx, prev) -> StepResult:
         # Fallback to free-form if prev review had no structured findings.
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -608,6 +614,7 @@ def _build_review_prompt(ctx, prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(review_path),
             "spec_path": str(spec_path),
             "cycle": cycle,
@@ -640,6 +647,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         hard_gate=True,
         gate_label="spec-lite-review",
         allowed_tools=["Read"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
 

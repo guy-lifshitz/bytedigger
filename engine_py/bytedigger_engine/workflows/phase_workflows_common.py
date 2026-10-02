@@ -45,6 +45,7 @@ from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — inj
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
 from bytedigger_engine.config_provider import int_value  # noqa: E402  GH786 retry knob
 from bytedigger_engine.role_template import load_role_template  # noqa: E402  bd#119
+from bytedigger_engine.conformance.attest import InjectedBlock  # noqa: E402  bd#141 4(d)
 
 logger = logging.getLogger(__name__)
 
@@ -580,8 +581,29 @@ _resolve_command = _resolve_model  # type: ignore[assignment]
 # 11. _maybe_role_template  (bd#119: thin wrapper; reader lives in role_template.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _role_template(ctx):
+    """bd#141 4(d): the attributable reader (RoleTemplate | None); one read per build."""
+    return load_role_template(ctx.org_config)
+
+
+def _role_template_record(rt) -> "dict | None":
+    """bd#141 4(d): the `data["role_template"]` shape (same as phase_2's)."""
+    if rt is None:
+        return None
+    return {"source_id": rt.source_id, "content": rt.content}
+
+
+def _declared_injections(data) -> "tuple[InjectedBlock, ...]":
+    """bd#141 4(d) (R3.2): declare the role-template block a builder stored in its
+    data dict. Pass the DICT that carried the prompt, never the StepResult."""
+    block = data.get("role_template") if isinstance(data, dict) else None
+    if not block:
+        return ()
+    return (InjectedBlock(source_id=block["source_id"], content=block["content"]),)
+
+
 def _maybe_role_template(ctx) -> str:
-    rt = load_role_template(ctx.org_config)
+    rt = _role_template(ctx)
     return rt.content if rt else ""
 
 

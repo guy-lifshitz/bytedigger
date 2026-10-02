@@ -178,9 +178,9 @@ from bytedigger_engine.lib import step_sentinel as _step_sentinel  # noqa: E402 
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 def _default_red_model() -> str:
     return get_claude_primary()
@@ -1319,6 +1319,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
                 "prompt_bytes": len(prompt.encode("utf-8")),
                 "cycle": cycle,
                 "delta_retry": True,
+                "role_template": None,  # bd#141 4(d): delta prompt carries no role
                 "sentinel_input": prompt + "\0" + _content_digest,
             },
             duration_ms=0,
@@ -1326,7 +1327,8 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         )
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -1460,6 +1462,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
             "prompt_bytes": len(prompt.encode("utf-8")),
             "cycle": cycle,
             "stable_prefix": _RED_STABLE_PREFIX,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "sentinel_input": prompt + "\0" + _content_digest,
         },
         duration_ms=0,
@@ -1562,6 +1565,7 @@ def _invoke_red_llm(ctx, prev) -> StepResult:
         },
         allowed_tools=["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
         stable_prefix=prev.data.get("stable_prefix", ""),
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
     if result.status == "ok":
         # γ cleanup 8.5 (A4461B8F): _parse_red_test_paths deleted; red_test_paths
@@ -6408,7 +6412,8 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
     validation_doc_path = scratchpad / _validation_doc_relpath(cycle)
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -6502,6 +6507,7 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "doc_path": str(validation_doc_path),
             "spec_path": str(spec_path),
             "red_log_path": str(red_log),
@@ -6671,6 +6677,7 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
         gate_label="validation",
         allowed_tools=["Read", "Grep", "Glob", "Bash(graphify-shim.sh:*)"],
         stable_prefix=prev.data.get("stable_prefix", ""),
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
     # GH963 §2.2: bounded retry on validator self-reported non-execution.
@@ -7281,7 +7288,8 @@ def _build_green_prompt(ctx, prev) -> StepResult:
         spec_text = ""
 
     parts: list[str] = []
-    role = _maybe_role_template(ctx)
+    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
+    role = rt.content if rt else ""
     if role:
         parts.append(role.rstrip())
         parts.append("")
@@ -7462,6 +7470,7 @@ def _build_green_prompt(ctx, prev) -> StepResult:
         status="ok",
         data={
             "prompt": prompt,
+            "role_template": _role_template_record(rt),  # bd#141 4(d)
             "log_path": str(green_log_path),
             "green_prompt_path": str(green_log_path),
             "spec_path": str(spec_path),
@@ -7569,6 +7578,8 @@ def _invoke_green_llm(ctx, prev) -> StepResult:
             # 5AE4164A: carry prompt forward so write_green_artifact can
             # retry-once on GREEN_NO_MARKER (transient truncation mitigation).
             "prompt": prev.data["prompt"],
+            # bd#141 4(d): the retry re-sends this prompt, so it declares the same block.
+            "role_template": prev.data.get("role_template"),
             # 4C0056FA: carry red_commit_sha through to write_green_artifact.
             "red_commit_sha": prev.data.get("red_commit_sha"),
             "red_test_paths": prev.data.get("red_test_paths", []),
@@ -7577,6 +7588,7 @@ def _invoke_green_llm(ctx, prev) -> StepResult:
             "cycle_count": prev.data.get("cycle_count", 1),
         },
         allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
     # F3 cross-tree edit guard (A4479061): observability only, no auto-revert.
     if result.status == "ok":
@@ -7669,6 +7681,7 @@ def _write_green_artifact(ctx, prev) -> StepResult:
                     "red_test_paths": prev_data.get("red_test_paths", []),
                 },
                 allowed_tools=["Read", "Write", "Edit", "Grep", "Glob"],
+                injections=_declared_injections(prev_data),  # bd#141 4(d): same as first attempt (§7.1)
             )
         finally:
             # Restore outer step's telemetry context.
