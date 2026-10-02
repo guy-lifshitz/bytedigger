@@ -1,6 +1,6 @@
 # bd#206: class-M blocks declared at the carry sites
 
-**Status:** r3, post gate r2 (REJECTED: 1 MAJOR + 3 MINOR + 4 NIT, `2026-10-02-bd206-gate-r2.md`; folded, §9) · r2 post gate r1 (REJECTED: 3 MAJOR + 8 MINOR + 4 NIT, `2026-10-02-bd206-gate-r1.md`; all folded, §8) · **Tier:** 3 (two phase-6 carry chains, the semantic verifier, the checker, one new lib
+**Status:** r3, APPROVED by gate r3 (`2026-10-02-bd206-gate-r3.md`; MINOR m-1..m-3 + 2 NIT folded into RED) · post gate r2 (REJECTED: 1 MAJOR + 3 MINOR + 4 NIT, `2026-10-02-bd206-gate-r2.md`; folded, §9) · r2 post gate r1 (REJECTED: 3 MAJOR + 8 MINOR + 4 NIT, `2026-10-02-bd206-gate-r1.md`; all folded, §8) · **Tier:** 3 (two phase-6 carry chains, the semantic verifier, the checker, one new lib
 module; Option D) · **Class:** SYSTEMATIC · **Chokepoint:** declaration goes through the existing channel only:
 builders record `{source_id, content}` in `data["injected_blocks"]` (`_injected_blocks_record`) and the dispatch passes
 `_declared_injections(...)`; `_dispatch_backend` verifies and attests as today (AUTHORSHIP_SPEC §4 Binding). The review
