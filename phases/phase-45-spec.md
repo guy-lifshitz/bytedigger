@@ -175,7 +175,7 @@ The engine records every review in `specs/review.json` (cycle 1) or
   (event `spec_review_score_downgrade`).
 - A frozen spec is never downgraded; the low axes are recorded
   (event `spec_review_score_low_frozen`).
-- The restricted cycle-2 review (per-finding `FINDING_` lines) is record-only.
+- The cycle-2 review is the full reviewer prompt, the same as cycle 1; the score downgrade applies to it.
 - Missing or invalid scores never change the verdict (event `spec_review_scores_missing`),
   so a custom reviewer template keeps working.
 
