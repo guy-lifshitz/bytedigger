@@ -880,18 +880,19 @@ def test_ac6b_prepass_is_registry_scoped_with_nothing_classifiable_staged(
 def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     tmp_path, monkeypatch, capsys
 ):
-    """AC7: the repository's OWN registry — 12 names, 0 drivers on disk, all 12
-    listed in DECLARED_ABSENT — must leave the repository committable: with
-    `test_x.py` staged the layer returns 0.
+    """AC7: the repository's OWN registry — 12 names, each with EXACTLY one of
+    {a driver on disk, an entry in DECLARED_ABSENT}; the drivers on disk are
+    exactly {"one-sided-predicate-lint"} (bd#166) and DECLARED_ABSENT is the
+    other 11 — must leave the repository committable: with `test_x.py` staged
+    the layer returns 0.
 
     The denominator is asserted explicitly (12), so the AC cannot silently
     weaken if names are added or removed without a matching declaration. This AC
     runs through the BD66_LINT_DIR override; the canonical-default path is AC11
     and AC12, not this one.
 
-    Pre-GREEN: FAIL — precommit_lints has no DECLARED_ABSENT attribute at all
-    (0 declared against a denominator of 12), and the enforcement layer does not
-    exist.
+    Before bd#166 GREEN: FAIL — the lint is declared absent with no driver on
+    disk, so the on_disk pin fails.
     """
     names = ALL_REGISTRY_NAMES
     assert len(names) == 12, (
@@ -899,22 +900,27 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         f"(SPEC 9 + TEST 2 + TS 1), got {len(names)}: {names!r}."
     )
 
-    on_disk = sorted(
-        str(p)
-        for name in names
-        for p in REPO_ROOT.rglob(f"{name}.py")
-        if ".git" not in p.parts
-    )
-    assert on_disk == [], (
-        f"bd#66 AC7: the live baseline is 0/{len(names)} drivers on disk; "
-        f"found {on_disk!r}. If a driver has landed, its name must leave "
-        f"DECLARED_ABSENT and this AC must be re-baselined."
-    )
-
     declared = list(getattr(precommit_lints, "DECLARED_ABSENT", []))
-    assert len(declared) == 12 and set(declared) == set(names), (
-        f"bd#66 AC7: expected all 12/{len(names)} registry names declared "
-        f"absent, got {len(declared)}: {declared!r}."
+    on_disk = sorted(
+        name
+        for name in names
+        if os.path.isfile(
+            precommit_lints.driver_path(name, precommit_lints.DEFAULT_LINT_DIR)
+        )
+    )
+    for name in names:
+        assert (name in declared) != (name in on_disk), (
+            f"bd#66 AC7: {name!r} must have EXACTLY one of a driver on disk or "
+            f"a DECLARED_ABSENT entry (declared={name in declared}, "
+            f"on_disk={name in on_disk})."
+        )
+    assert on_disk == ["one-sided-predicate-lint"], (
+        f"bd#66 AC7: the drivers on disk must be exactly "
+        f"['one-sided-predicate-lint'] (bd#166), got {on_disk!r}."
+    )
+    assert sorted(declared) == sorted(set(names) - {"one-sided-predicate-lint"}), (
+        f"bd#66 AC7: DECLARED_ABSENT must be the other 11 registry names, "
+        f"got {len(declared)}: {declared!r}."
     )
 
     env = _hermetic_git_env(tmp_path)
@@ -934,7 +940,7 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     output = "".join(capsys.readouterr())
 
     assert rc == 0, (
-        f"bd#66 AC7: with 12/12 names declared absent the repository must stay "
+        f"bd#66 AC7: with 11 names declared absent and 1 driver on disk the repository must stay "
         f"committable — expected rc=0, got {rc!r}. output={output!r}"
     )
 

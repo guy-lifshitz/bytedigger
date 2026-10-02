@@ -117,6 +117,7 @@ from bytedigger_engine import readiness as _readiness  # noqa: E402  bd#141 item
 from bytedigger_engine.suite_safety import scan_suite_safety
 from bytedigger_engine.stub_passability import scan_stub_passability
 from bytedigger_engine.fixture_schema import parse_reference_ddl, scan_fixture_schema
+from bytedigger_engine.one_sided_predicate import scan_one_sided_predicates, TS_TEST_SUFFIXES  # bd#166 Rule P
 from bytedigger_engine.reproducibility import verify_count_reproducible, _pin_pytest_collection, _REPRODUCIBILITY_RUNS
 from bytedigger_engine.engine import LoopRunner
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason
@@ -3641,13 +3642,74 @@ def _fixture_schema_lint(
     return entries
 
 
+_ONE_SIDED_PREDICATE_TS_SUFFIXES = TS_TEST_SUFFIXES
+
+
+def _one_sided_predicate_hits(resolved_paths: list[str]) -> list[dict]:
+    """bd#166 (§1aa named helper, port of HAL GH1373 Rule P): scan RED
+    .test.ts/.test.js/.spec.ts/.spec.js paths for one-sided negative code-exit
+    predicates. Suffix-filtered: only the declared TS/JS corpus is scanned.
+
+    An UNREADABLE target is a finding, never a silent skip: "the gate could not
+    read the file" must not look like "the gate read it and found nothing". The
+    unreadable path yields its own hit with `E_RED_LINT_TARGET_UNREADABLE`.
+
+    The suffix set is a DECLARED corpus, so a RED named outside it must not vanish
+    quietly either. Paths that are neither a known-not-applicable `.py` nor a
+    matching suffix are counted and emitted, so non-coverage is visible in the
+    log rather than presenting as "no violations"."""
+    ts_paths = [p for p in resolved_paths if p.endswith(_ONE_SIDED_PREDICATE_TS_SUFFIXES)]
+    unmatched = [
+        p for p in resolved_paths
+        if not p.endswith(_ONE_SIDED_PREDICATE_TS_SUFFIXES) and not p.endswith(".py")
+    ]
+    if unmatched:
+        _emit_safe("red_one_sided_predicate_unmatched_path", {
+            "phase": 5,
+            "declared_suffixes": list(_ONE_SIDED_PREDICATE_TS_SUFFIXES),
+            "unmatched_n": len(unmatched),
+            "unmatched": unmatched[:10],
+            "reason": "path outside the declared Rule P corpus — NOT scanned",
+        }, severity="warning")
+
+    hits: list[dict] = []
+    unreadable: list[str] = []
+    for rp in ts_paths:
+        try:
+            text = Path(rp).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            unreadable.append(f"{rp}: {exc.__class__.__name__}: {exc}")
+            hits.append({
+                "path": rp, "line": None, "rule": "one-sided-predicate-unreadable",
+                "evidence": (
+                    f"Rule P could not read this RED target ({exc.__class__.__name__}: "
+                    f"{exc}); 'no violations' is NOT established for it"
+                ),
+                "error_code": "E_RED_LINT_TARGET_UNREADABLE",
+                "recoverable": True,
+            })
+            continue
+        for f in scan_one_sided_predicates(text):
+            hits.append({
+                "path": rp, "line": f.get("line"), "rule": "one-sided-predicate",
+                "evidence": f.get("reason"), "error_code": "E_RED_ONE_SIDED_PREDICATE",
+                "recoverable": True,
+            })
+    if unreadable:
+        _emit_safe("red_one_sided_predicate_unreadable_target", {
+            "phase": 5, "unreadable_n": len(unreadable), "unreadable": unreadable[:10],
+        }, severity="error")
+    return hits
+
+
 def _collect_red_lint_findings(
     resolved_paths: list[str], git_cwd: str, ctx, cfg,
     spec_path: str | None = None,
 ) -> list[dict]:
     """GH595 §2.1 (§1aa named helper): run the deterministic content-lints
     (suite-safety -> stub-passability -> 1q-exec-import ->
-    collect-probe(@enforce)) against resolved_paths, normalizing every hit
+    collect-probe(@enforce) -> fixture-schema -> one-sided-predicate (Rule P))
+    against resolved_paths, normalizing every hit
     into {path, line, rule, evidence, error_code, recoverable} and returning
     them in canonical order. Emits the SAME per-lint violation / gate_disabled
     events as the legacy sequential path, but never returns early — every
@@ -3755,6 +3817,19 @@ def _collect_red_lint_findings(
 
     # ── 5. fixture-schema (GH891) ──
     batch.extend(_fixture_schema_lint(resolved_paths, spec_path, step))
+
+    # ── 6. one-sided-predicate (Rule P, bd#166) ──
+    if get_config().gate_enabled("HAL_ONE_SIDED_PREDICATE_GATE"):
+        _osp_hits = _one_sided_predicate_hits(resolved_paths)
+        if _osp_hits:
+            batch.extend(_osp_hits)
+            _emit_safe("red_one_sided_predicate_violation", {
+                "phase": 5, "hits": [f"{h['path']}:{h['line']}" for h in _osp_hits],
+            }, severity="error")
+    else:
+        _emit_safe("gate_disabled", {
+            "gate": "HAL_ONE_SIDED_PREDICATE_GATE", "step": step, "reason": "env_kill_switch",
+        })
 
     return batch
 
@@ -3904,6 +3979,34 @@ def _verify_red_lint_rules_legacy(ctx, prev, step, cfg, git_cwd, resolved_paths)
     else:
         _emit_safe("gate_disabled", {
             "gate": "HAL_SIBLING_AUDIT_GATE",
+            "step": step,
+            "reason": "env_kill_switch",
+        })
+
+    # ── bd#166: one-sided-predicate (Rule P) — legacy path ──
+    if get_config().gate_enabled("HAL_ONE_SIDED_PREDICATE_GATE"):     # kill switch, default ON
+        _osp_hits = _one_sided_predicate_hits(resolved_paths)
+        if _osp_hits:
+            _emit_safe("red_one_sided_predicate_violation", {
+                "phase": 5, "hits": [f"{h['path']}:{h['line']}" for h in _osp_hits],
+            }, severity="error")
+            # An unreadable target and a real predicate are DIFFERENT failures;
+            # carry the hit's own code so the terminal never mislabels which happened.
+            _osp_code = next(
+                (h["error_code"] for h in _osp_hits
+                 if h["error_code"] == "E_RED_LINT_TARGET_UNREADABLE"),
+                "E_RED_ONE_SIDED_PREDICATE",
+            )
+            return StepResult(
+                status="error", data={**prev.data}, duration_ms=0, step_name=step,
+                error="Rule P (bd#166) failed on RED: "
+                      + "; ".join(f"{h['path']}:{h['line']} [{h['rule']}]" for h in _osp_hits),
+                error_code=_osp_code,
+                recoverable=True,
+            )
+    else:
+        _emit_safe("gate_disabled", {
+            "gate": "HAL_ONE_SIDED_PREDICATE_GATE",
             "step": step,
             "reason": "env_kill_switch",
         })

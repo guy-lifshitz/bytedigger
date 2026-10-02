@@ -1,6 +1,7 @@
 {
   "core_modules": [
     "engine.py",
+    "one_sided_predicate.py",
     "execution_provenance.py",
     "event_log.py",
     "contracts.py",
