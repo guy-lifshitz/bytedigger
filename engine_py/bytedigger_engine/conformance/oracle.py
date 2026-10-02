@@ -23,6 +23,11 @@ drops leading-dot names, which would let an implementing actor smuggle
 time as well as to the scope listing, and only the latter is test-forced
 (gate round 5, warning 2).
 
+`bd#154` The bd#8 half also carries `_main`, a read-only host CLI
+(run this module with `python -m`, subcommand `verify`) that prints the
+`verify` verdict as one JSON line. It imports no `bytedigger_engine` module, so
+the seam stays below `run.py`.
+
 ────────────────────────────────────────────────────────────────────────
 SECOND LOT IN THIS MODULE — bd#38 (L3, child of bd#27)
 
@@ -278,22 +283,32 @@ def read_log_events(event_log_path: str | Path | None) -> list[dict[str, Any]]:
     if not p.exists():
         return []
     try:
-        text = p.read_text(encoding="utf-8")
+        text = p.read_bytes().decode("utf-8")
     except OSError as e:
         raise OracleRefusal(
             "E_ORACLE_INDETERMINATE", f"event log could not be read: {p} ({e})"
+        ) from e
+    except UnicodeDecodeError as e:  # [bd8:5] bd#154: strict UTF-8, no escaping ValueError
+        raise OracleRefusal(
+            "E_ORACLE_INDETERMINATE", f"event log is not valid UTF-8: {p} ({e})"
         ) from e
     events = []
     for lineno, line in enumerate(text.splitlines(), 1):
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
+            ev = json.loads(line)
         except ValueError as e:
             raise OracleRefusal(
                 "E_ORACLE_INDETERMINATE",
                 f"event log line {lineno} is not valid JSON: {p} ({e})",
             ) from e
+        if not isinstance(ev, dict):  # bd#154: find_last_freeze calls .get on every row
+            raise OracleRefusal(
+                "E_ORACLE_INDETERMINATE",
+                f"event log line {lineno} is not a JSON object: {p}",
+            )
+        events.append(ev)
     return events
 
 
@@ -405,6 +420,89 @@ def verify_against(frozen_payload: dict[str, Any], scratchpad_dir: str | Path) -
             f"{TOKEN_ADDED}: oracle scope changed in {scope} — a file was added "
             "to the oracle set without re-entering the oracle phase",
         )
+
+
+def _main(argv: "list[str] | None" = None) -> int:
+    """`[bd8:5]` bd#154: read-only host CLI, `verify` only. Prints one JSON line;
+    rc 0 on any verdict, rc 2 on usage or malformed-freeze input (stderr only).
+    argparse/sys are imported here so the module gains no attribute and does no
+    work at import."""
+    import argparse
+    import sys
+
+    class _Parser(argparse.ArgumentParser):
+        def error(self, message):  # type: ignore[override]
+            sys.stderr.write(f"oracle: {message}\n")
+            raise SystemExit(2)
+
+    parser = _Parser(prog="oracle", allow_abbrev=False)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    v = sub.add_parser("verify", allow_abbrev=False)
+    v.add_argument("--event-log", required=True)
+    v.add_argument("--run-id", required=True)
+    v.add_argument("--scratchpad-dir", required=True)
+    args = parser.parse_args(argv)
+
+    if not args.run_id.strip():
+        # find_last_freeze skips its run filter on a falsy id (another run's freeze).
+        sys.stderr.write("oracle: --run-id must be non-empty\n")
+        return 2
+
+    refusal: "OracleRefusal | None" = None
+    event_type = None
+    frozen_digest = None
+    current_digest = None
+    try:
+        events = read_log_events(args.event_log)
+        frozen = find_last_freeze(events, args.run_id)
+        if frozen is None:
+            refusal = OracleRefusal("E_ORACLE_UNFROZEN", "no oracle freeze found for this run")
+        else:
+            payload = frozen["payload"]
+            if not isinstance(payload, dict) or not isinstance(payload.get("digest"), str):
+                raise ValueError("freeze payload is not an object with a string digest")
+            event_type = frozen.get("event_type")
+            frozen_digest = payload["digest"]
+            try:
+                verify_against(payload, args.scratchpad_dir)
+            except OracleRefusal as e:
+                refusal = e
+            paths = [
+                m["path"] if isinstance(m, dict) else m
+                for m in payload.get("members") or []
+            ]
+            try:
+                current_digest = compute_digest(args.scratchpad_dir, paths, when="verify")
+            except OracleRefusal:
+                current_digest = None
+    except OracleRefusal as e:
+        refusal = e
+    except (KeyError, TypeError, AttributeError, ValueError) as e:
+        sys.stderr.write(f"oracle: malformed freeze event: {e.__class__.__name__}: {e}\n")
+        return 2
+
+    outcome = "verified"
+    token = None
+    if refusal is not None:
+        outcome = {
+            "E_ORACLE_UNFROZEN": "unfrozen",
+            "E_ORACLE_MUTATED": "mutated",
+            "E_ORACLE_INDETERMINATE": "indeterminate",
+        }[refusal.code]
+        for t in (TOKEN_CONTENT, TOKEN_ADDED, TOKEN_REMOVED):
+            if outcome == "mutated" and refusal.message.startswith(t):
+                token = t
+    sys.stdout.write(json.dumps({
+        "outcome": outcome,
+        "code": refusal.code if refusal is not None else None,
+        "token": token,
+        "message": refusal.message if refusal is not None else None,
+        "event_type": event_type,
+        "frozen_digest": frozen_digest,
+        "current_digest": current_digest,
+        "run_id": args.run_id,
+    }, separators=(",", ":"), allow_nan=False) + "\n")
+    return 0
 
 # ═════════════════════════════════════════════════════════════════════════
 # bd#38 (L3) — three-state outcome + guarded evaluation
@@ -532,3 +630,8 @@ def evaluate_guarded(
 
     # AC-E6: clean verdicts pass through untouched.
     return (value, None)
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_main())
