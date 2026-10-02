@@ -2,7 +2,8 @@
 
 The original bug was `HAL_DIR = Path(__file__).resolve().parents[5]` at import time
 in `workflows/phase_6_smoke.py`. bd#89 P1 deleted that module, so the ACs anchored on
-it (AC1, AC2, AC3, AC3b, AC3c, AC3d, AC4, AC6, AC7, AC10) were retired with it.
+it (AC1, AC4, AC6, AC7, AC10) were retired with it; AC2, AC3, AC3b, AC3c, AC3d are
+ported to call `lib/tree_root.resolve_tree_root` directly.
 
 What stays is the shared resolver `lib/tree_root.resolve_tree_root` and the two other
 sites of the same class, exercised directly:
@@ -161,6 +162,74 @@ def _plant_models_json(root: Path) -> Path:
     models.parent.mkdir(parents=True, exist_ok=True)
     models.write_text("{}")
     return models
+
+
+# ─── AC2 / AC3*: lib/tree_root.resolve_tree_root semantics, called directly ──
+# (ported from the retired phase_6_smoke._resolve_hal_dir cases; guard kept behavior)
+
+_MARKER = "MARKER_BD97.txt"
+
+
+def _synthetic_start(extra_dirs: int) -> Path:
+    prefix = "".join(f"/lvl{i}" for i in range(extra_dirs))
+    return Path(f"{prefix}/engine_py/workflows/module.py")
+
+
+def test_ac2_resolver_never_raises_at_any_depth():
+    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415
+
+    starts = [Path("/"), Path("/module.py"), Path("/lvl0/module.py")]
+    starts += [_synthetic_start(extra) for extra in range(0, 7)]
+    for start in starts:
+        for marker in (None, _MARKER):
+            got = resolve_tree_root(start, marker=marker)
+            assert isinstance(got, Path) and got.is_absolute(), (start, marker, got)
+
+
+def test_ac3_resolver_anchors_on_the_marker_at_any_depth(tmp_path):
+    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415
+
+    root = tmp_path / "install_root"
+    root.mkdir()
+    (root / _MARKER).write_text("x")
+    for nesting in ("SYSTEM/cli/build/engine_py/workflows", "engine_py/workflows"):
+        start = root / nesting / "module.py"
+        assert resolve_tree_root(start, marker=_MARKER) == root
+
+
+def test_ac3b_marker_outranks_an_intermediate_git(tmp_path):
+    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415
+
+    root = tmp_path / "install_root"
+    root.mkdir()
+    (root / _MARKER).write_text("x")
+    nested = root / "SYSTEM" / "cli" / "build"
+    nested.mkdir(parents=True)
+    (nested / ".git").mkdir()
+    start = nested / "engine_py" / "workflows" / "module.py"
+    assert resolve_tree_root(start, marker=_MARKER) == root
+
+
+def test_ac3c_resolver_falls_back_to_the_checkout_root_with_git_file(tmp_path):
+    _require_no_git_above(tmp_path)
+    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415
+
+    root = tmp_path / "clone_root"
+    (root / "engine_py" / "workflows").mkdir(parents=True)
+    (root / ".git").write_text("gitdir: /elsewhere\n")  # worktree-style .git FILE
+    start = root / "engine_py" / "workflows" / "module.py"
+    assert resolve_tree_root(start, marker=_MARKER) == root
+    assert resolve_tree_root(start) == root
+
+
+def test_ac3d_resolver_falls_back_to_the_clamped_package_root(tmp_path):
+    _require_no_git_above(tmp_path)
+    from bytedigger_engine.lib.tree_root import resolve_tree_root  # noqa: PLC0415
+
+    pkg = tmp_path / "tarball_root" / "engine_py"
+    (pkg / "workflows").mkdir(parents=True)
+    start = pkg / "workflows" / "module.py"
+    assert resolve_tree_root(start, marker=_MARKER) == pkg
 
 
 # ─── AC8 / AC9: the other two sites keep their semantics ───────────────────

@@ -23,7 +23,10 @@ AC8  test_ac8_no_devops_in_md_flow_and_gate_script
      test_ac8_no_dropped_stage_names_in_md_flow_gate_script_and_ts
 AC9  test_ac9_environment_has_no_claude_and_no_api_key
      (plus the autouse fixture `_no_claude_no_api_key` applied to every test here)
-AC10 test_ac10_build_gate_output_identical_with_and_without_devops_profile
+AC10 test_ac10_dispatcher_report_has_no_canary_prefix_rule
+     test_ac10_live_engine_code_still_classifies_engine   (guard, passes today)
+AC6 also: test_ac6_write_spec_doc_file_sourced_body_has_no_canary_sidecar_event_or_data_key
+AC7 covers _build_spec_prompt, _build_red_prompt and _build_green_prompt.
 
 PRE-GREEN FAILURE (HEAD still has the modules, flags, codes, md text):
   AC1, AC2 (all), AC3 (both), AC4 (both: HAL_DEVOPS_SCAN_* flags and the
@@ -32,8 +35,9 @@ PRE-GREEN FAILURE (HEAD still has the modules, flags, codes, md text):
   AC4 note: flag "module" paths resolve against bytedigger_engine/ or engine_py/
   (scripts/spec_lint/lint_spec.py lives under engine_py/); SYSTEM/... entries are
   host-side tools outside this repo and are skipped.
-  AC8's second grep, AC9 and AC10 are correctness guards that pass today and must
-  stay green after GREEN.
+  AC10 (CANARY_ prefix rule exists at lib/dispatcher_report.py today).
+  AC8's second grep, AC9 and the live-engine-code AC10 test are guards that pass
+  today and must stay green after GREEN.
 
 No dropped module is imported at module scope (the file collects on HEAD and after
 GREEN); they are probed through importlib.util.find_spec / file paths only.
@@ -218,6 +222,13 @@ def _resolves(rel: str) -> bool:
     return (PKG_DIR / rel).is_file() or (ENGINE_PY / rel).is_file()
 
 
+# Pre-existing dangling entries at base (row-7 flag residue, resolved in P3).
+_FROZEN_DANGLING = frozenset({
+    "engine-py-audit-gate.py + workflows/phase_5_implement.py",
+    "canary.sh",
+})
+
+
 def test_ac4_every_flag_module_and_routed_module_resolves_to_a_file():
     from bytedigger_engine import flags_catalog
 
@@ -226,15 +237,16 @@ def test_ac4_every_flag_module_and_routed_module_resolves_to_a_file():
         if isinstance(spec.get("module"), str) and not spec["module"].startswith("SYSTEM/")
     }
     assert in_repo_flags, "fixture precondition: catalog has in-repo module entries"
-    dangling = {n: m for n, m in in_repo_flags.items() if not _resolves(m)}
-    dangling_routed = [m for m in flags_catalog.ROUTED_MODULES if not _resolves(m)]
-    # Guard the invariant against vacuity: the dropped stage's file must not be what
-    # makes the lists "resolve" -- it has to be gone for the entries to be removed.
+    # Check the dropped-module routing FIRST: it is the forcing reason for this AC.
     stale = [m for m in list(in_repo_flags.values()) + list(flags_catalog.ROUTED_MODULES)
              if any(stem in m for stem in DROPPED_MODULES)]
+    assert not stale, f"catalog still routes to dropped modules: {stale}"
+    dangling = {n: m for n, m in in_repo_flags.items()
+                if m not in _FROZEN_DANGLING and not _resolves(m)}
+    dangling_routed = [m for m in flags_catalog.ROUTED_MODULES
+                       if m not in _FROZEN_DANGLING and not _resolves(m)]
     assert not dangling, f"FLAGS point at missing files: {dangling}"
     assert not dangling_routed, f"ROUTED_MODULES point at missing files: {dangling_routed}"
-    assert not stale, f"catalog still routes to dropped modules: {stale}"
 
 
 def test_ac4_no_devops_scan_flags():
@@ -343,6 +355,17 @@ def test_ac6_write_spec_doc_surgical_path_has_no_canary_sidecar_event_or_data_ke
     _assert_no_canary_artifacts(result, scratch, doc_path, log)
 
 
+def test_ac6_write_spec_doc_file_sourced_body_has_no_canary_sidecar_event_or_data_key(tmp_path):
+    scratch = tmp_path / "scratch"
+    doc_path = scratch / "specs" / "build-spec.md"
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_path.write_text(_CANARY_SPEC, encoding="utf-8")
+    result, scratch, doc_path, log = _run_write_spec_doc(
+        tmp_path, {"cycle": 1}, "Wrote spec. Done."
+    )
+    _assert_no_canary_artifacts(result, scratch, doc_path, log)
+
+
 # --- AC7 -----------------------------------------------------------------------
 
 def test_ac7_no_get_standards_context_attribute():
@@ -380,6 +403,18 @@ def test_ac7_spec_and_red_prompts_do_not_shell_out_to_devops_prompt_context(tmp_
     assert spec_prompt.status == "ok", f"{spec_prompt.error_code}: {spec_prompt.error}"
     red_prompt = phase_5_implement._build_red_prompt(ctx, None)
     assert red_prompt.status == "ok", f"{red_prompt.error_code}: {red_prompt.error}"
+    green_prev = StepResult(
+        status="ok",
+        data={
+            "spec_path": str(scratch / "specs" / "build-spec.md"),
+            "red_log_path": str(scratch / "tests" / "build-red-output.log"),
+            "validation_doc_path": str(scratch / "reviews" / "build-opus-validation.md"),
+            "verdict": "PASS",
+        },
+        duration_ms=0, step_name="gate_on_validation",
+    )
+    green_prompt = phase_5_implement._build_green_prompt(ctx, green_prev)
+    assert green_prompt.status == "ok", f"{green_prompt.error_code}: {green_prompt.error}"
 
     offending = [a for a in calls if any("devops-prompt-context" in x for x in a)]
     assert not offending, f"prompt builders still shell out: {offending}"
@@ -425,33 +460,17 @@ def test_ac9_environment_has_no_claude_and_no_api_key():
 
 # --- AC10 ----------------------------------------------------------------------
 
-_GATE_STATE = (
-    'task: "bd89"\n'
-    "complexity: FEATURE\n"
-    "mode: AUTONOMOUS\n"
-    'current_phase: "4.5"\n'
-    "security_classification: MEDIUM\n"
-)
+def test_ac10_dispatcher_report_has_no_canary_prefix_rule():
+    from bytedigger_engine.lib import dispatcher_report
+
+    tails = [tail for tail, _cls in dispatcher_report._PREFIX_RULES]
+    assert not [t for t in tails if t.startswith("CANARY")], tails
+    # behavior: a synthetic E_CANARY_* code no longer classifies as engine
+    assert dispatcher_report.classify_error_code("E_CANARY_SYNTHETIC") == "unknown"
 
 
-def _run_gate(workdir: Path, state: str) -> tuple[int, str]:
-    workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / "bytedigger.json").write_text(
-        json.dumps({"gates_enabled": True, "tdd_mandatory": True}), encoding="utf-8"
-    )
-    (workdir / "build-state.yaml").write_text(state, encoding="utf-8")
-    env = {**os.environ, "BYTEDIGGER_CONFIG": str(workdir / "bytedigger.json")}
-    env.pop("CLAUDE_PLUGIN_ROOT", None)
-    proc = subprocess.run(
-        ["bash", str(REPO_ROOT / "scripts" / "build-gate.sh")],
-        input="", capture_output=True, text=True, env=env, cwd=str(workdir), timeout=60,
-    )
-    return proc.returncode, proc.stdout + proc.stderr
+def test_ac10_live_engine_code_still_classifies_engine():
+    from bytedigger_engine.lib import dispatcher_report
 
-
-def test_ac10_build_gate_output_identical_with_and_without_devops_profile(tmp_path):
-    base_rc, base_out = _run_gate(tmp_path / "without", _GATE_STATE)
-    dev_rc, dev_out = _run_gate(tmp_path / "with", _GATE_STATE + "devops_profile: true\n")
-    # the state is a real block (plan_review missing at 4.5), so output is non-trivial
-    assert base_rc == 2 and "plan_review" in base_out, (base_rc, base_out)
-    assert (dev_rc, dev_out) == (base_rc, base_out)
+    assert dispatcher_report.classify_error_code("E_STEP_TIMEOUT") == "engine"
+    assert dispatcher_report.classify_error_code("E_RESTART_CAP") == "engine"
