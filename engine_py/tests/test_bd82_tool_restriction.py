@@ -661,15 +661,17 @@ def test_ac25_hang_fallback_target_held_to_the_tool_restriction(tmp_path):
 
 def test_ac26_pydantic_openai_deployment_override_refused_for_gate(monkeypatch, tmp_path):
     """The floor was checked against `model`; a deployment override would run the
-    gate on a model nobody checked."""
+    gate on a model nobody checked. bd#103: refused at the chokepoint, which
+    resolves the model the backend runs through its `effective_model` hook."""
     monkeypatch.setenv("PYDANTIC_BACKEND_DEPLOYMENT", "gpt-4o-mini")
     _install_fake_pydantic_openai(monkeypatch)
     from bytedigger_engine.lib.reference_backends import pydantic_openai  # noqa: PLC0415
 
-    res = pydantic_openai.pydantic_openai_backend(
+    pydantic_openai.register()
+    res = invoke_llm_subprocess(
         prompt="p", model="opus", timeout_sec=30, step_name="bd82",
         extra_data={"workspace_root": str(_repo(tmp_path))}, allowed_tools=["Read"],
-        hard_gate=True,
+        hard_gate=True, gate_label="g", backend="pydantic-openai", idle_timeout_sec=0,
     )
 
     assert res.error_code == "E_HARD_GATE_MODEL_DOWNGRADE"
