@@ -25,6 +25,7 @@ from .anthropic_oauth import OAUTH_BETA_HEADER
 from .pydantic_openai import (
     _policy_tools,
     _extract_usage_tokens,
+    _ledger_data,
     _is_git_repo,
     _kill_active_procs,
     _manifest_since,
@@ -261,7 +262,7 @@ def pydantic_anthropic_backend(
         base_data["gate_label"] = gate_label
 
     caller_extra = {k: v for k, v in extra_data.items() if k != "workspace_root"}
-    merged = {**base_data, **caller_extra}
+    merged = {**base_data, **caller_extra, **_ledger_data(agent_result, "subscription")}
 
     return StepResult(
         status="ok",
@@ -287,7 +288,7 @@ def register() -> None:
         "pydantic-anthropic",
         pydantic_anthropic_backend,
         manifest_source="git_diff",
-        capabilities=frozenset({"tool_allowlist"}),
+        capabilities=frozenset({"tool_allowlist", "billing:subscription"}),  # bd#167 (OAuth)
         overwrite=True,
     )
 

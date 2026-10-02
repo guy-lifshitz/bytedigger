@@ -111,6 +111,20 @@ Uses the local Claude Code login for auth. Environment:
 - `HAL_AGENT_SDK_MAX_RESUMES` (optional, default `8`) -- cap on session
   resumes when the SDK run is interrupted.
 
+## Cost ledger and billing mode (bd#167)
+
+Every dispatch emits one `llm_cost_observed` event. A backend states how it was
+paid by putting `billing_mode` (`metered`, `subscription`) and, where it has
+them, raw `usage` token counts into its success `data`; otherwise it can declare
+a `billing:<mode>` capability, else the mode is `unknown`. A backend whose
+result carries the runtime's own total declares `reports_cost`.
+
+Cache tokens are priced only from config: `claude.pricing.<alias>` takes the
+optional per-MTok keys `cache_read`, `cache_write_5m` (alias `cache_write`) and
+`cache_write_1h` next to `in` / `out`. Without them a call with cache tokens is
+unpriced (`cost_usd` null), never guessed. `HAL_COST_DIVERGENCE_PCT` (default
+`10`) sets when reported and derived cost raise `llm_cost_divergence`.
+
 ## Bring your own
 
 `register_backend` is the public seam. Register a callable matching the

@@ -276,6 +276,12 @@ def anthropic_api_backend(
     if gate_label is not None:
         base_data["gate_label"] = gate_label
     merged: dict = {**base_data, **(extra_data or {})}
+    # bd#167: reserved ledger fields, set AFTER the extra_data merge (a caller
+    # cannot shadow them). x-api-key auth is always metered.
+    merged["billing_mode"] = "metered"
+    usage = parsed.get("usage")
+    if isinstance(usage, dict):
+        merged["usage"] = usage
 
     return StepResult(
         status="ok",
@@ -300,7 +306,10 @@ def register() -> None:
         anthropic_api_backend,
         manifest_source="api_text_response",
         # bd#82: effort only at the levels with a thinking budget.
-        capabilities=frozenset({"no_tools", *(f"effort:{level}" for level in _EFFORT_TO_BUDGET)}),
+        # bd#167: billing:metered - x-api-key auth is pay-per-token.
+        capabilities=frozenset(
+            {"no_tools", "billing:metered", *(f"effort:{level}" for level in _EFFORT_TO_BUDGET)}
+        ),
         overwrite=True,
     )
 

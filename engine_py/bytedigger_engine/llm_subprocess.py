@@ -59,6 +59,7 @@ from bytedigger_engine.conformance.attest import (  # bd#10: the attestation sea
     hash_text,
 )
 from bytedigger_engine.lib import model_config as _model_config
+from bytedigger_engine.lib import llm_cost  # bd#167: pure cost/billing helpers (called via the module attribute)
 from bytedigger_engine.lib.env_limit import detect_env_limit
 
 try:
@@ -79,8 +80,20 @@ RESERVED_OBSERVATION_FIELDS: frozenset[str] = frozenset({
     "worker_written_paths",
     "manifest_source",
     "mcp_server_losses",
+    # bd#167: the cost ledger reads these at the chokepoint; a caller must not forge them.
+    "billing_mode",
+    "usage",
 })
 RESERVED_DROP_LOG_PREFIX = "extra_data reserved observation fields dropped: "
+
+# bd#167: cost-ledger chokepoint constants.
+NO_USAGE_LOG_PREFIX = "llm cost: backend reported no usage: "
+COST_STEP_FAILED_LOG_PREFIX = "llm cost observation failed: "
+_COST_OBSERVED_EVENT = "llm_cost_observed"
+_COST_DIVERGENCE_EVENT = "llm_cost_divergence"
+_COST_DIVERGENCE_PCT_ENV_VAR = "HAL_COST_DIVERGENCE_PCT"
+_COST_DIVERGENCE_DEFAULT_PCT = 10.0
+_NO_USAGE_WARNED: set[str] = set()  # once-per-backend-per-process de-dup of the no-usage warning
 
 
 def _strip_reserved_observations(extra_data):
@@ -140,7 +153,8 @@ _ALLOWED_MANIFEST_SOURCES: frozenset[str] = frozenset(_BACKEND_MANIFEST_SOURCE.v
 # argument (lib/reference_backends/anthropic_api.py:139,149) must NOT declare
 # it, so the attestation records "not-enforced" rather than an overclaim.
 _BACKEND_CAPABILITIES: dict[str, frozenset[str]] = {
-    "claude-subprocess": frozenset({"manifest", "progress_since", "abort", "tool_allowlist", "effort"}),
+    # bd#167: reports_cost - the result event's total_cost_usd is the runtime's own figure.
+    "claude-subprocess": frozenset({"manifest", "progress_since", "abort", "tool_allowlist", "effort", "reports_cost"}),
     "claude-in-session": frozenset({"manifest"}),
 }
 
@@ -414,6 +428,32 @@ def _tier_model_is_downgrade(tier_model: "str", pinned_model: "str") -> bool:
     if tr is None or pr is None:
         return False
     return tr < pr
+
+
+_RATE_KEYS = ("in", "out", "cache_read", "cache_write_5m", "cache_write", "cache_write_1h")
+
+
+def _load_pricing_rates() -> dict:
+    """bd#167: ``claude.pricing`` as ``{alias: {rate_key: per-MTok rate}}``.
+
+    Same file as ``_load_pricing_table`` but keeps the optional cache rates
+    (``cache_read``, ``cache_write_5m``/``cache_write``, ``cache_write_1h``);
+    only numeric rates survive. Load failure returns {} plus the existing
+    warning, so every price is None (never raises).
+    """
+    try:
+        with open(config_provider.models_config_path(), encoding="utf-8") as f:
+            pricing = json.load(f).get("claude", {}).get("pricing", {})
+        return {
+            alias: {
+                k: float(v) for k, v in rates.items()
+                if k in _RATE_KEYS and isinstance(v, (int, float)) and not isinstance(v, bool)
+            }
+            for alias, rates in pricing.items() if isinstance(rates, dict)
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pricing-table load failed (%s) — cost telemetry will be $0", exc)
+        return {}
 
 
 def _price_for_model(
@@ -1502,6 +1542,104 @@ def _emit_attestation(
     )
 
 
+def _billing_mode_of(data: "dict | None", caps: "frozenset[str]") -> str:
+    """bd#167: ``data["billing_mode"]`` when valid, else the single valid
+    ``billing:<mode>`` capability, else ``unknown`` (invalid values never trusted)."""
+    declared = data.get("billing_mode") if data else None
+    if isinstance(declared, str) and declared in llm_cost.BILLING_MODES:
+        return declared
+    modes = {c[len("billing:"):] for c in caps if c.startswith("billing:")}
+    valid = modes & set(llm_cost.BILLING_MODES)
+    return next(iter(valid)) if len(valid) == 1 else "unknown"
+
+
+def _reported_cost(data: "dict | None", caps: "frozenset[str]") -> "float | None":
+    """bd#167: ``data["cost_usd"]`` only for a backend declaring ``reports_cost``,
+    and only when finite and non-negative (bool excluded)."""
+    if not data or "reports_cost" not in caps:
+        return None
+    value = data.get("cost_usd")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != value or value in (float("inf"), float("-inf")) or value < 0:
+        return None
+    return float(value)
+
+
+def _divergence_threshold_pct() -> float:
+    """bd#167: ``HAL_COST_DIVERGENCE_PCT`` when a finite float > 0, else the default."""
+    raw = config_provider.env_opt(_COST_DIVERGENCE_PCT_ENV_VAR)
+    try:
+        value = float(raw) if raw is not None else _COST_DIVERGENCE_DEFAULT_PCT
+    except ValueError:
+        return _COST_DIVERGENCE_DEFAULT_PCT
+    if value != value or value in (float("inf"), float("-inf")) or value <= 0:
+        return _COST_DIVERGENCE_DEFAULT_PCT
+    return value
+
+
+def _warn_no_usage_once(backend: str) -> None:
+    if backend in _NO_USAGE_WARNED:
+        return
+    _NO_USAGE_WARNED.add(backend)
+    logger.warning(NO_USAGE_LOG_PREFIX + backend)
+
+
+def _cost_events(
+    backend: str, *, model: str, step_name: str, result: StepResult, run_ctx: "_RunCtx",
+) -> "list[tuple[str, dict]]":
+    """bd#167: the ``llm_cost_observed`` payload (+ ``llm_cost_divergence`` when the
+    reported and derived costs differ). Computes everything; emits nothing."""
+    data = result.data if isinstance(result.data, dict) else None
+    caps = _backend_capabilities(backend)
+    observed = data.get("observed_model") if data else None
+    eff_model = observed if isinstance(observed, str) and observed else model
+    usage = llm_cost.normalize_usage(data)
+    mode = _billing_mode_of(data, caps)
+    payload: dict = {
+        "backend": backend, "model": eff_model, "billing_mode": mode,
+        "cost_kind": llm_cost.cost_kind(mode), "usage_reported": usage is not None,
+    }
+    for field in ("tokens_in", "tokens_out", "cache_read_tokens", "cache_write_tokens", "cache_write_1h_tokens"):
+        payload[field] = usage[field] if usage else None
+    derived: "float | None" = None
+    reported: "float | None" = None
+    if usage is None:
+        _warn_no_usage_once(backend)
+    else:
+        derived = llm_cost.price_usage(usage, eff_model, _load_pricing_rates())
+        reported = _reported_cost(data, caps)
+    payload["derived_cost_usd"] = derived
+    payload["reported_cost_usd"] = reported
+    payload["cost_usd"] = derived if derived is not None else reported
+    payload["cost_source"] = "derived" if derived is not None else ("reported" if reported is not None else None)
+    payload.update(phase=run_ctx.phase, step_name=run_ctx.step_name or step_name, cycle=run_ctx.cycle)
+    events: "list[tuple[str, dict]]" = [(_COST_OBSERVED_EVENT, payload)]
+    div = llm_cost.divergence(derived, reported, _divergence_threshold_pct())
+    if div is not None:
+        events.append((_COST_DIVERGENCE_EVENT, {
+            **div, "backend": backend, "model": eff_model, "step_name": payload["step_name"],
+        }))
+    return events
+
+
+def _observe_cost(
+    backend: str, *, model: str, step_name: str, result: StepResult, run_ctx: "_RunCtx | None",
+) -> None:
+    """bd#167: the single per-dispatch cost observation, called only from
+    ``_dispatch_backend``. A failure here is logged and swallowed - it can never
+    change the StepResult (nothing is emitted when the computation fails)."""
+    if run_ctx is None or run_ctx.event_log is None:
+        return
+    try:
+        events = _cost_events(backend, model=model, step_name=step_name, result=result, run_ctx=run_ctx)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(COST_STEP_FAILED_LOG_PREFIX + repr(exc))
+        return
+    for event_type, payload in events:
+        _emit_safe(run_ctx.event_log, event_type, payload, run_ctx.run_id)
+
+
 def _dispatch_backend(
     resolved_backend: str,
     *,
@@ -1673,6 +1811,9 @@ def _dispatch_backend(
         result=result,
         run_ctx=run_ctx,
     )
+    # bd#167: one cost observation per dispatch, after the attestation and
+    # before the refusals (a refused-before-dispatch call never reaches here).
+    _observe_cost(resolved_backend, model=model, step_name=step_name, result=result, run_ctx=run_ctx)
     pin_refusal = _pin_mismatch_refusal(
         result, model=effective, step_name=step_name, run_ctx=run_ctx,
     )
@@ -2642,6 +2783,7 @@ def _invoke_subprocess(
     data["observed_model"] = _observed_model_from_events(events or [])
     # 4C03CCED Ship 1C G1: harness-tool-record manifest (stream-json transcript).
     data["manifest_source"] = "harness_tool_record"
+    _add_ledger_fields(data, events)
 
     return StepResult(
         status="ok",
@@ -2799,6 +2941,7 @@ def reset_backends() -> None:
     _BACKEND_MANIFEST_SOURCE.clear(); _BACKEND_MANIFEST_SOURCE.update(_DEFAULT_BACKEND_MANIFEST_SOURCE)
     _BACKEND_CAPABILITIES.clear(); _BACKEND_CAPABILITIES.update(_DEFAULT_BACKEND_CAPABILITIES)
     _BACKEND_EFFECTIVE_MODEL.clear(); _BACKEND_EFFECTIVE_MODEL.update(_DEFAULT_BACKEND_EFFECTIVE_MODEL)
+    _NO_USAGE_WARNED.clear()  # bd#167: the once-per-backend no-usage warning starts over
     _KNOWN_BACKENDS = tuple(_BACKENDS)
     _ALLOWED_MANIFEST_SOURCES = frozenset(_BACKEND_MANIFEST_SOURCE.values())
 
@@ -3611,6 +3754,34 @@ def _tokens_and_cost_from_events(events: list[dict]) -> tuple[dict | None, float
     if cost is not None and not isinstance(cost, (int, float)):
         cost = None
     return tokens, (float(cost) if cost is not None else None)
+
+
+def _init_api_key_source(events: "list[dict] | None") -> "str | None":
+    """bd#167: ``apiKeySource`` of the stream's init event (the CLI's own statement
+    of how it authenticates), else None."""
+    for ev in events or []:
+        if isinstance(ev, dict) and ev.get("type") == "system" and ev.get("subtype") == "init":
+            source = ev.get("apiKeySource")
+            return source if isinstance(source, str) else None
+    return None
+
+
+def _add_ledger_fields(data: dict, events: "list[dict] | None") -> None:
+    """bd#167: reserved ledger fields of a claude-subprocess success, set AFTER the
+    extra_data merge. ``billing_mode`` comes from the init event + the child env
+    (the child inherits ``os.environ``); ``usage`` is the last result event's raw
+    usage dict and ``cost_usd`` its ``total_cost_usd``. The legacy path (no
+    parsed events) reports billing from the env alone and no usage."""
+    data["billing_mode"] = llm_cost.billing_mode_from_auth(_init_api_key_source(events), os.environ)
+    result_event = _find_last_result_event(events) if events else None
+    if result_event is None:
+        return
+    usage = result_event.get("usage")
+    if isinstance(usage, dict):
+        data["usage"] = usage
+    cost = result_event.get("total_cost_usd")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+        data["cost_usd"] = float(cost)
 
 
 def _classify_cmd_kind(command: list[str]) -> str:
