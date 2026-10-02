@@ -180,7 +180,7 @@ def test_r8_phase6_straggler_check_resolves_the_reviewers_backend(monkeypatch, t
     ctx = types.SimpleNamespace(org_config={"scratchpad_dir": str(tmp_path)})
     with patch.object(p6, "invoke_llm_subprocess", _capture):
         p6._invoke_review_llm(ctx, prev)
-    assert seen and seen[0].get("straggler_cfg") is None
+    assert seen and "straggler_cfg" not in seen[0]
 
 
 # r8b (subprocess judge keeps straggler_cfg) retired by bd#89 P3b1: phase 6 never arms it.

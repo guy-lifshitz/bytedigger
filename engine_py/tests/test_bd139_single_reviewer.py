@@ -206,8 +206,7 @@ def _capture_invoke(tmp_path, monkeypatch, **org_extra) -> dict:
 
 def test_ac6_single_mode_passes_straggler_cfg_none(tmp_path, monkeypatch):
     captured = _capture_invoke(tmp_path, monkeypatch)
-    assert "straggler_cfg" in captured
-    assert captured["straggler_cfg"] is None
+    assert "straggler_cfg" not in captured
 
 
 # ─── AC7 (side effect, §1l) ──────────────────────────────────────────────────

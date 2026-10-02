@@ -16,8 +16,6 @@ Pre-GREEN expected PASS (5): AC2, AC3, AC4, AC5 — regression-fences on existin
 
 §1q: NO spec_from_file_location / module_from_spec / exec_module.
   Grandfathered sys.path.insert pattern (matches all sibling tests in this dir).
-§1i: G2-AC5 pre-stages _StragglerWatchdog.aborted = True via monkeypatch BEFORE
-  invoking the unit; no racy thread sleep. Cites workflows.md §1i (ABD52613).
 §1l: AC1a asserts returned StepResult.error_code + filesystem inspection (no nonce
   dir). AC-N1 is the N>1 multi-call forcing function (6AD2F3F8).
 """
@@ -27,7 +25,6 @@ import io
 import os
 import re
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -170,72 +167,7 @@ def test_g2_ac1a_in_session_idle_watchdog_fail_closed(
         )
 
 
-# ---------------------------------------------------------------------------
-# G2-AC1b — claude-in-session + straggler_cfg → E_LLM_WATCHDOG_UNSUPPORTED
-#            AND event log carries runner_capability_probe_failed with correct payload
-# ---------------------------------------------------------------------------
-
-def test_g2_ac1b_in_session_straggler_fail_closed(
-    tmp_path: Path, active_run_ctx: _FakeEventLog, monkeypatch
-) -> None:
-    """G2-AC1b: invoke_llm_subprocess(backend='claude-in-session',
-    straggler_cfg={'reviews_dir': ..., 'expected_n': 2}) returns
-    E_LLM_WATCHDOG_UNSUPPORTED and emits runner_capability_probe_failed
-    with payload {backend: 'claude-in-session', reason: 'no_watchdog_support',
-    idle_enabled: False, straggler_enabled: True}.
-
-    Pre-GREEN FAIL: probe machinery does not exist → call does NOT return
-    E_LLM_WATCHDOG_UNSUPPORTED AND event log does NOT carry
-    runner_capability_probe_failed.
-
-    §1l layer 4 (N=1 counter via event-log read).
-    """
-    request_dir = str(tmp_path / "requests")
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("HAL_RUNNER_REQUEST_DIR", request_dir)
-
-    result = invoke_llm_subprocess(
-        prompt="test prompt",
-        model="sonnet",
-        timeout_sec=30,
-        step_name="test_step",
-        backend="claude-in-session",
-        idle_timeout_sec=0,
-        straggler_cfg={"reviews_dir": str(reviews_dir), "expected_n": 2},
-    )
-
-    assert result.status == "error", (
-        f"G2-AC1b: expected status='error'; got {result.status!r}"
-    )
-    assert result.error_code == "E_LLM_WATCHDOG_UNSUPPORTED", (
-        f"G2-AC1b: expected error_code='E_LLM_WATCHDOG_UNSUPPORTED'; "
-        f"got {result.error_code!r}"
-    )
-    assert result.recoverable is False, (
-        f"G2-AC1b: recoverable must be False; got {result.recoverable!r}"
-    )
-
-    # Event log MUST carry runner_capability_probe_failed with the exact payload
-    probe_events = active_run_ctx.by_type("runner_capability_probe_failed")
-    assert len(probe_events) >= 1, (
-        f"G2-AC1b: expected at least 1 'runner_capability_probe_failed' event; "
-        f"got {len(probe_events)}. All events: "
-        f"{[(et, p) for et, p, _ in active_run_ctx.events]!r}"
-    )
-    payload = probe_events[0]
-    assert payload.get("backend") == "claude-in-session", (
-        f"G2-AC1b: event payload backend must be 'claude-in-session'; got {payload!r}"
-    )
-    assert payload.get("reason") == "no_watchdog_support", (
-        f"G2-AC1b: event payload reason must be 'no_watchdog_support'; got {payload!r}"
-    )
-    assert payload.get("idle_enabled") is False, (
-        f"G2-AC1b: idle_enabled must be False (idle_timeout_sec=0); got {payload!r}"
-    )
-    assert payload.get("straggler_enabled") is True, (
-        f"G2-AC1b: straggler_enabled must be True (straggler_cfg provided); got {payload!r}"
-    )
+# (G2-AC1b retired by bd#89 P3b1b-i: straggler_cfg no longer reaches the probe.)
 
 
 # ---------------------------------------------------------------------------
@@ -412,97 +344,7 @@ def test_g2_ac2_idle_abort_error_code_byte_identical_baseline(monkeypatch) -> No
     )
 
 
-# ---------------------------------------------------------------------------
-# G2-AC3 — regression-fence: straggler abort on claude-subprocess →
-#           status='ok', data['straggler_aborted'] is True, straggler_abort event
-# ---------------------------------------------------------------------------
-
-def test_g2_ac3_straggler_abort_step_result_shape_byte_identical_baseline(
-    tmp_path: Path, active_run_ctx: _FakeEventLog, monkeypatch
-) -> None:
-    """G2-AC3: when _StragglerWatchdog.aborted is pre-staged True (§1i),
-    invoke_llm_subprocess on claude-subprocess returns
-    StepResult(status='ok', data['straggler_aborted'] == True) and emits
-    'straggler_abort' event with expected_n and pid keys.
-
-    Pre-staged (§1i / ABD52613 / workflows.md §1i): monkeypatch sets
-    _StragglerWatchdog.aborted = True on the instance before the main-thread
-    check runs. No racy real-thread sleep.
-
-    Pre-GREEN PASS: existing straggler-abort shape preserved; regression-fence.
-
-    §1l layer 5 (regression-baseline equivalence).
-    """
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir()
-    for i in range(1, 3):
-        (reviews_dir / f"role-r{i}.md").write_text("stub", encoding="utf-8")
-
-    # §1i: Pre-stage straggler condition. We monkeypatch _StragglerWatchdog.__init__
-    # to set self.aborted = True immediately on construction (before start() runs
-    # its thread). This deterministically ensures the aborted-check fires without
-    # relying on thread timing.
-    from bytedigger_engine import llm_subprocess as _llm
-    original_init = _llm._StragglerWatchdog.__init__
-
-    def _pre_staged_init(self, *, proc, reviews_dir, expected_n,
-                         patience_sec, poll_interval_sec):
-        original_init(
-            self,
-            proc=proc,
-            reviews_dir=reviews_dir,
-            expected_n=expected_n,
-            patience_sec=patience_sec,
-            poll_interval_sec=poll_interval_sec,
-        )
-        # Pre-stage: mark aborted immediately so the main-thread check sees it
-        self.aborted = True
-
-    monkeypatch.setattr(_llm._StragglerWatchdog, "__init__", _pre_staged_init)
-
-    # Also patch _StragglerWatchdog.start so it doesn't spawn a real thread
-    monkeypatch.setattr(_llm._StragglerWatchdog, "start", lambda self: None)
-
-    def _fake_stream_ok(*args, **kwargs):
-        # Returns without idle_aborted so straggler branch is reached
-        return (False, "", "", [], False, False)
-
-    popen_mock = _minimal_mock_proc(pid=4242)
-
-    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=popen_mock), \
-         patch("bytedigger_engine.llm_subprocess._stream_read_events", side_effect=_fake_stream_ok):
-        result = invoke_llm_subprocess(
-            prompt="x",
-            model="sonnet",
-            timeout_sec=30,
-            step_name="test_step",
-            backend="claude-subprocess",
-            straggler_cfg={
-                "reviews_dir": str(reviews_dir),
-                "expected_n": 3,
-            },
-        )
-
-    assert result.status == "ok", (
-        f"G2-AC3: straggler-abort must return status='ok'; "
-        f"got status={result.status!r} error_code={result.error_code!r}"
-    )
-    assert result.data is not None, "G2-AC3: result.data must not be None"
-    assert result.data.get("straggler_aborted") is True, (
-        f"G2-AC3: data['straggler_aborted'] must be True; "
-        f"got {result.data.get('straggler_aborted')!r}"
-    )
-
-    # straggler_abort event must be in log with expected_n and pid
-    straggler_events = active_run_ctx.by_type("straggler_abort")
-    assert len(straggler_events) >= 1, (
-        f"G2-AC3: expected 'straggler_abort' event in log; "
-        f"got {len(straggler_events)}. All events: "
-        f"{[(et, p) for et, p, _ in active_run_ctx.events]!r}"
-    )
-    ev = straggler_events[0]
-    assert "expected_n" in ev, f"G2-AC3: straggler_abort event must have 'expected_n'; got {ev!r}"
-    assert "pid" in ev, f"G2-AC3: straggler_abort event must have 'pid'; got {ev!r}"
+# (G2-AC3 retired by bd#89 P3b1b-i: the straggler watchdog is gone.)
 
 
 # ---------------------------------------------------------------------------
@@ -533,75 +375,7 @@ def test_g2_ac4_no_progress_single_emit_site() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# G2-AC5 — no deadlock: straggler-abort returns within bounded wall time
-# ---------------------------------------------------------------------------
-
-def test_g2_ac5_straggler_abort_no_deadlock_wall_bound(
-    tmp_path: Path, active_run_ctx: _FakeEventLog, monkeypatch
-) -> None:
-    """G2-AC5: straggler-abort flow on claude-subprocess returns within 5 seconds
-    (generous bound — real kill flow finishes in <100ms with mocked proc).
-    Asserts no deadlock between proc.kill() and _stream_read_events reader-thread.
-
-    §1i / ABD52613 / workflows.md §1i: straggler condition pre-staged by
-    monkeypatching __init__ to set self.aborted = True immediately. NEVER
-    race a real thread.
-
-    Pre-GREEN PASS: existing behavior already terminates promptly; regression-fence.
-
-    §1l layer 4 (wall-clock bound on production-side termination).
-    """
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir()
-
-    from bytedigger_engine import llm_subprocess as _llm
-    original_init = _llm._StragglerWatchdog.__init__
-
-    def _pre_staged_init(self, *, proc, reviews_dir, expected_n,
-                         patience_sec, poll_interval_sec):
-        original_init(
-            self,
-            proc=proc,
-            reviews_dir=reviews_dir,
-            expected_n=expected_n,
-            patience_sec=patience_sec,
-            poll_interval_sec=poll_interval_sec,
-        )
-        self.aborted = True  # §1i: pre-staged, no race
-
-    monkeypatch.setattr(_llm._StragglerWatchdog, "__init__", _pre_staged_init)
-    monkeypatch.setattr(_llm._StragglerWatchdog, "start", lambda self: None)
-
-    def _fake_stream_ok(*args, **kwargs):
-        return (False, "", "", [], False, False)
-
-    popen_mock = _minimal_mock_proc()
-
-    started = time.monotonic()
-    with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=popen_mock), \
-         patch("bytedigger_engine.llm_subprocess._stream_read_events", side_effect=_fake_stream_ok):
-        result = invoke_llm_subprocess(
-            prompt="x",
-            model="sonnet",
-            timeout_sec=60,
-            step_name="test_step",
-            backend="claude-subprocess",
-            straggler_cfg={
-                "reviews_dir": str(reviews_dir),
-                "expected_n": 2,
-            },
-        )
-    elapsed = time.monotonic() - started
-
-    assert elapsed < 5.0, (
-        f"G2-AC5: straggler-abort must return within 5s (no deadlock); "
-        f"elapsed={elapsed:.2f}s"
-    )
-    assert result.status == "ok", (
-        f"G2-AC5: straggler-abort must return status='ok'; "
-        f"got status={result.status!r} error_code={result.error_code!r}"
-    )
+# (G2-AC5 retired by bd#89 P3b1b-i: the straggler watchdog is gone.)
 
 
 # ---------------------------------------------------------------------------
