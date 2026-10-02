@@ -237,6 +237,8 @@ def test_ac5_uncompilable_spec_warn_only_passthrough_with_reasons(
     function does not exist."""
     from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
+    # bd#91: ENFORCE now defaults ON; warn-only is the explicit =0 mode.
+    monkeypatch.setenv("HAL_AC_DSL_GATE_ENFORCE", "0")
     log = _CaptureEventLog()
     _patch_telemetry(monkeypatch, log)
 
@@ -336,9 +338,10 @@ def test_ac8_admit_exception_warn_only_passthrough_driver_error(
 
 
 def test_ac9_admit_exception_enforce_on_fails_closed(tmp_path, monkeypatch) -> None:
-    """AC9: admit() raises (monkeypatched) with HAL_AC_DSL_GATE_ENFORCE=1 ->
-    status='error', error_code=='E_SPEC_AC_UNCOMPILABLE' (fail-closed, lesson
-    #221). FAILS pre-GREEN: function does not exist."""
+    """AC9 (bd#91 §2.4): admit() raises (monkeypatched) with
+    HAL_AC_DSL_GATE_ENFORCE=1 -> infrastructure degrades, does not block:
+    status='ok', data['spec_ac_dsl_unverified'] is True, one
+    spec_ac_dsl_driver_error event."""
     from bytedigger_engine import ac_dsl  # deferred
     from bytedigger_engine.workflows.phase_45_spec import _verify_spec_ac_dsl  # deferred
 
@@ -354,19 +357,17 @@ def test_ac9_admit_exception_enforce_on_fails_closed(tmp_path, monkeypatch) -> N
     f = _write(tmp_path, "spec_valid_for_driver_error_enforce.md", _VALID_SPEC)
     r = _verify_spec_ac_dsl(_ctx(), _prev(f))
 
-    assert r.status == "error", f"expected 'error', got {r.status!r}"
-    assert r.error_code == "E_SPEC_AC_UNCOMPILABLE", (
-        f"expected 'E_SPEC_AC_UNCOMPILABLE', got {r.error_code!r}"
-    )
+    assert r.status == "ok", f"expected degrade 'ok', got {r.status!r} ({r.error_code!r})"
+    assert r.data.get("spec_ac_dsl_unverified") is True, r.data
+    assert len(_payloads(log, "spec_ac_dsl_driver_error")) == 1
 
 
 # ─── AC10 — flags_catalog registration ──────────────────────────────────────
 
 
 def test_ac10_flags_catalog_has_gate_and_enforce_flags() -> None:
-    """AC10: flags_catalog.FLAGS contains HAL_AC_DSL_GATE (kind='gate',
-    default='1') and HAL_AC_DSL_GATE_ENFORCE (kind='flag', default='0').
-    FAILS pre-GREEN: keys absent."""
+    """AC10 (bd#91): flags_catalog.FLAGS contains HAL_AC_DSL_GATE (kind='gate',
+    default='1') and HAL_AC_DSL_GATE_ENFORCE (kind='gate', default='1')."""
     from bytedigger_engine import flags_catalog  # deferred
 
     flags = flags_catalog.FLAGS
@@ -383,8 +384,8 @@ def test_ac10_flags_catalog_has_gate_and_enforce_flags() -> None:
         f"{sorted(flags.keys())[:5]}..."
     )
     enforce_entry = flags["HAL_AC_DSL_GATE_ENFORCE"]
-    assert enforce_entry.get("kind") == "flag", f"expected kind='flag', got {enforce_entry!r}"
-    assert enforce_entry.get("default") == "0", f"expected default='0', got {enforce_entry!r}"
+    assert enforce_entry.get("kind") == "gate", f"expected kind='gate', got {enforce_entry!r}"
+    assert enforce_entry.get("default") == "1", f"expected default='1', got {enforce_entry!r}"
 
 
 # ─── AC11 — error_codes registration ────────────────────────────────────────

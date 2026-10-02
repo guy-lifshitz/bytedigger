@@ -128,8 +128,8 @@ class TestGateCanonicalVerdict:
         )
 
     def test_gate_inverse_drift_proceed_canonicalizes_verdict(self) -> None:
-        """AC3: markdown FAIL + structured approve must proceed with canonical
-        verdict PASS (not leak the raw markdown FAIL into the proceed dict)."""
+        """AC3 (bd#91 strict-AND): markdown FAIL + structured approve must NOT
+        proceed: loop-continue with a canonical non-PASS verdict."""
         prev = _make_gate_prev(
             VERDICT_FAIL,
             1,
@@ -138,19 +138,19 @@ class TestGateCanonicalVerdict:
         r = _gate_on_validation(None, prev)
 
         assert r.status == "ok"
-        assert "red_commit_sha" in r.data
-        assert "findings" not in r.data
-        assert r.data["verdict"] == VERDICT_PASS, (
-            "expected canonical verdict PASS on markdown-FAIL/structured-approve "
-            f"inverse drift, got {r.data.get('verdict')!r}"
+        assert "red_commit_sha" not in r.data
+        assert "findings" in r.data
+        assert VERDICT_PASS not in str(r.data["verdict"]), (
+            "markdown FAIL + structured approve must not yield a PASS token "
+            f"(strict-AND), got {r.data.get('verdict')!r}"
         )
         assert r.data["markdown_verdict"] == VERDICT_FAIL
 
     def test_gate_unknown_markdown_with_structured_approve_canonicalizes_to_pass(
         self,
     ) -> None:
-        """AC4: markdown UNKNOWN + structured approve must proceed with
-        canonical verdict PASS."""
+        """AC4 (bd#91 strict-AND): markdown UNKNOWN + structured approve is
+        fail-closed: loop-continue, no PASS token."""
         prev = _make_gate_prev(
             VERDICT_UNKNOWN,
             1,
@@ -159,8 +159,10 @@ class TestGateCanonicalVerdict:
         r = _gate_on_validation(None, prev)
 
         assert r.status == "ok"
-        assert r.data["verdict"] == VERDICT_PASS, (
-            f"expected canonical verdict PASS, got {r.data.get('verdict')!r}"
+        assert "red_commit_sha" not in r.data
+        assert "findings" in r.data
+        assert VERDICT_PASS not in str(r.data["verdict"]), (
+            f"expected non-PASS verdict (fail-closed), got {r.data.get('verdict')!r}"
         )
 
     def test_gate_emits_canonicalization_telemetry_on_drift(self, monkeypatch) -> None:

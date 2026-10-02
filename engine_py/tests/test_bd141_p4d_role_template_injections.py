@@ -744,7 +744,6 @@ def _assert_declares_role_plus_fragments(declared: tuple, source_id: str, frag_k
 _MATRIX = {
     "phase_45_spec:1357": (_d_spec_writer, "phase_45_spec", "_invoke_spec_llm", {}, "x", 1, False, ()),
     "phase_45_spec:4201": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _SHIP, 1, False, (_F1,)),
-    "phase_45_spec:4150-repoll": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _REVISE, 2, False, (_F1,)),
     "phase_5_implement:1553": (_d_red, "phase_5_implement", "_invoke_red_llm", {}, "x", 1, False, (_F2, _F3)),
     "phase_5_implement:6664": (_d_validation, "phase_5_implement", "_invoke_validation_llm", {}, "x", 1, False, (_F1,)),
     "phase_5_implement:7556": (_d_green, "phase_5_implement", "_invoke_green_llm", {}, "x", 1, False, (_F2, _F3)),

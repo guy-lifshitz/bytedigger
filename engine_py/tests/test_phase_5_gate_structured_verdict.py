@@ -205,8 +205,9 @@ class TestGateConsumesStructuredVerdict:
         assert r.error_code == "E_VALIDATION_FAILED"
 
     def test_gate_proceeds_when_markdown_fail_but_structured_approve(self) -> None:
-        """AC5 (inverse): structured.approve=True overrides markdown FAIL.
-        Gate should return the 'proceed' ok dict (no findings, has red_commit_sha)."""
+        """AC5 (inverse), bd#91 strict-AND: structured.approve=True no longer
+        overrides markdown FAIL. Gate must NOT proceed: it takes the
+        loop-continue branch (findings, cycle incremented, verdict has no PASS)."""
         prev = _make_gate_prev(
             VERDICT_FAIL,
             1,
@@ -214,19 +215,14 @@ class TestGateConsumesStructuredVerdict:
         )
         r = _gate_on_validation(None, prev)
 
-        assert r.status == "ok", (
-            "expected gate to proceed when structured.approve=True, "
-            f"even though markdown verdict={VERDICT_FAIL!r}"
+        assert r.status == "ok"
+        # Loop-continue branch, not the proceed branch
+        assert "red_commit_sha" not in r.data, (
+            "markdown FAIL + approve=True must not reach the proceed dict (strict-AND)"
         )
-        # Must be the "proceed" branch, not the loop-continue branch
-        assert "red_commit_sha" in r.data, (
-            "proceed dict must contain red_commit_sha"
-        )
-        assert "findings" not in r.data, (
-            "proceed dict must NOT contain findings (that belongs to loop-continue)"
-        )
-        # cycle should NOT be incremented in the proceed path
-        assert r.data.get("cycle") == 1
+        assert "findings" in r.data, "loop-continue dict must include findings"
+        assert VERDICT_PASS not in r.data["verdict"]
+        assert r.data.get("cycle") == 2
 
     def test_gate_loop_continue_when_structured_reject_under_cap(self) -> None:
         """AC7: structured.approve=False at cycle < MAX_VALIDATION_CYCLES triggers
