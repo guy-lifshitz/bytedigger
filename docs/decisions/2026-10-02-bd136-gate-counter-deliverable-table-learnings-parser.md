@@ -1,6 +1,6 @@
 # bd#136 items 4–6 — per-phase gate counter, declarative deliverable table, one learnings parser
 
-**Status: DRAFT Rev 1** · **Class:** SYSTEMATIC (duplication → one source of truth) ·
+**Status: FROZEN Rev 2** (gate r1 REJECT M1–M4 + m1–m10 → §R2) · **Class:** SYSTEMATIC (duplication → one source of truth) ·
 **Builds on:** main `7a4c7cd` (#191 closed items 1–3). Deterministic only, stdlib only, no model.
 
 ## §1 Problem (measured on `7a4c7cd`)
@@ -30,7 +30,7 @@
 
 ## §2 Scope
 
-In: items 4–6. Out: the phase-6 checks (bash soft "unfixed findings" vs TS hard "Boy Scout"
+In: items 4–6 and item 7 (the bash 5.5 crash). Out: the phase-6 checks (bash soft "unfixed findings" vs TS hard "Boy Scout"
 plus state writes). They are different logic, not table rows, and stay code. Hard checks
 (5.3, 5.5 gaming, 6 skipped/post_review_gate, the global downgrade) stay code in both backends.
 
@@ -90,14 +90,14 @@ Initial content (it must reproduce today's **bash** reasons byte-for-byte):
 - **TS**: `checkPhase45/5/51/52` collapse into one `checkDeliverables(cwd, phase)`. `checkPhase55`
   and `checkPhase7` keep their code-only parts (hard check, `disablePhase7`, TRIVIAL) and call it.
   TS reasons then equal bash reasons for all six phases. This deliberately changes TS 5.2 and 5.5
-  strings, and the RED commit updates the bun pins.
+  strings. No bun test pins the old TS 5.1-unreadable, 5.2 or 5.5 strings.
 - `log_red` on an unreadable log follows bash: the reason is "contains no failures" (the TS-only "unreadable" entry goes away).
 - **Table unreadable / missing** (both backends): soft block with the single entry
   `deliverable table unreadable: <abs path>` (it then goes through loop prevention). An unknown
   `kind` is a soft-block entry `deliverable table: unknown kind '<kind>' (line <n>)`. A phase
   with no rows passes.
 - **Single source.** No string `plan_review`, `phase_5_implement`, `phase_52a_gherkin`,
-  `test_integrity_check`, `learnings-raw.md` or `contains no failures` remains in
+  `test_integrity_check` or `learnings-raw.md` remains in
   `build-gate.sh` / `build-phase-gate.ts` outside comments, except where a hard check or a
   state write still needs it (none of these names does today).
 - The table ships with the plugin. It sits in `scripts/` next to the gates, so every existing
@@ -142,7 +142,7 @@ Initial content (it must reproduce today's **bash** reasons byte-for-byte):
   exactly. The file backend's category files and the sqlite DB rows (if `sqlite3` is present,
   else skip) contain the same (category, lesson) set, and both write the same
   `learnings_parse_errors`.
-- **A2** note: the fixture already carries `gate_block_phase`, so A2 passes today (a GUARD for C2).
+- **A2-note**: the fixture already carries `gate_block_phase`, so A2 passes today (a GUARD for C2).
 - **A10** Regression guards: existing `tests/build-gate.bats`, `tests/learning-store*.bats` and
   `tests/test_worker_deliverables.py` stay green.
 
@@ -152,3 +152,71 @@ Initial content (it must reproduce today's **bash** reasons byte-for-byte):
   code, because they carry side effects (state writes) or different severity.
 - TAB-separated: an editor that turns tabs into spaces breaks the row. The backends then report
   an unknown kind or a missing field. It fails visibly, never silently.
+
+## §R2 Rev 2 (gate r1: REJECT, findings M1–M4 and m1–m10, all folded in)
+
+- **M1** The literal `contains no failures` is the `log_red` kind template, so it may stay in code.
+  It is removed from the §4/A8 forbidden list. A8 forbids data only (field names, file paths).
+  New pin: the literal appears exactly once per backend.
+- **M2: the whole table is validated on every load,** before rows are filtered by phase.
+  Any violation adds an entry to **every** phase that reads the table (deliverable phases
+  4.5, 5, 5.1, 5.2, 5.5, 7), in physical file order. A line is valid only if all of these hold:
+  - it is exactly the TAB-split fields for its kind (`field_eq` 4, `field_set` 3, `log_red` 3,
+    `scratch_file` 3);
+  - no field is empty;
+  - the phase matches `^[0-9]+(\.[0-9]+)?$`;
+  - the kind is known.
+
+  Entries (line = 1-based physical line, comments and blanks counted):
+  - `deliverable table: unknown kind '<kind>' (line <n>)`
+  - `deliverable table: malformed row (line <n>)`, which covers a wrong field count, an empty
+    field, a bad phase, or tabs turned into spaces.
+
+  Before splitting, a trailing `\r` is stripped, a last line without a newline is still read, and
+  consecutive TABs give an empty field, which makes the row malformed. bash cannot use the
+  `IFS=$'\t' read` field-merging and must split it by hand. Add `.gitattributes`:
+  `*.tsv text eol=lf`. RED: a row with spaces instead of tabs, a row missing an argument, and an
+  unknown kind on another phase's row. bash and TS output must be byte-identical.
+- **M3 A9b (behavioral single parser).** Build a temp `scripts/` with both store scripts and a
+  stub `learnings_parse.py` that prints fixed output (for example `2` / `stubcat\x1fstub lesson`).
+  Both backends' `extract` must store exactly the stub entries and write
+  `learnings_parse_errors: 2`. Stub exits 1 → file backend writes `learnings_extracted: 0` and
+  no `learnings_parse_errors`; sqlite keeps its error-slug path. The file backend passes the CLI
+  output to its storage python on stdin (or as a temp file). It never re-parses.
+- **M4 A11 CI wiring.** The `manifests` job gets a step "gate counter / deliverable table /
+  learnings parser (bd#136)". The step has `BD_REQUIRE_SQLITE: "1"`, installs sqlite3 if it is
+  missing and installs bun the same pinned and checksummed way as the `pytest` job (same
+  `BUN_VERSION`/sha256). It then runs `python -m pytest tests/test_bd136_gate_counter_table_parser.py -q`.
+  A test pins that step (yaml load, the env value, and `bun` installed before the pytest run).
+  The RED docstring is corrected.
+- **m1 Lookup.** The table is found relative to the script only.
+  - bash: `$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/phase-deliverables.tsv`
+  - TS: `fileURLToPath(new URL("../phase-deliverables.tsv", import.meta.url))`
+  - Never from cwd or `CLAUDE_PLUGIN_ROOT`. TS reads the table lazily, inside the check, and never
+    at module load.
+  - RED: a plugin copy under a path that contains a space.
+- **m2** "Trimmed value" means bash `yaml_get` / TS `readStateField(...).trim()`. With values
+  that contain inner spaces, `(got: …)` keeps the spaces, which differs from old bash `tr -d ' '`
+  and is accepted. A `scratch_file` path keeps its spaces.
+- **m4 Counter.**
+  - "Numeric" means `^[0-9]+$`. Anything else counts as 0 in both backends.
+  - An empty `gate_block_phase:` value counts as absent (C1).
+  - The stored phase is canonicalised before the comparison.
+- **m5** TS canonicalises the alias (`52`→`5.2` …) before `checkDeliverables` and before loop
+  prevention. RED: TS with `current_phase: 52` gives the same verdict as `5.2`, and C2 holds
+  across `52`/`5.2`.
+- **m6** The rewrite uses a unique temp name (`build-state.yaml.<pid>.<rand>.tmp`) and then a
+  rename. Documented limit: shadow mode runs both backends, so the counter grows by 2 per gate
+  call.
+- **m8** The parser CLI writes UTF-8 to stdout whatever the locale
+  (`sys.stdout.reconfigure(encoding="utf-8")`). RED runs it without `PYTHONUTF8`, with
+  `LC_ALL=C`.
+- **m9 RED.**
+  - Table present but unreadable (chmod 000, skipped as root) gives the same entry as missing.
+  - A phase with no rows (an added `8` row is absent) passes.
+  - State not writable: the soft block is still emitted, plus a WARN on stderr.
+- **m10** bash `block()` JSON-escapes `\` and `"` in the reason, so bash and TS stay
+  byte-identical for an unknown kind that contains a quote. RED: a kind `a"b`.
+- **m7** A10 list adds `tests/test_bd89_p2a_phases_1_4_dropped.py`, `tests/gate-dispatcher.bats`,
+  and the bun suites `build-phase-gate*.test.ts`, `worker-deliverables.test.ts` and
+  `post-review-gate.test.ts`. GREEN keeps `loopPreventionCLI(statePath, phase)` exported.
