@@ -44,7 +44,7 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **Scratchpad:** Phase 0 creates `.bytedigger/` (in project CWD) with subdirs (research/, architecture/, specs/, tests/, reviews/). Workers write findings to scratchpad files. Path stored in `build-state.yaml` as `scratchpad_dir`. **Scratchpad Health:** Every phase verifies scratchpad_dir exists before proceeding. If missing, it recreates the directory structure automatically. Persists with worktree, survives reboots.
 
-**Tool Guard:** Phase 0 runs `touch .bytedigger-orchestrator-pid` to arm the guard. PreToolUse hook blocks orchestrator from Edit/Write on code files (.ts/.py/.swift). Agent detection via env vars (`CLAUDE_AGENT_ID`, `SIDECHAIN`, etc.) → agents allowed. Phase 7 cleans up `.bytedigger-orchestrator-pid`.
+**Hooks:** Two PreToolUse hooks are registered in `hooks/hooks.json`. `hooks/build-state-guard.sh` (Bash) applies to every caller, the main thread included. While `build-state.yaml` has a `current_phase` other than `7` or `completed`, it rejects Bash commands that `rm` or `unlink` `build-state.yaml` or `.bytedigger-orchestrator-pid` (a protected file that Phase 0 creates and Phase 7 removes), and `rm -r .` variants. `hooks/worker-write-guard.sh` (runs `hooks/worker_write_guard.py`; Write, Edit, MultiEdit, NotebookEdit and Bash) is active while a build is active. It recognises subagents by a non-empty `agent_id` field in the hook's stdin JSON and stops them from writing `build-state.yaml`, `build-metadata.json`, `build-red-output.log`, `build-green-output.log` and `.bytedigger-orchestrator-pid`. It also confines the synthesizer to `<scratchpad>/reviews/`. See `docs/security.md` for detail. No hook blocks the orchestrator from editing code; that rule is in the prompt only.
 
 **Outputs:** Complexity + mode | Project context | Active phases (all tiers: 0 -> 0.5 -> 4.5 -> 5 -> 6 -> 7) | Model allocation (from `bytedigger.json`) | **Immutable metadata:** Write `build-metadata.json` with complexity + mode + created_at. This file prevents complexity downgrade bypass — never modify after Phase 0. | Dependency pre-check: lock file + quick validation → `deps_checked` to build-state.yaml (soft, never blocks)
 
@@ -155,7 +155,7 @@ Steps: (1) `git fetch --prune` — prune remote refs. (2) Delete gone branches (
 **→ See `templates/dynamic-context.md`** for full Model Allocation table (loaded as attachment, not cached).
 Models are configurable via `bytedigger.json`.
 
-## Gates — Hook Enforcement (hooks/build-gate.sh)
+## Gates — Hook Enforcement (scripts/build-gate.sh)
 
 **Total: 9 gates across 7 phases. All enforced via SubagentStop hook.**
 
