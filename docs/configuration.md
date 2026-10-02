@@ -56,7 +56,7 @@ default branch of the repository BD pushes to** (`git remote get-url --push orig
 | `readiness.label` | string | `"plan-approved"` | the label a human adds to approve the plan |
 | `readiness.approvers` | list of logins | `[]` | when non-empty, only these users' label counts |
 | `readiness.distinct_actor` | bool | `false` | `true` refuses a label added by the BD user itself (`self_approved`) |
-| `readiness.review_label` | string | absent (off) | the label a human adds to mark the implementation ready for review; when set, engine Phase 6 refuses review without it |
+| `readiness.review_label` | string | absent (off) | the label a human adds to mark the implementation ready for review; when set, engine Phase 6 refuses review without it. Must be a non-empty string that differs from `label` (ignoring case); a malformed value makes every stage unavailable, so `check --stage ship` and `post` exit 4 |
 
 How it works:
 
