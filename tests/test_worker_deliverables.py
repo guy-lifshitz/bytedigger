@@ -80,7 +80,7 @@ def _clean_env(home: Path, **extra: str) -> dict[str, str]:
 # AC1 -- tools: old set + Write, nothing else
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("agent", ["explorer", "architect", "synthesizer"])
+@pytest.mark.parametrize("agent", ["synthesizer"])
 def test_ac1_tools_are_old_set_plus_write(agent):
     assert _tools(f"agents/{agent}.md") == OLD_TOOLS | {"Write"}
 
@@ -90,19 +90,17 @@ def test_ac1_tools_are_old_set_plus_write(agent):
 # ---------------------------------------------------------------------------
 
 AGENT_PATHS = {
-    "explorer": "{scratchpad_dir}/research/findings-{your-name}.md",
-    "architect": "{scratchpad_dir}/architecture/approach-{your-name}.md",
     "synthesizer": "{scratchpad_dir}/reviews/learnings-raw.md",
 }
 
 
-@pytest.mark.parametrize("agent", ["explorer", "architect", "synthesizer"])
+@pytest.mark.parametrize("agent", ["synthesizer"])
 def test_ac2_agent_deliverable_section_names_single_path(agent):
     sec = _deliverable_section(f"agents/{agent}.md")
     assert AGENT_PATHS[agent] in sec
 
 
-@pytest.mark.parametrize("agent", ["explorer", "architect", "synthesizer"])
+@pytest.mark.parametrize("agent", ["synthesizer"])
 def test_ac2_agent_deliverable_write_is_for_that_one_path_only(agent):
     sec = _deliverable_section(f"agents/{agent}.md")
     assert re.search(r"\bWrite\b", sec)
@@ -112,7 +110,7 @@ def test_ac2_agent_deliverable_write_is_for_that_one_path_only(agent):
     assert re.search(r"\btest\b", sec, re.I)
 
 
-@pytest.mark.parametrize("agent", ["explorer", "architect", "synthesizer"])
+@pytest.mark.parametrize("agent", ["synthesizer"])
 def test_ac2_agent_deliverable_names_build_state_yaml_as_forbidden(agent):
     # M8/R8: agents now hold Write; build-state.yaml must be named as off-limits.
     sec = _deliverable_section(f"agents/{agent}.md")
@@ -122,25 +120,15 @@ def test_ac2_agent_deliverable_names_build_state_yaml_as_forbidden(agent):
                      sec, re.I)
 
 
-def test_ac2_architect_deliverable_different_path_rule():
-    # M9/R8: security architect writes only the path its prompt names; never another agent's file.
-    sec = _deliverable_section("agents/architect.md")
-    assert re.search(r"different path", sec, re.I)
-    assert re.search(r"(do not|don't|never)[^.\n]{0,60}(another|other)[^.\n]{0,30}(agent|architect)", sec, re.I)
+# architect-agent cases retired by bd#89 P2a (agents/architect.md deleted).
 
 
-@pytest.mark.parametrize("agent", ["explorer", "architect", "synthesizer"])
+@pytest.mark.parametrize("agent", ["synthesizer"])
 def test_ac2_agent_deliverable_final_reply_is_summary_plus_path(agent):
     sec = _deliverable_section(f"agents/{agent}.md")
     assert re.search(r"summary", sec, re.I)
     assert re.search(r"\bpath\b", sec, re.I)
     assert re.search(r"\b(not|never|instead|rather than)\b", sec, re.I)
-
-
-def test_ac2_architect_deliverable_covers_security_architect_prompt_path():
-    sec = _deliverable_section("agents/architect.md")
-    assert re.search(r"security", sec, re.I)
-    assert re.search(r"(given|provided|specified|named)[^.\n]{0,30}prompt", sec, re.I)
 
 
 def test_ac2_synthesizer_uses_scratchpad_dir_placeholder():
@@ -177,25 +165,7 @@ def _slice(text: str, start_re: str, end_re: str) -> str:
     return m.group(1)
 
 
-def test_ac3_phase2_step3_contract():
-    text = _read("phases/phase-2-explore.md")
-    actions_idx = text.find("\n## Actions")
-    assert actions_idx != -1, "section not found: ## Actions"
-    step3 = _slice(text[actions_idx:], r"^3\. ", r"^4\. ")
-    assert "{scratchpad_dir}/research/findings-{agent-name}.md" in step3 or \
-        "{scratchpad_dir}/research/findings-{your-name}.md" in step3
-    assert re.search(r"itself", step3, re.I)
-    assert re.search(r"summary", step3, re.I) and re.search(r"\bpath\b", step3, re.I)
-    _assert_orchestrator_verifies(step3)
-
-
-def test_ac3_phase4_reanchor_contract():
-    text = _read("phases/phase-4-architect.md")
-    block = _slice(text, r"^## Re-Anchoring", r"^## Actions")
-    assert "{scratchpad_dir}/architecture/approach-{your-name}.md" in block
-    assert re.search(r"itself", block, re.I)
-    assert re.search(r"summary", block, re.I) and re.search(r"\bpath\b", block, re.I)
-    _assert_orchestrator_verifies(block)
+# phase-2 / phase-4 contract cases retired by bd#89 P2a (phase files deleted).
 
 
 def test_ac3_phase7_step1_contract():
@@ -209,7 +179,7 @@ def test_ac3_phase7_step1_contract():
     _assert_orchestrator_verifies(verify_slice)
 
 
-@pytest.mark.parametrize("rel", ["phases/phase-4-architect.md", "phases/phase-7-synthesize.md"])
+@pytest.mark.parametrize("rel", ["phases/phase-7-synthesize.md"])
 def test_ac3_worker_constraints_no_direct_edit_bash_line(rel):
     # F7/R6: the old line contradicts AC1/AC2 exactly where Write is granted.
     assert "Use Read/Edit/Write/Bash directly" not in _read(rel)
@@ -221,13 +191,6 @@ def test_ac3_phase7_no_bare_scratchpad_placeholder():
     assert "{scratchpad}" not in text
     assert "{scratchpad_dir}/reviews/learnings-raw.md" in text or \
         "reviews/learnings-raw.md" in text
-
-
-def test_ac3_phase2_uses_your_name_placeholder():
-    # M4: align phase-2 with explorer.md's {your-name}.
-    text = _read("phases/phase-2-explore.md")
-    assert "{agent-name}" not in text
-    assert "{scratchpad_dir}/research/findings-{your-name}.md" in text
 
 
 def test_ac3_phase7_documents_line_format():
@@ -282,76 +245,12 @@ def _reason(proc) -> str:
 # AC4 -- gate 4
 # ---------------------------------------------------------------------------
 
-def test_ac4_zero_byte_findings_only_hard_blocks_stale(tmp_path):
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n")
-    (scratch / "research" / "findings-a.md").write_text("")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 1, proc.stdout + proc.stderr
-    # F1(a): exact bash reason; TS verdict reason is the same text minus the
-    # "HARD BLOCK: " prefix, which toWirePayload adds on the wire (wire strings identical).
-    # Hard block also wins over the (absent) approach deliverable.
-    assert _reason(proc) == (
-        f"HARD BLOCK: scratchpad_stale: no non-empty findings-*.md found in "
-        f"{scratch}/research — Phase 2 exploration must complete before Phase 4")
-    assert re.search(r"^scratchpad_stale: true$",
-                     (tmp_path / "build-state.yaml").read_text(), re.M)
+# bd#89 P2a: the AC4 gate-4 cases (scratchpad_stale on findings-*.md, approach-*.md
+# deliverable) are retired -- phase 4 and its gate are dropped. The phase-5 gate
+# behaviour is pinned in engine_py/tests/test_bd89_p2a_phases_1_4_dropped.py (AC10).
 
-
-def test_ac4_missing_approach_soft_blocks(tmp_path):
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n")
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert _reason(proc) == f"missing deliverable: {scratch}/architecture/approach-*.md; "
-
-
-def test_ac4_zero_byte_approach_soft_blocks(tmp_path):
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n")
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    (scratch / "architecture" / "approach-a.md").write_text("")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert _reason(proc) == f"missing deliverable: {scratch}/architecture/approach-*.md; "
-
-
-def test_ac4_both_missing_exact_joined_reason(tmp_path):
-    # F1(c): phase_4_architect entry first, deliverable entry after, bash printf '%s; ' format.
-    scratch = _gate_fixture(tmp_path, "4", "")
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert _reason(proc) == (
-        "phase_4_architect=complete (got: <missing>); "
-        f"missing deliverable: {scratch}/architecture/approach-*.md; ")
-
-
-def test_ac4_architecture_dir_absent_soft_blocks_not_crash(tmp_path):
-    # F2(d)/R2: no architecture/ directory at all -> soft block with the entry, never a crash.
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n",
-                            subdirs=("research",))
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert _reason(proc) == f"missing deliverable: {scratch}/architecture/approach-*.md; "
-
-
-def test_ac4_findings_and_approach_non_empty_passes(tmp_path):
-    # Also satisfied by the post-GREEN gate: one non-empty approach suffices.
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n")
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    (scratch / "architecture" / "approach-a.md").write_text("approach\n")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-
-
-def test_ac4_guard_findings_and_approach_pass(tmp_path):
-    # GUARD: passes on main and must keep passing.
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n")
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    (scratch / "architecture" / "approach-a.md").write_text("approach\n")
-    (scratch / "architecture" / "approach-b.md").write_text("")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
+# Phase-5 gate state after P2a: plan_review replaces phase_4_architect.
+_P5_STATE = "plan_review: pass\nphase_5_implement: complete\nopus_validation: pass\n"
 
 
 # ---------------------------------------------------------------------------
@@ -448,10 +347,9 @@ def test_ac5_trivial_missing_file_not_checked(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_c2_gate4_scratchpad_path_with_space_passes(tmp_path):
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n",
-                            scratch_name="my scratch")
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    (scratch / "architecture" / "approach-a.md").write_text("approach\n")
+    # bd#89 P2a: re-pointed from gate 4 (dropped) to a phase-5 fixture; a spaced
+    # scratchpad path must not break the gate.
+    _gate_fixture(tmp_path, "5", _P5_STATE, scratch_name="my scratch")
     proc = _run_gate(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
@@ -481,27 +379,16 @@ def test_c3_gate7_trivial_without_review_complete_passes(tmp_path):
     assert "review_complete" not in proc.stdout
 
 
-def test_c4_phase4_reanchor_architect_does_not_run_git_diff():
-    text = _read("phases/phase-4-architect.md")
-    block = _slice(text, r"^## Re-Anchoring", r"^## Actions")
-    assert not re.search(r"^\s*\d+\.\s*Run `git diff", block, re.M), \
-        "architect has no shell: it must not be told to run git diff"
-    # the orchestrator supplies the `git diff --stat` output instead
-    paras = re.split(r"\n\s*\n", block)
-    assert any(
-        re.search(r"orchestrator", p, re.I) and "git diff --stat" in p
-        and re.search(r"provid|paste|supplie|includ", p, re.I)
-        for p in paras
-    ), "block must say the orchestrator provides the `git diff --stat` output"
+# test_c4_phase4_reanchor_architect_does_not_run_git_diff retired by bd#89 P2a
+# (phases/phase-4-architect.md deleted).
 
 
 def test_c11_gate_survives_gnu_stat(tmp_path):
     # C11: on GNU coreutils `stat -f` means --file-system and exits 0 with
     # multi-line output, so `stat -f %m ... || stat -c %Y ...` never falls back
     # and the arithmetic on $mtime dies. The gate must survive a GNU-style stat.
-    scratch = _gate_fixture(tmp_path, "4", "phase_4_architect: complete\n")
-    (scratch / "research" / "findings-a.md").write_text("findings\n")
-    (scratch / "architecture" / "approach-a.md").write_text("approach\n")
+    # bd#89 P2a: re-pointed from gate 4 (dropped) to a phase-5 fixture.
+    _gate_fixture(tmp_path, "5", _P5_STATE)
 
     shim = tmp_path / "shim"
     shim.mkdir()

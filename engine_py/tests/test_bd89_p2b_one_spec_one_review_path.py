@@ -20,14 +20,14 @@ AC4   test_ac4_no_spec_lite_timeout_keys_and_kept_rows_unchanged
 AC5   test_ac5_guard_shared_error_codes_still_registered    (guard, green now)
       test_ac5_error_code_descriptions_do_not_name_dropped_workflow  (registry + 2 md)
       test_ac5_the_two_error_codes_md_files_are_byte_identical (guard)
-AC6   test_ac6_guard_frozen_simple_skip_and_kill_switch     (guard, green now)
+AC6   (retired by bd#89 P2a: should_skip_phase and the flag are deleted)
 AC7   test_ac7_no_text_residue_in_engine_py_and_error_codes_md
 AC8   test_ac8a_guard_full_workflow_has_every_deterministic_gate_in_order
       test_ac8b_guard_real_prelint_emits_result_into_real_event_log
       test_ac8c_guard_enforce_on_gives_simple_the_recoverable_retry
 AC9   test_ac9_no_other_test_file_references_dropped_workflows
-      test_ac9_bd44_expected_workflows_is_14
-      test_ac9_p1_frozen_registry_is_the_same_14
+      test_ac9_bd44_expected_workflows_is_10      (re-pinned by bd#89 P2a, was 14)
+      test_ac9_p1_frozen_registry_is_the_same_10  (re-pinned by bd#89 P2a, was 14)
 AC10  autouse fixture `_no_claude_no_api_key` + test_ac10_environment_has_no_claude_and_no_api_key
 AC11  test_ac11_configuration_doc_has_no_fastpath_or_simple_rewrite_needles
 
@@ -86,8 +86,7 @@ _AC9_NEEDLES = (_LITE_SPEC, _FASTPATH, "spec_" + "lite.")
 DROPPED_STEMS = (_LITE_SPEC, _FASTPATH)
 
 FROZEN_REGISTRY = {
-    "echo", "phase_0_research", "phase_05_inject", "phase_1_discovery",
-    "phase_2_explore", "phase_3_clarify", "phase_4_architect", "phase_45_spec",
+    "echo", "phase_0_research", "phase_05_inject", "phase_45_spec",
     "phase_5_implement", "phase_5_integrity",
     "phase_6_fix_integrity", "phase_6_review",
     "phase_7_synthesize", "phase_8_post_deploy",
@@ -288,33 +287,8 @@ def test_ac5_the_two_error_codes_md_files_are_byte_identical():
     assert a.read_bytes() == b.read_bytes()
 
 
-# --- AC6 (guard) -----------------------------------------------------------------
-
-_FROZEN_TEXT = (
-    "# Frozen Spec\n\n"
-    "**Status:** FROZEN (§1-PREFLIGHT done)\n\n"
-    "### §3 Acceptance Criteria\n"
-    "| # | AC |\n|---|----|\n| AC1 | thing |\n"
-)
-
-
-def test_ac6_guard_frozen_simple_skip_and_kill_switch(tmp_path, monkeypatch):
-    """GUARD (green at RED): the GH531 SIMPLE relax in skip_logic is untouched."""
-    from bytedigger_engine.skip_logic import should_skip_phase
-
-    doc = tmp_path / "decision.md"
-    doc.write_text(_FROZEN_TEXT, encoding="utf-8")
-    monkeypatch.chdir(tmp_path)  # pre-stage containment root (1i); no race
-    cfg = {"decision_doc": str(doc), "complexity": "SIMPLE"}
-
-    monkeypatch.delenv("HAL_FROZEN_SHORT_CIRCUIT", raising=False)
-    skip, path = should_skip_phase(cfg)
-    assert skip is True and path is not None and Path(path).samefile(doc)
-
-    monkeypatch.setenv("HAL_FROZEN_SHORT_CIRCUIT", "0")
-    skip, path = should_skip_phase(cfg)
-    assert skip is False and path is None
-
+# --- AC6: retired by bd#89 P2a (its subject, should_skip_phase and the
+# HAL_FROZEN_SHORT_CIRCUIT flag, is deleted with phases 1-4). --------------------
 
 # --- AC7 -------------------------------------------------------------------------
 
@@ -419,11 +393,11 @@ def _load_sibling(stem: str):
     return mod
 
 
-def test_ac9_bd44_expected_workflows_is_14():
-    assert _load_sibling("test_bd44_package_namespace").EXPECTED_WORKFLOWS == 14
+def test_ac9_bd44_expected_workflows_is_10():
+    assert _load_sibling("test_bd44_package_namespace").EXPECTED_WORKFLOWS == 10
 
 
-def test_ac9_p1_frozen_registry_is_the_same_14():
+def test_ac9_p1_frozen_registry_is_the_same_10():
     assert set(_load_sibling("test_bd89_p1_devops_dropped").FROZEN_REGISTRY) == FROZEN_REGISTRY
 
 

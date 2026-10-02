@@ -410,52 +410,7 @@ def _extract_allowed_tools_kwarg(mock_obj: MagicMock) -> list[str] | None:
 # passing to _ok_result(**data) so the wrapper reaches invoke_llm_subprocess.
 
 _PHASE_PROFILE_CASES: list[tuple[str, str, object, list[str]]] = [
-    # phase_1_discovery._invoke_discovery_llm
-    (
-        "phase_1_discovery",
-        "_invoke_discovery_llm",
-        lambda p: {
-            "prompt": "x",
-            "doc_path": str(p / "discovery.md"),
-            "complexity": "SIMPLE",
-        },
-        ["Read", "Grep", "Glob", "Write", "Bash(graphify-shim.sh:*)"],
-    ),
-    # phase_2_explore._invoke_explore_llm
-    (
-        "phase_2_explore",
-        "_invoke_explore_llm",
-        lambda p: {
-            "prompt": "x",
-            "doc_path": str(p / "explore.md"),
-            "complexity": "SIMPLE",
-            # passthrough_if_skipped needs these absent or not-skipped
-        },
-        ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Write", "Bash(graphify-shim.sh:*)"],
-    ),
-    # phase_3_clarify._invoke_clarify_llm
-    (
-        "phase_3_clarify",
-        "_invoke_clarify_llm",
-        lambda p: {
-            "prompt": "x",
-            "doc_path": str(p / "clarify.md"),
-            "complexity": "SIMPLE",
-        },
-        ["Read", "Glob", "Write"],
-    ),
-    # phase_4_architect._invoke_architect_llm
-    (
-        "phase_4_architect",
-        "_invoke_architect_llm",
-        lambda p: {
-            "prompt": "x",
-            "doc_path": str(p / "architect.md"),
-            "complexity": "SIMPLE",
-            "security_classification": "LOW",
-        },
-        ["Read", "Grep", "Glob", "Write"],
-    ),
+    # (phase_1..4 rows retired by bd#89 P2a: modules deleted)
     # phase_45_spec._invoke_spec_llm  (spec writer)
     (
         "phase_45_spec",

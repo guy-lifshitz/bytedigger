@@ -87,9 +87,9 @@ function setupStaleArtifactSession(): void {
     plan_review: "approved",
   });
 
-  // Write a stale build-architecture.md (mtime in the past)
-  const staleArtifact = join(dir, "build-architecture.md");
-  writeFileSync(staleArtifact, "# Architecture\n");
+  // Write a stale build-plan-review.md (mtime in the past)
+  const staleArtifact = join(dir, "build-plan-review.md");
+  writeFileSync(staleArtifact, "# Plan review\n");
   const past = new Date(Date.now() - 3600 * 1000);
   utimesSync(staleArtifact, past, past);
 
@@ -134,7 +134,7 @@ describe("F7 — build-phase-gate dispatcher: missingFields in phase-end JSONL (
     // The stale artifact name must appear in missingFields
     const missingFields = metadata!["missingFields"] as string[];
     expect(missingFields.length).toBeGreaterThan(0);
-    expect(missingFields.some((f) => f.includes("build-architecture.md"))).toBe(true);
+    expect(missingFields.some((f) => f.includes("build-plan-review.md"))).toBe(true);
   });
 
   test("E12 — dispatcher does NOT emit missingFields in phase-end JSONL when runGlobalPrePhaseChecks returns empty missingFields", () => {

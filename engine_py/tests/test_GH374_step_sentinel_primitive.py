@@ -289,9 +289,9 @@ def test_b7_flagged_step_error_writes_no_sentinel(tmp_path):
 
 
 def test_b8_exactly_three_llm_steps_flagged():
-    """B8: phase_45_spec_workflow/phase_5_implement_workflow/phase_4_architect_workflow
+    """B8: phase_45_spec_workflow/phase_5_implement_workflow
     have resume_sentinel==True on exactly invoke_spec_llm/invoke_green_llm/
-    invoke_architect_llm/invoke_review_llm (the last flipped by GH557), and
+    invoke_review_llm (the last flipped by GH557), and
     False everywhere else. Loop-body steps (invoke_red_llm/invoke_validation_llm,
     GH557) live in LoopStepContract.body, not wf.steps — pinned in
     test_gh557_resume_seam_flips.py, not here.
@@ -300,12 +300,12 @@ def test_b8_exactly_three_llm_steps_flagged():
     """
     from bytedigger_engine.workflows.phase_45_spec import phase_45_spec_workflow  # noqa: PLC0415
     from bytedigger_engine.workflows.phase_5_implement import phase_5_implement_workflow  # noqa: PLC0415
-    from bytedigger_engine.workflows.phase_4_architect import phase_4_architect_workflow  # noqa: PLC0415
 
-    expected_true = {"invoke_spec_llm", "invoke_green_llm", "invoke_architect_llm", "invoke_review_llm"}
+    # bd#89 P2a: phase_4_architect (and its invoke_architect_llm) is deleted.
+    expected_true = {"invoke_spec_llm", "invoke_green_llm", "invoke_review_llm"}
     flagged: set = set()
     seen: set = set()
-    for wf in (phase_45_spec_workflow(), phase_5_implement_workflow(), phase_4_architect_workflow()):
+    for wf in (phase_45_spec_workflow(), phase_5_implement_workflow()):
         for step in wf.steps:
             seen.add(step.name)
             if getattr(step, "resume_sentinel"):

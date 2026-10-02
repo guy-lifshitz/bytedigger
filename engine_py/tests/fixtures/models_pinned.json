@@ -4,8 +4,6 @@
     "fallback": "haiku",
     "critical": "opus",
     "spec_writer": "opus",
-    "discovery": "sonnet",
-    "explore": "sonnet",
     "decorrelated_verifier": "fable"
   }
 }

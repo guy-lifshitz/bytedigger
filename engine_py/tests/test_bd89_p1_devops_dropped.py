@@ -84,8 +84,7 @@ DROPPED_ERROR_CODES = (
     "E_SMOKE_TIMEOUT",
 )
 FROZEN_REGISTRY = {
-    "echo", "phase_0_research", "phase_05_inject", "phase_1_discovery",
-    "phase_2_explore", "phase_3_clarify", "phase_4_architect", "phase_45_spec",
+    "echo", "phase_0_research", "phase_05_inject", "phase_45_spec",
     "phase_5_implement", "phase_5_integrity",
     "phase_6_fix_integrity", "phase_6_review",
     "phase_7_synthesize", "phase_8_post_deploy",

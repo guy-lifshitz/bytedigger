@@ -147,16 +147,7 @@ def test_ac6_run_git_in_git_diff_uses_git_read():
     )
 
 
-def test_ac6_check_update_needs_update_in_graph_source_uses_bounded_run():
-    engine_py = _engine_py_root()
-    filepath = engine_py / "bytedigger_engine" / "workflows" / "graph_source.py"
-    body = _read_function_slice(filepath, "_check_update_needs_update")
-    assert "bounded_run(" in body, (
-        f"_check_update_needs_update in {filepath} does not call bounded_run("
-    )
-    assert "timeout=" in body, (
-        f"_check_update_needs_update in {filepath} does not pass timeout="
-    )
+# graph_source._check_update_needs_update test retired by bd#89 P2a (graph_source.py deleted).
 
 
 def test_ac6_red_commit_baseline_in_phase5_uses_git_write_seam():

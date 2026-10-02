@@ -21,7 +21,6 @@ import inspect
 from pathlib import Path
 
 from bytedigger_engine.workflows import phase_45_spec  # noqa: E402
-from bytedigger_engine.workflows import phase_1_discovery  # noqa: E402
 from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 from bytedigger_engine.lib import run_allowlist as run_allowlist_mod  # noqa: E402
 from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
@@ -72,29 +71,8 @@ class TestGH513SpecAuthorizedEditsProducer:
             "scrutiny item (GH513 §2.3 not implemented)"
         )
 
-    def test_ac4_build_prompt_simple_branch_contains_marker_and_heading(self, tmp_path: Path) -> None:
-        """AC4: phase_1_discovery._build_prompt SIMPLE branch output contains
-        the marker and section heading. Expected FAIL pre-GREEN."""
-        org_config = {"scratchpad_dir": str(tmp_path)}
-        ctx = WorkflowContext(
-            tenant_id="hal",
-            scope=None,
-            db_path=None,
-            org_config=org_config,
-            question="Fix the thing",
-            session_id="gh513-red",
-            persona="hal",
-            framework=None,
-            domain=None,
-        )
-        prompt = phase_1_discovery._build_prompt(ctx, tmp_path, "SIMPLE")
-        assert "authorized-test-edits:" in prompt, (
-            "SIMPLE-branch prompt missing 'authorized-test-edits:' marker "
-            "(GH513 §2.4 not implemented)"
-        )
-        assert "## Authorized Test Edits" in prompt, (
-            "SIMPLE-branch prompt missing '## Authorized Test Edits' section heading"
-        )
+    # AC4 (phase_1_discovery SIMPLE-branch prompt carries the marker) retired by
+    # bd#89 P2a: phase_1_discovery is deleted; AC1-AC3 cover the surviving producer.
 
     def test_ac5_parse_authorized_test_edits_round_trip_bullet_variant(self, tmp_path: Path) -> None:
         """AC5 (bullet variant): a spec snippet in the exact §2.1-instructed

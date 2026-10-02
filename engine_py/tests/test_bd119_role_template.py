@@ -9,7 +9,7 @@ RED-signal contract (spec section 6):
 - Fail by assertion on the old tree: B1-B4, C- (16 rows through `_run_step`),
   C-engine, `test_c_p2_invoke_does_not_reopen_template`,
   `test_p2_template_opened_once_across_build_and_invoke`, F1-F3, F5-F9, H1, G6,
-  the phase 2 inversion in test_phase_2_explore.py.
+  (the phase 2 inversion in test_phase_2_explore.py is retired by bd#89 P2a).
 - Fail by ImportError / AttributeError / KeyError raised inside the test body:
   A2-A12, A15-A22, `test_fstat_is_authoritative_after_open`,
   `test_valid_read_uses_one_fd_and_closes_it`, `test_read_error_is_unreadable_and_fd_closed`,
@@ -51,12 +51,7 @@ from bytedigger_engine.contracts import (
 from bytedigger_engine.engine import LoopRunner, WorkflowEngine
 from bytedigger_engine.lib.step_sentinel import maybe_read_sentinel
 from bytedigger_engine.llm_subprocess import register_backend, reset_backends
-from bytedigger_engine.skip_logic import make_skip_result
 from bytedigger_engine.workflows import phase_workflows_common as common
-from bytedigger_engine.workflows import phase_1_discovery as p1
-from bytedigger_engine.workflows import phase_2_explore as p2
-from bytedigger_engine.workflows import phase_3_clarify as p3
-from bytedigger_engine.workflows import phase_4_architect as p4
 from bytedigger_engine.workflows import phase_45_spec as p45
 from bytedigger_engine.workflows import phase_5_implement as p5
 from bytedigger_engine.workflows import phase_5_integrity as p5i
@@ -641,13 +636,13 @@ def test_error_result_shape_and_message_format(tmp_path):
     """A19."""
     configured = str(tmp_path / "nope.md")
     exc = _err(configured)
-    res = exc.to_result("build_explore_prompt")
+    res = exc.to_result("build_spec_prompt")
     assert res.status == "error"
     assert res.data is None
     assert res.error_code == CODE
     assert res.recoverable is False
     assert res.suggestion == SUGGESTION
-    assert res.step_name == "build_explore_prompt"
+    assert res.step_name == "build_spec_prompt"
     assert res.error == str(exc)
     assert re.match(r"^role_template_path: missing: ", res.error), res.error
     assert f"role_template_path: missing: {configured} (ENOENT)" == res.error
@@ -800,10 +795,6 @@ def test_key_literal_only_in_role_template_module():
 
 # C table: row id -> (module, function, StepContract.name). Shared by B3 and C.
 C_ROWS = (
-    ("p1", "phase_1_discovery", "_build_discovery_prompt", "build_discovery_prompt"),
-    ("p2", "phase_2_explore", "_build_explore_prompt", "build_explore_prompt"),
-    ("p3", "phase_3_clarify", "_build_clarify_prompt", "build_clarify_prompt"),
-    ("p4", "phase_4_architect", "_build_architect_prompt", "build_architect_prompt"),
     ("p45-spec", "phase_45_spec", "_build_spec_prompt", "build_spec_prompt"),
     ("p45-review", "phase_45_spec", "_build_review_prompt", "build_review_prompt"),
     ("p5-integrity", "phase_5_integrity", "_build_integrity_prompt", "build_integrity_prompt"),
@@ -975,10 +966,6 @@ def test_role_template_consumers_match_step_table():
     observed = {s for s in steps if _reaches(graph, s, B3_TARGETS)}
     expected = {(m, f) for (_row, m, f, _name) in C_ROWS}
 
-    assert ("phase_2_explore", "_invoke_explore_llm") not in observed
-    assert _reaches(graph, ("phase_2_explore", "_build_explore_prompt"), B3_TARGETS) == {
-        ("role_template", "load_role_template")
-    }
     assert ("phase_45_spec", "_build_spec_prompt") in observed
     assert ("phase_45_spec", "_build_review_prompt") in observed
 
@@ -1050,12 +1037,10 @@ def test_engine_has_no_bare_execute_outside_execute_step():
 # ---------------------------------------------------------------------------
 
 _MODS = {
-    "phase_1_discovery": p1, "phase_2_explore": p2, "phase_3_clarify": p3,
-    "phase_4_architect": p4, "phase_45_spec": p45,
+    "phase_45_spec": p45,
     "phase_5_integrity": p5i, "phase_6_fix_integrity": p6fi, "phase_7_synthesize": p7,
     "phase_5_implement": p5, "phase_6_review": p6,
 }
-_READ_FIRST_P1_P4 = "READ_FIRST — read these five files"
 _DECORR_ANCHOR = "ROLE: You are the DECORRELATED VERIFIER"
 
 
@@ -1119,10 +1104,7 @@ def _row_setup(row: str, tmp_path: Path, monkeypatch, role_value: str, **org_ext
     prev = None
     anchor = None
 
-    if row in ("p1", "p2", "p3", "p4"):
-        prev = _ok_prev("check_decision_doc_skip", {"skipped": False})
-        anchor = _READ_FIRST_P1_P4 if row in ("p1", "p4") else _real_anchor(mod, scratchpad)
-    elif row == "p45-spec":
+    if row == "p45-spec":
         prev = {"cycle": 1}
         anchor = _real_anchor(mod, scratchpad)
     elif row == "p45-review":
@@ -1266,7 +1248,19 @@ def test_c_minus_missing_template_fails_closed_via_engine(row, tmp_path, monkeyp
 
 
 def _p2_ctx(scratchpad: Path, role_value) -> WorkflowContext:
-    return make_ctx(scratchpad, model="sonnet", **({KEY: role_value} if role_value is not None else {}))
+    """Context for the engine-level role-template cases (re-pointed to phase_45_spec by bd#89 P2a)."""
+    return make_ctx(
+        scratchpad, model="sonnet", complexity="COMPLEX",
+        **({KEY: role_value} if role_value is not None else {}),
+    )
+
+
+def _spec_build_workflow() -> WorkflowDefinition:
+    """One real step (`p45._build_spec_prompt`) run by the real engine."""
+    return WorkflowDefinition(
+        name="p45_build_only",
+        steps=[StepContract(name="build_spec_prompt", execute=p45._build_spec_prompt)],
+    )
 
 
 def test_c_p2_invoke_does_not_reopen_template(tmp_path):
@@ -1276,7 +1270,7 @@ def test_c_p2_invoke_does_not_reopen_template(tmp_path):
     role.write_text("P2 ROLE HEAD\nP2 ROLE TAIL\n  \n", encoding="utf-8")
     placed = "P2 ROLE HEAD\nP2 ROLE TAIL\n\n"
     ctx = _p2_ctx(scratchpad, str(role))
-    built = p2._build_explore_prompt(ctx, _ok_prev("check_decision_doc_skip", {"skipped": False}))
+    built = p45._build_spec_prompt(ctx, {"cycle": 1})
     assert built.status == "ok"
     assert built.data["prompt"].startswith(placed)
     role.unlink()
@@ -1285,9 +1279,9 @@ def test_c_p2_invoke_does_not_reopen_template(tmp_path):
     _register(backend)
     log = _FakeEventLog()
     telemetry_ctx.set_current_run(
-        event_log=log, run_id="RUN-BD119", step_name="invoke_explore_llm", phase="phase_2_explore",
+        event_log=log, run_id="RUN-BD119", step_name="invoke_spec_llm", phase="phase_45_spec",
     )
-    res = p2._invoke_explore_llm(ctx, built)
+    res = p45._invoke_spec_llm(ctx, built)
     assert res.status == "ok", (res.error_code, res.error)
     attests = log.payloads(ATTEST_EVENT)
     assert len(attests) == 1
@@ -1295,28 +1289,27 @@ def test_c_p2_invoke_does_not_reopen_template(tmp_path):
 
 
 def test_c_engine_p2_missing_no_backend_call(tmp_path):
-    """C-engine: WorkflowEngine.execute halts at build_explore_prompt, no dispatch, one incident."""
+    """C-engine: WorkflowEngine.execute halts at build_spec_prompt, no dispatch, one incident."""
     scratchpad = tmp_path / "scratch"
     backend = _CountingBackend()
     _register(backend)
     log = _FakeEventLog()
     eng = WorkflowEngine(event_log=log)
-    eng.register("p2", p2.phase_2_explore_workflow())
+    eng.register("p2", _spec_build_workflow())
     result, _ = eng.execute("p2", _p2_ctx(scratchpad, str(tmp_path / "nope.md")))
 
     assert result.status == "error"
     assert result.error_code == CODE
-    assert result.step_name == "build_explore_prompt"
+    assert result.step_name == "build_spec_prompt"
     assert backend.calls == []
-    assert not (scratchpad / p2.EXPLORE_DOC_RELPATH).exists()
-    finished = [p for p in log.payloads("step_finished") if p["step_name"] == "build_explore_prompt"]
+    finished = [p for p in log.payloads("step_finished") if p["step_name"] == "build_spec_prompt"]
     assert finished and finished[0]["status"] == "error"
     records = _ledger(tmp_path / "incidents.jsonl")
     assert len(records) == 1, records
     assert records[0]["error_code"] == CODE
 
 
-@pytest.mark.parametrize("row", ["p1", "p5-green"])
+@pytest.mark.parametrize("row", ["p45-spec", "p5-green"])
 def test_c_bad_bytes_error_result_not_raise(row, tmp_path, monkeypatch):
     """A non-UTF-8 template is an error result, not a UnicodeDecodeError."""
     role = tmp_path / "role.md"
@@ -1405,7 +1398,7 @@ def test_d_canary_absent_from_exception_and_result(reason, tmp_path, monkeypatch
     assert exc.reason == reason
     for text in (str(exc), repr(exc), repr(exc.args)):
         assert CANARY not in text
-    res = exc.to_result("build_explore_prompt")
+    res = exc.to_result("build_spec_prompt")
     assert res.data is None
     assert CANARY not in (res.error or "")
     assert CANARY not in (res.suggestion or "")
@@ -1418,7 +1411,7 @@ def test_d_canary_absent_from_event_log_and_incident_ledger(reason, tmp_path, mo
     _register(_CountingBackend())
     log = _FakeEventLog()
     eng = WorkflowEngine(event_log=log)
-    eng.register("p2", p2.phase_2_explore_workflow())
+    eng.register("p2", _spec_build_workflow())
     result, _ = eng.execute("p2", _p2_ctx(tmp_path / "scratch", value))
 
     assert result.error_code == CODE
@@ -1705,7 +1698,9 @@ def test_phase6_abort_handler_runs_on_template_error(tmp_path):
 # H. Phase 2 single read
 # ---------------------------------------------------------------------------
 
-_P2_NOT_SKIPPED = _ok_prev("check_decision_doc_skip", {"skipped": False})
+# Re-pointed from phase_2_explore to phase_45_spec by bd#89 P2a (the single-read
+# contract now lives on the surviving spec writer).
+_P2_NOT_SKIPPED = {"cycle": 1}
 
 
 def test_p2_data_role_template_shape(tmp_path):
@@ -1713,37 +1708,29 @@ def test_p2_data_role_template_shape(tmp_path):
     scratchpad = tmp_path / "scratch"
     role = tmp_path / "role.md"
     role.write_text("H1 ROLE\n  \n", encoding="utf-8")
-    res = p2._build_explore_prompt(_p2_ctx(scratchpad, str(role)), _P2_NOT_SKIPPED)
+    res = p45._build_spec_prompt(_p2_ctx(scratchpad, str(role)), _P2_NOT_SKIPPED)
     assert res.status == "ok"
     assert "role_template" in res.data
     assert res.data["role_template"] == {
         "source_id": str(Path(str(role)).expanduser()),
         "content": "H1 ROLE\n\n",
     }
-    plain = p2._build_explore_prompt(_p2_ctx(scratchpad, None), _P2_NOT_SKIPPED)
+    plain = p45._build_spec_prompt(_p2_ctx(scratchpad, None), _P2_NOT_SKIPPED)
     assert "role_template" in plain.data
     assert plain.data["role_template"] is None
 
 
-# PRE-PASSING GUARD
-def test_p2_decision_doc_skip_path_does_not_read_template(tmp_path, monkeypatch):
-    """H1b: the skip path neither reads nor validates the template."""
-    missing = tmp_path / "nope.md"
-    skip_prev = make_skip_result("check_decision_doc_skip", str(tmp_path / "decision.md"))
-    spy = _OpenSpy(monkeypatch)
-    res = p2._build_explore_prompt(_p2_ctx(tmp_path / "scratch", str(missing)), skip_prev)
-    assert res.status == "ok"
-    assert "role_template" not in (res.data or {})
-    assert str(missing) not in spy.paths
+# H1b (the decision-doc skip path never reads the template) retired by bd#89 P2a:
+# phase_2_explore and its skip path are deleted.
 
 
 def test_p2_injections_from_prev_declared_equals_placed(tmp_path):
     """H2."""
     role = tmp_path / "role.md"
     role.write_text("H2 ROLE\nsecond\n", encoding="utf-8")
-    built = p2._build_explore_prompt(_p2_ctx(tmp_path / "scratch", str(role)), _P2_NOT_SKIPPED)
+    built = p45._build_spec_prompt(_p2_ctx(tmp_path / "scratch", str(role)), _P2_NOT_SKIPPED)
     rt = built.data["role_template"]
-    blocks = p2._role_template_injections(built)
+    blocks = common._declared_injections(built.data)
     assert len(blocks) == 1
     assert blocks[0].source_id == rt["source_id"] == str(role)
     assert blocks[0].content == rt["content"]
@@ -1758,13 +1745,13 @@ def test_p2_template_opened_once_across_build_and_invoke(tmp_path, monkeypatch):
     ctx = _p2_ctx(scratchpad, str(role))
     _register(_CountingBackend())
     spy = _OpenSpy(monkeypatch)
-    built = p2._build_explore_prompt(ctx, _P2_NOT_SKIPPED)
+    built = p45._build_spec_prompt(ctx, _P2_NOT_SKIPPED)
     assert built.status == "ok"
     telemetry_ctx.set_current_run(
         event_log=_FakeEventLog(), run_id="RUN-BD119-ONCE",
-        step_name="invoke_explore_llm", phase="phase_2_explore",
+        step_name="invoke_spec_llm", phase="phase_45_spec",
     )
-    res = p2._invoke_explore_llm(ctx, built)
+    res = p45._invoke_spec_llm(ctx, built)
     assert res.status == "ok", (res.error_code, res.error)
     assert spy.paths.count(str(role)) == 1, spy.paths
 
@@ -1773,9 +1760,9 @@ def test_p2_file_swap_between_build_and_invoke_declares_placed_bytes(tmp_path):
     """H3: a file swapped between build and invoke does not change the declared block."""
     role = tmp_path / "role.md"
     role.write_text("ORIGINAL ROLE\n", encoding="utf-8")
-    built = p2._build_explore_prompt(_p2_ctx(tmp_path / "scratch", str(role)), _P2_NOT_SKIPPED)
+    built = p45._build_spec_prompt(_p2_ctx(tmp_path / "scratch", str(role)), _P2_NOT_SKIPPED)
     placed = built.data["role_template"]["content"]
     role.write_text("SWAPPED ROLE\n", encoding="utf-8")
-    blocks = p2._role_template_injections(built)
+    blocks = common._declared_injections(built.data)
     assert [b.content for b in blocks] == [placed] == ["ORIGINAL ROLE\n\n"]
     assert built.data["prompt"].startswith(placed)
