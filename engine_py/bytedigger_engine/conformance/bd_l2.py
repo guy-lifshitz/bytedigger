@@ -37,6 +37,7 @@ Here every import is underscore-bound and every annotation is a string.
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from . import tokens as _tokens
+from ._event_type import event_type_of as _event_type_of
 from .report import L0Report as _L0Report
 
 if _TYPE_CHECKING:
@@ -258,7 +259,7 @@ def check_bd_l2(events: "Iterable[Mapping[str, object]]") -> _L0Report:
     for event in events:
         if not isinstance(event, dict):
             continue
-        event_type = event.get("type")
+        event_type = _event_type_of(event)
         payload = event.get("payload")
         if not isinstance(payload, dict):
             continue
