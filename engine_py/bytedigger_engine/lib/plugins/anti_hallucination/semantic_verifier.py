@@ -52,7 +52,9 @@ except ImportError:  # pragma: no cover — engine_py layout always provides it
     EventLog = None  # type: ignore[assignment,misc]
 
 from bytedigger_engine.lib.verdict_parse import find_last_standalone_marker  # type: ignore[import]  # noqa: E402
-from bytedigger_engine import llm_subprocess  # noqa: E402  bd#82: the one model-call chokepoint
+from bytedigger_engine import llm_subprocess, telemetry_ctx  # noqa: E402  bd#82: the one model-call chokepoint
+from bytedigger_engine.conformance.attest import InjectedBlock  # noqa: E402  bd#206 M3
+from bytedigger_engine.lib.findings_provenance import review_source_id  # noqa: E402  bd#206 M3
 from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_fallback  # type: ignore[import]  # noqa: E402
 
 
@@ -176,6 +178,18 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
     # observed. Called as a module attribute so tests can patch the seam. No tier
     # rebinding: the alias guard above is what stops a stale versioned id, and the
     # opus escalation must actually reach opus.
+    # bd#206 M3: declare the finding fields (review-doc model bytes) as inlined, in
+    # prompt order, only when the caller attached the review invocation's source_id.
+    extra_kwargs: dict[str, Any] = {}
+    source_id = finding.get("source_id")
+    if isinstance(source_id, str) and source_id:
+        blocks = tuple(
+            InjectedBlock(source_id=source_id, content=str(finding[k]))
+            for k in ("file", "line", "quote", "claim")
+            if k in finding and str(finding[k])
+        )
+        if blocks:
+            extra_kwargs["injections"] = blocks
     try:
         result = llm_subprocess.invoke_llm_subprocess(
             prompt=full_prompt,
@@ -186,6 +200,7 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
             fresh_session=True,
             tier_rebind=False,
             role="judge",
+            **extra_kwargs,
         )
     except OSError as exc:
         logger.warning("semantic_verify: verifier call raised for %s:%s",
@@ -440,6 +455,14 @@ def verify_findings_semantic(ctx, prev) -> object:
     # saturates the per-phase budget (len(findings) > MAX). Token budget is
     # tighter than semantic completeness in that regime.
     escalation_allowed = len(findings) <= MAX_SEMANTIC_VERIFY_FINDINGS
+
+    # bd#206 M3: the review invocation that produced these findings, if attested.
+    _cur_run = telemetry_ctx.get_current_run()
+    _review_sid = review_source_id(
+        str(review_doc_path), _cur_run.run_id if _cur_run is not None else None)
+    if _review_sid is not None:
+        for _f in findings:
+            _f["source_id"] = _review_sid
 
     refuted_blocks: list[str] = []
     new_finding_blocks: list[str] = []

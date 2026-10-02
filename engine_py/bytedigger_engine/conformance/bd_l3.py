@@ -33,6 +33,7 @@ equality. Every import below is therefore bound to an underscore-prefixed name.
 # here is a string literal instead, so nothing needs to be imported for typing.
 import argparse as _argparse
 import json as _json
+import re as _re
 import sys as _sys
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
@@ -91,6 +92,8 @@ _ENFORCEMENT_CLAIM = "runtime-allowlist"
 _CODE_INJECT_UNATTRIBUTED = "E_INJECT_UNATTRIBUTED"
 _SHA256_PREFIX = "sha256:"
 _SHA256_HEXLEN = 64
+_INVOCATION_ID_RE = _re.compile(r"^[0-9a-f]{32}$")
+_INVOCATION_SOURCE_RE = _re.compile(r"^invocation:([^:]+):([0-9a-f]{32})$")
 
 
 def _family(model: "str | None") -> "str | None":
@@ -122,7 +125,8 @@ def _r31(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
     return (True, None)
 
 
-def _r32(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
+def _r32(payload: "Mapping[str, object]", seen: "set | None" = None,
+         run_id: "object" = None) -> "tuple[bool, str | None]":
     """(observed?, violation-or-None) for R3.2 — every injected block is attributed.
 
     WHAT THIS VERDICT IS, STATED PLAINLY. The chokepoint validates injections
@@ -139,30 +143,61 @@ def _r32(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
     Both halves of the conjunction are checked. Testing only `source_id` would
     leave the `sha256` half unreachable.
     """
+    # bd#206: payload form of the two fields class-M source_ids resolve against.
+    # A form violation observes R3.2; a form-valid field alone does not.
+    problems: "list[str]" = []
+    out_sha = payload.get("output_sha256")
+    if out_sha is not None:
+        digest_part = (out_sha[len(_SHA256_PREFIX):]
+                       if isinstance(out_sha, str) and out_sha.startswith(_SHA256_PREFIX) else "")
+        if len(digest_part) != _SHA256_HEXLEN or any(
+            c not in "0123456789abcdef" for c in digest_part
+        ):
+            problems.append(
+                f"R3.2: output_sha256 {out_sha!r} is not of the form "
+                f"'{_SHA256_PREFIX}<64 hex>'"
+            )
+    if "invocation_id" in payload:
+        inv = payload.get("invocation_id")
+        if not (isinstance(inv, str) and _INVOCATION_ID_RE.fullmatch(inv)):
+            problems.append(f"R3.2: invocation_id {inv!r} is not 32 lowercase hex")
+
     blocks = payload.get("injections")
-    if not isinstance(blocks, (list, tuple)):
-        return (False, None)
-    if not blocks:
+    seen_set = seen if seen is not None else set()
+    offenders = []
+    unresolved = []
+    if isinstance(blocks, (list, tuple)):
+        for block in blocks:
+            if not isinstance(block, dict):
+                offenders.append(repr(block))
+                continue
+            source_id = block.get("source_id")
+            digest = block.get("sha256")
+            if not (isinstance(source_id, str) and source_id.strip()):
+                offenders.append(f"{block!r} (no source_id)")
+            elif not (isinstance(digest, str) and digest.strip()):
+                offenders.append(f"{block!r} (no sha256)")
+            elif source_id.startswith("invocation:"):
+                m = _INVOCATION_SOURCE_RE.fullmatch(source_id)
+                if m is None or run_id is None or (run_id, m.group(1), m.group(2)) not in seen_set:
+                    unresolved.append(source_id)
+    if offenders:
+        problems.append(
+            f"R3.2: {_CODE_INJECT_UNATTRIBUTED} — step {payload.get('step_name')!r} "
+            f"carries unattributed injected content: {offenders!r}"
+        )
+    if unresolved:
+        problems.append(
+            f"R3.2: step {payload.get('step_name')!r} declares class-M block(s) "
+            f"{unresolved!r} that do not name an earlier attestation of the same run"
+        )
+    if problems:
+        return (True, "; ".join(problems))
+    if not isinstance(blocks, (list, tuple)) or not blocks:
         # No injections is a legitimate state, not a violation: requiring one
         # of every step would be a different rule than the one R3.2 states.
         return (False, None)
-    offenders = []
-    for block in blocks:
-        if not isinstance(block, dict):
-            offenders.append(repr(block))
-            continue
-        source_id = block.get("source_id")
-        digest = block.get("sha256")
-        if not (isinstance(source_id, str) and source_id.strip()):
-            offenders.append(f"{block!r} (no source_id)")
-        elif not (isinstance(digest, str) and digest.strip()):
-            offenders.append(f"{block!r} (no sha256)")
-    if not offenders:
-        return (True, None)
-    return (True, (
-        f"R3.2: {_CODE_INJECT_UNATTRIBUTED} — step {payload.get('step_name')!r} "
-        f"carries unattributed injected content: {offenders!r}"
-    ))
+    return (True, None)
 
 
 def _r33(payload: "Mapping[str, object]") -> "tuple[bool, str | None]":
@@ -262,6 +297,8 @@ def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:
     """
     observed: "dict[str, bool]" = {req: False for req in REQUIREMENTS}
     violations: "list[str]" = []
+    # bd#206: (run_id, step_name, invocation_id) of attestations already seen.
+    seen: "set[tuple]" = set()
 
     for event in events:
         if not isinstance(event, dict):
@@ -271,12 +308,20 @@ def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:
         payload = event.get("payload")
         if not isinstance(payload, dict):
             continue
+        event_run_id = event.get("run_id")
         for req in REQUIREMENTS:
-            saw, violation = _CHECKS[req](payload)
+            if req == "R3.2":
+                saw, violation = _r32(payload, seen, event_run_id)
+            else:
+                saw, violation = _CHECKS[req](payload)
             if saw:
                 observed[req] = True
             if violation is not None:
                 violations.append(violation)
+        inv_id = payload.get("invocation_id")
+        step = payload.get("step_name")
+        if isinstance(inv_id, str) and isinstance(step, str):
+            seen.add((event_run_id, step, inv_id))
 
     failed = {req for req in REQUIREMENTS
               if any(v.startswith(f"{req}:") for v in violations)}

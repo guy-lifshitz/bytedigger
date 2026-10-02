@@ -170,6 +170,7 @@ from bytedigger_engine.lib.plugins.review_schema import (  # noqa: E402  812D250
 )
 from bytedigger_engine.lib.plugins.review_schema.canonical import SINGLE_REVIEW_FRAMING_TEMPLATE  # noqa: E402  bd#139
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402  DD34EEBF: scratchpad ref persistence
+from bytedigger_engine.lib import findings_provenance  # noqa: E402  bd#206: review-invocation provenance
 from bytedigger_engine.reject_log import record_satisfaction_reject  # noqa: E402  EECA708D
 from bytedigger_engine.net_new_delta import delta_verdict  # noqa: E402  GH316 post-fix typecheck gate
 from bytedigger_engine.lib.mypy_baseline import mypy_base_argv as _mypy_base_argv_p6, parse_mypy_output as _parse_mypy_output_p6  # noqa: E402  GH316
@@ -939,6 +940,18 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         _prior_threshold = _prior_findings_data.get("threshold", DEFAULT_SATISFACTION_THRESHOLD)
         _prior_structured = _prior_findings_data.get("structured_findings", [])
         _prior_findings_json = json.dumps(_prior_structured, indent=2)
+        # bd#206 M2: declare the inlined prior findings (model bytes from the review
+        # invocation) only for a same-run sidecar naming a valid invocation id.
+        _m2_run = telemetry_ctx.get_current_run()
+        _m2_sid = _prior_findings_data.get("source_id")
+        if (
+            _m2_run is not None
+            and isinstance(_prior_structured, list) and _prior_structured
+            and isinstance(_m2_sid, str)
+            and re.fullmatch(r"invocation:[^:]+:[0-9a-f]{32}", _m2_sid)
+            and _prior_findings_data.get("run_id") == _m2_run.run_id
+        ):
+            _declared_blocks.append({"source_id": _m2_sid, "content": _prior_findings_json})
         parts.append("")
         parts.append(
             f"## Prior-Attempt Context\n"
@@ -1063,6 +1076,14 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     except (OSError, KeyError, TypeError):
         logger.warning("failed to clear stale role files before single review", exc_info=True)
 
+    # bd#206: a failed or unattested review must leave no provenance file.
+    _review_doc = prev.data.get("doc_path")
+    if isinstance(_review_doc, str) and _review_doc:
+        try:
+            findings_provenance.provenance_path(_review_doc).unlink()
+        except OSError:
+            pass
+
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=_resolve_model(cfg, "review_model", _default_review_model()),
@@ -1075,6 +1096,20 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         role="judge",
         injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
+    # bd#206: record which attestation produced the review doc (M2/M3 read it).
+    _run = telemetry_ctx.get_current_run()
+    _inv = result.data.get("invocation_id") if isinstance(result.data, dict) else None
+    if (
+        result.status == "ok"
+        and _run is not None
+        and isinstance(_inv, str)
+        and re.fullmatch(r"[0-9a-f]{32}", _inv)
+        and isinstance(_review_doc, str) and _review_doc
+    ):
+        try:
+            findings_provenance.write_review_provenance(_review_doc, _run.run_id, _inv)
+        except OSError:
+            logger.warning("bd#206: failed to write review provenance", exc_info=True)
     return result
 
 
@@ -2286,6 +2321,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
     fix_doc_path = scratchpad / FIX_DOC_RELPATH
     verdict = prev.data["verdict"]
     sat_loop = prev.data.get("fix_loop_source") == SATISFACTION_FIX_LOOP_SOURCE
+    _findings_declared: list[dict] = []  # bd#206 M1 (prompt order: before test files)
 
     parts: list[str] = []
     rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
@@ -2317,7 +2353,24 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
             "evaluator rejected the previous fix. Fix every item below as well as any open "
             "review finding:"
         )
-        parts.append(str(prev.data.get("findings") or "(no findings text captured)"))
+        _findings_text = str(prev.data.get("findings") or "(no findings text captured)")
+        parts.append(_findings_text)
+        # bd#206 M1: declare the satisfaction evaluators' findings only when the
+        # forwarded blocks join to exactly the string inlined here.
+        _fb = prev.data.get("findings_blocks")
+        if (
+            isinstance(_fb, list) and _fb
+            and all(
+                isinstance(b, dict)
+                and isinstance(b.get("source_id"), str)
+                and isinstance(b.get("content"), str)
+                for b in _fb
+            )
+            and "\n".join(b["content"] for b in _fb) == _findings_text
+        ):
+            _findings_declared = [
+                {"source_id": b["source_id"], "content": b["content"]} for b in _fb
+            ]
         if prev.data.get("satisfaction_doc_path"):
             parts.append(f"SATISFACTION REPORT (read this file): {prev.data['satisfaction_doc_path']}")
         parts.append("")
@@ -2400,7 +2453,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         data={
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
-            "injected_blocks": _injected_blocks_record(prompt, _inline_records),  # bd#147
+            "injected_blocks": _injected_blocks_record(prompt, _findings_declared + list(_inline_records)),  # bd#147, bd#206
             "log_path": str(fix_doc_path),
             "spec_path": str(spec_path),
             "review_doc_path": str(review_doc),
@@ -3191,6 +3244,10 @@ def _invoke_satisfaction_llm(ctx, prev) -> StepResult:
                     "status": r.status,
                     "raw_response": (r.data["raw_response"] if r.status == "ok" else ""),
                     "error_code": (None if r.status == "ok" else r.error_code),
+                    # bd#206 M1: the evaluator's attestation id (None when unattested)
+                    "invocation_id": (
+                        r.data.get("invocation_id") if isinstance(r.data, dict) else None
+                    ),
                 }
                 for i, r in enumerate(results)
             ],
@@ -3498,8 +3555,10 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
         if reason_code not in _SATISFACTION_FIX_LOOP_REASONS or (
                 reason_code == "ac_checklist_fail" and not ac_detail.get("failed")):
             return failed
-        return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
-            structured.fixes_required if structured is not None else [], error_msg))
+        _single_fixes = structured.fixes_required if structured is not None else []
+        return _satisfaction_fix_loop(
+            ctx, prev, failed, _render_satisfaction_findings(_single_fixes, error_msg),
+            [(prev.data.get("invocation_id"), _single_fixes)])
     return StepResult(
         status="ok",
         data=common_data,
@@ -3519,14 +3578,52 @@ _FIX_LOOP_TARGET_STEP = "build_fix_prompt"
 SATISFACTION_FIX_LOOP_SOURCE = "satisfaction"
 
 
-def _render_satisfaction_findings(fixes: list, fallback: str) -> str:
+def _satisfaction_fix_lines(fixes: list) -> list:
     lines = []
     for fix in fixes:
         if isinstance(fix, dict):
             lines.append(f"- {fix.get('file', '?')}: {fix.get('issue', '')}")
         else:
             lines.append(f"- {fix}")
+    return lines
+
+
+def _render_satisfaction_findings(fixes: list, fallback: str) -> str:
+    lines = _satisfaction_fix_lines(fixes)
     return "\n".join(lines) if lines else fallback
+
+
+_INVOCATION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _multi_findings_groups(evals: list) -> list:
+    """bd#206 M1: (invocation_id, fixes) per contributing evaluator, in the order
+    _aggregate_satisfaction concatenates them."""
+    return [
+        (e.get("invocation_id"), e["structured"].fixes_required)
+        for e in evals
+        if e["status"] == "ok"
+        and (e["score"] is not None or e["structured"] is not None)
+        and e["structured"] is not None
+    ]
+
+
+def _satisfaction_findings_blocks(groups: "list | None") -> "list[dict] | None":
+    """bd#206 M1: one {source_id, content} block per group with fixes; None when
+    there is none or any such group lacks a valid invocation id (a partial set
+    would not join to the inlined findings string)."""
+    blocks: list[dict] = []
+    for inv, fixes in groups or []:
+        lines = _satisfaction_fix_lines(fixes)
+        if not lines:
+            continue
+        if not isinstance(inv, str) or not _INVOCATION_ID_RE.fullmatch(inv):
+            return None
+        blocks.append({
+            "source_id": f"invocation:invoke_satisfaction_llm:{inv}",
+            "content": "\n".join(lines),
+        })
+    return blocks or None
 
 
 @functools.cache
@@ -3539,7 +3636,9 @@ def _fix_step_index(workflow_name: "str | None") -> "int | None":
     return names.index(_FIX_LOOP_TARGET_STEP)
 
 
-def _satisfaction_fix_loop(ctx, prev, failed: StepResult, findings: str) -> StepResult:
+def _satisfaction_fix_loop(
+    ctx, prev, failed: StepResult, findings: str, groups: "list | None" = None,
+) -> StepResult:
     """Turn a satisfaction FAIL into a retry of the fix step, carrying the
     evaluator's findings, under the ``satisfaction`` budget.
 
@@ -3573,6 +3672,9 @@ def _satisfaction_fix_loop(ctx, prev, failed: StepResult, findings: str) -> Step
         "findings": findings,
         "gate_attempts": {"satisfaction": max(run.cycle - 1, 0)},
     }
+    _findings_blocks = _satisfaction_findings_blocks(groups)
+    if _findings_blocks is not None:
+        forwarded["findings_blocks"] = _findings_blocks  # bd#206 M1
     return RecoverableGateMixin.gated_step_result(
         build_class=(ctx.org_config or {}).get("complexity"),
         gate="satisfaction",
@@ -3611,6 +3713,8 @@ def _persist_satisfaction_last_findings(ctx, prev, score, threshold: int) -> Non
                 structured_findings = parsed
         except (OSError, TypeError, ValueError):
             structured_findings = []
+        _run = telemetry_ctx.get_current_run()
+        _run_id = _run.run_id if _run is not None else None
         last_findings_payload = json.dumps(
             {
                 "attempt": attempt,
@@ -3618,6 +3722,9 @@ def _persist_satisfaction_last_findings(ctx, prev, score, threshold: int) -> Non
                 "threshold": threshold,
                 "review_doc_path": review_doc_path_str,
                 "structured_findings": structured_findings,
+                # bd#206 M2: provenance of the review doc (null without a run / attestation)
+                "run_id": _run_id,
+                "source_id": findings_provenance.review_source_id(review_doc_path_str, _run_id),
             },
             indent=2,
         )
@@ -3700,6 +3807,7 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             "structured": structured_i,
             "status": status,
             "error_code": entry.get("error_code"),
+            "invocation_id": entry.get("invocation_id"),  # bd#206 M1
             "ac_verdict": ac_verdict_i,
             "ac_failed": list(ac_detail_i.get("failed", [])),
         })
@@ -3920,7 +4028,8 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
             if not ac_failed:
                 return failed  # every failing evaluator left out the checklist: format
             return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
-                fixes, error_msg + f"; failing ACs: {', '.join(ac_failed)}"))
+                fixes, error_msg + f"; failing ACs: {', '.join(ac_failed)}"),
+                _multi_findings_groups(evals))
         # Build descriptive error message
         if n_valid >= 2:
             error_msg = (
@@ -3965,7 +4074,9 @@ def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepR
         # no fixes listed is an evaluator-format failure.
         if n_valid < 2 or not fixes:
             return failed
-        return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(fixes, error_msg))
+        return _satisfaction_fix_loop(
+            ctx, prev, failed, _render_satisfaction_findings(fixes, error_msg),
+            _multi_findings_groups(evals))
     return StepResult(
         status="ok",
         data=common_data,
