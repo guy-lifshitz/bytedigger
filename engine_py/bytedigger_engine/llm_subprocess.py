@@ -208,6 +208,95 @@ def _load_pricing_table() -> dict:
     return table
 
 
+class _EffortResolution(typing.NamedTuple):
+    """bd#107: verdict of `_resolve_effort`. `problem` is None, "unreadable",
+    "malformed" or "family_unresolved"; when set, `effort` is None."""
+
+    effort: "str | None"
+    problem: "str | None"
+    detail: "str | None"
+
+
+_NO_EFFORT = _EffortResolution(None, None, None)
+
+
+def _effort_entry(container: object, key: str, where: str) -> "tuple[str | None, str | None]":
+    """Look up *key* in a consulted *container*; return (value, malformed_detail)."""
+    if container is None:
+        return None, None
+    if not isinstance(container, dict):
+        return None, f"{where} is not an object"
+    if key not in container or container[key] is None:
+        return None, None
+    value = container[key]
+    if not isinstance(value, str) or not value:
+        return None, f"{where}[{key!r}] is not a non-empty string"
+    return value, None
+
+
+def _resolve_effort(
+    model: "str | None", step_name: "str | None", *, hard_gate: bool
+) -> _EffortResolution:
+    """bd#107: the single reader of claude.effort in the models config.
+
+    Never raises. A missing config / missing or empty claude.effort is "not
+    configured" (no problem). An existing but unreadable file, or a consulted
+    container/entry of the wrong shape, is a problem. Resolution values when
+    there is no problem are those of the historical loaders: worker = legacy
+    global str -> by_phase[step_name] -> by_model[family]; gate = by_model[family]
+    only. A hard gate with a non-empty by_model whose family cannot be resolved
+    reports "family_unresolved" (signal only).
+    """
+    try:
+        models_path = config_provider.models_config_path()
+    except Exception:  # noqa: BLE001
+        return _NO_EFFORT
+    try:
+        with open(models_path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        return _NO_EFFORT
+    except (OSError, ValueError) as exc:  # ValueError: bad JSON or bad UTF-8
+        return _EffortResolution(None, "unreadable", type(exc).__name__)
+    if not isinstance(raw, dict):
+        return _EffortResolution(None, "malformed", "top level is not an object")
+    claude = raw.get("claude")
+    if claude is None:
+        return _NO_EFFORT
+    if not isinstance(claude, dict):
+        return _EffortResolution(None, "malformed", "claude is not an object")
+    effort = claude.get("effort")
+    if effort is None or effort == "":
+        return _NO_EFFORT
+    if isinstance(effort, str):
+        return _NO_EFFORT if hard_gate else _EffortResolution(effort, None, None)
+    if not isinstance(effort, dict):
+        return _EffortResolution(None, "malformed", "claude.effort is neither a string nor an object")
+    if not hard_gate and step_name:
+        value, bad = _effort_entry(effort.get("by_phase"), step_name, "claude.effort.by_phase")
+        if bad:
+            return _EffortResolution(None, "malformed", bad)
+        if value:
+            return _EffortResolution(value, None, None)
+    by_model = effort.get("by_model")
+    if by_model is not None and not isinstance(by_model, dict):
+        return _EffortResolution(None, "malformed", "claude.effort.by_model is not an object")
+    if not by_model:
+        return _NO_EFFORT
+    try:
+        fam = _model_family(model)
+    except Exception:  # noqa: BLE001
+        fam = None
+    if not fam:
+        if hard_gate:
+            return _EffortResolution(None, "family_unresolved", f"model {model!r}")
+        return _NO_EFFORT
+    value, bad = _effort_entry(by_model, fam, "claude.effort.by_model")
+    if bad:
+        return _EffortResolution(None, "malformed", bad)
+    return _EffortResolution(value, None, None)
+
+
 def _load_effort(
     model: "str | None" = None, step_name: "str | None" = None
 ) -> "str | None":
@@ -228,25 +317,7 @@ def _load_effort(
     the argv is byte-identical to before (inert-by-default): _apply_effort is a
     no-op.
     """
-    try:
-        models_path = config_provider.models_config_path()
-        with open(models_path, encoding="utf-8") as f:
-            raw = json.load(f)
-        effort = raw.get("claude", {}).get("effort")
-        if isinstance(effort, str) and effort:
-            return effort
-        if isinstance(effort, dict):
-            by_phase = effort.get("by_phase") or {}
-            if step_name and isinstance(by_phase.get(step_name), str) and by_phase.get(step_name):
-                return by_phase.get(step_name)
-            by_model = effort.get("by_model") or {}
-            fam = _model_family(model)
-            if fam and isinstance(by_model.get(fam), str) and by_model.get(fam):
-                return by_model.get(fam)
-            return None
-        return None
-    except Exception:  # noqa: BLE001
-        return None
+    return _resolve_effort(model, step_name, hard_gate=False).effort
 
 
 def _load_effort_gate(model: "str | None" = None) -> "str | None":
@@ -268,20 +339,7 @@ def _load_effort_gate(model: "str | None" = None) -> "str | None":
     argv is byte-identical to before (inert-by-default): _apply_effort is a
     no-op.
     """
-    try:
-        models_path = config_provider.models_config_path()
-        with open(models_path, encoding="utf-8") as f:
-            raw = json.load(f)
-        effort = raw.get("claude", {}).get("effort")
-        if not isinstance(effort, dict):
-            return None
-        by_model = effort.get("by_model") or {}
-        fam = _model_family(model)
-        if fam and isinstance(by_model.get(fam), str) and by_model.get(fam):
-            return by_model.get(fam)
-        return None
-    except Exception:  # noqa: BLE001
-        return None
+    return _resolve_effort(model, None, hard_gate=True).effort
 
 
 def _forward_subagent_enabled() -> bool:
@@ -1204,6 +1262,55 @@ def _effort_not_applied(
         recoverable=False,
     )
 
+# bd#107: one warning per (problem, detail) per process; the event records every call.
+_WARNED_EFFORT_CONFIG_INVALID: set[tuple[str | None, str | None]] = set()
+
+
+def _effort_config_invalid(
+    resolved_backend: str,
+    res: _EffortResolution,
+    *,
+    hard_gate: bool,
+    step_name: str,
+    run_ctx: "_RunCtx | None",
+) -> "StepResult | None":
+    """bd#107: surface an effort-config problem. A hard gate whose config is
+    unreadable/malformed is refused (StepResult); everything else degrades to
+    default effort (None)."""
+    payload = {
+        "backend": resolved_backend,
+        "step_name": step_name,
+        "hard_gate": hard_gate,
+        "problem": res.problem,
+        "detail": res.detail,
+    }
+    if run_ctx is not None and run_ctx.event_log is not None:
+        _emit_safe(run_ctx.event_log, "effort_config_invalid", payload, run_ctx.run_id)
+    key = (res.problem, res.detail)
+    if key not in _WARNED_EFFORT_CONFIG_INVALID:
+        _WARNED_EFFORT_CONFIG_INVALID.add(key)
+        logger.warning("effort_config_invalid: %s", payload)
+    if not hard_gate or res.problem not in ("unreadable", "malformed"):
+        return None
+    try:
+        path_text = str(config_provider.models_config_path())
+    except Exception:  # noqa: BLE001
+        path_text = "<unknown>"
+    return StepResult(
+        status="error",
+        data=None,
+        duration_ms=0,
+        step_name=step_name,
+        error=(
+            f"hard gate effort config is {res.problem} ({res.detail}) in models config "
+            f"{path_text}; refusing to run the gate without a resolvable effort pin — "
+            "fix the models config"
+        ),
+        error_code="E_GATE_EFFORT_CONFIG_INVALID",
+        recoverable=False,
+    )
+
+
 def _observed(result: StepResult, key: str) -> object:
     """bd#10 `[bd10:5]` / `[bd10:12]`: what the adapter REPORTED for *key*, or
     None when it reported nothing. Absence is a first-class third state — it is
@@ -1410,7 +1517,9 @@ def _dispatch_backend(
 
       1. Refuse BEFORE dispatching, without calling the backend at all: the
          hard-gate model floor, then a tool list the backend cannot enforce,
-         then a gate effort pin it cannot apply (bd#82 — here, so every
+         then an unreadable/malformed effort config under a hard gate
+         (bd#107, E_GATE_EFFORT_CONFIG_INVALID), then a gate effort pin it
+         cannot apply (bd#82 — here, so every
          dispatch, the GH1169 fallback included, is held to all three), then
          invalid `injections`. Effort is resolved here, after GH375 tier
          rebinding, so a rebound model gets its own effort.
@@ -1444,8 +1553,15 @@ def _dispatch_backend(
     )
     if tool_err is not None:
         return tool_err
-    effort = _load_effort_gate(model) if hard_gate else _load_effort(model, step_name)
-    caps = _backend_capabilities(resolved_backend)
+    res = _resolve_effort(model, step_name, hard_gate=hard_gate)
+    if res.problem is not None:
+        config_err = _effort_config_invalid(
+            resolved_backend, res, hard_gate=hard_gate, step_name=step_name, run_ctx=run_ctx,
+        )
+        if config_err is not None:
+            return config_err
+    effort = res.effort
+    caps =_backend_capabilities(resolved_backend)
     takes_effort = any(cap == "effort" or cap.startswith("effort:") for cap in caps)
     if effort and not _applies_effort(caps, effort):
         effort_err = _effort_not_applied(
