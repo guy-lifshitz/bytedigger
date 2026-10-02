@@ -27,10 +27,10 @@ AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_hidden_behind_executor_submit_declares  (the COMPLEX
        satisfaction pool path hands `invoke_llm_subprocess` to `executor.submit`:
        it is the 20th dispatch, counted separately from the 19 direct calls)
-AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<18 cases>]
+AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<13 cases>]
        (real producer output -> real invoke step -> module-attribute spy; covers
        the pool path with every submitted call, both phase_45_spec review
-       dispatches incl. the repoll, and phase_2's existing one as a guard; the
+       dispatches, and phase_2's existing one as a guard; the
        two retries are the AC8 tests)
 AC6  (retired, bd#89 P2a: clarify/architect deleted)
 AC7  (retired, bd#89 P2a: clarify/architect deleted)
@@ -583,9 +583,10 @@ def test_ac5_every_dispatch_declares_injections() -> None:
 
 def test_ac5_dispatch_call_count_is_pinned() -> None:
     """Guard: 15 after bd#89 P2a (phases 1-4 dropped: 4 sites removed, + the dropped phase_2_explore).
+    bd#91: −1 (phase_45_spec spec-review re-poll removed).
     A new call site is a visible change."""
     rows = _scan_dispatches()
-    assert len(rows) == 15, f"direct dispatch count changed: {len(rows)} (expected 15): {rows}"
+    assert len(rows) == 14, f"direct dispatch count changed: {len(rows)} (expected 14): {rows}"
 
 
 def test_ac5_dispatch_hidden_behind_executor_submit_declares() -> None:
@@ -744,7 +745,6 @@ def _assert_declares_role_plus_fragments(declared: tuple, source_id: str, frag_k
 _MATRIX = {
     "phase_45_spec:1357": (_d_spec_writer, "phase_45_spec", "_invoke_spec_llm", {}, "x", 1, False, ()),
     "phase_45_spec:4201": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _SHIP, 1, False, (_F1,)),
-    "phase_45_spec:4150-repoll": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _REVISE, 2, False, (_F1,)),
     "phase_5_implement:1553": (_d_red, "phase_5_implement", "_invoke_red_llm", {}, "x", 1, False, (_F2, _F3)),
     "phase_5_implement:6664": (_d_validation, "phase_5_implement", "_invoke_validation_llm", {}, "x", 1, False, (_F1,)),
     "phase_5_implement:7556": (_d_green, "phase_5_implement", "_invoke_green_llm", {}, "x", 1, False, (_F2, _F3)),

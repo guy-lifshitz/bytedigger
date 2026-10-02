@@ -3185,27 +3185,38 @@ def _verify_spec_ac_dsl(ctx: WorkflowContext, prev: Any) -> StepResult:
     spec_path = Path(prev.data["spec_path"])
     cycle = int(prev.data.get("cycle", 1))
     build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
-    spec_text = spec_path.read_text(encoding="utf-8-sig")
+    legacy_no_checks = False
     try:
-        report = ac_dsl.admit(spec_text)
-    except Exception as e:  # noqa: BLE001 — driver isolation, fail-open in warn phase
-        _emit_safe("spec_ac_dsl_driver_error", {"error": str(e), "spec_path": str(spec_path)})
-        if get_config().flag("HAL_AC_DSL_GATE_ENFORCE"):
-            return cast(StepResult, _spec_gate_retry(
-                build_class=build_class,
-                cycle=cycle,
-                retry_from_step_idx=0,
-                error_code="E_SPEC_AC_UNCOMPILABLE",
-                error_msg=f"ac_dsl.admit() driver error: {e}",
-                step_name=step,
-                forwarded_data={**prev.data, "findings_structured": [{
-                    "line": 0, "rule_id": "ac-dsl/driver-error", "evidence": str(e), "lint": "ac-dsl",
-                }]},
-                terminal_error_code="E_SPEC_AC_UNCOMPILABLE",
-            ))
+        # bd#91 §2.4: spec read is INSIDE the try (infra errors degrade, never block).
+        spec_text = spec_path.read_text(encoding="utf-8-sig")
+        if not ac_dsl.has_ac_checks_section(spec_text):
+            legacy_no_checks = True
+        else:
+            report = ac_dsl.admit(spec_text)
+    except Exception as e:  # noqa: BLE001 — driver isolation: infra errors degrade, never block
+        _emit_safe("spec_ac_dsl_driver_error", {
+            "error": str(e), "spec_path": str(spec_path), "severity": "error",
+        })
         return StepResult(
             status="ok",
-            data={**prev.data, "spec_ac_dsl_driver_error": str(e)},
+            data={
+                **prev.data,
+                "spec_ac_dsl_driver_error": str(e),
+                "spec_ac_dsl_unverified": True,
+            },
+            duration_ms=0, step_name=step,
+        )
+    if legacy_no_checks:
+        # bd#91 §2.4: structural predicate, not a message substring. Specs without an
+        # `### AC-checks` section keep the legacy warn-pass behaviour.
+        _emit_safe("spec_ac_dsl_warn", {
+            "reason": "legacy_no_ac_checks",
+            "reasons": ["AC-checks section not found (legacy_no_ac_checks)"],
+            "spec_path": str(spec_path),
+        })
+        return StepResult(
+            status="ok",
+            data={**prev.data, "spec_ac_dsl_skipped": "legacy_no_ac_checks"},
             duration_ms=0, step_name=step,
         )
     if report.result == "ACCEPT":
@@ -3224,7 +3235,7 @@ def _verify_spec_ac_dsl(ctx: WorkflowContext, prev: Any) -> StepResult:
         "reasons": agg,
         "spec_path": str(spec_path),
     })
-    if get_config().flag("HAL_AC_DSL_GATE_ENFORCE"):  # flip-by:2026-07-25 Refs #517
+    if get_config().gate_enabled("HAL_AC_DSL_GATE_ENFORCE"):  # retire-by:2027-01-15 Refs #91
         findings = [
             {"line": 0, "rule_id": "ac-dsl/check", "evidence": reason, "lint": "ac-dsl"}
             for reason in agg
@@ -3898,62 +3909,34 @@ def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
     )
 
 
-def _ship_reachable(ship_n: int, revise_n: int, remaining: int) -> bool:
-    """GH707: can SHIP still reach strict majority if every remaining re-poll
-    votes SHIP? `revise_n` only grows and `ship_n` can rise by at most
-    `remaining`, so SHIP is unreachable once ship_n + remaining <= revise_n.
-    Used to early-terminate the repoll loop on outcome-irrelevant polls
-    (verdict-preserving; never breaks while SHIP majority is still achievable)."""
-    return ship_n + remaining > revise_n
+# bd#91 §2.5: dedupe store for `spec_review_repoll_ignored` — (run_id, key) pairs,
+# per process. run_id is None when no telemetry run is active.
+_REPOLL_IGNORED_SEEN: set[tuple[Any, str]] = set()
+_LEGACY_REPOLL_KEYS = ("spec_frozen_review_repolls", "spec_review_repolls")
 
 
-def _frozen_revise_repoll(cfg: dict[str, Any], first: StepResult, invoke_kwargs: dict[str, Any], frozen: bool = True) -> StepResult:
-    """GH514(1)/GH541: REVISE majority re-poll, shared for frozen and non-frozen specs.
-
-    The reviewer LLM is nondeterministic; a REVISE verdict is both the likeliest
-    dice roll and the most expensive one (full writer-cycle fallback), for FROZEN
-    (human-ratified) specs and non-frozen specs alike (GH541). Re-poll the
-    reviewer `spec_frozen_review_repolls` (frozen=True) or `spec_review_repolls`
-    (frozen=False) more times (default 2 → majority-of-3); SHIP wins only on
-    strict majority of parsable verdicts (ship_n > revise_n; UNKNOWN counts as
-    REVISE fail-closed, errored re-polls cast no vote).  Returns the SHIP-voting
-    poll's StepResult on a SHIP majority (its raw_response threads downstream so
-    write_review_doc / gate_on_review parse SHIP), else `first` unchanged.  Emits
-    phase_45_spec_review_repoll either way.  GH707: the loop early-terminates once
-    SHIP majority becomes unreachable (`_ship_reachable`) — `n_repolls` (cfg
-    `spec_frozen_review_repolls`/`spec_review_repolls`) is the cost cap, not a
-    mandatory spawn count."""
-    cfg_key = "spec_frozen_review_repolls" if frozen else "spec_review_repolls"
-    n_repolls = int(cfg.get(cfg_key, 2))
-    if n_repolls <= 0:
-        return first  # kill-switch: 0 disables, behavior identical to pre-GH514(1)
-    votes = [VERDICT_REVISE]
-    ship_result: StepResult | None = None
-    for i in range(n_repolls):
-        remaining = n_repolls - (i + 1)
-        extra = invoke_llm_subprocess(**invoke_kwargs)
-        if extra.status != "ok" or not isinstance(extra.data, dict):
-            votes.append("ERROR")  # no vote — degraded-but-OK, never fails the step
-            if not _ship_reachable(votes.count(VERDICT_SHIP), votes.count(VERDICT_REVISE), remaining):
-                break
-            continue
-        v = _parse_verdict(extra.data.get("raw_response", "") or "")
-        v = v if v == VERDICT_SHIP else VERDICT_REVISE  # UNKNOWN → REVISE fail-closed
-        votes.append(v)
-        if v == VERDICT_SHIP and ship_result is None:
-            ship_result = extra
-        if not _ship_reachable(votes.count(VERDICT_SHIP), votes.count(VERDICT_REVISE), remaining):
-            break
-    ship_n = votes.count(VERDICT_SHIP)
-    revise_n = votes.count(VERDICT_REVISE)
-    final = VERDICT_SHIP if (ship_n > revise_n and ship_result is not None) else VERDICT_REVISE
-    _emit_safe(
-        "phase_45_spec_review_repoll",
-        {"phase": "phase_45_spec", "votes": votes, "final": final,
-         "n_repolls": n_repolls, "cycle": int((invoke_kwargs.get("extra_data") or {}).get("cycle", 1)),
-         "frozen": frozen},
-    )
-    return ship_result if (final == VERDICT_SHIP and ship_result is not None) else first
+def _emit_repoll_ignored(cfg: dict[str, Any]) -> None:
+    """bd#91 §2.5: legacy re-poll keys > 0 are ignored (REVISE is final); emit once
+    per (process, run_id, key). Never raises."""
+    try:
+        run_ctx = telemetry_ctx.get_current_run()
+        run_id = run_ctx.run_id if run_ctx is not None else None
+        for key in _LEGACY_REPOLL_KEYS:
+            raw = cfg.get(key)
+            if raw is None or isinstance(raw, bool):
+                continue
+            try:
+                val = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if val <= 0:
+                continue
+            if (run_id, key) in _REPOLL_IGNORED_SEEN:
+                continue
+            _REPOLL_IGNORED_SEEN.add((run_id, key))
+            _emit_safe("spec_review_repoll_ignored", {"key": key, "value": val})
+    except Exception as e:  # noqa: BLE001 — telemetry must never change the verdict
+        logger.warning("spec_review_repoll_ignored emit failed: %s", e)
 
 
 def _invoke_review_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
@@ -3981,16 +3964,11 @@ def _invoke_review_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
         hard_gate=True,
         gate_label="plan-review",
         allowed_tools=["Read"],
-        injections=_declared_injections(prev.data),  # bd#141 4(d): repolls reuse invoke_kwargs
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
-    res = invoke_llm_subprocess(**invoke_kwargs)
-    if (
-        res.status == "ok"
-        and isinstance(res.data, dict)
-        and _parse_verdict(res.data.get("raw_response", "") or "") == VERDICT_REVISE
-    ):
-        return _frozen_revise_repoll(cfg, res, invoke_kwargs, frozen=bool(prev.data.get("is_frozen")))
-    return res
+    _emit_repoll_ignored(cfg)
+    # bd#91 §2.5: a single qualified REVISE is final (no majority re-poll).
+    return cast(StepResult, invoke_llm_subprocess(**invoke_kwargs))
 
 
 def _parse_verdict(raw: str) -> str:

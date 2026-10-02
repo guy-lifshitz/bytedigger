@@ -332,6 +332,8 @@ def test_ac9_enforce_off_regression_ok_and_repair_not_called(tmp_path, monkeypat
         monkeypatch, DirectedRepairResult(converged=True, attempts=1, final=None)
     )
     _patch_telemetry(monkeypatch)
+    # bd#91: ENFORCE defaults ON now; the warn-only regression needs explicit =0.
+    monkeypatch.setenv("HAL_AC_DSL_GATE_ENFORCE", "0")
     f = _write(tmp_path, "spec_uncompilable_warn.md", _UNCOMPILABLE_SPEC)
 
     r = _verify_spec_ac_dsl(_ctx(), _prev(f))
