@@ -162,8 +162,8 @@ def test_r7_non_gate_judges_declare_the_judge_role():
 
 
 def test_r8_phase6_straggler_check_resolves_the_reviewers_backend(monkeypatch, tmp_path):
-    """The reviewer is a judge: when judges run in-session (no abort capability),
-    straggler_abort is dropped even though the global backend is claude-subprocess."""
+    """The reviewer is a judge: with judges in-session the review call carries no
+    straggler_cfg (bd#89 P3b1: phase 6 never arms one)."""
     from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RUNNER_BACKEND_JUDGE", "claude-in-session")
@@ -177,34 +177,13 @@ def test_r8_phase6_straggler_check_resolves_the_reviewers_backend(monkeypatch, t
         "doc_path": "d", "spec_path": "s", "red_log_path": "r", "green_log_path": "g",
         "prompt": "review",
     })
-    ctx = types.SimpleNamespace(org_config={"straggler_abort": True, "review_fanout": "parallel",
-                                            "scratchpad_dir": str(tmp_path)})
+    ctx = types.SimpleNamespace(org_config={"scratchpad_dir": str(tmp_path)})
     with patch.object(p6, "invoke_llm_subprocess", _capture):
         p6._invoke_review_llm(ctx, prev)
     assert seen and seen[0].get("straggler_cfg") is None
 
 
-def test_r8b_global_in_session_does_not_drop_a_subprocess_judges_straggler(monkeypatch, tmp_path):
-    """Inverse leg: only the reviewer's own backend decides."""
-    from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
-
-    monkeypatch.setenv("HAL_RUNNER_BACKEND", "claude-in-session")
-    monkeypatch.setenv("HAL_RUNNER_BACKEND_JUDGE", "claude-subprocess")
-    seen: list[dict] = []
-
-    def _capture(**kwargs):
-        seen.append(kwargs)
-        return StepResult(status="ok", data={"text": "x"}, duration_ms=1, step_name="s")
-
-    prev = StepResult(status="ok", duration_ms=0, step_name="build_review_prompt", data={
-        "doc_path": "d", "spec_path": "s", "red_log_path": "r", "green_log_path": "g",
-        "prompt": "review",
-    })
-    ctx = types.SimpleNamespace(org_config={"straggler_abort": True, "review_fanout": "parallel",
-                                            "scratchpad_dir": str(tmp_path)})
-    with patch.object(p6, "invoke_llm_subprocess", _capture):
-        p6._invoke_review_llm(ctx, prev)
-    assert seen and seen[0].get("straggler_cfg") is not None
+# r8b (subprocess judge keeps straggler_cfg) retired by bd#89 P3b1: phase 6 never arms it.
 
 
 def test_r1b_gate_with_worker_role_routes_as_a_worker(routed):

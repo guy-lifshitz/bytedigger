@@ -261,7 +261,7 @@ def test_ac5_select_reviewers_has_no_artifact_type_parameter():
 
     params = list(inspect.signature(phase_6_review._select_reviewers).parameters)
     assert "artifact_type" not in params, params
-    assert params[0] == "complexity" and "fanout" in params, params
+    assert params == ["complexity"], params  # bd#89 P3b1: the fanout kwarg is gone
     assert not hasattr(phase_6_review, "_ROW_DEVOPS_REVIEWER")
     assert not hasattr(phase_6_review, "_LINE_COMPOSITE_DEVOPS")
 
@@ -272,8 +272,7 @@ def test_ac5_review_plan_has_no_artifact_type_and_no_devops_row(tmp_path):
     params = list(inspect.signature(phase_6_review._review_plan).parameters)
     assert params == ["ctx", "complexity"], params
     ctx = _ctx(tmp_path / "scratch", artifact_type="dockerfile")
-    fanout, table, count = phase_6_review._review_plan(ctx, "FEATURE")
-    assert fanout == "single"
+    table, count = phase_6_review._review_plan(ctx, "FEATURE")  # bd#89 P3b1: 2-tuple
     assert count == 1, count
     assert "devops" not in table.lower(), table
 
