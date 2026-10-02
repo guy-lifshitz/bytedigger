@@ -39,9 +39,14 @@ import pytest
 from bytedigger_engine import config_provider, telemetry_ctx
 
 EVENT_TYPE = "engine_owned_paths_dropped"
-CYR = "Привет"  # escape-written so this file stays ASCII
+CYR = "".join(chr(c) for c in (0x041F, 0x0440, 0x0438, 0x0432, 0x0435, 0x0442))  # code points, so this file stays ASCII
 
-_GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+_AMBIENT_GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT")
+_GIT_ENV = {
+    **{k: v for k, v in os.environ.items() if k not in _AMBIENT_GIT_VARS},
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +123,8 @@ def _isolation(monkeypatch):
     config is pointed at devnull and the gate switches are unset unless a test sets them."""
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    for var in _AMBIENT_GIT_VARS:
+        monkeypatch.delenv(var, raising=False)
     for prefix in ("HAL_", "BD_", "BYTEDIGGER_"):
         for gate in ("GREEN_CHECKPOINT_GATE", "AUTHORED_BOUNDARY_GATE"):
             monkeypatch.delenv(prefix + gate, raising=False)
@@ -445,7 +452,7 @@ def test_ac2_porcelain_path_units() -> None:
     assert eo.porcelain_path("?? .bytedigger/") == ".bytedigger/"
     assert eo.porcelain_path(" M src/a.py") == "src/a.py"
     assert eo.porcelain_path("R  old.py -> .bytedigger/x") == ".bytedigger/x"
-    assert eo.porcelain_path(r'?? ".bytedigger/caf\303\251.json"') == ".bytedigger/café.json"
+    assert eo.porcelain_path(r'?? ".bytedigger/caf\303\251.json"') == ".bytedigger/caf" + chr(0xE9) + ".json"
     assert eo.porcelain_path(r'?? "a b\\c.py"') == "a b\\c.py"
     assert eo.porcelain_path(r'?? "a\tb\"c\nd"') == 'a\tb"c\nd'
     assert eo.porcelain_path("") == ""
@@ -478,7 +485,7 @@ def test_ac2_drop_engine_owned_porcelain_keeps_order_and_drops_state_lines(tmp_p
     ev = events[0]
     assert ev["step"] == "dirty_guard" and ev["n_dropped"] == 5 and ev["content_scan"] is False
     assert sorted(ev["paths"]) == sorted([
-        ".bytedigger/", ".bytedigger/events.jsonl", ".bytedigger/x", ".bytedigger/café.json",
+        ".bytedigger/", ".bytedigger/events.jsonl", ".bytedigger/x", ".bytedigger/caf" + chr(0xE9) + ".json",
         "sub/.bytedigger/n.json",
     ])
 
