@@ -385,9 +385,9 @@ def test_ac9_two_sequential_calls_rollup_counts_both_cycles(monkeypatch, tmp_pat
     run_ctx2 = types.SimpleNamespace(event_log=log, run_id="run-ac9", step_name="gate.step1",
                                       phase="phase_5", cycle=2)
 
-    r1 = mod.agent_sdk_backend(prompt="p1", step_name="gate.step1",
+    r1 = mod.agent_sdk_backend(prompt="p1", step_name="gate.step1", fresh_session=False,
                                 **_common_kwargs(root, run_ctx1))
-    r2 = mod.agent_sdk_backend(prompt="p2", step_name="gate.step1",
+    r2 = mod.agent_sdk_backend(prompt="p2", step_name="gate.step1", fresh_session=False,
                                 **_common_kwargs(root, run_ctx2))
     assert r1.status == "ok" and r2.status == "ok"
     assert r2.data.get("warm_resumed") is True, f"AC9: {r2.data!r}"

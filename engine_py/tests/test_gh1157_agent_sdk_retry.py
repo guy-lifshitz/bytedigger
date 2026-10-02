@@ -340,7 +340,8 @@ def test_ac6_retry_then_success_resets_resume(monkeypatch, tmp_path):
     mod._SESSION_CACHE["r-ac6:gate"] = ("stale-warm-session", 0)
 
     result = mod.agent_sdk_backend(
-        prompt="p", timeout_sec=10, step_name="gate.step1", **_common_kwargs(root, run_ctx)
+        prompt="p", timeout_sec=10, step_name="gate.step1", fresh_session=False,
+        **_common_kwargs(root, run_ctx)
     )
 
     assert result.status == "ok", f"AC6: expected ok after retry-then-success; got {result.status!r}"
