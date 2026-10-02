@@ -113,8 +113,6 @@ def test_ac1_delta_path_drops_the_scaffold(tmp_path, monkeypatch):
 
 def test_ac2_delta_prompt_is_self_sufficient(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    # GH592: pin surgical OFF — this test covers the delta-prompt lane
-    monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
     from bytedigger_engine.workflows.phase_45_spec import _get_out_of_role_block
 
     scratchpad = tmp_path / "scratch"

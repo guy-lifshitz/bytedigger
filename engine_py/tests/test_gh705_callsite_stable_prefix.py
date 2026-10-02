@@ -312,13 +312,12 @@ def test_AC2p_spec_writer_prompt_stays_full_and_callsite_wired(tmp_path, monkeyp
     )
 
 
-def test_AC3p_spec_writer_delta_branches_leave_stable_prefix_unset(tmp_path, monkeypatch):
-    """Both cycle>=2 early-return branches (surgical-revise, delta-retry) must
-    leave stable_prefix UNSET (inert / back-compat)."""
+def test_AC3p_spec_writer_delta_branch_leaves_stable_prefix_unset(tmp_path, monkeypatch):
+    """The cycle>=2 delta-retry early-return branch must leave stable_prefix
+    UNSET (inert / back-compat)."""
     from bytedigger_engine.workflows.phase_45_spec import _build_spec_prompt  # noqa: PLC0415
 
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
 
     scratchpad = tmp_path / "scratch"
     _seed_injection(scratchpad)
@@ -329,28 +328,10 @@ def test_AC3p_spec_writer_delta_branches_leave_stable_prefix_unset(tmp_path, mon
         {"id": "T1", "type": "gap", "evidence": "e1", "required_action": "do the thing"},
     ]
 
-    # Branch A: surgical-revise (surgical_fallback not set -> surgical path taken)
-    prev_surgical = {
-        "cycle": 2,
-        "findings": "some reviewer findings text",
-        "structured_findings": structured_findings,
-    }
-    r_surgical = _build_spec_prompt(ctx, prev_surgical)
-    assert isinstance(r_surgical.data, dict)
-    assert r_surgical.data.get("delta_retry") is True, (
-        "fixture precondition: surgical-revise branch must set delta_retry=True"
-    )
-    assert r_surgical.data.get("stable_prefix", "") == "", (
-        "AC3p: surgical-revise early-return must leave stable_prefix UNSET; "
-        f"got {r_surgical.data.get('stable_prefix')!r}"
-    )
-
-    # Branch B: delta-retry (force surgical_fallback=True to skip the surgical branch)
     prev_delta = {
         "cycle": 2,
         "findings": "some reviewer findings text",
         "structured_findings": structured_findings,
-        "surgical_fallback": True,
     }
     r_delta = _build_spec_prompt(ctx, prev_delta)
     assert isinstance(r_delta.data, dict)

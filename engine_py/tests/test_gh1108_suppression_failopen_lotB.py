@@ -7,19 +7,18 @@ OFIs shipped this lot:
   1830db11 (P2/P3) — per-gate blocklist registry + forbidden_tokens_for()
   f9001011 (P4)    — indeterminate origin rejects (spec-authorized still passes)
   f624e3fb (P6)    — green_commit scans a git-diff-derived (test-retained) set
-  0b95d45a (P7)    — apply_surgical_patches suppression + pragma-allow guard
+  0b95d45a (P7)    — point-patch suppression guard (retired by bd#89 P3a)
 
 Conventions (§1q / D1CF5FDF collectability guard, 81F97F3D no module-level
 sys.path mutation): existing modules (phase_5_implement, telemetry_ctx,
 lib.authored_boundary, contracts) import at module top — conftest.py's
 import-time singleton exposes engine_py/ (package parent) and tests/. The
 NOT-YET-EXISTING symbol ``forbidden_tokens_for`` is resolved via
-getattr(...) INSIDE each test body; ``apply_surgical_patches`` (module exists,
-new behaviour absent) is imported inside each P7 body — so this file COLLECTS
+getattr(...) INSIDE each test body — so this file COLLECTS
 cleanly and each test FAILS at assert time, never at collection time.
 
 Stub-passability (§1l/7AD3D393): the real ``authored_boundary`` module and the
-real ``_commit_green_code`` / ``_verify_security_lint`` / ``apply_surgical_patches``
+real ``_commit_green_code`` / ``_verify_security_lint``
 are called directly, never mocked. Only ``phase_5_implement._emit_safe`` is
 patched for telemetry capture. Fixture repos resolve paths with
 ``os.path.realpath`` (§1j — macOS /var/folders symlinks break subprocess-cwd
@@ -490,45 +489,6 @@ def test_ac13_ac9_runs_real_unmocked_boundary_module_identity(tmp_path):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 0b95d45a (P7) — apply_surgical_patches suppression + pragma-allow guard
+# 0b95d45a (P7) — retired by bd#89 P3a: the point-patch revise lane and its
+# suppression guard (former AC14-AC16) were dropped; see GAP-4 in the P3a spec.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-
-def test_ac14_apply_surgical_patches_rejects_new_suppression_token():
-    """AC14: apply_surgical_patches whose `new` introduces gitleaks:allow ⇒ (None, meta) reason=='suppression_token_added', non-empty tokens, finding_id echoed."""
-    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
-
-    base = "AAA\nOLD_FRAG\nCCC\n"
-    patches = [{"finding_id": "F1", "old": "OLD_FRAG", "new": "OLD_FRAG  # gitleaks:allow"}]
-    patched, meta = apply_surgical_patches(base, patches)
-
-    assert patched is None, f"suppression-token-adding patch must fail closed, got patched={patched!r}"
-    assert meta.get("reason") == "suppression_token_added", f"expected reason=suppression_token_added, got {meta!r}"
-    assert meta.get("tokens"), f"expected non-empty tokens, got {meta!r}"
-    assert meta.get("finding_id") == "F1", f"expected finding_id echoed, got {meta!r}"
-
-
-def test_ac15_apply_surgical_patches_rejects_new_pragma_allow_line():
-    """AC15: apply_surgical_patches whose `new` introduces a security-lint-pragma-allow line ⇒ same fail-closed shape, non-empty tokens (self-authorization loop)."""
-    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
-
-    base = "AAA\nOLD_FRAG\nCCC\n"
-    patches = [{"finding_id": "F2", "old": "OLD_FRAG", "new": "OLD_FRAG\nsecurity-lint-pragma-allow: src/x.py"}]
-    patched, meta = apply_surgical_patches(base, patches)
-
-    assert patched is None, f"pragma-allow-adding patch must fail closed, got patched={patched!r}"
-    assert meta.get("reason") == "suppression_token_added", f"expected reason=suppression_token_added, got {meta!r}"
-    assert meta.get("tokens"), f"expected non-empty tokens, got {meta!r}"
-    assert meta.get("finding_id") == "F2", f"expected finding_id echoed, got {meta!r}"
-
-
-def test_ac16_apply_surgical_patches_clean_patch_unchanged():
-    """AC16: regression — a clean patch still returns (patched_text, {'n_patches': N}) exact dict, untouched bytes byte-identical."""
-    from bytedigger_engine.lib.plugins.checklist_convergence.surgical_revise import apply_surgical_patches
-
-    base = "AAA one\nBBB two\nCCC three\n"
-    patches = [{"finding_id": "F1", "old": "BBB two", "new": "BBB TWO"}]
-    patched, meta = apply_surgical_patches(base, patches)
-
-    assert patched == "AAA one\nBBB TWO\nCCC three\n", f"clean patch must apply exactly, got {patched!r}"
-    assert meta == {"n_patches": 1}, f"expected exact meta {{'n_patches': 1}}, got {meta!r}"

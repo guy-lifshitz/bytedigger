@@ -146,7 +146,6 @@ def test_ac3_empty_grep_is_not_sibling_clean(tmp_path):
 
 def test_ac4_cycle2_prompt_carries_axis_and_full_parity(tmp_path, monkeypatch):
     monkeypatch.delenv("HAL_SPEC_DELTA_RETRY", raising=False)
-    monkeypatch.delenv("HAL_SURGICAL_REVISE", raising=False)
     from bytedigger_engine.workflows.phase_45_spec import missing_high_binding_axes  # noqa: PLC0415
 
     scratchpad = tmp_path / "scratch"
@@ -155,7 +154,7 @@ def test_ac4_cycle2_prompt_carries_axis_and_full_parity(tmp_path, monkeypatch):
         scratchpad, cycle=2, findings="reviewer prose", structured_findings=STRUCTURED_FINDINGS,
     )
 
-    assert data.get("surgical_revise") is True
+    assert data.get("delta_retry") is True
     assert "§1a sibling-shape-audit" in prompt
     assert missing_high_binding_axes(prompt) == []
     assert data.get("high_binding_missing") == []
