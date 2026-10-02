@@ -144,6 +144,9 @@ _BACKEND_CAPABILITIES: dict[str, frozenset[str]] = {
     "claude-in-session": frozenset({"manifest"}),
 }
 
+# bd#103: optional per-backend `(model) -> effective model` hook; built-ins have none.
+_BACKEND_EFFECTIVE_MODEL: "dict[str, typing.Callable[[str], str]]" = {}
+
 # Sentinel for distinguishing absent-key from None-value (both rejected, but
 # the error message benefits from distinguishing internally during dev).
 _MANIFEST_SENTINEL = object()
@@ -1319,6 +1322,23 @@ def _observed(result: StepResult, key: str) -> object:
     return data.get(key)
 
 
+def _effective_model(
+    resolved_backend: str, model: str,
+) -> "tuple[str | None, str | None]":
+    """bd#103: `(effective, problem_detail)`. Catches `Exception` only, so
+    KeyboardInterrupt / SystemExit propagate."""
+    hook = _BACKEND_EFFECTIVE_MODEL.get(resolved_backend)
+    if hook is None:
+        return model, None
+    try:
+        value = hook(model)
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    if not isinstance(value, str) or not value.strip():
+        return None, f"returned {type(value).__name__} {value!r}"
+    return value, None
+
+
 def _attest_payload(
     resolved_backend: str,
     *,
@@ -1333,8 +1353,10 @@ def _attest_payload(
 
     `prompt` is the PRE-hoist assembled text (spec §0.4) — never
     `_invoke_subprocess`'s `effective_prompt` local, which has `stable_prefix`
-    removed. `model` is the POST-tier-rebind dispatched model (`[bd10:7]`), so
-    the log never names a model that was not invoked.
+    removed. `model` is the POST-tier-rebind dispatched model (`[bd10:7]`) as
+    resolved by the backend's `effective_model` hook (bd#103; equal to the
+    dispatched model when there is no hook), so the log never names a model
+    that was not invoked.
     """
     observed_model = _observed(result, "observed_model")
     observed_tools = _observed(result, "observed_tools")
@@ -1515,11 +1537,12 @@ def _dispatch_backend(
     through, so R3.1-R3.6 are recorded and adjudicated HERE and in no adapter.
     THE ORDER OF OPERATIONS IS THE CONTRACT:
 
+      0. (bd#103) Resolve the effective model; emit the remap/unresolved event.
       1. Refuse BEFORE dispatching, without calling the backend at all: the
-         hard-gate model floor, then a tool list the backend cannot enforce,
-         then an unreadable/malformed effort config under a hard gate
-         (bd#107, E_GATE_EFFORT_CONFIG_INVALID), then a gate effort pin it
-         cannot apply (bd#82 — here, so every
+         hard-gate model floor (on the effective model), then a tool list the
+         backend cannot enforce, then an unreadable/malformed effort config
+         under a hard gate (bd#107, E_GATE_EFFORT_CONFIG_INVALID), then a gate
+         effort pin it cannot apply (bd#82 — here, so every
          dispatch, the GH1169 fallback included, is held to all three), then
          invalid `injections`. Effort is resolved here, after GH375 tier
          rebinding, so a rebound model gets its own effort.
@@ -1537,10 +1560,49 @@ def _dispatch_backend(
     `injections` is forwarded to no backend — the LLMBackend protocol is
     unchanged. `None` ("channel unused") and `()` ("channel used, zero blocks")
     are both legal and both record `[]` (AC-I2).
+
+    bd#103: step 0 resolves the EFFECTIVE model once (the backend's registered
+    `effective_model` hook, else the requested model). An unresolvable hook
+    refuses a hard gate (fail closed) and degrades a worker to the requested
+    model; a remap emits `effective_model_remapped` BEFORE the floor check. The
+    floor, the attestation and the R3.3 pin check read the effective model; the
+    backend is still called with the requested one, and effort stays keyed on it.
     """
+    effective_or_none, problem = _effective_model(resolved_backend, model)
+    if problem is not None:
+        if run_ctx is not None and run_ctx.event_log is not None:
+            _emit_safe(run_ctx.event_log, "effective_model_unresolved", {
+                "backend": resolved_backend,
+                "step_name": step_name,
+                "hard_gate": hard_gate,
+                "model": model,
+                "detail": problem,
+            }, run_ctx.run_id)
+        if hard_gate:
+            return StepResult(
+                status="error",
+                data=None,
+                duration_ms=0,
+                step_name=step_name,
+                error=(
+                    f"hard gate {gate_label or step_name!r}: cannot resolve the effective "
+                    f"model for backend {resolved_backend!r} ({problem}); refusing to dispatch"
+                ),
+                error_code="E_HARD_GATE_MODEL_DOWNGRADE",
+                recoverable=False,
+            )
+    effective = effective_or_none if effective_or_none is not None else model
+    if effective != model and run_ctx is not None and run_ctx.event_log is not None:
+        _emit_safe(run_ctx.event_log, "effective_model_remapped", {
+            "backend": resolved_backend,
+            "step_name": step_name,
+            "hard_gate": hard_gate,
+            "model": model,
+            "effective_model": effective,
+        }, run_ctx.run_id)
     if hard_gate:
         gate_err = _assert_hard_gate_opus(
-            _build_claude_argv(model),
+            _build_claude_argv(effective),
             step_name=step_name,
             gate_label=gate_label or step_name,
             run_ctx=run_ctx,
@@ -1604,7 +1666,7 @@ def _dispatch_backend(
     _emit_attestation(
         resolved_backend,
         prompt=prompt,
-        model=model,
+        model=effective,
         step_name=step_name,
         allowed_tools=allowed_tools,
         injections=injections,
@@ -1612,7 +1674,7 @@ def _dispatch_backend(
         run_ctx=run_ctx,
     )
     pin_refusal = _pin_mismatch_refusal(
-        result, model=model, step_name=step_name, run_ctx=run_ctx,
+        result, model=effective, step_name=step_name, run_ctx=run_ctx,
     )
     if pin_refusal is not None:
         return pin_refusal
@@ -2669,6 +2731,7 @@ def _unknown_backend_error_message(resolved_backend: str) -> str:
 _DEFAULT_BACKENDS = dict(_BACKENDS)
 _DEFAULT_BACKEND_MANIFEST_SOURCE = dict(_BACKEND_MANIFEST_SOURCE)
 _DEFAULT_BACKEND_CAPABILITIES = dict(_BACKEND_CAPABILITIES)
+_DEFAULT_BACKEND_EFFECTIVE_MODEL = dict(_BACKEND_EFFECTIVE_MODEL)
 
 
 def register_backend(
@@ -2678,9 +2741,16 @@ def register_backend(
     manifest_source: str,
     capabilities: "frozenset[str] | set[str] | tuple[str, ...] | None" = None,
     overwrite: bool = False,
+    effective_model: "typing.Callable[[str], str] | None" = None,
 ) -> None:
     """Public OSS injection seam (#302). Register an LLM backend so
     invoke_llm_subprocess(backend=name, ...) dispatches to `impl`.
+
+    `effective_model` (bd#103): optional `(model) -> str` declaring the model
+    the backend actually runs for a requested `model`. The hard-gate floor, the
+    attestation and the R3.3 pin check use that value; the backend is still
+    called with the requested model. A registration without the hook clears an
+    earlier one for the same name.
 
     Updates the three single-source maps (_BACKENDS, _BACKEND_MANIFEST_SOURCE,
     _BACKEND_CAPABILITIES) AND rebinds the two derived snapshots
@@ -2701,6 +2771,8 @@ def register_backend(
         raise ValueError("register_backend: name must be a non-empty str")
     if not callable(impl):
         raise TypeError("register_backend: impl must be callable (LLMBackend)")
+    if effective_model is not None and not callable(effective_model):
+        raise TypeError("register_backend: effective_model must be a callable or None")
     if not isinstance(manifest_source, str) or not manifest_source:
         raise ValueError("register_backend: manifest_source must be a non-empty str")
     if name in _BACKENDS and not overwrite:
@@ -2711,6 +2783,10 @@ def register_backend(
     _BACKENDS[name] = impl  # type: ignore[assignment]
     _BACKEND_MANIFEST_SOURCE[name] = manifest_source
     _BACKEND_CAPABILITIES[name] = frozenset(capabilities or ())
+    if effective_model is None:
+        _BACKEND_EFFECTIVE_MODEL.pop(name, None)
+    else:
+        _BACKEND_EFFECTIVE_MODEL[name] = effective_model
     _KNOWN_BACKENDS = tuple(_BACKENDS)
     _ALLOWED_MANIFEST_SOURCES = frozenset(_BACKEND_MANIFEST_SOURCE.values())
 
@@ -2722,6 +2798,7 @@ def reset_backends() -> None:
     _BACKENDS.clear(); _BACKENDS.update(_DEFAULT_BACKENDS)
     _BACKEND_MANIFEST_SOURCE.clear(); _BACKEND_MANIFEST_SOURCE.update(_DEFAULT_BACKEND_MANIFEST_SOURCE)
     _BACKEND_CAPABILITIES.clear(); _BACKEND_CAPABILITIES.update(_DEFAULT_BACKEND_CAPABILITIES)
+    _BACKEND_EFFECTIVE_MODEL.clear(); _BACKEND_EFFECTIVE_MODEL.update(_DEFAULT_BACKEND_EFFECTIVE_MODEL)
     _KNOWN_BACKENDS = tuple(_BACKENDS)
     _ALLOWED_MANIFEST_SOURCES = frozenset(_BACKEND_MANIFEST_SOURCE.values())
 
