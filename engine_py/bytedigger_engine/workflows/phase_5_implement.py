@@ -122,6 +122,7 @@ from bytedigger_engine.reproducibility import verify_count_reproducible, _pin_py
 from bytedigger_engine.engine import LoopRunner
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason
 from bytedigger_engine import telemetry_ctx
+from bytedigger_engine.lib.util.engine_owned import drop_engine_owned, drop_engine_owned_porcelain, engine_owned_pathspecs  # noqa: E402  bd#94 — engine-owned paths
 
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
@@ -923,8 +924,6 @@ def _derive_green_paths_from_git(git_cwd: str) -> list[str]:
     import fnmatch as _fnmatch
     from pathlib import Path as _Path
 
-    git_cwd_resolved = _Path(git_cwd).resolve()
-
     paths: list[str] = []
     for line in result.stdout.splitlines():
         if len(line) < 4:
@@ -940,15 +939,6 @@ def _derive_green_paths_from_git(git_cwd: str) -> list[str]:
             dir_path = _Path(git_cwd) / raw_path
             if dir_path.is_dir():
                 for f in dir_path.rglob("*"):
-                    if f.is_symlink():
-                        try:
-                            target = f.resolve(strict=True)
-                        except (OSError, RuntimeError):
-                            continue
-                        try:
-                            target.relative_to(git_cwd_resolved)
-                        except ValueError:
-                            continue
                     if not f.is_file():
                         continue
                     try:
@@ -980,6 +970,9 @@ def _derive_green_paths_from_git(git_cwd: str) -> list[str]:
         if not is_test:
             final.append(p)
 
+    # bd#94: engine state and escaping/dangling/state-decoy links never enter a scan set
+    # (R2 covers symlinked files and symlinked parent dirs; replaces the old one-off skip).
+    final = drop_engine_owned(final, git_cwd, step="derive_green_paths", content_scan=True)
     return sorted(final)
 
 
@@ -1765,6 +1758,7 @@ def _detect_green_complete_resume(prev_data: dict, git_cwd: str) -> list:
         changed = git_diff_files(red_sha, git_cwd, untracked=True, segment_filter=None)
     except Exception:  # noqa: BLE001
         return []
+    changed = drop_engine_owned(changed, git_cwd, step="green_resume_paths", content_scan=False)
     import fnmatch as _fnmatch
     _TEST_PATTERNS = ("test_*.py", "*_test.py", "*.test.ts", "*.test.sh")
     _TEST_SEGMENTS = ("tests/", "__tests__/")
@@ -5078,17 +5072,18 @@ def _checkpoint_green_worktree(git_cwd: str, scratchpad: str | None, cycle: int,
     st = git_port.git_read(["status", "--porcelain"], cwd=git_cwd, timeout=30)
     if st.returncode != 0:
         return _emit_and_return("error", detail="status_failed")
-    porcelain_lines = [ln for ln in (st.stdout or "").splitlines() if ln.strip()]
+    porcelain_lines = drop_engine_owned_porcelain(
+        (st.stdout or "").splitlines(), git_cwd, step="checkpoint_dirty",
+    )
     if not porcelain_lines:
         return _emit_and_return("clean")
     n_files = len(porcelain_lines)
     swept = [ln[3:] for ln in porcelain_lines[:20]]  # SF-8: bounded observability
     swept_truncated = n_files > 20
 
-    # ── step 4: stage, excluding the foreign-state dir (§1g seam, at call time) ──
-    excl = f":(exclude){foreign_state_dirname()}"
+    # ── step 4: stage, excluding engine state at the root and at any depth (bd#94) ──
     _add, add_outcome = _git_op_with_lock_retry(
-        ["git", "add", "-A", "--", ".", excl], cwd=git_cwd, timeout=30,
+        ["git", "add", "-A", "--", ".", *engine_owned_pathspecs()], cwd=git_cwd, timeout=30,
     )
     if add_outcome != "ok":
         return _emit_and_return("error", detail=f"add_{add_outcome}")
@@ -5614,7 +5609,10 @@ def _verify_green_lint_rules(ctx, prev) -> StepResult:
         # untracked=True — so lint and commit see the same file set.
         # This ensures GREEN's brand-new (untracked) files are included before
         # _commit_green_code stages and commits them.
-        all_paths = git_diff_files(red_sha, git_cwd, untracked=True, segment_filter=None)
+        all_paths = drop_engine_owned(
+            git_diff_files(red_sha, git_cwd, untracked=True, segment_filter=None),
+            git_cwd, step="green_lint_paths", content_scan=True,
+        )
         # Filter to .py production files (mirroring _derive_green_paths_from_git logic)
         import fnmatch as _fnmatch
         _TEST_PATTERNS = ("test_*.py", "*_test.py")
@@ -5903,7 +5901,10 @@ def _derive_security_lint_paths(prev_data: dict, cfg: dict, git_cwd: str) -> tup
     only test files are excluded, not restricted to .py)."""
     red_sha = prev_data.get("red_commit_sha") or cfg.get("red_commit_sha")
     if red_sha:
-        all_paths = git_diff_files(red_sha, git_cwd, untracked=True, segment_filter=None)
+        all_paths = drop_engine_owned(
+            git_diff_files(red_sha, git_cwd, untracked=True, segment_filter=None),
+            git_cwd, step="security_lint_paths", content_scan=True,
+        )
         import fnmatch as _fnmatch
         _TEST_PATTERNS = ("test_*.py", "*_test.py", "*.test.ts", "*.test.sh")
         _TEST_SEGMENTS = ("tests/", "__tests__/")
@@ -6230,7 +6231,10 @@ def _verify_green_typecheck(ctx, prev) -> StepResult:
     if isinstance(prev.data, dict):
         red_sha = prev.data.get("red_commit_sha") or cfg.get("red_commit_sha")
     if red_sha:
-        all_paths = git_diff_files(red_sha, git_cwd, untracked=True, segment_filter=None)
+        all_paths = drop_engine_owned(
+            git_diff_files(red_sha, git_cwd, untracked=True, segment_filter=None),
+            git_cwd, step="green_typecheck_paths", content_scan=True,
+        )
         import fnmatch as _fnmatch
         _TEST_PATTERNS = ("test_*.py", "*_test.py")
         _TEST_SEGMENTS = ("tests/", "__tests__/")

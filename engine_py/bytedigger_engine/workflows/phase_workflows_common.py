@@ -42,6 +42,7 @@ from bytedigger_engine import telemetry_ctx  # noqa: E402
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_port  # noqa: E402  164E4EFA — rc-aware git read adapter
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
+from bytedigger_engine.lib.util.engine_owned import drop_engine_owned  # noqa: E402  bd#94 — engine-owned paths
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
 from bytedigger_engine.config_provider import int_value  # noqa: E402  GH786 retry knob
 from bytedigger_engine.role_template import load_role_template  # noqa: E402  bd#119
@@ -817,11 +818,18 @@ def resolve_engine_mode(spec_path: str | None, ctx: WorkflowContext) -> str | No
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _filter_gitignored_paths(paths: list[str], git_cwd: str) -> list[str]:
-    """Return paths not gitignored in git_cwd.  Degraded-but-OK on check-ignore
-    failure (returns all paths).  Emits commit_gitignored_paths_skipped when
-    any path is filtered."""
+    """Return paths that are neither engine-owned nor gitignored in git_cwd.
+
+    bd#94: engine state (R1, ``content_scan=False``, so a user's escaping symlink stays
+    committable) is dropped first; an all-state manifest returns [] without a check-ignore
+    call.  Then the gitignore check runs on the remainder.  Degraded-but-OK on
+    check-ignore failure (returns the engine-state-filtered paths, never the original).
+    Emits commit_gitignored_paths_skipped when any path is filtered."""
     if not paths:
         return paths
+    paths = drop_engine_owned(paths, git_cwd, step="commit_manifest", content_scan=False)
+    if not paths:
+        return []
     ci = git_port.git_read(
         ["check-ignore", "--"] + paths,
         cwd=git_cwd,

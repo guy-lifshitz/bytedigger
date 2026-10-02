@@ -63,6 +63,7 @@ from typing import Any
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
 
 from bytedigger_engine.lib import git_port  # noqa: E402
+from bytedigger_engine.lib.util.engine_owned import drop_engine_owned_porcelain  # noqa: E402  bd#94 — engine-owned paths
 from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source  # noqa: E402  GH381
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
@@ -330,7 +331,9 @@ def _dirty_worktree_guard(
         if res.timed_out or res.returncode != 0:
             dirty_lines = None
         else:
-            dirty_lines = [line for line in res.stdout.splitlines() if line.strip()]
+            dirty_lines = drop_engine_owned_porcelain(
+                res.stdout.splitlines(), git_cwd, step="dirty_guard",
+            )
     except FileNotFoundError:
         dirty_lines = None
 
@@ -355,7 +358,9 @@ def _dirty_worktree_guard(
                         )
                         still_dirty = (
                             res2.timed_out or res2.returncode != 0
-                            or any(line.strip() for line in res2.stdout.splitlines())
+                            or any(drop_engine_owned_porcelain(
+                                res2.stdout.splitlines(), git_cwd, step="dirty_guard",
+                            ))
                         )
                     except FileNotFoundError:
                         still_dirty = True
