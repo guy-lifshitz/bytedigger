@@ -1,6 +1,6 @@
 # bd#94: engine-owned paths excluded from tree/manifest gates by construction
 
-**Status: r3.** Gate r1 REJECTED the spec (6 MAJOR, 8 MINOR) and gate r2 REJECTED r2 (1 MAJOR N1, 8 MINOR N2-N9, 8 edges). Every finding is accepted or explicitly declared; see `2026-10-02-bd94-gate-r{1,2}.md` and the tables in §6/§7. r1 was frozen at bbf56dd, r2 at 3427031.
+**Status: r3.1** (gate r3 REJECT on a RED-only MAJOR, the Cyrillic literal; MINORs folded below in §8). Gate r1 REJECTED the spec (6 MAJOR, 8 MINOR) and gate r2 REJECTED r2 (1 MAJOR N1, 8 MINOR N2-N9, 8 edges). Every finding is accepted or explicitly declared; see `2026-10-02-bd94-gate-r{1,2}.md` and the tables in §6/§7. r1 was frozen at bbf56dd, r2 at 3427031.
 
 | | |
 |---|---|
@@ -113,7 +113,7 @@ Step names are pinned by tests.
 | 3 | `_verify_green_lint_rules` (:5617), `_verify_green_typecheck` (:6233) | Their `git_diff_files` result passes through `drop_engine_owned`. | `"green_lint_paths"` / `"green_typecheck_paths"` | True |
 | 4 | `_detect_green_complete_resume` (:1765) | Same. | `"green_resume_paths"` | False |
 | 5 | `_filter_gitignored_paths(paths, git_cwd)` | First `drop_engine_owned`, then the existing check-ignore on the remainder. The docstring states both. | `"commit_manifest"` | False |
-| 6 | `_commit_fix_tests` (`phase_6_review.py:5042`) | `test_paths = _filter_gitignored_paths(test_paths, git_cwd)` (result assigned back) BEFORE the `if not test_paths` early return, so an all-state manifest takes the existing `no_test_paths` branch and never reaches `git add --` with no pathspec (gate r2 N8, edge 5). All seven `git add` sites in phase 5/6 then route through it. | | |
+| 6 | `_commit_fix_tests` (`phase_6_review.py:5042`) | `test_paths = _filter_gitignored_paths(test_paths, git_cwd)` (result assigned back) BEFORE the `if not test_paths` early return, so an all-state manifest takes the existing `no_test_paths` branch and never reaches `git add --` with no pathspec (gate r2 N8, edge 5). The six list-form `git add` sites in phase 5/6 then route through it; the seventh (the checkpoint, :5091) uses pathspecs (row 8; gate r3 F6). Both `_commit_fix_tests` and `_autocommit_fix_tail` also append `*engine_owned_pathspecs()` to their `git add --` argv, so an untracked dir such as `?? newpkg/` cannot stage nested state (gate r3 F5). | | |
 | 7 | `_dirty_worktree_guard` (`phase_6_fix_integrity.py`): BOTH reads, the first (:329) and the post-self-heal re-read (:354, `still_dirty`); and the `_checkpoint_green_worktree` dirty check (:5078-5086) | Each porcelain result passes through `drop_engine_owned_porcelain` before the dirty / self-heal / still-dirty decision. A tree whose only dirt is engine state is CLEAN, and so is a tree whose only remaining dirt after the self-heal commit is engine state (gate F2, gate r2 N1). Tracked, modified state (` M .bytedigger/…`, gate r2 edge 2) is dropped the same way. | `"dirty_guard"` (both reads) / `"checkpoint_dirty"` | False |
 | 8 | `_checkpoint_green_worktree` | Runs `["git", "add", "-A", "--", ".", *engine_owned_pathspecs()]`. The inline `:(exclude)` literal is deleted. | | |
 | 9 | `error_codes` | `HARVEST_EXCLUDE_DIRS` loses `".bytedigger"`; `harvest_codes` calls `prune_engine_owned_dirs(dirnames)`. `.hal-build` stays: it is the HAL host dir, not this engine's. Declared. The comment at `error_codes.py:17-19` ("import-order dependency") is rewritten: the state dirname is now read at walk time through `prune_engine_owned_dirs` (gate r2 N9e). | | |
@@ -151,6 +151,8 @@ This mirrors `class_i_lint.py` (bd#150).
 - **varargs form:** the positional arguments after any leading non-literal ones, when the callee's terminal name with leading underscores stripped is exactly `git` (e.g. `_git(top, "ls-files", ...)`). Same literal/placeholder rule. This keeps `x.get("status")` and `readiness.guard_git(lambda: ..., "add", False)` out (gate r2 N4).
 
 **Verb rule.** Walk the tokens. Skip a leading `"git"`. `-C`, `-c`, `--git-dir`, `--work-tree` consume the NEXT token as their value, whatever it is (a placeholder included). The `--opt=value` forms consume nothing. Any other token starting with `-` is skipped. The verb is the first remaining token that is a string literal. A placeholder in verb position means no verb, so no site. Example: `["git", "-C", d, "status"]` → `-C` consumes `d`, the verb is `status` (a site).
+
+**Declared limitation (gate r3 F4).** A helper that takes the argv as a NON-first list (`readiness._git(repo, [..])`, `git_blob._git`) or a differently named text helper (`_git_text`) is not detected by the list form. No such site is a gap in today's tree; a follow-up can extend the rule.
 
 **Lambda scope (gate r2 edge 6).** A `lambda` is not its own scope. A site inside a lambda takes the qualname of its nearest enclosing `def`/`class` (e.g. `companion_tune.py::_stage_files::git-add#0`), and the "filters" check looks at that `def`'s body.
 
@@ -368,3 +370,16 @@ The predicate never raises, and producers keep their existing failure modes.
 | Edge 6 lambda | §2.3 lambda scope; AC7 `f_lambda`. |
 | Edge 7 tuple-argv fingerprint | §2.2-11a + AC5 behavioural; lint limitation declared. |
 | Edge 8 glob double count | N6b precedence. |
+
+## §8 r3 → r3.1 (gate r3)
+
+| Gate r3 | Disposition |
+|---|---|
+| F1 MAJOR | RED: `CYR` built from code points (`chr(0x041F)...`), the file is ASCII-only; bd79 english-only stays green. |
+| F2 | RED: `_isolation` and `_GIT_ENV` also clear `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`. |
+| F3 | GREEN instruction: `_filter_gitignored_paths` returns `[]` early when nothing is left after `drop_engine_owned` (no `check-ignore --` with empty paths), and its degrade branch returns the state-filtered list, never the original `paths`. |
+| F4 | Declared limitation in §2.3. |
+| F5 | §2.2-6: pathspecs appended to both list-form `git add` argv. `--untracked-files=all` for the guard reads is a follow-up. |
+| F6 | §2.2-6 wording fixed. |
+| F7 | GREEN instructions: `porcelain_path` decodes consecutive octal byte runs as one UTF-8 sequence and handles all C escapes (`\a \b \f \n \r \t \v \\ \"`); a symlink loop is detected as `islink(p) and not exists(p)` (Python 3.13 non-strict resolve does not raise); `verification_registry._tree_snapshot` and `companion_tune._stage_files` are `filters`; every `git add` site stays in its current function (mutating_git_lint keys by function name); `engine_owned.py` holds no class-I primitive. |
+| Edge: rename with state source | `R  .bytedigger/x -> src/y.py` is kept (target taken); not a regression. |
