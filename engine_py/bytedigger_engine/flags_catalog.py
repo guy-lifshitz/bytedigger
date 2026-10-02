@@ -358,13 +358,7 @@ FLAGS: dict[str, dict] = {
         "kind": "gate",
         "default": "1",
         "module": "workflows/phase_5_implement.py",
-        "description": "Kill-switch: HAL_SIBLING_AUDIT_GATE=0 disables the §1a sibling-test-audit warn pass (GH535, warn-only, flip-by:2026-07-24).",
-    },
-    "HAL_SIBLING_AUDIT_BIN": {
-        "kind": "path",
-        "default": None,
-        "module": "workflows/phase_5_implement.py",
-        "description": "Env seam: HAL_SIBLING_AUDIT_BIN overrides the sibling-test-audit.sh script path (GH535).",
+        "description": "Kill-switch: HAL_SIBLING_AUDIT_GATE=0 disables the §1a sibling-coupling warn pass (bd#165, in-package detector, warn-only).",
     },
     "HAL_DIRTY_TREE_GUARD": {
         "kind": "gate",

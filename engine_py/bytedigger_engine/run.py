@@ -245,6 +245,9 @@ def main() -> int:
     if sys.argv[1:2] == ["preflight"]:
         from bytedigger_engine.preflight import preflight_main
         return preflight_main(sys.argv[2:])
+    if sys.argv[1:2] == ["sibling-audit"]:
+        from bytedigger_engine.sibling_coupling import main as _sa_main
+        return _sa_main(sys.argv[2:])
 
     p = argparse.ArgumentParser()
     p.add_argument("--workflow")

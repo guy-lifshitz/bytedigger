@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    {
+      "id": "n_resolve_thing",
+      "label": "resolve_thing()",
+      "norm_label": "resolve_thing",
+      "source_file": "prod/callee_mod.py",
+      "source_location": "L12"
+    },
+    {
+      "id": "n_unrelated",
+      "label": "unrelated_helper()",
+      "norm_label": "unrelated_helper",
+      "source_file": "prod/unrelated.py",
+      "source_location": "L3"
+    }
+  ],
+  "links": [
+    {
+      "source": "n_unrelated",
+      "target": "n_unrelated",
+      "relation": "calls"
+    }
+  ]
+}

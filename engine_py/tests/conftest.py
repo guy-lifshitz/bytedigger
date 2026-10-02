@@ -23,6 +23,9 @@ import pytest
 from helpers import host_tools as _host_tools
 from helpers import live_repo as _live_repo
 
+# fixture test_*.py under fixtures/sibling_coupling are scan corpus for bd#165, not tests; a nested conftest there would shadow sys.modules["conftest"] (bd102).
+collect_ignore_glob = ["fixtures/sibling_coupling/*"]
+
 # bd#102: re-export the real hookwrapper object (not a reimplementation) so
 # pytest registers the same function this module owns and tests. The body,
 # HOST_TOOLS, and _HOST_TOOL_AVAILABLE all live in helpers.host_tools; this

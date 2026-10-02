@@ -88,7 +88,6 @@ Outputs:
 """
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import logging
@@ -3492,95 +3491,65 @@ def _verify_red_fails_mechanically(ctx, prev) -> StepResult:
 
 # ─── GH535/§1a: sibling-test-audit helpers (warn-only rollout) ─────────────
 
-_GH535_SKIP_MODULES = {
-    "pytest", "unittest", "unittest.mock", "typing", "pathlib", "os", "sys",
-    "json", "re", "dataclasses", "collections", "__future__",
-}
+def _sibling_audit_warn(
+    resolved_paths: list[str], git_cwd: str, spec_path: "str | None" = None
+) -> None:
+    """Warn-only §1a sibling-coupling pass (bd#165). Never alters StepResult, never raises.
 
-
-def _red_import_symbols(src: str) -> list[str]:
-    """Derive public symbol names imported by a RED test file (§2.1)."""
+    Scope files come from the spec's `## Files` section; the in-package detector
+    (`sibling_coupling.audit`) inverts them against the test corpus and reports the
+    coupled tests the spec does not cite.
+    """
     try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return []
-    symbols: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        if node.module is None or node.module in _GH535_SKIP_MODULES:
-            continue
-        for alias in node.names:
-            name = alias.name
-            if name == "*" or name.startswith("_"):
-                continue
-            if name not in symbols:
-                symbols.append(name)
-    return symbols[:8]
+        from bytedigger_engine import sibling_coupling
 
-
-def _sibling_audit_warn(resolved_paths: list[str], git_cwd: str) -> None:
-    """Warn-only §1a sibling-test-audit.sh pass (§2.2). Never alters StepResult."""
-    symbols: list[str] = []
-    for rp in resolved_paths:
+        if not spec_path:
+            _emit_safe("red_sibling_audit_skipped", {"phase": 5, "reason": "no_spec"})
+            return
+        allowlist = _parse_spec_files_allowlist(spec_path)
+        if allowlist is None:
+            _emit_safe("red_sibling_audit_skipped", {"phase": 5, "reason": "no_spec"})
+            return
+        root = os.path.realpath(git_cwd)
+        red_real = [os.path.realpath(p) for p in resolved_paths]
+        scope_files = sibling_coupling.scope_files_from_spec(allowlist, root)
+        if not scope_files:
+            _emit_safe("red_sibling_audit_skipped", {"phase": 5, "reason": "no_scope_files"})
+            return
+        graph = os.path.join(root, "graphify-out", "graph.json")
         try:
-            src = Path(rp).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for sym in _red_import_symbols(src):
-            if sym not in symbols:
-                symbols.append(sym)
-        if len(symbols) >= 8:
-            break
-    symbols = symbols[:8]
-    if not symbols:
-        _emit_safe("red_sibling_audit_skipped", {"phase": 5, "reason": "no_symbols"})
-        return
-
-    default_script = Path(__file__).resolve().parents[3] / "sibling-test-audit.sh"
-    try:
-        script = get_config().path("HAL_SIBLING_AUDIT_BIN", default_script)
-    except AttributeError:  # minimal-Protocol providers without .path (9AB32375 isinstance surface)
-        script = default_script
-    if not script.is_file():
+            result = sibling_coupling.audit(
+                scope_files,
+                corpus_root=root,
+                spec_path=spec_path,
+                exclude=red_real,
+                graph_path=graph if os.path.isfile(graph) else None,
+            )
+        except sibling_coupling.SiblingAuditError as exc:
+            _emit_safe("red_sibling_audit_skipped", {"phase": 5, "reason": exc.code})
+            return
+        rel_scope = [os.path.relpath(p, root) for p in scope_files]
+        warnings = list(result.warnings)[:10]
+        missing_rows = [r for r in result.rows if r[5] == "MISSING"]
+        if missing_rows:
+            hits = [
+                "\t".join([os.path.relpath(r[0], root), str(r[1])] + [str(x) for x in r[2:]])
+                for r in missing_rows[:20]
+            ]
+            _emit_safe("red_sibling_audit_warn", {
+                "phase": 5, "count": len(missing_rows), "hits": hits,
+                "scope_files": rel_scope, "call_site": result.call_site,
+                "warnings": warnings,
+            }, severity="warn")
+        else:
+            _emit_safe("red_sibling_audit_clean", {
+                "phase": 5, "scope_files_n": len(scope_files), "rows_n": len(result.rows),
+                "call_site": result.call_site, "warnings": warnings,
+            })
+    except Exception as exc:  # noqa: BLE001 - warn-only pass must never break the step
         _emit_safe("red_sibling_audit_skipped", {
-            "phase": 5, "reason": "script_missing", "script": str(script),
+            "phase": 5, "reason": "detector_error", "error": exc.__class__.__name__,
         })
-        return
-
-    try:
-        proc = subprocess.run(
-            ["bash", str(script), "--substrings", ",".join(symbols), "--glob", "tests/*.py"],
-            cwd=git_cwd, capture_output=True, text=True, timeout=30,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        _emit_safe("red_sibling_audit_skipped", {"phase": 5, "reason": "exec_error"})
-        return
-
-    if proc.returncode > 1:
-        _emit_safe("red_sibling_audit_skipped", {
-            "phase": 5, "reason": f"rc_{proc.returncode}",
-        })
-        return
-
-    resolved_set = {str(Path(p).resolve()) for p in resolved_paths}
-    hits: list[str] = []
-    for line in (proc.stdout or "").splitlines():
-        fields = line.split("\t")
-        if len(fields) < 2:
-            continue
-        try:
-            field0_resolved = str((Path(git_cwd) / fields[0]).resolve())
-        except OSError:
-            continue
-        if field0_resolved in resolved_set:
-            continue
-        hits.append(line)
-
-    if hits:
-        _emit_safe("red_sibling_audit_warn", {
-            "phase": 5, "count": len(hits), "hits": hits[:20], "symbols": symbols,
-        }, severity="warn")
 
 
 # ─── Step 4.6: red_lint semgrep gate (C76F6F3C) ─────────────────────────────
@@ -3931,7 +3900,7 @@ def _verify_red_lint_rules_legacy(ctx, prev, step, cfg, git_cwd, resolved_paths)
 
     # ── GH535/§1a: sibling-test-audit (warn-only rollout — GH535 flip-by:2026-07-24) ──
     if get_config().gate_enabled("HAL_SIBLING_AUDIT_GATE"):     # kill switch, default ON
-        _sibling_audit_warn(resolved_paths, git_cwd)
+        _sibling_audit_warn(resolved_paths, git_cwd, spec_path=prev.data.get("spec_path"))
     else:
         _emit_safe("gate_disabled", {
             "gate": "HAL_SIBLING_AUDIT_GATE",
@@ -4142,7 +4111,7 @@ def _verify_red_lint_rules(ctx, prev) -> StepResult:
     # ── GH535/§1a: sibling-test-audit (warn-only rollout — GH535 flip-by:2026-07-24) ──
     # §2.1: stays outside the batch (no error code) but still called as today.
     if get_config().gate_enabled("HAL_SIBLING_AUDIT_GATE"):     # kill switch, default ON
-        _sibling_audit_warn(resolved_paths, git_cwd)
+        _sibling_audit_warn(resolved_paths, git_cwd, spec_path=prev.data.get("spec_path"))
     else:
         _emit_safe("gate_disabled", {
             "gate": "HAL_SIBLING_AUDIT_GATE",

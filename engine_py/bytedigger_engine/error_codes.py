@@ -279,7 +279,13 @@ ERROR_CODES: dict[str, str] = {
     "E_VERIFICATION_SKILL_FAILED": "phase_5_implement: a registered verification skill failed, timed out, could not start or mutated the tree (bd#115)",
     "E_VERIFY_READ_FAILED":"anti_hallucination helper: reading the artifact to verify failed",
     "E_VERIFY_WRITE_FAILED": "anti_hallucination helper: writing the verification result failed",
-    "E_WORKTREE_HEAD_MOVED": "phase_5_implement: worktree HEAD moved during phase_5 (external merge/reset) — frozen pre-red SHA no longer reachable or not an ancestor of HEAD (agreement 6604CC4B)",
+    "E_UNKNOWN_CHANNEL": "sibling_coupling: --channels names a channel outside the seven known channels",
+    "E_SCOPE_FILE_UNREADABLE": "sibling_coupling: a --scope-file or --spec path cannot be read",
+    "E_NO_TEST_CORPUS": "sibling_coupling: no test files matched the corpus globs or the default corpus walk",
+    "E_NO_SCOPE_FILES": "sibling_coupling: the audit was called with no scope files",
+    "E_PARTIAL_CHANNELS_GATE": "sibling_coupling: --require-clean was combined with a partial channel set",
+    "E_SIBLING_AUDIT_INTERNAL": "sibling_coupling: the audit raised an unexpected internal exception; exit 2, never aliased to exit 1 (MISSING present)",
+    "E_WORKTREE_HEAD_MOVED":"phase_5_implement: worktree HEAD moved during phase_5 (external merge/reset) — frozen pre-red SHA no longer reachable or not an ancestor of HEAD (agreement 6604CC4B)",
 }
 
 
