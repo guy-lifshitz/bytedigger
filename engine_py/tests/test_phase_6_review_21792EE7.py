@@ -55,9 +55,10 @@ def _make_ctx(tmp_path: Path, complexity: str = "SIMPLE") -> WorkflowContext:
 
 
 def _seed_role(tmp_path: Path, slug: str, body: str) -> Path:
-    """Write a per-role review file at <scratch>/reviews/role-<slug>.md."""
+    """Write the review file at <scratch>/reviews/role-composite.md (the only
+    file the aggregator reads; ``slug`` is kept for call-site readability)."""
     scratch = tmp_path / "scratch"
-    p = scratch / "reviews" / f"role-{slug}.md"
+    p = scratch / "reviews" / "role-composite.md"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(body, encoding="utf-8")
     return p
@@ -376,34 +377,29 @@ def test_21792EE7_t09_verdict_reflects_post_filter_counts(tmp_path):
 def test_21792EE7_t10_dedup_after_verify_quote(tmp_path):
     """T10: dedup must apply AFTER verify-quote filter.
 
-    Case A: 2 roles, same (severity, normalized_title), both with VALID quotes
-    → dedup applies → final count 1.
+    Case A: one composite file, 2 blocks with the same (severity, normalized_title),
+    both with VALID quotes → dedup applies → final count 1.
 
-    Case B: 2 roles, same key, both quotes MISMATCH → both dropped → final count 0.
+    Case B: same key, both quotes MISMATCH → both dropped → final count 0.
 
     Today Case B fails (aggregator doesn't filter → count stays 1 after dedup).
     """
     fixture = _fixture_file(tmp_path, "dedup.py", "class MyClass:\n    pass\n")
 
-    # Case A: same finding, both valid quotes (line 1 = "class MyClass:")
-    body_a1 = (
-        "# role-a Review\n\n"
+    # Case A: same finding twice, both valid quotes (line 1 = "class MyClass:")
+    body_a = (
+        "# composite Review\n\n"
         f"### SEVERITY: HIGH — missing init\n"
         f"> {fixture}:1: class MyClass:\n"
         "Confidence: HIGH\n"
         "Description: no __init__.\n\n"
-        "VERDICT: FAIL\n"
-    )
-    body_a2 = (
-        "# role-b Review\n\n"
         f"### SEVERITY: HIGH — missing init\n"
         f"> {fixture}:1: class MyClass:\n"
         "Confidence: HIGH\n"
-        "Description: same finding from second reviewer.\n\n"
+        "Description: same finding repeated.\n\n"
         "VERDICT: FAIL\n"
     )
-    _seed_role(tmp_path, "role-a", body_a1)
-    _seed_role(tmp_path, "role-b", body_a2)
+    _seed_role(tmp_path, "composite", body_a)
 
     ctx = _make_ctx(tmp_path)
     result_a = _aggregate_review_findings(ctx, _agg_prev(tmp_path))
@@ -414,30 +410,20 @@ def test_21792EE7_t10_dedup_after_verify_quote(tmp_path):
         f"got HIGH={counts_a['HIGH']}"
     )
 
-    # Reset role files for Case B (both quotes mismatch)
-    scratch = tmp_path / "scratch"
-    reviews_dir = scratch / "reviews"
-    for p in reviews_dir.glob("role-*.md"):
-        p.unlink()
-
-    body_b1 = (
-        "# role-a Review\n\n"
+    # Case B (both quotes mismatch): overwrite the composite file
+    body_b = (
+        "# composite Review\n\n"
         f"### SEVERITY: HIGH — missing init\n"
         f"> {fixture}:1: class WRONG_CLASS:\n"
         "Confidence: HIGH\n"
         "Description: fabricated.\n\n"
-        "VERDICT: FAIL\n"
-    )
-    body_b2 = (
-        "# role-b Review\n\n"
         f"### SEVERITY: HIGH — missing init\n"
         f"> {fixture}:1: class ALSO_WRONG:\n"
         "Confidence: HIGH\n"
         "Description: also fabricated.\n\n"
         "VERDICT: FAIL\n"
     )
-    _seed_role(tmp_path, "role-a", body_b1)
-    _seed_role(tmp_path, "role-b", body_b2)
+    _seed_role(tmp_path, "composite", body_b)
 
     result_b = _aggregate_review_findings(ctx, _agg_prev(tmp_path))
     assert result_b.status == "ok"

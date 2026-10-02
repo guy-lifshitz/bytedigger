@@ -730,9 +730,9 @@ def test_ac11_aggregate_review_findings_partitions_and_forwards_verified_only(tm
     list under 'verified_findings' in StepResult.data. The suspect finding must NOT
     appear in that forwarded list.
 
-    Fixture: two role files —
-      - role-verified: one finding with a resolvable citation (verified-exact by verifier)
-      - role-suspect: one finding with a citation to a NON-EXISTENT file (suspect-file-not-found)
+    Fixture: one role-composite.md with two findings —
+      - one with a resolvable citation (verified-exact by verifier)
+      - one with a citation to a NON-EXISTENT file (suspect-file-not-found)
 
     Assert: result.data['verified_findings'] contains the verified title and does NOT
     contain the suspect title. This proves the L1603 partition+forward excludes suspects,
@@ -753,34 +753,25 @@ def test_ac11_aggregate_review_findings_partitions_and_forwards_verified_only(tm
     good_file = scratchpad / "good.py"
     good_file.write_text("def verified_ac11():\n    pass\n", encoding="utf-8")
 
-    # role-verified: citation to real file:line → verified-exact
-    verified_role_lines = [
-        "# ac11 verified reviewer", "",
+    # One composite file: a citation to a real file:line → verified-exact, and a
+    # citation to a NON-EXISTENT file → suspect-file-not-found
+    composite_lines = [
+        "# ac11 composite reviewer", "",
         "### SEVERITY: HIGH — VerifiedAC11-Finding",
         f"> {good_file}:1: def verified_ac11():",
         "Confidence: HIGH",
         "Description: verified finding for ac11",
         "",
-        "VERDICT: FAIL",
-        "<!-- role-findings-count: 1 -->",
-    ]
-    (reviews_dir / "role-ac11-verified.md").write_text(
-        "\n".join(verified_role_lines), encoding="utf-8"
-    )
-
-    # role-suspect: citation to a NON-EXISTENT file → suspect-file-not-found
-    suspect_role_lines = [
-        "# ac11 suspect reviewer", "",
         "### SEVERITY: MEDIUM — SuspectAC11-TDA-Finding",
         "> /nonexistent/ac11_no_such_file_65695203.py:1: some code here",
         "Confidence: HIGH",
         "Description: suspect finding — file does not exist",
         "",
-        "VERDICT: PARTIAL",
-        "<!-- role-findings-count: 1 -->",
+        "VERDICT: FAIL",
+        "<!-- role-findings-count: 2 -->",
     ]
-    (reviews_dir / "role-ac11-suspect.md").write_text(
-        "\n".join(suspect_role_lines), encoding="utf-8"
+    (reviews_dir / "role-composite.md").write_text(
+        "\n".join(composite_lines), encoding="utf-8"
     )
 
     ctx = types.SimpleNamespace(

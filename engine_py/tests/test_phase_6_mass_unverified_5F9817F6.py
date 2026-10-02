@@ -331,7 +331,7 @@ def test_ac8_phase_6_review_workflow_step_count_unchanged():
     from bytedigger_engine.workflows import phase_6_review as m
 
     wf = m.phase_6_review_workflow()
-    assert len(wf.steps) == 21, (
-        f"phase_6_review_workflow step count drifted: expected 21, got {len(wf.steps)}. "
+    assert len(wf.steps) == 20, (
+        f"phase_6_review_workflow step count drifted: expected 20, got {len(wf.steps)}. "
         f"Update snapshot intentionally if this is deliberate."
     )

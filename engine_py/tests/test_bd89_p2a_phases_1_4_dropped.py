@@ -240,13 +240,13 @@ def test_ac3_dropped_error_codes_absent_from_registry():
 
     present = [c for c in DROPPED_CODES if c in error_codes.ERROR_CODES]
     assert not present, f"still registered: {present}"
-    assert "E_NO_ROLE_FILES" in error_codes.ERROR_CODES, "fixture precondition: live codes stay"
+    assert "E_MISSING_SCRATCHPAD" in error_codes.ERROR_CODES, "fixture precondition: live codes stay"
 
 
 @pytest.mark.parametrize("md", _ERROR_CODES_MD, ids=["engine_py", "bytedigger_engine"])
 def test_ac3_dropped_error_codes_absent_from_both_error_codes_md(md):
     text = _text(md)
-    assert "E_NO_ROLE_FILES" in text, "fixture precondition: md lists live codes"
+    assert "E_MISSING_SCRATCHPAD" in text, "fixture precondition: md lists live codes"
     present = [c for c in DROPPED_CODES if c in text]
     assert not present, f"{md} still documents: {present}"
 

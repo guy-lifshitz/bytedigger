@@ -200,7 +200,7 @@ def test_ac3_worktree_relative_finding_reaches_verified_findings(tmp_path, monke
         "VERDICT: FAIL",
         "<!-- role-findings-count: 1 -->",
     ]
-    (reviews_dir / "role-ac3-wt.md").write_text(
+    (reviews_dir / "role-composite.md").write_text(
         "\n".join(wt_role_lines), encoding="utf-8"
     )
 

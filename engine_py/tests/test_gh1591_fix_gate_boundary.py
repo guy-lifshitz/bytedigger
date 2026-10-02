@@ -82,8 +82,13 @@ def test_module_trap_p6_is_the_module_the_workflow_executes():
     assert step_execs["verify_fix_typecheck"] is p6._verify_fix_typecheck, (
         "verify_fix_typecheck step must execute p6._verify_fix_typecheck"
     )
-    assert step_execs["aggregate_review_findings"] is p6._aggregate_review_findings, (
-        "aggregate_review_findings step must execute p6._aggregate_review_findings"
+    assert "aggregate_review_findings" not in step_execs
+    # write_review_artifact is registered via step() (retry wrapper), so the helper is either
+    # the execute itself or the wrapped fn captured in the step() closure.
+    write_exec = step_execs["write_review_artifact"]
+    wrapped = [c.cell_contents for c in (write_exec.__closure__ or ())]
+    assert write_exec is p6._aggregate_and_write_review_artifact or p6._aggregate_and_write_review_artifact in wrapped, (
+        "write_review_artifact step must execute p6._aggregate_and_write_review_artifact"
     )
 
 
@@ -180,7 +185,7 @@ def _write_role_file(
     lines.append("VERDICT: PARTIAL")
     if selfcount is not None:
         lines.append(f"<!-- role-findings-count: {selfcount} -->")
-    (reviews_dir / f"role-{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 class _SpyGitRead:
@@ -1233,10 +1238,9 @@ class TestC2SuspectRateForce:
         doc telemetry) must agree; a single-number assertion on either one
         alone would not catch them drifting apart.
 
-        Fixture: role-a and role-b both report a "dup-finding" MEDIUM
-        finding with a fabricated (non-matching) quote — same (severity,
-        normalized title) — plus one more distinct fabricated LOW finding
-        in role-a. Pre-dedup suspect_count=3 (clears min-N, rate=1.0);
+        Fixture: the composite report lists a "dup-finding" MEDIUM
+        finding twice with fabricated (non-matching) quotes — same (severity,
+        normalized title) — plus one more distinct fabricated LOW finding. Pre-dedup suspect_count=3 (clears min-N, rate=1.0);
         post-dedup len(suspect_findings)=2 (dup-finding collapses to one).
 
         Fails today: production's withheld notice prints pre-dedup
@@ -1253,19 +1257,13 @@ class TestC2SuspectRateForce:
         target.write_text("def a():\n    pass\n", encoding="utf-8")
         reviews_dir = tmp_path / "scratch" / "reviews"
         _write_role_file(
-            reviews_dir, "role-a",
+            reviews_dir, "composite",
             blocks=[
                 ("MEDIUM", "dup-finding", f"{target}:1: FABRICATED_DUP_ROLE_A"),
                 ("LOW", "sus-distinct", f"{target}:2: FABRICATED_DISTINCT"),
-            ],
-            selfcount=2,
-        )
-        _write_role_file(
-            reviews_dir, "role-b",
-            blocks=[
                 ("MEDIUM", "dup-finding", f"{target}:1: FABRICATED_DUP_ROLE_B"),
             ],
-            selfcount=1,
+            selfcount=3,
         )
 
         agg_ctx = types.SimpleNamespace(org_config={"scratchpad_dir": str(tmp_path / "scratch")}, question="q")

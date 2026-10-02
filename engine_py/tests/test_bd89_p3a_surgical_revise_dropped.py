@@ -801,7 +801,7 @@ def test_ac12_guard_no_error_code_deleted():
     from bytedigger_engine import error_codes
 
     anchors = {"E_VALIDATION_RETRY", "E_MISSING_PREV_DATA", "E_SPEC_CITATION_FATAL", "E_STEP_TIMEOUT",
-               "E_RESTART_CAP", "E_NO_ROLE_FILES"}
+               "E_RESTART_CAP", "E_MISSING_SCRATCHPAD"}
     assert anchors <= set(error_codes.ERROR_CODES), sorted(anchors - set(error_codes.ERROR_CODES))
     assert not [c for c in error_codes.ERROR_CODES if "SURGICAL" in c or "REREVIEW" in c]
 

@@ -71,7 +71,8 @@ def _write_role_file(
     blocks: list[tuple[str, str, str]],
     selfcount: int | None,
 ) -> None:
-    """Write reviews_dir/role-<slug>.md.
+    """Write reviews_dir/role-composite.md (the only file the aggregator reads;
+    ``slug`` only labels the title line).
 
     blocks: list of (severity, title, quote_evidence_line) triples.
     The quote_evidence_line is placed verbatim after "> " prefix.
@@ -88,7 +89,7 @@ def _write_role_file(
     lines.append("VERDICT: PARTIAL")
     if selfcount is not None:
         lines.append(f"<!-- role-findings-count: {selfcount} -->")
-    (reviews_dir / f"role-{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _prev_ok(scratchpad: Path) -> StepResult:
@@ -328,23 +329,17 @@ def test_ac6_composite_drop_event_count(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # role-a: 1 good finding (exact match at line 1)
+    # composite: 1 good finding (exact match at line 1) + 2 bad findings with
+    # absolute paths that don't exist
     _write_role_file(
         reviews_dir,
-        "role-a",
-        blocks=[("HIGH", "kept-finding", f"{good_file}:1: def kept_function():")],
-        selfcount=1,
-    )
-
-    # role-b: 2 bad findings with absolute paths that don't exist
-    _write_role_file(
-        reviews_dir,
-        "role-b",
+        "composite",
         blocks=[
+            ("HIGH", "kept-finding", f"{good_file}:1: def kept_function():"),
             ("CRITICAL", "dropped-finding-1", "/nonexistent/feb64ba8_1.py:99: x = 1"),
             ("HIGH", "dropped-finding-2", "/nonexistent/feb64ba8_2.py:99: y = 2"),
         ],
-        selfcount=2,
+        selfcount=3,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -393,20 +388,15 @@ def test_ac7_composite_drop_event_schema(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # role-a: 1 good finding (kept)
+    # composite: 1 good finding (kept) + 1 dropped finding (absolute nonexistent path)
     _write_role_file(
         reviews_dir,
-        "role-a",
-        blocks=[("MEDIUM", "good-schema", f"{good_file}:1: def schema_test():")],
-        selfcount=1,
-    )
-
-    # role-b: 1 dropped finding (absolute nonexistent path)
-    _write_role_file(
-        reviews_dir,
-        "role-b",
-        blocks=[("CRITICAL", "dropped-schema", "/nonexistent/feb64ba8_schema.py:5: x = 0")],
-        selfcount=1,
+        "composite",
+        blocks=[
+            ("MEDIUM", "good-schema", f"{good_file}:1: def schema_test():"),
+            ("CRITICAL", "dropped-schema", "/nonexistent/feb64ba8_schema.py:5: x = 0"),
+        ],
+        selfcount=2,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -481,31 +471,20 @@ def test_ac8_quote_line_present_flag(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # role-keep: 1 good finding (anchor to keep the function running)
-    _write_role_file(
-        reviews_dir,
-        "role-keep",
-        blocks=[("LOW", "anchor", f"{good_file}:1: def ac8_anchor():")],
-        selfcount=1,
-    )
-
-    # role-fab: FABRICATED-CANDIDATE (has quote line, content mismatches)
-    fab_block_lines = [
-        "# fab review",
+    # One composite file: anchor finding, FABRICATED-CANDIDATE (has quote line,
+    # content mismatches) and MISSING-QUOTE (no > path:N: line in the block).
+    composite_lines = [
+        "# composite review",
+        "",
+        "### SEVERITY: LOW — anchor",
+        f"> {good_file}:1: def ac8_anchor():",
+        "Confidence: HIGH",
+        "Description: x",
         "",
         "### SEVERITY: HIGH — fabricated-with-quote",
         f"> {real_file}:1: this_does_not_match_actual_content",
         "Confidence: HIGH",
         "Description: fabricated",
-        "",
-        "VERDICT: FAIL",
-        "<!-- role-findings-count: 1 -->",
-    ]
-    (reviews_dir / "role-fab.md").write_text("\n".join(fab_block_lines), encoding="utf-8")
-
-    # role-missing: MISSING-QUOTE (no > path:N: line in the block)
-    missing_block_lines = [
-        "# missing review",
         "",
         "### SEVERITY: CRITICAL — missing-quote-finding",
         "No evidence line here — the reviewer forgot the > path:N: citation.",
@@ -513,9 +492,9 @@ def test_ac8_quote_line_present_flag(tmp_path, monkeypatch):
         "Description: no citation",
         "",
         "VERDICT: FAIL",
-        "<!-- role-findings-count: 1 -->",
+        "<!-- role-findings-count: 3 -->",
     ]
-    (reviews_dir / "role-missing.md").write_text("\n".join(missing_block_lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(composite_lines), encoding="utf-8")
 
     captured: list[tuple[str, dict]] = []
 
@@ -587,20 +566,16 @@ def test_ac9_consistent_false_when_filter_drops(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # role-a: quote matches → KEPT, selfcount=1
+    # composite: first quote matches → KEPT; second has an absolute nonexistent
+    # path → FILE-NOT-FOUND → DROPPED; honest selfcount=2
     _write_role_file(
         reviews_dir,
-        "role-a",
-        blocks=[("HIGH", "kept-ac9", f"{good_file}:1: def ac9_kept():")],
-        selfcount=1,
-    )
-
-    # role-b: absolute nonexistent path → FILE-NOT-FOUND → DROPPED, selfcount=1
-    _write_role_file(
-        reviews_dir,
-        "role-b",
-        blocks=[("CRITICAL", "dropped-ac9", "/nonexistent/feb64ba8_ac9.py:42: x = 0")],
-        selfcount=1,
+        "composite",
+        blocks=[
+            ("HIGH", "kept-ac9", f"{good_file}:1: def ac9_kept():"),
+            ("CRITICAL", "dropped-ac9", "/nonexistent/feb64ba8_ac9.py:42: x = 0"),
+        ],
+        selfcount=2,
     )
 
     # Don't bother monkeypatching emit for this test — we read audit from result.data
@@ -699,23 +674,16 @@ def test_ac11_high_filter_rate_threshold(tmp_path, monkeypatch):
     reviews_dir_a = tmp_path / "scratch_a" / "reviews"
     reviews_dir_a.mkdir(parents=True, exist_ok=True)
 
-    # 1 kept finding
-    _write_role_file(
-        reviews_dir_a,
-        "role-good",
-        blocks=[("LOW", "good-ac11a", f"{good_file_a}:1: def ac11_anchor():")],
-        selfcount=1,
-    )
-    # 7 dropped findings (absolute nonexistent paths)
+    # 1 kept finding + 7 dropped findings (absolute nonexistent paths), one composite file
     drop_blocks = [
         ("HIGH", f"drop-{i}", f"/nonexistent/feb64ba8_ac11a_{i}.py:1: x = {i}")
         for i in range(7)
     ]
     _write_role_file(
         reviews_dir_a,
-        "role-bad",
-        blocks=drop_blocks,
-        selfcount=7,
+        "composite",
+        blocks=[("LOW", "good-ac11a", f"{good_file_a}:1: def ac11_anchor():")] + drop_blocks,
+        selfcount=8,
     )
 
     ctx_a = types.SimpleNamespace(
@@ -749,15 +717,12 @@ def test_ac11_high_filter_rate_threshold(tmp_path, monkeypatch):
     # 1 kept + 1 dropped = ratio 0.5 exactly
     _write_role_file(
         reviews_dir_b,
-        "role-good",
-        blocks=[("LOW", "good-ac11b", f"{good_file_b}:1: def ac11b_anchor():")],
-        selfcount=1,
-    )
-    _write_role_file(
-        reviews_dir_b,
-        "role-bad",
-        blocks=[("HIGH", "drop-ac11b", "/nonexistent/feb64ba8_ac11b.py:1: x = 0")],
-        selfcount=1,
+        "composite",
+        blocks=[
+            ("LOW", "good-ac11b", f"{good_file_b}:1: def ac11b_anchor():"),
+            ("HIGH", "drop-ac11b", "/nonexistent/feb64ba8_ac11b.py:1: x = 0"),
+        ],
+        selfcount=2,
     )
 
     ctx_b = types.SimpleNamespace(
@@ -796,7 +761,7 @@ def test_ac12_high_filter_rate_zero_case(tmp_path, monkeypatch):
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
     # Role file with no SEVERITY blocks — just a VERDICT line
-    (reviews_dir / "role-clean.md").write_text(
+    (reviews_dir / "role-composite.md").write_text(
         "# clean review\n\nNo issues found.\n\nVERDICT: PASS\n<!-- role-findings-count: 0 -->\n",
         encoding="utf-8",
     )

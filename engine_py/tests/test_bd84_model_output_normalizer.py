@@ -356,8 +356,10 @@ def _aggregate(tmp_path: Path, roles: dict[str, str], monkeypatch, events: list 
     monkeypatch.setattr(p6, "_emit_safe", lambda name, payload=None, *a, **k: sink.append((name, payload)))
     reviews = tmp_path / "reviews"
     reviews.mkdir(parents=True, exist_ok=True)
-    for slug, body in roles.items():
-        (reviews / f"role-{slug}.md").write_text(body, encoding="utf-8")
+    # The aggregator reads only role-composite.md; `roles` holds at most one body
+    # (the key is a label, kept for call-site readability).
+    for _label, body in roles.items():
+        (reviews / "role-composite.md").write_text(body, encoding="utf-8")
     (tmp_path / "util.py").write_text((CORPUS / "util.py.txt").read_text(encoding="utf-8"), encoding="utf-8")
     ctx = types.SimpleNamespace(org_config={"scratchpad_dir": str(tmp_path)}, question="q")
     prev = StepResult(status="ok", data={}, duration_ms=0, step_name="x")
@@ -419,13 +421,6 @@ def test_ac6_nonzero_selfcount_with_zero_parsed_is_suspect(tmp_path, monkeypatch
     assert res.data["verdict"] == "SUSPECT"
 
 
-def test_ac6_backstop_never_downgrades_a_fail(tmp_path, monkeypatch):
-    corpus_case = next(c for c in _cases("review_findings") if c["model"] == "hosted_a")
-    roles = {"code-reviewer": _text(corpus_case), "silent-failure-hunter": _PROSE_FAIL}
-    res = _aggregate(tmp_path, roles, monkeypatch)
-    assert res.data["verdict"] == "FAIL"
-
-
 def test_ac6_bold_fail_verdict_is_suspect(tmp_path, monkeypatch):
     body = "# code-reviewer Review\n\nSeveral issues, described above in prose.\n\n**VERDICT: FAIL**\n"
     res = _aggregate(tmp_path, {"code-reviewer": body}, monkeypatch)
@@ -442,15 +437,6 @@ def test_ac6_explicit_zero_selfcount_stays_pass(tmp_path, monkeypatch):
     body = "# code-reviewer Review\n\nVERDICT: PASS\n<!-- role-findings-count: 0 -->\n"
     res = _aggregate(tmp_path, {"code-reviewer": body}, monkeypatch)
     assert res.data["verdict"] == "PASS"
-
-
-def test_ac6_one_suspicious_role_among_clean_ones(tmp_path, monkeypatch):
-    roles = {
-        "code-reviewer": "# code-reviewer Review\n\nNo issues.\n\nVERDICT: PASS\n",
-        "silent-failure-hunter": "# silent-failure-hunter Review\n\nThe bare except hides errors.\n\nVERDICT: FAIL\n",
-    }
-    res = _aggregate(tmp_path, roles, monkeypatch)
-    assert res.data["verdict"] == "SUSPECT"
 
 
 # ─── AC7: fix-integrity missing marker → same-prompt re-roll ─────────────────
@@ -640,33 +626,6 @@ def test_rv_zero_findings_without_a_pass_is_suspect(body, tmp_path, monkeypatch)
     assert res.data["verdict"] == "SUSPECT"
 
 
-def test_rv_unreadable_role_file_is_suspect(tmp_path, monkeypatch):
-    events: list = []
-    (tmp_path / "reviews" / "role-broken.md").mkdir(parents=True)
-    res = _aggregate(tmp_path, {"code-reviewer": "# ok\n\nVERDICT: PASS\n"}, monkeypatch, events)
-    assert res.data["verdict"] == "SUSPECT"
-    assert any(name == "review_zero_findings_suspect" for name, _ in events)
-
-
-def test_rv_zero_findings_role_blocks_the_all_suspect_override(tmp_path, monkeypatch):
-    """Role A declares FAIL in prose; role B has only an uncitable finding.
-    The review must not look 'all findings suspect' to the satisfaction override."""
-    from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
-
-    events: list = []
-    roles = {
-        "code-reviewer": _PROSE_FAIL,
-        "silent-failure-hunter": (
-            "# silent-failure-hunter Review\n\n### SEVERITY: HIGH — t\n"
-            "> /nonexistent/bd84.py:1: x = 1\n\nVERDICT: PARTIAL\n"
-        ),
-    }
-    res = _aggregate(tmp_path, roles, monkeypatch, events)
-    assert res.data["verdict"] == "SUSPECT"
-    assert any(name == "review_zero_findings_suspect" for name, _ in events)
-    assert p6._review_all_findings_suspect("SUSPECT", res.data["aggregated_content"]) is False
-
-
 def test_rv_reroll_keeps_discarded_replies(tmp_path, monkeypatch):
     from bytedigger_engine.workflows.phase_6_fix_integrity import _invoke_fix_integrity_llm  # noqa: PLC0415
 
@@ -746,8 +705,8 @@ def test_rv2_code_span_verdict_before_selfcount_trailer(tmp_path, monkeypatch):
 def test_rv2_undecodable_role_file_is_suspect(tmp_path, monkeypatch):
     reviews = tmp_path / "reviews"
     reviews.mkdir(parents=True)
-    (reviews / "role-garbled.md").write_bytes(b"\xff\xfe VERDICT: PASS \x80")
-    res = _aggregate(tmp_path, {"code-reviewer": "# ok\n\nVERDICT: PASS\n"}, monkeypatch)
+    (reviews / "role-composite.md").write_bytes(b"\xff\xfe VERDICT: PASS \x80")
+    res = _aggregate(tmp_path, {}, monkeypatch)
     assert res.data["verdict"] == "SUSPECT"
 
 
@@ -818,8 +777,10 @@ def test_rv3_suspect_duplicate_never_hides_verified_finding(tmp_path, monkeypatc
 
     code = _code_py(tmp_path)
     roles = {
-        "a": "**HIGH — command injection**\n> nonexistent/file.py:2: os.system(user_input)\n\nVERDICT: FAIL\n",
-        "b": f"### SEVERITY: HIGH — command injection\n> {code}:2: os.system(user_input)\n\nVERDICT: FAIL\n",
+        "composite": (
+            "**HIGH — command injection**\n> nonexistent/file.py:2: os.system(user_input)\n\n"
+            f"### SEVERITY: HIGH — command injection\n> {code}:2: os.system(user_input)\n\nVERDICT: FAIL\n"
+        ),
     }
     res = _aggregate(tmp_path, roles, monkeypatch)
     assert res.data["verdict"] == "FAIL"

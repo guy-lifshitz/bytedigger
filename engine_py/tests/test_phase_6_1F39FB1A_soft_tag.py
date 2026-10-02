@@ -72,7 +72,8 @@ def _write_role_file(
     blocks: list[tuple[str, str, str]],
     selfcount: int | None,
 ) -> None:
-    """Write reviews_dir/role-<slug>.md.
+    """Write reviews_dir/role-composite.md (the only file the aggregator reads;
+    ``slug`` only labels the title line).
 
     blocks: list of (severity, title, evidence_after_gt_space) triples.
     The evidence string is placed after '> ' verbatim (it may contain path:N:content).
@@ -88,7 +89,7 @@ def _write_role_file(
     lines.append("VERDICT: PARTIAL")
     if selfcount is not None:
         lines.append(f"<!-- role-findings-count: {selfcount} -->")
-    (reviews_dir / f"role-{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _finding_block(abs_path: str, lineno: int, quote_content: str,
@@ -414,34 +415,23 @@ def test_ac9_aggregate_keeps_all_findings(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # role-verified: exact match
-    _write_role_file(
-        reviews_dir, "role-verified",
-        blocks=[("MEDIUM", "verified-finding", f"{good_file}:1: def verified_func():")],
-        selfcount=1,
-    )
-
-    # role-noquote: no > path:line: line at all
-    no_quote_lines = [
-        "# noquote review", "",
+    # One composite file: exact match, no > path:line: line at all, and an outer
+    # backtick wrap (post-pivot: suspect-no-match since strip removed).
+    composite_lines = [
+        "# composite review", "",
+        "### SEVERITY: MEDIUM — verified-finding",
+        f"> {good_file}:1: def verified_func():",
+        "Confidence: HIGH", "Description: test description", "",
         "### SEVERITY: LOW — no-citation-finding",
         "No evidence line — reviewer forgot the citation.",
         "Confidence: HIGH", "Description: no citation", "",
-        "VERDICT: PARTIAL",
-        "<!-- role-findings-count: 1 -->",
-    ]
-    (reviews_dir / "role-noquote.md").write_text("\n".join(no_quote_lines), encoding="utf-8")
-
-    # role-backtick: outer backtick wrap (post-pivot: suspect-no-match since strip removed)
-    backtick_lines = [
-        "# backtick review", "",
         "### SEVERITY: HIGH — backtick-wrapped-finding",
         f"> {good_file}:1: `def verified_func():`",
         "Confidence: HIGH", "Description: backtick wrap", "",
         "VERDICT: FAIL",
-        "<!-- role-findings-count: 1 -->",
+        "<!-- role-findings-count: 3 -->",
     ]
-    (reviews_dir / "role-backtick.md").write_text("\n".join(backtick_lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(composite_lines), encoding="utf-8")
 
     monkeypatch.setattr(_p6, "_emit_safe", lambda *a, **kw: None)
 
@@ -493,20 +483,18 @@ def test_ac10_event_name_renamed_and_emitted_for_all(tmp_path, monkeypatch):
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
     # 2 findings: 1 verified, 1 suspect (no-quote)
-    _write_role_file(
-        reviews_dir, "role-a",
-        blocks=[("HIGH", "verified-ac10", f"{good_file}:1: def ac10_func():")],
-        selfcount=1,
-    )
-    no_quote_lines = [
+    composite_lines = [
         "# ac10 review", "",
+        "### SEVERITY: HIGH — verified-ac10",
+        f"> {good_file}:1: def ac10_func():",
+        "Confidence: HIGH", "Description: test description", "",
         "### SEVERITY: MEDIUM — suspect-ac10",
         "No citation line.",
         "Confidence: HIGH", "Description: no citation", "",
         "VERDICT: PARTIAL",
-        "<!-- role-findings-count: 1 -->",
+        "<!-- role-findings-count: 2 -->",
     ]
-    (reviews_dir / "role-b.md").write_text("\n".join(no_quote_lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(composite_lines), encoding="utf-8")
 
     captured: list[tuple[str, dict]] = []
 
@@ -626,37 +614,24 @@ def test_ac12_suspect_findings_section_and_tag(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # role-verified: CRITICAL, exact match
-    _write_role_file(
-        reviews_dir, "role-verified",
-        blocks=[("CRITICAL", "verified-critical-finding", f"{good_file}:1: def verified_critical():")],
-        selfcount=1,
-    )
-
-    # role-suspect-match: HIGH, backtick-wrapped (post-pivot: suspect-no-match; strip removed)
-    suspect_match_lines = [
-        "# suspect-match review", "",
+    # One composite file: CRITICAL exact match; HIGH backtick-wrapped (post-pivot:
+    # suspect-no-match; strip removed); MEDIUM with no citation line.
+    composite_lines = [
+        "# composite review", "",
+        "### SEVERITY: CRITICAL — verified-critical-finding",
+        f"> {good_file}:1: def verified_critical():",
+        "Confidence: HIGH", "Description: test description", "",
         "### SEVERITY: HIGH — high-suspect-no-match",
         f"> {good_file}:1: `def verified_critical():`",
         "Confidence: HIGH", "Description: backtick wrapped -> suspect-no-match post pivot", "",
-        "VERDICT: FAIL",
-        "<!-- role-findings-count: 1 -->",
-    ]
-    (reviews_dir / "role-suspect-match.md").write_text(
-        "\n".join(suspect_match_lines), encoding="utf-8"
-    )
-
-    # role-suspect-quote: MEDIUM, no citation line
-    suspect_quote_lines = [
-        "# suspect-quote review", "",
         "### SEVERITY: MEDIUM — medium-suspect-no-quote",
         "No evidence citation line present.",
         "Confidence: HIGH", "Description: no citation", "",
-        "VERDICT: PARTIAL",
-        "<!-- role-findings-count: 1 -->",
+        "VERDICT: FAIL",
+        "<!-- role-findings-count: 3 -->",
     ]
-    (reviews_dir / "role-suspect-quote.md").write_text(
-        "\n".join(suspect_quote_lines), encoding="utf-8"
+    (reviews_dir / "role-composite.md").write_text(
+        "\n".join(composite_lines), encoding="utf-8"
     )
 
     monkeypatch.setattr(_p6, "_emit_safe", lambda *a, **kw: None)
@@ -710,23 +685,20 @@ def test_ac13_summary_counts_verified_only(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1 HIGH verified
-    _write_role_file(
-        reviews_dir, "role-verified",
-        blocks=[("HIGH", "high-verified-ac13", f"{good_file}:1: def ac13_func():")],
-        selfcount=1,
-    )
-
-    # 1 HIGH suspect (backtick-wrapped -> suspect-no-match after FEB64BA8 strip removed)
-    suspect_lines = [
-        "# suspect review", "",
+    # 1 HIGH verified + 1 HIGH suspect (backtick-wrapped -> suspect-no-match
+    # after FEB64BA8 strip removed), in one composite file
+    composite_lines = [
+        "# composite review", "",
+        "### SEVERITY: HIGH — high-verified-ac13",
+        f"> {good_file}:1: def ac13_func():",
+        "Confidence: HIGH", "Description: test description", "",
         "### SEVERITY: HIGH — high-suspect-ac13",
         f"> {good_file}:1: `def ac13_func():`",
         "Confidence: HIGH", "Description: backtick wrap -> suspect", "",
         "VERDICT: FAIL",
-        "<!-- role-findings-count: 1 -->",
+        "<!-- role-findings-count: 2 -->",
     ]
-    (reviews_dir / "role-suspect.md").write_text("\n".join(suspect_lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(composite_lines), encoding="utf-8")
 
     monkeypatch.setattr(_p6, "_emit_safe", lambda *a, **kw: None)
 

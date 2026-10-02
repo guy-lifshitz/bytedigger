@@ -47,7 +47,7 @@ def _prev_ok(data: dict, step_name: str = "verify_fix_typecheck") -> StepResult:
 def test_ac1_three_new_steps_inserted_in_order_between_typecheck_and_satisfaction():
     wf = phase_6_review_workflow()
     names = [s.name for s in wf.steps]
-    assert len(names) == 21, f"expected 21 steps, got {len(names)}: {names}"
+    assert len(names) == 20, f"expected 20 steps, got {len(names)}: {names}"
     idx = names.index("verify_fix_typecheck")
     assert names[idx + 1 : idx + 4] == [
         "build_decorr_prompt",
