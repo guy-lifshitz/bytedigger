@@ -1,7 +1,9 @@
 """RED tests for bd#89 P3a -- drop surgical revise and the restricted cycle-2 reviewer.
 
 Spec: docs/decisions/2026-10-02-bd89-p3a-drop-surgical-revise.md (AC1-AC16; AC15 is the
-section 6 Q4 in-flight-resume degrade, AC16 the F7 stale-sentinel drop; r2 amendment).
+section 6 Q4 in-flight-resume degrade, AC16 the F7 stale-sentinel drop; r3 amendment for
+gate r2 F1/F2/F3: AC6 uses a non-patch raw_response, AC16 pins the op2c retry data, covers cycle 3
+and the engine retry hop, AC4 gains a full-prompt default-kwarg equality GUARD).
 
 AC -> test map
 --------------
@@ -19,10 +21,13 @@ AC4  test_ac4_cycle2_writer_is_the_delta_lane_through_the_real_chain
      test_ac4_gate_retry_takes_the_same_delta_lane[spec_on_disk|no_spec_on_disk]  ("SPEC GATE FINDINGS",
                                                                        op2b findings_source)
      test_ac4_guard_delta_retry_prompt_default_is_byte_identical_to_reviewer_path  (GUARD, green today)
+     test_ac4_guard_full_non_gate_cycle2_prompt_is_unchanged_with_default_kwarg   (GUARD, green today;
+                                                                       pins HAL_SURGICAL_REVISE=0 so today's
+                                                                       tree reaches the delta lane)
 AC5  test_ac5_invoke_spec_llm_always_unlinks_and_grants_full_tools
      [clean_prev] is a GUARD (green today); only [stale_surgical_prev] is red
-AC6  test_ac6_write_spec_doc_ignores_stale_surgical_state_with_worker_file
-     test_ac6_write_spec_doc_ignores_stale_surgical_state_without_worker_file
+AC6  test_ac6_write_spec_doc_ignores_stale_surgical_state_with_worker_file     (stale keys + NON-patch raw)
+     test_ac6_write_spec_doc_ignores_stale_surgical_state_without_worker_file  (stale keys + NON-patch raw)
      test_ac6_guard_write_spec_doc_without_stale_keys                 (GUARD, green today)
 AC7  test_ac7_cycle2_reviewer_prompt_is_the_cycle1_prompt
 AC8  test_ac8_role_template_reaches_cycle2_reviewer
@@ -40,8 +45,20 @@ AC13 test_ac13_dropped_test_files_are_gone
                                                                        the git rm of the four files land)
 AC14 autouse fixture `_no_claude_no_api_key` + test_ac14_environment_has_no_claude_and_no_api_key (GUARD)
 AC15 test_ac15_inflight_resume_with_stale_surgical_state_degrades_to_full_revise (spec section 6 Q4)
-AC16 test_ac16_replayed_patch_array_sentinel_is_dropped_and_forces_fresh_revise[payload_shape_only|with_stale_keys]
-     (F7: sentinel unlinked, recoverable E_VALIDATION_RETRY retry_from_step 0, unrevised body not written)
+AC16 test_ac16_patch_array_always_takes_op2c_and_pins_retry_data
+     [unrevised|revised|absent doc x payload_shape_only|with_stale_keys x cycle2|cycle3]
+     (F7 + r3 F1/F2: sentinel unlinked, recoverable E_VALIDATION_RETRY, retry_from_step 0,
+     cycle_count == cycle-1, findings/structured_findings/gate_attempts/retry_source forwarded,
+     a patch array is never written as a spec body, with or without a doc)
+     test_ac16_guard_non_strict_array_takes_the_normal_path                   (GUARD, green today)
+     test_ac16_engine_retry_hop_replays_then_reinvokes_at_the_same_cycle      (r3 F2, 1y Host = engine)
+
+Expected red today: AC1 x7, AC2 x2 (namespace, residue), AC3 x2 (flags, inert), AC4 gate-retry x2 (the
+"SPEC GATE FINDINGS" label), AC4 real-chain x2 (surgical lane), AC5 [stale_surgical_prev], AC6 x2 (stale
+state half; today the stale keys route to the surgical branch), AC7, AC8, AC10, AC11 x2, AC12 list row,
+AC13 file deletes x4, AC15, AC16 patch-array matrix x12 and the engine hop. GUARDs green today: AC1 kept
+surface, AC2 kept symbols, AC3 surviving flags, AC4 byte identity x2, AC5 [clean_prev], AC6 guard, AC9 x2,
+AC12 x3, AC13 corpus scan (once sibling edits land), AC14, AC16 non-strict array.
 
 Forcing reasons today: cycle-2 writer takes the surgical lane (patch-array contract, Write tool
 withheld, `surgical_revise` data key, sidecar `surgical-delta-cycle-N.json`); the cycle-2 reviewer
@@ -123,6 +140,7 @@ LOW_AXIS_SHIP_REVIEW_TEXT = (
 PATCH_ARRAY_RAW = "```json\n" + json.dumps(
     [{"finding_id": "F1", "old": "OLD_FRAGMENT_TO_REPLACE_F1", "new": "PATCHED_FRAGMENT_F1"}]
 ) + "\n```\n"
+NON_PATCH_RAW = "Wrote the revised spec."  # a worker's chat reply that is NOT a patch array (r3 F1)
 SURGICAL_EVENTS = ("surgical_revise_applied", "surgical_revise_fallback",
                    "delta_rereview_used", "delta_rereview_fallback")
 
@@ -484,6 +502,32 @@ def test_ac4_guard_delta_retry_prompt_default_is_byte_identical_to_reviewer_path
         "/s/spec.md", BASE_SPEC, STRUCTURED, verbatim_reviewer_context=ctx_text)
 
 
+def test_ac4_guard_full_non_gate_cycle2_prompt_is_unchanged_with_default_kwarg(tmp_path, monkeypatch):
+    """GUARD (green at RED, r3 F3): the FULL non-gate cycle-2 `_build_spec_prompt` output equals the
+    composition high-binding block + `build_delta_retry_prompt(...)` called WITHOUT `findings_source`
+    + out-of-role block. HAL_SURGICAL_REVISE=0 steers today's tree off the surgical lane onto the
+    delta lane; after GREEN the switch is inert (AC3), so the same equality holds before and after."""
+    mod = _mod()
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_retry_prompt import (
+        build_delta_retry_prompt,
+    )
+
+    monkeypatch.setenv("HAL_SURGICAL_REVISE", "0")
+    scratch = tmp_path / "scratch"
+    _write_spec(scratch, BASE_SPEC)
+    ctx = _ctx(scratch)
+    res = mod._build_spec_prompt(ctx, {"cycle": 2, "findings": STRUCTURED_REVIEW_TEXT,
+                                       "structured_findings": STRUCTURED})
+    assert res.status == "ok", res.error
+    expected = (
+        mod._spec_high_binding_block() + "\n\n"
+        + build_delta_retry_prompt(res.data["doc_path"], BASE_SPEC, STRUCTURED,
+                                   verbatim_reviewer_context=STRUCTURED_REVIEW_TEXT)
+        + "\n\n" + mod._get_out_of_role_block()
+    )
+    assert res.data["prompt"] == expected
+
+
 # --- AC5 -----------------------------------------------------------------------
 
 @pytest.mark.parametrize("stale", [False, True], ids=["clean_prev", "stale_surgical_prev"])
@@ -508,7 +552,8 @@ def test_ac5_invoke_spec_llm_always_unlinks_and_grants_full_tools(tmp_path, monk
 
 # --- AC6 -----------------------------------------------------------------------
 
-def _stale_prev(doc: Path, raw: str = PATCH_ARRAY_RAW, **extra) -> StepResult:
+def _stale_prev(doc: Path, raw: str = NON_PATCH_RAW, **extra) -> StepResult:
+    # r3 F1: raw_response is NOT a patch array, so op2c does not fire and only the stale keys are tested.
     return _step(surgical_revise=True, surgical_base_spec=BASE_SPEC, raw_response=raw,
                  doc_path=str(doc), cycle=2, **extra)
 
@@ -533,7 +578,7 @@ def test_ac6_write_spec_doc_ignores_stale_surgical_state_without_worker_file(tmp
     doc.parent.mkdir(parents=True, exist_ok=True)
     res = _mod()._write_spec_doc(_ctx(scratch), _stale_prev(doc))
     assert res.status == "ok", f"{res.error_code}: {res.error}"
-    assert _text(doc).strip() == PATCH_ARRAY_RAW.strip(), "body is raw_response, nothing is patched"
+    assert _text(doc).strip() == NON_PATCH_RAW, "body is raw_response, nothing is patched"
     assert [p["source"] for p in sink.payloads("spec_writer_return_source")] == ["raw_response_fallback"]
     assert not [n for n in sink.names() if n.startswith("surgical_revise")], sink.names()
     assert not list(scratch.rglob("surgical-delta-cycle-*.json"))
@@ -844,35 +889,134 @@ def test_ac15_inflight_resume_with_stale_surgical_state_degrades_to_full_revise(
 
 # --- AC16 (op2c, F7): a replayed pre-upgrade patch-array sentinel is dropped ----
 
+_GATE_ATTEMPTS = {"spec_gates": 1}
+_RETRY_FINDINGS = "- spec gate: section Rollback is missing"
+
+
+@pytest.mark.parametrize("cycle", [2, 3], ids=["cycle2", "cycle3"])
 @pytest.mark.parametrize("with_stale_keys", [False, True], ids=["payload_shape_only", "with_stale_keys"])
-def test_ac16_replayed_patch_array_sentinel_is_dropped_and_forces_fresh_revise(
-        tmp_path, sink, with_stale_keys):
+@pytest.mark.parametrize("doc_state", ["unrevised", "revised", "absent"])
+def test_ac16_patch_array_always_takes_op2c_and_pins_retry_data(
+        tmp_path, sink, doc_state, with_stale_keys, cycle):
     """The engine replays a cached `invoke_spec_llm` result (engine.py maybe_read_sentinel). A
-    pre-upgrade payload whose raw_response is a patch array, over an unrevised cycle-1 doc, must
-    not be written as cycle 2: the sentinel is unlinked and a recoverable retry from step 0 asks
-    for a fresh full revise."""
+    payload whose raw_response is a strict patch array ALWAYS takes op2c, whether the doc on disk is
+    the unrevised cycle-1 body, a worker-written revised body, or absent (r3 F1): the sentinel is
+    unlinked, a recoverable retry from step 0 re-runs the SAME cycle (cycle_count == cycle - 1, r3 F2)
+    carrying findings, structured_findings, gate_attempts and retry_source, and the patch array is
+    never written as a spec body."""
     from bytedigger_engine.lib.step_sentinel import write_step_sentinel
 
     mod = _mod()
     scratch = tmp_path / "scratch"
-    doc = _write_spec(scratch, BASE_SPEC)  # unrevised cycle-1 body
+    if doc_state == "absent":
+        doc = scratch / "specs" / "build-spec.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        before = None
+    else:
+        before = BASE_SPEC if doc_state == "unrevised" else REWRITTEN_SPEC
+        doc = _write_spec(scratch, before)
     ctx = _ctx(scratch)
     run_id = telemetry_ctx.get_current_run().run_id
-    payload = {"raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": 2}
+    payload = {
+        "raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": cycle,
+        "findings": _RETRY_FINDINGS, "structured_findings": STRUCTURED,
+        "gate_attempts": dict(_GATE_ATTEMPTS), "retry_source": mod.SPEC_GATES_RETRY_SOURCE,
+    }
     if with_stale_keys:
         payload.update(surgical_revise=True, surgical_base_spec=BASE_SPEC)
     # Pre-stage the cached sentinel with the real writer (same name engine.py replays from).
-    write_step_sentinel(scratch, "invoke_spec_llm", 2, payload, run_id, None, "phase_45_spec")
-    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c2_r{run_id}.json"
+    write_step_sentinel(scratch, "invoke_spec_llm", cycle, payload, run_id, None, "phase_45_spec")
+    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c{cycle}_r{run_id}.json"
     assert sentinel.is_file(), "fixture precondition: the stale sentinel is on disk"
 
     res = mod._write_spec_doc(ctx, _step(**payload))
 
     assert res.status == "error" and res.recoverable is True, (res.status, res.error)
     assert res.error_code == "E_VALIDATION_RETRY"
-    assert res.data["retry_from_step"] == 0
     assert not sentinel.exists(), "the replayed sentinel must be unlinked so the retry re-invokes the LLM"
-    assert _text(doc) == BASE_SPEC, "the unrevised body must not be re-written"
-    assert not (scratch / "specs" / "build-spec-cycle-2.md").exists(), \
-        "an unrevised cycle-1 spec must never be written as cycle 2"
+    data = res.data
+    assert data["retry_from_step"] == 0
+    assert data["cycle_count"] == cycle - 1, "the retry must re-run the SAME cycle"
+    assert data["findings"] == _RETRY_FINDINGS
+    assert data["structured_findings"] == STRUCTURED
+    assert data["gate_attempts"] == _GATE_ATTEMPTS
+    assert data["retry_source"] == mod.SPEC_GATES_RETRY_SOURCE
+    # A patch array is never written as a spec body, with or without a doc.
+    if before is None:
+        assert not doc.exists(), "no doc may be created from a patch array"
+    else:
+        assert _text(doc) == before, "the doc on disk must not be re-written"
+    versioned = doc.parent / Path(mod._spec_cycle_relpath(cycle)).name
+    assert not versioned.exists(), "a patch array must never be written as the versioned cycle spec"
+    for written in (scratch / "specs").rglob("*"):
+        if written.is_file():
+            assert "PATCHED_FRAGMENT_F1" not in _text(written), written
     assert not list(scratch.rglob("surgical-delta-cycle-*.json"))
+
+
+def test_ac16_guard_non_strict_array_takes_the_normal_path(tmp_path, sink):
+    """GUARD (green at RED): an array with an element missing `old` is not a patch array; op2c does
+    not fire and the worker's file is the spec body."""
+    mod = _mod()
+    scratch = tmp_path / "scratch"
+    doc = _write_spec(scratch, REWRITTEN_SPEC)
+    raw = "```json\n" + json.dumps([{"finding_id": "F1", "new": "x"}]) + "\n```\n"
+    res = mod._write_spec_doc(_ctx(scratch), _step(raw_response=raw, doc_path=str(doc), cycle=2))
+    assert res.status == "ok", f"{res.error_code}: {res.error}"
+    assert [p["source"] for p in sink.payloads("spec_writer_return_source")] == ["worker_file"]
+    assert _text(doc).strip() == REWRITTEN_SPEC.strip()
+
+
+def test_ac16_engine_retry_hop_replays_then_reinvokes_at_the_same_cycle(tmp_path, monkeypatch):
+    """Host = engine retry (1y). Real steps detect_frozen_spec, build_spec_prompt, invoke_spec_llm,
+    write_spec_doc under `engine._execute_steps` at cycle 2 with a replayed patch-array sentinel on
+    disk. Pass 1 replays it (the LLM seam is not called), op2c fires, the engine retries; pass 2 makes
+    a FRESH invoke_spec_llm call (the unlinked sentinel is not re-served) at the SAME cycle with the
+    delta prompt, and the worker's full body becomes the spec."""
+    from bytedigger_engine.contracts import WorkflowDefinition
+    from bytedigger_engine.engine import WorkflowEngine
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel
+
+    mod = _mod()
+    full = mod.phase_45_spec_workflow()
+    assert full.name == "phase_45_spec"
+    wf = WorkflowDefinition(name=full.name, steps=full.steps[:4])
+    assert [s.name for s in wf.steps] == [
+        "detect_frozen_spec", "build_spec_prompt", "invoke_spec_llm", "write_spec_doc"]
+
+    scratch = tmp_path / "scratch"
+    doc = _write_spec(scratch, BASE_SPEC)  # unrevised cycle-1 body
+    ctx = _ctx(scratch)
+    run_id = "bd89-p3a-engine-hop"
+    payload = {"raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": 2,
+               "findings": STRUCTURED_REVIEW_TEXT, "structured_findings": STRUCTURED}
+    write_step_sentinel(scratch, "invoke_spec_llm", 2, payload, run_id, None, "phase_45_spec")
+    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c2_r{run_id}.json"
+    assert sentinel.is_file(), "fixture precondition: the stale sentinel is on disk"
+
+    spy = _Spy(raw=NON_PATCH_RAW, body=REWRITTEN_SPEC)
+    monkeypatch.setattr(mod, "invoke_llm_subprocess", spy)
+    engine_sink = _Sink()
+    eng = WorkflowEngine(event_log=engine_sink)
+    eng._rework_cycle_high = 1  # execute() seeds these per run; the direct _execute_steps seam does not
+    eng._rework_last_step = None
+    final = eng._execute_steps(
+        wf, ctx, run_id,
+        initial_data={"cycle": 2, "findings": STRUCTURED_REVIEW_TEXT, "structured_findings": STRUCTURED},
+        cycle=2,
+    )
+
+    assert final.status == "ok", f"{final.error_code}: {final.error}"
+    assert engine_sink.names().count("step_sentinel_resumed") == 1, "pass 1 must replay the stale sentinel"
+    retries = engine_sink.payloads("phase_retry_triggered")
+    assert len(retries) == 1 and retries[0]["cycle"] == 2 and retries[0]["step_name"] == "write_spec_doc", retries
+    assert retries[0]["error_code"] == "E_VALIDATION_RETRY"
+    assert len(spy.calls) == 1, "exactly one FRESH invoke_spec_llm call, made by the retry hop"
+    call = spy.calls[0]
+    assert call["extra_data"]["cycle"] == 2, "the retry re-runs the SAME cycle"
+    assert "Write the FULL revised spec markdown to" in call["prompt"]
+    assert "FINDING_F1" in call["prompt"]
+    assert _text(doc).strip() == REWRITTEN_SPEC.strip()
+    assert (scratch / "specs" / "build-spec-cycle-2.md").is_file()
+    fresh = json.loads(sentinel.read_text(encoding="utf-8"))
+    assert fresh["raw_response"] == NON_PATCH_RAW, "the sentinel on disk now holds the fresh call, not the patch array"
