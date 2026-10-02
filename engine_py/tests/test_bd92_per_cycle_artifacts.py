@@ -1,9 +1,13 @@
 """RED tests for bd#92 — per-cycle artifacts are cleared or keyed before a later cycle can read them.
 
-Spec: docs/decisions/2026-10-02-bd92-per-cycle-artifacts.md (§6 AC1-AC14; AC15 is
-the full-suite delta, checked by the orchestrator, not here).
+Spec: docs/decisions/2026-10-02-bd92-per-cycle-artifacts.md (§6 AC1-AC17; AC18 is
+the full-suite delta, checked by CI/orchestrator, not here).
 
 AC -> test map
+  AC15 test_ac15_* (cycle-1 prompt build unlinks thread; cycle-2 carries none; cycle-2 keeps it)
+  AC16 test_ac16_step_sentinel_has_no_inline_done_c_literal
+  AC17 test_ac17_status_* (malformed / other reasons, never raises)
+  AC9 also: test_ac9_exhausted_counter_terminal_ / test_ac9_frozen_fallback_retry_ (see below)
   AC1  test_ac1_stale_review_doc_is_gone_and_fresh_stdout_is_written
   AC2  test_ac2_review_doc_unlink_is_attempted_and_oserror_does_not_fail_the_step
   AC3  test_ac3_load_rejects_other_run / _cycle_mismatch / _legacy_payload,
@@ -258,6 +262,112 @@ def test_ac4_prompt_ignores_other_run_thread_and_emits_rejected_event(tmp_path):
     assert "MARKER_BD92_FINDING_ACTION" in r2.data["prompt"]
 
 
+# --- AC15: attempt boundary (cycle-1 prompt build owns the thread sidecar) -----
+
+
+def test_ac15_cycle1_prompt_build_unlinks_thread_and_cycle2_does_not(tmp_path):
+    from bytedigger_engine.findings_sidecar import SIDECAR_RELNAME
+
+    scratch = tmp_path / "s15"
+    _write_spec(scratch)
+    _write_thread(scratch, run_id=RUN_A, cycle=1)
+    thread = scratch / SIDECAR_RELNAME
+    _set_run(tmp_path, RUN_A, cycle=1)
+    prev1 = StepResult(status="ok", data={"cycle": 1}, duration_ms=0, step_name="gate_on_review")
+    phase_45_spec._build_spec_prompt(_wf_ctx(scratch), prev1)
+    assert not thread.exists(), "cycle-1 prompt build must clear the previous attempt's thread"
+
+
+def test_ac15_cycle2_prompt_after_cycle1_build_carries_no_stale_findings(tmp_path):
+    scratch = tmp_path / "s15b"
+    _write_spec(scratch)
+    _write_thread(scratch, run_id=RUN_A, cycle=1)  # leftover from a previous attempt of the same run
+    _set_run(tmp_path, RUN_A, cycle=1)
+    phase_45_spec._build_spec_prompt(_wf_ctx(scratch), StepResult(
+        status="ok", data={"cycle": 1}, duration_ms=0, step_name="gate_on_review"))
+    prev2 = StepResult(status="ok", data={"cycle": 2}, duration_ms=0, step_name="gate_on_review")
+    r = phase_45_spec._build_spec_prompt(_wf_ctx(scratch), prev2)
+    assert "MARKER_BD92_FINDING_ACTION" not in r.data["prompt"], "stale attempt-1 thread leaked into cycle 2"
+
+
+def test_ac15_cycle2_prompt_build_does_not_unlink_same_run_cycle1_thread(tmp_path):
+    from bytedigger_engine.findings_sidecar import SIDECAR_RELNAME
+
+    scratch = tmp_path / "s15c"
+    _write_spec(scratch)
+    _set_run(tmp_path, RUN_A, cycle=2)
+    # fresh cycle-1 thread of THIS attempt, written after the cycle-1 prompt build
+    phase_45_spec._build_spec_prompt(_wf_ctx(scratch), StepResult(
+        status="ok", data={"cycle": 1}, duration_ms=0, step_name="gate_on_review"))
+    _write_thread(scratch, run_id=RUN_A, cycle=1)
+    prev2 = StepResult(status="ok", data={"cycle": 2}, duration_ms=0, step_name="gate_on_review")
+    r = phase_45_spec._build_spec_prompt(_wf_ctx(scratch), prev2)
+    assert (scratch / SIDECAR_RELNAME).is_file(), "cycle-2 build must not unlink the thread"
+    assert "MARKER_BD92_FINDING_ACTION" in r.data["prompt"]
+    # forcing: today the cycle-1 build leaves nothing to distinguish; require the keyed payload
+    assert json.loads((scratch / SIDECAR_RELNAME).read_text())["run_id"] == RUN_A
+    from bytedigger_engine.findings_sidecar import findings_thread_status
+    assert findings_thread_status(scratch, run_id=RUN_A, for_cycle=2)[0] == FINDINGS
+
+
+# --- AC17: findings_thread_status reasons --------------------------------------
+
+
+def _write_raw_thread(scratch: Path, payload) -> None:
+    from bytedigger_engine.findings_sidecar import SIDECAR_RELNAME
+
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / SIDECAR_RELNAME).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_ac17_status_reports_malformed_for_list_bool_cycle_and_empty_findings(tmp_path):
+    from bytedigger_engine.findings_sidecar import findings_thread_status
+
+    cases = {
+        "list": [1, 2, 3],
+        "bool_cycle": {"structured_findings": FINDINGS, "cycle": True, "run_id": RUN_A},
+        "empty_sf": {"structured_findings": [], "cycle": 1, "run_id": RUN_A},
+    }
+    for label, payload in cases.items():
+        d = tmp_path / label
+        _write_raw_thread(d, payload)
+        assert findings_thread_status(d, run_id=RUN_A, for_cycle=2) == (None, "malformed"), label
+
+
+def test_ac17_status_reasons_for_other_cases_and_never_raises(tmp_path):
+    from bytedigger_engine.findings_sidecar import findings_thread_status
+
+    assert findings_thread_status(tmp_path / "none", run_id=RUN_A, for_cycle=2) == (None, "absent")
+
+    legacy = tmp_path / "legacy"
+    _write_thread(legacy, run_id=None, cycle=1, with_run_key=False)
+    assert findings_thread_status(legacy, run_id=RUN_A, for_cycle=2) == (None, "legacy")
+
+    run = tmp_path / "run"
+    _write_thread(run, run_id=RUN_A, cycle=1)
+    assert findings_thread_status(run, run_id=RUN_B, for_cycle=2) == (None, "run_mismatch")
+    assert findings_thread_status(run, run_id=RUN_A, for_cycle=3) == (None, "cycle_mismatch")
+    assert findings_thread_status(run, run_id=RUN_A, for_cycle=2) == (FINDINGS, None)
+
+    for label, payload in (("str_cycle", {"structured_findings": FINDINGS, "cycle": "1", "run_id": RUN_A}),
+                           ("null", None), ("num", 7)):
+        d = tmp_path / label
+        _write_raw_thread(d, payload)
+        status = findings_thread_status(d, run_id=RUN_A, for_cycle=2)
+        assert status == (None, "malformed"), label
+
+
+# --- AC16: no inline sentinel-name f-string in step_sentinel.py ----------------
+
+
+def test_ac16_step_sentinel_has_no_inline_done_c_literal():
+    from bytedigger_engine.lib import step_sentinel
+
+    text = Path(step_sentinel.__file__).read_text(encoding="utf-8")
+    offenders = [i + 1 for i, line in enumerate(text.splitlines()) if "_done_c" in line]
+    assert offenders == [], f"inline _done_c literal(s) at lines {offenders}; build globs via resume_sentinel_glob"
+
+
 # --- AC6: REVISE persists run_id and cycle ------------------------------------
 
 
@@ -346,6 +456,26 @@ def test_ac9_revise_terminal_unlinks_ship_sidecar(tmp_path):
     r = phase_45_spec._gate_on_review(_wf_ctx(scratch), prev)
     assert r.status == "error" and r.error_code == "E_REVIEW_FAILED", r
     assert not sc.exists()
+
+
+def test_ac9_exhausted_counter_terminal_unlinks_ship_sidecar(tmp_path):
+    scratch = tmp_path / "s9x"
+    prev = _gate_prev(scratch, "REVISE", cycle=1)
+    sc = _plant_ship_sidecar(Path(prev.data["spec_path"]))
+    # durable counter hard cap 1: the first bump reaches it (E_SPEC_REVISE_EXHAUSTED branch)
+    r = phase_45_spec._gate_on_review(_wf_ctx(scratch, spec_revise_hard_cap=1), prev)
+    assert r.status == "error" and r.error_code == "E_SPEC_REVISE_EXHAUSTED", r
+    assert not sc.exists(), "exhausted-counter terminal REVISE must not leave a prior shipped base"
+
+
+def test_ac9_frozen_fallback_retry_unlinks_ship_sidecar(tmp_path):
+    scratch = tmp_path / "s9f"
+    prev = _gate_prev(scratch, "REVISE", cycle=1, is_frozen=True)
+    sc = _plant_ship_sidecar(Path(prev.data["spec_path"]))
+    r = phase_45_spec._gate_on_review(_wf_ctx(scratch), prev)
+    assert r.recoverable is True and r.error_code == "E_VALIDATION_RETRY", r
+    assert r.data.get("frozen_fallback") is True and r.data.get("retry_from_step") == 0, r.data
+    assert not sc.exists(), "frozen-fallback retry must not leave a prior shipped base"
 
 
 def test_ac10_prior_base_requires_ship_verdict(tmp_path):
