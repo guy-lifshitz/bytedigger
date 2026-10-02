@@ -1,6 +1,6 @@
 # bd#141 item 4 (b): `oracle verify` host CLI
 
-**Status:** r1 · **Tier:** 2 (one engine prod `.py` + one new test file, Option D) ·
+**Status:** r2 (gate r1 REJECTED: 2 MAJOR + 7 MINOR, all addressed; see `2026-10-02-bd141-p4b-oracle-cli-gate-r1.md`) · **Tier:** 2 (one engine prod `.py` + one new test file, Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `conformance/oracle.read_log_events` (the single reader of the
 event log for freeze and verify) + `find_last_freeze`/`verify_against` (the single verdict path).
 **Source:** bd#154 (bd#141 item 4(b), §7.4 portable set). Pattern: the `bd_l3` CLI of #156
@@ -27,7 +27,7 @@ event log for freeze and verify) + `find_last_freeze`/`verify_against` (the sing
    `__all__`. No sibling feeds the reader UTF-8-invalid or non-object lines, so none should change.
 4. `ORACLE_SPEC.md` (FROZEN v7) `[bd8:5]` says the seam "does not know about `run.py`, the workflow
    registry, or the CLI" — meaning `run.py`'s CLI. The new `_main` imports no `bytedigger_engine`
-   module (AC12), so the seam stays below `run.py`. `ORACLE_SPEC.md` is not edited; the module
+   module (AC11), so the seam stays below `run.py`. `ORACLE_SPEC.md` is not edited; the module
    docstring gets one paragraph naming the host CLI.
 
 ## §2 Design
@@ -41,7 +41,10 @@ Nothing else in the reader changes (missing file → `[]`, `OSError` → INDETER
 INDETERMINATE stay as they are).
 
 **2.2 CLI.** `python -m bytedigger_engine.conformance.oracle verify --event-log P --run-id ID --scratchpad-dir D`.
-All three flags required; `verify` is the only subcommand and is required.
+All three flags required; `verify` is the only subcommand and is required. `--run-id` must be
+non-empty after `strip()`: `find_last_freeze` skips its run filter on a falsy id (oracle.py:312),
+which would return another run's freeze, and the engine never verifies with an empty id (it falls
+back to a uuid, run.py:332). An empty/whitespace id is rc 2 (gate r1 MAJOR 1).
 
 The verdict is exactly what `run._oracle_entry_verify` decides for a `phase_5_implement` run with the
 same log, run id and `org_config["scratchpad_dir"]` (no new logic):
@@ -50,7 +53,9 @@ else `verify_against(frozen["payload"], D)`; an `OracleRefusal` maps its `code`.
 
 Faithfulness consequences (deliberate, so the host shadow matches the engine): a missing `P` is
 `unfrozen` (engine: no log ⇒ no freeze), a directory as `P` is `indeterminate`, a missing `D` is
-`mutated` with `mutated:removed`. None of these is rc 2.
+`mutated` with `mutated:removed`. None of these is rc 2. Unlike `bd_l3`, log-read failures are
+verdicts, not rc 2, because ORACLE_SPEC §5 (:340) assigns them `E_ORACLE_INDETERMINATE` and the
+engine reports them that way.
 
 Success: exactly one line on stdout, a JSON object with exactly these keys:
 
@@ -62,23 +67,27 @@ Success: exactly one line on stdout, a JSON object with exactly these keys:
 | `message` | the refusal message verbatim, else `null` |
 | `event_type` | `event_type` of the freeze found (`"oracle_frozen"` / `"oracle_amended"`), else `null` |
 | `frozen_digest` | the found payload's `digest`, else `null` |
-| `current_digest` | `compute_digest(D, <frozen member paths>, when="verify")` when a freeze was found and that call does not raise; `null` otherwise (unfrozen, a member gone or unreadable, log unreadable) |
+| `current_digest` | `compute_digest(D, <frozen member paths>, when="verify")` — member paths derived exactly as `verify_against` does (`m["path"] if isinstance(m, dict) else m`, oracle.py:357-360) — when a freeze was found and that call does not raise; `null` otherwise (unfrozen, a member gone or unreadable, log unreadable). For `mutated:added` it equals `frozen_digest` by construction (membership is inside `digest`, the addition is in `scope_digest`, `[bd8:2b]`) |
 | `run_id` | the `--run-id` value echoed |
 
 Exit **0 for any verdict**. Mapping: `E_ORACLE_UNFROZEN`→`unfrozen`, `E_ORACLE_MUTATED`→`mutated`,
 `E_ORACLE_INDETERMINATE`→`indeterminate`.
 
 Usage/input errors: exit **2**, nothing on stdout, one message on stderr starting `oracle: `.
-Cases: no subcommand; unknown subcommand; any of the three flags missing; unknown flag (even with a
-valid log — no `parse_known_args`); a positional argument after `verify`; a freeze event whose
-`payload` is not an object, or whose payload makes `verify_against` raise anything other than
-`OracleRefusal` (`KeyError`/`TypeError`/`AttributeError`) — message contains `malformed`.
+Cases: no subcommand; unknown subcommand; any of the three flags missing; `--run-id` empty or
+whitespace; unknown flag (even with a valid log — no `parse_known_args`); a positional argument after
+`verify`; a malformed freeze event — message contains `malformed`. "Malformed" is any
+`KeyError`/`TypeError`/`AttributeError`/`ValueError` raised (not `OracleRefusal`) inside the one
+`try` that encloses `find_last_freeze`, `frozen["payload"]`, `verify_against` and the
+`current_digest` computation, plus a found payload that is not an object or whose `digest` is not a
+`str`. stdout is written with `json.dumps(..., allow_nan=False)`, so the one line is always valid JSON.
 
 Mode: read-only. Never writes or appends to `P`, never writes under `D`, creates no directory.
 
-Module hygiene: `argparse`/`sys` imported inside `_main` (keeps AC-12 no-I/O-at-import and adds no
+Module hygiene: `argparse`/`sys` imported inside `_main` (keeps `test_bd8_l1_oracle.py` AC-12 no-I/O-at-import and adds no
 module attribute); `_main(argv=None) -> int`; guard `if __name__ == "__main__": sys.exit(_main())`
-(the guard's own `import sys` is local to the guard block). No `signal`, no `bytedigger_engine` import.
+(the guard's own `import sys` is local to the guard block). No `signal`, no `bytedigger_engine` import, no new module attribute
+(`argparse`/`sys` never become attributes of `oracle`; `json` is already imported at top, oracle.py:49).
 
 ## §3 Acceptance criteria
 
@@ -94,7 +103,9 @@ CLI = real subprocess `python -m bytedigger_engine.conformance.oracle verify …
   Red on `2222a1f` (no `__main__`).
 - **AC2 (mutated, one per token):** after a real freeze — (a) rewrite a member → `token=="mutated:content"`,
   `current_digest` non-null and `!= frozen_digest`; (b) add `specs/.new.md` → `"mutated:added"`;
-  (c) delete a member → `"mutated:removed"`, `current_digest is None`. All `code=="E_ORACLE_MUTATED"`, rc 0.
+  (c) delete a member → `"mutated:removed"`, `current_digest is None`; (d) delete the whole
+scratchpad dir `D` → `"mutated:removed"`, `current_digest is None` (faithfulness, gate r1 MAJOR 2).
+All `code=="E_ORACLE_MUTATED"`, rc 0. (b) also asserts `current_digest == frozen_digest`.
 - **AC3 (unfrozen):** (a) log with only a foreign event; (b) `P` does not exist (and its parent dir is
   not created); (c) real freeze under run `A`, CLI `--run-id B` → each `outcome=="unfrozen"`,
   `code=="E_ORACLE_UNFROZEN"`, `frozen_digest is None`, `current_digest is None`, `event_type is None`.
@@ -108,7 +119,7 @@ CLI = real subprocess `python -m bytedigger_engine.conformance.oracle verify …
 - **AC6 (amendment):** real freeze, then a real re-entry (`_oracle_after_execute` again with a changed
   member and `org_config["oracle_amendment_reason"]="r"`) → CLI `event_type=="oracle_amended"`,
   `outcome=="verified"`, `frozen_digest` equals the amendment's `digest`, not the first freeze's.
-- **AC7 (engine parity):** for each scenario of AC1, AC2(a–c), AC3(a,c), AC4(a,b): the CLI `code` equals
+- **AC7 (engine parity):** for each scenario of AC1, AC2(a–d), AC3(a,c), AC4(a–d): the CLI `code` equals
   the `error_code` of `run._oracle_entry_verify(args, ctx, run_id)` (`args.workflow="phase_5_implement"`)
   run on a byte copy of the same log — `None` when the engine returns `None`.
 - **AC8 (key set):** stdout is one line; the object's key set is exactly
@@ -117,11 +128,13 @@ CLI = real subprocess `python -m bytedigger_engine.conformance.oracle verify …
   subcommand; `verify` missing each of the three flags (3 cases); unknown flag with a valid log;
   positional after `verify` with a valid log; a hand-written `oracle_frozen` event whose `payload` is
   `"x"` (stderr contains `malformed`); one whose payload `members` is `[{"digest": "…"}]` (no `path`,
-  stderr contains `malformed`).
+  stderr contains `malformed`); `--run-id ""` and `--run-id "  "` after a real freeze under run A
+(rc 2, so the empty id cannot return run A's freeze); a hand-written `oracle_frozen` row with no
+`payload` key; one whose payload `digest` is `1` (not a str).
 - **AC10 (read-only):** after AC1 and AC2(a), the log's bytes and every file under `D` (path → sha256)
   are identical before/after the CLI call.
 - **AC11 (seam hygiene):** AST of `oracle.py`: no top-level `import argparse`/`import sys`, no import of
-  any `bytedigger_engine` module or relative import anywhere; `vars(oracle)` has no `argparse` key; the
+  any `bytedigger_engine` module or relative import anywhere; `vars(oracle)` has neither `argparse` nor `sys`; the
   module has a `_main` function.
 - **AC12 (in-process):** `oracle._main(["verify", …AC1 args…])` returns `0` and prints the same JSON as
   the subprocess.
@@ -136,4 +149,6 @@ In: `engine_py/bytedigger_engine/conformance/oracle.py`; new test
 - `ORACLE_SPEC.md` (frozen), `run.py`, `event_log.py`, `error_codes.py`/`ERROR_CODES.md` (no new code).
 - The hal-v2 shadow adapter and its host-controls entry.
 - `--json`-less human output, a `freeze` subcommand (a host must not freeze; only the oracle phase does).
+- Engine-side malformed payloads: `run._oracle_entry_verify` (run.py:152) still lets
+  `AttributeError`/`KeyError` escape on AC9's malformed rows — follow-up issue (gate r1 MINOR 9).
 - Entry-vs-exit distinction: entry and exit verify run the same two calls; the CLI is one verify.

@@ -1,6 +1,7 @@
 """RED tests for bd#141 item 4 (b) -- `oracle verify` host CLI and the reader class fix.
 
-Spec: docs/decisions/2026-10-02-bd141-p4b-oracle-cli.md (AC1-AC12, r1).
+Spec: docs/decisions/2026-10-02-bd141-p4b-oracle-cli.md (AC1-AC12, r2; gate r1
+findings MAJOR 1-2 and MINOR 3, 5, 7 folded in).
 
 Every `bytedigger_engine.*` import is inside a test body or helper, so the file
 collects cleanly and each AC fails at assert time. Freezes are written by the
@@ -115,6 +116,14 @@ def _s_removed(fx):
     return RUN_ID
 
 
+def _s_removed_dir(fx):
+    import shutil  # noqa: PLC0415
+
+    _freeze(fx)
+    shutil.rmtree(fx.D)
+    return RUN_ID
+
+
 def _s_foreign(fx):
     fx.P.write_text(json.dumps({"event_type": "other", "run_id": RUN_ID,
                                 "payload": {}}) + "\n", encoding="utf-8")
@@ -169,10 +178,11 @@ def test_ac1_real_freeze_verified(tmp_path):
 
 @pytest.mark.parametrize("scn,token", [
     ("content", "mutated:content"), ("added", "mutated:added"),
-    ("removed", "mutated:removed")])
+    ("removed", "mutated:removed"), ("removed_dir", "mutated:removed")])
 def test_ac2_mutated_one_per_token(tmp_path, scn, token):
     fx = _fx(tmp_path)
-    {"content": _s_content, "added": _s_added, "removed": _s_removed}[scn](fx)
+    {"content": _s_content, "added": _s_added, "removed": _s_removed,
+     "removed_dir": _s_removed_dir}[scn](fx)
     out = _run(fx)
     assert out["outcome"] == "mutated"
     assert out["code"] == "E_ORACLE_MUTATED"
@@ -180,7 +190,9 @@ def test_ac2_mutated_one_per_token(tmp_path, scn, token):
     if scn == "content":
         assert out["current_digest"] is not None
         assert out["current_digest"] != out["frozen_digest"]
-    if scn == "removed":
+    if scn == "added":
+        assert out["current_digest"] == out["frozen_digest"]
+    if scn in ("removed", "removed_dir"):
         assert out["current_digest"] is None
 
 
@@ -255,15 +267,17 @@ def test_ac6_amendment(tmp_path):
 
 
 @pytest.mark.parametrize("scn", [
-    "verified", "content", "added", "removed", "foreign", "other_run",
-    "dir_log", "nonjson"])
+    "verified", "content", "added", "removed", "removed_dir", "foreign",
+    "other_run", "dir_log", "nonjson", "utf8", "nonobj"])
 def test_ac7_engine_parity(tmp_path, scn):
     from bytedigger_engine import run  # noqa: PLC0415
 
     fx = _fx(tmp_path)
     mk = {"verified": _s_verified, "content": _s_content, "added": _s_added,
-          "removed": _s_removed, "foreign": _s_foreign, "other_run": _s_other_run,
-          "dir_log": _s_dir_log, "nonjson": _s_nonjson}[scn]
+          "removed": _s_removed, "removed_dir": _s_removed_dir,
+          "foreign": _s_foreign, "other_run": _s_other_run,
+          "dir_log": _s_dir_log, "nonjson": _s_nonjson, "utf8": _s_utf8,
+          "nonobj": _s_nonobj}[scn]
     run_id = mk(fx)
     out = _report(_cli(*_verify_args(fx.P, fx.D, run_id)))
     if fx.P.is_dir():
@@ -291,14 +305,18 @@ def test_ac8_key_set_single_line(tmp_path, scn):
     assert set(json.loads(proc.stdout)) == KEYS
 
 
-def _hand_frozen(fx: Fx, payload: Any) -> None:
-    fx.P.write_text(json.dumps({"event_type": "oracle_frozen", "run_id": RUN_ID,
-                                "payload": payload}) + "\n", encoding="utf-8")
+def _hand_frozen(fx: Fx, payload: Any, top_run_id: bool = True) -> None:
+    ev: "dict[str, Any]" = {"event_type": "oracle_frozen", "payload": payload}
+    if top_run_id:
+        ev["run_id"] = RUN_ID
+    fx.P.write_text(json.dumps(ev) + "\n", encoding="utf-8")
 
 
 @pytest.mark.parametrize("case", [
     "no_args", "bogus_sub", "no_event_log", "no_run_id", "no_scratch",
-    "unknown_flag", "positional", "payload_str", "members_no_path"])
+    "unknown_flag", "positional", "payload_str", "members_no_path",
+    "empty_run_id", "blank_run_id", "payload_str_no_run_id",
+    "no_payload_key", "digest_int"])
 def test_ac9_usage_errors_exit_2(tmp_path, case):
     fx = _fx(tmp_path)
     full = _verify_args(fx.P, fx.D)
@@ -316,8 +334,22 @@ def test_ac9_usage_errors_exit_2(tmp_path, case):
     elif case in ("unknown_flag", "positional"):
         _freeze(fx)
         argv = full + (["--bogus"] if case == "unknown_flag" else ["extra"])
+    elif case in ("empty_run_id", "blank_run_id"):
+        _freeze(fx)
+        argv = _verify_args(fx.P, fx.D, "" if case == "empty_run_id" else "  ")
     elif case == "payload_str":
         _hand_frozen(fx, "x")
+        argv, must_contain = full, "malformed"
+    elif case == "payload_str_no_run_id":
+        _hand_frozen(fx, "x", top_run_id=False)
+        argv, must_contain = full, "malformed"
+    elif case == "no_payload_key":
+        fx.P.write_text(json.dumps({"event_type": "oracle_frozen",
+                                    "run_id": RUN_ID}) + "\n", encoding="utf-8")
+        argv, must_contain = full, "malformed"
+    elif case == "digest_int":
+        _hand_frozen(fx, {"run_id": RUN_ID, "digest": 1, "members": [],
+                          "scope": []})
         argv, must_contain = full, "malformed"
     else:
         _hand_frozen(fx, {"run_id": RUN_ID, "members": [{"digest": "d"}]})
@@ -360,6 +392,7 @@ def test_ac11_seam_hygiene():
             assert node.level == 0, "relative import in oracle.py"
             assert (node.module or "").split(".")[0] != "bytedigger_engine"
     assert "argparse" not in vars(oracle)
+    assert "sys" not in vars(oracle)
     assert any(isinstance(n, ast.FunctionDef) and n.name == "_main" for n in tree.body)
     assert hasattr(oracle, "_main") and callable(oracle._main)
 
