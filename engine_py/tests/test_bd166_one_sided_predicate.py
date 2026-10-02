@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +35,8 @@ _ENGINE_PY = _HERE.parent                           # .../engine_py
 _REPO_ROOT = Path(__file__).resolve().parents[2]    # repo root
 _DRIVER = _REPO_ROOT / "one-sided-predicate-lint.py"
 _PKG_DIR = _ENGINE_PY / "bytedigger_engine"
+_ENFORCE_CLI = _REPO_ROOT / "scripts" / "precommit_enforce_cli.py"
+_PHASE5_SRC = _PKG_DIR / "workflows" / "phase_5_implement.py"
 
 
 # --------------------------------------------------------------- fixtures
@@ -270,7 +273,9 @@ def test_b2_empty_input_assert_shares_the_codey_helper():
 def test_b3_precommit_lints_uses_the_one_declared_corpus_and_a_real_driver():
     from bytedigger_engine import one_sided_predicate
 
-    assert precommit_lints._TS_TEST_SUFFIXES is one_sided_predicate.TS_TEST_SUFFIXES
+    # Parity pin, not identity: precommit_lints must stay standalone-copyable
+    # (bd66 _materialize_package_copy), so it must NOT import one_sided_predicate.
+    assert tuple(precommit_lints._TS_TEST_SUFFIXES) == tuple(one_sided_predicate.TS_TEST_SUFFIXES)
     assert "one-sided-predicate-lint" not in precommit_lints.DECLARED_ABSENT
     drv = Path(precommit_lints.driver_path("one-sided-predicate-lint", "/nonexistent-build-dir"))
     assert drv.is_file(), f"driver must exist, resolved to {drv}"
@@ -348,7 +353,17 @@ def test_ac23_collect_red_lint_findings_real_side_effect(tmp_path, monkeypatch):
 
     dirty = tmp_path / "bd166_dirty.test.ts"
     dirty.write_text(_block("  expect(r.code).not.toBe(0);"), encoding="utf-8")
-    findings_dirty = p5._collect_red_lint_findings([str(dirty.resolve())], str(tmp_path), ctx, cfg)
+    captured: list = []
+
+    def _capture(event_type, payload, severity="info"):
+        captured.append((event_type, payload, severity))
+
+    with patch.object(p5, "_emit_safe", side_effect=_capture):
+        findings_dirty = p5._collect_red_lint_findings(
+            [str(dirty.resolve())], str(tmp_path), ctx, cfg
+        )
+    violations = [c for c in captured if c[0] == "red_one_sided_predicate_violation"]
+    assert len(violations) == 1, f"expected exactly one violation event, got {captured!r}"
     matches = [f for f in findings_dirty if f.get("error_code") == "E_RED_ONE_SIDED_PREDICATE"]
     assert matches, f"expected an E_RED_ONE_SIDED_PREDICATE record, got {findings_dirty!r}"
     assert matches[0].get("rule") == "one-sided-predicate", f"got {matches[0]!r}"
@@ -461,9 +476,17 @@ def test_ac34_unreadable_red_target_is_a_finding_not_a_silent_pass(tmp_path, mon
     cfg = ctx.org_config or {}
 
     rel = _unreadable_ts_target(tmp_path, "bd166_unreadable.test.ts")
-    unreadable_findings = p5._collect_red_lint_findings(
-        [str(tmp_path / rel)], str(tmp_path), ctx, cfg,
-    )
+    captured: list = []
+
+    def _capture(event_type, payload, severity="info"):
+        captured.append((event_type, payload, severity))
+
+    with patch.object(p5, "_emit_safe", side_effect=_capture):
+        unreadable_findings = p5._collect_red_lint_findings(
+            [str(tmp_path / rel)], str(tmp_path), ctx, cfg,
+        )
+    unreadable_events = [c for c in captured if c[0] == "red_one_sided_predicate_unreadable_target"]
+    assert len(unreadable_events) == 1, f"expected exactly one unreadable event, got {captured!r}"
     matches = [
         f for f in unreadable_findings if f.get("error_code") == "E_RED_LINT_TARGET_UNREADABLE"
     ]
@@ -520,7 +543,15 @@ def test_ac25_error_code_registered_everywhere(code):
         _ENGINE_PY / "bytedigger_engine" / "ERROR_CODES.md",
     ):
         assert code in md.read_text(encoding="utf-8"), f"{code} missing from {md}"
-    assert error_codes.main(["--check"]) == 0, "ERROR_CODES.md copies out of sync with the registry"
+    rendered = error_codes.render_markdown().encode("utf-8")
+    for md in (
+        _ENGINE_PY / "ERROR_CODES.md",
+        _ENGINE_PY / "bytedigger_engine" / "ERROR_CODES.md",
+    ):
+        assert md.read_bytes() == rendered, f"{md} is not byte-identical to render_markdown()"
+    assert error_codes.main(["--check"]) == 0, (
+        "harvested E_* codes in the source are not all in the registry (or vice versa)"
+    )
 
 
 def test_ac25_flag_registered_and_names_bd166():
@@ -567,6 +598,247 @@ def test_ac37_path_outside_declared_corpus_is_emitted_not_silent(tmp_path, monke
     assert not [
         c for c in captured if c[0] == "red_one_sided_predicate_unmatched_path"
     ], f".py is the known-zero corpus and must not be reported, got {captured!r}"
+
+
+# ---------------------------------------------------- B5 / B6 / B7
+
+
+def test_b5_d1_decoys_are_pinned_as_the_chosen_behaviour():
+    # false positive: an unrelated camel-hump subject becomes a candidate
+    fp = _scan(_block("  expect(zipCode).not.toBeNull();"))
+    assert len(fp) == 1, f"zipCode decoy must be flagged (declared D1 behaviour), got {fp!r}"
+
+    # false negative: an unrelated codey toBe(<int>) controls a real predicate
+    fn_text = _block("  expect(r.code).not.toBe(0);\n  expect(user.zipCode).toBe(90210);")
+    assert _scan(fn_text) == [], f"decoy control must silence (declared D1), got {_scan(fn_text)!r}"
+    assert _summ(fn_text)["controlled"] == 1, f"got {_summ(fn_text)!r}"
+
+
+def test_b6_cli_imports_the_rule_and_holds_no_copy():
+    assert _DRIVER.is_file(), f"missing driver {_DRIVER}"
+    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    imported = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "bytedigger_engine.one_sided_predicate":
+            if any(a.name == "scan_one_sided_predicates" for a in node.names):
+                imported = True
+    assert imported, "driver must import scan_one_sided_predicates from the engine module"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            assert all(a.name.split(".")[0] != "re" for a in node.names), "driver must not import re"
+        elif isinstance(node, ast.ImportFrom):
+            assert (node.module or "").split(".")[0] != "re", "driver must not import from re"
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "re":
+                raise AssertionError("driver must not call re.*")
+
+
+def test_b7_hits_helper_calls_no_llm_or_subprocess_path():
+    tree = ast.parse(_PHASE5_SRC.read_text(encoding="utf-8"))
+    fn = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.FunctionDef) and n.name == "_one_sided_predicate_hits"),
+        None,
+    )
+    assert fn is not None, "phase_5_implement._one_sided_predicate_hits does not exist"
+    banned_names = {"invoke_llm_subprocess", "bounded_run"}
+    banned_roots = {"check_ladder", "subprocess", "llm_subprocess"}
+    offenders = []
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Name) and f.id in banned_names:
+            offenders.append(f.id)
+        elif isinstance(f, ast.Attribute):
+            if f.attr in banned_names:
+                offenders.append(f.attr)
+            root = f
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id in banned_roots:
+                offenders.append(root.id)
+    assert offenders == [], f"helper must stay deterministic, found calls: {offenders!r}"
+
+
+# ----------------------------------------------- AC18 / AC19 / AC20 (precommit)
+
+
+def test_ac18_is_ts_test_file_both_directions():
+    for p in ["x.test.ts", "x.test.js", "x.spec.ts", "some/dir/x.spec.js"]:
+        assert precommit_lints.is_ts_test_file(p) is True, p
+    for p in ["test_x.py", "x.ts", "README.md", "x_test.py"]:
+        assert precommit_lints.is_ts_test_file(p) is False, p
+
+
+def test_ac19_classify_staged_routes_ts_tests_separately():
+    c = precommit_lints.classify_staged(["bd166.test.ts", "test_bd166.py", "README.md"])
+
+    assert "bd166.test.ts" in c["ts_tests"], f"got {c!r}"
+    assert "test_bd166.py" in c["tests"], f"got {c!r}"
+    assert "README.md" not in c["ts_tests"] and "README.md" not in c["tests"], f"got {c!r}"
+
+
+def test_ac20_build_lint_commands_ts_tests_argv_is_the_real_root_driver():
+    old_cmds = precommit_lints.build_lint_commands(["s.md"], ["test_t.py"], precommit_lints.DEFAULT_LINT_DIR)
+    assert not [c for c in old_cmds if c["lint"] == "one-sided-predicate-lint"], (
+        f"call without ts_tests must not plan TS lints, got {old_cmds!r}"
+    )
+
+    new_cmds = precommit_lints.build_lint_commands(
+        ["s.md"], ["test_t.py"], precommit_lints.DEFAULT_LINT_DIR, ts_tests=["x.test.ts"],
+    )
+    mine = [c for c in new_cmds if c["lint"] == "one-sided-predicate-lint"]
+    assert len(mine) == 1, f"expected exactly one TS-lint command, got {mine!r}"
+    assert "x.test.ts" in mine[0]["argv"] and "--spec" not in mine[0]["argv"], f"got {mine[0]['argv']!r}"
+    drv = Path(mine[0]["argv"][0])
+    assert drv.is_file(), f"argv[0] must be a real file, got {drv}"
+    assert drv.resolve() == _DRIVER.resolve(), f"argv[0] must be the repo-root driver, got {drv}"
+
+
+# ------------------------------------------------------------------ AC27 (bd)
+
+
+def _hermetic_git_env(tmp_path: Path) -> dict:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(exist_ok=True)
+    empty_global = fake_home / ".gitconfig"
+    empty_global.write_text("")
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    env.pop("BD66_LINT_DIR", None)
+    env["HOME"] = str(fake_home)
+    env["GIT_CONFIG_GLOBAL"] = str(empty_global)
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _git(args, cwd: Path, env: dict):
+    return subprocess.run(
+        ["git", *args], cwd=str(cwd), env=env, capture_output=True, text=True,
+        timeout=60, stdin=subprocess.DEVNULL,
+    )
+
+
+def _staged_repo(tmp_path: Path, name: str, content: str):
+    env = _hermetic_git_env(tmp_path)
+    repo = (tmp_path / name).resolve()
+    repo.mkdir(parents=True, exist_ok=True)
+    assert _git(["init", "-q", "-b", "main"], repo, env).returncode == 0
+    for key, value in (("user.email", "bd166@example.com"), ("user.name", "bd166"),
+                       ("commit.gpgsign", "false")):
+        assert _git(["config", key, value], repo, env).returncode == 0
+    (repo / "x.test.ts").write_text(content, encoding="utf-8")
+    assert _git(["add", "x.test.ts"], repo, env).returncode == 0
+    return repo, env
+
+
+def _run_enforce(repo: Path, env: dict):
+    proc = subprocess.run(
+        [sys.executable, str(_ENFORCE_CLI)], cwd=str(repo), env=env,
+        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
+    )
+    lines = [ln for ln in (proc.stdout + proc.stderr).splitlines()
+             if "BD66-REFUSE-VIOLATION" in ln and "lint=one-sided-predicate-lint" in ln]
+    return proc, lines
+
+
+def test_ac27_nothing_to_lint_pair():
+    assert precommit_lints.nothing_to_lint(
+        {"specs": [], "tests": [], "ts_tests": ["x.test.ts"]}
+    ) is False
+    assert precommit_lints.nothing_to_lint({"specs": [], "tests": [], "ts_tests": []}) is True
+
+
+def test_ac27_staged_one_sided_ts_test_is_refused_end_to_end(tmp_path):
+    repo, env = _staged_repo(tmp_path, "dirty_repo", _block("  expect(r.code).not.toBe(0);"))
+
+    proc, lines = _run_enforce(repo, env)
+
+    assert proc.returncode != 0, f"one-sided TS test must be refused; out={proc.stdout!r} err={proc.stderr!r}"
+    assert len(lines) == 1, f"expected ONE refusal line naming the lint, got {lines!r}; out={proc.stdout!r}"
+
+
+def test_ac27_control_side_is_not_refused(tmp_path):
+    repo, env = _staged_repo(
+        tmp_path, "clean_repo",
+        _block("  expect(r.code).not.toBe(0);\n  expect(r.code).toBe(9);"),
+    )
+
+    proc, lines = _run_enforce(repo, env)
+
+    assert lines == [], f"controlled file must not be refused by the lint, got {lines!r}"
+
+
+def test_ac27_driver_is_executable_in_git_and_has_shebang():
+    listed = subprocess.run(
+        ["git", "ls-files", "-s", "one-sided-predicate-lint.py"],
+        cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=60,
+        stdin=subprocess.DEVNULL,
+    )
+    assert listed.stdout.startswith("100755 "), f"driver must be versioned as 100755, got {listed.stdout!r}"
+    assert _DRIVER.read_text(encoding="utf-8").splitlines()[0].startswith("#!"), "driver needs a shebang"
+
+
+# ------------------------------------------------------------ AC-L1 / AC-L2
+
+
+def test_acl1_legacy_kill_switch_emits_gate_disabled_and_falls_through(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows import phase_5_implement as p5
+
+    monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
+    monkeypatch.setenv("HAL_RED_LINT_PREFLIGHT_BATCH", "0")
+    ctx = _make_ctx(tmp_path)
+    rel = _write_test_file(
+        tmp_path, "tests/bd166_l1_dirty.test.ts", _block("  expect(r.code).not.toBe(0);"),
+    )
+
+    monkeypatch.delenv("HAL_ONE_SIDED_PREDICATE_GATE", raising=False)
+    on = p5._verify_red_lint_rules(ctx, _make_legacy_prev([rel]))
+    assert on.error_code == "E_RED_ONE_SIDED_PREDICATE", f"control (gate on) got {on.error_code!r}"
+
+    monkeypatch.setenv("HAL_ONE_SIDED_PREDICATE_GATE", "0")
+    empty_bin = tmp_path / "empty_bin_l1"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+    captured: list = []
+
+    def _capture(event_type, payload, severity="info"):
+        captured.append((event_type, payload, severity))
+
+    with patch.object(p5, "_emit_safe", side_effect=_capture):
+        off = p5._verify_red_lint_rules(ctx, _make_legacy_prev([rel]))
+
+    assert [
+        c for c in captured
+        if c[0] == "gate_disabled" and c[1].get("gate") == "HAL_ONE_SIDED_PREDICATE_GATE"
+    ], f"expected gate_disabled(HAL_ONE_SIDED_PREDICATE_GATE), got {captured!r}"
+    assert off.error_code != "E_RED_ONE_SIDED_PREDICATE", f"gate off must not report it, got {off.error_code!r}"
+    assert off.error_code == "E_RED_LINT_SEMGREP_MISSING", f"must fall through, got {off.error_code!r}"
+
+
+def test_acl2_legacy_unreadable_wins_over_a_finding(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows import phase_5_implement as p5
+
+    monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
+    monkeypatch.setenv("HAL_RED_LINT_PREFLIGHT_BATCH", "0")
+    monkeypatch.delenv("HAL_ONE_SIDED_PREDICATE_GATE", raising=False)
+    ctx = _make_ctx(tmp_path)
+
+    dirty_rel = _write_test_file(
+        tmp_path, "tests/bd166_l2_dirty.test.ts", _block("  expect(r.code).not.toBe(0);"),
+    )
+    unreadable_rel = _unreadable_ts_target(tmp_path, "tests/bd166_l2_unreadable.test.ts")
+
+    alone = p5._verify_red_lint_rules(ctx, _make_legacy_prev([dirty_rel]))
+    assert alone.error_code == "E_RED_ONE_SIDED_PREDICATE", f"dirty alone got {alone.error_code!r}"
+
+    mixed = p5._verify_red_lint_rules(ctx, _make_legacy_prev([dirty_rel, unreadable_rel]))
+    assert mixed.error_code == "E_RED_LINT_TARGET_UNREADABLE", (
+        f"unreadable must win over a finding, got {mixed.error_code!r}"
+    )
 
 
 # ------------------------------------------------------ T-B / T-C
