@@ -147,9 +147,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._baseline_delta import run_baseline_delta_gate  # type: ignore[no-redef]  # noqa: E402  GH561 §1r lane-2
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _injected_blocks_record, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 # Step 7 (95D3E5F6) — W1 + disk-truth wiring. Phase 6 reviews CODE
 # (schema {id, severity, path, description}), not specs
@@ -1351,7 +1351,14 @@ _FIX_TEST_INLINE_CAP_BYTES: int = 20000
 
 
 def _inline_inscope_test_files(ctx, scratchpad) -> tuple[str, int, int]:
-    """Return (block_text, file_count, total_bytes) for in-scope test files.
+    return _inscope_test_files_inline(ctx, scratchpad)[:3]
+
+
+def _inscope_test_files_inline(ctx, scratchpad) -> tuple[str, int, int, list[dict]]:
+    """Return (block_text, file_count, total_bytes, records) for in-scope test files.
+
+    bd#147: records = one {source_id: rel_path, content} per inlined non-empty file,
+    content as read, before any truncation marker.
 
     Reads `scratchpad/integrity/pre-red-ref.txt` for the build-start SHA.
     If absent or empty → returns ("", 0, 0) (helper is INERT).
@@ -1369,9 +1376,9 @@ def _inline_inscope_test_files(ctx, scratchpad) -> tuple[str, int, int]:
     try:
         sha = ref_file.read_text(encoding="utf-8").strip()
     except OSError:
-        return ("", 0, 0)
+        return ("", 0, 0, [])
     if not sha:
-        return ("", 0, 0)
+        return ("", 0, 0, [])
 
     worktree_root = _resolve_worktree_root(ctx, scratchpad)
     changed = git_diff_files(sha, worktree_root, untracked=True)
@@ -1383,9 +1390,10 @@ def _inline_inscope_test_files(ctx, scratchpad) -> tuple[str, int, int]:
         and _is_test_py_path(p)
     ]
     if not surviving:
-        return ("", 0, 0)
+        return ("", 0, 0, [])
 
     file_blocks: list[str] = []
+    records: list[dict] = []
     total_bytes = 0
     for rel_path in surviving:
         full_path = worktree_root / rel_path
@@ -1393,7 +1401,10 @@ def _inline_inscope_test_files(ctx, scratchpad) -> tuple[str, int, int]:
             content = full_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        if content and len(content) <= _FIX_TEST_INLINE_CAP_BYTES:
+            records.append({"source_id": rel_path, "content": content})  # bd#147
         if len(content) > _FIX_TEST_INLINE_CAP_BYTES:
+            records.append({"source_id": rel_path, "content": content[:_FIX_TEST_INLINE_CAP_BYTES]})  # bd#147
             content = (
                 content[:_FIX_TEST_INLINE_CAP_BYTES]
                 + f"\n[TRUNCATED — file exceeds 20000 bytes; Read the full file at {rel_path}]"
@@ -1402,7 +1413,7 @@ def _inline_inscope_test_files(ctx, scratchpad) -> tuple[str, int, int]:
         file_blocks.append(f"### {rel_path}\n```python\n{content}\n```")
 
     if not file_blocks:
-        return ("", 0, 0)
+        return ("", 0, 0, [])
 
     instruction = (
         "When a finding requires you to re-derive or re-check a test assertion, treat the\n"
@@ -1416,7 +1427,7 @@ def _inline_inscope_test_files(ctx, scratchpad) -> tuple[str, int, int]:
         "",
     ] + file_blocks
     block_text = "\n".join(block_parts)
-    return (block_text, len(file_blocks), total_bytes)
+    return (block_text, len(file_blocks), total_bytes, records)
 
 
 def _normalize_for_match(s: str) -> str:
@@ -2443,7 +2454,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         parts.append("")
     # 65EA1B86: inline HEAD content of in-scope test files so the fix-worker
     # does not re-derive assertions from spec ACs alone (012F2C02 RCA-3.1).
-    _inline_block, _inline_n, _inline_b = _inline_inscope_test_files(ctx, scratchpad)
+    _inline_block, _inline_n, _inline_b, _inline_records = _inscope_test_files_inline(ctx, scratchpad)
     if _inline_block:
         parts.append(_inline_block)
         parts.append("")
@@ -2520,6 +2531,7 @@ def _build_fix_prompt(ctx, prev) -> StepResult:
         data={
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _inline_records),  # bd#147
             "log_path": str(fix_doc_path),
             "spec_path": str(spec_path),
             "review_doc_path": str(review_doc),
@@ -2565,6 +2577,7 @@ def _invoke_fix_llm(ctx, prev) -> StepResult:
             "prompt": prev.data["prompt"],
             # bd#141 4(d): the retry re-sends this prompt, so it declares the same block.
             "role_template": prev.data.get("role_template"),
+            "injected_blocks": prev.data.get("injected_blocks"),  # bd#147
         },
         # idle_timeout disabled — outer timeout_sec is sufficient (6923B6AC 2026-05-08).
         # BB8BFEFE proved 60s false-positives on legitimate tool-use sessions

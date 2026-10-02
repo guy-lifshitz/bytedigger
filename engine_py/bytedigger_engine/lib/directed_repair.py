@@ -37,6 +37,7 @@ from bytedigger_engine import telemetry_ctx
 from bytedigger_engine.io_utils import atomic_write
 
 from bytedigger_engine.contracts import StepResult
+from bytedigger_engine.conformance.attest import InjectedBlock  # bd#147
 
 _DEFAULT_MAX_ATTEMPTS = 2
 _DEFAULT_TIMEOUT_SEC = 300  # retired hard timeout; kept for external refs.
@@ -524,6 +525,8 @@ def _run_repair_loop(
                 timeout_sec=timeout,
                 step_name=repair_step_name,
                 hard_gate=False,
+                # bd#147 (R3.2): the artifact body is inlined whole in `prompt`.
+                injections=(InjectedBlock(artifact_path, artifact_text),) if artifact_text else (),
             )
 
             if _sr_model_unavailable(llm_sr):

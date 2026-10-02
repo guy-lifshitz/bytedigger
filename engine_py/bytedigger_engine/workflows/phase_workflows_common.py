@@ -45,7 +45,7 @@ from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — inj
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
 from bytedigger_engine.config_provider import int_value  # noqa: E402  GH786 retry knob
 from bytedigger_engine.role_template import load_role_template  # noqa: E402  bd#119
-from bytedigger_engine.conformance.attest import InjectedBlock  # noqa: E402  bd#141 4(d)
+from bytedigger_engine.conformance.attest import InjectedBlock, hash_text  # noqa: E402  bd#141 4(d), bd#147
 
 logger = logging.getLogger(__name__)
 
@@ -597,9 +597,39 @@ def _declared_injections(data) -> "tuple[InjectedBlock, ...]":
     """bd#141 4(d) (R3.2): declare the role-template block a builder stored in its
     data dict. Pass the DICT that carried the prompt, never the StepResult."""
     block = data.get("role_template") if isinstance(data, dict) else None
-    if not block:
-        return ()
-    return (InjectedBlock(source_id=block["source_id"], content=block["content"]),)
+    out: "tuple[InjectedBlock, ...]" = ()
+    if block:
+        out = (InjectedBlock(source_id=block["source_id"], content=block["content"]),)
+    if not isinstance(data, dict):
+        return out
+    # bd#147: bound-record blocks, only alongside the prompt they were built with.
+    record = data.get("injected_blocks")
+    if not record or not isinstance(record, dict):
+        return out
+    blocks = record.get("blocks")
+    if not isinstance(blocks, list):
+        return out
+    prompt = data.get("prompt")
+    if prompt is None:
+        prompt = ""
+    if not isinstance(prompt, str) or record.get("prompt_sha256") != hash_text(prompt):
+        return out
+    extra = tuple(
+        InjectedBlock(el.get("source_id"), el.get("content")) if isinstance(el, dict)
+        else InjectedBlock(None, None)  # type: ignore[arg-type]
+        for el in blocks
+    )
+    return out + extra  # type: ignore[arg-type]
+
+
+def _injected_blocks_record(prompt: str, blocks: "list[dict]") -> "dict | None":
+    """bd#147: `data["injected_blocks"]` shape, bound to the final prompt's hash."""
+    if not blocks:
+        return None
+    return {
+        "prompt_sha256": hash_text(prompt),
+        "blocks": [{"source_id": b["source_id"], "content": b["content"]} for b in blocks],
+    }
 
 
 def _maybe_role_template(ctx) -> str:
