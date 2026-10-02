@@ -228,7 +228,7 @@ def test_ac5_aggregate_review_findings_verifies_scratchpad_only_artifact(
         "VERDICT: FAIL",
         "<!-- role-findings-count: 1 -->",
     ]
-    (reviews_dir / "role-ac5.md").write_text("\n".join(role_lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(role_lines), encoding="utf-8")
 
     ctx = types.SimpleNamespace(
         org_config={

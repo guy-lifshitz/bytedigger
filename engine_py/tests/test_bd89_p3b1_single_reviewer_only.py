@@ -448,7 +448,7 @@ def test_ac6_one_composite_file_has_no_floor(tmp_path, complexity, pin):
     assert result.error_code is None
     assert "min_floor" not in result.data
     content = result.data["aggregated_content"]
-    assert "expected: 1" in content and "observed: 1" in content
+    assert "## Fanout" not in content
     assert result.data.get("verdict")
 
 
@@ -480,16 +480,17 @@ def test_ac7_removed_error_code_not_in_any_engine_source(code):
 
 
 def test_ac7_guard_kept_error_codes():
-    assert "E_NO_ROLE_FILES" in error_codes.ERROR_CODES
+    assert "E_MISSING_SCRATCHPAD" in error_codes.ERROR_CODES
     assert "E_REVIEW_DEGRADED" in error_codes.ERROR_CODES
 
 
-def test_ac7_guard_no_role_files_still_raised(tmp_path):
+def test_ac7_no_role_files_is_ok_with_none_content(tmp_path):
     ctx = _ctx(tmp_path, "FEATURE")
     scratch = _scratch(ctx)
     (scratch / "reviews").mkdir(parents=True, exist_ok=True)
     result = p6._aggregate_review_findings(ctx, _agg_prev(scratch))
-    assert result.status == "error" and result.error_code == "E_NO_ROLE_FILES"
+    assert result.status == "ok" and result.error_code is None
+    assert result.data["aggregated_content"] is None
 
 
 def test_ac7_guard_error_codes_md_identical():
@@ -526,17 +527,14 @@ _FULL_PANEL = ["code-reviewer", "silent-failure-hunter", "type-design-analyzer",
                "pr-test-analyzer", "code-simplifier", "comment-analyzer"]
 
 
-# Cells document the accepted upgrade-window change (gate F2/F3, GAP-4): a partial or mixed
-# pre-upgrade panel replayed via task_resume aggregates (no floor). Cell partial-1-specialist
-# is RED today (1 < floor 3 gives E_INSUFFICIENT_FANOUT) and is the floor-removal witness.
-# Cells full-panel-6 and mixed-composite-plus-specialists are GUARDs: green today (6 and 3
-# files meet floor 3) and must stay green after GREEN (gate r2 ruling).
+# bd#89 P3b1b-ii: leftover legacy role-<slug>.md files (a pre-upgrade panel replayed via
+# task_resume) are ignored; only role-composite.md is read.
 @pytest.mark.parametrize("slugs", [
     pytest.param(_FULL_PANEL, id="full-panel-6"),
     pytest.param(["comment-analyzer"], id="partial-1-specialist"),
     pytest.param(["composite", "code-reviewer", "comment-analyzer"], id="mixed-composite-plus-specialists"),
 ])
-def test_ac8b_guard_leftover_role_files_aggregate(tmp_path, slugs):
+def test_ac8b_guard_leftover_role_files_ignored(tmp_path, slugs):
     ctx = _ctx(tmp_path, "FEATURE", review_fanout="parallel")
     scratch = _scratch(ctx)
     src = _target(tmp_path)
@@ -545,31 +543,24 @@ def test_ac8b_guard_leftover_role_files_aggregate(tmp_path, slugs):
     result = p6._aggregate_review_findings(ctx, _agg_prev(scratch, "FEATURE"))
     assert result.status == "ok", f"{result.error_code}: {result.error}"
     assert result.error_code is None
-    assert f"observed: {len(slugs)}" in result.data["aggregated_content"]
-    assert result.data.get("verdict")
+    content = result.data["aggregated_content"]
+    if "composite" in slugs:
+        assert "Finding from composite" in content
+        assert "Finding from code-reviewer" not in content
+        assert "Finding from comment-analyzer" not in content
+        assert result.data["role_files"] == [str(scratch / "reviews" / "role-composite.md")]
+    else:
+        assert content is None
 
 
 def test_ac8c_guard_no_cached_aggregate(tmp_path):
-    assert not _step("aggregate_review_findings").resume_sentinel
-    ctx = _ctx(tmp_path, "FEATURE")
-    scratch = _scratch(ctx)
-    resume = scratch / "resume"
-    resume.mkdir(parents=True, exist_ok=True)
-    planted = resume / "phase_6_review__aggregate_review_findings.json"
-    planted.write_text('{"aggregated_content": "PLANTED-STALE-AGGREGATE"}', encoding="utf-8")
-    before = {p.name for p in resume.glob("*aggregate_review_findings*")}
-    _write_role(scratch, "composite", _report(_target(tmp_path)))
-    result = p6._aggregate_review_findings(ctx, _agg_prev(scratch))
-    assert result.status == "ok"
-    assert "PLANTED-STALE-AGGREGATE" not in result.data["aggregated_content"]
-    assert {p.name for p in resume.glob("*aggregate_review_findings*")} == before  # nothing written
+    assert not _step("write_review_artifact").resume_sentinel
 
 
 def test_ac8d_stale_role_files_cleared_before_dispatch(tmp_path, monkeypatch):
     ctx = _ctx(tmp_path, "FEATURE", review_fanout="parallel", review_model="m")
     scratch = _scratch(ctx)
-    for slug in ["code-reviewer", "silent-failure-hunter", "type-design-analyzer", "pr-test-analyzer", "composite"]:
-        _write_role(scratch, slug, _report(_target(tmp_path), title=f"stale {slug}"))
+    _write_role(scratch, "composite", _report(_target(tmp_path), title="stale composite"))
     spy = _install_spy(monkeypatch, scratch)
     result = p6._invoke_review_llm(ctx, _review_prev())
     assert result.status == "ok", f"{result.error_code}: {result.error}"
@@ -592,13 +583,13 @@ def test_ac9a_guard_reviewer_outage_keeps_existing_error_path(tmp_path, monkeypa
 
 
 def test_ac9b_guard_no_role_files_falls_back_to_suspect_doc(tmp_path):
-    assert _step("aggregate_review_findings").skip_on_error
     ctx = _ctx(tmp_path, "FEATURE")
     scratch = _scratch(ctx)
     (scratch / "reviews").mkdir(parents=True, exist_ok=True)
     sink = _sink()
     agg = p6._aggregate_review_findings(ctx, _agg_prev(scratch))
-    assert agg.status == "error" and agg.error_code == "E_NO_ROLE_FILES"
+    assert agg.status == "ok" and agg.error_code is None
+    assert agg.data["aggregated_content"] is None
     written = p6._write_review_artifact(
         ctx, StepResult(status="ok", data=agg.data, duration_ms=0, step_name="aggregate_review_findings"))
     assert written.status == "ok", f"{written.error_code}: {written.error}"
@@ -642,14 +633,13 @@ def test_ac10_pre_upgrade_parallel_config_end_to_end(tmp_path, monkeypatch):
     spy = _install_spy(monkeypatch, scratch, write=("composite", body))
     s1 = p6._build_review_prompt(ctx, None)
     s2 = p6._invoke_review_llm(ctx, s1)
-    s3 = p6._aggregate_review_findings(ctx, s2)
-    s4 = p6._write_review_artifact(ctx, s3)
-    for s in (s1, s2, s3, s4):
+    s4 = p6._aggregate_and_write_review_artifact(ctx, s2)
+    for s in (s1, s2, s4):
         assert s.status == "ok" and s.error_code is None, f"{s.step_name}: {s.error_code}: {s.error}"
     assert len(spy.calls) == 1
     doc = (scratch / p6.REVIEW_DOC_RELPATH).read_text(encoding="utf-8")
     assert doc.startswith("# Composite Review")
-    assert "expected: 1" in doc
+    assert "## Fanout" not in doc
     suspect_at = doc.index(p6.SUSPECT_FINDINGS_SECTION_HEADER)
     assert 0 <= doc.index(good_title) < suspect_at, "verified finding must be in the verified section"
     # The raw role body is echoed above the suspect section, so scope the search to the tail.
@@ -664,7 +654,7 @@ def test_ac10_pre_upgrade_parallel_config_end_to_end(tmp_path, monkeypatch):
 # ─── AC11 invariants (GUARD) ─────────────────────────────────────────────────
 
 _PHASE6_STEPS = [
-    "build_review_prompt", "invoke_review_llm", "aggregate_review_findings", "write_review_artifact",
+    "build_review_prompt", "invoke_review_llm", "write_review_artifact",
     "verify_findings", "verify_findings_semantic", "build_fix_prompt", "invoke_fix_llm", "fix_watchdog",
     "write_fix_artifact", "commit_fix_code", "commit_fix_tests", "run_pytest_post_fix",
     "verify_fix_typecheck", "build_decorr_prompt", "invoke_decorr_llm", "write_decorr_artifact",
@@ -674,7 +664,7 @@ _PHASE6_STEPS = [
 
 def test_ac11_guard_phase6_step_list_unchanged():
     assert [s.name for s in p6.phase_6_review_workflow().steps] == _PHASE6_STEPS
-    assert len(_PHASE6_STEPS) == 21
+    assert len(_PHASE6_STEPS) == 20
 
 
 def test_ac11_guard_ten_workflow_modules():

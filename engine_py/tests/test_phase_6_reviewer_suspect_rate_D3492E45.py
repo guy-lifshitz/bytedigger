@@ -62,7 +62,8 @@ def _write_role_file(
     blocks: list[tuple[str, str, str]],
     selfcount: int | None,
 ) -> None:
-    """Write reviews_dir/role-<slug>.md.
+    """Write reviews_dir/role-composite.md (the only file the aggregator reads;
+    ``slug`` only labels the title line).
 
     blocks: list of (severity, title, evidence_after_gt_space) triples.
     The evidence string is placed after '> ' verbatim (it may contain path:N:content).
@@ -78,7 +79,7 @@ def _write_role_file(
     lines.append("VERDICT: PARTIAL")
     if selfcount is not None:
         lines.append(f"<!-- role-findings-count: {selfcount} -->")
-    (reviews_dir / f"role-{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 # ─── AC1: all-verified (0 suspect) ───────────────────────────────────────────
@@ -101,19 +102,13 @@ def test_d3492e45_ac1_all_verified_rate_zero(tmp_path, monkeypatch):
 
     reviews_dir = tmp_path / "scratch" / "reviews"
     _write_role_file(
-        reviews_dir, "role-a",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "finding-a", f"{target}:1: def func_a():"),
             ("HIGH", "finding-b", f"{target}:2: def func_b():"),
-        ],
-        selfcount=2,
-    )
-    _write_role_file(
-        reviews_dir, "role-b",
-        blocks=[
             ("MEDIUM", "finding-c", f"{target}:3: def func_c():"),
         ],
-        selfcount=1,
+        selfcount=3,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -167,24 +162,17 @@ def test_d3492e45_ac2_below_threshold_rate_0_2(tmp_path, monkeypatch):
 
     reviews_dir = tmp_path / "scratch" / "reviews"
 
-    # 4 verified-exact findings
+    # 4 verified-exact findings + 1 suspect-no-match finding (quote mismatches file content)
     _write_role_file(
-        reviews_dir, "role-verified",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "ver-1", f"{target}:1: def line1():"),
             ("HIGH", "ver-2", f"{target}:2: def line2():"),
             ("HIGH", "ver-3", f"{target}:3: def line3():"),
             ("HIGH", "ver-4", f"{target}:4: def line4():"),
-        ],
-        selfcount=4,
-    )
-    # 1 suspect-no-match finding (quote mismatches file content)
-    _write_role_file(
-        reviews_dir, "role-suspect",
-        blocks=[
             ("MEDIUM", "sus-1", f"{target}:5: SOMETHING_ELSE_ENTIRELY"),
         ],
-        selfcount=1,
+        selfcount=5,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -237,24 +225,17 @@ def test_d3492e45_ac3_above_threshold_rate_0_6(tmp_path, monkeypatch):
 
     reviews_dir = tmp_path / "scratch" / "reviews"
 
-    # 2 verified-exact findings
+    # 2 verified-exact findings + 3 suspect-no-match findings
     _write_role_file(
-        reviews_dir, "role-verified",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "ver-1", f"{target}:1: def line1():"),
             ("HIGH", "ver-2", f"{target}:2: def line2():"),
-        ],
-        selfcount=2,
-    )
-    # 3 suspect-no-match findings
-    _write_role_file(
-        reviews_dir, "role-suspect",
-        blocks=[
             ("MEDIUM", "sus-a", f"{target}:3: SOMETHING_ELSE_ENTIRELY"),
             ("MEDIUM", "sus-b", f"{target}:4: SOMETHING_ELSE_ENTIRELY_2"),
             ("MEDIUM", "sus-c", f"{target}:5: SOMETHING_ELSE_ENTIRELY_3"),
         ],
-        selfcount=3,
+        selfcount=5,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -306,24 +287,17 @@ def test_d3492e45_ac4_boundary_rate_0_4_no_warning(tmp_path, monkeypatch):
 
     reviews_dir = tmp_path / "scratch" / "reviews"
 
-    # 3 verified-exact findings
+    # 3 verified-exact findings + 2 suspect-no-match findings
     _write_role_file(
-        reviews_dir, "role-verified",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "ver-1", f"{target}:1: def line1():"),
             ("HIGH", "ver-2", f"{target}:2: def line2():"),
             ("HIGH", "ver-3", f"{target}:3: def line3():"),
-        ],
-        selfcount=3,
-    )
-    # 2 suspect-no-match findings
-    _write_role_file(
-        reviews_dir, "role-suspect",
-        blocks=[
             ("MEDIUM", "sus-1", f"{target}:4: SOMETHING_ELSE_ENTIRELY"),
             ("MEDIUM", "sus-2", f"{target}:5: SOMETHING_ELSE_ENTIRELY_2"),
         ],
-        selfcount=2,
+        selfcount=5,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -451,15 +425,14 @@ def test_d3492e45_ac6_denominator_zero_no_events(tmp_path, monkeypatch):
     reviews_dir = tmp_path / "scratch" / "reviews"
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write 2 role files with ONLY header + VERDICT + selfcount=0, NO ### SEVERITY: blocks
-    for slug in ["role-empty-a", "role-empty-b"]:
-        lines = [
-            f"# {slug} Review",
-            "",
-            "VERDICT: PARTIAL",
-            "<!-- role-findings-count: 0 -->",
-        ]
-        (reviews_dir / f"{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+    # Write the composite role file with ONLY header + VERDICT + selfcount=0, NO ### SEVERITY: blocks
+    lines = [
+        "# composite Review",
+        "",
+        "VERDICT: PARTIAL",
+        "<!-- role-findings-count: 0 -->",
+    ]
+    (reviews_dir / "role-composite.md").write_text("\n".join(lines), encoding="utf-8")
 
     captured: list[tuple[str, dict]] = []
 
@@ -513,21 +486,15 @@ def test_d3492e45_ac7_warning_payload_contract(tmp_path, monkeypatch):
 
     reviews_dir = tmp_path / "scratch" / "reviews"
     _write_role_file(
-        reviews_dir, "role-verified",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "ver-1", f"{target}:1: def line1():"),
             ("HIGH", "ver-2", f"{target}:2: def line2():"),
-        ],
-        selfcount=2,
-    )
-    _write_role_file(
-        reviews_dir, "role-suspect",
-        blocks=[
             ("MEDIUM", "sus-a", f"{target}:3: SOMETHING_ELSE_A"),
             ("MEDIUM", "sus-b", f"{target}:4: SOMETHING_ELSE_B"),
             ("MEDIUM", "sus-c", f"{target}:5: SOMETHING_ELSE_C"),
         ],
-        selfcount=3,
+        selfcount=5,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -656,24 +623,17 @@ def test_d3492e45_ac9_forcing_function_exact_values(tmp_path, monkeypatch):
 
     reviews_dir = tmp_path / "scratch" / "reviews"
 
-    # 2 verified-exact findings
+    # 2 verified-exact findings + 3 suspect-no-match findings with specific titles
     _write_role_file(
-        reviews_dir, "role-verified",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "ver-1", f"{target}:1: def line1():"),
             ("HIGH", "ver-2", f"{target}:2: def line2():"),
-        ],
-        selfcount=2,
-    )
-    # 3 suspect-no-match findings with specific titles
-    _write_role_file(
-        reviews_dir, "role-suspect",
-        blocks=[
             ("MEDIUM", "sus-a", f"{target}:3: SOMETHING_ELSE_ENTIRELY"),
             ("MEDIUM", "sus-b", f"{target}:4: SOMETHING_ELSE_ENTIRELY_2"),
             ("MEDIUM", "sus-c", f"{target}:5: SOMETHING_ELSE_ENTIRELY_3"),
         ],
-        selfcount=3,
+        selfcount=5,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -736,21 +696,15 @@ def test_d3492e45_ac10_ordering_rate_event_after_per_finding(tmp_path, monkeypat
 
     reviews_dir = tmp_path / "scratch" / "reviews"
     _write_role_file(
-        reviews_dir, "role-verified",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "ver-1", f"{target}:1: def line1():"),
             ("HIGH", "ver-2", f"{target}:2: def line2():"),
-        ],
-        selfcount=2,
-    )
-    _write_role_file(
-        reviews_dir, "role-suspect",
-        blocks=[
             ("MEDIUM", "sus-a", f"{target}:3: SOMETHING_ELSE_A"),
             ("MEDIUM", "sus-b", f"{target}:4: SOMETHING_ELSE_B"),
             ("MEDIUM", "sus-c", f"{target}:5: SOMETHING_ELSE_C"),
         ],
-        selfcount=3,
+        selfcount=5,
     )
 
     captured: list[tuple[str, dict]] = []
@@ -848,24 +802,17 @@ def test_d3492e45_ac12_below_threshold_warning_absent_forcing_function(tmp_path,
 
     reviews_dir = tmp_path / "scratch" / "reviews"
 
-    # 4 verified-exact findings
+    # 4 verified-exact findings + 1 suspect-no-match finding
     _write_role_file(
-        reviews_dir, "role-verified",
+        reviews_dir, "composite",
         blocks=[
             ("HIGH", "ver-1", f"{target}:1: def line1():"),
             ("HIGH", "ver-2", f"{target}:2: def line2():"),
             ("HIGH", "ver-3", f"{target}:3: def line3():"),
             ("HIGH", "ver-4", f"{target}:4: def line4():"),
-        ],
-        selfcount=4,
-    )
-    # 1 suspect-no-match finding
-    _write_role_file(
-        reviews_dir, "role-suspect",
-        blocks=[
             ("MEDIUM", "sus-1", f"{target}:5: SOMETHING_ELSE_ENTIRELY"),
         ],
-        selfcount=1,
+        selfcount=5,
     )
 
     captured: list[tuple[str, dict]] = []

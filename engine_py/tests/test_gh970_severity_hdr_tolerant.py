@@ -41,8 +41,9 @@ from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402 — 
 
 
 def _write_role(reviews_dir: Path, slug: str, content: str) -> None:
+    # The aggregator reads only role-composite.md; `slug` is a call-site label.
     reviews_dir.mkdir(parents=True, exist_ok=True)
-    (reviews_dir / f"role-{slug}.md").write_text(content, encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text(content, encoding="utf-8")
 
 
 def _ctx(scratchpad: Path):
@@ -338,8 +339,8 @@ def test_ac7_aggregate_single_hash_malformed_emits_event_and_audit(tmp_path, mon
         f"{len(malformed_events)}. All events: {[e[0] for e in spy]}"
     )
     _et, payload = malformed_events[0]
-    assert payload.get("role") == "malformed-role", (
-        f"AC7: expected role='malformed-role', got {payload.get('role')!r}"
+    assert payload.get("role") == "composite", (
+        f"AC7: expected role='composite' (slug of role-composite.md), got {payload.get('role')!r}"
     )
     assert payload.get("count") == 1, (
         f"AC7: expected count=1, got {payload.get('count')!r}"

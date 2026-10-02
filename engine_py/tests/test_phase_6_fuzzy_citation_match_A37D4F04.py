@@ -68,9 +68,10 @@ def _make_ctx(tmp_path: Path, complexity: str = "SIMPLE") -> WorkflowContext:
 
 
 def _seed_role(tmp_path: Path, slug: str, body: str) -> Path:
-    """Write <scratch>/reviews/role-<slug>.md with body."""
+    """Write <scratch>/reviews/role-composite.md with body (the only file the
+    aggregator reads; ``slug`` is a call-site label)."""
     scratch = tmp_path / "scratch"
-    p = scratch / "reviews" / f"role-{slug}.md"
+    p = scratch / "reviews" / "role-composite.md"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(body, encoding="utf-8")
     return p

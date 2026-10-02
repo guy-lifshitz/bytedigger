@@ -134,7 +134,6 @@ ERROR_CODES: dict[str, str] = {
     "E_MISSING_SCRATCHPAD": "phase_6_review: expected scratchpad artifact for review was not found",
     "E_MODEL_PIN_MISMATCH": "llm_subprocess: the adapter reported a model of a different family from the dispatched request (bd#10 R3.3)",
     "E_NOT_REGISTERED": "run.py: requested phase/workflow name not registered in the runner",
-    "E_NO_ROLE_FILES": "phase_6_review: no reviewer role files found to drive the fan-out",
     "E_ORACLE_AMENDMENT_UNREASONED": "conformance/oracle: oracle-phase re-entry amended the frozen set with an absent/empty reason (bd#8 R1.5)",
     "E_ORACLE_INDETERMINATE": "conformance/oracle: freeze or verify could not read a declared member, the document directory, or the event log (bd#8)",
     "E_ORACLE_MUTATED": "conformance/oracle: recomputed oracle digest or scope digest differs from the frozen one (bd#8 R1.4)",

@@ -36,7 +36,7 @@ def _write_role(
     blocks: list[tuple[str, str, str]],
     selfcount: int | None,
 ) -> None:
-    """Write reviews_dir/role-<slug>.md.
+    """Write reviews_dir/role-composite.md (the only file the aggregator reads; slug is a heading label).
 
     blocks: list of (severity, title, quote) triples.
     The quote is written verbatim as the `> <quote>` evidence line.
@@ -53,7 +53,7 @@ def _write_role(
     lines.append("VERDICT: PARTIAL")
     if selfcount is not None:
         lines.append(f"<!-- role-findings-count: {selfcount} -->")
-    (reviews_dir / f"role-{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+    (reviews_dir / "role-composite.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _ctx(tmp_path: Path):
@@ -100,15 +100,13 @@ def test_ac1_consistent_selfcount_no_warning(tmp_path):
     # 1F39FB1A co-change: relative paths now return suspect-file-not-found (honest,
     # not benefit-of-the-doubt kept). All 5 findings are suspect, so filtered=5,
     # aggregated=0. consistent = (5==5 and 5==0) = False.
-    _write_role(reviews, "a", blocks=[
+    _write_role(reviews, "composite", blocks=[
         ("HIGH", "h1", "some/file.py:1: pass"),
         ("MEDIUM", "m1", "some/file.py:2: x = 1"),
         ("LOW", "l1", "some/file.py:3: return x"),
-    ], selfcount=3)
-    _write_role(reviews, "b", blocks=[
         ("MEDIUM", "m2", "other/file.py:4: foo()"),
         ("LOW", "l2", "other/file.py:5: bar()"),
-    ], selfcount=2)
+    ], selfcount=5)
 
     ctx = _ctx(scratchpad)
     result, content = _run(ctx, scratchpad)
@@ -149,13 +147,11 @@ def test_ac2_overclaimed_selfcount_warning(tmp_path):
     scratchpad = tmp_path / "scratch"
     reviews = scratchpad / "reviews"
 
-    _write_role(reviews, "a", blocks=[
+    _write_role(reviews, "composite", blocks=[
         ("HIGH", "h1", "some/file.py:1: pass"),
         ("MEDIUM", "m1", "some/file.py:2: x = 1"),
-    ], selfcount=5)   # claims 5, only 2 blocks
-    _write_role(reviews, "b", blocks=[
         ("LOW", "l1", "other/file.py:4: foo()"),
-    ], selfcount=1)
+    ], selfcount=6)   # claims 6, only 3 blocks
 
     ctx = _ctx(scratchpad)
     result, content = _run(ctx, scratchpad)
@@ -192,10 +188,8 @@ def test_ac3_no_selfcount_backward_compat(tmp_path):
     scratchpad = tmp_path / "scratch"
     reviews = scratchpad / "reviews"
 
-    _write_role(reviews, "a", blocks=[
+    _write_role(reviews, "composite", blocks=[
         ("HIGH", "h1", "some/file.py:1: pass"),
-    ], selfcount=None)
-    _write_role(reviews, "b", blocks=[
         ("LOW", "l1", "other/file.py:4: foo()"),
     ], selfcount=None)
 
@@ -371,14 +365,12 @@ def test_ac6_telemetry_review_findings_audit_emitted(tmp_path, monkeypatch):
     scratchpad = tmp_path / "scratch"
     reviews = scratchpad / "reviews"
 
-    # AC2-like: role-a overclaims (5 but 2 blocks), role-b honest (1 block, count=1).
-    _write_role(reviews, "a", blocks=[
+    # AC2-like: composite overclaims (6 but 3 blocks).
+    _write_role(reviews, "composite", blocks=[
         ("HIGH", "h1", "some/file.py:1: pass"),
         ("MEDIUM", "m1", "some/file.py:2: x = 1"),
-    ], selfcount=5)
-    _write_role(reviews, "b", blocks=[
         ("LOW", "l1", "other/file.py:4: foo()"),
-    ], selfcount=1)
+    ], selfcount=6)
 
     ctx = _ctx(scratchpad)
     result, _content = _run(ctx, scratchpad)
@@ -438,7 +430,7 @@ def test_ac7_prompt_contains_selfcount_instruction(tmp_path):
 
 
 def test_ac8_empty_reviews_dir_no_findings_audit(tmp_path):
-    """AC8: empty reviews/ dir → E_NO_ROLE_FILES, no findings_audit key in data.
+    """AC8: empty reviews/ dir → ok with aggregated_content None, no findings_audit key in data.
 
     The new audit code must run ONLY when role files exist; the early-return
     path at ~L1339 is unchanged.
@@ -450,11 +442,10 @@ def test_ac8_empty_reviews_dir_no_findings_audit(tmp_path):
     ctx = _ctx(scratchpad)
     result = _aggregate_review_findings(ctx, _prev_ok(scratchpad))
 
-    assert result.status == "error", f"expected error status, got {result.status}"
-    assert result.error_code == "E_NO_ROLE_FILES", (
-        f"expected E_NO_ROLE_FILES, got {result.error_code}"
-    )
+    assert result.status == "ok", f"expected ok status, got {result.status}"
+    assert result.error_code is None
     data = result.data or {}
+    assert data.get("aggregated_content") is None
     assert "findings_audit" not in data, (
-        f"findings_audit must NOT appear on the E_NO_ROLE_FILES path, got keys: {list(data.keys())}"
+        f"findings_audit must NOT appear on the no-composite path, got keys: {list(data.keys())}"
     )

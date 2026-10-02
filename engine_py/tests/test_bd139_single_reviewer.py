@@ -169,12 +169,13 @@ def test_ac5_single_one_valid_role_composite_is_ok(tmp_path):
     assert result.status == "ok", f"{result.error_code}: {result.error}"
 
 
-def test_ac5_single_zero_role_files_is_no_role_files(tmp_path):
+def test_ac5_single_zero_role_files_is_ok_with_none_content(tmp_path):
     scratch = tmp_path / "scratch"
     (scratch / "reviews").mkdir(parents=True)
     result = _aggregate_review_findings(_ctx(tmp_path, "FEATURE"), _agg_prev(scratch, "FEATURE"))
-    assert result.status == "error"
-    assert result.error_code == "E_NO_ROLE_FILES"
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert result.data["aggregated_content"] is None
 
 
 # ─── AC6 ─────────────────────────────────────────────────────────────────────
@@ -284,14 +285,13 @@ def test_ac7_single_reviewer_findings_reach_build_review_md(tmp_path, monkeypatc
     assert s4.status == "ok", f"{s4.error_code}: {s4.error}"
     doc = (scratch / "reviews" / "build-review.md").read_text(encoding="utf-8")
     assert "Composite widget leaks handle" in doc
-    assert "expected: 1" in doc, "fanout banner must report one expected reviewer"
-    assert "missing: (none)" in doc, "composite-row slug must parse so no role is reported missing"
+    assert "## Fanout" not in doc, "fanout banner is gone"
     verified_titles = [f.get("title") for f in (s3.data.get("verified_findings") or [])]
     assert any("Composite widget leaks handle" in (t or "") for t in verified_titles), verified_titles
     assert (scratch / "reviews" / "role-composite.md").is_file()
 
 
-def test_ac7_single_reviewer_writing_nothing_ends_no_role_files(tmp_path, monkeypatch):
+def test_ac7_single_reviewer_writing_nothing_aggregates_to_none(tmp_path, monkeypatch):
     ctx = _ctx(tmp_path, "FEATURE", review_model="m")
     teardown = _install_fake_llm(tmp_path, monkeypatch, role_file=None, body="")
     try:
@@ -301,8 +301,9 @@ def test_ac7_single_reviewer_writing_nothing_ends_no_role_files(tmp_path, monkey
     finally:
         teardown()
     assert s2.status == "ok", f"{s2.error_code}: {s2.error}"
-    assert s3.status == "error"
-    assert s3.error_code == "E_NO_ROLE_FILES"
+    assert s3.status == "ok"
+    assert s3.error_code is None
+    assert s3.data["aggregated_content"] is None
 
 
 # ─── AC6b (stale-file guard) ─────────────────────────────────────────────────
@@ -311,7 +312,6 @@ def test_ac6b_stale_role_composite_is_cleared_before_the_llm_runs(tmp_path, monk
     ctx = _ctx(tmp_path, "FEATURE", review_model="m")
     scratch = Path(ctx.org_config["scratchpad_dir"])
     _role_file(scratch / "reviews", "composite", severity="HIGH", title="stale cycle-1 finding")
-    _role_file(scratch / "reviews", "code-reviewer", severity="HIGH", title="stale parallel-mode finding")
     teardown = _install_fake_llm(tmp_path, monkeypatch, role_file=None, body="")
     try:
         s1 = _build_review_prompt(ctx, None)
@@ -321,9 +321,8 @@ def test_ac6b_stale_role_composite_is_cleared_before_the_llm_runs(tmp_path, monk
         teardown()
     assert s2.status == "ok", f"{s2.error_code}: {s2.error}"
     assert not (scratch / "reviews" / "role-composite.md").exists()
-    assert not (scratch / "reviews" / "role-code-reviewer.md").exists()
-    assert s3.status == "error"
-    assert s3.error_code == "E_NO_ROLE_FILES", f"stale file satisfied the floor: {s3.error_code}"
+    assert s3.status == "ok" and s3.error_code is None
+    assert s3.data["aggregated_content"] is None, "stale composite must not be aggregated"
 
 
 # ─── AC8 / AC9 (side effect, §1l) ────────────────────────────────────────────
