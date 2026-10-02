@@ -1,6 +1,6 @@
 """RED tests for bd#89 P3b1 — phase 6 runs ONE composite reviewer; the parallel mode is deleted.
 
-Spec (FROZEN r1): docs/decisions/2026-10-02-bd89-p3b1-single-reviewer.md (section 3, AC1-AC15).
+Spec (FROZEN r2): docs/decisions/2026-10-02-bd89-p3b1-single-reviewer.md (section 3, AC1-AC15).
 
 AC -> test map
   AC1   test_ac1_phase6_symbol_removed[*], test_ac1_review_schema_template_removed[*],
@@ -34,12 +34,12 @@ AC -> test map
 Expected RED today (fail pre-GREEN):
   AC1 all except the GUARD; AC2 for "parallel"/"PARALLEL"/" parallel "/"bogus"/7; AC3 for
   "parallel"/"bogus"/7; AC6 all; AC7 removal half (codes registered, documented, in source);
-  AC8b cells partial-1-specialist and mixed-composite-plus-specialists (floor still rejects today);
+  AC8b cell partial-1-specialist only (1 < floor 3 still rejects today; the floor-removal witness);
   AC8d; AC10; AC12 docs half + no-other-md; AC15 matrix cells with straggler_abort=True
   (parallel or in-session), residue symbols, literal-only check.
 
 GUARD (green today on purpose): AC1 kept symbols, AC2 for None/""/"single", AC3 single spellings,
-  AC4, AC5, AC7 kept half, AC8a-c, AC9, AC11, AC12 unchanged half, AC13, AC15 single-workflow
+  AC4, AC5, AC7 kept half, AC8a, AC8b cells full-panel-6 and mixed-composite-plus-specialists (3 files meet floor 3 today), AC8c, AC9, AC11, AC12 unchanged half, AC13, AC15 single-workflow
   and kept-parameter halves.
 
 orchestrator: git rm  -- none. Sibling files are re-pointed/retired IN PLACE (no whole file is retired).
@@ -526,9 +526,11 @@ _FULL_PANEL = ["code-reviewer", "silent-failure-hunter", "type-design-analyzer",
                "pr-test-analyzer", "code-simplifier", "comment-analyzer"]
 
 
-# Cells 2-3 document the accepted upgrade-window change (gate F2/F3): a partial or mixed
-# pre-upgrade panel replayed via task_resume now aggregates (no floor) instead of
-# E_INSUFFICIENT_FANOUT -> SUSPECT. Red today (floor still rejects), green after GREEN.
+# Cells document the accepted upgrade-window change (gate F2/F3, GAP-4): a partial or mixed
+# pre-upgrade panel replayed via task_resume aggregates (no floor). Cell partial-1-specialist
+# is RED today (1 < floor 3 gives E_INSUFFICIENT_FANOUT) and is the floor-removal witness.
+# Cells full-panel-6 and mixed-composite-plus-specialists are GUARDs: green today (6 and 3
+# files meet floor 3) and must stay green after GREEN (gate r2 ruling).
 @pytest.mark.parametrize("slugs", [
     pytest.param(_FULL_PANEL, id="full-panel-6"),
     pytest.param(["comment-analyzer"], id="partial-1-specialist"),
