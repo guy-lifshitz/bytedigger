@@ -10,7 +10,7 @@ import os
 import sys
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
-ROLE_DIR = {"explorer": "research", "architect": "architecture", "synthesizer": "reviews"}
+ROLE_DIR = {"synthesizer": "reviews"}
 PROTECTED = ("build-state.yaml", "build-metadata.json", "build-red-output.log",
              "build-green-output.log", ".bytedigger-orchestrator-pid")
 PFX = "BLOCKED (bytedigger write guard): "

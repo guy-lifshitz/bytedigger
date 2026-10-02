@@ -49,10 +49,9 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   (logic in `hooks/worker_write_guard.py`) on `Write|Edit|MultiEdit|NotebookEdit`. During an active
   build it blocks subagent writes to `build-state.yaml`, `build-metadata.json`,
   `build-red-output.log`, `build-green-output.log` and `.bytedigger-orchestrator-pid`, and
-  confines `explorer` to `<scratchpad>/research/`, `architect` to `<scratchpad>/architecture/`,
-  `synthesizer` to `<scratchpad>/reviews/`. These rules (R5–R7) never apply to the
+  confines `synthesizer` to `<scratchpad>/reviews/`. These rules (R5–R7) never apply to the
   main thread, which is blocked only on malformed tool input; unreadable input fails closed. Known limits (Bash writes and
-  others) are listed in `docs/security.md`.
+  others) are listed in `docs/security.md`. Hook-less backends and engine workers started as `claude -p` get no guard.
 - **Weekly companion tuning (bd#117, Part B).** New `scripts/companion-tune collect|propose`
   (`bytedigger_engine/companion_tune.py`). `collect` reads maintainer corrections (a reopened issue closed
   by a BD-built PR, a watched label added or removed) into `signals.json`; `propose` asks one model call for

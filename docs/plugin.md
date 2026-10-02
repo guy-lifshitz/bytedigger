@@ -192,7 +192,7 @@ Every tier runs phases 0, 0.5, 4.5, 5, 6, 7.
 | `scripts/security-scan.sh` | Security scan runner for Phase 0.5 |
 | `scripts/post-deploy.sh` | Post-deploy cleanup (prune branches, temp files, merged worktrees) |
 | `hooks/build-state-guard.sh` | Blocks deletion of build-state.yaml mid-pipeline |
-| `hooks/worker-write-guard.sh` | Blocks subagent Write/Edit of orchestrator state and confines read-only roles to their scratchpad dirs (logic in `hooks/worker_write_guard.py`) |
+| `hooks/worker-write-guard.sh` | Blocks subagent Write/Edit of orchestrator state and confines synthesizer to `<scratchpad>/reviews/` (logic in `hooks/worker_write_guard.py`) |
 
 **What ship.sh ships.** Every commit ahead of the base (`@{upstream}`, else `refs/bd/policy`), plus the paths in `files_modified`, plus every tracked file with an unstaged change (modified or deleted). Untracked files ship only when listed in `files_modified`; other untracked files are reported in one `WARNING: untracked files not shipped` line. Sensitive paths (`.env*`, `*.pem`, `*.key`, `*.credentials*`, …) are skipped. It can run from any subdirectory (it works from the work-tree root, so `files_modified` paths are root-relative), and it refuses, before the readiness check and without consuming an approval, a missing state file, a detached HEAD, unmerged paths, and tracked deletions combined with untracked files that would not ship (`ERROR: tracked deletions with untracked files not shipped: …`; commit them or list them in `files_modified`). Accepted risks:
 
@@ -207,7 +207,7 @@ Every tier runs phases 0, 0.5, 4.5, 5, 6, 7.
 | Event | Handler | What it does |
 |-------|---------|--------------|
 | PreToolUse (Bash) | `hooks/build-state-guard.sh` | Blocks `rm`/`unlink` on build-state.yaml while pipeline is running |
-| PreToolUse (Write\|Edit\|MultiEdit\|NotebookEdit) | `hooks/worker-write-guard.sh` | While a build is active, blocks subagent writes to build-state.yaml / build-metadata.json / build-red-output.log / build-green-output.log / .bytedigger-orchestrator-pid and confines explorer to `<scratchpad>/research/`, architect to `<scratchpad>/architecture/`, synthesizer to `<scratchpad>/reviews/` |
+| PreToolUse (Write\|Edit\|MultiEdit\|NotebookEdit) | `hooks/worker-write-guard.sh` | While a build is active, blocks subagent writes to build-state.yaml / build-metadata.json / build-red-output.log / build-green-output.log / .bytedigger-orchestrator-pid and confines synthesizer to `<scratchpad>/reviews/` |
 | SubagentStop | `scripts/build-gate.sh` | Validates phase gate before next phase can start |
 
 ## Agents
