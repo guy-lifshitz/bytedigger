@@ -1,6 +1,6 @@
 ---
 issue: 211
-status: DRAFT (gate r1 REJECTED → r2)
+status: FROZEN (gate r1 REJECTED → r2 APPROVED)
 class: SYSTEMATIC — nothing compares the package version with the release tag it ships as
 chokepoint: scripts/version_parity.py (the single owner of version declarations) + the `manifests` CI job
 tier: TIER 2
@@ -63,6 +63,10 @@ gate ever compared the canonical version with a release tag.
 - **AC14** canonical unreadable: canonical file deleted → 1, stdout names `engine_py/pyproject.toml`;
   canonical `version = "1.2"` → 1, names `1.2` and `X.Y.Z`.
 - **AC10** problems are all reported: C=`0.2.0`, tag `v1.1.0`, `--tag v3.0.0` → 1, stdout has both lines.
+
+GREEN notes from gate r2: `--tag` is passed only when the ref is a `v*` tag (on branch/PR runs the guard
+runs without it, else this PR's own CI fails); CONTRIBUTING states release tags must be strict `vX.Y.Z`
+(a pre-release tag like `v1.2.0-rc1` is ignored by the floor but fails `--tag`).
 
 ## §4 Not in scope (§1v)
 
