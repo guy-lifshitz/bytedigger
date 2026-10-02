@@ -6841,6 +6841,21 @@ _FM_RANGE_SEP_RE = re.compile(r"[*_]*\s*(?:–|—|\.\.|-)\s*[*_]*")
 _FM_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
 _FM_BARE_RE = re.compile(r"(?<![\w])(test_\w+|Test\w+|test[A-Z]\w*)(?![\w])")
 _FM_WRAP_RE = re.compile(r"^(?:it|test|describe)\s*\(\s*([\"'])(.*?)\1")
+_FM_DIGITS_RE = re.compile(r"(\d+)")
+_FM_AC_PREFIX_RE = re.compile(r"AC[- ]?(.*)$", re.IGNORECASE)
+_FM_AC_NUM_RE = re.compile(r"AC(\d+)")
+_FM_LEAD_RE = re.compile(r"[\s*_]*")
+_FM_STATUS_RE = re.compile(r"[\s:>\-→—–=*_|]*([A-Za-z]+)")
+_FM_WS_RE = re.compile(r"\s")
+_FM_DOTTED_RE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
+_FM_TRAIL_BRACKET_RE = re.compile(r"\[[^\]]*\]$")
+_FM_TRAIL_PAREN_RE = re.compile(r"\([^)]*\)$")
+_FM_TEST_SLASH_RE = re.compile(r"Test\w+/")
+_FM_TICK_RE = re.compile(r"`([^`]+)`")
+_FM_TICK_STRIP_RE = re.compile(r"`[^`]*`")
+_FM_AC_WORD_RE = re.compile(r"AC[\w-]*", re.IGNORECASE)
+_FM_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
+_FM_IDENT_MARK_RE = re.compile(r"_|\d|[A-Z]")
 _FM_RESERVED = frozenset({"n/a", "na", "none", "tbd", "deferred", "missing", "todo", "-", "?"})
 _FM_RESERVED_TOKENS = frozenset({"[green-regression-deferral]", "[passes-pre-fix]"})
 _FM_FILE_EXTS = frozenset({
@@ -6850,17 +6865,17 @@ _FM_FILE_EXTS = frozenset({
 
 
 def _fm_natural_key(value: str) -> "list[Any]":
-    return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", value)]
+    return [int(p) if p.isdigit() else p.lower() for p in _FM_DIGITS_RE.split(value)]
 
 
 def _fm_norm_id(token: str) -> str:
-    m = re.match(r"AC[- ]?(.*)$", token.strip(), re.IGNORECASE)
+    m = _FM_AC_PREFIX_RE.match(token.strip())
     return "AC" + m.group(1).upper() if m else token.strip().upper()
 
 
 def _fm_expand(start: str, end: str) -> "list[str]":
-    ms = re.fullmatch(r"AC(\d+)", start)
-    me = re.fullmatch(r"AC(\d+)", end)
+    ms = _FM_AC_NUM_RE.fullmatch(start)
+    me = _FM_AC_NUM_RE.fullmatch(end)
     if ms and me:
         lo, hi = int(ms.group(1)), int(me.group(1))
         if lo <= hi and hi - lo <= 500:
@@ -6873,7 +6888,7 @@ def _fm_parse_head(text: str) -> "tuple[list[str], str] | None":
 
     Returns ``(ids, rest)`` or None when ``text`` does not start with an AC id.
     A range (``AC1–AC3`` / ``AC1..AC3``) is matched BEFORE any delimiter split."""
-    lead = re.match(r"[\s*_]*", text)
+    lead = _FM_LEAD_RE.match(text)
     pos = lead.end() if lead else 0
     first = _FM_ID_RE.match(text, pos)
     if not first:
@@ -6943,26 +6958,26 @@ def _fm_normalize_span(span: str) -> str:
     s = s.strip()
     if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
         s = s[1:-1].strip()
-    if s and not re.search(r"\s", s):
+    if s and not _FM_WS_RE.search(s):
         if "::" in s:
             s = s.split("::")[-1]
         if (
-            re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", s)
+            _FM_DOTTED_RE.fullmatch(s)
             and s.rsplit(".", 1)[-1].lower() not in _FM_FILE_EXTS
         ):
             s = s.rsplit(".", 1)[-1]
-        s = re.sub(r"\[[^\]]*\]$", "", s)
-        s = re.sub(r"\([^)]*\)$", "", s)
-        if re.match(r"Test\w+/", s):
+        s = _FM_TRAIL_BRACKET_RE.sub("", s)
+        s = _FM_TRAIL_PAREN_RE.sub("", s)
+        if _FM_TEST_SLASH_RE.match(s):
             s = s.split("/")[0]
     return s.strip()
 
 
 def _fm_candidates(tail: str) -> "list[tuple[str, str]]":
     out: "list[tuple[str, str]]" = []
-    for m in re.finditer(r"`([^`]+)`", tail):
+    for m in _FM_TICK_RE.finditer(tail):
         out.append((m.group(1), _fm_normalize_span(m.group(1))))
-    for m in _FM_BARE_RE.finditer(re.sub(r"`[^`]*`", " ", tail)):
+    for m in _FM_BARE_RE.finditer(_FM_TICK_STRIP_RE.sub(" ", tail)):
         out.append((m.group(1), m.group(1)))
     return out
 
@@ -6974,10 +6989,10 @@ def _fm_candidate_kind(raw_span: str, norm: str) -> "str | None":
             return None
     if not norm:
         return None
-    if re.fullmatch(r"AC[\w-]*", norm, re.IGNORECASE):
+    if _FM_AC_WORD_RE.fullmatch(norm):
         return None
-    if re.fullmatch(r"[A-Za-z_]\w*", norm):
-        if len(norm) < 6 or not re.search(r"_|\d|[A-Z]", norm[1:]):
+    if _FM_IDENT_RE.fullmatch(norm):
+        if len(norm) < 6 or not _FM_IDENT_MARK_RE.search(norm[1:]):
             return None
         return "ident"
     if len(norm) < 8:
@@ -6988,7 +7003,7 @@ def _fm_candidate_kind(raw_span: str, norm: str) -> "str | None":
 def _fm_found(kind: str, norm: str, texts: "list[str]", texts_ws: "list[str]") -> bool:
     if kind == "ident":
         pat = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(norm) + r"(?![A-Za-z0-9_])")
-        return any(pat.search(t) for t in texts)
+        return any(norm in t and pat.search(t) for t in texts)
     want = " ".join(norm.split())
     return any(want in t for t in texts_ws)
 
@@ -7000,7 +7015,7 @@ def _fm_compliance(raw: str) -> "dict[str, str]":
     if not section:
         return out
     for ids, rest in _fm_entries(section):
-        wm = re.match(r"[\s:>\-→—–=*_|]*([A-Za-z]+)", rest)
+        wm = _FM_STATUS_RE.match(rest)
         word = wm.group(1).lower() if wm else ""
         if word in ("missing", "partial"):
             for i in ids:
@@ -7028,9 +7043,7 @@ def _forward_map_coverage(
     ids = [str(i) for i in (ac_ids or [])]
     if not ids:
         return _ac_cov_unverifiable("no_spec_acs")
-    if red_texts is None or len(red_texts) == 0:
-        return _ac_cov_unverifiable("red_files_unreadable")
-    texts = [t for t in red_texts if isinstance(t, str)]
+    texts = [t for t in (red_texts or []) if isinstance(t, str)]
     if not texts:
         return _ac_cov_unverifiable("red_files_unreadable")
     texts_ws = [" ".join(t.split()) for t in texts]
@@ -7050,24 +7063,18 @@ def _forward_map_coverage(
         reason: "str | None" = None
         if not tails:
             reason = "absent"
-        elif any(re.search(r"`MISSING`", t) for t in tails):
+        elif any("`MISSING`" in t for t in tails):
             reason = "MISSING"
         else:
-            cited = False
-            saw_candidate = False
-            for t in tails:
-                for raw_span, norm in _fm_candidates(t):
-                    kind = _fm_candidate_kind(raw_span, norm)
-                    if kind is None:
-                        continue
-                    saw_candidate = True
-                    if _fm_found(kind, norm, texts, texts_ws):
-                        cited = True
-                        break
-                if cited:
-                    break
-            if not cited:
-                reason = "citation_not_found" if saw_candidate else "no_test_cited"
+            kinds = [
+                (kind, norm)
+                for t in tails
+                for raw_span, norm in _fm_candidates(t)
+                for kind in (_fm_candidate_kind(raw_span, norm),)
+                if kind is not None
+            ]
+            if not any(_fm_found(k, n, texts, texts_ws) for k, n in kinds):
+                reason = "citation_not_found" if kinds else "no_test_cited"
         if reason is None:
             status_word = compliance.get(key)
             if status_word:
@@ -7347,8 +7354,9 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
         )
     ac_coverage = prev.data.get("ac_coverage")
     passed, gate_reason = _resolve_gate_passed(verdict, structured, ac_coverage)
+    ac_gap = gate_reason == "ac_gap"
     ac_gap_ids: "list[str]" = []
-    if gate_reason == "ac_gap" and isinstance(ac_coverage, dict):
+    if ac_gap and isinstance(ac_coverage, dict):
         ac_gap_ids = [str(i) for i in (ac_coverage.get("uncovered") or [])]
         _emit_safe(
             "ac_coverage_gap",
@@ -7361,7 +7369,6 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             },
         )
     gate_verdict = _canonical_gate_verdict(passed, verdict)
-    _gap_reject_args: "tuple[str, ...]" = ("VALIDATION_AC_GAP",) if gate_reason == "ac_gap" else ()
     if gate_verdict != verdict:
         _emit_safe(
             "gate_verdict_canonicalized",
@@ -7383,7 +7390,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
         # fall through to the legacy TEST_GAP path below. A reroute is only
         # ever taken on a fully-trusted, durable budget.
         category = _resolve_verdict_category(structured)
-        if gate_reason == "ac_gap":
+        if ac_gap:
             # bd#91 §2.2: an engine-detected coverage gap is a test gap, never a spec defect.
             category = VERDICT_CATEGORY_TEST_GAP
         _reroute_on = get_config().gate_enabled("HAL_SPEC_DEFECT_REROUTE")
@@ -7488,6 +7495,15 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
                             error_code="E_SPEC_DEFECT",
                             recoverable=False,
                         )
+        gap_line = f"ENGINE AC-COVERAGE GAP (cycle {cycle}): {', '.join(ac_gap_ids)}"
+        common: "dict[str, Any]" = {
+            "verdict": gate_verdict,
+            "markdown_verdict": verdict,
+            "validation_doc_path": prev.data["validation_doc_path"],
+            "gate_reason": gate_reason,
+        }
+        if ac_gap:
+            common["ac_gap_ids"] = ac_gap_ids
         if cycle < cap:
             # LoopRunner drives iteration. Return ok with verdict (so the
             # marker check sees != PASS and continues) and cycle incremented
@@ -7503,42 +7519,30 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             reject_reason = getattr(structured, "reject_reason", None) if structured is not None else None
             if reject_reason:
                 findings = f"VALIDATOR REJECT_REASON (cycle {cycle}): {reject_reason}\n\n{findings}"
-            gap_line = f"ENGINE AC-COVERAGE GAP (cycle {cycle}): {', '.join(ac_gap_ids)}"
-            if gate_reason == "ac_gap":
+            if ac_gap:
                 # GH706 form: uncovered ids lead the findings -> directed RED round.
                 findings = f"{gap_line}\n\n{findings}"
-            _log_validation_reject(prev, gate_verdict, cycle, *_gap_reject_args)
-            below_cap_data: "dict[str, Any]" = {
-                "verdict": gate_verdict,
-                "markdown_verdict": verdict,
-                "validation_doc_path": prev.data["validation_doc_path"],
-                "spec_path": prev.data.get("spec_path"),
-                "red_log_path": prev.data.get("red_log_path"),
-                "cycle": cycle + 1,
-                "findings": findings,
-                "gate_reason": gate_reason,
-            }
-            if gate_reason == "ac_gap":
-                below_cap_data["ac_gap_ids"] = ac_gap_ids
+            _log_validation_reject(
+                prev, gate_verdict, cycle, *(("VALIDATION_AC_GAP",) if ac_gap else ())
+            )
             return StepResult(
                 status="ok",
-                data=below_cap_data,
+                data={
+                    **common,
+                    "spec_path": prev.data.get("spec_path"),
+                    "red_log_path": prev.data.get("red_log_path"),
+                    "cycle": cycle + 1,
+                    "findings": findings,
+                },
                 duration_ms=0,
                 step_name="gate_on_validation",
             )
-        _log_validation_reject(prev, gate_verdict, cycle, *_gap_reject_args)
-        terminal_data: "dict[str, Any]" = {
-            "verdict": gate_verdict,
-            "markdown_verdict": verdict,
-            "validation_doc_path": prev.data["validation_doc_path"],
-            "cycle_count": cycle,
-            "gate_reason": gate_reason,
-        }
-        if gate_reason == "ac_gap":
-            terminal_data["ac_gap_ids"] = ac_gap_ids
-            terminal_data["findings"] = (
-                f"ENGINE AC-COVERAGE GAP (cycle {cycle}): {', '.join(ac_gap_ids)}"
-            )
+        _log_validation_reject(
+            prev, gate_verdict, cycle, *(("VALIDATION_AC_GAP",) if ac_gap else ())
+        )
+        terminal_data: "dict[str, Any]" = {**common, "cycle_count": cycle}
+        if ac_gap:
+            terminal_data["findings"] = gap_line
         return StepResult(
             status="error",
             data=terminal_data,
