@@ -416,7 +416,7 @@ def test_ac2_decision_doc_truncated_declares_head_then_tail(tmp_path, monkeypatc
 def test_ac2_multibyte_over_byte_cap_declares_one_whole_block(tmp_path, monkeypatch) -> None:
     # Red under: declaring head/tail slices for the F2 case (duplicated content), or no declaration.
     monkeypatch.chdir(tmp_path)
-    text = "ж" * 41000 + "\n"  # 82 001 bytes, 41 001 chars: over the byte cap, under head+tail
+    text = chr(0x436) * 41000 + "\n"  # 82 001 bytes, 41 001 chars: over the byte cap, under head+tail
     assert len(text.encode("utf-8")) > 80_000 and len(text) <= 75_000
     doc = _write_doc(tmp_path, text)
     env = _Env(tmp_path / "run")
@@ -768,7 +768,7 @@ def test_ac9_decision_doc_legacy_view_equals_inline_head(tmp_path, monkeypatch) 
     trunc = tmp_path / "trunc.md"
     trunc.write_bytes(trunc_text.encode("utf-8"))
     multi = tmp_path / "multi.md"
-    multi_text = "ж" * 41000 + "\n"
+    multi_text = chr(0x436) * 41000 + "\n"
     multi.write_bytes(multi_text.encode("utf-8"))
     for cfg, literal in (
         ({"decision_doc": str(whole)}, _wrapper_whole(whole, whole_text)),
