@@ -16,10 +16,9 @@ AC1  test_ac1_role_template_record
 AC2  test_ac2_builders_use_attributable_reader (Call nodes only, incl. alias /
        getattr / globals()[...]; imports and re-exports allowed; helper kept
        in common and equals `_role_template(ctx).content or ""`)
-AC3  test_ac3_every_builder_records_role_template_verbatim[<17 producers>]
-       (16 builders + spec_lite free-rewrite branch; the two `str` builders
-       through their step wrappers)
-AC4  test_ac4_prompt_bytes_unchanged[<17 producers>]           (guard: green today)
+AC3  test_ac3_every_builder_records_role_template_verbatim[<15 producers>]
+       (the builders; the two `str` builders through their step wrappers)
+AC4  test_ac4_prompt_bytes_unchanged[<15 producers>]           (guard: green today)
 AC4b test_ac4b_restricted_writer_does_not_inherit_role_template (guard: green today)
      test_ac4b_restricted_reviewer_does_not_inherit_role_template (guard: green today)
      test_ac4b_decorr_does_not_inherit_stale_record            (red today: `{**prev.data}`)
@@ -27,8 +26,8 @@ AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_call_count_is_pinned                    (guard: green today)
      test_ac5_dispatch_hidden_behind_executor_submit_declares  (the COMPLEX
        satisfaction pool path hands `invoke_llm_subprocess` to `executor.submit`:
-       it is the 22nd dispatch, counted separately from the 21 direct calls)
-AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<20 cases>]
+       it is the 20th dispatch, counted separately from the 19 direct calls)
+AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<18 cases>]
        (real producer output -> real invoke step -> module-attribute spy; covers
        the pool path with every submitted call, both phase_45_spec review
        dispatches incl. the repoll, and phase_2's existing one as a guard; the
@@ -320,13 +319,8 @@ def _d_phase_4(env):
     return _mod("phase_4_architect")._build_architect_prompt(env.ctx(), _prev(skipped=False))
 
 
-def _d_spec_lite_review(env):
-    return _mod("phase_45_spec_lite")._build_review_prompt(
-        env.ctx(), _prev(cycle=1, spec_path=env.path("spec.md")))
-
-
 def _write_cycle1_review(env, text: str) -> None:
-    rel = _mod("phase_45_spec_lite")._review_cycle_relpath(1)
+    rel = _mod("phase_45_spec")._review_cycle_relpath(1)
     target = env.scratch / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
@@ -338,12 +332,7 @@ _STRUCTURED_REVIEW = (
     "```\n"
 )
 
-
-def _d_spec_lite_free_rewrite(env):
-    """17th producer: cycle 2, prior review WITHOUT a structured findings block."""
-    _write_cycle1_review(env, "# Review\n\n## Findings\n- the spec is vague\n")
-    return _mod("phase_45_spec_lite")._maybe_rewrite_simple_spec_prompt(
-        env.ctx(), _prev(cycle=2, findings="the spec is vague"))
+_STRUCTURED_FINDINGS = [{"id": "F1", "type": "gap", "evidence": "e", "required_action": "a"}]
 
 
 def _d_spec_writer(env):
@@ -415,8 +404,6 @@ _DRIVERS = {
     "phase_1_discovery": _d_phase_1,
     "phase_3_clarify": _d_phase_3,
     "phase_4_architect": _d_phase_4,
-    "phase_45_spec_lite_review": _d_spec_lite_review,
-    "phase_45_spec_lite_free_rewrite": _d_spec_lite_free_rewrite,
     "phase_45_spec_writer": _d_spec_writer,
     "phase_45_spec_review": _d_spec_review,
     "phase_5_red": _d_red,
@@ -430,7 +417,7 @@ _DRIVERS = {
     "phase_6_fix_integrity": _d_fix_integrity,
     "phase_7_synthesizer": _d_synthesizer,
 }
-assert len(_DRIVERS) == 17
+assert len(_DRIVERS) == 15
 
 
 def _drive(name: str, root: Path, role_path: "Path | None") -> StepResult:
@@ -610,9 +597,10 @@ def test_ac5_every_dispatch_declares_injections() -> None:
 
 
 def test_ac5_dispatch_call_count_is_pinned() -> None:
-    """Guard: 20 in spec 1.4 + phase_2_explore:379. A new call site is a visible change."""
+    """Guard: 18 after bd#89 P2b (the dropped SIMPLE-only spec workflow had 2) + phase_2_explore:379.
+    A new call site is a visible change."""
     rows = _scan_dispatches()
-    assert len(rows) == 21, f"direct dispatch count changed: {len(rows)} (expected 21): {rows}"
+    assert len(rows) == 19, f"direct dispatch count changed: {len(rows)} (expected 19): {rows}"
 
 
 def test_ac5_dispatch_hidden_behind_executor_submit_declares() -> None:
@@ -656,22 +644,28 @@ def _stale_record() -> dict:
 
 
 def test_ac4b_restricted_writer_does_not_inherit_role_template(tmp_path) -> None:
-    """Guard (green today): spec_lite restricted-writer branch carries no role, so its
-    data must not carry the record a previous step left in `prev.data`."""
+    """Guard (green today): the phase_45_spec cycle-2 revise writer (surgical /
+    delta branch, taken whenever structured findings are threaded) carries no
+    role, so its data must not carry the record a previous step left in
+    `prev.data`. Re-pointed from the dropped SIMPLE-only writer by bd#89 P2b."""
     role_path, _ = _make_role_file(tmp_path)
     env = _Env(tmp_path / "run", role_path)
-    _write_cycle1_review(env, _STRUCTURED_REVIEW)
-    res = _mod("phase_45_spec_lite")._maybe_rewrite_simple_spec_prompt(
-        env.ctx(), _prev(cycle=2, findings="f", role_template=_stale_record()))
-    assert res.status == "ok" and res.data.get("restricted_writer") is True, "fixture precondition"
+    spec_file = env.scratch / _mod("phase_45_spec").SPEC_DOC_RELPATH
+    spec_file.parent.mkdir(parents=True, exist_ok=True)
+    spec_file.write_text("## Context\nbase spec body\n", encoding="utf-8")
+    res = _mod("phase_45_spec")._build_spec_prompt(
+        env.ctx(), _prev(cycle=2, findings="f", structured_findings=_STRUCTURED_FINDINGS,
+                         role_template=_stale_record()))
+    assert res.status == "ok" and res.data.get("delta_retry") is True, "fixture precondition"
     assert res.data.get("role_template") is None
     assert ROLE_CONTENT not in res.data["prompt"]
 
 
 def test_ac4b_restricted_reviewer_does_not_inherit_role_template(tmp_path, monkeypatch) -> None:
-    """Guard (green today): spec_lite `_build_review_prompt` cycle 2 with structured
-    findings is role-less; neither its data nor its dispatch may declare a role."""
-    mod = _mod("phase_45_spec_lite")
+    """Guard (green today): phase_45_spec `_build_review_prompt` cycle 2 with structured
+    findings is role-less; neither its data nor its dispatch may declare a role.
+    Re-pointed from the dropped SIMPLE-only reviewer by bd#89 P2b."""
+    mod = _mod("phase_45_spec")
     role_path, _ = _make_role_file(tmp_path)
     env = _Env(tmp_path / "run", role_path)
     _write_cycle1_review(env, _STRUCTURED_REVIEW)
@@ -683,8 +677,8 @@ def test_ac4b_restricted_reviewer_does_not_inherit_role_template(tmp_path, monke
     spy = _InvokeSpy()
     monkeypatch.setattr(mod, "invoke_llm_subprocess", spy)
     mod._invoke_review_llm(env.ctx(), res)
-    assert len(spy.calls) == 1
-    assert tuple(spy.calls[0].get("injections") or ()) == ()
+    assert len(spy.calls) >= 1
+    assert all(tuple(c.get("injections") or ()) == () for c in spy.calls)
 
 
 def test_ac4b_decorr_does_not_inherit_stale_record(tmp_path) -> None:
@@ -725,10 +719,8 @@ _REVISE = "## Verdict\n\nREVISE\n"
 # case -> (build, module, invoke step, ctx extras, spy raw, min calls, stub ensure_graph)
 _MATRIX = {
     "phase_1_discovery:470": (_d_phase_1, "phase_1_discovery", "_invoke_discovery_llm", {}, "x", 1, True),
-    "phase_45_spec_lite:481": (_d_spec_lite_free_rewrite, "phase_45_spec_lite", "_maybe_invoke_spec_rewrite", {}, "x", 1, False),
     "phase_3_clarify:244": (_d_phase_3, "phase_3_clarify", "_invoke_clarify_llm", {}, "x", 1, False),
     "phase_4_architect:319": (_d_phase_4, "phase_4_architect", "_invoke_architect_llm", {}, "x", 1, False),
-    "phase_45_spec_lite:630": (_d_spec_lite_review, "phase_45_spec_lite", "_invoke_review_llm", {}, "x", 1, False),
     "phase_45_spec:1357": (_d_spec_writer, "phase_45_spec", "_invoke_spec_llm", {}, "x", 1, False),
     "phase_45_spec:4201": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _SHIP, 1, False),
     "phase_45_spec:4150-repoll": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _REVISE, 2, False),

@@ -15,7 +15,7 @@ gate-refusal short-circuit Popen, so their fixtures don't matter.
 
 Closes:
     CRIT #7  — phase_5_integrity haiku-default LLM command + missing gate.
-    CRIT #8  — phase_45_spec_lite ``_invoke_review_llm`` missing gate.
+    CRIT #8  — phase_45_spec ``_invoke_review_llm`` missing gate.
     HIGH #2  — run_ctx not threaded → hard_gate_refused never emits.
 """
 from __future__ import annotations
@@ -310,21 +310,20 @@ def test_hard_gate_chokepoint_phase_5_integrity_default_haiku_now_refused():
     assert result.error_code == "E_HARD_GATE_MODEL_DOWNGRADE"
 
 
-# ─── 8. CRIT #8: phase_45_spec_lite._invoke_review_llm missing gate
+# ─── 8. CRIT #8: phase_45_spec._invoke_review_llm hard gate (bd#89 P2b re-point)
 
 
-def test_hard_gate_chokepoint_phase_45_spec_lite_missing_gate_now_refused():
-    """Forward-looking integration test — expected to fail today.
+def test_hard_gate_chokepoint_phase_45_spec_missing_gate_now_refused():
+    """phase_45_spec._invoke_review_llm calls invoke_llm_subprocess for the
+    spec reviewer (Opus by default config; without hard_gate enforcement a
+    silent downgrade happens if config sets sonnet/haiku).
 
-    phase_45_spec_lite._invoke_review_llm calls invoke_llm_subprocess for the
-    SIMPLE-tier spec reviewer (Opus by default config, but no hard_gate
-    enforcement → silent downgrade if config sets sonnet/haiku).
-
-    After the chokepoint fix lands AND phase_45_spec_lite opts in
-    (hard_gate=True), this path must pass the kwarg.
+    bd#89 P2b: re-pointed from the dropped SIMPLE-only spec workflow to the
+    one remaining spec path, which is now the only chokepoint guard for the
+    spec reviewer. It must pass hard_gate=True.
     """
     from bytedigger_engine.contracts import StepResult, WorkflowContext
-    from bytedigger_engine.workflows import phase_45_spec_lite as p45
+    from bytedigger_engine.workflows import phase_45_spec as p45
 
     tmp = HERE / "_w6_tmp_p45"
     tmp.mkdir(exist_ok=True)
@@ -366,10 +365,10 @@ def test_hard_gate_chokepoint_phase_45_spec_lite_missing_gate_now_refused():
         p45._invoke_review_llm(ctx, prev)
 
     assert captured.get("hard_gate") is True, (
-        "phase_45_spec_lite._invoke_review_llm must pass hard_gate=True to "
+        "phase_45_spec._invoke_review_llm must pass hard_gate=True to "
         f"invoke_llm_subprocess, got kw={list(captured.keys())!r}"
     )
     # Reviewer is the gate's whole point — gate label must distinguish from
     # validation gate to keep telemetry separable.
     gl = captured.get("gate_label")
-    assert gl, "phase_45_spec_lite must pass a non-empty gate_label"
+    assert gl, "phase_45_spec must pass a non-empty gate_label"

@@ -107,7 +107,6 @@ ALL_TOKENS = (TOKEN_CONTENT, TOKEN_ADDED, TOKEN_REMOVED)
 
 # Registry names (workflows/__init__.py:34-36).
 ORACLE_WORKFLOW = "phase_45_spec"
-ORACLE_WORKFLOW_LITE = "phase_45_spec_lite"
 IMPL_WORKFLOW = "phase_5_implement"
 UNMAPPED_WORKFLOW = "phase_2_explore"
 
@@ -311,7 +310,7 @@ def install_fixture_workflows(monkeypatch, oracle_writes=None, unreadable=None,
     writes = ORACLE_FILES if oracle_writes is None else oracle_writes
 
     def _register_all(engine) -> None:
-        for name in (ORACLE_WORKFLOW, ORACLE_WORKFLOW_LITE):
+        for name in (ORACLE_WORKFLOW,):
             engine.register(name, WorkflowDefinition(
                 name=name,
                 steps=[StepContract(
@@ -576,25 +575,6 @@ class TestFreeze:
         want = {rel: hashlib.sha256((world.scratch / rel).read_bytes()).hexdigest()
                 for rel in ORACLE_FILES}
         assert got == want, f"`[bd8:2]`: got={got!r} want={want!r}"
-
-    def test_ac1c_the_lite_oracle_workflow_also_freezes(self, monkeypatch, world):
-        """`[bd8:7]`.  `phase_45_spec_lite` is in the oracle-authoring set; the
-        OSS driver runs it directly before `phase_5_implement`, so a mapping
-        that omits it kills every SIMPLE-tier build with `E_ORACLE_UNFROZEN`."""
-        install_fixture_workflows(monkeypatch)
-        rc, _, raw = run_phase(ORACLE_WORKFLOW_LITE, world, "run-lite")
-        assert rc == 0, f"lite oracle phase must succeed; rc={rc} raw={raw}"
-        frozen = events_of(world.log, FROZEN_EVENT)
-        assert len(frozen) == 1, (
-            f"`[bd8:7]`: {ORACLE_WORKFLOW_LITE} emitted {len(frozen)} freeze events"
-        )
-        assert frozen[0]["payload"]["phase"] == ORACLE_WORKFLOW_LITE
-
-        rc2, payload2, _ = verify(world, "run-lite")
-        assert rc2 == 0, (
-            f"`[bd8:7]`: the implementing phase after a LITE freeze must pass; "
-            f"rc={rc2} error_code={payload2.get('error_code')!r}"
-        )
 
     def test_ac1d_freeze_then_verify_leaves_exactly_one_frozen_event(
         self, monkeypatch, world

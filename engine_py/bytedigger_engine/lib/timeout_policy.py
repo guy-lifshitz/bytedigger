@@ -32,13 +32,6 @@ DEFAULT_POLICY: dict[str, dict] = {
         "opus": 600,
         "override_key": "review_llm_timeout_sec",
     },
-    "spec_lite.writer": {"base": 600, "override_key": "spec_llm_timeout_sec"},
-    "spec_lite.reviewer": {
-        "base": 300,
-        "FEATURE": 600,
-        "COMPLEX": 900,
-        "override_key": "review_llm_timeout_sec",
-    },
     "implement.red": {
         "base": 1200,
         "FEATURE": 2400,

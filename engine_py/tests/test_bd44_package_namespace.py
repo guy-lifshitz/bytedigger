@@ -43,9 +43,10 @@ VENV_OWN = {"pip", "setuptools", "pkg_resources", "_distutils_hack",
 
 # Measured on the pre-move wheel by running `bytedigger-engine --list` in a clean
 # venv (spec §1c.1): exactly 21, rc=0 at bd#44. The count became 16 when bd#89 P1
-# dropped 5 devops/canary/smoke stages from register_all; AC1 of the bd89 P1 test
-# holds the frozen set.
-EXPECTED_WORKFLOWS = 16
+# dropped 5 devops/canary/smoke stages from register_all, and 14 when bd#89 P2b
+# dropped the SIMPLE-only spec and review side paths; AC1 of the bd89 P1 and P2b
+# tests hold the frozen set.
+EXPECTED_WORKFLOWS = 14
 
 
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:

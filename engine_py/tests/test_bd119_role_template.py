@@ -6,7 +6,7 @@ only through `_rt()` / `_rt_contracts()` inside test bodies, so a missing API
 fails the test, never collection.
 
 RED-signal contract (spec section 6):
-- Fail by assertion on the old tree: B1-B4, C- (18 rows through `_run_step`),
+- Fail by assertion on the old tree: B1-B4, C- (16 rows through `_run_step`),
   C-engine, `test_c_p2_invoke_does_not_reopen_template`,
   `test_p2_template_opened_once_across_build_and_invoke`, F1-F3, F5-F9, H1, G6,
   the phase 2 inversion in test_phase_2_explore.py.
@@ -58,15 +58,11 @@ from bytedigger_engine.workflows import phase_2_explore as p2
 from bytedigger_engine.workflows import phase_3_clarify as p3
 from bytedigger_engine.workflows import phase_4_architect as p4
 from bytedigger_engine.workflows import phase_45_spec as p45
-from bytedigger_engine.workflows import phase_45_spec_lite as p45lite
 from bytedigger_engine.workflows import phase_5_implement as p5
 from bytedigger_engine.workflows import phase_5_integrity as p5i
 from bytedigger_engine.workflows import phase_6_fix_integrity as p6fi
 from bytedigger_engine.workflows import phase_6_review as p6
 from bytedigger_engine.workflows import phase_7_synthesize as p7
-from bytedigger_engine.workflows.phase_6_review_simple_fastpath import (
-    phase_6_review_simple_fastpath_workflow,
-)
 
 ENGINE_PY = Path(__file__).resolve().parent.parent
 PKG = ENGINE_PY / "bytedigger_engine"
@@ -810,8 +806,6 @@ C_ROWS = (
     ("p4", "phase_4_architect", "_build_architect_prompt", "build_architect_prompt"),
     ("p45-spec", "phase_45_spec", "_build_spec_prompt", "build_spec_prompt"),
     ("p45-review", "phase_45_spec", "_build_review_prompt", "build_review_prompt"),
-    ("p45-lite-review", "phase_45_spec_lite", "_build_review_prompt", "build_review_prompt"),
-    ("p45-lite-rewrite", "phase_45_spec_lite", "_maybe_rewrite_simple_spec_prompt", "maybe_rewrite_simple_spec_prompt"),
     ("p5-integrity", "phase_5_integrity", "_build_integrity_prompt", "build_integrity_prompt"),
     ("p6-fix-integrity", "phase_6_fix_integrity", "_build_fix_integrity_prompt", "build_fix_integrity_prompt"),
     ("p7", "phase_7_synthesize", "_build_synthesizer_prompt", "build_synthesizer_prompt"),
@@ -972,7 +966,7 @@ def _extract_steps(path: Path, within: str | None = None):
 
 
 def test_role_template_consumers_match_step_table():
-    """B3: step functions with a call path to the reader == the 18 C rows."""
+    """B3: step functions with a call path to the reader == the 16 C rows."""
     graph = _workflow_call_graph()
     steps: set[tuple[str, str]] = set()
     for path in _pkg_files():
@@ -985,7 +979,6 @@ def test_role_template_consumers_match_step_table():
     assert _reaches(graph, ("phase_2_explore", "_build_explore_prompt"), B3_TARGETS) == {
         ("role_template", "load_role_template")
     }
-    assert ("phase_45_spec_lite", "_maybe_rewrite_simple_spec_prompt") in observed
     assert ("phase_45_spec", "_build_spec_prompt") in observed
     assert ("phase_45_spec", "_build_review_prompt") in observed
 
@@ -993,9 +986,6 @@ def test_role_template_consumers_match_step_table():
     # The workflow registers 21 lambda-form steps; the count is read from the definition itself.
     assert len({t for t, _f, _l in p45_steps}) == len(p45.phase_45_spec_workflow().steps)
     assert sum(1 for _t, f, _l in p45_steps if f == "lambda") >= 2
-
-    fast = {t for t, _f, _l in _extract_steps(PKG / "workflows" / "phase_6_review_simple_fastpath.py")}
-    assert ("phase_6_review", "_build_satisfaction_prompt") in fast
 
     assert observed == expected, (
         f"missing: {sorted(expected - observed)}; unexpected: {sorted(observed - expected)}"
@@ -1056,12 +1046,12 @@ def test_engine_has_no_bare_execute_outside_execute_step():
 
 
 # ---------------------------------------------------------------------------
-# C. Per call-site (18 build rows through the engine)
+# C. Per call-site (16 build rows through the engine)
 # ---------------------------------------------------------------------------
 
 _MODS = {
     "phase_1_discovery": p1, "phase_2_explore": p2, "phase_3_clarify": p3,
-    "phase_4_architect": p4, "phase_45_spec": p45, "phase_45_spec_lite": p45lite,
+    "phase_4_architect": p4, "phase_45_spec": p45,
     "phase_5_integrity": p5i, "phase_6_fix_integrity": p6fi, "phase_7_synthesize": p7,
     "phase_5_implement": p5, "phase_6_review": p6,
 }
@@ -1135,14 +1125,10 @@ def _row_setup(row: str, tmp_path: Path, monkeypatch, role_value: str, **org_ext
     elif row == "p45-spec":
         prev = {"cycle": 1}
         anchor = _real_anchor(mod, scratchpad)
-    elif row in ("p45-review", "p45-lite-review"):
+    elif row == "p45-review":
         spec = _write(scratchpad / "specs" / "build-spec.md", "## US1\nAdd foo\n")
         prev = _ok_prev("verify_spec", {"spec_path": str(spec), "cycle": 1})
         anchor = _real_anchor(mod, scratchpad)
-    elif row == "p45-lite-rewrite":
-        org["complexity"] = "SIMPLE"
-        prev = {"cycle": 2, "findings": "needs work"}
-        anchor = _READ_FIRST_P1_P4
     elif row == "p5-integrity":
         repo = tmp_path / "repo"
         _init_repo(repo)
@@ -1474,15 +1460,12 @@ def test_configuration_doc_documents_key():
     """F3."""
     doc = _config_doc()
     assert "## Role template (engine)" in doc
-    for needle in (KEY, CODE, "maybe_rewrite_simple_spec_prompt", "phase_6_review_simple_fastpath"):
+    for needle in (KEY, CODE):
         assert needle in doc, needle
     assert "65536" in doc or "64 KiB" in doc
     for reason in REASONS:
         assert reason in doc, reason
-    # Spec 5.6: one sentence that the simple fast path halts and writes no NOT_ASSESSED stub.
-    assert any(
-        "NOT_ASSESSED" in line and "fast" in line.lower() for line in doc.splitlines()
-    ), "configuration.md lacks the fast-path NOT_ASSESSED sentence"
+    # bd#89 P2b: the fast-path sentence and its two needles retired with the fast path.
 
 
 # PRE-PASSING GUARD
@@ -1714,18 +1697,8 @@ def test_phase6_abort_handler_runs_on_template_error(tmp_path):
     assert p6.NOT_ASSESSED_MARKER in doc.read_text(encoding="utf-8")
 
 
-def test_phase6_fastpath_template_error_halts_without_stub(tmp_path):
-    """G6: the fast path has no error_handler; halts with the code, writes no stub."""
-    _register(_CountingBackend("SATISFACTION: 9/10\n"))
-    scratchpad = tmp_path / "scratch"
-    eng = WorkflowEngine()
-    eng.register("fast", phase_6_review_simple_fastpath_workflow())
-    result, _ = eng.execute("fast", make_ctx(scratchpad, **{KEY: str(tmp_path / "nope.md")}))
-    assert result.status == "error"
-    assert result.error_code == CODE
-    assert result.step_name == "build_satisfaction_prompt"
-    doc = scratchpad / p6.SATISFACTION_DOC_RELPATH
-    assert not doc.exists() or p6.NOT_ASSESSED_MARKER not in doc.read_text(encoding="utf-8")
+# G6 (the SIMPLE fast path's halt-without-stub test) retired by bd#89 P2b; the
+# COMPLEX stub-on-abort test above (G5) is the twin.
 
 
 # ---------------------------------------------------------------------------

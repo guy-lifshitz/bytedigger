@@ -6,7 +6,7 @@ Plan-Review reviewer (Opus). Uses the shared ``llm_subprocess`` helper.
 
 **Engine-side retry loop (surface-15, 05F83B1B, 2026-04-28).** On REVISE
 verdict, engine retries from step 0 with cycle counter incremented (max
-MAX_REVIEW_CYCLES=2, matching spec_lite). Pattern mirrors phase_45_spec_lite:
+MAX_REVIEW_CYCLES=2). Pattern:
   - gate_on_review step (step 6) fires E_VALIDATION_RETRY (recoverable=True)
     on REVISE with cycle < MAX_REVIEW_CYCLES.
   - Engine retry hook (engine.py Decree #1) recurses from step 0 with
@@ -209,7 +209,7 @@ DEFAULT_REVIEW_TIMEOUT_SEC = DEFAULT_POLICY["spec.reviewer"]["base"]
 
 def _emit_safe(event_type: str, payload: dict[str, Any]) -> None:
     """Emit telemetry event via current run context; swallow all errors.
-    Mirror of the helper in phase_45_spec_lite / phase_5_implement / skip_logic."""
+    Mirror of the helper in phase_5_implement / skip_logic."""
     run_ctx = telemetry_ctx.get_current_run()
     if run_ctx is None or run_ctx.event_log is None:
         return
@@ -338,7 +338,7 @@ SPEC_DOC_RELPATH = "specs/build-spec.md"
 REVIEW_DOC_RELPATH = "specs/build-plan-review.md"
 ARCHITECTURE_DOC_RELPATH = "architecture/architecture.md"
 
-# Cap matches Phase 5 validation pattern and phase_45_spec_lite. Hard-coded
+# Cap matches Phase 5 validation pattern. Hard-coded
 # for v1; configurable in v2 once telemetry data exists.
 MAX_REVIEW_CYCLES = 2
 
@@ -1244,7 +1244,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     # Cycle ≥2, no delta path taken above: prefer restricted writer when
     # prev cycle-1 review carries a structured findings JSON block. Falls
     # back to the legacy free-rewrite ## REVISION block when no structured
-    # findings present (backward-compat). Mirrors phase_45_spec_lite W1
+    # findings present (backward-compat). (W1)
     # wiring (commit 702ea109).
     if cycle >= 2 and structured_findings:
         # Restricted writer: only address flagged items, no scope widening.
@@ -1693,8 +1693,8 @@ def _verify_spec_completeness(ctx: WorkflowContext, prev: Any) -> StepResult:
     Default depends on complexity: 0 for SIMPLE (short specs are by
     design — 9ADF28E5), MIN_SPEC_LINES otherwise (FEATURE/COMPLEX use
     the line-count floor as a stub-detection heuristic). 4196B1A2
-    moved the SIMPLE default from runtime setdefault mutation (was in
-    phase_45_spec_lite) to this read site.
+    moved the SIMPLE default from runtime setdefault mutation to this
+    read site.
 
     Predicate (spec is incomplete):
         len(spec.splitlines()) < min_spec_lines  OR

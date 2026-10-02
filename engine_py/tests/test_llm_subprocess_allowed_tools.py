@@ -479,33 +479,6 @@ _PHASE_PROFILE_CASES: list[tuple[str, str, object, list[str]]] = [
         },
         ["Read"],
     ),
-    # phase_45_spec_lite._maybe_invoke_spec_rewrite  (writer, line 363)
-    # NOTE: wrapper short-circuits when prev.data["rewrite"] is falsy.
-    # We set rewrite=True to reach the invoke call.
-    (
-        "phase_45_spec_lite",
-        "_maybe_invoke_spec_rewrite",
-        lambda p: {
-            "prompt": "x",
-            "doc_path": str(p / "spec.md"),
-            "spec_path": str(p / "spec.md"),
-            "cycle": 2,
-            "rewrite": True,
-        },
-        ["Read", "Write", "Glob"],
-    ),
-    # phase_45_spec_lite._invoke_review_llm  (reviewer, line 478)
-    (
-        "phase_45_spec_lite",
-        "_invoke_review_llm",
-        lambda p: {
-            "prompt": "x",
-            "doc_path": str(p / "spec.md"),
-            "spec_path": str(p / "spec.md"),
-            "cycle": 1,
-        },
-        ["Read"],
-    ),
     # phase_5_implement._invoke_red_llm
     (
         "phase_5_implement",

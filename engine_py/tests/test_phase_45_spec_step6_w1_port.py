@@ -1,6 +1,6 @@
 """RED tests for Step 6 of the 95D3E5F6 sprint — W1 port into phase_45_spec.py.
 
-Sibling phase_45_spec_lite.py already wires the checklist_convergence (W1)
+The (since dropped) SIMPLE-only sibling had already wired the checklist_convergence (W1)
 pattern (C094A1E1, commit 702ea109). Step 6 ports the same pattern into
 phase_45_spec.py — the FEATURE/COMPLEX path. These tests pin the contract:
 
@@ -18,7 +18,7 @@ Tests 1, 2, 3, 5, 6, 7 are EXPECTED TO FAIL today (RED). Tests 4 and 8 are
 backward-compat guards that should already PASS today (and still PASS after
 the GREEN ship).
 
-Do NOT modify phase_45_spec.py, phase_45_spec_lite.py, or the
+Do NOT modify phase_45_spec.py or the
 plugins/checklist_convergence/ package from this file.
 """
 from __future__ import annotations
@@ -34,7 +34,7 @@ ENGINE_ROOT = HERE.parent              # engine_py/
 from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
-# ── Shared FakeCtx (mirrors test_phase_45_spec_lite_C094A1E1) ─────────────────
+# ── Shared FakeCtx ────────────────────────────────────────────────────────────
 
 
 class FakeCtx:
@@ -79,8 +79,8 @@ def test_review_output_schema_includes_structured_findings_block() -> None:
     (id, type, evidence, required_action).
 
     Today the schema only lists ## Verdict / ## Concerns Checked / ## Findings
-    / ## Rationale — no structured block. Sibling phase_45_spec_lite already
-    has it via the W1 lib; this test pins that the FEATURE/COMPLEX path mirrors.
+    / ## Rationale — no structured block. The dropped SIMPLE-only sibling
+    had it via the W1 lib; this test pins that the FEATURE/COMPLEX path mirrors.
     """
     from bytedigger_engine.workflows.phase_45_spec import _review_output_schema  # noqa: F401
 
@@ -103,7 +103,7 @@ def test_review_output_schema_includes_structured_findings_block() -> None:
 
 def test_imports_checklist_convergence_symbols() -> None:
     """RED: phase_45_spec module must bind the four W1 helpers from
-    plugins.checklist_convergence (mirrors phase_45_spec_lite.py:88-94).
+    plugins.checklist_convergence.
     """
     from bytedigger_engine.workflows import phase_45_spec  # noqa: F401
 

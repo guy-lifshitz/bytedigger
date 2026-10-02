@@ -268,6 +268,10 @@ fail `E_ORACLE_UNFROZEN` at phase 5. A run whose workflow is in neither set is u
 lot — no freeze, no verify, no event. Adding a workflow to either set is a spec amendment, never
 an inference.
 
+*Amended 2026-10-02 (bd#89 P2b):* `phase_45_spec_lite` was removed from the engine, so the
+oracle-authoring set is now {`phase_45_spec`}. Every tier writes its spec through that one
+workflow. The external OSS driver sequence above must name `phase_45_spec`.
+
 ## 3. Persistence: the log is the store
 
 **`[bd8:8]` The frozen digest is carried by the append-only event log and nowhere else.**

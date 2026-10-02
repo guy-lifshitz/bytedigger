@@ -103,7 +103,7 @@ logger = logging.getLogger(__name__)
 
 def _emit_safe(event_type: str, payload: dict) -> None:
     """Emit telemetry event via current run context; swallow all errors.
-    Mirror of the helper in phase_45_spec / phase_45_spec_lite / phase_5_implement."""
+    Mirror of the helper in phase_45_spec / phase_5_implement."""
     run_ctx = telemetry_ctx.get_current_run()
     if run_ctx is None or run_ctx.event_log is None:
         return

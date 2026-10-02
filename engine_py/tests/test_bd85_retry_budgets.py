@@ -417,12 +417,15 @@ def test_ac9e_multi_evaluator_fail_retries(tmp_path: Path, monkeypatch, _clean_r
     assert "SAT_ISSUE_MARKER" in r.data["findings"], r.data
 
 
-def test_ac9f_fastpath_without_fix_step_stays_terminal(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
+def test_ac9f_workflow_without_fix_step_stays_terminal(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
+    # bd#89 P2b: re-pointed from the dropped SIMPLE fast path. The kept behavior is
+    # "outside a workflow that has a fix step the satisfaction gate fails closed";
+    # a workflow label other than phase_6_review has no fix step.
     monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **k: None)
     scratch = tmp_path / "scratch"
     telemetry_ctx.set_current_run(
         event_log=None, run_id="r85", step_name="write_satisfaction_doc",
-        phase="phase_6_review_simple_fastpath", cycle=1,
+        phase="phase_7_synthesize", cycle=1,
     )
     r = phase_6_review._write_satisfaction_doc(_ctx(scratch, satisfaction_threshold=85), _sat_prev(scratch))
     assert r.error_code == "E_SATISFACTION_BELOW_THRESHOLD" and r.recoverable is False, r
@@ -551,16 +554,4 @@ def test_ac12_workflow_finished_carries_error_code(tmp_path: Path) -> None:
     assert finished and finished[-1]["payload"].get("error_code") == "E_SOME_FAIL", finished
 
 
-# ─── lite keeps lint terminal ─────────────────────────────────────────────────
-
-
-def test_ac18_lite_keeps_lint_terminal(tmp_path: Path, monkeypatch) -> None:
-    from bytedigger_engine.workflows import phase_45_spec_lite
-
-    _no_repair(monkeypatch)
-    _driver_present(monkeypatch)
-    loop = phase_45_spec_lite.build_review_loop_contract()
-    step = next(b for b in loop.body if b.name == "verify_spec_lint")
-    with patch.object(phase_45_spec, "bounded_run", return_value=_FakeProc(1, "R7: bad\n")):
-        r = step.execute(_ctx(tmp_path / "s"), _spec_prev(tmp_path))
-    assert r.error_code == "E_SPEC_LINT_FAIL" and r.recoverable is False, r
+# ac18 (the dropped SIMPLE-only spec loop keeps lint terminal) retired by bd#89 P2b: GAP-3.

@@ -150,7 +150,7 @@
 
 ## E_INJECTION
 
-- `E_INJECTION_MISSING` — phase_45_spec/phase_45_spec_lite/phase_5_implement: the worker declared STATUS=block while the READ_FIRST injection files are genuinely absent or empty — infrastructure failure, NOT reviewer/validator disagreement (hal#1674)
+- `E_INJECTION_MISSING` — phase_45_spec/phase_5_implement: the worker declared STATUS=block while the READ_FIRST injection files are genuinely absent or empty — infrastructure failure, NOT reviewer/validator disagreement (hal#1674)
 
 ## E_INSUFFICIENT
 
@@ -309,7 +309,7 @@
 - `E_REVIEW_FAILED` — phase_45_spec/phase_6_review: review subagent returned a FAILED verdict
 - `E_REVIEW_FANOUT_INVALID` — phase_6_review: org_config[review_fanout] is not single/parallel — non-recoverable config error
 - `E_REVIEW_FIX_FEED_DIVERGENCE` — phase_6_review: fix feed does not cover the review's aggregated findings
-- `E_REVIEW_UNPARSEABLE` — phase_45_spec/phase_45_spec_lite: review verdict output could not be parsed
+- `E_REVIEW_UNPARSEABLE` — phase_45_spec: review verdict output could not be parsed
 - `E_REVIEW_WRITE_FAILED` — phase_6_review: writing the review artifact to disk failed
 
 ## E_ROLE

@@ -6,8 +6,8 @@ Spec: SHARED/memory/Decisions/2026-07-06_1DA29C33_gh276_step2_run_allowlist_writ
 Contract: a new module `lib.run_allowlist` provides `parse_spec_files_allowlist`,
 `resolve_zones_config_path`, `update_run_allowlist`, `remove_run_allowlist`,
 `write_run_allowlist_for_spec`. GREEN wires `write_run_allowlist_for_spec` into
-`phase_45_spec._gate_on_review` / `phase_45_spec_lite._gate_on_review` SHIP
-branches, adds `phase_8_post_deploy._cleanup_run_allowlist` (registered in
+`phase_45_spec._gate_on_review` SHIP
+branch, adds `phase_8_post_deploy._cleanup_run_allowlist` (registered in
 `phase_8_post_deploy_workflow()`), and re-exports
 `phase_5_implement._parse_spec_files_allowlist` from the new module.
 
@@ -454,39 +454,8 @@ def test_ac7b_gate_on_review_absolute_entry_resolved_not_git_cwd_joined(tmp_path
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# AC8 — phase_45_spec_lite._gate_on_review SHIP branch, same contract
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def test_ac8_phase45_spec_lite_gate_on_review_ship_writes_allowlist(tmp_path: Path) -> None:
-    from bytedigger_engine.workflows import phase_45_spec_lite
-
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-    cfg_path = tmp_path / "containment-zones.json"
-    _write_config(cfg_path, _step1_config())
-
-    spec_path = tmp_path / "spec.md"
-    spec_path.write_text("# Spec\n\n## Files\n- x/y.py\n", encoding="utf-8")
-
-    ctx = _ctx({
-        "run_id": "testrun1",
-        "git_cwd": str(repo_dir),
-        "scope_zones_config": str(cfg_path),
-    })
-    prev = _ship_prev(str(spec_path))
-
-    result = phase_45_spec_lite._gate_on_review(ctx, prev)
-
-    assert result.status == "ok", f"AC8 FAIL: gate must still return ok, got {result.status!r}"
-
-    on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
-    expected_entry = str((repo_dir / "x/y.py").resolve())
-    assert expected_entry in on_disk.get("run_allowlist", []), (
-        f"AC8 FAIL: expected absolutized entry {expected_entry!r} in run_allowlist, "
-        f"got {on_disk.get('run_allowlist')!r}"
-    )
+# AC8 (the dropped SIMPLE-only spec workflow's gate SHIP branch) retired by
+# bd#89 P2b: the module is gone; the phase_45_spec SHIP-branch tests above are the twin.
 
 
 # ═══════════════════════════════════════════════════════════════════════════

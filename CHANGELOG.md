@@ -12,6 +12,10 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Removed
+
+- **One spec path, one review path (bd#89 P2b).** The engine no longer registers the `phase_45_spec_lite` and `phase_6_review_simple_fastpath` stages; SIMPLE builds use the full `phase_45_spec` and `phase_6_review` workflows. The `spec_lite.writer` and `spec_lite.reviewer` timeout-policy keys and the lite oracle member are gone. No flag or error code is removed. A resumed run whose recorded stage names a dropped stage now fails with `KeyError` ("not registered"); restart such a run from the full stages.
+
 ### Fixed
 
 - **A malformed oracle freeze row refuses instead of escaping (bd#158).** `find_last_freeze` and `verify_against` now shape-check the freeze/amendment payload (`check_freeze_payload`: object, string `digest`/`scope_digest`, list members of string or `{path, digest}` strings, list-of-string `scope`, no NUL in a path) and raise `OracleMalformedFreeze`, an `OracleRefusal` with `E_ORACLE_INDETERMINATE`. Before this, a hand-written or corrupted row raised `KeyError`/`TypeError`/`AttributeError` past `run.py` and was reported as a non-oracle code. A re-entry amendment over a malformed previous row refuses rather than recording a non-string `previous_digest`; a path-layer `ValueError`/`OSError` during verify is `E_ORACLE_INDETERMINATE`. The `oracle verify` CLI keeps rc 2 for a malformed row. No new error code.

@@ -268,15 +268,12 @@ text.
 
 Steps that read the template: phase 1 discovery, phase 2 `build_explore_prompt`
 (read once; `invoke_explore_llm` reuses the stored block), phase 3 clarify, phase 4
-architect, phase 4.5 spec and review (and `maybe_rewrite_simple_spec_prompt` in the
-lite spec path), phase 5 red, validation, green and integrity, phase 6 review, fix,
-fix-integrity, satisfaction and decorrelated verifier (also the
-`build_satisfaction_prompt` step of the `phase_6_review_simple_fastpath` workflow),
-and phase 7 synthesizer. Delta-retry prompts, the restricted spec reviewer and writer,
+architect, phase 4.5 spec and review, phase 5 red, validation, green and integrity,
+phase 6 review, fix, fix-integrity, satisfaction and decorrelated verifier, and
+phase 7 synthesizer. Delta-retry prompts, the restricted spec reviewer and writer,
 and the phase 2 decision-doc skip path carry no template and do not read the file.
-In full phase 6 a template error runs the abort handler, which writes the
-`NOT_ASSESSED` satisfaction stub; on the simple fast path (`phase_6_review_simple_fastpath`)
-a template error halts with `E_ROLE_TEMPLATE_INVALID` and writes no `NOT_ASSESSED` stub.
+In phase 6 a template error runs the abort handler, which writes the
+`NOT_ASSESSED` satisfaction stub.
 
 Trust and handling:
 

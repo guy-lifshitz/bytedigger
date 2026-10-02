@@ -149,17 +149,8 @@ def test_ac6b_phase_45_spec_default_review_model_legacy(without_roles_cfg):
     assert p45._default_review_model() == expected_critical
 
 
-# ---- AC7 ----
-
-def test_ac7_phase_45_spec_lite_default_review_model_uses_role(with_roles_cfg):
-    from bytedigger_engine.workflows import phase_45_spec_lite as p45_lite
-    assert p45_lite._default_review_model() == "sonnet"
-
-
-def test_ac7b_phase_45_spec_lite_default_review_model_legacy(without_roles_cfg):
-    from bytedigger_engine.workflows import phase_45_spec_lite as p45_lite
-    expected_critical = model_config.get_claude_critical()
-    assert p45_lite._default_review_model() == expected_critical
+# ---- AC7 / AC7b: retired by bd#89 P2b (the SIMPLE-only spec workflow is gone;
+# AC6 / AC6b above are the twin for the remaining phase_45_spec). ----
 
 
 # ---- AC8 ----

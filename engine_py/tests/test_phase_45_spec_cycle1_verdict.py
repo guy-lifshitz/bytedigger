@@ -1,7 +1,7 @@
 """RED tests for 532CDEC8 — phase_45_spec (FEATURE/COMPLEX) cycle-1 verdict from structured findings count.
 
 Agreement: 532CDEC8-C5F9-4DFC-8A04-3326A88D1999 (child of 95D3E5F6 — disk-truth UMBRELLA, G1 band-aid #2)
-Band-aid #2: FEATURE/COMPLEX sibling of band-aid #1 (9DE0330B, `test_phase_45_spec_lite_cycle1_verdict.py`).
+Band-aid #2: FEATURE/COMPLEX sibling of band-aid #1 (9DE0330B, the SIMPLE-only cycle-1 verdict test, since retired).
 
 Contract: GREEN will modify _write_review_doc in phase_45_spec.py so that on cycle<=1,
 when extract_structured_findings(raw) returns a non-None list, the final verdict placed in
@@ -39,7 +39,7 @@ from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── raw markdown fixtures ─────────────────────────────────────────────────────
-# Format mirrors test_phase_45_spec_lite_cycle1_verdict.py and the spec's draft constants.
+# Format mirrors the spec's draft constants.
 # extract_structured_findings scans for a fenced ```json block under ## Findings (structured).
 
 _SHIP_HDR = "## Verdict\nSHIP\nAll good.\n"
