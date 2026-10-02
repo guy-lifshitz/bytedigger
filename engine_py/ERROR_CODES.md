@@ -232,6 +232,20 @@
 - `E_POST_FIX_TYPECHECK_PATH_ESCAPE` — phase_6_review: post-fix typecheck target path escaped allowed scope
 - `E_POST_FIX_TYPECHECK_REGRESSION` — phase_6_review: post-fix typecheck introduced a new regression
 
+## E_PREFLIGHT
+
+- `E_PREFLIGHT_CITE` — preflight: the spec cites a symbol or file that does not exist, or the cite step hit an internal error
+- `E_PREFLIGHT_FACTS` — preflight: the facts pack could not be built or written, or the facts step hit an internal error
+- `E_PREFLIGHT_GIT` — preflight: a git call failed (not a repository, unknown base ref, or HEAD unresolved); exit 2, no receipt
+- `E_PREFLIGHT_PRESCREEN` — preflight: reserved; listed for uniformity with the step codes, never emitted because the advisory prescreen step never reds
+- `E_PREFLIGHT_SCOPED` — preflight: a RED test file produced no test report, passed in the red phase, was vacuous, or failed in the green phase
+- `E_PREFLIGHT_SIBLINGS` — preflight: a sibling test file fails and no pin or active known-reds row tolerates it
+- `E_PREFLIGHT_SPEC_FIELDS` — preflight: the spec is unreadable or its front-matter has empty red_tests or paths; exit 2, no receipt
+- `E_PREFLIGHT_STUB` — preflight: a RED test file mocks its own unit under test, or could not be linted
+- `E_PREFLIGHT_SYNTAX` — preflight: a changed or RED test file does not parse
+- `E_PREFLIGHT_TIER` — preflight: the MICRO tier was declared for a spec that touches an engine production path
+- `E_PREFLIGHT_USAGE` — preflight: bad phase or malformed command-line input; exit 2, no receipt
+
 ## E_PYTEST
 
 - `E_PYTEST_MISSING` — phase_5_implement: pytest binary not available on this host

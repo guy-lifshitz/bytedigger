@@ -83,7 +83,8 @@
     "claim_evidence.py",
     "loop_detector.py",
     "close_gate.py",
-    "check_ladder.py"
+    "check_ladder.py",
+    "preflight.py"
   ],
   "host_modules": [
     "hal_config_provider.py",
