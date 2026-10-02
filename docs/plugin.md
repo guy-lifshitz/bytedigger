@@ -116,7 +116,7 @@ per-step model pinning — see [configuration.md](configuration.md).
 
 **Reviewers:**
 - `reviewers.mode` (values: `"toolkit"`, `"generic"`, `"auto"`, default: `"auto"`) — Controls reviewer agent selection. `"toolkit"` uses pr-review-toolkit if available, `"generic"` uses basic review agents, `"auto"` selects based on available dependencies.
-- `simple_reviewers` / `feature_reviewers` / `complex_reviewers` (defaults: `3` / `6` / `6`) — Reviewer counts per complexity tier. Parsed by both gate backends (`scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`); today the Phase 6 roster is fixed per tier (3 for SIMPLE, 6 for FEATURE/COMPLEX), so these act as declared expectations rather than live knobs. These flat keys are the canonical form — an earlier nested `reviewers.{SIMPLE,FEATURE,COMPLEX}` block was never read by any backend and has been removed from the sample config; only `reviewers.mode` is meaningful inside the `reviewers` object.
+- `simple_reviewers` / `feature_reviewers` / `complex_reviewers` (defaults: `3` / `6` / `6`) — Reviewer counts per complexity tier. Parsed by both gate backends (`scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`); declared expectation only; the engine runs one composite reviewer in Phase 6 for every tier, so these are not live knobs. These flat keys are the canonical form — an earlier nested `reviewers.{SIMPLE,FEATURE,COMPLEX}` block was never read by any backend and has been removed from the sample config; only `reviewers.mode` is meaningful inside the `reviewers` object.
 
 **Per-run overrides:**
 
