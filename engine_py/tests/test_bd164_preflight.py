@@ -37,6 +37,14 @@ import pytest
 
 pytestmark = pytest.mark.timeout(180)
 
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hygiene: no ambient known-reds date and no GIT_* variable steers the fixture repos."""
+    monkeypatch.delenv("HAL_KNOWN_REDS_TODAY", raising=False)
+    for key in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(key, raising=False)
+
 ENGINE_PY = Path(__file__).resolve().parents[1]
 MODULE_FILE = ENGINE_PY / "bytedigger_engine" / "preflight.py"
 
@@ -270,6 +278,43 @@ def test_A2_green_phase_with_passing_tests(tmp_path: Path) -> None:
 # A3 each red step
 # --------------------------------------------------------------------------
 
+def test_A3_failclosed_internal_error_in_cite(tmp_path: Path,
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """A3 fail-closed: spec_cite.lint_spec raising -> exit 1 E_PREFLIGHT_CITE 'internal error'."""
+    sc = importlib.import_module("bytedigger_engine.spec_cite")
+
+    def boom(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("lint exploded")
+
+    monkeypatch.setattr(sc, "lint_spec", boom)
+    fx = _mk(tmp_path)
+    res = _run(fx, "red")
+    rec = _assert_red_at(res, fx.top, "cite", "red")
+    assert rec["steps"][2]["detail"].startswith("internal error")
+
+
+def test_A3_failclosed_scoped_timeout_no_report(tmp_path: Path) -> None:
+    """A3 fail-closed: green-phase test sleeping 30 s with test_timeout_s=1 -> 'no test report'."""
+    sleepy = "import time\n\n\ndef test_slow():\n    time.sleep(30)\n"
+    fx = _mk(tmp_path, test_src=sleepy)
+    res = _run(fx, "green", test_timeout_s=1)
+    rec = _assert_red_at(res, fx.top, "scoped", "green")
+    assert "no test report" in rec["steps"][4]["detail"]
+
+
+def test_A3_failclosed_relative_engine_prod_path_with_foreign_cwd(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A3: relative engine-prod paths entry, process cwd != toplevel, tier MICRO -> E_PREFLIGHT_TIER."""
+    fx = _mk(tmp_path, files={"SYSTEM/cli/build/engine_py/prod.py": "X = 1\n"},
+             spec_kw={"paths": ("calc.py", "SYSTEM/cli/build/engine_py/prod.py")})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    res = _run(fx, "red", tier="MICRO")
+    rec = _assert_red_at(res, fx.top, "tier", "red")
+    assert "prod.py" in rec["steps"][1]["detail"]
+
+
 def test_A3_syntax_red(tmp_path: Path) -> None:
     """A3: broken .py in changed set -> E_PREFLIGHT_SYNTAX, later steps skipped."""
     fx = _mk(tmp_path, untracked={"broken.py": "def (:\n"})
@@ -434,6 +479,23 @@ def test_A4_mutation_makes_receipt_stale(tmp_path: Path, mutation: str) -> None:
     assert pf.verify_receipt("red", fx.top) == "stale"
 
 
+def test_A4b_edit_made_by_red_test_while_running_is_stale(tmp_path: Path) -> None:
+    """A4b: the RED test appends to a tracked file when run -> receipt is stale (hash before steps)."""
+    pf = _pf()
+    src = (
+        "from pathlib import Path\n\n\n"
+        "def test_touch_tracked():\n"
+        "    p = Path(__file__).resolve().parents[1] / 'calc.py'\n"
+        "    p.write_text(p.read_text(encoding='utf-8') + '# touched\\n', encoding='utf-8')\n"
+        "    assert False\n"
+    )
+    fx = _mk(tmp_path, test_src=src)
+    res = _run(fx, "red")
+    assert _g(res, "receipt") is not None and pf.receipt_path(fx.top).is_file()
+    assert "# touched" in (fx.repo / "calc.py").read_text(encoding="utf-8")
+    assert pf.verify_receipt("red", fx.top) == "stale"
+
+
 def test_A4_gitignored_file_stays_fresh(tmp_path: Path) -> None:
     """A4: a new gitignored file does not change the state hash."""
     pf = _pf()
@@ -555,44 +617,39 @@ def test_A5_prescreen_off_in_green_phase(tmp_path: Path) -> None:
 # A6 exit 2
 # --------------------------------------------------------------------------
 
-def test_A6_missing_spec_and_empty_fields_delete_old_receipt(tmp_path: Path) -> None:
-    """A6: missing spec / empty red_tests -> exit 2 E_PREFLIGHT_SPEC_FIELDS, old receipt gone."""
+@pytest.mark.parametrize("case", ["missing_spec", "empty_red_tests", "empty_paths",
+                                  "bad_phase", "unknown_base"])
+def test_A6_exit2_in_repo_removes_old_receipt_and_facts(tmp_path: Path, case: str) -> None:
+    """A6: every in-repo exit-2 case first has a green receipt + facts.md, both gone afterwards."""
     pf = _pf()
     fx = _mk(tmp_path)
-    assert _g(_run(fx, "red"), "exit_code") == 0
-    assert pf.receipt_path(fx.top).exists()
-    res = pf.run_preflight(str(tmp_path / "nope.md"), "red", cwd=str(fx.repo))
-    assert _g(res, "exit_code") == 2 and _g(res, "error_code") == "E_PREFLIGHT_SPEC_FIELDS"
-    assert _g(res, "receipt") is None
-    assert not pf.receipt_path(fx.top).exists()
-    assert pf.verify_receipt("red", fx.top) == "missing"
-
-    assert _g(_run(fx, "red"), "exit_code") == 0
-    assert pf.receipt_path(fx.top).exists()
-    empty = tmp_path / "empty_spec.md"
-    empty.write_text(_spec_text(red_tests=()), encoding="utf-8")
-    res2 = pf.run_preflight(str(empty), "red", cwd=str(fx.repo))
-    assert _g(res2, "exit_code") == 2 and _g(res2, "error_code") == "E_PREFLIGHT_SPEC_FIELDS"
-    assert not pf.receipt_path(fx.top).exists()
-
-
-def test_A6_bad_phase_usage(tmp_path: Path) -> None:
-    """A6: phase not red/green -> exit 2 E_PREFLIGHT_USAGE, no receipt written."""
-    pf = _pf()
-    fx = _mk(tmp_path)
-    res = _run(fx, "blue")
-    assert _g(res, "exit_code") == 2 and _g(res, "error_code") == "E_PREFLIGHT_USAGE"
+    first = _run(fx, "red")
+    assert _g(first, "exit_code") == 0
+    rp = pf.receipt_path(fx.top)
+    facts = Path(_g(first, "receipt")["facts_path"])
+    assert rp.is_file() and facts.is_file()
+    spec = str(fx.spec)
+    phase, kw = "red", {}
+    expected = "E_PREFLIGHT_SPEC_FIELDS"
+    if case == "missing_spec":
+        spec = str(tmp_path / "nope.md")
+    elif case == "empty_red_tests":
+        p = tmp_path / "empty_rt.md"
+        p.write_text(_spec_text(red_tests=()), encoding="utf-8")
+        spec = str(p)
+    elif case == "empty_paths":
+        p = tmp_path / "empty_paths.md"
+        p.write_text(_spec_text(paths=()), encoding="utf-8")
+        spec = str(p)
+    elif case == "bad_phase":
+        phase, expected = "blue", "E_PREFLIGHT_USAGE"
+    else:
+        kw, expected = {"base": "refs/heads/no-such-branch"}, "E_PREFLIGHT_GIT"
+    res = pf.run_preflight(spec, phase, cwd=str(fx.repo), **kw)
+    assert _g(res, "exit_code") == 2 and _g(res, "error_code") == expected
     assert _g(res, "receipt") is None and _g(res, "error")
-    assert not pf.receipt_path(fx.top).exists()
-
-
-def test_A6_unknown_base_is_git_error(tmp_path: Path) -> None:
-    """A6: unknown --base -> exit 2 E_PREFLIGHT_GIT, no receipt written."""
-    pf = _pf()
-    fx = _mk(tmp_path)
-    res = _run(fx, "red", base="refs/heads/no-such-branch")
-    assert _g(res, "exit_code") == 2 and _g(res, "error_code") == "E_PREFLIGHT_GIT"
-    assert not pf.receipt_path(fx.top).exists()
+    assert not rp.exists() and not facts.exists()
+    assert pf.verify_receipt("red", fx.top) == "missing"
 
 
 def test_A6_not_a_git_repo(tmp_path: Path) -> None:
@@ -725,7 +782,7 @@ def test_A8_verify_prints_word_and_exit_code(tmp_path: Path) -> None:
 def test_A8_bad_classifier_cmd_and_usage_exit2(tmp_path: Path) -> None:
     """A8: --classifier-cmd not a JSON list of strings -> exit 2 E_PREFLIGHT_USAGE; usage error -> 2."""
     fx = _mk(tmp_path)
-    for bad in ("not json", '{"a": 1}', "[1, 2]"):
+    for bad in ("not json", '{"a": 1}', "[1, 2]", "[]"):
         cp = _cli(fx.repo, "--spec", str(fx.spec), "--phase", "red", "--json",
                   "--classifier-cmd", bad)
         assert cp.returncode == 2, (bad, cp.stderr[-300:])
@@ -733,7 +790,11 @@ def test_A8_bad_classifier_cmd_and_usage_exit2(tmp_path: Path) -> None:
         assert doc["ok"] is False and doc["error_code"] == "E_PREFLIGHT_USAGE"
     cp2 = _cli(fx.repo, "--phase", "red")  # no --spec and no --verify
     assert cp2.returncode == 2
-    assert "preflight" in (cp2.stderr + cp2.stdout).lower()
+    assert "bytedigger-engine preflight" in cp2.stderr
+    cp3 = _cli(fx.repo, "--phase", "red", "--json")  # argparse usage error under --json
+    assert cp3.returncode == 2
+    assert cp3.stdout == ""
+    assert "bytedigger-engine preflight" in cp3.stderr
 
 
 # --------------------------------------------------------------------------
