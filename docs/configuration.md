@@ -27,9 +27,9 @@ bash gates and `scripts/learning-store.sh` extract keys with `python3`.
 | `exploration_model` | string | `"haiku"` | Documented in `docs/plugin.md`; no script reads it today (kept for compatibility; the explore phase was removed) |
 | `satisfaction_thresholds` | object | `{SIMPLE:80, FEATURE:85, COMPLEX:90}` | `phases/phase-6-review.md` — per-tier satisfaction score floors |
 | `reviewers` | object | `{"mode":"auto"}` | `scripts/ts/build-phase-gate.ts` — reviewer selection mode: `"toolkit"` / `"generic"` / `"auto"` |
-| `simple_reviewers` | int | `3` | Both gate backends; declared expectation (Phase 6 roster is fixed per tier today) |
-| `feature_reviewers` | int | `6` | ditto |
-| `complex_reviewers` | int | `6` | ditto |
+| `simple_reviewers` | int | `3` | Both gate backends; Declared expectation only; the engine runs one composite reviewer |
+| `feature_reviewers` | int | `6` | Declared expectation only; the engine runs one composite reviewer |
+| `complex_reviewers` | int | `6` | Declared expectation only; the engine runs one composite reviewer |
 | `gates_enabled` | bool | `true` | Both gate backends — `false` disables phase-gate enforcement entirely |
 | `gate_backend` | string | `"bash"` | `scripts/gate-dispatcher.sh` — `"bash"` / `"ts"` (bun, fail-closed if missing) / `"shadow"` (run both, bash verdict wins). Env `GATE_BACKEND` overrides |
 | `tdd_mandatory` | bool | `true` | Both gate backends — enforce RED-before-GREEN checkpoints |

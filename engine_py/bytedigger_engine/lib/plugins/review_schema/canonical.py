@@ -34,26 +34,8 @@ PER_ROLE_SCHEMA_TEMPLATE: str = (
     "    it to verify nothing was dropped.\n"
 )
 
-# ── PARALLEL_DISPATCH_FRAMING_TEMPLATE ───────────────────────────────────────
-# Verbatim move from `workflows/phase_6_review.py` lines 850-862 (pre-Ship-B3).
-# Do NOT compress — content must be byte-equivalent to what was inline.
-PARALLEL_DISPATCH_FRAMING_TEMPLATE: str = (
-    "PARALLEL DISPATCH — invoke all {reviewer_count} Agent calls in a single message "
-    "so they run in parallel. Pass SPEC, RED, and GREEN file paths by "
-    "reference in each sub-agent prompt — do NOT inline file contents.\n"
-    "\n"
-    "Each dispatched Agent MUST use the Write tool to write its findings to:\n"
-    "    {abs_reviews_dir}/role-<slug>.md\n"
-    "where <slug> is the subagent_type after the colon (e.g. 'code-reviewer' →\n"
-    "{abs_reviews_dir}/role-code-reviewer.md). Per-role schema:\n"
-    "{per_role_schema}\n\n"
-    "Dispatch table (subagent_type — model):\n"
-    "{dispatch_table}"
-)
-
 # ── SINGLE_REVIEW_FRAMING_TEMPLATE (bd#139) ──────────────────────────────────
-# Single-reviewer counterpart of PARALLEL_DISPATCH_FRAMING_TEMPLATE: the model
-# reviews the work itself and writes ONE composite role file.
+# The model reviews the work itself and writes ONE composite role file.
 SINGLE_REVIEW_FRAMING_TEMPLATE: str = (
     "SINGLE REVIEW — you review the work yourself, covering every dimension of the "
     "checklist below in one pass. Read SPEC, RED, and GREEN files by path.\n"

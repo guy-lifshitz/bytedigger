@@ -20,7 +20,7 @@ if str(ENGINE_PY) not in sys.path:
 from bytedigger_engine import llm_subprocess  # noqa: E402
 from bytedigger_engine.llm_subprocess import _StragglerWatchdog, invoke_llm_subprocess  # noqa: E402
 from bytedigger_engine.contracts import StepResult  # noqa: E402
-from bytedigger_engine.workflows.phase_6_review import _invoke_review_llm, _select_reviewers  # noqa: E402
+from bytedigger_engine.workflows.phase_6_review import _invoke_review_llm  # noqa: E402
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -355,75 +355,8 @@ def test_ac6_invoke_llm_subprocess_straggler_cfg_none_no_watchdog(tmp_path, monk
 # ─── AC7 ─────────────────────────────────────────────────────────────────────
 
 
-def test_ac7_invoke_review_llm_passes_straggler_cfg_when_enabled(tmp_path, monkeypatch):
-    """AC7: _invoke_review_llm with straggler_abort=True → correct straggler_cfg dict passed."""
-    captured = {}
-
-    def _fake_invoke(**kwargs):
-        captured.update(kwargs)
-        return StepResult(
-            status="ok",
-            data={"raw_response": "x", "response_bytes": 1, "command": []},
-            duration_ms=0,
-            step_name="invoke_review_llm",
-        )
-
-    from bytedigger_engine.workflows import phase_6_review
-    monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", _fake_invoke)
-
-    scratchpad = tmp_path / "scratch"
-    scratchpad.mkdir()
-
-    ctx = types.SimpleNamespace(
-        org_config={
-            "scratchpad_dir": str(scratchpad),
-            "straggler_abort": True,
-            "review_fanout": "parallel",  # bd#139 pin
-            # No override for patience/poll — should use module defaults
-        }
-    )
-
-    prev_data = {
-        "doc_path": "doc.md",
-        "spec_path": "spec.md",
-        "red_log_path": "red.log",
-        "green_log_path": "green.log",
-        "prompt": "review this",
-    }
-    prev = StepResult(
-        status="ok",
-        data=prev_data,
-        duration_ms=0,
-        step_name="build_review_prompt",
-    )
-
-    _invoke_review_llm(ctx, prev)
-
-    assert "straggler_cfg" in captured, (
-        "invoke_llm_subprocess must receive straggler_cfg kwarg when straggler_abort=True"
-    )
-    cfg = captured["straggler_cfg"]
-    assert cfg is not None, "straggler_cfg must not be None when straggler_abort=True"
-    assert isinstance(cfg, dict), "straggler_cfg must be a dict"
-
-    # reviews_dir ends with /reviews
-    assert cfg["reviews_dir"].endswith("/reviews"), (
-        f"reviews_dir must end with '/reviews', got: {cfg['reviews_dir']!r}"
-    )
-
-    # expected_n == count from _select_reviewers (FEATURE, parallel fan-out → 6)
-    _, expected_count = _select_reviewers("FEATURE", fanout="parallel")
-    assert cfg["expected_n"] == expected_count, (
-        f"expected_n must equal len(selected_reviewers)={expected_count}, got {cfg['expected_n']}"
-    )
-
-    # patience_sec and poll_interval_sec == module defaults
-    assert cfg["patience_sec"] == 60.0, (
-        f"patience_sec must be 60.0 (STRAGGLER_PATIENCE_SEC), got {cfg['patience_sec']}"
-    )
-    assert cfg["poll_interval_sec"] == 5.0, (
-        f"poll_interval_sec must be 5.0 (STRAGGLER_POLL_INTERVAL_SEC), got {cfg['poll_interval_sec']}"
-    )
+# AC7 (phase-6 arms straggler_cfg when straggler_abort=True) retired by bd#89 P3b1: phase 6
+# no longer arms the watchdog; see test_bd89_p3b1_single_reviewer_only.py AC15.
 
 
 # ─── AC8 ─────────────────────────────────────────────────────────────────────
@@ -505,55 +438,8 @@ def test_ac9_watchdog_honours_patience_override(tmp_path):
     assert elapsed < 2.0, f"abort took {elapsed:.2f}s — patience override was not honored (would have been 60s)"
 
 
-def test_ac9b_invoke_review_llm_honours_patience_override(tmp_path, monkeypatch):
-    """AC9b: straggler_patience_sec=7 in org_config → straggler_cfg['patience_sec'] == 7.0."""
-    captured = {}
-
-    def _fake_invoke(**kwargs):
-        captured.update(kwargs)
-        return StepResult(
-            status="ok",
-            data={"raw_response": "x", "response_bytes": 1, "command": []},
-            duration_ms=0,
-            step_name="invoke_review_llm",
-        )
-
-    from bytedigger_engine.workflows import phase_6_review
-    monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", _fake_invoke)
-
-    scratchpad = tmp_path / "scratch"
-    scratchpad.mkdir()
-
-    ctx = types.SimpleNamespace(
-        org_config={
-            "scratchpad_dir": str(scratchpad),
-            "straggler_abort": True,
-            "review_fanout": "parallel",  # bd#139 pin
-            "straggler_patience_sec": 7,  # override from org_config
-        }
-    )
-
-    prev_data = {
-        "doc_path": "doc.md",
-        "spec_path": "spec.md",
-        "red_log_path": "red.log",
-        "green_log_path": "green.log",
-        "prompt": "review this",
-    }
-    prev = StepResult(
-        status="ok",
-        data=prev_data,
-        duration_ms=0,
-        step_name="build_review_prompt",
-    )
-
-    _invoke_review_llm(ctx, prev)
-
-    cfg = captured.get("straggler_cfg")
-    assert cfg is not None, "straggler_cfg must be set when straggler_abort=True"
-    assert cfg["patience_sec"] == 7.0, (
-        f"patience_sec must be 7.0 (from org_config override), got {cfg['patience_sec']!r}"
-    )
+# AC9b (phase-6 patience override arms straggler_cfg) retired by bd#89 P3b1: phase 6 no
+# longer arms the watchdog; see test_bd89_p3b1_single_reviewer_only.py AC15.
 
 
 # ─── AC10 ────────────────────────────────────────────────────────────────────

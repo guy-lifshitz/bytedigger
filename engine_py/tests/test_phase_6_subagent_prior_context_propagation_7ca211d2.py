@@ -43,7 +43,6 @@ def _make_ctx(tmp_path: Path, satisfaction_threshold: int = 80) -> WorkflowConte
         org_config={
             "scratchpad_dir": str(scratch),
             "satisfaction_threshold": satisfaction_threshold,
-            "review_fanout": "parallel",  # bd#139: pin the pre-single-reviewer dispatch prompt
         },
         question="add feature X",
         session_id="test-7CA211D2",
@@ -109,14 +108,15 @@ def test_propagation_directive_present_when_last_findings_exists(
     )
     prompt: str = result.data["prompt"]
 
-    assert "## SUB-AGENT PRIOR-CONTEXT PROPAGATION" in prompt, (
+    # bd#89 P3b1: the single reviewer prompt carries the directive under "## PRIOR-CONTEXT".
+    assert "## PRIOR-CONTEXT" in prompt, (
         "T01 FAIL (AC1): prompt must contain literal heading "
-        "'## SUB-AGENT PRIOR-CONTEXT PROPAGATION' when last_findings.json present; "
+        "'## PRIOR-CONTEXT' when last_findings.json present; "
         "not found — spec 7CA211D2 AC1"
     )
 
-    assert "Each dispatched Agent MUST read" in prompt, (
-        "T01 FAIL (AC1): prompt must contain 'Each dispatched Agent MUST read'; "
+    assert "Before reviewing, read the prior findings file" in prompt, (
+        "T01 FAIL (AC1): prompt must contain 'Before reviewing, read the prior findings file'; "
         "not found — spec 7CA211D2 AC1"
     )
 
@@ -160,12 +160,12 @@ def test_propagation_directive_placement(tmp_path: Path, monkeypatch) -> None:
     )
     prompt: str = result.data["prompt"]
 
-    assert "## SUB-AGENT PRIOR-CONTEXT PROPAGATION" in prompt, (
-        "T02 FAIL (AC2): '## SUB-AGENT PRIOR-CONTEXT PROPAGATION' not found in prompt; "
+    assert "## PRIOR-CONTEXT" in prompt, (
+        "T02 FAIL (AC2): '## PRIOR-CONTEXT' not found in prompt; "
         "cannot check placement — spec 7CA211D2 AC2"
     )
-    assert "Dispatch table" in prompt, (
-        "T02 FAIL (AC2): 'Dispatch table' not found in prompt; "
+    assert "Review checklist (dimensions)" in prompt, (
+        "T02 FAIL (AC2): 'Review checklist (dimensions)' not found in prompt; "
         "needed as placement anchor — spec 7CA211D2 AC2"
     )
     assert "## Prior-Attempt Context" in prompt, (
@@ -173,8 +173,8 @@ def test_propagation_directive_placement(tmp_path: Path, monkeypatch) -> None:
         "needed as placement anchor — spec 7CA211D2 AC2"
     )
 
-    dispatch_end = prompt.index("Dispatch table")
-    propagation_pos = prompt.index("## SUB-AGENT PRIOR-CONTEXT PROPAGATION")
+    dispatch_end = prompt.index("Review checklist (dimensions)")
+    propagation_pos = prompt.index("## PRIOR-CONTEXT")
     prior_context_pos = prompt.index("## Prior-Attempt Context")
 
     assert propagation_pos > dispatch_end, (
@@ -210,8 +210,8 @@ def test_no_propagation_when_no_prior_findings(tmp_path: Path, monkeypatch) -> N
     )
     prompt: str = result.data["prompt"]
 
-    assert "## SUB-AGENT PRIOR-CONTEXT PROPAGATION" not in prompt, (
-        "T03 FAIL (AC3): prompt must NOT contain '## SUB-AGENT PRIOR-CONTEXT PROPAGATION' "
+    assert "## PRIOR-CONTEXT" not in prompt, (
+        "T03 FAIL (AC3): prompt must NOT contain '## PRIOR-CONTEXT' "
         "when last_findings.json is absent; found — spec 7CA211D2 AC3"
     )
     assert "last_findings.json" not in prompt, (

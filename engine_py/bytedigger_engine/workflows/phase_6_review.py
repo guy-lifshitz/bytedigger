@@ -3,10 +3,9 @@
 Stage 2.6 port (2026-04-25). Fifth LLM-heavy phase. Replaced the partial
 ``phase_6_smoke`` zsh wrapper (since removed) as the canonical phase-6 implementation.
 
-**Scope — prompt-driven fanout for review; single-agent for fix and satisfaction.**
-- REVIEW: 3 (SIMPLE) or 6 (FEATURE/COMPLEX) parallel sub-agents via ``pr-review-toolkit:*``
-  (Agent tool, Approach A, implemented 2026-04-27; tier-aware fanout added 2026-04-27).
-  Outer Sonnet dispatches parallel Agent calls and aggregates into ``reviews/build-review.md``.
+**Scope — single-agent for review, fix and satisfaction.**
+- REVIEW: ONE composite reviewer (bd#139 default; bd#89 P3b1 removed the parallel mode).
+  It writes ``reviews/role-composite.md`` and the aggregate ``reviews/build-review.md``.
 - FIX: ONE fix worker (instead of parallel fix-by-severity buckets)
 - SATISFACTION: ONE Opus evaluator (instead of 3-5 parallel evaluators)
 
@@ -118,7 +117,7 @@ from bytedigger_engine import readiness as _readiness  # bd#141 item 6: review g
 from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin
 from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine.contracts import RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
-from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, STRAGGLER_PATIENCE_SEC, STRAGGLER_POLL_INTERVAL_SEC, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason, _resolve_backend
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason, _resolve_backend
 
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
@@ -163,7 +162,6 @@ from bytedigger_engine.lib.plugins.review_schema import (  # noqa: E402  812D250
     PER_ROLE_SCHEMA_TEMPLATE,
     STRUCTURED_FINDINGS_DIRECTIVE_SHORT,
     ROLE_FINDINGS_COUNT_MARKER_RE,
-    PARALLEL_DISPATCH_FRAMING_TEMPLATE,
     SEVERITY_HDR_LINE_RE,  # GH970: tolerant SEVERITY-header parse
     SEVERITY_HDR_MULTILINE_RE,  # GH970
     lint_role_report,  # GH970 D2: malformed-header lint
@@ -247,15 +245,6 @@ def _resolve_satisfaction_timeout_sec(cfg: dict | None) -> int:
 
 
 VALID_COMPLEXITIES: tuple[str, ...] = ("SIMPLE", "FEATURE", "COMPLEX")
-
-# Reviewer row constants — shared between SIMPLE and FEATURE/COMPLEX dispatch tables.
-# Single definition prevents silent drift when reviewer names or model pins change.
-_ROW_CODE_REVIEWER = "  - pr-review-toolkit:code-reviewer — model: sonnet"
-_ROW_SILENT_FAILURE_HUNTER = "  - pr-review-toolkit:silent-failure-hunter — model: sonnet"
-_ROW_TYPE_DESIGN_ANALYZER = "  - pr-review-toolkit:type-design-analyzer — model: sonnet"
-_ROW_PR_TEST_ANALYZER = "  - pr-review-toolkit:pr-test-analyzer — model: sonnet"
-_ROW_CODE_SIMPLIFIER = "  - pr-review-toolkit:code-simplifier — model: sonnet"
-_ROW_COMMENT_ANALYZER = "  - pr-review-toolkit:comment-analyzer — model: haiku"
 
 REVIEW_DOC_RELPATH = "reviews/build-review.md"
 REVIEW_FIX_DOC_RELPATH = "reviews/build-review-fix.md"
@@ -462,41 +451,13 @@ _ROW_COMPOSITE_REVIEWER = (
 )
 
 
-def _resolve_review_fanout(org_config) -> str:
-    """bd#139: ``org_config["review_fanout"]`` → ``"single"`` (default) | ``"parallel"``.
-
-    Missing/None/"" → single; compared after strip().lower(). Anything else
-    raises ValueError (build_review_prompt maps it to E_REVIEW_FANOUT_INVALID).
-    """
-    raw = (org_config or {}).get("review_fanout")
-    if raw is None:
-        return "single"
-    value = str(raw).strip().lower()
-    if value in ("", "single"):
-        return "single"
-    if value == "parallel":
-        return "parallel"
-    raise ValueError(f"review_fanout must be 'single' or 'parallel', got {raw!r}")
+def _select_reviewers(complexity: str) -> tuple[str, int]:
+    return _ROW_COMPOSITE_REVIEWER, 1
 
 
-def _select_reviewers(complexity: str, fanout: str = "single") -> tuple[str, int]:
-    if fanout == "single":
-        return _ROW_COMPOSITE_REVIEWER, 1
-    if complexity == "SIMPLE":
-        rows_list = [_ROW_CODE_REVIEWER, _ROW_SILENT_FAILURE_HUNTER, _ROW_PR_TEST_ANALYZER]
-        count = 3
-    else:
-        rows_list = [_ROW_CODE_REVIEWER, _ROW_SILENT_FAILURE_HUNTER, _ROW_TYPE_DESIGN_ANALYZER,
-                     _ROW_PR_TEST_ANALYZER, _ROW_CODE_SIMPLIFIER, _ROW_COMMENT_ANALYZER]
-        count = 6
-    return "\n".join(rows_list), count
-
-
-def _review_plan(ctx, complexity: str) -> tuple[str, str, int]:
-    """Resolve (fanout, dispatch_table, reviewer_count) once. Raises ValueError on invalid fanout."""
-    fanout = _resolve_review_fanout(ctx.org_config if ctx else None)
-    dispatch_table, reviewer_count = _select_reviewers(complexity, fanout=fanout)
-    return fanout, dispatch_table, reviewer_count
+def _review_plan(ctx, complexity: str) -> tuple[str, int]:
+    """Resolve (dispatch_table, reviewer_count). Always the one composite reviewer; never raises."""
+    return _select_reviewers(complexity)
 
 
 def _parse_review_verdict(raw: str) -> str:
@@ -776,44 +737,23 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         except (OSError, ValueError, TypeError):
             _prior_findings_data = None
     complexity = _resolve_complexity(ctx)
-    try:
-        _fanout, dispatch_table, reviewer_count = _review_plan(ctx, complexity)
-    except ValueError as exc:
-        return StepResult(
-            status="error", data=None, duration_ms=0,
-            step_name="build_review_prompt",
-            error=str(exc),
-            error_code="E_REVIEW_FANOUT_INVALID",
-            recoverable=False,
-        )
-    _single_mode = reviewer_count == 1
-    if _single_mode:
-        _role_line = (
-            "ROLE: You are the sole reviewer. Review the work yourself, write your findings "
-            f"to {str(scratchpad / 'reviews')}/role-composite.md, then write the aggregated review into "
-            f"{scratchpad / REVIEW_DOC_RELPATH}. VERIFICATION-ONLY — do NOT edit code or test files."
-        )
-        _framing_template = SINGLE_REVIEW_FRAMING_TEMPLATE
-        _security_addendum = (
-            "\nSECURITY ADDENDUM (security_classification=HIGH): include an inline "
-            "security review covering OWASP Top 10 — injection vectors, auth bypass "
-            "paths, secret exposure — as an additional ## section in the aggregated "
-            "review."
-        )
-    else:
-        _role_line = (
-            f"ROLE: You are a review orchestrator. Spawn {reviewer_count} parallel pr-review-toolkit "
-            "sub-agent reviews via the Agent tool, then aggregate their findings into "
-            f"{scratchpad / REVIEW_DOC_RELPATH}. VERIFICATION-ONLY — do NOT edit code or test files."
-        )
-        _framing_template = PARALLEL_DISPATCH_FRAMING_TEMPLATE
-        _security_addendum = (
-            "\nSECURITY ADDENDUM (security_classification=HIGH): after all sub-agent "
-            "responses are collected, include an inline security-reviewer synthesis "
-            "covering OWASP Top 10 — injection vectors, auth bypass paths, secret "
-            "exposure. No 7th Agent call — synthesize as an additional ## section "
-            "in the aggregated review."
-        )
+    # bd#89 P3b1: org_config["review_fanout"] is ignored for every value; a non-default
+    # value is made visible with one event, never an error.
+    _raw_fanout = (ctx.org_config or {}).get("review_fanout") if ctx else None
+    if _raw_fanout is not None and str(_raw_fanout).strip().lower() not in ("", "single"):
+        _emit_safe("review_fanout_ignored", {"value": str(_raw_fanout)})
+    dispatch_table, reviewer_count = _review_plan(ctx, complexity)
+    _role_line = (
+        "ROLE: You are the sole reviewer. Review the work yourself, write your findings "
+        f"to {str(scratchpad / 'reviews')}/role-composite.md, then write the aggregated review into "
+        f"{scratchpad / REVIEW_DOC_RELPATH}. VERIFICATION-ONLY — do NOT edit code or test files."
+    )
+    _security_addendum = (
+        "\nSECURITY ADDENDUM (security_classification=HIGH): include an inline "
+        "security review covering OWASP Top 10 — injection vectors, auth bypass "
+        "paths, secret exposure — as an additional ## section in the aggregated "
+        "review."
+    )
     spec_path = scratchpad / SPEC_DOC_RELPATH
     red_log = scratchpad / RED_LOG_RELPATH
     green_log = scratchpad / GREEN_LOG_RELPATH
@@ -896,7 +836,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         )
     parts.append("")
     parts.append(
-        _framing_template.format(
+        SINGLE_REVIEW_FRAMING_TEMPLATE.format(
             reviewer_count=reviewer_count,
             abs_reviews_dir=abs_reviews_dir,
             per_role_schema=PER_ROLE_SCHEMA_TEMPLATE,
@@ -961,9 +901,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         _abs_last_findings = str(scratchpad / "reviews" / "last_findings.json")
         parts.append("")
         _prop_heading, _prop_reader = (
-            ("## PRIOR-CONTEXT", "Before reviewing, read the prior findings file:")
-            if _single_mode else
-            ("## SUB-AGENT PRIOR-CONTEXT PROPAGATION", "Each dispatched Agent MUST read the prior findings file before reviewing:")
+            "## PRIOR-CONTEXT", "Before reviewing, read the prior findings file:"
         )
         parts.append(
             f"{_prop_heading}\n"
@@ -1093,61 +1031,18 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     if complexity:
         extra["complexity"] = complexity
 
-    # CCBB65DC: straggler-abort watchdog wiring — opt-in via org_config["straggler_abort"].
-    # CF2EE8ED §3.2: claude-in-session lacks 'abort' capability. If org_config
-    # requests straggler_abort under in-session backend, WARN loudly and
-    # auto-degrade. Ratified 2026-05-24.
-    # bd#82: the reviewer is a judge — check the backend judges actually run on.
-    if cfg.get("straggler_abort") and _resolve_backend(None, config_provider.env_mapping(), role="judge")[0] == "claude-in-session":
-        logger.warning(
-            "straggler_abort=true under claude-in-session backend is unsupported "
-            "(no 'abort' capability); auto-degrading to straggler_abort=false for "
-            "this call. Fix org_config to silence this warning."
-        )
-        _emit_safe(
-            "straggler_abort_skipped_in_session",
-            {"reason": "in-session backend lacks abort capability"},
-        )
-        cfg = {**cfg, "straggler_abort": False}
-    straggler_cfg = None
-    _scfg = cfg
-    # Resolve scratchpad + review plan once for the straggler block and stale-file guard.
+    # Resolve scratchpad once for the stale-file guard.
     _scratchpad: Path | None = None
-    _plan: tuple[str, str, int] | None = None
-    _plan_err: ValueError | None = None
     try:
         _scratchpad = _resolve_scratchpad(ctx)
-        _plan = _review_plan(ctx, complexity or "FEATURE")
-    except ValueError as exc:
-        _plan_err = exc
-    if _scfg.get("straggler_abort"):
-        try:
-            if _plan_err is not None:
-                raise _plan_err
-            assert _scratchpad is not None and _plan is not None
-            _reviewer_count = _plan[2]
-            # bd#139: the watchdog arms at expected_n - 1 files, so a lone
-            # reviewer would be killed at zero files; only a fan-out is watched.
-            if _reviewer_count >= 2:
-                straggler_cfg = {
-                    "reviews_dir": str(_scratchpad / "reviews"),
-                    "expected_n": int(_reviewer_count),
-                    "patience_sec": float(_scfg.get("straggler_patience_sec") or STRAGGLER_PATIENCE_SEC),
-                    "poll_interval_sec": float(_scfg.get("straggler_poll_interval_sec") or STRAGGLER_POLL_INTERVAL_SEC),
-                }
-        except Exception:
-            logger.warning(
-                "failed to build straggler_cfg; disabling straggler abort for this call",
-                exc_info=True,
-            )
-            straggler_cfg = None
+    except ValueError:
+        _scratchpad = None
 
-    # bd#139 stale-file guard: single mode writes only role-composite.md, so a
-    # composite from an earlier cycle (or parallel role files from before a mode
-    # switch) must not satisfy floor 1. Fail-safe: never fails the step.
-    # No scratchpad configured, or invalid fanout (reported by build_review_prompt) → _plan is None.
+    # bd#139 stale-file guard: the single reviewer writes only role-composite.md, so a
+    # composite from an earlier cycle (or per-role files of a pre-upgrade parallel
+    # config) must not satisfy the aggregator. Fail-safe: never fails the step.
     try:
-        if _plan is not None and _scratchpad is not None and _plan[2] == 1:
+        if _scratchpad is not None:
             for _stale in (_scratchpad / "reviews").glob("role-*.md"):
                 _stale.unlink()
     except OSError:
@@ -1160,7 +1055,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         step_name="invoke_review_llm",
         extra_data=extra,
         allowed_tools=["Read", "Grep", "Glob", "Write"],
-        straggler_cfg=straggler_cfg,
+        straggler_cfg=None,
         stable_prefix=prev.data.get("stable_prefix", ""),
         fresh_session=True,  # bd#82: a reviewer must not resume an earlier transcript
         role="judge",
@@ -1669,39 +1564,16 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     complexity = forwarded.get("complexity")
     expected_reviewers: int | None = None
     expected_slugs: list[str] = []
-    min_floor: int | None = None
     if complexity:
         try:
-            _, dispatch_table, expected_reviewers = _review_plan(ctx, complexity)
+            dispatch_table, expected_reviewers = _review_plan(ctx, complexity)
             expected_slugs = _extract_expected_slugs(dispatch_table)
-            # bd#139: a single reviewer needs floor 1; parallel floors stay 2/3.
-            min_floor = 1 if expected_reviewers == 1 else max(2, (expected_reviewers + 1) // 2)  # ceil(N/2)
         except Exception:
-            # Defensive: bad complexity value → skip floor check, log and continue.
-            logger.warning("E8433B4E: failed to compute floor for complexity=%r", complexity, exc_info=True)
+            # Defensive: bad complexity value → skip banner expectation, log and continue.
+            logger.warning("E8433B4E: failed to compute plan for complexity=%r", complexity, exc_info=True)
             expected_reviewers = None
-            min_floor = None
 
     observed_count = len(role_files)
-    if min_floor is not None and 0 < observed_count < min_floor:
-        return StepResult(
-            status="error",
-            data={
-                **forwarded,
-                "aggregated_content": None,
-                "observed_role_count": observed_count,
-                "expected_reviewers": expected_reviewers,
-                "min_floor": min_floor,
-            },
-            duration_ms=0,
-            step_name="aggregate_review_findings",
-            error=(
-                f"insufficient fanout: {observed_count} role file(s) below "
-                f"min_floor={min_floor} (expected_reviewers={expected_reviewers})"
-            ),
-            error_code="E_INSUFFICIENT_FANOUT",
-            recoverable=False,
-        )
 
     # Per-role section bodies + flat findings list with role attribution.
     role_sections: list[tuple[str, str]] = []   # (slug, raw_content)
@@ -2048,7 +1920,6 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             "severity_counts": counts,
             "observed_role_count": observed_count,
             "expected_reviewers": expected_reviewers,
-            "min_floor": min_floor,
             "findings_audit": findings_audit,  # 906E37DC
             "verified_findings": verified_findings,  # 65695203: forwarded to step 4 for fix-doc render
             "suspect_findings": suspect_findings,  # CA50885D: forwarded for fail-OPEN fix-feed

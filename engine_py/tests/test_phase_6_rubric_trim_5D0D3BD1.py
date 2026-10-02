@@ -38,7 +38,6 @@ def _make_ctx(scratchpad: Path, *, question: str = "Add foo to bar") -> Workflow
         org_config={
             "scratchpad_dir": str(scratchpad),
             "current_worktree_path": str(fake_worktree),
-            "review_fanout": "parallel",  # bd#139: pin the PARALLEL DISPATCH block
         },
         question=question,
         session_id="test-session",
@@ -93,24 +92,7 @@ def test_review_prompt_under_37000_bytes(tmp_path):
     )
 
 
-# ─── AC10: PARALLEL DISPATCH block ≤ 1800 bytes ────────────────────────────
-
-
-def test_parallel_dispatch_block_trimmed(tmp_path):
-    """AC10: PARALLEL DISPATCH inline block ≤ 1800 bytes in built prompt.
-
-    Measured floor: 1736 bytes. Cap = floor + 64-byte buffer.
-    regression-tripwire — trim work reverted to preserve 20 sibling tests (5D0D3BD1 post-mortem)
-    """
-    prompt = _build_review_prompt_str(tmp_path / "rev")
-    block = _extract_block(prompt, "PARALLEL DISPATCH", "STRUCTURED FINDINGS")
-    byte_len = len(block)
-    # regression-tripwire — trim work reverted to preserve 20 sibling tests (5D0D3BD1 post-mortem)
-    assert byte_len <= 1800, (
-        f"PARALLEL DISPATCH block is {byte_len} bytes; cap is 1800 (floor 1736 + 64-byte buffer). "
-        f"Over budget by {byte_len - 1800} bytes. "
-        "A future ship bloated this block — check recent phase_6_review.py changes."
-    )
+# ─── AC10: retired by bd#89 P3b1 (the parallel dispatch block no longer exists) ───
 
 
 # ─── AC11: AGGREGATION block ≤ 3000 bytes ──────────────────────────────────

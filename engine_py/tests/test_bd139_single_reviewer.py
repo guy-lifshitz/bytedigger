@@ -29,21 +29,6 @@ from bytedigger_engine.workflows.phase_6_review import (
 
 ENGINE_PY = Path(__file__).resolve().parents[1]
 
-_SIMPLE_TABLE = "\n".join([
-    "  - pr-review-toolkit:code-reviewer — model: sonnet",
-    "  - pr-review-toolkit:silent-failure-hunter — model: sonnet",
-    "  - pr-review-toolkit:pr-test-analyzer — model: sonnet",
-])
-_FULL_TABLE = "\n".join([
-    "  - pr-review-toolkit:code-reviewer — model: sonnet",
-    "  - pr-review-toolkit:silent-failure-hunter — model: sonnet",
-    "  - pr-review-toolkit:type-design-analyzer — model: sonnet",
-    "  - pr-review-toolkit:pr-test-analyzer — model: sonnet",
-    "  - pr-review-toolkit:code-simplifier — model: sonnet",
-    "  - pr-review-toolkit:comment-analyzer — model: haiku",
-])
-
-
 def _ctx(tmp_path: Path, complexity: str = "FEATURE", **extra) -> WorkflowContext:
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -87,18 +72,7 @@ def test_ac1_default_select_reviewers_returns_count_1(complexity):
     assert "devops" not in table
 
 
-# ─── AC2 ─────────────────────────────────────────────────────────────────────
-
-@pytest.mark.parametrize(
-    "complexity,expected",
-    [
-        ("SIMPLE", (_SIMPLE_TABLE, 3)),
-        ("FEATURE", (_FULL_TABLE, 6)),
-        ("COMPLEX", (_FULL_TABLE, 6)),
-    ],
-)
-def test_ac2_parallel_fanout_equals_2622727_output(complexity, expected):
-    assert _select_reviewers(complexity, fanout="parallel") == expected
+# AC2 (parallel fanout equals 2622727 output) retired by bd#89 P3b1: parallel mode removed.
 
 
 # ─── AC3 ─────────────────────────────────────────────────────────────────────
@@ -112,12 +86,6 @@ def test_ac3_single_mode_prompt_has_no_orchestrator_language(tmp_path):
     assert "Agent tool" not in prompt
     assert "role-composite.md" in prompt
     assert "> path:line:" in prompt
-
-
-def test_ac3_parallel_mode_prompt_still_spawns_6(tmp_path):
-    result = _build_review_prompt(_ctx(tmp_path, "FEATURE", review_fanout="parallel"), None)
-    assert result.status == "ok", f"{result.error_code}: {result.error}"
-    assert "Spawn 6 parallel" in result.data["prompt"]
 
 
 _SINGLE_MODE_FORBIDDEN = ("dispatched Agent", "sub-agent", "Agent call", "Spawn")
@@ -147,14 +115,6 @@ def test_ac3b_single_mode_prior_findings_and_security_blocks_address_the_reviewe
     assert "PRIOR — still present" in prompt
     leaked = [w for w in _SINGLE_MODE_FORBIDDEN if w.lower() in prompt.lower()]
     assert not leaked, f"single-mode prompt leaks delegation language: {leaked}"
-
-
-def test_ac3b_parallel_mode_same_inputs_keeps_dispatched_agent_wording(tmp_path):
-    ctx = _ctx(tmp_path, "FEATURE", security_classification="HIGH", review_fanout="parallel")
-    _write_prior_findings(Path(ctx.org_config["scratchpad_dir"]))
-    result = _build_review_prompt(ctx, None)
-    assert result.status == "ok", f"{result.error_code}: {result.error}"
-    assert "Each dispatched Agent MUST read" in result.data["prompt"]
 
 
 # ─── AC3c ────────────────────────────────────────────────────────────────────
@@ -196,23 +156,8 @@ def test_ac4b_single_spellings_select_single_mode(tmp_path, value):
     assert agg.status == "ok", f"{agg.error_code}: {agg.error}"
 
 
-def test_ac4b_uppercase_parallel_selects_parallel_mode(tmp_path):
-    result = _build_review_prompt(_ctx(tmp_path, "FEATURE", review_fanout="PARALLEL"), None)
-    assert result.status == "ok", f"{result.error_code}: {result.error}"
-    assert "Spawn 6 parallel" in result.data["prompt"]
-
-
-# ─── AC4 ─────────────────────────────────────────────────────────────────────
-
-def test_ac4_bogus_fanout_is_step_error(tmp_path):
-    result = _build_review_prompt(_ctx(tmp_path, "FEATURE", review_fanout="bogus"), None)
-    assert result.status == "error"
-    assert result.error_code == "E_REVIEW_FANOUT_INVALID"
-
-
-def test_ac4_error_code_documented_in_error_codes_md():
-    text = (ENGINE_PY / "ERROR_CODES.md").read_text(encoding="utf-8")
-    assert re.search(r"^- `E_REVIEW_FANOUT_INVALID`", text, re.MULTILINE)
+# AC4 (bogus fanout is a step error, E_REVIEW_FANOUT_INVALID documented) and the uppercase
+# PARALLEL test are retired by bd#89 P3b1: the key is ignored, see the P3b1 RED file.
 
 
 # ─── AC5 ─────────────────────────────────────────────────────────────────────
@@ -230,18 +175,6 @@ def test_ac5_single_zero_role_files_is_no_role_files(tmp_path):
     result = _aggregate_review_findings(_ctx(tmp_path, "FEATURE"), _agg_prev(scratch, "FEATURE"))
     assert result.status == "error"
     assert result.error_code == "E_NO_ROLE_FILES"
-
-
-def test_ac5_parallel_expected_6_keeps_floor_3(tmp_path):
-    scratch = tmp_path / "scratch"
-    _role_file(scratch / "reviews", "code-reviewer")
-    _role_file(scratch / "reviews", "silent-failure-hunter")
-    result = _aggregate_review_findings(
-        _ctx(tmp_path, "FEATURE", review_fanout="parallel"), _agg_prev(scratch, "FEATURE")
-    )
-    assert result.error_code == "E_INSUFFICIENT_FANOUT"
-    assert result.data.get("min_floor") == 3
-    assert result.data.get("expected_reviewers") == 6
 
 
 # ─── AC6 ─────────────────────────────────────────────────────────────────────
@@ -275,12 +208,6 @@ def test_ac6_single_mode_passes_straggler_cfg_none(tmp_path, monkeypatch):
     captured = _capture_invoke(tmp_path, monkeypatch)
     assert "straggler_cfg" in captured
     assert captured["straggler_cfg"] is None
-
-
-def test_ac6_parallel_feature_passes_expected_n_6(tmp_path, monkeypatch):
-    captured = _capture_invoke(tmp_path, monkeypatch, review_fanout="parallel")
-    assert captured["straggler_cfg"] is not None
-    assert captured["straggler_cfg"]["expected_n"] == 6
 
 
 # ─── AC7 (side effect, §1l) ──────────────────────────────────────────────────
