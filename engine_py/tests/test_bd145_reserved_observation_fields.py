@@ -44,6 +44,7 @@ OPUS_FORGED = "claude-opus-5-5"
 NAMES = (
     "observed_model", "observed_tools", "worker_written_paths",
     "manifest_source", "mcp_server_losses",
+    "billing_mode", "usage",  # bd#167 A1: amends AC1 (the set is now seven names)
 )
 
 
@@ -54,6 +55,8 @@ def _forged_all() -> dict:
         "worker_written_paths": ["FORGED/path"],
         "manifest_source": "FORGED-source",
         "mcp_server_losses": ["FORGED-loss"],
+        "billing_mode": "FORGED-billing",  # bd#167 A1 sentinels: never equal to a producer value
+        "usage": {"FORGED-usage": 1},
     }
 
 
@@ -346,11 +349,12 @@ def test_ac9_dropped_reserved_name_is_logged_once(caplog):
     lname = llm_subprocess.logger.name
     with caplog.at_level(logging.WARNING, logger=lname):
         _invoke_echo(extra_data={"observed_model": "x", "observed_tools": ["y"]})
-    warns = [r for r in caplog.records if r.name == lname and r.levelno == logging.WARNING
-             and "observed_model" in r.getMessage()]
-    assert len(warns) == 1, f"expected one WARNING naming the dropped fields; got {len(warns)}"
     prefix = getattr(llm_subprocess, "RESERVED_DROP_LOG_PREFIX", None)
     assert isinstance(prefix, str) and prefix, "RESERVED_DROP_LOG_PREFIX must exist"
+    # bd#167 B1: select by the drop-log prefix (the no-usage warning also contains "usage")
+    warns = [r for r in caplog.records if r.name == lname and r.levelno == logging.WARNING
+             and r.getMessage().startswith(prefix) and "observed_model" in r.getMessage()]
+    assert len(warns) == 1, f"expected one WARNING naming the dropped fields; got {len(warns)}"
     assert warns[0].getMessage().startswith(prefix + "observed_model"), warns[0].getMessage()
     assert "observed_tools" in warns[0].getMessage(), warns[0].getMessage()
 
@@ -358,6 +362,7 @@ def test_ac9_dropped_reserved_name_is_logged_once(caplog):
     with caplog.at_level(logging.WARNING, logger=lname):
         _invoke_echo(extra_data={"doc_path": "p"})
     named = [r for r in caplog.records if r.name == lname
+             and r.getMessage().startswith(prefix)
              and any(n in r.getMessage() for n in NAMES)]
     assert named == [], [r.getMessage() for r in named]
 
@@ -366,7 +371,10 @@ def test_ac9_dropped_reserved_name_is_logged_once(caplog):
 
 def _drop_warnings(caplog):
     lname = llm_subprocess.logger.name
+    prefix = getattr(llm_subprocess, "RESERVED_DROP_LOG_PREFIX", "")
+    # bd#167 B1: select by the drop-log prefix, not by a bare name (other warnings may name a field)
     return [r for r in caplog.records if r.name == lname and r.levelno == logging.WARNING
+            and r.getMessage().startswith(prefix)
             and any(n in r.getMessage() for n in NAMES)]
 
 
