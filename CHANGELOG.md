@@ -95,6 +95,12 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Fixed
 
+- **Callers can no longer forge adapter observations (bd#145).** `_dispatch_backend` drops the
+  reserved observation fields (`observed_model`, `observed_tools`, `worker_written_paths`,
+  `manifest_source`, `mcp_server_losses`) from `extra_data` before any backend sees it, with one
+  warning naming them. On the in-session, straggler and reference-backend paths a caller value used
+  to override the adapter's report and reach the R3.3 / R3.5 checks.
+
 - **Workers write their own deliverables (bd#127).** The explorer, architect and synthesizer
   agents now get `Write` for their one deliverable path (findings, approach, `learnings-raw.md`),
   and the phase 2/4/7 prompts have the orchestrator verify the file on disk and re-prompt on a
