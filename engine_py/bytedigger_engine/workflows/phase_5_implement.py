@@ -179,9 +179,9 @@ from bytedigger_engine.lib import step_sentinel as _step_sentinel  # noqa: E402 
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
 try:
-    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from .phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
+    from bytedigger_engine.workflows.phase_workflows_common import (_emit_safe, _filter_gitignored_paths, _filter_phantom_deleted_paths, _git_op_with_lock_retry, _git_write, _last_marker_wins, _maybe_emit_cross_tree_warning, _snapshot_main_checkout_state, _maybe_role_template, _paths_have_staged_changes, _read_engine_mode, _read_first_block, _resolve_command, _resolve_model, _resolve_scratchpad, _revert_cross_tree_modifications, _verify_no_cross_tree_edits, _worktree_edit_boundary_block, _CROSS_TREE_PROMPT_TEMPLATE, _ENGINE_MODE_RE, resolve_engine_mode, _declared_injections, _role_template, _role_template_record)  # type: ignore[no-redef]  # noqa: E402,F401  #261 Stage 0  3F5599A6  GH268
 
 def _default_red_model() -> str:
     return get_claude_primary()
@@ -1554,6 +1554,12 @@ def _invoke_red_llm(ctx, prev) -> StepResult:
     # GH1179 (§1.6-3): pre-snapshot BEFORE the LLM call, on every RED including
     # failing ones.
     _boundary_before = _pre_boundary_snapshot(ctx)
+    # bd#170: main-checkout pre-state, so the cross-tree revert keeps edits that predate this run.
+    try:
+        _pre_state = _snapshot_main_checkout_state(
+            _resolve_worktree_root(ctx, _resolve_scratchpad(ctx)))
+    except ValueError:
+        _pre_state = None  # fail closed: no snapshot, no reset
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=resolved_model,
@@ -1583,7 +1589,7 @@ def _invoke_red_llm(ctx, prev) -> StepResult:
         result = _enforce_red_write_boundary(result, _boundary_before, _boundary_after)
         if result.status == "ok":
             # F3 cross-tree edit guard (A4479061): observability only, no auto-revert.
-            result = _maybe_emit_cross_tree_warning(result, worktree_root)
+            result = _maybe_emit_cross_tree_warning(result, worktree_root, pre_state=_pre_state)
     else:
         _data = result.data if isinstance(result.data, dict) else {}
         _emit_safe("invoke_red_llm_failed", {
@@ -7586,6 +7592,12 @@ def _invoke_green_llm(ctx, prev) -> StepResult:
     # A3398552: SIMPLE tier uses Haiku for GREEN to save 5-7 min/build; FEATURE/COMPLEX stay Sonnet.
     green_complexity = str(cfg.get("complexity") or "").upper()
     green_default = _tier_haiku_model() if green_complexity == "SIMPLE" else _default_green_model()
+    # bd#170: main-checkout pre-state, so the cross-tree revert keeps edits that predate this run.
+    try:
+        _pre_state = _snapshot_main_checkout_state(
+            _resolve_worktree_root(ctx, _resolve_scratchpad(ctx)))
+    except ValueError:
+        _pre_state = None  # fail closed: no snapshot, no reset
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=_resolve_model(cfg, "green_model", green_default),
@@ -7618,7 +7630,7 @@ def _invoke_green_llm(ctx, prev) -> StepResult:
     if result.status == "ok":
         scratchpad = _resolve_scratchpad(ctx)
         worktree_root = _resolve_worktree_root(ctx, scratchpad)
-        result = _maybe_emit_cross_tree_warning(result, worktree_root)
+        result = _maybe_emit_cross_tree_warning(result, worktree_root, pre_state=_pre_state)
     return result
 
 

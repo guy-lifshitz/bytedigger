@@ -396,7 +396,7 @@ def test_ac9_invoke_green_llm_skips_subprocess_when_marker_present(monkeypatch, 
     monkeypatch.setattr(_p5, "invoke_llm_subprocess", _raise_if_called)
     monkeypatch.setattr(_p5, "_resolve_scratchpad", lambda ctx: scratchpad)
     monkeypatch.setattr(_p5, "_resolve_worktree_root", lambda ctx, sp: sp)
-    monkeypatch.setattr(_p5, "_maybe_emit_cross_tree_warning", lambda result, root: result)
+    monkeypatch.setattr(_p5, "_maybe_emit_cross_tree_warning", lambda result, root, **_kw: result)
 
     read_fn = getattr(_p5, "_read_green_complete_resume", None)
     assert read_fn is not None, "GH483 helper _read_green_complete_resume not implemented yet"
@@ -449,7 +449,7 @@ def test_ac10_regression_floor_invoke_green_llm_calls_subprocess_when_no_marker(
     monkeypatch.setattr(_p5, "invoke_llm_subprocess", _canned_ok)
     monkeypatch.setattr(_p5, "_resolve_scratchpad", lambda ctx: scratchpad)
     monkeypatch.setattr(_p5, "_resolve_worktree_root", lambda ctx, sp: sp)
-    monkeypatch.setattr(_p5, "_maybe_emit_cross_tree_warning", lambda result, root: result)
+    monkeypatch.setattr(_p5, "_maybe_emit_cross_tree_warning", lambda result, root, **_kw: result)
 
     ctx = _make_ctx(str(scratchpad))
     prev = _make_prev(_make_green_prev_data(), step_name="build_green_prompt")
