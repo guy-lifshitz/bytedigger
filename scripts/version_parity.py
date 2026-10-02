@@ -28,8 +28,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
+
+RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -319,6 +322,58 @@ def cmd_check(root: Path) -> int:
     return 0
 
 
+def _triple(version: str) -> tuple:
+    return tuple(int(p) for p in version.split("."))
+
+
+def cmd_check_release(root: Path, tag: str | None) -> int:
+    try:
+        canonical = _read_canonical(root)
+    except DeclarationError as e:
+        print(f"{e.path}: {e.reason}")
+        return 1
+    if not VERSION_RE.match(canonical):
+        print(f"{CANONICAL_RELPATH}: version {canonical} is not X.Y.Z")
+        return 1
+
+    problems: list[str] = []
+    tag_lines = None
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "tag", "-l", "v*"],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            tag_lines = proc.stdout.splitlines()
+    except (OSError, ValueError):
+        tag_lines = None
+    if tag_lines is None:
+        problems.append("git tags: unreadable")
+    else:
+        release_tags = [t.strip() for t in tag_lines if RELEASE_TAG_RE.match(t.strip())]
+        if release_tags:
+            newest = max(release_tags, key=lambda t: _triple(t[1:]))
+            if _triple(newest[1:]) > _triple(canonical):
+                problems.append(
+                    f"git tags: newest release tag {newest} is ahead of {canonical}"
+                )
+
+    if tag is not None:
+        if not RELEASE_TAG_RE.match(tag):
+            problems.append("--tag: malformed TAG")
+        elif tag[1:] != canonical:
+            problems.append(f"--tag: {tag} does not match {canonical}")
+
+    if problems:
+        for line in problems:
+            print(line)
+        return 1
+
+    print(f"OK: release version {canonical}")
+    return 0
+
+
 def _validate_version_arg(value: str) -> bool:
     return bool(VERSION_RE.match(value))
 
@@ -432,9 +487,26 @@ def main() -> int:
         action="store_true",
         help="Print the declaration registry as JSON.",
     )
+    mode.add_argument(
+        "--check-release",
+        action="store_true",
+        help="Check the canonical version against release tags (and --tag).",
+    )
+    parser.add_argument(
+        "--tag",
+        metavar="TAG",
+        default=None,
+        help="Release tag to match against the canonical version (needs --check-release).",
+    )
     args = parser.parse_args()
 
+    if args.tag is not None and not args.check_release:
+        parser.error("--tag is only valid with --check-release")
+
     root = args.root.resolve()
+
+    if args.check_release:
+        return cmd_check_release(root, args.tag)
 
     if args.list_declarations:
         return cmd_list_declarations()

@@ -6,8 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Versioning: the plugin (`.claude-plugin/plugin.json`), the npm pointer package
-(`npm/`), and the Python engine (`engine_py/pyproject.toml`) all version together
-as `0.x` until the engine API stabilizes. The historical `v1.0.0` tag predates
+(`npm/`), and the Python engine (`engine_py/pyproject.toml`) all version together;
+`scripts/version_parity.py` enforces it. The `v1.1.0` tag carried `0.2.0`
+declarations and is superseded by 1.1.1. The historical `v1.0.0` tag predates
 the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
@@ -24,6 +25,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Fixed
 
+- **The package version is now checked against release tags (bd#211).** Tag `v1.1.0` shipped while every declaration said `0.2.0`, and nothing compared the two. `scripts/version_parity.py --check-release [--tag TAG]` fails when any strict `vX.Y.Z` tag in the repo is ahead of the canonical version, when git cannot list tags, or when `--tag` is malformed or differs from `v` plus the canonical version. The `manifests` CI job runs it with full tag history, passing the tag on `v*` tag pushes. The declarations are bumped to 1.1.1.
 - **A malformed oracle freeze row refuses instead of escaping (bd#158).** `find_last_freeze` and `verify_against` now shape-check the freeze/amendment payload (`check_freeze_payload`: object, string `digest`/`scope_digest`, list members of string or `{path, digest}` strings, list-of-string `scope`, no NUL in a path) and raise `OracleMalformedFreeze`, an `OracleRefusal` with `E_ORACLE_INDETERMINATE`. Before this, a hand-written or corrupted row raised `KeyError`/`TypeError`/`AttributeError` past `run.py` and was reported as a non-oracle code. A re-entry amendment over a malformed previous row refuses rather than recording a non-string `previous_digest`; a path-layer `ValueError`/`OSError` during verify is `E_ORACLE_INDETERMINATE`. The `oracle verify` CLI keeps rc 2 for a malformed row. No new error code.
 
 ### Added
