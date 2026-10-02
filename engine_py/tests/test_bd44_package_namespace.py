@@ -42,9 +42,10 @@ VENV_OWN = {"pip", "setuptools", "pkg_resources", "_distutils_hack",
             "distutils-precedence.pth", "__pycache__", "wheel"}
 
 # Measured on the pre-move wheel by running `bytedigger-engine --list` in a clean
-# venv (spec §1c.1): exactly 21, rc=0. This is a live baseline, not a number read
-# off the issue.
-EXPECTED_WORKFLOWS = 21
+# venv (spec §1c.1): exactly 21, rc=0 at bd#44. The count became 16 when bd#89 P1
+# dropped 5 devops/canary/smoke stages from register_all; AC1 of the bd89 P1 test
+# holds the frozen set.
+EXPECTED_WORKFLOWS = 16
 
 
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -117,7 +118,7 @@ def test_ac1_import_bytedigger_engine_works(venv: Path):
 # ── AC2 — the user-facing CLI does not regress ─────────────────────────────
 
 
-def test_ac2_console_script_still_lists_21_workflows(venv: Path):
+def test_ac2_console_script_lists_expected_workflows(venv: Path):
     """The console script is the shipped interface — the move must not touch it."""
     proc = _run([str(venv / "bin" / "bytedigger-engine"), "--list"])
     assert proc.returncode == 0, f"AC2: `--list` exited {proc.returncode}:\n{proc.stderr[-1500:]}"
@@ -126,8 +127,8 @@ def test_ac2_console_script_still_lists_21_workflows(venv: Path):
     assert line is not None, f"AC2: no JSON array on stdout:\n{proc.stdout[-800:]}"
     names = json.loads(line)
     assert len(names) == EXPECTED_WORKFLOWS, (
-        f"AC2: expected {EXPECTED_WORKFLOWS} workflows (live baseline measured on the "
-        f"pre-move wheel), got {len(names)}: {names}"
+        f"AC2: expected {EXPECTED_WORKFLOWS} workflows (frozen set; see comment at "
+        f"EXPECTED_WORKFLOWS), got {len(names)}: {names}"
     )
 
 

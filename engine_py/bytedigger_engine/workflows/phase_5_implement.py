@@ -145,10 +145,6 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._baseline_delta import run_baseline_delta_gate  # type: ignore[no-redef]  # noqa: E402  GH561 §1r lane-2
 from bytedigger_engine.lib.plugins.checklist_convergence.impl_delta_retry_prompt import build_impl_delta_retry_prompt  # noqa: E402  GH496
-try:
-    from ._standards_context import get_standards_context  # noqa: E402
-except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows._standards_context import get_standards_context  # type: ignore[no-redef]  # noqa: E402
 from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin  # noqa: E402  E843349F
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
 from bytedigger_engine.verdict_gate import run_gate as _run_verdict_gate  # noqa: E402  GH517 34E0B77B
@@ -1446,9 +1442,6 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         parts.append("")
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
-    _standards_block = get_standards_context(ctx)
-    if _standards_block:
-        prompt = _standards_block + prompt
     _content_digest = _verdict_content_digest(
         [str(spec_path), str(scratchpad / VALIDATION_DOC_RELPATH)]
     )
@@ -7487,9 +7480,6 @@ def _build_green_prompt(ctx, prev) -> StepResult:
     parts.append(interpreter.worker_interpreter_block_for(ctx))
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
-    _standards_block = get_standards_context(ctx)
-    if _standards_block:
-        prompt = _standards_block + prompt
     # Write prompt to scratchpad log so test AC6 can find it
     try:
         green_log_path.parent.mkdir(parents=True, exist_ok=True)

@@ -10,7 +10,7 @@ in-scope test files (S2, phase_6_review fix prompt) and the directed-repair arti
 AC -> test map
 --------------
 AC1  test_ac1_decision_doc_whole_declared[plain|with_role_template]
-AC1b test_ac1b_decision_doc_bound_to_final_prompt_after_standards_prepend
+AC1b test_ac1b_decision_doc_bound_to_final_prompt
 AC2  test_ac2_decision_doc_truncated_declares_head_then_tail
      test_ac2_multibyte_over_byte_cap_declares_one_whole_block
 AC3  test_ac3_inscope_test_files_declared_in_surviving_order
@@ -359,7 +359,7 @@ def test_ac1_decision_doc_whole_declared(with_role, tmp_path, monkeypatch) -> No
 # AC1b - S1 record is bound to the FINAL prompt (after the standards prepend)
 # ---------------------------------------------------------------------------
 
-def test_ac1b_decision_doc_bound_to_final_prompt_after_standards_prepend(tmp_path, monkeypatch) -> None:
+def test_ac1b_decision_doc_bound_to_final_prompt(tmp_path, monkeypatch) -> None:
     # Red under: mutation "bind S1 before the standards prepend" (prompt_sha256 over the pre-prepend
     # prompt -> record ignored -> no declaration); and today (no record at all).
     monkeypatch.chdir(tmp_path)
@@ -367,11 +367,7 @@ def test_ac1b_decision_doc_bound_to_final_prompt_after_standards_prepend(tmp_pat
     doc = _write_doc(tmp_path, text)
     env = _Env(tmp_path / "run")
     p45 = _mod("phase_45_spec")
-    standards = "STANDARDS-BLOCK-147: follow the house rules.\n\n"
-    # Dependency of the builder (host shim), not the unit under test.
-    monkeypatch.setattr(p45, "get_standards_context", lambda *a, **kw: standards)
     built = _spec_built(env, doc)
-    assert built.data["prompt"].startswith(standards), "fixture precondition: standards block was prepended"
     expected = (InjectedBlock(source_id=str(doc), content=text),)
     real_invoke = p45.invoke_llm_subprocess
     spy = _InvokeSpy()

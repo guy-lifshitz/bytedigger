@@ -46,7 +46,7 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **Tool Guard:** Phase 0 runs `touch .bytedigger-orchestrator-pid` to arm the guard. PreToolUse hook blocks orchestrator from Edit/Write on code files (.ts/.py/.swift). Agent detection via env vars (`CLAUDE_AGENT_ID`, `SIDECHAIN`, etc.) → agents allowed. Phase 7 cleans up `.bytedigger-orchestrator-pid`.
 
-**Outputs:** Complexity + mode | Project context | DevOps detection (.tf, Dockerfile, .github/workflows, K8s, Helm, docker-compose, CloudFormation, nginx, Ansible, Pulumi) | Active phases (SIMPLE skips 2-4) | Model allocation (from `bytedigger.json`) | **Immutable metadata:** Write `build-metadata.json` with complexity + mode + created_at. This file prevents complexity downgrade bypass — never modify after Phase 0. | Dependency pre-check: lock file + quick validation → `deps_checked` to build-state.yaml (soft, never blocks)
+**Outputs:** Complexity + mode | Project context | Active phases (SIMPLE skips 2-4) | Model allocation (from `bytedigger.json`) | **Immutable metadata:** Write `build-metadata.json` with complexity + mode + created_at. This file prevents complexity downgrade bypass — never modify after Phase 0. | Dependency pre-check: lock file + quick validation → `deps_checked` to build-state.yaml (soft, never blocks)
 
 **--dry-run flag:** Display table → STOP
 
@@ -117,8 +117,6 @@ Sonnet writes `build-spec.md`: User Stories (min 2, BDD) | Files (CREATE/MODIFY)
 **5.3 GREEN (implement):** Verify `opus_validation: pass` checkpoint exists. **Spawn fresh GREEN worker IMMEDIATELY** (`name: "green-worker"`) — NEVER attempt SendMessage to tdd-worker (it has completed). Pass full context: spec + test files + RED output summary + Opus feedback. **Boy Scout Checklist (MANDATORY every file):** Remove dead imports | Clear names | Add types | Remove unused vars | Fix formatting. Agent MUST output BOY SCOUT REPORT per file. Run tests → PASS | Model: Sonnet (configurable via `bytedigger.json` → `agent_model`). **ALL severities fixed — LOW included, no filtering.**
 
 **5.5 TEST INTEGRITY DIFF GUARD (MANDATORY):** After GREEN, diff test files (RED vs current). If tests modified → Opus classifies each change: SPEC_CHANGE (pass) | LEGITIMATE_REFACTOR (pass) | ASSERTION_GAMING (BLOCK — revert test, fix code). Unmodified tests → auto-pass. Log: `test_integrity_check: pass|fail | assertion_gaming_detected: true|false | test_files_modified_after_red: N`
-
-**5.6 DevOps Validation (if profile=devops):** terraform validate | hadolint | actionlint | kubectl | helm | checkov | trivy | gitleaks | Fix CRITICAL/HIGH (max 3 cycles)
 
 **COMPLEX Worker Dispatch:** Decompose spec (1-3 files/task) → Fresh Task agent per task (`run_in_background: true`) → Minimal context → Conflict detection → Integration tests → Max turns: tests=40, impl=50, Opus=10
 

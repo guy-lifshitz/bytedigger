@@ -29,10 +29,6 @@ from bytedigger_engine.workflows.phase_6_review import (
 
 ENGINE_PY = Path(__file__).resolve().parents[1]
 
-_DEVOPS_ROW = (
-    "  - devops-reviewer — model: sonnet — focus: CIS/OWASP/SLSA standards "
-    "compliance for the detected devops artifact type"
-)
 _SIMPLE_TABLE = "\n".join([
     "  - pr-review-toolkit:code-reviewer — model: sonnet",
     "  - pr-review-toolkit:silent-failure-hunter — model: sonnet",
@@ -86,33 +82,23 @@ def _agg_prev(scratch: Path, complexity: str) -> StepResult:
 
 @pytest.mark.parametrize("complexity", ["SIMPLE", "FEATURE", "COMPLEX"])
 def test_ac1_default_select_reviewers_returns_count_1(complexity):
-    table, count = _select_reviewers(complexity, None)
+    table, count = _select_reviewers(complexity)
     assert count == 1, f"single mode must be the default: count=1, got {count}"
     assert "devops" not in table
-
-
-@pytest.mark.parametrize("complexity", ["SIMPLE", "FEATURE", "COMPLEX"])
-def test_ac1_default_with_artifact_type_is_count_1_and_has_devops(complexity):
-    table, count = _select_reviewers(complexity, "dockerfile")
-    assert count == 1, f"count stays 1 with artifact_type, got {count}"
-    assert "devops" in table
 
 
 # ─── AC2 ─────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize(
-    "complexity,artifact,expected",
+    "complexity,expected",
     [
-        ("SIMPLE", None, (_SIMPLE_TABLE, 3)),
-        ("FEATURE", None, (_FULL_TABLE, 6)),
-        ("COMPLEX", None, (_FULL_TABLE, 6)),
-        ("SIMPLE", "dockerfile", (_SIMPLE_TABLE + "\n" + _DEVOPS_ROW, 4)),
-        ("FEATURE", "dockerfile", (_FULL_TABLE + "\n" + _DEVOPS_ROW, 7)),
-        ("COMPLEX", "dockerfile", (_FULL_TABLE + "\n" + _DEVOPS_ROW, 7)),
+        ("SIMPLE", (_SIMPLE_TABLE, 3)),
+        ("FEATURE", (_FULL_TABLE, 6)),
+        ("COMPLEX", (_FULL_TABLE, 6)),
     ],
 )
-def test_ac2_parallel_fanout_equals_2622727_output(complexity, artifact, expected):
-    assert _select_reviewers(complexity, artifact, fanout="parallel") == expected
+def test_ac2_parallel_fanout_equals_2622727_output(complexity, expected):
+    assert _select_reviewers(complexity, fanout="parallel") == expected
 
 
 # ─── AC3 ─────────────────────────────────────────────────────────────────────
@@ -176,13 +162,11 @@ def test_ac3b_parallel_mode_same_inputs_keeps_dispatched_agent_wording(tmp_path)
 _SIX_DIMENSIONS = ("correctness", "silent failures", "test adequacy", "type design", "simplification", "comments")
 
 
-@pytest.mark.parametrize("artifact", [None, "dockerfile"])
-def test_ac3c_single_mode_prompt_carries_composite_table_with_all_dimensions(tmp_path, artifact):
-    extra = {"artifact_type": artifact} if artifact else {}
-    result = _build_review_prompt(_ctx(tmp_path, "FEATURE", **extra), None)
+def test_ac3c_single_mode_prompt_carries_composite_table_with_all_dimensions(tmp_path):
+    result = _build_review_prompt(_ctx(tmp_path, "FEATURE"), None)
     assert result.status == "ok", f"{result.error_code}: {result.error}"
     prompt = result.data["prompt"]
-    table, count = _select_reviewers("FEATURE", artifact)
+    table, count = _select_reviewers("FEATURE")
     assert count == 1
     # the dimensions live in the composite table AND that table reaches the model verbatim
     missing = [d for d in _SIX_DIMENSIONS if d not in table.lower()]
@@ -190,10 +174,7 @@ def test_ac3c_single_mode_prompt_carries_composite_table_with_all_dimensions(tmp
     assert table in prompt, "the composite table must be carried verbatim in the prompt"
     assert "role-composite.md" in prompt
     assert "role-devops" not in prompt
-    if artifact:
-        assert "CIS/OWASP/SLSA" in prompt
-    else:
-        assert "CIS/OWASP/SLSA" not in prompt
+    assert "CIS/OWASP/SLSA" not in prompt
 
 
 # ─── AC4b ────────────────────────────────────────────────────────────────────

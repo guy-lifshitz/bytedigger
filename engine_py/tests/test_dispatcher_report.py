@@ -66,7 +66,7 @@ def test_ac1_classify_error_code_ordered_rule_table():
         "AC1 FAIL: E_LLM_CMD_MISSING must classify infra (exact-infra rule wins over E_LLM_ prefix, order!)"
     )
     assert classify_error_code("E_RESTART_CAP") == "engine", "AC1 FAIL: E_RESTART_CAP must classify engine"
-    assert classify_error_code("E_CANARY_NO_MATCH") == "engine", "AC1 FAIL: E_CANARY_NO_MATCH must classify engine"
+    assert classify_error_code("E_STEP_TIMEOUT") == "engine", "AC1 FAIL: E_STEP_TIMEOUT must classify engine"
     assert classify_error_code("E_VALIDATION_FAILED") == "quality-gate", (
         "AC1 FAIL: E_VALIDATION_FAILED must classify quality-gate"
     )

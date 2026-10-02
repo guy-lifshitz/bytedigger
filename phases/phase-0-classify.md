@@ -98,10 +98,9 @@ You are the orchestrator performing initial classification and pipeline setup fo
 1. Complexity classification (TRIVIAL / SIMPLE / FEATURE / COMPLEX)
 2. Mode determination (AUTONOMOUS / SUPERVISED)
 3. Project context (language, manifests, test/build commands, constitution)
-4. DevOps profile detection (code / devops)
-5. Model allocation lookup (from templates/dynamic-context.md)
-6. Todo list with all pipeline phases
-7. `build-state.yaml` initialized in project CWD
+4. Model allocation lookup (from templates/dynamic-context.md)
+5. Todo list with all pipeline phases
+6. `build-state.yaml` initialized in project CWD
 
 ## Resume Check
 
@@ -195,27 +194,16 @@ After manifest detection, validate dependency health (MUST complete before Phase
 
 **Behavior:** This is a SOFT CHECK — warns but never blocks. Phase 5 workers see the warning and can handle it.
 
-## DevOps Detection
-
-Check if task involves infrastructure-as-code:
-
-**Triggers**: `.tf`, `.tfvars` (Terraform), `Dockerfile` (Docker), `.github/workflows/*.yml` (GH Actions), K8s manifests (`kind:` + `apiVersion:`), `Chart.yaml`/`values.yaml` (Helm), `docker-compose.yml`, CloudFormation (`AWSTemplateFormatVersion`), `nginx.conf`, Ansible playbooks, `Pulumi.yaml`
-
-If ANY DevOps files detected: set `profile=devops`. This activates extra steps in Phase 5 and Phase 6.
-
-Display: `Profile: DEVOPS | Type: [Terraform/Docker/K8s/etc.]`
-
 ## Actions Summary
 
 1. Project context check
-2. DevOps detection
-3. Classify complexity (TRIVIAL / SIMPLE / FEATURE / COMPLEX)
-4. If TRIVIAL: write `build-state.yaml` fields (`complexity: TRIVIAL`, `mode: AUTONOMOUS`), do the direct edit, then skip ahead to Phase 7 (do NOT run Phases 1–6)
-5. Create todo list with phases (SIMPLE skips Phases 2-4)
-6. Determine and display mode: `Mode: [AUTONOMOUS|SUPERVISED] -- [reason] | Complexity: [level]`
-7. Look up model allocation from the Model Allocation table based on complexity level
-8. Display: `Project: [manifest] | Language: [lang] | Test cmd: [cmd] | Build cmd: [cmd] | Profile: [code/devops] | Models: [allocation]`
-9. If `--init` flag: write constitution template to `./constitution.md`, stop
+2. Classify complexity (TRIVIAL / SIMPLE / FEATURE / COMPLEX)
+3. If TRIVIAL: write `build-state.yaml` fields (`complexity: TRIVIAL`, `mode: AUTONOMOUS`), do the direct edit, then skip ahead to Phase 7 (do NOT run Phases 1–6)
+4. Create todo list with phases (SIMPLE skips Phases 2-4)
+5. Determine and display mode: `Mode: [AUTONOMOUS|SUPERVISED] -- [reason] | Complexity: [level]`
+6. Look up model allocation from the Model Allocation table based on complexity level
+7. Display: `Project: [manifest] | Language: [lang] | Test cmd: [cmd] | Build cmd: [cmd] | Models: [allocation]`
+8. If `--init` flag: write constitution template to `./constitution.md`, stop
 
 ## --dry-run Early Exit
 
@@ -330,7 +318,6 @@ CONTEXT_NEEDED: [what's missing, only if NEEDS_CONTEXT]
 - [ ] Complexity classified
 - [ ] Mode determined
 - [ ] Project context detected (manifests, language, commands)
-- [ ] DevOps profile set (code or devops)
 - [ ] Todo list created with all phases
 - [ ] `build-state.yaml` written
 - [ ] Dependency pre-check run, `deps_checked` written to build-state.yaml

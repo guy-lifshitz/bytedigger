@@ -71,13 +71,12 @@ _CLASSIFICATION_RULES: tuple[tuple[str, str, str], ...] = (
 # scanner harvests every quoted E_[A-Z0-9_]+ literal in prod .py files, and
 # these tails are not themselves registered codes (they are draft
 # classification prefixes, §1n). Order preserved from spec §2.1a: infra
-# prefixes -> LLM_ external -> CANARY_ engine -> quality-gate prefixes.
+# prefixes -> LLM_ external -> quality-gate prefixes.
 _E_HEAD = "E" + "_"
 _PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("GIT_", "infra"),
     ("MEMORY_DB_", "infra"),
     ("LLM_", "external"),
-    ("CANARY_", "engine"),
     ("SATISFACTION_", "quality-gate"),
     ("SPEC_", "quality-gate"),
     ("REVIEW_", "quality-gate"),

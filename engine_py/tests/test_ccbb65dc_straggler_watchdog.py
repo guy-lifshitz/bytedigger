@@ -414,7 +414,7 @@ def test_ac7_invoke_review_llm_passes_straggler_cfg_when_enabled(tmp_path, monke
         f"reviews_dir must end with '/reviews', got: {cfg['reviews_dir']!r}"
     )
 
-    # expected_n == count from _select_reviewers (no artifact_type → FEATURE → 6)
+    # expected_n == count from _select_reviewers (FEATURE, parallel fan-out → 6)
     _, expected_count = _select_reviewers("FEATURE", fanout="parallel")
     assert cfg["expected_n"] == expected_count, (
         f"expected_n must equal len(selected_reviewers)={expected_count}, got {cfg['expected_n']}"

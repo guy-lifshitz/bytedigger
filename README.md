@@ -25,7 +25,7 @@ ByteDigger verifies the acceptance signal itself, with checks that run as code, 
 |---|---|---|
 | who verifies the work | the agent; you trust its report | the engine runs the tests in a subprocess it owns and checks every claim against the real git diff |
 | gamed tests | a test that mocks its own unit ships; assertions bend to match reality | deterministic lints reject both, no model involved |
-| security | a scan later in CI, maybe | OWASP ASVS defaults ride in the generation prompt; a changed Dockerfile or Terraform routes into a fail-closed scan |
+| security | a scan later in CI, maybe | OWASP ASVS defaults ride in the generation prompt; a deterministic semgrep + gitleaks gate scans what lands |
 | crash mid-build | start over, pay again | resume from the last success sentinel |
 | learning | every build starts amnesiac | learnings extracted, stored, injected into the next build |
 | reviewer findings | prose, unverified | every path:line:quote citation checked against disk |
@@ -34,7 +34,7 @@ ByteDigger verifies the acceptance signal itself, with checks that run as code, 
 
 ## The two pillars
 
-**Security shifts left.** The spec freezes with an AC table and a file allowlist, so scope drift dies at write time. Failing tests face a hostile audit before a single line of implementation. Secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt: allowlist validation, argument-vector subprocess calls, parameterized queries, path containment. A deterministic semgrep + gitleaks gate scans what lands; a changed Dockerfile, Kubernetes manifest, or Terraform file routes the build into a fail-closed scan and adds a CIS/OWASP/SLSA devops reviewer alongside the OWASP Top 10 one. A mypy gate holds the typing line: a change that adds new type errors does not pass. Reviewers still run at the end; the design goal is that they find nothing.
+**Security shifts left.** The spec freezes with an AC table and a file allowlist, so scope drift dies at write time. Failing tests face a hostile audit before a single line of implementation. Secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt: allowlist validation, argument-vector subprocess calls, parameterized queries, path containment. A deterministic semgrep + gitleaks gate scans what lands. A mypy gate holds the typing line: a change that adds new type errors does not pass. Reviewers still run at the end; the design goal is that they find nothing.
 
 **Economics run deterministic-first.** Every check lives at the cheapest layer that can produce it -- regex, AST, a diff, a byte count -- and a model gets called only when code cannot decide. When a gate fails, a cheap model drafts the repair and the gate re-runs as the authority, so the expensive model is spent once, on the build. A crashed build resumes from its event log and never repays a completed model call. The spend is not vibes: cost and token rollups per run, phase, and cycle come straight from that log.
 
@@ -69,7 +69,7 @@ The mechanisms doing the heavy lifting, each one shipping as code in `engine_py/
 
 ## Under the hood
 
-The pipeline sketch above is seven boxes; the engine behind it is 27 workflow modules, phase 0 research through phase 8 post-deploy -- including a spec-lite lane for small tasks, a DevOps pipeline, integrity and smoke phases, and a review fastpath for simple changes. The engine installs with zero runtime dependencies and no LLM vendor baked in.
+The pipeline sketch above is seven boxes; the engine behind it is 21 workflow modules, phase 0 research through phase 8 post-deploy -- including a spec-lite lane for small tasks, an integrity phase, and a review fastpath for simple changes. The engine installs with zero runtime dependencies and no LLM vendor baked in.
 
 The spec itself has a machine-readable half. Alongside the prose, an `AC-checks` yaml block maps each acceptance criterion to a mechanical check from a closed registry -- file-contains, command-exit-code and friends -- validated at spec-freeze time and executed as code. A criterion that can't live without judgment has to declare itself as one (`llm_rubric`), which keeps the escape hatch visible instead of ambient. Specs stop being documentation that drifts; they compile.
 
@@ -83,7 +83,7 @@ The engine even gates changes to itself: a commit-msg hook blocks any commit tou
 
 ## Quickstart
 
-**Platforms: macOS and Linux.** Windows is not supported directly — run it under WSL. The engine shells out to `bash` and `zsh` throughout; the phase-6 smoke step looks for `zsh` and skips itself when it is absent.
+**Platforms: macOS and Linux.** Windows is not supported directly — run it under WSL. The engine shells out to `bash` throughout.
 
 Five minutes, no API key needed:
 
