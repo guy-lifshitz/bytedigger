@@ -1,6 +1,6 @@
 # bd#147: the R3.2 boundary, and the file-sourced prompt segments that cross it
 
-**Status:** r3 (gate r2 REJECTED: 1 MAJOR + 4 MINOR + 1 NIT, `2026-10-02-bd147-gate-r2.md`, spec-text only; r3 closes all, §10. r2: gate r1 REJECTED, 3 MAJOR + 4 MINOR + 1 NIT, §9) · **Tier:** 2 (one shared helper extended, three producers, three dispatch sites, one
+**Status:** r3.1, APPROVED by gate r3 (`2026-10-02-bd147-gate-r3.md`). r3.1 applies its MINOR and NIT findings, §11. r3: gate r2 REJECTED: 1 MAJOR + 4 MINOR + 1 NIT, `2026-10-02-bd147-gate-r2.md`, spec-text only; r3 closes all, §10. r2: gate r1 REJECTED, 3 MAJOR + 4 MINOR + 1 NIT, §9) · **Tier:** 2 (one shared helper extended, three producers, three dispatch sites, one
 spec section; Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `llm_subprocess._injection_refusal` stays the only R3.2 check; on the declare side
 `phase_workflows_common._declared_injections` stays the only reader of a builder's declarations (bd#141 4(d)). This lot widens
@@ -31,8 +31,8 @@ the host side (standards context) is deferred for exactly that reason (§6).
    | S7 | prior-step findings | `prev.data["findings"]` | **model output** of an earlier invocation, held in memory | verbatim after an engine header | spec `:1273`, spec_lite `:425`, RED `:1442`, fix `:2436` |
    | S8 | semantic-verifier findings | `semantic_verifier.py:129` | reviewer **model output** fields (`severity/file/line/quote/claim`) | interpolated | dispatch `:180` |
    | S7′ | findings sidecar | `findings_sidecar.load_findings_thread` (`:34-40`) → `phase_45_spec:1051`, rendered by `surgical_revise.py:57` | **model-output** fields, JSON-parsed from a scratchpad record | fields re-rendered under the engine's schema, no file body | surgical prompt |
-| S9 | directed-repair findings | `directed_repair._render_findings` (`:232`) | **engine** (deterministic gate) fields; `evidence` may quote the artifact verbatim (`:241-243`) | rendered `- {path}:{line} [{rule}]: {evidence}` | `:279` |
-| S10 | scratchpad round-trips (gate r1 F1) | `phase_45_spec:1064` reads `spec.md` → `build_surgical_revise_prompt` (`:1082`, `surgical_revise.py:85-86`), `build_delta_retry_prompt` (`:1113`), `_restricted_writer_prompt` (`:1250-1257`); spec_lite review doc + spec (`:388`, `:397-402`, `:570-573`) | files in the run's scratchpad, written earlier in the run (by a model or by the engine from model output) | whole file bodies | those builders; **not migrated by this lot** (§6) |
+   | S9 | directed-repair findings | `directed_repair._render_findings` (`:232`) | **engine** (deterministic gate) fields; `evidence` may quote the artifact verbatim (`:241-243`) | rendered `- {path}:{line} [{rule}]: {evidence}` | `:279` |
+   | S10 | scratchpad round-trips (gate r1 F1) | `phase_45_spec:1064` reads `spec.md` → `build_surgical_revise_prompt` (`:1082`, `surgical_revise.py:85-86`), `build_delta_retry_prompt` (`:1113`), `_restricted_writer_prompt` (`:1250-1257`); spec_lite review doc + spec (`:388`, `:397-402`, `:570-573`) | files in the run's scratchpad, written earlier in the run (by a model or by the engine from model output) | whole file bodies | those builders; **not migrated by this lot** (§6) |
 
 3. **Survey scope and method (gate r1 F1).** The table covers every segment bd#147 names, plus every file read whose text reaches
    a prompt inside the functions this lot edits (`_build_spec_prompt` and its siblings in `phase_45_spec.py`, `_build_fix_prompt`,
@@ -59,8 +59,9 @@ The rule is **structural** (gate r1 F2): it asks what *unit* of read bytes is in
   is either named in §6 with its follow-up issue, or it is unsurveyed and falls under the inventory issue #150. No class-I
   segment is exempt.** Declared here: role template (bd#141 4(d)), S1, S2, S3. Not yet declared: S4 (#151) and S10 (#150).
 - **Class E — engine-authored (R3.1).** Text the engine's code composes under **its own schema**. It extracts named fields,
-  tokens, rows or lines and re-renders them. The fields' **values** come from the engine's own computation or from repo and
-  operator sources. A field may be verbatim, such as a ledger cell, a gate's `evidence` line or a path. A field may also be
+  tokens, rows or lines and re-renders them. The fields' **values** are either computed by the engine or **selected by engine logic** from any
+  source, and that includes a file a model wrote. Examples are a deterministic gate's `evidence` line quoted from
+  `spec.md`, a ledger cell and a path. It is the engine, not a model, that decides which bytes become the field. A field may be verbatim, such as a ledger cell, a gate's `evidence` line or a path. A field may also be
   unbounded: S9's `evidence` is unbounded (`directed_repair.py:241-243`, gate r2 N3), so size is not part of the test. A field
   is not a file body or a slice, so it is not class I. The facts-pack cache is class E because its field values are engine
   computation, not because the engine wrote the file. Members: S5, S9, and every wrapper, header, marker and instruction
@@ -69,7 +70,8 @@ The rule is **structural** (gate r1 F2): it asks what *unit* of read bytes is in
   - When the engine parses a structured record and re-renders its fields, the rendered text takes the class of where those
     values came from. Which process wrote the record file does not matter.
   - Engine-computed values or values taken from repo or operator sources: class E.
-  - Values that are a model's output: class M.
+  - Values that are an invocation's **returned answer** are class M. A record populated from a model's response, such as the
+    findings sidecar, is one example. The model chose those bytes as its reply.
   - This is the same structural test applied one level down. A whole body is classified by where it is read from; a re-rendered
     field is classified by what produced its value.
 - **Class P — run parameters (R3.1).** Values the invoker passes to the run: S6′ `ctx.question` and `org_config` strings
@@ -139,13 +141,14 @@ The re-open criterion is unchanged.
     dispatches exactly `d["prompt"]`. At `6dd7ff4` all 22 such sites do so (gate r2 audit). A future site that alters the prompt
     after its builder (a suffix, a retry nonce) must either re-bind the record over the altered prompt or declare nothing
     extra. If it does neither, the binding is false. The recorded blocks would still be contained, because the prompt's original
-    text survives a suffix, but the binding would rest on a prompt that was never sent. AC6 enforces the invariant for the three
-    producers in this lot. For any later site, the enforcement is this rule plus review.
+    text survives a suffix, but the binding would rest on a prompt that was never sent. AC6 enforces the invariant for the S1 and S2
+    producers. S3 builds its prompt and dispatches it in the same statement block (`directed_repair.py:520-521`), and AC5 pins
+    its declaration. For any later site, the enforcement is this rule plus review.
   - **What the ignore branch hides (gate r1 F4).** A builder that binds its record to the wrong prompt (for example, it hashes
     before the standards block is prepended) hits the same branch as a forwarded record. It loses its declarations without a
     refusal. No event is emitted, because forwarded records reach this branch on most downstream steps and an event there
     would be noise. Mis-binding is caught by tests instead: AC1b binds S1 against a non-empty standards block, and AC6 covers
-    every migrated site through the real chokepoint.
+    S1 and S2 through the real chokepoint.
 
 ### §3.2 Producers
 
@@ -310,3 +313,13 @@ AC7 covers the case where the record is forwarded to them.
 | N4 MINOR, "does not raise" | Narrowed to the new branch. The role branch's existing `KeyError` is stated. |
 | N5 MINOR, binding invariant unwritten | Written as normative in §3.1, with its enforcement. |
 | N6 NIT | "Listed by name" is reconciled with the inventory issue. Follow-ups #150, #151, #152 are cited. The `attest.py:108` comment is added to GREEN scope. |
+
+## §11 Gate r3 disposition (APPROVED; MINOR/NIT applied)
+
+| Finding | Disposition |
+|---|---|
+| F1 MINOR, S9 not E under the r3 wording | Class E's value sources now include fields **selected by engine logic** from any file, including a model-written one. Class M in parsed records is narrowed to an invocation's returned answer. AUTHORSHIP_SPEC is mirrored. |
+| F2 MINOR, orphaned bd#119 amendment | Rewritten to name its referent again: `_maybe_role_template` / `_role_template` and `load_role_template`. It is not deleted, because `test_bd119_role_template.py:1549` pins at least two bd#119 amendments in AUTHORSHIP_SPEC. |
+| NIT, AC6 "three producers" | Corrected to S1/S2, with S3 pinned by AC5 and the reason given. |
+| NIT, table indent | Fixed. |
+| NIT, issue numbers unverified | `gh issue view 150/151/152` run by the orchestrator: all three are OPEN, and their titles match. |

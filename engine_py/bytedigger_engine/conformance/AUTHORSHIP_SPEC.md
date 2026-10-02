@@ -460,8 +460,9 @@ routing it through `injections` — the role template was the live example. AC-I
 every remaining role-template site (each builder records the block, each dispatch declares it via
 `_declared_injections`). bd#147 then drew the class boundary below and migrated three more class-I
 segments; the label value is unchanged.
-*bd#119 amendment:* the cite was stale; the wrapper is located by function name, and it now delegates the
-single file read to `role_template.py::load_role_template`.
+*bd#119 amendment:* the role-template wrapper the migrations above go through (`phase_workflows_common.py::_maybe_role_template`,
+now `_role_template`) is located by function name, not by line, and it delegates the single file read to
+`role_template.py::load_role_template`.
 
 `[bd147]` **The boundary, by where a segment's bytes are read from when the prompt is built** (not
 by who first wrote them). Full survey and rationale: `docs/decisions/2026-10-02-bd147-injected-segments.md` §1–§2.
@@ -483,7 +484,8 @@ The rule is structural. It asks what unit of read bytes is inlined, not whether 
     segment is exempt.
 - **Class E, engine-authored (R3.1).** Text the engine composes under its own schema by extracting
   named fields, tokens, rows or lines and re-rendering them.
-  - The fields' values come from the engine's own computation or from repo and operator sources.
+  - The fields' values are computed by the engine, or selected by engine logic from any source,
+    including a file a model wrote (a gate's `evidence` line quoted from `spec.md`).
   - A field may be verbatim, such as a ledger cell, a gate's `evidence` line or a path. A field
     may also be unbounded; size is not part of the test.
   - A field is not a file body or a slice.
@@ -491,8 +493,8 @@ The rule is structural. It asks what unit of read bytes is inlined, not whether 
     rendered directed-repair findings, and every wrapper, header, truncation marker and instruction
     placed around a class-I segment.
 - **Parsed records** take the class of where their field values came from, whatever wrote the file.
-  Values the engine computed, or took from repo or operator sources, are class E. Values that are
-  model output are class M.
+  Engine-computed or engine-selected values are class E. Values that are an invocation's returned
+  answer, for example a record populated from a model's response, are class M.
 - **Class P, run parameters (R3.1).** Values passed in by the invoker: `ctx.question`, and
   `org_config` strings inlined as text (`task_description`). These are the principal's instruction,
   not content injected into it. A *path* in `org_config` is not class P; the file it names is class I.
