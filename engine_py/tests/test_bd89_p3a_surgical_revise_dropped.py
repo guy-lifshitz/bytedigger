@@ -1,7 +1,7 @@
 """RED tests for bd#89 P3a -- drop surgical revise and the restricted cycle-2 reviewer.
 
-Spec: docs/decisions/2026-10-02-bd89-p3a-drop-surgical-revise.md (AC1-AC14, plus the
-section 6 Q4 in-flight-resume degrade AC, numbered AC15 here).
+Spec: docs/decisions/2026-10-02-bd89-p3a-drop-surgical-revise.md (AC1-AC16; AC15 is the
+section 6 Q4 in-flight-resume degrade, AC16 the F7 stale-sentinel drop; r2 amendment).
 
 AC -> test map
 --------------
@@ -16,8 +16,11 @@ AC3  test_ac3_flags_catalog_drops_both_kill_switches
      test_ac3_dropped_env_switches_are_inert_for_writer_and_reviewer_prompts
 AC4  test_ac4_cycle2_writer_is_the_delta_lane_through_the_real_chain
      test_ac4_legacy_surgical_fallback_marker_is_ignored
-     test_ac4_gate_retry_takes_the_same_delta_lane
+     test_ac4_gate_retry_takes_the_same_delta_lane[spec_on_disk|no_spec_on_disk]  ("SPEC GATE FINDINGS",
+                                                                       op2b findings_source)
+     test_ac4_guard_delta_retry_prompt_default_is_byte_identical_to_reviewer_path  (GUARD, green today)
 AC5  test_ac5_invoke_spec_llm_always_unlinks_and_grants_full_tools
+     [clean_prev] is a GUARD (green today); only [stale_surgical_prev] is red
 AC6  test_ac6_write_spec_doc_ignores_stale_surgical_state_with_worker_file
      test_ac6_write_spec_doc_ignores_stale_surgical_state_without_worker_file
      test_ac6_guard_write_spec_doc_without_stale_keys                 (GUARD, green today)
@@ -37,6 +40,8 @@ AC13 test_ac13_dropped_test_files_are_gone
                                                                        the git rm of the four files land)
 AC14 autouse fixture `_no_claude_no_api_key` + test_ac14_environment_has_no_claude_and_no_api_key (GUARD)
 AC15 test_ac15_inflight_resume_with_stale_surgical_state_degrades_to_full_revise (spec section 6 Q4)
+AC16 test_ac16_replayed_patch_array_sentinel_is_dropped_and_forces_fresh_revise[payload_shape_only|with_stale_keys]
+     (F7: sentinel unlinked, recoverable E_VALIDATION_RETRY retry_from_step 0, unrevised body not written)
 
 Forcing reasons today: cycle-2 writer takes the surgical lane (patch-array contract, Write tool
 withheld, `surgical_revise` data key, sidecar `surgical-delta-cycle-N.json`); the cycle-2 reviewer
@@ -412,10 +417,14 @@ def test_ac4_legacy_surgical_fallback_marker_is_ignored(tmp_path):
     assert "surgical_revise" not in marked.data
 
 
-def test_ac4_gate_retry_takes_the_same_delta_lane(tmp_path):
+@pytest.mark.parametrize("spec_on_disk", [True, False], ids=["spec_on_disk", "no_spec_on_disk"])
+def test_ac4_gate_retry_takes_the_same_delta_lane(tmp_path, spec_on_disk):
     mod = _mod()
     scratch = tmp_path / "scratch"
-    _write_spec(scratch)
+    if spec_on_disk:
+        _write_spec(scratch)
+    else:
+        scratch.mkdir(parents=True, exist_ok=True)
     ctx = _ctx(scratch)
     res = mod._build_spec_prompt(ctx, {
         "cycle": 2, "retry_source": mod.SPEC_GATES_RETRY_SOURCE,
@@ -429,6 +438,50 @@ def test_ac4_gate_retry_takes_the_same_delta_lane(tmp_path):
     assert "FINDING_F1" not in res.data["prompt"], "the stale review thread must not replace gate findings"
     for marker in _SURGICAL_ONLY_TEXT:
         assert marker not in res.data["prompt"], marker
+    prompt = res.data["prompt"]
+    assert "SPEC GATE FINDINGS" in prompt, "the delta lane must label gate findings (op2b findings_source)"
+    assert "address reviewer findings" not in prompt
+    assert "REVIEWER VERDICT" not in prompt
+    assert "CYCLE-1 REVIEWER FINDINGS" not in prompt
+
+
+# Literal copy of the delta-retry invariant header: a golden, so the guard below does not read prod.
+_DELTA_HEADER_GOLDEN = (
+    "Write the FULL revised spec markdown to {spec_path} (full body, not a"
+    " diff; start with `## Context`; SpecKit-style sections only).\n"
+    "\n"
+    "Citations must be grounded: cite `<path>:<line>` only for lines you"
+    " have actually read this session; never fabricate.\n"
+    "\n"
+    "Do NOT widen scope; do NOT add features, ACs, or rationale not"
+    " required by a finding.\n"
+)
+
+
+def test_ac4_guard_delta_retry_prompt_default_is_byte_identical_to_reviewer_path():
+    """GUARD (green at RED): callers that pass no findings_source (GH443 parity) get the exact
+    reviewer-labelled output, composed from the restricted writer's reviewer path."""
+    from bytedigger_engine.lib.plugins.checklist_convergence import build_writer_prompt
+    from bytedigger_engine.lib.plugins.checklist_convergence.delta_retry_prompt import (
+        build_delta_retry_prompt,
+    )
+
+    ctx_text = "verbatim reviewer prose"
+    for verbatim in (ctx_text, None):
+        got = build_delta_retry_prompt("/s/spec.md", BASE_SPEC, STRUCTURED,
+                                       verbatim_reviewer_context=verbatim)
+        expected = "\n".join([
+            _DELTA_HEADER_GOLDEN.format(spec_path="/s/spec.md"),
+            "",
+            build_writer_prompt(BASE_SPEC, STRUCTURED, verbatim_reviewer_context=verbatim),
+            "",
+            "ADDRESS EACH FINDING (by id):",
+            f"- FINDING_F1: {STRUCTURED[0]['required_action']}",
+        ])
+        assert got == expected
+        assert "CYCLE-1 REVIEWER FINDINGS:" in got and "SPEC GATE" not in got
+    assert "REVIEWER VERDICT (verbatim, for context):" in build_delta_retry_prompt(
+        "/s/spec.md", BASE_SPEC, STRUCTURED, verbatim_reviewer_context=ctx_text)
 
 
 # --- AC5 -----------------------------------------------------------------------
@@ -787,3 +840,39 @@ def test_ac15_inflight_resume_with_stale_surgical_state_degrades_to_full_revise(
     assert _text(doc).strip() == REWRITTEN_SPEC.strip()
     assert not list(scratch.rglob("surgical-delta-cycle-*.json"))
     assert not [n for n in sink.names() if n in SURGICAL_EVENTS], sink.names()
+
+
+# --- AC16 (op2c, F7): a replayed pre-upgrade patch-array sentinel is dropped ----
+
+@pytest.mark.parametrize("with_stale_keys", [False, True], ids=["payload_shape_only", "with_stale_keys"])
+def test_ac16_replayed_patch_array_sentinel_is_dropped_and_forces_fresh_revise(
+        tmp_path, sink, with_stale_keys):
+    """The engine replays a cached `invoke_spec_llm` result (engine.py maybe_read_sentinel). A
+    pre-upgrade payload whose raw_response is a patch array, over an unrevised cycle-1 doc, must
+    not be written as cycle 2: the sentinel is unlinked and a recoverable retry from step 0 asks
+    for a fresh full revise."""
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel
+
+    mod = _mod()
+    scratch = tmp_path / "scratch"
+    doc = _write_spec(scratch, BASE_SPEC)  # unrevised cycle-1 body
+    ctx = _ctx(scratch)
+    run_id = telemetry_ctx.get_current_run().run_id
+    payload = {"raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": 2}
+    if with_stale_keys:
+        payload.update(surgical_revise=True, surgical_base_spec=BASE_SPEC)
+    # Pre-stage the cached sentinel with the real writer (same name engine.py replays from).
+    write_step_sentinel(scratch, "invoke_spec_llm", 2, payload, run_id, None, "phase_45_spec")
+    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c2_r{run_id}.json"
+    assert sentinel.is_file(), "fixture precondition: the stale sentinel is on disk"
+
+    res = mod._write_spec_doc(ctx, _step(**payload))
+
+    assert res.status == "error" and res.recoverable is True, (res.status, res.error)
+    assert res.error_code == "E_VALIDATION_RETRY"
+    assert res.data["retry_from_step"] == 0
+    assert not sentinel.exists(), "the replayed sentinel must be unlinked so the retry re-invokes the LLM"
+    assert _text(doc) == BASE_SPEC, "the unrevised body must not be re-written"
+    assert not (scratch / "specs" / "build-spec-cycle-2.md").exists(), \
+        "an unrevised cycle-1 spec must never be written as cycle 2"
+    assert not list(scratch.rglob("surgical-delta-cycle-*.json"))

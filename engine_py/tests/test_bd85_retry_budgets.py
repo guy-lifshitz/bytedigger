@@ -290,6 +290,7 @@ def test_ac7_gate_retry_prompt_uses_gate_findings_not_stale_thread(tmp_path: Pat
     assert "GATE_FINDING_GHOST_PATH" in prompt, "the writer must see the gate findings"
     assert "STALE_REVIEWER_ACTION" not in prompt, "a gate retry must not replay the old review thread"
     assert "address reviewer findings" not in prompt, "gate findings are not reviewer findings"
+    assert "spec gate findings" in prompt, "the prompt must name the spec gate as the findings source"
     assert r.data.get("delta_retry") is True, (
         "a gate retry takes the delta lane")
 
