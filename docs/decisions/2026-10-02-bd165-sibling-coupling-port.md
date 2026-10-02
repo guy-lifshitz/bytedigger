@@ -1,6 +1,6 @@
 # bd#165 — port the seven-channel §1a sibling-coupling detector into the engine
 
-**Status: r1 (pre-gate)** · **Tier:** 3 (one new engine prod module, a 3-line dispatch in `run.py`,
+**Status: r2 (gate r1 REJECTED: 2 BLOCKER + 4 MAJOR + 11 MINOR applied, see `2026-10-02-bd165-gate-r1.md`)** · **Tier:** 3 (one new engine prod module, a 3-line dispatch in `run.py`,
 a rewrite of one warn-only helper in `workflows/phase_5_implement.py`; Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `sibling_coupling.audit()` — the one function that derives keys from production files,
 runs the seven channels, reconciles against a spec and returns rows. The CLI and the phase-5 helper
@@ -48,9 +48,12 @@ Constraints:
   newline is not a line; a row is produced for every (line, key) with `key in line`. The trace line
   `grep <channel> keys=<n> files=<m>` is still written once per channel call, unchanged in form.
   A file that cannot be read contributes no hits and is named once on stderr as
-  `W_CORPUS_UNREADABLE <path>` (replaces HAL `W_GREP_SPAWN_FAILED`).
+  `W_CORPUS_UNREADABLE <path>` in `warnings` (replaces HAL `W_GREP_SPAWN_FAILED`). Cost bound (MINOR-7):
+per channel one compiled alternation of the `re.escape`d keys is used as a line prefilter, then exact
+`key in line` per matching line — linear in corpus size, not lines × keys.
 - **No host path.** HAL `_default_root` falls back to `lib/../../..`; the port falls back to
-  `os.getcwd()` (after `W_GIT_ROOT_UNRESOLVED`). HAL `_graph_path` defaults to
+  `os.getcwd()`, adding `W_GIT_ROOT_UNRESOLVED <reason>` to `warnings` both when git cannot be spawned
+  and when it exits non-zero (outside a repo). HAL `_graph_path` defaults to
   `<lib dir>/../graphify-out/graph.json`; the port has **no default graph** (§2.4).
 - No LLM, no provider, no backend: nothing in the module imports from `bytedigger_engine`
   (`llm_subprocess`, `lib.*`, `workflows.*`) or names a vendor/model/backend.
@@ -60,14 +63,22 @@ Detector bodies (channel matrix, key selection, stop list, extension matrix, `_d
 `DEFAULT_MAX_CORPUS=5000`, `DEFAULT_MAX_KEY_FILES=25`, `CHANNELS`, `PATH_FAMILY`,
 `SPAWN_PRIMITIVES`, `READ_PRIMITIVES`, `STOP_LIST`, corpus name pattern + prunes, spec-token regex,
 every `W_*`/`E_*` stderr text) are ported **verbatim**; the HAL spec v2.1 §1.2-§1.7 is normative
-for them. HAL prune `_PRUNE_SUBPATHS` (`.claude/worktrees`, `SHARED/memory-backups`) is kept as-is.
+for them. **Deviations from verbatim** (each deliberate): HAL `_PRUNE_SUBPATHS`
+(`.claude/worktrees`, `SHARED/memory-backups`) is HAL host layout and is **dropped** — `_PRUNE_DIRNAMES`
+(`.git`, `node_modules`, `graphify-out`, `memory-backups`) stays; HAL `_TEXT_CACHE` (process-global)
+becomes a cache scoped to one `audit()` call (MAJOR-4: the engine is long-lived); HAL `_warn` writes
+`sys.stderr` directly — in the port every helper appends to the current call's warning list instead,
+so nothing in the module writes stderr except `main`.
+Known limitation (stated, not fixed): the corpus name pattern `test_*.py|*.test.ts|*.test.sh` is
+HAL's; `*_test.py`, `*.test.js`, `*.spec.ts` are not collected (follow-up for bd consumers).
 
 #### Symbols this spec INTRODUCES
 The eleven HAL public names (HAL spec §1.9), same signatures except where §2.3/§2.4 replace an env
 read by a parameter: `extract_constant_values`, `extract_data_cells`, `extract_defined_symbols`,
 `detect_source_read`, `detect_imports`, `detect_call_sites`, `reconcile_with_spec`,
 `collect_test_corpus`, `classify_path_family`, `is_distinctive_key`, `grep_keys_batched`.
-New: `audit`, `AuditResult`, `SiblingAuditError`, `scope_files_from_spec`, `main`, `JSON_SCHEMA`.
+New: `audit`, `AuditResult`, `Row` (6-tuple alias), `SiblingAuditError`, `scope_files_from_spec`, `main`,
+`JSON_SCHEMA = 1`.
 
 ### §2.2 `audit(...) -> AuditResult`
 
@@ -80,16 +91,22 @@ audit(scope_files, *, test_globs=None, corpus_root=None, channels=None, spec_pat
   with `code="E_UNKNOWN_CHANNEL"` and a message listing all seven channel names; an unreadable scope
   file or spec → `code="E_SCOPE_FILE_UNREADABLE"`; empty corpus → `code="E_NO_TEST_CORPUS"`
   (message as HAL). `scope_files` empty → `code="E_NO_SCOPE_FILES"`.
-- `exclude`: absolute paths removed from the corpus (HAL `collect_test_corpus(exclude=)`).
+- `exclude`: paths removed from the corpus; `audit()` **always unions `scope_files` into it** (HAL
+  lib:973). `corpus_root`, `scope_files` and `exclude` entries are normalised with `os.path.realpath`
+  before use (macOS `/var` → `/private/var`); emitted row paths are realpaths.
+- `partial_channels` is True iff the de-duplicated set of requested channels is not all seven
+  (`import,import,...` ×7 is partial; HAL shell counts duplicates — the port deliberately does not).
 - Returns `AuditResult` (frozen dataclass): `rows: tuple[Row, ...]` where `Row` is a 6-tuple
-  `(file, line:int, func, token, channel, verdict)` with verdict `cited|MISSING` (or `-` when no
-  spec, as HAL); `warnings: tuple[str, ...]` (every `W_*` line, in emission order — also written to
+  `(file, line:int, func, token, channel, verdict)` with verdict `cited|MISSING`; with no spec every row
+  is `MISSING` (HAL lib `_emit_rows`: the cited set is empty), so `--require-clean` without `--spec`
+  exits 1 on any row; `warnings: tuple[str, ...]` (every `W_*` line, in emission order — also written to
   stderr by the CLI only, never by `audit`); `gate_warn: bool` (any of `W_UNSUPPORTED_SCOPE_EXT`,
   `W_KEY_CAP`, `W_CORPUS_CAP` — HAL lib exit 4); `partial_channels: bool`;
   `call_site: dict` (`{"source": "graph+grep"|"grep", "reason": None|"no_graph"|"graph_unreadable"|
   "channel_off"}`); `missing: int`.
 - Row order: the HAL `LC_ALL=C sort -t\t -k1,1 -k2,2n -k6,6n` — bytewise by file, numeric by line,
-  numeric by the internal sort index — then the sort index is dropped.
+  numeric by the internal sort index, then (HAL's last-resort key) the whole 7-field line bytewise —
+  then the sort index is dropped.
 - Never writes to stdout/stderr (diagnostics go into `warnings`); `trace_path` (if given) receives
   the trace lines (HAL `HAL_SIBLING_COUPLING_TRACE`).
 
@@ -125,13 +142,24 @@ Exit codes (HAL §1.7/§1.8, shell + lib combined; exit-2 cases win over exit 1)
 0 ok; 1 `--require-clean` and `missing > 0`; 2 any `SiblingAuditError` (code on stderr), any
 usage error, or `--require-clean` with `partial_channels` (`E_PARTIAL_CHANNELS_GATE: --require-clean
 needs the full channel set (...)` on stderr, checked first) or with `gate_warn`. Without
-`--require-clean`, warnings never change the exit code.
+`--require-clean`, warnings never change the exit code. Any other exception inside `main` → exit 2,
+`E_SIBLING_AUDIT_INTERNAL <ExceptionClass>: <msg>` on stderr (HAL `E_COUPLING_LIB_FAILED`
+equivalent; never exit 1, which means "MISSING present"). With `--json`, every exit-2 path except an
+argparse usage error still prints the JSON object with `rows: []`, `exit: 2` and `"error": "<code>"`.
+
+Error-code registry: every code the module quotes as a string literal is registered in
+`bytedigger_engine/error_codes.py` `ERROR_CODES` and in both `ERROR_CODES.md` copies
+(`engine_py/ERROR_CODES.md`, `engine_py/bytedigger_engine/ERROR_CODES.md`, regenerated so they stay
+byte-identical per `test_bd8_l1_oracle`): `E_UNKNOWN_CHANNEL`, `E_SCOPE_FILE_UNREADABLE`,
+`E_NO_TEST_CORPUS`, `E_NO_SCOPE_FILES`, `E_PARTIAL_CHANNELS_GATE`, `E_SIBLING_AUDIT_INTERNAL`, each
+described as `sibling_coupling: ...`.
 
 ### §2.4 Graph channel optional (issue AC4)
 
 `call-site` is always the grep half; the graph half is added only when `graph_path` is given, is a
 file, and parses as JSON. `graph_path=None` → `call_site.source="grep", reason="no_graph"`, no
-warning. Given but unreadable / not JSON → `source="grep", reason="graph_unreadable"`, warning
+warning. Given but unreadable / not JSON / not a JSON object / `nodes` or `links` not lists →
+`source="grep", reason="graph_unreadable"`, warning
 `W_GRAPH_UNREADABLE <path>`, never an error, never a gate escalation. Readable → `"graph+grep"`
 (a zero-caller-edge graph must not suppress grep — HAL AC36). `call-site` not in the active
 channels → `reason="channel_off"`.
@@ -146,7 +174,9 @@ sorted, de-duplicated, absolute.
 
 ### §2.6 Phase-5 rewiring (issue AC2) — `_sibling_audit_warn(resolved_paths, git_cwd, spec_path=None)`
 
-Still warn-only; never alters the `StepResult`; never raises. The two call sites pass
+Still warn-only; never alters the `StepResult`; never raises — the **whole** body (allowlist parse,
+scope resolution, audit, payload build) sits in one `try`; any non-`SiblingAuditError` exception
+anywhere → `reason: "detector_error"`. `git_cwd` and `resolved_paths` are `os.path.realpath`ed first. The two call sites pass
 `spec_path=prev.data.get("spec_path")` (that is the only change at 3934 and 4145).
 1. `spec_path` falsy or `parse_spec_files_allowlist(spec_path)` is `None` →
    `red_sibling_audit_skipped {"phase": 5, "reason": "no_spec"}`.
@@ -158,7 +188,7 @@ Still warn-only; never alters the `StepResult`; never raises. The two call sites
 4. MISSING rows → `red_sibling_audit_warn` (severity warn) `{"phase": 5, "count": n,
    "hits": [first 20 rows as tab-joined 6-field lines, file relative to git_cwd],
    "scope_files": [relative], "call_site": {...}, "warnings": [first 10]}`.
-   No MISSING rows → `red_sibling_audit_clean {"phase": 5, "scope_files_n", "rows_n",
+   `hits` holds MISSING rows only. No MISSING rows → `red_sibling_audit_clean {"phase": 5, "scope_files_n", "rows_n",
    "call_site", "warnings": [first 10]}` — a clean pass is visible, not silent.
 The helper reaches the detector as a module attribute (`from bytedigger_engine import sibling_coupling`;
 `sibling_coupling.audit(...)`), so patching `bytedigger_engine.sibling_coupling.audit` takes effect.
@@ -171,6 +201,7 @@ Removed: the script lookup, `HAL_SIBLING_AUDIT_BIN`, the `subprocess.run(["bash"
 - `engine_py/bytedigger_engine/run.py` — `sibling-audit` dispatch (3 lines)
 - `engine_py/bytedigger_engine/workflows/phase_5_implement.py` — §2.6 (helper 3493-3586 + call sites 3934, 4145 only)
 - `engine_py/bytedigger_engine/flags_catalog.py` — delete the `HAL_SIBLING_AUDIT_BIN` entry; `HAL_SIBLING_AUDIT_GATE` description: "...disables the §1a sibling-coupling warn pass (bd#165, in-package detector, warn-only)."
+- `engine_py/bytedigger_engine/error_codes.py`, `engine_py/ERROR_CODES.md`, `engine_py/bytedigger_engine/ERROR_CODES.md` — the six codes of §2.3
 - `engine_py/core_manifest.json` — add `"sibling_coupling.py"` to `core_modules`
 - `engine_py/tests/test_bd165_sibling_coupling.py` — new (RED)
 - `engine_py/tests/fixtures/sibling_coupling/` — new: verbatim copy of HAL `__tests__/fixtures/gh1200/` minus `lib_fail.py` and `golden/` (shell-only), plus `conftest.py` with `collect_ignore_glob = ["*"]` so pytest never collects the fixture `test_*.py` files
@@ -225,6 +256,36 @@ Not ported (shell/legacy-only, stated so the gap is visible): AC14, AC17, AC29, 
   stdlib modules (`sys.stdlib_module_names` on 3.10+, a fixed allow-set otherwise), contains no
   `os.environ`/`os.getenv`, no `subprocess` call other than the one `git rev-parse`, and no token
   matching `(?i)anthropic|claude|openai|jev|pydantic|sonnet|opus|haiku`.
+- B8 (r2, gate r1 MAJOR-1..4 + MINOR-4):
+  (a) no `--spec`, `--require-clean`, coupled scope file → exit 1 and every row's verdict is `MISSING`;
+  (b) `--graph` at a file containing a JSON list `[]` → exit 0, `call_site.reason == "graph_unreadable"`;
+  (c) `main` with `audit` monkeypatched to raise `RuntimeError` (in-process, `main([...])`) → returns 2,
+  stderr has `E_SIBLING_AUDIT_INTERNAL`; same with `--json` → stdout JSON `exit == 2`;
+  (d) in-process: `audit()` twice on a tmp tree, rewriting the pinned constant's test file between the
+  calls so it no longer pins it → the second result has no row for that test (no stale cache);
+  (e) `audit([])` raises `SiblingAuditError` with `code == "E_NO_SCOPE_FILES"`; `--spec /nonexistent`
+  → exit 2 + `E_SCOPE_FILE_UNREADABLE`; `--max-keys -1` → exit 2; `--substrings X` → exit 2;
+  (f) `--channels` without `call-site` → `call_site.reason == "channel_off"`;
+  (g) `audit()` with `corpus_root` = a tmp dir outside git and no `test_globs` → `warnings` contains a
+  `W_GIT_ROOT_UNRESOLVED` entry only when the corpus root is NOT given; with `corpus_root` given, none;
+  (h) `--scope-file` pointing at a corpus test file itself → no row whose file is that scope file;
+  (i) every code of §2.3's registry list is a key of `error_codes.ERROR_CODES`, and both
+  `ERROR_CODES.md` files contain each as a `` `E_...` `` bullet.
+- B5 additions (r2): B5a also asserts the event `severity == "warn"`, every hit's file is relative
+  (no leading `/`), and that `tests/test_new.py` produced no row at all (spy on `audit`'s `exclude`
+  kwarg containing its realpath); B5a run with `git_cwd` given through a symlink to the tmp repo
+  yields the same hits (realpath); B5a `capsys` shows nothing written to stderr; B5g: `audit` raising
+  `SiblingAuditError("E_NO_TEST_CORPUS")` → `skipped reason=E_NO_TEST_CORPUS`; B5h:
+  `parse_spec_files_allowlist` monkeypatched to raise `ValueError` → `reason=detector_error`, helper
+  returns `None`.
+- B6a strengthened: at both call sites in `phase_5_implement.py` (AST), the `spec_path` keyword's
+  value unparses to exactly `prev.data.get('spec_path')`.
+- B6b: the stdlib check uses `sys.stdlib_module_names` when present and otherwise skips (no hand
+  fallback set); the vendor-token regex is applied to the module source with comments and docstrings
+  included (no HAL host paths may appear even in prose).
+- Regression witnesses (MINOR-8): the full `engine_py/tests` suite stays green with the fixture tree
+  present (the rglob/tree scanners `test_engine_path_closure`, `test_bd182_*`, cyrillic/core-boundary
+  lints).
 - B7: `"sibling_coupling.py" in core_manifest["core_modules"]`;
   `test_engine_path_closure.ESCAPE_ALLOWLIST` has no `sibling-test-audit.sh` key.
 
