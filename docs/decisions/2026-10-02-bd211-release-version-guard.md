@@ -83,3 +83,12 @@ Test hermeticity: every git/UUT subprocess in the RED file runs with `GIT_DIR`, 
 `scripts/version_parity.py`, `tests/test_version_release_guard.py` (new), `.github/workflows/ci.yml`,
 the 6 declaration files (script-written), `CHANGELOG.md`, `CONTRIBUTING.md`, this spec.
 Siblings: `tests/test_version_parity.py`, `tests/test_version_parity_pin.py`, `tests/test_ci_main_heartbeat.py`.
+
+## §6 Sibling migration (found at GREEN verify; scoped run, §1a)
+
+`engine_py/tests/test_bd44_package_namespace.py::test_ac6_version_is_declared_breaking_and_in_parity`
+hard-pins the wheel version to `0.2.x` and the pointer pin to `bytedigger-engine==0.2.`. Its intent (the
+namespace move shipped as a breaking minor, and the pointer pin follows the engine) survives any bump, so
+the migration is: wheel version tuple `>= (0, 2, 0)`; the pointer's pin equals the wheel's version
+(`bytedigger-engine==<wheel version>`). Nothing else in `tests/` or `engine_py/tests/` pins `0.2.x`
+(grep-verified). The edit touches only those two assertions.

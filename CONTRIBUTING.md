@@ -50,6 +50,17 @@ python3 scripts/version_parity.py --write 0.2.0   # sets all five
 python3 scripts/version_parity.py --check         # what CI runs
 ```
 
+Before tagging, confirm the version against the tag you are about to create:
+
+```bash
+python3 scripts/version_parity.py --check-release --tag vX.Y.Z
+```
+
+Release tags must be strict `vX.Y.Z`. The check fails if any release tag in the repo is ahead of
+the canonical version, or if `--tag` does not equal `v` plus the canonical version; a pre-release
+tag such as `v1.2.0-rc1` is ignored by the first rule and rejected by `--tag`. CI runs the same
+check on every `v*` tag push.
+
 `--check` is what the `manifests` CI job runs, so a partial bump fails the PR rather than
 reaching a registry. This matters: 0.1.1 shipped to PyPI while the plugin manifests stayed at
 0.1.0, because the bump was done by hand -- one commit set two of the five files, a follow-up

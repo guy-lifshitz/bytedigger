@@ -191,13 +191,16 @@ def test_ac4_corpus_is_measured_not_assumed(venv: Path):
 def test_ac6_version_is_declared_breaking_and_in_parity(wheel: Path):
     """Four sites declare the version and `scripts/version_parity.py` polices them.
     Bumping only pyproject leaves `pip install bytedigger` — the pointer package —
-    serving 0.1.2, which is the documented 0.1.0->0.1.1 incident all over again."""
+    serving 0.1.2, which is the documented 0.1.0->0.1.1 incident all over again.
+    The namespace move shipped as 0.2.0; later versions keep that floor, and the
+    pointer pin must follow the wheel version."""
     with zipfile.ZipFile(wheel) as z:
         meta = next(n for n in z.namelist() if n.endswith(".dist-info/METADATA"))
         text = z.read(meta).decode()
     version = next(l.split(": ", 1)[1].strip() for l in text.splitlines()
                    if l.startswith("Version: "))
-    assert version.startswith("0.2."), f"AC6: expected 0.2.x, wheel says {version}"
+    vtuple = tuple(int(p) for p in version.split(".")[:3])
+    assert vtuple >= (0, 2, 0), f"AC6: expected version >= 0.2.0, wheel says {version}"
 
     parity = _run([sys.executable, "scripts/version_parity.py"], cwd=str(REPO))
     assert parity.returncode == 0, (
@@ -205,8 +208,9 @@ def test_ac6_version_is_declared_breaking_and_in_parity(wheel: Path):
     )
 
     pointer = (REPO / "packaging" / "pypi-pointer" / "pyproject.toml").read_text()
-    assert "bytedigger-engine==0.2." in pointer, (
-        "AC6: the pointer package still pins a pre-move engine version"
+    assert f"bytedigger-engine=={version}" in pointer, (
+        f"AC6: the pointer package does not pin bytedigger-engine=={version} "
+        f"(wheel version {version})"
     )
 
 
