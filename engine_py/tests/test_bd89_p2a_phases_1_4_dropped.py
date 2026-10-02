@@ -1,6 +1,6 @@
 """RED tests for bd#89 P2a -- drop phases 1-4 (discovery, explore, clarify, architect).
 
-Spec: docs/decisions/2026-10-02-bd89-p2a-drop-phases-1-4.md (FROZEN r2), AC1-AC15.
+Spec: docs/decisions/2026-10-02-bd89-p2a-drop-phases-1-4.md (FROZEN r3), AC1-AC16.
 AC8 was removed in r2 (spec_lite bridge landed in P2b); its number is kept and no
 test exists for it.
 
@@ -36,15 +36,21 @@ AC10  test_ac10_phase5_entry_with_plan_review_and_no_phase4_state_is_allowed
       test_ac10_unreadable_state_hard_blocks_ts_gate                 (GUARD, green now)
       test_ac10_stale_phase4_state_passes_through_and_writes_no_stale_line
       test_ac10_phase45_applies_plan_review_check_to_every_tier
-AC11  autouse fixture `_no_claude_no_api_key` + test_ac11_environment_has_no_claude_and_no_api_key
+      test_ac10_bash_and_ts_soft_block_reasons_are_byte_identical     (F3 parity)
+AC11 autouse fixture `_no_claude_no_api_key` + test_ac11_environment_has_no_claude_and_no_api_key
 AC12  test_ac12_no_dropped_phase_residue_in_md_and_gate_scripts
       test_ac12_build_md_states_the_single_flow_for_all_tiers
       test_ac12_no_simple_skips_phases_wording
+      test_ac12_phase_45_spec_md_requires_plan_review_for_every_tier
+      test_ac12_build_md_does_not_scope_plan_review_to_feature_complex
+      test_ac12_build_md_resumable_routes_stale_phases_1_4_to_phase_45
+      (templates/driver-resume.sh is covered by the residue test: templates/* is in scope)
 AC13  test_ac13_no_stale_test_references_ast
-AC14  test_ac14_bd44_expected_workflows_is_10
-      test_ac14_frozen_registry_sets_are_the_same_10
-      test_ac14_bd141_pins_are_12_drivers_and_15_dispatches
-      test_ac14_no_other_registry_count_of_14
+AC14  test_ac14_bd44_expected_workflows_is_10                 (GUARD, green by construction)
+      test_ac14_frozen_registry_sets_are_the_same_10          (GUARD, green by construction)
+      test_ac14_bd141_pins_are_12_drivers_and_15_dispatches   (GUARD, green by construction)
+      test_ac14_no_other_registry_count_of_14                 (GUARD, green by construction)
+AC16  test_ac16_guard_stale_phases_csv_resume_is_refused_loudly   (GUARD, green now)
 AC15  test_ac15_guard_probe_triggers_fire_on_the_feature_request   (GUARD, green now)
       test_ac15_guard_neutral_request_triggers_nothing             (GUARD, green now)
       test_ac15_architecture_doc_text_does_not_trigger_the_probe
@@ -567,12 +573,17 @@ def test_ac9_facts_collection_failure_below_the_seam_is_visible_not_fatal(tmp_pa
     def boom(*a, **k):
         raise RuntimeError("walk exploded")
 
+    events: list = []
+    monkeypatch.setattr(facts_pack, "_emit_safe", lambda name, payload: events.append((name, payload)))
     monkeypatch.setattr(facts_pack, "collect", boom)
     repo = _repo(tmp_path)
     ctx = _ctx(tmp_path / "s", repo)
     prompt = _prompt(phase_45_spec._build_spec_prompt(ctx, None))
     assert "FEATURE REQUEST:" in prompt
     assert "walk exploded" not in prompt
+    assert facts_pack.FACTS_HEADER not in prompt, "facts must degrade to the empty string"
+    failed = [p for n, p in events if n == "facts_pack_failed"]
+    assert failed and "walk exploded" in failed[0]["error"], events
 
 
 def test_ac9_facts_block_for_raising_does_not_crash_the_prompt(tmp_path, monkeypatch):
@@ -592,6 +603,7 @@ def test_ac9_facts_block_for_raising_does_not_crash_the_prompt(tmp_path, monkeyp
     prompt = _prompt(res)
     assert "FEATURE REQUEST:" in prompt
     assert facts_pack.FACTS_HEADER not in prompt
+    assert "facts seam exploded" not in prompt, "call-site degrades to facts = '' (no error text in the prompt)"
 
 
 # --- AC10: both gates, real subprocess side effects -----------------------------
@@ -699,6 +711,27 @@ def test_ac10_phase45_applies_plan_review_check_to_every_tier(gate, tier, tmp_pa
     assert _run_gate(gate, ok_dir).returncode == 0
 
 
+def _reason(proc) -> str:
+    return json.loads(proc.stdout.strip().splitlines()[-1])["reason"]
+
+
+@pytest.mark.parametrize("phase", ["4.5", "5"])
+@pytest.mark.parametrize("tier", TIERS)
+def test_ac10_bash_and_ts_soft_block_reasons_are_byte_identical(tier, phase, tmp_path):
+    """F3: gate_backend=shadow compares stdout byte for byte; both gates must say
+    `plan_review=pass (got: <missing>)` for the same missing field."""
+    reasons = {}
+    for gate in GATES:
+        proj = tmp_path / gate
+        proj.mkdir()
+        _gate_project(proj, phase, tier, _PHASE5_KEPT if phase == "5" else "")
+        proc = _run_gate(gate, proj)
+        assert proc.returncode == 2, f"{gate}/{tier}/{phase}: {proc.stdout}{proc.stderr}"
+        reasons[gate] = _reason(proc)
+    assert reasons["bash"] == reasons["ts"], reasons
+    assert "plan_review=pass (got: <missing>)" in reasons["ts"], reasons
+
+
 # --- AC11 ------------------------------------------------------------------------
 
 def test_ac11_environment_has_no_claude_and_no_api_key():
@@ -755,6 +788,36 @@ def test_ac12_no_simple_skips_phases_wording(rel):
     assert text.strip(), "fixture precondition"
     assert not _SIMPLE_SKIPS_RE.search(text), f"{rel}: SIMPLE still skips phases 2-4"
     assert not _START_GATE_RE.search(text), f"{rel}: start gate still 'after its Phase 1 spec'"
+
+
+_P45_SKIP_RE = re.compile(r"SIMPLE[^\n]*skip", re.IGNORECASE)
+_MERGED_P1_RE = re.compile(r"merged with Phase 1", re.IGNORECASE)
+_PLAN_REVIEW_TIER_SCOPED_RE = re.compile(r"plan_review[^\n]*\(?for FEATURE/COMPLEX\)?|Plan-Review Gate \(MANDATORY FEATURE/COMPLEX\)")
+_EVERY_TIER_RE = re.compile(r"\b(?:every|all)\s+tiers?\b|\bSIMPLE/FEATURE/COMPLEX\b|\bincluding SIMPLE\b", re.IGNORECASE)
+
+
+def test_ac12_phase_45_spec_md_requires_plan_review_for_every_tier():
+    text = _text(REPO_ROOT / "phases" / "phase-45-spec.md")
+    assert "plan_review" in text, "fixture precondition: plan review is documented"
+    assert not _P45_SKIP_RE.search(text), "phase-45-spec.md still says SIMPLE skips the plan-review gate"
+    assert not _MERGED_P1_RE.search(text), "phase-45-spec.md still merges SIMPLE spec writing into Phase 1"
+    assert not _PLAN_REVIEW_TIER_SCOPED_RE.search(text), "plan review is still scoped to FEATURE/COMPLEX"
+    assert _EVERY_TIER_RE.search(text), "phase-45-spec.md does not say plan review + plan_review apply to every tier"
+
+
+def test_ac12_build_md_does_not_scope_plan_review_to_feature_complex():
+    text = _text(REPO_ROOT / "commands" / "build.md")
+    assert "plan_review" in text, "fixture precondition"
+    assert not _PLAN_REVIEW_TIER_SCOPED_RE.search(text), "build.md still scopes plan review to FEATURE/COMPLEX"
+
+
+def test_ac12_build_md_resumable_routes_stale_phases_1_4_to_phase_45():
+    lines = [l for l in _text(REPO_ROOT / "commands" / "build.md").splitlines() if "Resumable" in l]
+    assert lines, "fixture precondition: build.md has a Resumable paragraph"
+    para = " ".join(lines)
+    assert "Phase 2 (explore)" not in para, "Resumable still re-runs the explore phase"
+    assert re.search(r"1\s*[-–]\s*4|1,\s*2,\s*3", para) and "4.5" in para, (
+        "Resumable does not route a stale current_phase 1-4 to Phase 4.5")
 
 
 # --- AC13: no stale test references (AST, not text) ------------------------------
@@ -935,3 +998,40 @@ def test_ac15_decision_doc_text_triggers_the_probe(tmp_path, monkeypatch):
     prompt = _spec_prompt_for(tmp_path, _NEUTRAL, decision_text=_ALL_TOKENS_TEXT, monkeypatch=monkeypatch)
     assert "sentinel cache must resume" in prompt, "fixture precondition: decision doc is inlined"
     assert _triggers(prompt) == {"reentry", "py", "fmt"}, sorted(_triggers(prompt))
+
+
+# --- AC16: a pre-upgrade resume is refused loudly (edge 1) ------------------------
+
+@pytest.mark.parametrize("dropped", DROPPED_STAGES)
+def test_ac16_guard_stale_phases_csv_resume_is_refused_loudly(dropped, tmp_path, monkeypatch, capsys):
+    """GUARD (green at RED): the real run.main refuses a dropped stage name.
+
+    A resume driven by a pre-upgrade PHASES_CSV naming phase_1_discovery (etc.) hits
+    the real registry (engine.py KeyError "not registered") and the real run.main
+    maps it to error_code E_NOT_REGISTERED, exit 2.  Only the DBOS plumbing is
+    replaced (init/teardown no-ops; the durable wrapper delegates to the real
+    engine.execute); registry, engine and main's error mapping are production code.
+    """
+    from bytedigger_engine import run
+
+    ctx_json = json.dumps({
+        "tenant_id": "hal", "question": "resume", "session_id": "p2a-ac16",
+        "persona": "hal",
+        "org_config": {"scratchpad_dir": str(tmp_path / "scratch"), "complexity": "FEATURE"},
+    })
+    eng = run.make_engine(None)
+    assert "phase_45_spec" in eng.registered(), "fixture precondition: real registry"
+
+    def _durable(name, ctx_dict, run_id, event_log_path=None):
+        eng.execute(name, _ctx_plain(tmp_path / "scratch"))  # KeyError for a dropped name
+        raise AssertionError(f"{name} executed: a dropped stage must not resolve")
+
+    monkeypatch.setattr(run, "init_dbos", lambda *a, **k: None)
+    monkeypatch.setattr(run, "teardown_dbos", lambda *a, **k: None)
+    monkeypatch.setattr(run, "execute_durable_workflow", _durable)
+    monkeypatch.setattr(sys, "argv", ["run.py", "--workflow", dropped, "--ctx-json", ctx_json])
+    rc = run.main()
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert rc == 2, out
+    assert out["error_code"] == "E_NOT_REGISTERED", out
+    assert "not registered" in out["error"] and dropped in out["error"], out

@@ -85,7 +85,7 @@ EOF
   [ "$status" -eq 2 ]
 }
 
-@test "test_phase_5_simple_skips_plan_review — SIMPLE phase 5 without plan_review → exit 0" {
+@test "test_phase_5_simple_requires_plan_review — SIMPLE phase 5 without plan_review → exit 2" {
   cat > "$TMPDIR/build-state.yaml" <<EOF
 task: "test"
 complexity: SIMPLE
@@ -94,7 +94,7 @@ current_phase: "5"
 last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 EOF
   run bash "$SCRIPT" < /dev/null
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
 }
 
 @test "test_phase_51_missing_red_output_blocks — phase 5.1 without build-red-output.log → exit 2" {

@@ -1270,7 +1270,7 @@ def test_ac_i6_migrated_phase_prompt_is_byte_identical(tmp_path) -> None:
     from bytedigger_engine.contracts import StepContract, WorkflowDefinition
     from bytedigger_engine.workflows import phase_45_spec as p45
 
-    def phase_2_explore_workflow() -> WorkflowDefinition:
+    def _p45_build_invoke_workflow() -> WorkflowDefinition:
         return WorkflowDefinition(
             name="p45_build_invoke",
             steps=[
@@ -1285,13 +1285,13 @@ def test_ac_i6_migrated_phase_prompt_is_byte_identical(tmp_path) -> None:
 
     log = _FakeEventLog()
     engine = WorkflowEngine(event_log=log)
-    engine.register("p2", phase_2_explore_workflow())
+    engine.register("p2", _p45_build_invoke_workflow())
     with_role, _ = engine.execute("p2", _explore_ctx(
         scratchpad=scratchpad, role_path=role_path, session_id="bd10-i6-role"))
 
     baseline_log = _FakeEventLog()
     baseline_engine = WorkflowEngine(event_log=baseline_log)
-    baseline_engine.register("p2", phase_2_explore_workflow())
+    baseline_engine.register("p2", _p45_build_invoke_workflow())
     without_role, _ = baseline_engine.execute("p2", _explore_ctx(
         scratchpad=scratchpad, role_path=None, session_id="bd10-i6-plain"))
 

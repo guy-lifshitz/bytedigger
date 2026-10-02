@@ -295,8 +295,8 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
   }
 
   test("count=0 increments to 1, no bypass", () => {
-    writeState({ current_phase: "4" });
-    const bypassed = loopPreventionCLI(statePath(), "4");
+    writeState({ current_phase: "5" });
+    const bypassed = loopPreventionCLI(statePath(), "5");
     expect(bypassed).toBe(false);
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/^gate_block_counter: 1$/m);
@@ -314,8 +314,8 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
   });
 
   test("counter is rewritten, not duplicated (strip + append)", () => {
-    writeState({ current_phase: "4", gate_block_counter: "1" });
-    loopPreventionCLI(statePath(), "4");
+    writeState({ current_phase: "5", gate_block_counter: "1" });
+    loopPreventionCLI(statePath(), "5");
     const content = readFileSync(statePath(), "utf8");
     const occurrences = content.match(/^gate_block_counter:/gm) || [];
     expect(occurrences.length).toBe(1);
@@ -326,9 +326,9 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
     // Build state file with explicitly quoted counter value.
     writeFileSync(
       statePath(),
-      'current_phase: "4"\ngate_block_counter: "2"\n',
+      'current_phase: "5"\ngate_block_counter: "2"\n',
     );
-    const bypassed = loopPreventionCLI(statePath(), "4");
+    const bypassed = loopPreventionCLI(statePath(), "5");
     expect(bypassed).toBe(false);
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/^gate_block_counter: 3$/m);
@@ -337,9 +337,9 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
   test("malformed counter (non-numeric) falls through to 0 → 1", () => {
     writeFileSync(
       statePath(),
-      'current_phase: "4"\ngate_block_counter: abc\n',
+      'current_phase: "5"\ngate_block_counter: abc\n',
     );
-    const bypassed = loopPreventionCLI(statePath(), "4");
+    const bypassed = loopPreventionCLI(statePath(), "5");
     expect(bypassed).toBe(false);
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/^gate_block_counter: 1$/m);
@@ -349,10 +349,10 @@ describe("loopPreventionCLI — counter + bypass (GAP_FILL, reviewer 5 G1)", () 
     writeState({
       task: "x",
       complexity: "FEATURE",
-      current_phase: "4",
+      current_phase: "5",
       gate_block_counter: "1",
     });
-    loopPreventionCLI(statePath(), "4");
+    loopPreventionCLI(statePath(), "5");
     const content = readFileSync(statePath(), "utf8");
     expect(content).toMatch(/task: "x"/);
     expect(content).toMatch(/complexity: "FEATURE"/);
