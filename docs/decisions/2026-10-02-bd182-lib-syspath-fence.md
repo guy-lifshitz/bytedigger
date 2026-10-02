@@ -19,9 +19,8 @@ helpers) slips past it.
 ## Change
 
 1. **Remove** every test-suite sys.path insert whose target is inside
-   `engine_py/bytedigger_engine/` (any subdirectory, any spelling: direct
-   `Path / "bytedigger_engine" / ...`, a `str(...)` of it, a module constant,
-   a `for p in (...)` tuple, `os.path.join`). Inserting `engine_py/` itself is
+   `engine_py/bytedigger_engine/` (any subdirectory, in every spelling the
+   static fence in §3 covers). Inserting `engine_py/` itself is
    allowed. No test currently imports a lib module by flat name, so imports do
    not change; if one turns up, convert it to the package path.
 2. **Runtime fence** (`test_bd182_*`): at run time no `sys.path` entry resolves
@@ -35,14 +34,25 @@ helpers) slips past it.
    `bytedigger_engine/`.
    - Mutations recognised: `sys.path.insert/append/extend(...)`,
      `sys.path[...] = ...`, `sys.path = ...`, `sys.path += ...`,
-     `monkeypatch.syspath_prepend(...)`; `sys` may be imported under an alias
-     (`import sys as _sys`).
+     `monkeypatch.syspath_prepend(...)`, `site.addsitedir(...)`; `sys` may be
+     imported under an alias (`import sys as _sys`), and `from sys import path
+     [as x]` makes the bare name a sys.path alias for every form above.
    - Target "inside the package": the string constants reachable from the
      argument contain the path component `bytedigger_engine`. Reachable means
      the argument expression itself plus, for each bare name in it, the value
      of every assignment / for-loop iterable binding that name anywhere in the
-     same module, followed transitively (cycle-safe).
+     same module, followed transitively (cycle-safe). A call to a function
+     defined in the same module is followed into that function's `return`
+     expressions (so `def _lib(): return ROOT / "bytedigger_engine" / "lib"`
+     then `sys.path.insert(0, str(_lib()))` is flagged, while an
+     `_engine_py_root()` returning `parents[1]` is not).
    - No allowlist.
+   - The scan asserts it parsed at least 40 files, and reports (fails on) any
+     file it cannot parse instead of skipping it silently.
+   - Known uncovered (follow-up, not this lot): a path derived from an
+     imported module's `__file__` / `__path__`; a path that arrives through a
+     function parameter or default; out-of-process leaks (`PYTHONPATH` in a
+     subprocess env, sys.path code inside a driver string).
    - The scanner is itself tested on inline snippets: each recognised spelling
      is flagged; an `engine_py/` root insert, a `tmp_path` insert, and a
      docstring that merely mentions `bytedigger_engine/lib` are not.
