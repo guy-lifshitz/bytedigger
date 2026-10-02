@@ -17,9 +17,6 @@ from pathlib import Path
 ENGINE_PY = Path(__file__).resolve().parent.parent
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
-if str(WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(WORKFLOWS))
 
 from bytedigger_engine.contracts import WorkflowContext  # type: ignore
 from bytedigger_engine.workflows.phase_6_review import _build_review_prompt  # type: ignore

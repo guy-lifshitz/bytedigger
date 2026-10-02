@@ -25,12 +25,9 @@ import pytest
 # ── sys.path setup mirrors test_phase_6_review_return_discipline_CF838E6F.py ──
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(WORKFLOWS))
 
 # Top-level import of the module (already exists — collects fine).
 # _normalize_to_aggregated_findings does NOT exist yet; referenced ONLY

@@ -22,8 +22,6 @@ WORKFLOWS = ENGINE_PY / "bytedigger_engine" / "workflows"
 
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-if str(WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(WORKFLOWS))
 
 # ── module-level imports of EXISTING modules only ────────────────────────────
 # phase_5_implement and phase_6_review exist today — safe to import here.

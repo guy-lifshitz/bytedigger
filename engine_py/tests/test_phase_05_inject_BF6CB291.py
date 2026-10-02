@@ -39,9 +39,6 @@ from pathlib import Path
 _ENGINE_PY = Path(__file__).resolve().parent.parent
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
-if str(_WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(_WORKFLOWS))
 
 from bytedigger_engine.contracts import StepContract, WorkflowContext, WorkflowDefinition  # noqa: E402
 from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
