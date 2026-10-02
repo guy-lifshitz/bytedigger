@@ -45,6 +45,7 @@ from typing import Any
 from bytedigger_engine.contracts import StepResult
 from bytedigger_engine.llm_subprocess import available_tools, register_backend, _emit_safe
 from bytedigger_engine.telemetry_ctx import _RunCtx
+from bytedigger_engine.lib import llm_cost
 
 from .pydantic_openai import _extract_usage_tokens
 from .pydantic_openai import _is_git_repo, _manifest_since, _snapshot_pre_state
@@ -116,6 +117,19 @@ def _accumulate_observations(msg: object, holder: dict[str, object]) -> None:
     model = getattr(msg, "model", None)
     if isinstance(model, str) and model:
         holder["model"] = model
+
+
+def _record_api_key_source(msg: object, holder: dict[str, object]) -> None:
+    """bd#167: remember the init message's ``apiKeySource`` (the runtime's own
+    statement of how it authenticates). Duck-typed on purpose: no
+    ``claude_agent_sdk.SystemMessage`` import, any unrecognised shape is skipped."""
+    if getattr(msg, "subtype", None) != "init":
+        return
+    data = getattr(msg, "data", None)
+    if isinstance(data, dict):
+        source = data.get("apiKeySource")
+        if isinstance(source, str):
+            holder["api_key_source"] = source
 
 
 def _salvage_success_result(holder: dict[str, object]) -> object | None:
@@ -392,7 +406,7 @@ def agent_sdk_backend(
     # `ToolUseBlock.name` and `AssistantMessage.model`, and this loop used to
     # keep only the ResultMessage — the evidence passed through and was
     # dropped, so R3.3/R3.5/R3.6 were silent on the DEFAULT backend.
-    observed_holder: dict[str, object] = {"tools": set(), "model": None}
+    observed_holder: dict[str, object] = {"tools": set(), "model": None, "api_key_source": None}
 
     def _on_stderr(line: str) -> None:
         stderr_buf.append(line)
@@ -431,6 +445,7 @@ def agent_sdk_backend(
             # not leak into the next one.
             observed_holder["tools"] = set()
             observed_holder["model"] = None
+            observed_holder["api_key_source"] = None
             resume_this = resume_sid if attempt == 1 else None
             resume_used["value"] = resume_this
             if attempt > 1 and key is not None:
@@ -477,6 +492,7 @@ def agent_sdk_backend(
                         # Normal stream end — loop control, not an error.
                         break
                     _accumulate_observations(msg, observed_holder)
+                    _record_api_key_source(msg, observed_holder)
                     if result_cls is not None and isinstance(msg, result_cls):
                         result_msg = msg
                         result_holder["msg"] = msg
@@ -699,6 +715,13 @@ def agent_sdk_backend(
 
     caller_extra = {k: v for k, v in extra_data.items() if k != "workspace_root"}
     merged = {**base_data, **caller_extra}
+    # bd#167: reserved ledger fields, set AFTER the caller merge (no shadowing).
+    api_key_source = observed_holder["api_key_source"]
+    merged["billing_mode"] = llm_cost.billing_mode_from_auth(
+        api_key_source if isinstance(api_key_source, str) else None, os.environ
+    )
+    if isinstance(usage_obj, dict):
+        merged["usage"] = dict(usage_obj)
 
     if run_ctx is not None and getattr(run_ctx, "event_log", None) is not None:
         payload: dict[str, object] = {
@@ -756,7 +779,8 @@ def register() -> None:
         "agent-sdk",
         agent_sdk_backend,
         manifest_source="git_diff",
-        capabilities=frozenset({"tool_allowlist", "warm_resume", "effort"}),
+        # bd#167: reports_cost - ResultMessage.total_cost_usd is the runtime's own figure.
+        capabilities=frozenset({"tool_allowlist", "warm_resume", "effort", "reports_cost"}),
         overwrite=True,
     )
 

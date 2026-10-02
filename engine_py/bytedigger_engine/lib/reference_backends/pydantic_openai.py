@@ -119,6 +119,55 @@ def _extract_usage_tokens(agent_result: object) -> tuple[int | None, int | None]
     return tokens_in, tokens_out
 
 
+def _run_usage_object(agent_result: object) -> object:
+    """The RunUsage behind ``agent_result.usage`` (callable or property form), else None."""
+    try:
+        usage_attr = getattr(agent_result, "usage", None)
+        return usage_attr() if callable(usage_attr) else usage_attr
+    except Exception:
+        return None
+
+
+def _usage_count(usage: object, *names: str) -> "int | None":
+    """First of *names* on *usage* that is a non-bool int, else None."""
+    for name in names:
+        value = getattr(usage, name, None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _usage_for_ledger(agent_result: object) -> dict[str, "int | None"]:
+    """bd#167: ledger usage from a pydantic-ai RunResult (shared with pydantic-anthropic).
+
+    pydantic-ai ``RunUsage.input_tokens`` INCLUDES cache read and write, so the
+    ledger's uncached ``tokens_in`` is that total minus both (never below 0).
+    Missing cache attributes count as 0; missing in/out stay None.
+    """
+    usage = _run_usage_object(agent_result)
+    raw_in = _usage_count(usage, "input_tokens", "request_tokens")
+    tokens_out = _usage_count(usage, "output_tokens", "response_tokens")
+    cache_read = _usage_count(usage, "cache_read_tokens") or 0
+    cache_write = _usage_count(usage, "cache_write_tokens") or 0
+    tokens_in = None if raw_in is None else max(0, raw_in - cache_read - cache_write)
+    return {
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cache_read_tokens": cache_read,
+        "cache_write_tokens": cache_write,
+    }
+
+
+def _ledger_data(agent_result: object, billing_mode: str) -> dict[str, object]:
+    """bd#167: ``billing_mode`` (+ ``usage`` when the run reported in/out tokens)
+    for a pydantic backend's success data; the caller sets it AFTER the extra_data merge."""
+    out: dict[str, object] = {"billing_mode": billing_mode}
+    usage = _usage_for_ledger(agent_result)
+    if usage["tokens_in"] is not None or usage["tokens_out"] is not None:
+        out["usage"] = usage
+    return out
+
+
 def _pydantic_ai_importable() -> bool:
     """Probe whether `pydantic_ai` is importable, without a hard import.
 
@@ -729,7 +778,7 @@ def pydantic_openai_backend(
         base_data["gate_label"] = gate_label
 
     caller_extra = {k: v for k, v in extra_data.items() if k != "workspace_root"}
-    merged = {**base_data, **caller_extra}
+    merged = {**base_data, **caller_extra, **_ledger_data(agent_result, "metered")}
 
     return StepResult(
         status="ok",
@@ -755,7 +804,7 @@ def register() -> None:
         "pydantic-openai",
         pydantic_openai_backend,
         manifest_source="git_diff",
-        capabilities=frozenset({"tool_allowlist"}),
+        capabilities=frozenset({"tool_allowlist", "billing:metered"}),  # bd#167
         overwrite=True,
         effective_model=_effective_deployment,
     )

@@ -141,7 +141,8 @@ def test_ac2_manifest_source_and_capabilities():
         f"AC2: _BACKEND_MANIFEST_SOURCE['anthropic-api'] must be 'api_text_response'; "
         f"got {llm_subprocess._BACKEND_MANIFEST_SOURCE.get('anthropic-api')!r}"
     )
-    assert llm_subprocess._BACKEND_CAPABILITIES.get("anthropic-api") == frozenset({"no_tools", "effort:low", "effort:medium", "effort:high"}), (
+    # bd#167: UPDATED, not weakened - `billing:metered` joined (exact equality kept).
+    assert llm_subprocess._BACKEND_CAPABILITIES.get("anthropic-api") == frozenset({"no_tools", "effort:low", "effort:medium", "effort:high", "billing:metered"}), (
         f"AC2: _BACKEND_CAPABILITIES['anthropic-api'] must be no_tools plus effort:low/medium/high (bd#82); "
         f"got {llm_subprocess._BACKEND_CAPABILITIES.get('anthropic-api')!r}"
     )
