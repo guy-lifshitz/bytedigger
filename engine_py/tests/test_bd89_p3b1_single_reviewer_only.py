@@ -652,8 +652,11 @@ def test_ac10_pre_upgrade_parallel_config_end_to_end(tmp_path, monkeypatch):
     assert "expected: 1" in doc
     suspect_at = doc.index(p6.SUSPECT_FINDINGS_SECTION_HEADER)
     assert 0 <= doc.index(good_title) < suspect_at, "verified finding must be in the verified section"
-    phantom_line = next(ln for ln in doc.splitlines() if phantom_title in ln)
-    assert "[verify: suspect" in phantom_line and doc.index(phantom_title) > suspect_at
+    # The raw role body is echoed above the suspect section, so scope the search to the tail.
+    tail = doc[suspect_at:]
+    phantom_line = next(ln for ln in tail.splitlines() if phantom_title in ln)
+    assert "[verify: suspect" in phantom_line
+    assert good_title not in tail
     assert "review_fanout_ignored" in sink.names()
     assert "review_findings_audit" in sink.names()
 
