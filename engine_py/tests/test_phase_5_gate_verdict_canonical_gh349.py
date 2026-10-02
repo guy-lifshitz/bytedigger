@@ -146,7 +146,7 @@ class TestGateCanonicalVerdict:
         )
         assert r.data["markdown_verdict"] == VERDICT_FAIL
 
-    def test_gate_unknown_markdown_with_structured_approve_canonicalizes_to_pass(
+    def test_gate_unknown_markdown_with_structured_approve_fails_closed(
         self,
     ) -> None:
         """AC4 (bd#91 strict-AND): markdown UNKNOWN + structured approve is

@@ -174,7 +174,8 @@
     "workflows/phase_5_implement.py::_read_green_complete_resume_marker::read_text#0": {"class": "not-prompt", "note": "resume marker JSON parsed for resume"},
     "workflows/phase_5_implement.py::_read_red_cycle_shas::read_text#0": {"class": "not-prompt", "note": "per-cycle sha sidecar parsed"},
     "workflows/phase_5_implement.py::_read_red_test_hashes::read_text#0": {"class": "not-prompt", "note": "frozen hash manifest parsed for comparison"},
-    "workflows/phase_5_implement.py::_read_red_test_paths::read_text#0": {"class": "E", "note": "persisted RED test path list; paths are rendered as class-E fields in later prompts"},
+    "workflows/phase_5_implement.py::_read_red_texts::read_text#0": {"class": "not-prompt", "note": "substring citation check only; no bytes reach a prompt"},
+    "workflows/phase_5_implement.py::_read_red_test_paths::read_text#0":{"class": "E", "note": "persisted RED test path list; paths are rendered as class-E fields in later prompts"},
     "workflows/phase_5_implement.py::_read_text_or_empty::read_text#0": {"class": "not-prompt", "note": "wrapper body of _read_text_or_empty; each caller is keyed separately"},
     "workflows/phase_5_implement.py::_red_collect_probe::bounded_run#0": {"class": "I-deferred", "issue": "192", "note": "T2 pytest --co probe; the last 400 chars of stdout and stderr are rendered into RED collect-probe findings and are not yet declared"},
     "workflows/phase_5_implement.py::_red_commit_baseline_fail_ids::_read_text_or_empty#0": {"class": "not-prompt", "note": "baseline run output parsed into failing test ids"},
@@ -206,6 +207,7 @@
     "workflows/phase_5_implement.py::_verify_red_lint_rules_legacy::read_text#2": {"class": "not-prompt", "note": "RED source scanned by lint rules; only rule id, path and line leave"},
     "workflows/phase_5_implement.py::_verify_security_lint::bounded_run#0": {"class": "E", "note": "security lint JSON parsed into structured findings carried as retry findings (class-E fields)"},
     "workflows/phase_5_implement.py::_verify_security_lint::read_text#0": {"class": "not-prompt", "note": "spec read to parse authorized pragma paths; gate only"},
+    "workflows/phase_5_implement.py::_write_validation_doc::read_text#0": {"class": "not-prompt", "note": "spec read for AC-id parse; only derived AC ids (never spec bytes) reach next-cycle findings"},
     "workflows/phase_5_integrity.py::_build_integrity_prompt::git_read#0": {"class": "not-prompt", "note": "integrity diff handed to the LLM by path (written to the scratchpad), not inlined in the prompt"},
     "workflows/phase_5_integrity.py::_resolve_diff_command::read_text#0": {"class": "not-prompt", "note": "pre-RED sha ref file used as a git diff argument"},
 

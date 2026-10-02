@@ -6602,14 +6602,12 @@ def _build_validation_prompt(ctx, prev) -> StepResult:
         "\n"
         f"     red_test_paths for this build:\n{red_paths_bullet_list}\n"
         "\n"
-        "  2. TDD-pure GREEN-regression deferral:\n"
-        "     A test that trivially passes BEFORE the fix is a GREEN regression,\n"
-        "     NOT a missing RED test. Such tests belong under Quality Findings\n"
-        "     as `[GREEN-regression-deferral]`, NOT as a FAIL signal. Demanding\n"
-        "     RED tests for trivially-passing regressions contradicts strict-RED\n"
-        "     TDD orthodoxy. Apply this when an AC's pre-fix behavior already\n"
-        "     satisfies the test (e.g., no-duplication invariant, caller-non-\n"
-        "     mutation, passthrough behaviors).\n"
+        "  2. Forward Map COVERAGE (every AC needs a test):\n"
+        "     Every AC MUST have a test in the Forward Map: exactly one bullet per\n"
+        "     AC, in the format `- AC<n>: `test_name`` or `- AC<n>: `MISSING``.\n"
+        "     An AC whose behavior already holds before the fix is NOT exempt:\n"
+        "     still list its test and mark it under Quality Findings as\n"
+        "     `[passes-pre-fix]` (informational only). No test = `MISSING` + FAIL.\n"
     )
     parts.append(_get_behavioral_rubric())
     parts.append(_VALIDATION_STABLE_PREFIX)
@@ -6834,6 +6832,290 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
     return result
 
 
+# ─── bd#91: Forward Map AC coverage (deterministic, provider-agnostic) ────────
+# NOTE (#94 fence): everything bd#91 adds lives below line ~6240; imports deferred.
+
+_FM_ID_RE = re.compile(r"AC[- ]?[A-Za-z0-9]+(?:[_.][A-Za-z0-9]+)*")
+_FM_LIST_SEP_RE = re.compile(r"[*_]*\s*(?:,|/|\band\b)\s*[*_]*")
+_FM_RANGE_SEP_RE = re.compile(r"[*_]*\s*(?:–|—|\.\.|-)\s*[*_]*")
+_FM_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
+_FM_BARE_RE = re.compile(r"(?<![\w])(test_\w+|Test\w+|test[A-Z]\w*)(?![\w])")
+_FM_WRAP_RE = re.compile(r"^(?:it|test|describe)\s*\(\s*([\"'])(.*?)\1")
+_FM_RESERVED = frozenset({"n/a", "na", "none", "tbd", "deferred", "missing", "todo", "-", "?"})
+_FM_RESERVED_TOKENS = frozenset({"[green-regression-deferral]", "[passes-pre-fix]"})
+_FM_FILE_EXTS = frozenset({
+    "py", "ts", "tsx", "js", "jsx", "mjs", "go", "rs", "java", "kt", "swift", "rb",
+    "php", "cs", "cpp", "cc", "c", "h", "sh", "md", "json", "yaml", "yml", "toml",
+})
+
+
+def _fm_natural_key(value: str) -> "list[Any]":
+    return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", value)]
+
+
+def _fm_norm_id(token: str) -> str:
+    m = re.match(r"AC[- ]?(.*)$", token.strip(), re.IGNORECASE)
+    return "AC" + m.group(1).upper() if m else token.strip().upper()
+
+
+def _fm_expand(start: str, end: str) -> "list[str]":
+    ms = re.fullmatch(r"AC(\d+)", start)
+    me = re.fullmatch(r"AC(\d+)", end)
+    if ms and me:
+        lo, hi = int(ms.group(1)), int(me.group(1))
+        if lo <= hi and hi - lo <= 500:
+            return [f"AC{n}" for n in range(lo, hi + 1)]
+    return [start, end]
+
+
+def _fm_parse_head(text: str) -> "tuple[list[str], str] | None":
+    """Parse the AC id head (ids, lists, ranges) from the start of ``text``.
+
+    Returns ``(ids, rest)`` or None when ``text`` does not start with an AC id.
+    A range (``AC1–AC3`` / ``AC1..AC3``) is matched BEFORE any delimiter split."""
+    lead = re.match(r"[\s*_]*", text)
+    pos = lead.end() if lead else 0
+    first = _FM_ID_RE.match(text, pos)
+    if not first:
+        return None
+    ids = [_fm_norm_id(first.group(0))]
+    pos = first.end()
+    while True:
+        advanced = False
+        for sep_re, is_range in ((_FM_LIST_SEP_RE, False), (_FM_RANGE_SEP_RE, True)):
+            sep = sep_re.match(text, pos)
+            if not sep:
+                continue
+            nxt = _FM_ID_RE.match(text, sep.end())
+            if not nxt:
+                continue
+            nid = _fm_norm_id(nxt.group(0))
+            if is_range:
+                ids[-1:] = _fm_expand(ids[-1], nid)
+            else:
+                ids.append(nid)
+            pos = nxt.end()
+            advanced = True
+            break
+        if not advanced:
+            break
+    return ids, text[pos:]
+
+
+def _fm_section(text: str, title: str) -> "str | None":
+    m = re.search(rf"^##[ \t]+{re.escape(title)}\b[^\n]*$", text, re.IGNORECASE | re.MULTILINE)
+    if not m:
+        return None
+    rest = text[m.end():]
+    nxt = re.search(r"^#{1,2}[ \t]", rest, re.MULTILINE)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def _fm_entries(section: str) -> "list[tuple[list[str], str]]":
+    """(ids, tail) per bullet / first-cell-AC table row of a markdown section."""
+    out: "list[tuple[list[str], str]]" = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("|"):
+            cells = stripped.strip("|").split("|")
+            head = _fm_parse_head(cells[0])
+            if head is not None:
+                out.append((head[0], "|".join(cells[1:])))
+            continue
+        bm = _FM_BULLET_RE.match(line)
+        if not bm:
+            continue
+        head = _fm_parse_head(bm.group(1))
+        if head is not None:
+            out.append(head)
+    return out
+
+
+def _fm_normalize_span(span: str) -> str:
+    s = span.strip()
+    wm = _FM_WRAP_RE.match(s)
+    if wm:
+        s = wm.group(2)
+    if " > " in s:
+        s = s.split(" > ")[-1]
+    s = s.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        s = s[1:-1].strip()
+    if s and not re.search(r"\s", s):
+        if "::" in s:
+            s = s.split("::")[-1]
+        if (
+            re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", s)
+            and s.rsplit(".", 1)[-1].lower() not in _FM_FILE_EXTS
+        ):
+            s = s.rsplit(".", 1)[-1]
+        s = re.sub(r"\[[^\]]*\]$", "", s)
+        s = re.sub(r"\([^)]*\)$", "", s)
+        if re.match(r"Test\w+/", s):
+            s = s.split("/")[0]
+    return s.strip()
+
+
+def _fm_candidates(tail: str) -> "list[tuple[str, str]]":
+    out: "list[tuple[str, str]]" = []
+    for m in re.finditer(r"`([^`]+)`", tail):
+        out.append((m.group(1), _fm_normalize_span(m.group(1))))
+    for m in _FM_BARE_RE.finditer(re.sub(r"`[^`]*`", " ", tail)):
+        out.append((m.group(1), m.group(1)))
+    return out
+
+
+def _fm_candidate_kind(raw_span: str, norm: str) -> "str | None":
+    """'ident' | 'desc' | None (never a citation)."""
+    for v in (raw_span.strip().lower(), norm.lower()):
+        if v in _FM_RESERVED or v in _FM_RESERVED_TOKENS:
+            return None
+    if not norm:
+        return None
+    if re.fullmatch(r"AC[\w-]*", norm, re.IGNORECASE):
+        return None
+    if re.fullmatch(r"[A-Za-z_]\w*", norm):
+        if len(norm) < 6 or not re.search(r"_|\d|[A-Z]", norm[1:]):
+            return None
+        return "ident"
+    if len(norm) < 8:
+        return None
+    return "desc"
+
+
+def _fm_found(kind: str, norm: str, texts: "list[str]", texts_ws: "list[str]") -> bool:
+    if kind == "ident":
+        pat = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(norm) + r"(?![A-Za-z0-9_])")
+        return any(pat.search(t) for t in texts)
+    want = " ".join(norm.split())
+    return any(want in t for t in texts_ws)
+
+
+def _fm_compliance(raw: str) -> "dict[str, str]":
+    """Spec Compliance status per AC id: only 'missing' / 'partial' are recorded."""
+    out: "dict[str, str]" = {}
+    section = _fm_section(raw, "Spec Compliance")
+    if not section:
+        return out
+    for ids, rest in _fm_entries(section):
+        wm = re.match(r"[\s:>\-→—–=*_|]*([A-Za-z]+)", rest)
+        word = wm.group(1).lower() if wm else ""
+        if word in ("missing", "partial"):
+            for i in ids:
+                if out.get(i) != "missing":
+                    out[i] = word
+    return out
+
+
+def _ac_cov_unverifiable(reason: str) -> "dict[str, Any]":
+    return {
+        "status": "unverifiable", "uncovered": [], "reasons": {}, "bullets": {},
+        "unverifiable_reason": reason,
+    }
+
+
+def _forward_map_coverage(
+    validation_raw: str, ac_ids: "list[str]", red_texts: "list[str] | None"
+) -> "dict[str, Any]":
+    """bd#91 §2.1: pure deterministic AC coverage from the validator's Forward Map.
+
+    An AC is covered iff a Forward Map bullet/row for it cites a test that really
+    occurs (whole token) in a RED file text, no bullet says MISSING, and Spec
+    Compliance does not mark it missing/partial. Reads no files.
+    """
+    ids = [str(i) for i in (ac_ids or [])]
+    if not ids:
+        return _ac_cov_unverifiable("no_spec_acs")
+    if red_texts is None or len(red_texts) == 0:
+        return _ac_cov_unverifiable("red_files_unreadable")
+    texts = [t for t in red_texts if isinstance(t, str)]
+    if not texts:
+        return _ac_cov_unverifiable("red_files_unreadable")
+    texts_ws = [" ".join(t.split()) for t in texts]
+    raw = validation_raw if isinstance(validation_raw, str) else ""
+    section = _fm_section(raw, "Forward Map")
+    by_id: "dict[str, list[str]]" = {}
+    for eids, tail in (_fm_entries(section) if section else []):
+        for e in eids:
+            by_id.setdefault(e, []).append(tail)
+    compliance = _fm_compliance(raw)
+    uncovered: "list[str]" = []
+    reasons: "dict[str, str]" = {}
+    bullets: "dict[str, str]" = {}
+    for ac in ids:
+        key = _fm_norm_id(ac)
+        tails = by_id.get(key)
+        reason: "str | None" = None
+        if not tails:
+            reason = "absent"
+        elif any(re.search(r"\bMISSING\b", t) for t in tails):
+            reason = "MISSING"
+        else:
+            cited = False
+            saw_candidate = False
+            for t in tails:
+                for raw_span, norm in _fm_candidates(t):
+                    kind = _fm_candidate_kind(raw_span, norm)
+                    if kind is None:
+                        continue
+                    saw_candidate = True
+                    if _fm_found(kind, norm, texts, texts_ws):
+                        cited = True
+                        break
+                if cited:
+                    break
+            if not cited:
+                reason = "citation_not_found" if saw_candidate else "no_test_cited"
+        if reason is None:
+            status_word = compliance.get(key)
+            if status_word:
+                reason = f"spec_compliance_{status_word}"
+        if reason is not None:
+            uncovered.append(ac)
+            reasons[ac] = reason
+            if tails:
+                bullets[ac] = " | ".join(t.strip() for t in tails)[:300]
+    uncovered.sort(key=_fm_natural_key)
+    return {
+        "status": "uncovered" if uncovered else "covered",
+        "uncovered": uncovered,
+        "reasons": reasons,
+        "bullets": bullets,
+        "unverifiable_reason": None,
+    }
+
+
+def _read_red_texts(ctx: Any, prev: Any) -> "list[str] | None":
+    """bd#91 §2.1: texts of the RED files, or None when none is readable.
+
+    Absolute entries are used as-is; relative ones resolve against the build's git
+    cwd (`_resolve_git_cwd`), never the bare process cwd. Unreadable files are skipped."""
+    data = _prev_data_of(prev) or {}
+    entries = data.get("red_test_paths") or []
+    if not entries:
+        return None
+    base: "Path | None" = None
+    if any(not Path(str(e)).is_absolute() for e in entries):
+        try:
+            base = Path(_resolve_git_cwd(ctx, prev))
+        except Exception:  # noqa: BLE001 — degrade to unverifiable
+            base = None
+    texts: "list[str]" = []
+    for entry in entries:
+        try:
+            p = Path(str(entry))
+            if not p.is_absolute():
+                if base is None:
+                    continue
+                p = base / p
+            texts.append(p.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+    return texts or None
+
+
 # ─── Step 6: write validation doc ────────────────────────────────────────────
 
 
@@ -6854,6 +7136,25 @@ def _write_validation_doc(_ctx, prev) -> StepResult:
     # Telemetry-first migration: parse the structured JSON block, emit drift/
     # schema events. Markdown verdict still drives the gate decision.
     structured, error_reason = _parse_validation_structured(raw)
+    # ── bd#91: deterministic AC coverage (Forward Map vs spec ACs vs RED files) ──
+    # Computed ONCE, here (single chokepoint input); degrades to `unverifiable`
+    # (+ event) on any infra problem, never raises.
+    _cov_cycle = prev.data.get("cycle", 1)
+    try:
+        spec_text_for_ac = Path(str(prev.data.get("spec_path") or "")).read_text(encoding="utf-8")
+        from bytedigger_engine import verdict_verify as _vv_mod
+        spec_ac_ids = sorted(_vv_mod.parse_spec_ac_ids(spec_text_for_ac), key=_fm_natural_key)
+        if not spec_ac_ids:
+            ac_coverage = _ac_cov_unverifiable("no_spec_acs")
+        else:
+            ac_coverage = _forward_map_coverage(raw, spec_ac_ids, _read_red_texts(_ctx, prev))
+    except Exception as _cov_exc:  # noqa: BLE001 — coverage must never fail the gate
+        ac_coverage = _ac_cov_unverifiable(f"coverage_error:{type(_cov_exc).__name__}")
+    if ac_coverage.get("status") == "unverifiable":
+        _emit_safe(
+            "ac_coverage_unverifiable",
+            {"reason": ac_coverage.get("unverifiable_reason"), "cycle": _cov_cycle, "phase": 5},
+        )
     if structured is not None:
         _emit_safe(
             "validation_structured_ok",
@@ -6864,14 +7165,17 @@ def _write_validation_doc(_ctx, prev) -> StepResult:
         md_says_pass = (verdict == VERDICT_PASS)
         structured_says_pass = bool(structured.approve)
         if md_says_pass != structured_says_pass:
+            _resolved_pass, _resolved_reason = _resolve_gate_passed(verdict, structured, ac_coverage)
             _emit_safe(
                 "validation_verdict_drift",
                 {
                     "markdown_verdict": verdict,
                     "structured_approve": structured.approve,
+                    "resolved": "PASS" if _resolved_pass else "FAIL",
+                    "resolved_reason": _resolved_reason,
                     "phase": 5,
                 },
-                severity="warning",
+                severity="error",
             )
     elif error_reason == "absent":
         _emit_safe("validation_block_absent", {"phase": 5}, severity="warning")
@@ -6903,6 +7207,8 @@ def _write_validation_doc(_ctx, prev) -> StepResult:
             "red_commit_sha": prev.data.get("red_commit_sha"),
             # F2C256A5: thread structured verdict so gate can use approve directly.
             "structured_verdict": structured,
+            # bd#91: deterministic AC coverage, consumed by _gate_on_validation.
+            "ac_coverage": ac_coverage,
         },
         duration_ms=0,
         step_name="write_validation_doc",
@@ -6981,6 +7287,30 @@ def _log_validation_reject(prev, gate_verdict: str, cycle: int, reason_code: str
         logger.warning("validation reject log failed", exc_info=True)
 
 
+def _resolve_gate_passed(
+    markdown_verdict: str, structured: Any, ac_coverage: "dict[str, Any] | None"
+) -> "tuple[bool, str]":
+    """bd#91 §2.2: strict-AND pre-GREEN gate. Rules apply IN ORDER, first match wins.
+
+    markdown FAIL -> markdown_fail; UNKNOWN -> markdown_missing; any other
+    non-PASS token (PARTIAL, ...) -> markdown_partial (all fail-closed). With
+    markdown PASS: structured approve false -> structured_veto; coverage
+    `uncovered` -> ac_gap; else pass (`and` with an approving structured block,
+    `md_only` when there is no second voice). `unverifiable` / missing coverage
+    is NOT uncovered."""
+    if markdown_verdict == VERDICT_FAIL:
+        return False, "markdown_fail"
+    if markdown_verdict == VERDICT_UNKNOWN:
+        return False, "markdown_missing"
+    if markdown_verdict != VERDICT_PASS:
+        return False, "markdown_partial"
+    if structured is not None and not bool(structured.approve):
+        return False, "structured_veto"
+    if isinstance(ac_coverage, dict) and ac_coverage.get("status") == "uncovered":
+        return False, "ac_gap"
+    return True, ("and" if structured is not None else "md_only")
+
+
 def _gate_on_validation(_ctx, prev) -> StepResult:
     """HARD GATE — never_skip_opus_validation_gate. UNKNOWN treated as FAIL.
 
@@ -7008,11 +7338,30 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
     cycle = int(prev.data.get("cycle", 1))
     cap = _resolve_validation_cycle_cap(getattr(_ctx, "org_config", None))
     structured = prev.data.get("structured_verdict")
-    if structured is not None:
-        passed = bool(structured.approve)
-    else:
-        passed = (verdict == VERDICT_PASS)
+    # bd#91: absent `ac_coverage` key (hand-built prev / old resume sentinel) =
+    # unverifiable, never fail; this is the only place the gate emits the event.
+    if "ac_coverage" not in prev.data:
+        _emit_safe(
+            "ac_coverage_unverifiable",
+            {"reason": "missing_key", "cycle": cycle, "phase": 5},
+        )
+    ac_coverage = prev.data.get("ac_coverage")
+    passed, gate_reason = _resolve_gate_passed(verdict, structured, ac_coverage)
+    ac_gap_ids: "list[str]" = []
+    if gate_reason == "ac_gap" and isinstance(ac_coverage, dict):
+        ac_gap_ids = [str(i) for i in (ac_coverage.get("uncovered") or [])]
+        _emit_safe(
+            "ac_coverage_gap",
+            {
+                "uncovered": ac_gap_ids,
+                "cycle": cycle,
+                "bullets": ac_coverage.get("bullets") or {},
+                "reasons": ac_coverage.get("reasons") or {},
+                "phase": 5,
+            },
+        )
     gate_verdict = _canonical_gate_verdict(passed, verdict)
+    _gap_reject_args: "tuple[str, ...]" = ("VALIDATION_AC_GAP",) if gate_reason == "ac_gap" else ()
     if gate_verdict != verdict:
         _emit_safe(
             "gate_verdict_canonicalized",
@@ -7034,7 +7383,16 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
         # fall through to the legacy TEST_GAP path below. A reroute is only
         # ever taken on a fully-trusted, durable budget.
         category = _resolve_verdict_category(structured)
-        if category == VERDICT_CATEGORY_SPEC_DEFECT and get_config().flag("HAL_SPEC_DEFECT_REROUTE"):
+        if gate_reason == "ac_gap":
+            # bd#91 §2.2: an engine-detected coverage gap is a test gap, never a spec defect.
+            category = VERDICT_CATEGORY_TEST_GAP
+        _reroute_on = get_config().gate_enabled("HAL_SPEC_DEFECT_REROUTE")
+        if category == VERDICT_CATEGORY_SPEC_DEFECT and not _reroute_on:
+            _emit_safe(
+                "spec_defect_reroute_disabled",
+                {"cycle": cycle, "source": "explicit", "severity": "warning", "phase": 5},
+            )
+        if category == VERDICT_CATEGORY_SPEC_DEFECT and _reroute_on:
             run_ctx = telemetry_ctx.get_current_run()
             raw_spec = prev.data.get("spec_path")  # .get, not [] — mirrors L4553 (§1n)
             try:
@@ -7145,30 +7503,45 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             reject_reason = getattr(structured, "reject_reason", None) if structured is not None else None
             if reject_reason:
                 findings = f"VALIDATOR REJECT_REASON (cycle {cycle}): {reject_reason}\n\n{findings}"
-            _log_validation_reject(prev, gate_verdict, cycle)
-            return StepResult(
-                status="ok",
-                data={
-                    "verdict": gate_verdict,
-                    "markdown_verdict": verdict,
-                    "validation_doc_path": prev.data["validation_doc_path"],
-                    "spec_path": prev.data.get("spec_path"),
-                    "red_log_path": prev.data.get("red_log_path"),
-                    "cycle": cycle + 1,
-                    "findings": findings,
-                },
-                duration_ms=0,
-                step_name="gate_on_validation",
-            )
-        _log_validation_reject(prev, gate_verdict, cycle)
-        return StepResult(
-            status="error",
-            data={
+            gap_line = f"ENGINE AC-COVERAGE GAP (cycle {cycle}): {', '.join(ac_gap_ids)}"
+            if gate_reason == "ac_gap":
+                # GH706 form: uncovered ids lead the findings -> directed RED round.
+                findings = f"{gap_line}\n\n{findings}"
+            _log_validation_reject(prev, gate_verdict, cycle, *_gap_reject_args)
+            below_cap_data: "dict[str, Any]" = {
                 "verdict": gate_verdict,
                 "markdown_verdict": verdict,
                 "validation_doc_path": prev.data["validation_doc_path"],
-                "cycle_count": cycle,
-            },
+                "spec_path": prev.data.get("spec_path"),
+                "red_log_path": prev.data.get("red_log_path"),
+                "cycle": cycle + 1,
+                "findings": findings,
+                "gate_reason": gate_reason,
+            }
+            if gate_reason == "ac_gap":
+                below_cap_data["ac_gap_ids"] = ac_gap_ids
+            return StepResult(
+                status="ok",
+                data=below_cap_data,
+                duration_ms=0,
+                step_name="gate_on_validation",
+            )
+        _log_validation_reject(prev, gate_verdict, cycle, *_gap_reject_args)
+        terminal_data: "dict[str, Any]" = {
+            "verdict": gate_verdict,
+            "markdown_verdict": verdict,
+            "validation_doc_path": prev.data["validation_doc_path"],
+            "cycle_count": cycle,
+            "gate_reason": gate_reason,
+        }
+        if gate_reason == "ac_gap":
+            terminal_data["ac_gap_ids"] = ac_gap_ids
+            terminal_data["findings"] = (
+                f"ENGINE AC-COVERAGE GAP (cycle {cycle}): {', '.join(ac_gap_ids)}"
+            )
+        return StepResult(
+            status="error",
+            data=terminal_data,
             duration_ms=0,
             step_name="gate_on_validation",
             error=f"Opus validation gate blocked workflow: verdict={gate_verdict} (markdown={verdict}, cycle {cycle})",
@@ -7225,6 +7598,7 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             # as the diff boundary. Set to None if _commit_red_tests did not run.
             "red_commit_sha": prev.data.get("red_commit_sha"),
             "red_test_paths": prev.data.get("red_test_paths", []),
+            "gate_reason": gate_reason,
         },
         duration_ms=0,
         step_name="gate_on_validation",

@@ -15,10 +15,10 @@ Enforce-vs-warn reject decisions are made by the `run()` CLI entry point (and
 by the wrapper hook in engine-py-audit-gate.py), never by the classifiers
 themselves.
 
-AC-id regexes are DUPLICATED from phase_6_review.py:_parse_spec_ac_ids
-(parity source of truth for spec AC-id extraction; kept in sync by hand
-since phase_6_review.py is engine_py prod and out of scope for this ship —
-see spec §5 Files NOT in scope).
+AC-id regexes (pass 1) are DUPLICATED from phase_6_review.py:_parse_spec_ac_ids
+(kept in sync by hand since phase_6_review.py is engine_py prod and out of
+scope for this ship — see spec §5 Files NOT in scope). The bd#91 pass-2
+bare-"acceptance" header deliberately diverges from that copy.
 """
 from __future__ import annotations
 
@@ -36,9 +36,13 @@ ANCHOR_LINE_RE = re.compile(
     r"^\s*(spec|red):\s*(\S+)\s+sha256:([0-9a-f]{64})\s*$", re.MULTILINE
 )
 
-# AC id regexes — DUPLICATED from phase_6_review.py:_parse_spec_ac_ids (parity source).
+# AC id regexes — pass-1 header/table/numbered regexes are DUPLICATED from
+# phase_6_review.py:_parse_spec_ac_ids; the bare-"acceptance" pass-2 header (bd#91) is not.
 _AC_SECTION_HEADER_RE = re.compile(
     r"^#{2,6}\s.*acceptance criteria", re.IGNORECASE | re.MULTILINE
+)
+_AC_SECTION_HEADER_BARE_RE = re.compile(
+    r"^#{2,6}\s.*\bacceptance\b", re.IGNORECASE | re.MULTILINE
 )
 _AC_TABLE_RE = re.compile(r"^\|\s*AC[- ]?([A-Za-z0-9_.-]+)\s*\|", re.MULTILINE)
 _AC_NUMBERED_RE = re.compile(r"^\s{0,3}(\d+)[.)]\s", re.MULTILINE)
@@ -174,13 +178,27 @@ def parse_spec_ac_ids(spec_text: str) -> set[str]:
     first Acceptance Criteria header, slices to the next `^#{1,2}\\s` heading,
     and parses table rows first (numbered-list fallback only if zero table
     ids found), all WITHIN that slice. No header found → empty set.
+
+    bd#91: header search is two-pass. Pass 1 = "acceptance criteria" (unchanged).
+    Only when pass 1 finds no header, pass 2 accepts a bare "acceptance" header
+    (e.g. "## §3 Acceptance"), table rows only (no numbered-list fallback).
+    This INTENTIONALLY diverges from phase_6_review._parse_spec_ac_ids, which is
+    unchanged (its hard gate must not change): for "## §N Acceptance" the two
+    parsers differ by design (pinned by test AC29).
     """
     lines = spec_text.splitlines()
     header_idx = None
+    pass2 = False
     for i, line in enumerate(lines):
         if _AC_SECTION_HEADER_RE.match(line):
             header_idx = i
             break
+    if header_idx is None:
+        for i, line in enumerate(lines):
+            if _AC_SECTION_HEADER_BARE_RE.match(line):
+                header_idx = i
+                pass2 = True
+                break
     if header_idx is None:
         return set()
 
@@ -195,7 +213,7 @@ def parse_spec_ac_ids(spec_text: str) -> set[str]:
     ids: set[str] = set()
     for m in _AC_TABLE_RE.finditer(section_text):
         ids.add(_normalize_ac_id(m.group(1)))
-    if not ids:
+    if not ids and not pass2:
         for m in _AC_NUMBERED_RE.finditer(section_text):
             ids.add(_normalize_ac_id(m.group(1)))
     return ids

@@ -154,6 +154,11 @@ _NEXT_HEADING_RE = re.compile(r"^#{1,3}\s")
 _YAML_FENCE_RE = re.compile(r"```yaml\s*\n(.*?)```", re.DOTALL)
 
 
+def has_ac_checks_section(spec_text: str) -> bool:
+    """True iff the spec carries a `### AC-checks` heading (structural predicate)."""
+    return _AC_CHECKS_HEADER_RE.search(spec_text) is not None
+
+
 def parse_ac_checks(spec_text: str) -> dict[str, CheckSpec]:
     """Parse the `### AC-checks` section's single yaml block into CheckSpecs."""
     header_match = _AC_CHECKS_HEADER_RE.search(spec_text)

@@ -337,7 +337,7 @@ def test_ac8_admit_exception_warn_only_passthrough_driver_error(
 # ─── AC9 — admit() raises + ENFORCE=1 → fail-closed E_SPEC_AC_UNCOMPILABLE ──
 
 
-def test_ac9_admit_exception_enforce_on_fails_closed(tmp_path, monkeypatch) -> None:
+def test_ac9_admit_exception_enforce_on_degrades_unverified(tmp_path, monkeypatch) -> None:
     """AC9 (bd#91 §2.4): admit() raises (monkeypatched) with
     HAL_AC_DSL_GATE_ENFORCE=1 -> infrastructure degrades, does not block:
     status='ok', data['spec_ac_dsl_unverified'] is True, one

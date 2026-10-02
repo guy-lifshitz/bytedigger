@@ -955,7 +955,7 @@ def test_ac19_bare_acceptance_header_with_table_yields_ids():
 
 
 def test_ac19_ac_table_outside_the_section_gives_no_phantoms_guard():
-    """GUARD (green today, must stay green)."""
+    """FAILS today (bare '## §3 Acceptance' is not found); after GREEN pass 2 must not leak the §5 table (no phantom AC9)."""
     from bytedigger_engine import verdict_verify
 
     spec = (

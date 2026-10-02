@@ -154,7 +154,7 @@ def test_ac16_no_current_run_dedupes_per_process_and_key():
 
 @pytest.mark.parametrize("key", _KEYS)
 def test_ac16_value_zero_emits_nothing(key):
-    """SHIELD-like (green today: no event exists), pins that 0 stays silent."""
+    """Pins that 0 stays silent. The spec_review_repolls param is green today; the spec_frozen_review_repolls param fails today (non-frozen prev uses spec_review_repolls default 2 -> 3 calls)."""
     _result, backend, events = _run(_Ctx(**{key: 0}))
     assert len(backend.calls) == 1
     assert events.of("spec_review_repoll_ignored") == []

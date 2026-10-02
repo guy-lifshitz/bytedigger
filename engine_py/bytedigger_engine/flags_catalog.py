@@ -522,11 +522,10 @@ FLAGS: dict[str, dict] = {
         "description": "Kill-switch: HAL_AC_DSL_GATE=0 disables the GH517 A2 AC-DSL admission step.",
     },
     "HAL_AC_DSL_GATE_ENFORCE": {
-        "kind": "flag",
-        "default": "0",
+        "kind": "gate",
+        "default": "1",
         "module": "workflows/phase_45_spec.py",
-        # flip-by:2026-07-25 Refs #517
-        "description": "Default-OFF enforce flip for the GH517 A2 AC-DSL admission gate (warn-only until flip-by:2026-07-25, #517).",
+        "description": "Kill-switch: HAL_AC_DSL_GATE_ENFORCE=0 returns the GH517 A2 AC-DSL admission gate to warn-only; default ON blocks specs whose ### AC-checks section is not accepted (retire-by:2027-01-15 Refs #91).",
     },
     "HAL_SPEC_CITE_PRELINT_ENFORCE": {
         "kind": "flag",
@@ -662,10 +661,10 @@ FLAGS: dict[str, dict] = {
         "description": "Kill-switch: HAL_ENGINE_SHADOW_EMITS=0 disables the GH700 shadow-emit guard — a DBOS-recovery re-execution running off the process main thread again emits real workflow_started/workflow_finished into the shared event log, so a zombie's terminal error can be mistaken for the live run's (issue #700).",
     },
     "HAL_SPEC_DEFECT_REROUTE": {
-        "kind": "flag",
-        "default": "0",
+        "kind": "gate",
+        "default": "1",
         "module": "workflows/phase_5_implement.py",
-        "description": "Opt-in (default-OFF, flip-by:2026-08-14 Refs #767): HAL_SPEC_DEFECT_REROUTE=1 enables the bounded auto-reroute of a SPEC_DEFECT verdict from phase_5_implement back to phase_45_spec. Off → legacy TEST_GAP retry path, byte-identical.",
+        "description": "Kill-switch (default ON, retire-by:2027-01-15 Refs #91): HAL_SPEC_DEFECT_REROUTE=0 disables the bounded auto-reroute of a SPEC_DEFECT verdict from phase_5_implement back to phase_45_spec. Off → legacy TEST_GAP retry path, byte-identical.",
     },
     "HAL_RED_BASELINE_REFRESH": {
         "kind": "flag",
