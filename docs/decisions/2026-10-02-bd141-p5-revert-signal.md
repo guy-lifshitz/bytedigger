@@ -1,6 +1,6 @@
 # bd#141 item 5 (residue) — `reverted` signal for companion tuning
 
-**Status: r1 DRAFT** · **Tier:** 2 (one engine prod `.py` edit, `companion_tune.py`, + docs; Option D) ·
+**Status: r1 FROZEN (gate r1 APPROVED, 6 MINOR advisory applied in text, see `2026-10-02-bd141-p5-revert-signal-gate-r1.md`)** · **Tier:** 2 (one engine prod `.py` edit, `companion_tune.py`, + docs; Option D) ·
 **Class:** SYSTEMATIC ·
 **Chokepoint:** `companion_tune._collect` — the one place anything turns maintainer actions after a
 BD-built PR shipped into signals (bd#117 Part B). The new code is one named helper,
@@ -15,7 +15,7 @@ revert and review-comment signals" out of scope); start-gate spec `2026-10-02-bd
 ## §1 Problem (measured on `68a442c`)
 
 1. `collect` knows two kinds: `_EVENT_KIND = {"ReopenedEvent": "reopened", "LabeledEvent"/"UnlabeledEvent":
-   "relabeled"}` (`companion_tune.py:84`). `grep -n -i revert engine_py/bytedigger_engine/companion_tune.py`
+   "relabeled"}` (`companion_tune.py:87`). `grep -n -i revert engine_py/bytedigger_engine/companion_tune.py`
    → 0 hits.
 2. The strongest human correction — a maintainer reverting a merged BD-built PR — reaches nothing. GitHub's
    "Revert" button opens a PR titled `Revert "<title>"` whose body is the single line
@@ -30,11 +30,14 @@ op-2 `_revert_signal(ctx, row, (frm, to))` returns `(target, actor)` iff ALL hol
   a. `row` is merged (`_is_merged`) and `mergedAt` parses (`_parse_time`) to a time inside `[frm, to]`;
   b. `row["id"]` is a non-empty str;
   c. `row`'s author is NOT a BD login (`_is_bd`) — BD reverting itself is not a human correction;
-  d. the FIRST body line that, stripped, fully matches `^Reverts ([^\s/#]+/[^\s/#]+)#(\d+)$` names
-     `<slug>` equal case-insensitively to `ctx.slug` (other lines are ignored; no match ⇒ `None`);
+  d. the FIRST body line that, stripped, fully matches `^Reverts ([^\s/#]+/[^\s/#]+)#(\d+)$` (first
+     *matching* line, not first qualifying: if its `<slug>` differs case-insensitively from `ctx.slug`
+     ⇒ `None`, later lines are not tried; no match ⇒ `None`); `N` outside `1..2**31-1` ⇒ `None`;
   e. the target `N` resolves: from `ctx.pr_cache` (window listing) else ONE `gh pr view N` via `_pr_info`.
      A `gh pr view` failure whose stderr matches `Could not resolve to a PullRequest` or `\b404\b` ⇒ `None`
-     (a human typed a dead number; never UNAVAILABLE). Any other failure ⇒ UNAVAILABLE (exit 4), as today;
+     (a human typed a dead number; never UNAVAILABLE). Any other failure ⇒ UNAVAILABLE (exit 4), as today.
+     The not-found mapping lives in `_revert_signal` (it catches `_pr_info`'s `_Fail` and inspects the
+     detail); `_pr_info` itself is unchanged, so the issue path keeps failing closed;
   f. the target is BD-built (`_is_built`) AND merged (`_is_merged`);
   g. `actor = mergedBy.login` exists (null `mergedBy` ⇒ `None`, no crash), is not in `tuning.bot_logins`
      (case-insensitive), and `_is_maintainer(ctx, actor)`.
