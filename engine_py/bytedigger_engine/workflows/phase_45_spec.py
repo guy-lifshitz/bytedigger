@@ -86,9 +86,9 @@ try:
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows._standards_context import get_standards_context  # type: ignore[no-redef]
 try:
-    from .phase_workflows_common import _declared_injections, _role_template, _role_template_record
+    from .phase_workflows_common import _declared_injections, _injected_blocks_record, _role_template, _role_template_record
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _role_template, _role_template_record  # type: ignore[no-redef]
+    from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _injected_blocks_record, _role_template, _role_template_record  # type: ignore[no-redef]
 
 from bytedigger_engine import telemetry_ctx  # noqa: E402
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
@@ -396,7 +396,13 @@ DECISION_DOC_INLINE_BYTE_CAP = 80_000
 
 
 def _read_decision_doc_block(cfg: dict[str, Any] | None) -> str:
-    """Read cfg['decision_doc'] text (resolved via skip_logic) and return a
+    return _decision_doc_inline(cfg)[0]
+
+
+def _decision_doc_inline(cfg: dict[str, Any] | None) -> tuple[str, list[dict]]:
+    """bd#147: (block, chunk records); `_read_decision_doc_block` is `[0]`.
+
+    Read cfg['decision_doc'] text (resolved via skip_logic) and return a
     formatted '## DECISION DOC' block for the spec-writer prompt. Returns ''
     when unset, missing, or unreadable so the prompt section is omitted entirely.
 
@@ -410,15 +416,15 @@ def _read_decision_doc_block(cfg: dict[str, Any] | None) -> str:
     """
     if not cfg:
         logger.debug("decision_doc inline skipped (reason=%s)", "no_cfg")
-        return ""
+        return "", []
     raw = cfg.get("decision_doc") or ""
     if not raw:
         logger.debug("decision_doc inline skipped (reason=%s)", "unset")
-        return ""
+        return "", []
     resolved = _resolve_decision_doc_path(raw)
     if resolved is None:
         logger.debug("decision_doc inline skipped (reason=%s)", "unresolved")
-        return ""
+        return "", []
     try:
         text = resolved.read_text(encoding="utf-8-sig")
     except OSError as e:
@@ -428,7 +434,7 @@ def _read_decision_doc_block(cfg: dict[str, Any] | None) -> str:
             resolved,
             e,
         )
-        return ""
+        return "", []
     except UnicodeDecodeError:
         # F3 (8A9C0F24 Subtask C code review): UnicodeDecodeError is a
         # ValueError subclass, NOT an OSError — without this explicit except,
@@ -440,8 +446,9 @@ def _read_decision_doc_block(cfg: dict[str, Any] | None) -> str:
             "decode_error",
             resolved,
         )
-        return ""
+        return "", []
     body = text
+    chunks = [text]  # bd#147: maximal runs of source text reaching the prompt unmodified
     nbytes = len(text.encode("utf-8"))
     if nbytes > DECISION_DOC_INLINE_BYTE_CAP:
         # Head 60KB + tail 15KB with marker between; total well under cap.
@@ -458,15 +465,17 @@ def _read_decision_doc_block(cfg: dict[str, Any] | None) -> str:
         else:
             head = text[:head_chars]
             tail = text[-tail_chars:]
+            chunks = [head, tail]
             body = (
                 f"{head}\n\n"
                 f"... (truncated — {nbytes} bytes total; full file at {resolved} for omitted middle) ...\n\n"
                 f"{tail}"
             )
-    return (
+    block = (
         f"## DECISION DOC (full file at {resolved} — text inlined below)\n\n"
         f"{body}\n"
     )
+    return block, [{"source_id": str(resolved), "content": c} for c in chunks if c]
 
 
 def _spec_output_schema(doc_path: str) -> str:
@@ -1181,7 +1190,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     # Subtask C (8A9C0F24) — inline decision_doc text after architecture, before
     # grounding rules + OUTPUT schema, so writer reads the decision text before
     # being told how to format the response.
-    decision_block = _read_decision_doc_block(ctx.org_config)
+    decision_block, decision_records = _decision_doc_inline(ctx.org_config)  # bd#147
     if decision_block:
         parts.append(decision_block)
         parts.append("")
@@ -1307,6 +1316,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             "cycle": cycle,
             "delta_retry": False,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, decision_records),  # bd#147
             "stable_prefix": _SPEC_STABLE_PREFIX,
             "high_binding_missing": high_binding_missing,
         }),

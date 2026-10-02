@@ -105,8 +105,8 @@ REQUIREMENT_LABELS: "MappingProxyType[str, str]" = MappingProxyType({
     # CL §8 (the engine hashes at assembly, not on the wire) AND `[bd10:25]`
     # (only invocations under an active run context are attested at all).
     "R3.1": "host-attested-within-run-context",
-    # `[bd10:19]` — the channel is enforced; one of eight role-template
-    # inlining sites is migrated (AC-I5).
+    # `[bd10:19]` — the channel is enforced; class boundary and migrated
+    # segments: AUTHORSHIP_SPEC §4 [bd147]; follow-ups #150/#151/#152.
     "R3.2": "injections-channel-only",
     # `[bd10:2]` + bd#29 (2026-08-04) — enforced at the chokepoint for EVERY
     # backend. The in-session path now populates `observed_model`, so it reaches

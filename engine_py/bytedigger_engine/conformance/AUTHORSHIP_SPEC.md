@@ -368,7 +368,7 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   | Key | Value | Why |
   |---|---|---|
   | `R3.1` | `host-attested-within-run-context` | `[bd10:25]` two narrowings, not one — see below |
-  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)), other non-literal prompt segments are tracked in bd#147 |
+  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)); bd#147 drew the class I/E/P/M boundary (§4) and declared three more class-I segments (decision doc, inlined test files, directed-repair artifact); the standards context (#151), scratchpad round-trips (#150) and class-M output attestation (#152) are follow-ups |
   | `R3.3` | `in-session-warn-only` | `[bd10:2]` — enforced at the chokepoint for reporting adapters; the in-session path still warns (bd#29) |
   | `R3.5` | `adapter-declared` | `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a mechanism outside the actor's reach |
   | `R3.6` | `tool-head-only` | AC-C6 — the operand never leaves the adapter |
@@ -458,10 +458,81 @@ covered whole by R3.1's hash. The attestation says exactly this and claims nothi
 routing it through `injections` — the role template was the live example. AC-I5 migrated
 `phase_2_explore` so that ADV-8 tests a door the pipeline actually uses, and bd#141 4(d) migrated
 every remaining role-template site (each builder records the block, each dispatch declares it via
-`_declared_injections`). The remaining non-literal prompt segments (decision doc, standards context,
-facts pack, inlined test files) are tracked in bd#147; the label value is unchanged.
-*bd#119 amendment:* the cite was stale; the wrapper is located by function name, and it now delegates the
-single file read to `role_template.py::load_role_template`.
+`_declared_injections`). bd#147 then drew the class boundary below and migrated three more class-I
+segments; the label value is unchanged.
+*bd#119 amendment:* the role-template wrapper the migrations above go through (`phase_workflows_common.py::_maybe_role_template`,
+now `_role_template`) is located by function name, not by line, and it delegates the single file read to
+`role_template.py::load_role_template`.
+
+`[bd147]` **The boundary, by where a segment's bytes are read from when the prompt is built** (not
+by who first wrote them). Full survey and rationale: `docs/decisions/2026-10-02-bd147-injected-segments.md` §1–§2.
+
+The rule is structural. It asks what unit of read bytes is inlined, not whether any byte is verbatim.
+
+- **Class I, injected (R3.2, to be declared).** A file body, or a contiguous slice of one (a
+  fixed-size prefix, suffix, or head and tail), or the whole stdout of a subprocess, read at build
+  time and inlined as one unit. It does not matter who wrote the file: an operator's file, a repo
+  file a model edited, and a scratchpad file a model wrote earlier in the run are all class I.
+  - **Declared:** the role template; the `phase_45_spec` decision doc; the fix worker's inlined
+    in-scope test files; the directed-repair artifact.
+  - **Not yet declared:**
+    - the standards context (#151);
+    - scratchpad round-trips (#150): `spec.md` re-inlined by the surgical, delta and
+      restricted-writer prompts, and the spec_lite review doc and spec.
+  - Any class-I segment the bd#147 survey did not reach falls under the inventory in #150. The
+    survey is not exhaustive; its scope and method are stated in the decision doc §1.3. No class-I
+    segment is exempt.
+- **Class E, engine-authored (R3.1).** Text the engine composes under its own schema by extracting
+  named fields, tokens, rows or lines and re-rendering them.
+  - The fields' values are computed by the engine, or selected by engine logic from any source,
+    including a file a model wrote (a gate's `evidence` line quoted from `spec.md`).
+  - A field may be verbatim, such as a ledger cell, a gate's `evidence` line or a path. A field
+    may also be unbounded; size is not part of the test.
+  - A field is not a file body or a slice.
+  - Class E covers the facts pack (its cache too, because its values are engine computation), the
+    rendered directed-repair findings, and every wrapper, header, truncation marker and instruction
+    placed around a class-I segment.
+- **Parsed records** take the class of where their field values came from, whatever wrote the file.
+  Engine-computed or engine-selected values are class E. Values that are an invocation's returned
+  answer, for example a record populated from a model's response, are class M.
+- **Class P, run parameters (R3.1).** Values passed in by the invoker: `ctx.question`, and
+  `org_config` strings inlined as text (`task_description`). These are the principal's instruction,
+  not content injected into it. A *path* in `org_config` is not class P; the file it names is class I.
+- **Class M, carried model output (R3.1, declared limit).** Text an earlier invocation returned,
+  which reaches the prompt as values in one of two ways.
+  - Carried in memory: `prev.data["findings"]` and the semantic-verifier findings.
+  - Held in the fields of a parsed record and re-rendered: the findings sidecar.
+
+  A file body that a model wrote, read back and inlined whole, is class I instead. The event log
+  records no model output, so a declaration would attest a provenance the log cannot back. A prompt
+  injection that reaches a model through an earlier model's output is covered only by R3.1's hash.
+  **Re-open criterion:** the log records an output digest per invocation (#152).
+
+**Chunk rule.** A class-I segment is declared as one block per maximal run of source text that
+reaches the prompt unmodified, with the class-E wrapper and markers in no block. `content` is the
+string as inlined, after the site's own decoding, and the digest covers that string. All chunks of
+one source share its `source_id` and are declared in prompt order, so a truncated decision doc is
+head then tail. An empty chunk is not declared. `source_id` is the identifier the site already shows
+the model: the resolved decision-doc path, the worktree-relative test-file path, or `artifact_path`.
+
+**Binding.** A builder that declares class-I blocks other than the role template stores them as
+`data["injected_blocks"] = {"prompt_sha256", "blocks"}`. `_declared_injections` returns them only
+while `data["prompt"]` still hashes to the recorded `prompt_sha256`. A record forwarded with a
+`prev.data` spread under a later builder's prompt is ignored, so it can never cause an
+`E_INJECT_UNATTRIBUTED` refusal for blocks that belong to another prompt.
+- The same branch also catches a builder that binds its record to the wrong prompt. Tests catch
+  that case, not the runtime.
+- Inside a bound record, a malformed element is passed to the chokepoint, which refuses it. It is
+  never dropped.
+- **Invariant:** every dispatch that declares `_declared_injections(d)` sends exactly `d["prompt"]`.
+  A site that alters the prompt after its builder must re-bind or declare nothing extra.
+
+**Deferred class-I segments:**
+- **The standards context (#151).** Its bytes come from a host shim that chooses its own sources, so a
+  correct `source_id` needs the shim to report them. That is a host-side contract.
+- **Scratchpad round-trips, and anything else an exhaustive inventory of `workflows/` and `lib/`
+  finds (#150).** These are the same status the role template had before bd#141 4(d): undeclared, and
+  covered only by R3.1.
 
 - **AC-I1** `assemble(prompt, blocks)` returns `prompt` followed by each block's `content` in list
   order, each separated by exactly `"\n\n"`. Pinned rather than described, because an unpinned
