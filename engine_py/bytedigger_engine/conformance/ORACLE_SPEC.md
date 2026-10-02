@@ -241,8 +241,12 @@ has run. `run.py` stays thin (§1f) — it passes paths and payloads, it compute
 
 **`[bd8:6b]` An oracle phase given no `--event-log` freezes nothing and fails nothing.** The
 digest is carried by the log and nowhere else (`[bd8:8]`), so a logless oracle phase has no place
-to record one; it emits no `oracle_frozen` and returns its own result untouched. This is NOT a
-weakening: the implementing phase is fail-closed whether or not the oracle phase refused
+to record one; it emits no `oracle_frozen` and returns its own result untouched. (bd#93: a run
+without `--event-log` now gets an IMPLICIT run-scoped log. `[bd8:6b]` then applies only to the
+no-`scratchpad_dir` half: an implicit log with no `scratchpad_dir` freezes nothing and fails
+nothing, as a logless run does; an implicit log WITH a `scratchpad_dir` freezes and emits
+`oracle_frozen` into the run-scoped log; an EXPLICIT `--event-log` with no `scratchpad_dir` is
+still `E_ORACLE_INDETERMINATE`.) This is NOT a weakening: the implementing phase is fail-closed whether or not the oracle phase refused
 (AC-15), so a logless build cannot reach a BD-L1 pass by this route. The alternative — failing the
 oracle phase closed — was measured and rejected: it breaks `SYSTEM/cli/build/build-cli.ts:40` on
 every spec phase in addition to every implementing phase, buying nothing the implementing-phase
@@ -491,7 +495,8 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   production build paths (`dogfood/driver-template.sh:143-148` always passes `--event-log`), one
   out-of-tree ad-hoc caller (`SYSTEM/cli/build/build-cli.ts:40`), which must add the flag.
   Second control leg (`[bd8:6b]`): a logless ORACLE-phase invocation is likewise untouched — exit 0,
-  no `oracle_frozen`, no §5 code — so the fail-closed rule is scoped to the phase that consumes the
+  no `oracle_frozen`, no §5 code (bd#93: "logless" now means no explicit `--event-log` AND no
+  `scratchpad_dir`; with a scratchpad the implicit run-scoped log records `oracle_frozen`) — so the fail-closed rule is scoped to the phase that consumes the
   freeze, not to the phase that produces it.
 - **AC-16 (`[bd8:4a]`, RE-CUT under D1(a)).** An oracle phase whose `<scratchpad_dir>/specs` is
   absent, unreadable, or contains no regular file fails `E_ORACLE_INDETERMINATE` and emits no
@@ -566,6 +571,8 @@ adversaries CL §8 requires to have actually run before the level may be claimed
 - **G10 — the entry verify's observable effect.** RESOLVED by AC-2's witness assertion.
 - **G11 — the logless oracle phase.** RESOLVED by `[bd8:6b]`: skipped silently, because failing it
   closed breaks `build-cli.ts:40` on every spec phase and buys nothing AC-15 does not already buy.
+  (bd#93: skipped silently only for an implicit log with no `scratchpad_dir`; an implicit log with a
+  scratchpad freezes, an explicit log without one is `E_ORACLE_INDETERMINATE`.)
 
 ## 8. PREFLIGHT — scope, siblings, and the two traps measured before freeze
 

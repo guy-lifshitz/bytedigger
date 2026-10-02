@@ -114,6 +114,12 @@ FLAGS: dict[str, dict] = {
         "module": "lib/dbos_setup.py",
         "description": "HAL install-root override used to derive default paths.",
     },
+    "HAL_RUN_LOG_ROOT": {
+        "kind": "path",
+        "default": None,
+        "module": "config_provider.py",
+        "description": "bd#93: root under which each run keeps its own <run_id>/events.jsonl (and governor/sentinel state). Default <home>/.bytedigger/runs; BD_/BYTEDIGGER_ aliases honoured.",
+    },
     "HAL_IN_SESSION_ENFORCES_TOOLS": {
         "kind": "flag",
         "default": None,

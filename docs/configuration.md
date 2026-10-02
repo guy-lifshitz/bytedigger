@@ -310,6 +310,7 @@ Commonly used variables (spell any of them `BD_*` if you prefer):
 | `BD_MODEL_UNAVAILABLE` (`HAL_MODEL_UNAVAILABLE`) | Comma-separated model names/families to skip in role chains |
 | `BD_DBOS_DB_PATH` (`HAL_DBOS_DB_PATH`) | Durable-state sqlite path override |
 | `BD_ENGINE_DURABLE_BACKEND` (`HAL_ENGINE_DURABLE_BACKEND`) | `native` (default) or `dbos` |
+| `BD_RUN_LOG_ROOT` (`HAL_RUN_LOG_ROOT`) | Root of the run-scoped event logs: each run writes `<root>/<run_id>/events.jsonl` (default `~/.bytedigger/runs`; must be absolute) |
 
 Engine artifacts for a foreign project land under **`.bytedigger/`** in the
 project cwd (`config_provider.foreign_state_dirname()`): `events.jsonl`

@@ -34,7 +34,7 @@ else:
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 from bytedigger_engine.derive_state import replay  # noqa: E402
 from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
-from bytedigger_engine.event_log import EventLog  # noqa: E402
+from bytedigger_engine.event_log import EventLog, run_scoped_log_path  # noqa: E402
 from bytedigger_engine.event_sink import get_event_sink  # noqa: E402
 from bytedigger_engine.lib.dbos_setup import init_dbos, execute_durable_workflow, teardown_dbos, hard_exit  # noqa: E402
 from bytedigger_engine.lib.dbos_list_runs import list_runs  # noqa: E402
@@ -147,6 +147,8 @@ def _oracle_entry_verify(args, ctx, run_id: str) -> "StepResult | None":
             return _oracle_refusal_result(
                 args, run_id, "E_ORACLE_UNFROZEN",
                 "no oracle freeze for this invocation in the event log"
+                # bd#93: args.event_log is already resolved (run-scoped by default), so the
+                # hint fires only when there truly is no log (resolution degraded).
                 + ("" if args.event_log else " (no --event-log was given)"),
             )
         oracle.verify_against(frozen["payload"], _oracle_scratchpad(ctx))
@@ -182,6 +184,11 @@ def _oracle_after_execute(args, ctx, run_id: str, result) -> "StepResult | None"
             return None  # `[bd8:6b]`: nowhere to record a digest; not a refusal
         if result.status not in ("ok", "skip"):
             return None  # `[bd8:6]`: freeze only after a SUCCESSFUL execute()
+        if getattr(args, "_log_implicit", False) and not scratchpad:
+            # bd#93 `[bd8:6b]`: an implicit (run-scoped / host-forced) log is not a
+            # caller's explicit --event-log; with no document directory to freeze,
+            # behave as a logless run (no refusal). Must precede the raise below.
+            return None
 
         events = oracle.read_log_events(args.event_log)
         if oracle.has_sentinel_resume(events, run_id):
@@ -317,6 +324,28 @@ def main() -> int:
             sys.stderr.write(stderr)
         return code
 
+    # bd#93: resolve the run id and the event log ONCE, before the engine is built,
+    # for an invocation that executes a workflow. a: explicit --event-log; b: host
+    # override (GH1309); c: run-scoped <root>/<run_id>/events.jsonl. Degrade, never fail.
+    _resolved_run_id = args.run_id or _uuid_mod.uuid4().hex[:12]
+    args._log_implicit = False
+    if args.workflow and not args.list and not args.event_log:
+        try:
+            _ovr_fn = getattr(get_config(), "event_log_path_override", None)
+            _ovr = str(_ovr_fn() or "") if _ovr_fn is not None else ""
+            if _ovr:
+                _resolved_log = Path(_ovr).expanduser()
+                if not _resolved_log.is_absolute():
+                    raise ValueError(f"host event-log override is not absolute: {_ovr!r}")
+            else:
+                _resolved_log = run_scoped_log_path(_resolved_run_id)
+                _resolved_log.parent.mkdir(parents=True, exist_ok=True)
+            args.event_log = str(_resolved_log)
+            args._log_implicit = True
+        except Exception as e:
+            sys.stderr.write(f"event log disabled: {e}\n")
+            args.event_log = None
+
     eng = make_engine(args.event_log)
 
     if args.list:
@@ -334,8 +363,13 @@ def main() -> int:
             merged_org = dict(ctx.org_config or {})
             merged_org["run_id"] = args.run_id
             ctx = replace(ctx, org_config=merged_org)
+        if args.event_log and not (ctx.org_config or {}).get("events_log_path"):
+            # bd#93: phase 8 archives THIS run's log (absolute, not resolve(): symlinks stay as given)
+            from dataclasses import replace  # noqa: PLC0415
+            merged_org = dict(ctx.org_config or {})
+            merged_org["events_log_path"] = str(Path(args.event_log).absolute())
+            ctx = replace(ctx, org_config=merged_org)
         init_dbos()
-        _resolved_run_id = args.run_id or _uuid_mod.uuid4().hex[:12]
         telemetry_ctx.set_invocation_run_id(_resolved_run_id)  # GH497 D3
         if args.restart_reason:
             if args.event_log:
