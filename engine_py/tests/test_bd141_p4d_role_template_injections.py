@@ -13,14 +13,25 @@ AC -> test map
 AC1  test_ac1_role_template_record
      test_ac1_declared_injections
      test_ac1_role_template_loads_through_real_loader
-AC2  test_ac2_builders_use_attributable_reader (helper kept, only in common)
-AC3  test_ac3_every_builder_records_role_template_verbatim[<16 builders>]
-AC4  test_ac4_prompt_bytes_unchanged[<16 builders>]            (guard: green today)
+AC2  test_ac2_builders_use_attributable_reader (Call nodes only, incl. alias /
+       getattr / globals()[...]; imports and re-exports allowed; helper kept
+       in common and equals `_role_template(ctx).content or ""`)
+AC3  test_ac3_every_builder_records_role_template_verbatim[<17 producers>]
+       (16 builders + spec_lite free-rewrite branch; the two `str` builders
+       through their step wrappers)
+AC4  test_ac4_prompt_bytes_unchanged[<17 producers>]           (guard: green today)
+AC4b test_ac4b_restricted_writer_does_not_inherit_role_template (guard: green today)
+     test_ac4b_restricted_reviewer_does_not_inherit_role_template (guard: green today)
 AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_call_count_is_pinned                    (guard: green today)
-     test_ac5_dispatch_hidden_behind_executor_submit_declares  (spec gap: the
-       COMPLEX satisfaction fan-out hands `invoke_llm_subprocess` to
-       `executor.submit`, so it is a 22nd dispatch the spec's "21" misses)
+     test_ac5_dispatch_hidden_behind_executor_submit_declares  (the COMPLEX
+       satisfaction pool path hands `invoke_llm_subprocess` to `executor.submit`:
+       it is the 22nd dispatch, counted separately from the 21 direct calls)
+AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<20 cases>]
+       (real producer output -> real invoke step -> module-attribute spy; covers
+       the pool path with every submitted call, both phase_45_spec review
+       dispatches incl. the repoll, and phase_2's existing one as a guard; the
+       two retries are the AC8 tests)
 AC6  test_ac6_attestation_carries_role_template[clarify|architect]
 AC7  test_ac7_no_template_no_declaration[clarify|architect]    (guard: green today)
 AC8  test_ac8_green_retry_declares_same_injections
@@ -28,12 +39,16 @@ AC8  test_ac8_green_retry_declares_same_injections
 AC9  test_ac9_phase_2_helper_equals_declared_injections
 
 Teeth (spec section 4): AC1 red if the record drops `source_id` or
-`_declared_injections` raises on a non-dict. AC2 red if any builder keeps the
-bare-string helper. AC3 red if one builder omits `role_template`, records
+`_declared_injections` raises on a non-dict. AC2 red if any builder keeps
+calling the bare-string helper (directly, via alias, getattr or globals()).
+AC3 red if one producer omits `role_template`, records
 `rt.content.rstrip()` or `.resolve()`s the path (the fixture reaches the
 template through a symlinked directory so `.resolve()` is observable). AC4 red
-if a builder adds a separator. AC5 red if any of the dispatches loses
-`injections=` or passes a literal. AC6 red if the clarify/architect dispatch
+if a builder adds a separator. AC4b red if a role-less branch spreads
+`prev.data` and inherits a stale record. AC5 red if any dispatch loses
+`injections=` or passes a literal. AC5b red if a dispatch passes the StepResult
+instead of its dict (`_declared_injections(prev)` -> `()`), passes `()`, or the
+pool path leaves `injections` defaulted. AC6 red if the clarify/architect dispatch
 drops `injections=`. AC7 red if a missing template yields a block with an empty
 `source_id`. AC8 red if a retry passes `()` or the first dispatch's extra_data
 does not carry the record forward.
@@ -231,22 +246,51 @@ def test_ac1_role_template_loads_through_real_loader(tmp_path) -> None:
 # AC2 - no bare-string helper left
 # ---------------------------------------------------------------------------
 
+_LEGACY = "_maybe_role_template"
+
+
+def _legacy_aliases(tree: ast.AST) -> set:
+    """Local names bound to the bare-string helper (import-as, `x = helper`)."""
+    names = {_LEGACY}
+    for _ in range(2):
+        for n in ast.walk(tree):
+            if isinstance(n, ast.ImportFrom):
+                names |= {a.asname for a in n.names if a.name in names and a.asname}
+            elif isinstance(n, ast.Assign):
+                v = n.value
+                ref = v.id if isinstance(v, ast.Name) else v.attr if isinstance(v, ast.Attribute) else None
+                if ref in names:
+                    names |= {t.id for t in n.targets if isinstance(t, ast.Name)}
+    return names
+
+
+def _legacy_call_sites(tree: ast.AST) -> list:
+    """Line numbers where the bare-string helper is CALLED or looked up by
+    string. Plain imports / re-exports / monkeypatch-by-name are not calls."""
+    aliases = _legacy_aliases(tree)
+    hits = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            f = n.func
+            if (isinstance(f, ast.Name) and f.id in aliases) or (
+                    isinstance(f, ast.Attribute) and f.attr in aliases):
+                hits.append(n.lineno)
+            elif any(isinstance(a, ast.Constant) and a.value == _LEGACY for a in n.args):
+                hits.append(n.lineno)  # getattr(m, "_maybe_role_template"), d.get(...), importlib
+        elif (isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant)
+                and n.slice.value == _LEGACY):
+            hits.append(n.lineno)  # globals()["_maybe_role_template"]
+    return hits
+
+
 def test_ac2_builders_use_attributable_reader(tmp_path) -> None:
     offenders: list[str] = []
     for path in sorted(_workflows_dir().glob("*.py")):
         if path.name == "phase_workflows_common.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            hit = (
-                (isinstance(node, ast.Name) and node.id == "_maybe_role_template")
-                or (isinstance(node, ast.Attribute) and node.attr == "_maybe_role_template")
-                or (isinstance(node, ast.ImportFrom)
-                    and any(a.name == "_maybe_role_template" for a in node.names))
-            )
-            if hit:
-                offenders.append(f"{path.name}:{node.lineno}")
-    assert not offenders, f"_maybe_role_template still used outside common at: {offenders}"
+        offenders += [f"{path.name}:{ln}" for ln in _legacy_call_sites(tree)]
+    assert not offenders, f"_maybe_role_template still called outside common at: {offenders}"
 
     common = _common()
     legacy = getattr(common, "_maybe_role_template", None)
@@ -278,6 +322,27 @@ def _d_phase_4(env):
 def _d_spec_lite_review(env):
     return _mod("phase_45_spec_lite")._build_review_prompt(
         env.ctx(), _prev(cycle=1, spec_path=env.path("spec.md")))
+
+
+def _write_cycle1_review(env, text: str) -> None:
+    rel = _mod("phase_45_spec_lite")._review_cycle_relpath(1)
+    target = env.scratch / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
+_STRUCTURED_REVIEW = (
+    "# Review\n\n## Findings (structured)\n```json\n"
+    '[{"id": "F1", "type": "gap", "evidence": "e", "required_action": "a"}]\n'
+    "```\n"
+)
+
+
+def _d_spec_lite_free_rewrite(env):
+    """17th producer: cycle 2, prior review WITHOUT a structured findings block."""
+    _write_cycle1_review(env, "# Review\n\n## Findings\n- the spec is vague\n")
+    return _mod("phase_45_spec_lite")._maybe_rewrite_simple_spec_prompt(
+        env.ctx(), _prev(cycle=2, findings="the spec is vague"))
 
 
 def _d_spec_writer(env):
@@ -350,6 +415,7 @@ _DRIVERS = {
     "phase_3_clarify": _d_phase_3,
     "phase_4_architect": _d_phase_4,
     "phase_45_spec_lite_review": _d_spec_lite_review,
+    "phase_45_spec_lite_free_rewrite": _d_spec_lite_free_rewrite,
     "phase_45_spec_writer": _d_spec_writer,
     "phase_45_spec_review": _d_spec_review,
     "phase_5_red": _d_red,
@@ -363,7 +429,7 @@ _DRIVERS = {
     "phase_6_fix_integrity": _d_fix_integrity,
     "phase_7_synthesizer": _d_synthesizer,
 }
-assert len(_DRIVERS) == 16
+assert len(_DRIVERS) == 17
 
 
 def _drive(name: str, root: Path, role_path: "Path | None") -> StepResult:
@@ -562,6 +628,136 @@ def test_ac5_dispatch_hidden_behind_executor_submit_declares() -> None:
                 if not declared:
                     offenders.append(f"{path.name}:{node.lineno}")
     assert not offenders, f"dispatch via a passed-in invoke_llm_subprocess declares no injections: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# AC4b - role-less branches never inherit a stale record
+# ---------------------------------------------------------------------------
+
+class _InvokeSpy:
+    """Module-attribute spy for `invoke_llm_subprocess`: records kwargs, returns a
+    canned ok StepResult whose data merges `extra_data` like the real backend."""
+
+    def __init__(self, raw: str = "canned response\n") -> None:
+        self.raw = raw
+        self.calls: list = []
+
+    def __call__(self, **kwargs) -> StepResult:
+        self.calls.append(dict(kwargs))
+        data = {"raw_response": self.raw, "worker_written_paths": []}
+        data.update(kwargs.get("extra_data") or {})
+        return StepResult(status="ok", data=data, duration_ms=0,
+                          step_name=kwargs.get("step_name", "spy"))
+
+
+def _stale_record() -> dict:
+    return {"source_id": "/stale/earlier-step/role.md", "content": ROLE_CONTENT}
+
+
+def test_ac4b_restricted_writer_does_not_inherit_role_template(tmp_path) -> None:
+    """Guard (green today): spec_lite restricted-writer branch carries no role, so its
+    data must not carry the record a previous step left in `prev.data`."""
+    role_path, _ = _make_role_file(tmp_path)
+    env = _Env(tmp_path / "run", role_path)
+    _write_cycle1_review(env, _STRUCTURED_REVIEW)
+    res = _mod("phase_45_spec_lite")._maybe_rewrite_simple_spec_prompt(
+        env.ctx(), _prev(cycle=2, findings="f", role_template=_stale_record()))
+    assert res.status == "ok" and res.data.get("restricted_writer") is True, "fixture precondition"
+    assert res.data.get("role_template") is None
+    assert ROLE_CONTENT not in res.data["prompt"]
+
+
+def test_ac4b_restricted_reviewer_does_not_inherit_role_template(tmp_path, monkeypatch) -> None:
+    """Guard (green today): spec_lite `_build_review_prompt` cycle 2 with structured
+    findings is role-less; neither its data nor its dispatch may declare a role."""
+    mod = _mod("phase_45_spec_lite")
+    role_path, _ = _make_role_file(tmp_path)
+    env = _Env(tmp_path / "run", role_path)
+    _write_cycle1_review(env, _STRUCTURED_REVIEW)
+    res = mod._build_review_prompt(
+        env.ctx(), _prev(cycle=2, spec_path=env.path("spec.md"), role_template=_stale_record()))
+    assert res.status == "ok" and res.data.get("restricted_reviewer") is True, "fixture precondition"
+    assert res.data.get("role_template") is None
+    assert ROLE_CONTENT not in res.data["prompt"]
+    spy = _InvokeSpy()
+    monkeypatch.setattr(mod, "invoke_llm_subprocess", spy)
+    mod._invoke_review_llm(env.ctx(), res)
+    assert len(spy.calls) == 1
+    assert tuple(spy.calls[0].get("injections") or ()) == ()
+
+
+# ---------------------------------------------------------------------------
+# AC5b - behavioural dispatch matrix: producer output -> real invoke step -> spy
+# ---------------------------------------------------------------------------
+# A structural scan (AC5) cannot tell `injections=_declared_injections(prev.data)`
+# from `_declared_injections(prev)` (a StepResult -> `()`), nor a defaulted pool
+# parameter from a wired one. Here each dispatch is reached through its real
+# producer and real invoke step; only `invoke_llm_subprocess` (the module
+# attribute the step resolves at call time) is replaced by a recording spy.
+
+def _d_satisfaction_complex(env):
+    return _mod("phase_6_review")._build_satisfaction_prompt(
+        env.ctx(complexity="COMPLEX"),
+        _prev(spec_path=env.path("spec.md"), review_doc_path=env.path("review.md"),
+              fix_doc_path=env.path("fix.md")))
+
+
+def _d_explore(env):
+    return _mod("phase_2_explore")._build_explore_prompt(env.ctx(), _prev(skipped=False))
+
+
+_SHIP = "## Verdict\n\nSHIP\n"
+_REVISE = "## Verdict\n\nREVISE\n"
+
+# case -> (build, module, invoke step, ctx extras, spy raw, min calls, stub ensure_graph)
+_MATRIX = {
+    "phase_1_discovery:470": (_d_phase_1, "phase_1_discovery", "_invoke_discovery_llm", {}, "x", 1, True),
+    "phase_45_spec_lite:481": (_d_spec_lite_free_rewrite, "phase_45_spec_lite", "_maybe_invoke_spec_rewrite", {}, "x", 1, False),
+    "phase_3_clarify:244": (_d_phase_3, "phase_3_clarify", "_invoke_clarify_llm", {}, "x", 1, False),
+    "phase_4_architect:319": (_d_phase_4, "phase_4_architect", "_invoke_architect_llm", {}, "x", 1, False),
+    "phase_45_spec_lite:630": (_d_spec_lite_review, "phase_45_spec_lite", "_invoke_review_llm", {}, "x", 1, False),
+    "phase_45_spec:1357": (_d_spec_writer, "phase_45_spec", "_invoke_spec_llm", {}, "x", 1, False),
+    "phase_45_spec:4201": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _SHIP, 1, False),
+    "phase_45_spec:4150-repoll": (_d_spec_review, "phase_45_spec", "_invoke_review_llm", {}, _REVISE, 2, False),
+    "phase_5_implement:1553": (_d_red, "phase_5_implement", "_invoke_red_llm", {}, "x", 1, False),
+    "phase_5_implement:6664": (_d_validation, "phase_5_implement", "_invoke_validation_llm", {}, "x", 1, False),
+    "phase_5_implement:7556": (_d_green, "phase_5_implement", "_invoke_green_llm", {}, "x", 1, False),
+    "phase_5_integrity:424": (_d_integrity, "phase_5_integrity", "_invoke_integrity_llm", {}, "x", 1, False),
+    "phase_6_review:1119": (_d_review, "phase_6_review", "_invoke_review_llm", {}, "x", 1, False),
+    "phase_6_review:2550": (_d_fix, "phase_6_review", "_invoke_fix_llm", {}, "x", 1, False),
+    "phase_6_review:3249": (_d_satisfaction, "phase_6_review", "_invoke_satisfaction_llm", {}, "x", 1, False),
+    "phase_6_review:3044-pool": (_d_satisfaction_complex, "phase_6_review", "_invoke_satisfaction_llm", {"complexity": "COMPLEX"}, "x", 3, False),
+    "phase_6_review:5514": (_d_decorr, "phase_6_review", "_invoke_decorr_llm", {}, "x", 1, False),
+    "phase_6_fix_integrity:600": (_d_fix_integrity, "phase_6_fix_integrity", "_invoke_fix_integrity_llm", {}, "x", 1, False),
+    "phase_7_synthesize:576": (_d_synthesizer, "phase_7_synthesize", "_invoke_synthesizer_llm", {}, "x", 1, False),
+    "phase_2_explore:379 (guard)": (_d_explore, "phase_2_explore", "_invoke_explore_llm", {}, "x", 1, True),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_MATRIX))
+def test_ac5b_dispatch_declares_role_template_behaviourally(case, tmp_path, monkeypatch) -> None:
+    build, modname, invoke_name, ctx_extra, raw, min_calls, stub_graph = _MATRIX[case]
+    role_path, source_id = _make_role_file(tmp_path)
+    env = _Env(tmp_path / "run", role_path)
+    built = build(env)
+    assert isinstance(built, StepResult) and built.status == "ok" and isinstance(built.data, dict) \
+        and built.data.get("prompt"), (
+        f"fixture precondition ({case}): producer must return an ok prompt, got "
+        f"status={getattr(built, 'status', None)!r} error_code={getattr(built, 'error_code', None)!r}")
+    mod = _mod(modname)
+    if stub_graph:  # ensure_graph shells out to `graphify`; not the unit under test
+        monkeypatch.setattr(mod, "ensure_graph", lambda *_a, **_k: "grep")
+    spy = _InvokeSpy(raw)
+    monkeypatch.setattr(mod, "invoke_llm_subprocess", spy)
+    getattr(mod, invoke_name)(env.ctx(**ctx_extra), built)
+    assert len(spy.calls) >= min_calls, (
+        f"{case}: expected >= {min_calls} dispatch(es), the invoke step made {len(spy.calls)}")
+    expected = (InjectedBlock(source_id=source_id, content=ROLE_CONTENT),)
+    got = [tuple(c.get("injections") or ()) for c in spy.calls]
+    wrong = [i for i, g in enumerate(got) if g != expected]
+    assert not wrong, (
+        f"{case}: dispatch(es) {wrong} of {len(got)} did not declare exactly the role template; "
+        f"declared={got!r}")
 
 
 # ---------------------------------------------------------------------------
