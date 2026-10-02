@@ -5,7 +5,7 @@
 
 **First ACTION — Update current_phase:**
 ```bash
-python3 -c "import re,datetime,pathlib;f=pathlib.Path('build-state.yaml');t=f.read_text();t=re.sub(r'current_phase:.*','current_phase: \"4.5\"',t);t=re.sub(r'last_updated:.*',f'last_updated: \"{datetime.datetime.utcnow().isoformat()}Z\"',t);f.write_text(t);print('current_phase → 4.5')"
+python3 -c "import os,re,datetime,pathlib;f=pathlib.Path('build-state.yaml');tmp=pathlib.Path('build-state.yaml.tmp');t=f.read_text();t=re.sub(r'current_phase:.*','current_phase: \"4.5\"',t);t=re.sub(r'last_updated:.*',f'last_updated: \"{datetime.datetime.utcnow().isoformat()}Z\"',t);tmp.write_text(t);os.replace(tmp,f);print('current_phase → 4.5')"
 ```
 
 **Scratchpad Verification:** Before proceeding, verify scratchpad exists:
