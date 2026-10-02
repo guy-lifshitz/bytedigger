@@ -1,10 +1,7 @@
 """Tests for 7f129bca — Phase 4.5 verdict parser PASS/APPROVED synonym widening.
 
 AC1–AC6: phase_45_spec._parse_verdict
-AC7–AC10: phase_45_spec_lite._parse_verdict
-
-Pre-GREEN expected state: AC1, AC2, AC3, AC7, AC8 FAIL (UNKNOWN returned instead of SHIP).
-AC4, AC5, AC6, AC9, AC10 PASS (regression guards on legacy behaviour).
+(AC7–AC10 covered the sibling SIMPLE-only parser; retired by bd#89 P2b.)
 """
 
 from __future__ import annotations
@@ -23,9 +20,6 @@ from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
     VERDICT_SHIP,
     VERDICT_REVISE,
     VERDICT_UNKNOWN,
-)
-from bytedigger_engine.workflows.phase_45_spec_lite import (  # noqa: E402
-    _parse_verdict as _parse_verdict_lite,
 )
 
 
@@ -64,26 +58,3 @@ def test_ac6_phase45_spec_verdict_pass_without_header_returns_unknown():
     result = _parse_verdict_spec("PASS")
     assert result == VERDICT_UNKNOWN
 
-
-def test_ac7_phase45_spec_lite_verdict_pass_normalizes_to_ship():
-    """AC7: phase_45_spec_lite._parse_verdict('## Verdict\nPASS\n') returns VERDICT_SHIP (sibling module, exact equality)."""
-    result = _parse_verdict_lite("## Verdict\nPASS\n")
-    assert result == VERDICT_SHIP
-
-
-def test_ac8_phase45_spec_lite_verdict_approved_normalizes_to_ship():
-    """AC8: phase_45_spec_lite._parse_verdict('## Verdict\nAPPROVED\n') returns VERDICT_SHIP (sibling module, exact equality)."""
-    result = _parse_verdict_lite("## Verdict\nAPPROVED\n")
-    assert result == VERDICT_SHIP
-
-
-def test_ac9_phase45_spec_lite_verdict_ship_unchanged():
-    """AC9: phase_45_spec_lite._parse_verdict('## Verdict\nSHIP\n') returns VERDICT_SHIP (sibling regression guard)."""
-    result = _parse_verdict_lite("## Verdict\nSHIP\n")
-    assert result == VERDICT_SHIP
-
-
-def test_ac10_phase45_spec_lite_verdict_revise_unchanged():
-    """AC10: phase_45_spec_lite._parse_verdict('## Verdict\nREVISE\n') returns VERDICT_REVISE (sibling regression guard)."""
-    result = _parse_verdict_lite("## Verdict\nREVISE\n")
-    assert result == VERDICT_REVISE

@@ -1,7 +1,7 @@
 """RED tests for D7B5BFB3 — phase_45_spec_* telemetry emission.
 
-Adds 5 new observability events emitted symmetrically from both
-phase_45_spec_lite.py and phase_45_spec.py:
+Adds 5 new observability events emitted from phase_45_spec.py (the SIMPLE-only
+twin was dropped by bd#89 P2b):
   - phase_45_spec_writer_complete  (top of _write_review_doc)
   - phase_45_spec_review_complete  (end of _write_review_doc, before each return)
   - phase_45_spec_ship             (_gate_on_review SHIP branch)
@@ -25,35 +25,24 @@ HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
 sys.path.insert(0, str(ENGINE_ROOT))
 
-from bytedigger_engine.workflows import phase_45_spec_lite  # noqa: E402
 from bytedigger_engine.workflows import phase_45_spec  # noqa: E402
-from bytedigger_engine.workflows.phase_45_spec_lite import (  # noqa: E402
-    _write_review_doc as _write_review_doc_lite,
-    _gate_on_review as _gate_on_review_lite,
-    _truncate_findings,
+from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
+    _write_review_doc as _write_review_doc_full,
+    _gate_on_review as _gate_on_review_full,
     VERDICT_SHIP,
     VERDICT_REVISE,
     VERDICT_UNKNOWN,
     MAX_REVIEW_CYCLES,
-)
-from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
-    _write_review_doc as _write_review_doc_full,
-    _gate_on_review as _gate_on_review_full,
 )
 from bytedigger_engine.contracts import StepResult  # noqa: E402
 
 
 # ─── Parametrize targets ──────────────────────────────────────────────────────
 
-# Each tuple: (module, write_fn, gate_fn, phase_label)
+# Each tuple: (module, write_fn, gate_fn, phase_label). The SIMPLE-only
+# workflow's row was removed by bd#89 P2b; the name BOTH_PHASES is kept so the
+# parametrized test signatures stay untouched.
 BOTH_PHASES = [
-    pytest.param(
-        phase_45_spec_lite,
-        _write_review_doc_lite,
-        _gate_on_review_lite,
-        "phase_45_spec_lite",
-        id="spec_lite",
-    ),
     pytest.param(
         phase_45_spec,
         _write_review_doc_full,
@@ -102,8 +91,7 @@ def _make_gate_prev(
     GH625: `gate_attempts` optionally seeds per-gate attempt accounting for
     phase_45_spec.py's `_gate_on_review` (spec_full), which now decides
     cap via `attempts >= pol.cycle_cap` (phase_45_spec.py:3116), not raw
-    cycle. phase_45_spec_lite's `_gate_on_review` is unaffected (still uses
-    `cycle < MAX_REVIEW_CYCLES` directly), so this key is a no-op there.
+    cycle.
     """
     review_path = tmp_path / "build-plan-review.md"
     review_path.write_text(raw_review or "## Verdict\n" + verdict + "\n")
@@ -326,8 +314,7 @@ def test_ac8_abort_emitted_on_revise_at_cap(
     GH625: phase_45_spec.py's _gate_on_review (spec_full) now decides cap via
     per-gate gate_attempts (spec_review cap=1, recoverable_once, bd#85), not raw
     cycle (phase_45_spec.py:3116); seed 1 prior attempt (== cap) so it still
-    terminates. phase_45_spec_lite's _gate_on_review is untouched (still
-    `cycle < MAX_REVIEW_CYCLES`), so the seed is a no-op there.
+    terminates.
     """
     cap_cycle = MAX_REVIEW_CYCLES
     _gate_attempts = {"spec_review": 1} if phase_label == "phase_45_spec" else None
@@ -411,85 +398,8 @@ def test_ac10_abort_not_emitted_on_revise_retry(
         f"got {len(abort_events)} events; all: {[(et, p) for et, p in captured]}"
     )
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# AC11 — Forcing-function: exact n_findings_unresolved from _truncate_findings output
-# (spec_lite only — the spec mandates this for phase_45_spec_lite._gate_on_review)
-# ═══════════════════════════════════════════════════════════════════════════════
+# AC11 (exact n_findings_unresolved payload, dropped SIMPLE-only gate) and AC12
+# (legacy cycle2-abort event, same gate) retired by bd#89 P2b. The full path's
+# revise payload carries extra keys (findings_source) and has its own tests.
 
 
-def test_ac11_revise_payload_exact_n_findings_unresolved(tmp_path, monkeypatch):
-    """AC11 (forcing-function): n_findings_unresolved in phase_45_spec_revise payload
-    equals the count _truncate_findings returns for the given raw_review input.
-    Derived deterministically — not hardcoded."""
-    raw_review = "finding1\nfinding2\nfinding3\n"
-    prev = _make_gate_prev(
-        tmp_path, VERDICT_REVISE, cycle=1, raw_review=raw_review
-    )
-    captured = _patch_emit(monkeypatch, phase_45_spec_lite)
-
-    _gate_on_review_lite(None, prev)
-
-    events = _events_of(captured, "phase_45_spec_revise")
-    assert len(events) == 1, (
-        f"expected 1 phase_45_spec_revise, got {len(events)}; "
-        f"all: {[(et, p) for et, p in captured]}"
-    )
-    payload = events[0]
-
-    # Derive expected N the same way GREEN will: _truncate_findings returns the
-    # (possibly-truncated) text; GREEN counts structured findings from it if
-    # parseable (which free-form text is not) → falls back to 0 per spec design note.
-    # For this raw_review (non-JSON, non-empty) the spec says:
-    # "len of structured findings if parseable, else 0 (graceful)"
-    # So expected = 0 when text is freetext (not parseable as JSON findings).
-    #
-    # We derive by calling _truncate_findings and then checking if the result
-    # contains parseable structured findings. Since the raw is freetext, the
-    # result is 0. We express this as a deterministic computation, not a literal.
-    truncated_text, _was_truncated = _truncate_findings(raw_review)
-    # Attempt structured parse to mimic what GREEN will do
-    try:
-        from bytedigger_engine.lib.plugins.checklist_convergence import extract_structured_findings
-        parsed = extract_structured_findings(truncated_text)
-        expected_n = len(parsed) if parsed is not None else 0
-    except Exception:
-        expected_n = 0
-
-    assert payload == {
-        "phase": "phase_45_spec_lite",
-        "cycle": 1,
-        "n_findings_unresolved": expected_n,
-    }, (
-        f"phase_45_spec_revise payload mismatch.\n"
-        f"Expected: {{'phase': 'phase_45_spec_lite', 'cycle': 1, 'n_findings_unresolved': {expected_n}}}\n"
-        f"Got: {payload}"
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# AC12 — Additive guarantee: spec_lite_cycle2_abort STILL fires at cap
-#         alongside the new phase_45_spec_abort (spec_lite only)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def test_ac12_both_abort_events_fire_at_cap_spec_lite(tmp_path, monkeypatch):
-    """AC12: on REVISE+cycle==cap in spec_lite, BOTH spec_lite_cycle2_abort
-    (existing, line 1012) AND phase_45_spec_abort (new) are present in captured events."""
-    cap_cycle = MAX_REVIEW_CYCLES
-    prev = _make_gate_prev(tmp_path, VERDICT_REVISE, cycle=cap_cycle, raw_review=_RAW_REVISE)
-    captured = _patch_emit(monkeypatch, phase_45_spec_lite)
-
-    _gate_on_review_lite(None, prev)
-
-    legacy_events = _events_of(captured, "spec_lite_cycle2_abort")
-    new_events = _events_of(captured, "phase_45_spec_abort")
-
-    assert len(legacy_events) >= 1, (
-        f"spec_lite_cycle2_abort (existing event) should still fire at cap; "
-        f"all captured: {[(et, p) for et, p in captured]}"
-    )
-    assert len(new_events) == 1, (
-        f"phase_45_spec_abort (new event) should also fire at cap; "
-        f"all captured: {[(et, p) for et, p in captured]}"
-    )

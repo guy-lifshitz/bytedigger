@@ -330,7 +330,7 @@ def test_ac8_phase2_explore_uses_get_claude_explore(monkeypatch, tmp_path):
 def test_ac9_critical_phases_still_use_opus():
     """AC9: REGRESSION GUARD — get_claude_critical() resolves to 'opus' AND
     phase_5_implement.py, phase_5_integrity.py, phase_6_review.py,
-    phase_6_fix_integrity.py, phase_45_spec.py, phase_45_spec_lite.py
+    phase_6_fix_integrity.py, phase_45_spec.py
     all still import get_claude_critical (never downgraded in this ship).
 
     # REGRESSION GUARD: these assertions are expected to PASS today (pre-GREEN)
@@ -350,12 +350,10 @@ def test_ac9_critical_phases_still_use_opus():
         WORKFLOWS_DIR / "phase_6_review.py",
         WORKFLOWS_DIR / "phase_6_fix_integrity.py",
     ]
-    # NOTE: phase_45_spec.py and phase_45_spec_lite.py also use get_claude_critical
-    # for their self-review paths (AC9 spec). Verified they appear in the grep above.
-    # Adding them here for completeness.
+    # NOTE: phase_45_spec.py also uses get_claude_critical for its self-review
+    # path (AC9 spec). Adding it here for completeness.
     critical_files += [
         WORKFLOWS_DIR / "phase_45_spec.py",
-        WORKFLOWS_DIR / "phase_45_spec_lite.py",
     ]
 
     for fpath in critical_files:
@@ -370,7 +368,7 @@ def test_ac9_critical_phases_still_use_opus():
 
 def test_ac10_spec_writer_phases_still_use_opus():
     """AC10: REGRESSION GUARD — get_claude_spec_writer() resolves to 'opus' AND
-    phase_45_spec.py and phase_45_spec_lite.py still import get_claude_spec_writer.
+    phase_45_spec.py still imports get_claude_spec_writer.
 
     # REGRESSION GUARD: expected to PASS today (pre-GREEN) and post-GREEN.
     # This guard ensures the spec_writer key is not altered by this ship.
@@ -384,7 +382,6 @@ def test_ac10_spec_writer_phases_still_use_opus():
     # Files that MUST retain the get_claude_spec_writer import
     spec_writer_files = [
         WORKFLOWS_DIR / "phase_45_spec.py",
-        WORKFLOWS_DIR / "phase_45_spec_lite.py",
     ]
     for fpath in spec_writer_files:
         source = fpath.read_text()

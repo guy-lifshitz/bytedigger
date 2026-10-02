@@ -32,8 +32,7 @@ failure changes from `E_REVIEW_FAILED`/`E_VALIDATION_FAILED` to
 Chokepoint (B) — classification, asserted on all THREE gate tiers:
   * FEATURE/COMPLEX — `_gate_on_review` (workflows/phase_45_spec.py:4440+),
     AC1-AC4, AC6, AC11, AC12, AC21.
-  * SIMPLE — its own `_gate_on_review` twin (workflows/phase_45_spec_lite.py
-    :974), AC18.
+  * (the former SIMPLE-only `_gate_on_review` twin, AC18, was retired by bd#89 P2b.)
   * VALIDATION — `_gate_on_validation` (workflows/phase_5_implement.py:7626),
     AC24.
 Each tier gets a block-recognition branch placed BESIDE its existing
@@ -648,7 +647,6 @@ def test_r18_first_conjunct_needs_a_declared_block_not_words_that_look_like_one(
     the GREEN, in the same role as AC4, AC12 and AC21.
     """
     from bytedigger_engine.workflows.phase_45_spec import _gate_on_review
-    from bytedigger_engine.workflows.phase_45_spec_lite import _gate_on_review as _gate_lite
     from bytedigger_engine.workflows import phase_5_implement as p5
 
     declared = re.compile(r"^STATUS=block", re.MULTILINE)
@@ -703,19 +701,6 @@ def test_r18_first_conjunct_needs_a_declared_block_not_words_that_look_like_one(
             f"substantive terminal E_REVIEW_FAILED; got {res.error_code!r} "
             f"(error={res.error!r}). Reporting {CODE!r} here buries real dissent "
             f"under an infrastructure diagnosis — the masquerade inverted."
-        )
-
-    # ── SIMPLE tier ──
-    for label, raw in (("quoting", QUOTING_BUT_SUBSTANTIVE_OUTPUT),
-                       ("terse", TERSE_REVISE_OUTPUT)):
-        sp = _absent(f"r18_simple_{label}")
-        res_lite = _gate_lite(
-            _make_ctx(sp, complexity="SIMPLE"),
-            _make_gate_prev(sp, raw_review=raw),
-        )
-        assert res_lite.error_code == "E_REVIEW_FAILED", (
-            f"r18 MAJOR-1 FAIL (SIMPLE, {label} answer, injection/ ABSENT): expected "
-            f"E_REVIEW_FAILED, got {res_lite.error_code!r} (error={res_lite.error!r})"
         )
 
     # ── VALIDATION tier ──
@@ -973,141 +958,8 @@ def test_ac12_classifier_is_conjunctive_not_substring_or_disk_state_alone(tmp_pa
     )
 
 
-# ─── AC18 — chokepoint (B)'s SECOND instance, on the SIMPLE tier. §1J-3:
-#     `phase_45_spec_lite.py:974` is its OWN `_gate_on_review`, with its OWN
-#     terminal `E_REVIEW_UNPARSEABLE` (:1080) and its OWN `E_REVIEW_FAILED:
-#     SIMPLE spec REVISE verdict on cycle N (cap reached)` (:1168). §1E named
-#     this "the same masquerade one tier down"; §2 justifies chokepoint (A)
-#     existing at all on the ground that (A) alone still leaves the
-#     masquerade on ANY other infrastructure block — this arm applies that
-#     argument literally, one tier down. Same shape as AC3 + AC12.
-
-
-def test_ac18_simple_tier_gate_classifies_infra_block_same_as_feature_tier(tmp_path):
-    """AC18 (§1J-3): the SIMPLE-tier gate must classify the SAME four rows
-    AC3/AC12 already pin for the FEATURE/COMPLEX tier:
-      * arm A — infrastructure block, injection/ absent ⇒ E_INJECTION_MISSING;
-      * arm B — genuine REVISE at cap, injection/ complete ⇒ still
-        E_REVIEW_FAILED (a rename-only fix is not a fix);
-      * arm C (§1C-2 text decoy) — inputs present, answer QUOTES the block
-        sentence ⇒ stays E_REVIEW_FAILED, not E_INJECTION_MISSING;
-      * arm D (§1C-2 disk decoy) — injection/ absent, answer is a genuine
-        REVISE declaring no block ⇒ stays E_REVIEW_FAILED;
-      * arm E (§1W-2 below-cap) — infra block on cycle 1 ⇒ TERMINATES as
-        E_INJECTION_MISSING instead of returning status="ok" and re-entering.
-
-    FAILS TODAY (arms A and E): the SIMPLE-tier gate has no classifier at all —
-    every branch below VERDICT_SHIP falls straight to the durable-cycle axis,
-    so at cap the non-empty block answer surfaces as `E_REVIEW_FAILED: SIMPLE
-    spec REVISE verdict on cycle 2 (cap reached)`
-    (phase_45_spec_lite.py:1158-1170), and below cap it returns status="ok"
-    with cycle+1 (:1086-1115) and spends a second run.
-    Arms B/C/D pass today (the gate has no classifier, so everything not
-    SHIP/UNPARSEABLE is already E_REVIEW_FAILED) and are the fence + decoys
-    that stop GREEN from over-firing the new branch on this tier too.
-    """
-    from bytedigger_engine.workflows.phase_45_spec_lite import VERDICT_REVISE
-    from bytedigger_engine.workflows.phase_45_spec_lite import _gate_on_review as _gate_lite
-
-    # ── arm A: infra block, injection/ absent ──
-    sp_a = tmp_path / "lite_scratch_a"
-    sp_a.mkdir()
-    assert not (sp_a / "injection").exists(), "AC18 arm A precondition: injection/ absent"
-    res_a = _gate_lite(
-        _make_ctx(sp_a, complexity="SIMPLE"),
-        _make_gate_prev(sp_a, raw_review=BLOCKED_WORKER_OUTPUT),
-    )
-    assert res_a.error_code == CODE, (
-        f"AC18 arm A FAIL: the SIMPLE-tier gate must terminate an infrastructure block as "
-        f"{CODE!r}, got {res_a.error_code!r} (error={res_a.error!r})"
-    )
-    assert res_a.recoverable is False, (
-        f"AC18 arm A FAIL: terminal — with recoverable={res_a.recoverable!r} the engine "
-        f"retries from step 0 and spends another run on inputs that are still absent"
-    )
-
-    # ── arm B: genuine REVISE at cap, injection/ complete ──
-    sp_b = tmp_path / "lite_scratch_b"
-    _seed_injection(sp_b)
-    res_b = _gate_lite(
-        _make_ctx(sp_b, complexity="SIMPLE"),
-        _make_gate_prev(sp_b, raw_review=GENUINE_REVISE_OUTPUT, verdict=VERDICT_REVISE),
-    )
-    assert res_b.error_code == "E_REVIEW_FAILED", (
-        f"AC18 arm B FAIL: a genuine SIMPLE-tier REVISE at cap must STILL be "
-        f"E_REVIEW_FAILED, got {res_b.error_code!r} (error={res_b.error!r})"
-    )
-
-    # ── arm C: text decoy — inputs present, answer QUOTES the block sentence ──
-    sp_c = tmp_path / "lite_scratch_c"
-    _seed_injection(sp_c)
-    res_c = _gate_lite(
-        _make_ctx(sp_c, complexity="SIMPLE"),
-        _make_gate_prev(sp_c, raw_review=QUOTING_BUT_SUBSTANTIVE_OUTPUT, verdict=VERDICT_REVISE),
-    )
-    assert res_c.error_code == "E_REVIEW_FAILED", (
-        f"AC18 arm C FAIL: a substantive answer that merely quotes the block sentence, "
-        f"with inputs present, must stay E_REVIEW_FAILED; got {res_c.error_code!r} "
-        f"(error={res_c.error!r})"
-    )
-
-    # ── arm D: disk decoy — injection/ absent, answer is a genuine REVISE ──
-    sp_d = tmp_path / "lite_scratch_d"
-    sp_d.mkdir()
-    assert not (sp_d / "injection").exists(), "AC18 arm D precondition: injection/ absent"
-    res_d = _gate_lite(
-        _make_ctx(sp_d, complexity="SIMPLE"),
-        _make_gate_prev(sp_d, raw_review=GENUINE_REVISE_OUTPUT, verdict=VERDICT_REVISE),
-    )
-    assert res_d.error_code == "E_REVIEW_FAILED", (
-        f"AC18 arm D FAIL: disk state alone must never be sufficient — a substantive "
-        f"REVISE declaring no block must stay E_REVIEW_FAILED even with injection/ "
-        f"absent; got {res_d.error_code!r} (error={res_d.error!r})"
-    )
-
-    # ── arm E (§1W-2): BELOW cap. Arms A–D all sit at cycle == MAX_REVIEW_CYCLES,
-    # so a GREEN that only patches the terminal tail passes every one of them —
-    # while an infra block on cycle 1 takes phase_45_spec_lite.py:1086, returns
-    # status="ok" with cycle+1 and RE-ENTERS the loop, spending a SECOND run on
-    # the same absent inputs. That is literally the two-run cost measured in §1.
-    sp_e = tmp_path / "lite_scratch_e"
-    sp_e.mkdir()
-    assert not (sp_e / "injection").exists(), "AC18 arm E precondition: injection/ absent"
-    prev_e = _make_gate_prev(sp_e, raw_review=BLOCKED_WORKER_OUTPUT, cycle=1, at_cap=False)
-    assert prev_e.data["cycle"] < 2, (
-        "AC18 arm E precondition: the fixture must sit BELOW MAX_REVIEW_CYCLES=2, "
-        "otherwise it duplicates arm A and pins nothing new"
-    )
-    res_e = _gate_lite(_make_ctx(sp_e, complexity="SIMPLE"), prev_e)
-    assert res_e.error_code == CODE, (
-        f"AC18 arm E FAIL: an infrastructure block on cycle 1 must TERMINATE as "
-        f"{CODE!r}, not re-enter the review loop; got status={res_e.status!r} "
-        f"error_code={res_e.error_code!r} (error={res_e.error!r}). Re-entering spends "
-        f"a second run on inputs that have not reappeared."
-    )
-    assert res_e.status == "error" and res_e.recoverable is False, (
-        f"AC18 arm E FAIL: below-cap infra block must be a TERMINAL error, got "
-        f"status={res_e.status!r} recoverable={res_e.recoverable!r}"
-    )
-
-    # ── arm F (r18 MINOR-1): the §1W-6 strip-contract arm, one tier down. The
-    # directory EXISTS and only `hal-memory.md` is whitespace, so a SIMPLE-tier
-    # GREEN left on `injection_dir(sp).exists()` still reads the incident shape
-    # as reviewer disagreement.
-    sp_f = tmp_path / "lite_scratch_f"
-    inj_f = _seed_injection_whitespace(sp_f)
-    assert inj_f.is_dir() and not (inj_f / "hal-memory.md").read_text(encoding="utf-8").strip(), (
-        "AC18 arm F precondition: directory PRESENT, hal-memory.md empty after strip()"
-    )
-    res_f = _gate_lite(
-        _make_ctx(sp_f, complexity="SIMPLE"),
-        _make_gate_prev(sp_f, raw_review=BLOCKED_WORKER_OUTPUT),
-    )
-    assert res_f.error_code == CODE, (
-        f"AC18 arm F FAIL: on the SIMPLE tier too the disk conjunct must be the "
-        f"strip() contract, not directory existence — got {res_f.error_code!r} "
-        f"(error={res_f.error!r})"
-    )
+# AC18 (the SIMPLE-only gate's parity with the FEATURE/COMPLEX gate) retired by
+# bd#89 P2b: the gate it exercised is gone. The full-tier twins are AC3/AC12.
 
 
 def test_ac21_ship_verdict_still_ships_when_injection_is_absent(tmp_path):
@@ -1130,10 +982,8 @@ def test_ac21_ship_verdict_still_ships_when_injection_is_absent(tmp_path):
     caught immediately rather than shipping silently — the same role AC4's
     fence plays for the `E_REVIEW_UNPARSEABLE` branch.
 
-    FEATURE/COMPLEX tier (`phase_45_spec._gate_on_review`) and SIMPLE tier
-    (`phase_45_spec_lite._gate_on_review`) are BOTH asserted: AC18 already
-    established the SIMPLE tier gets the identical chokepoint-(B) treatment,
-    so the shield must hold on both gates the same way.
+    Asserted on the one remaining review gate (`phase_45_spec._gate_on_review`,
+    all complexity tiers); the separate SIMPLE-only gate was dropped by bd#89 P2b.
     """
     from bytedigger_engine.workflows.phase_45_spec import VERDICT_SHIP, _gate_on_review
 
@@ -1155,30 +1005,6 @@ def test_ac21_ship_verdict_still_ships_when_injection_is_absent(tmp_path):
         f"AC21 FAIL: SHIP must never be converted into {CODE!r} by the absence of "
         f"injection/ — that absence is routine post-deploy housekeeping, not a reason "
         f"to reject a verdict that already shipped"
-    )
-
-    # SIMPLE tier: phase_45_spec_lite._gate_on_review gets the identical shield (AC18's
-    # own precedent — the SIMPLE gate mirrors the FEATURE/COMPLEX one row for row).
-    from bytedigger_engine.workflows.phase_45_spec_lite import VERDICT_SHIP as VERDICT_SHIP_LITE
-    from bytedigger_engine.workflows.phase_45_spec_lite import _gate_on_review as _gate_lite
-
-    sp2 = tmp_path / "ac21_ship_scratch_simple"
-    sp2.mkdir()
-    assert not (sp2 / "injection").exists(), (
-        "AC21 SIMPLE precondition: injection/ absent"
-    )
-    res2 = _gate_lite(
-        _make_ctx(sp2, complexity="SIMPLE"),
-        _make_gate_prev(sp2, raw_review="## Verdict\nSHIP\nLGTM, ship it.\n", verdict=VERDICT_SHIP_LITE),
-    )
-    assert res2.status == "ok", (
-        f"AC21 SIMPLE FAIL: a legitimate SHIP verdict with injection/ absent must still "
-        f"ship on the SIMPLE tier too; got status={res2.status!r} "
-        f"error_code={res2.error_code!r} error={res2.error!r}"
-    )
-    assert res2.error_code != CODE, (
-        f"AC21 SIMPLE FAIL: SHIP must never be converted into {CODE!r} on the SIMPLE "
-        f"tier either"
     )
 
 
@@ -1390,8 +1216,6 @@ def test_gates_tolerate_a_ctx_with_no_scratchpad(tmp_path):
     It is the fence that keeps GREEN from reddening the 29 measured call sites.
     """
     from bytedigger_engine.workflows.phase_45_spec import VERDICT_REVISE, _gate_on_review
-    from bytedigger_engine.workflows.phase_45_spec_lite import VERDICT_REVISE as VERDICT_REVISE_LITE
-    from bytedigger_engine.workflows.phase_45_spec_lite import _gate_on_review as _gate_lite
     from bytedigger_engine.workflows import phase_5_implement as p5
 
     # `_make_gate_prev`/`_validation_prev` need a directory to write docs into;
@@ -1425,20 +1249,6 @@ def test_gates_tolerate_a_ctx_with_no_scratchpad(tmp_path):
             f"pre-GREEN terminal E_REVIEW_FAILED, got {res.error_code!r} "
             f"(status={res.status!r} error={res.error!r}). 29 production call sites "
             f"invoke the gates in exactly this shape."
-        )
-
-    for label, ctx in (
-        ("_ctx=None", None),
-        ("org_config without scratchpad_dir", _ctx_without_scratchpad(complexity="SIMPLE")),
-    ):
-        res_lite = _gate_lite(
-            ctx, _make_gate_prev(docs, raw_review=GENUINE_REVISE_OUTPUT,
-                                 verdict=VERDICT_REVISE_LITE)
-        )
-        assert res_lite.error_code == "E_REVIEW_FAILED", (
-            f"§1W-4 FENCE FAIL (SIMPLE tier, {label}): expected the pre-GREEN "
-            f"E_REVIEW_FAILED, got {res_lite.error_code!r} (status={res_lite.status!r} "
-            f"error={res_lite.error!r})"
         )
 
     for label, ctx in (

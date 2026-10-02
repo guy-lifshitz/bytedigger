@@ -34,8 +34,6 @@ PARITY_TABLE = [
     ("architect.llm", 600, None, None, None, "llm_timeout_sec"),
     ("spec.writer", 600, None, 1800, 900, "spec_llm_timeout_sec"),
     ("spec.reviewer", 300, 600, 900, 600, "review_llm_timeout_sec"),
-    ("spec_lite.writer", 600, None, None, None, "spec_llm_timeout_sec"),
-    ("spec_lite.reviewer", 300, 600, 900, None, "review_llm_timeout_sec"),
     ("implement.red", 1200, 2400, 2400, None, "red_llm_timeout_sec"),
     ("implement.validation", 600, None, 1200, None, "validation_llm_timeout_sec"),
     ("implement.green", 900, 1500, 1800, None, "green_llm_timeout_sec"),

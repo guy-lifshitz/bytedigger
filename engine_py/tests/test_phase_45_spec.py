@@ -9,7 +9,7 @@ migration: command:list[str] → model:str seam).
 
 Surface-15 tests (05F83B1B — engine-side REVISE retry loop) appended below
 the existing suite. Uses _CycleAwareBackend — mirrors cycle_aware_lite_stub
-from test_phase_45_spec_lite but detects the FEATURE/COMPLEX reviewer role
+from the (dropped) SIMPLE-only stub but detects the FEATURE/COMPLEX reviewer role
 string ("spec reviewer (separate agent") and the spec-writer role.
 """
 from __future__ import annotations

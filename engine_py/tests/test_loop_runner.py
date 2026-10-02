@@ -1,7 +1,7 @@
 """Tests for LoopStepContract + LoopRunner (E2440DB5).
 
 Declarative loop primitive replacing hand-rolled cycle logic across
-phase_45_spec_lite (cycle 2 spec rewrite), phase_5_implement (RED→GREEN
+the phase 4.5 spec loop (cycle 2 spec rewrite), phase_5_implement (RED→GREEN
 retry), and phase_6_review (iteration). Schema mirrors Archon's loop
 node: prompt + until_marker (LLM-judged) + until_bash (deterministic) +
 max_iterations + fresh_context.

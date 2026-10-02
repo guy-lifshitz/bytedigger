@@ -319,3 +319,19 @@ def test_phase_6_workflow_includes_detect_mass_unverified_step():
     assert detect_idx > sat_idx, (
         f"detect_mass_unverified must come after write_satisfaction_doc"
     )
+
+
+def test_ac8_phase_6_review_workflow_step_count_unchanged():
+    """Snapshot guard (moved here by bd#89 P2b from the retired SIMPLE fast-path
+    test file; passes today and after GREEN).
+
+    Any change to phase_6_review.py that adds or removes steps must
+    intentionally update this value.
+    """
+    from bytedigger_engine.workflows import phase_6_review as m
+
+    wf = m.phase_6_review_workflow()
+    assert len(wf.steps) == 21, (
+        f"phase_6_review_workflow step count drifted: expected 21, got {len(wf.steps)}. "
+        f"Update snapshot intentionally if this is deliberate."
+    )

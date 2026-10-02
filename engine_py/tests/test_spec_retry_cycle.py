@@ -3,7 +3,7 @@
 All tests MUST FAIL (ImportError from within test body) until GREEN agent:
   (a) creates engine_py/lib/spec_retry_cycle.py with the 3 pure helpers +
       shared constants, AND
-  (b) updates both phase_45_spec.py and phase_45_spec_lite.py to import from it.
+  (b) updates phase_45_spec.py (and the since-dropped SIMPLE-only sibling) to import from it.
 
 Do NOT create lib/spec_retry_cycle.py here — this is RED-only.
 

@@ -471,18 +471,18 @@ class TestFormatBoundaryError:
         from bytedigger_engine.contracts import format_boundary_error
 
         result = format_boundary_error(
-            phase="phase_45_spec_lite",
+            phase="phase_45_spec",
             field="review_path",
             producer="bytedigger_engine.workflows.phase_45_spec.write_review_doc",
-            where="phase_45_spec_lite.py:611",
+            where="phase_45_spec.py:611",
             schema="StepResult.data.review_path",
         )
 
         # Verify all 5 values appear as substrings in the result
-        assert "phase_45_spec_lite" in result
+        assert "phase_45_spec" in result
         assert "review_path" in result
         assert "bytedigger_engine.workflows.phase_45_spec.write_review_doc" in result
-        assert "phase_45_spec_lite.py:611" in result
+        assert "phase_45_spec.py:611" in result
         assert "StepResult.data.review_path" in result
 
     def test_format_boundary_error_labeled_fields(self):

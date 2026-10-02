@@ -4,9 +4,9 @@ New helpers (not yet implemented):
   - engine_py/bytedigger_engine/skip_logic.py::is_frozen_spec_text(text:str)->bool
   - engine_py/bytedigger_engine/skip_logic.py::detect_frozen_spec(decision_doc_raw:str|None)->tuple[bool,Path|None]
 
-New workflow step (not yet implemented in either workflow):
-  - step-0 "detect_frozen_spec" prepended to phase_45_spec_workflow() +
-    phase_45_spec_lite_workflow() (or their LoopStepContract body)
+New workflow step (now in phase_45_spec_workflow(); the SIMPLE-only twin was
+dropped by bd#89 P2b):
+  - step-0 "detect_frozen_spec" prepended to phase_45_spec_workflow()
   - writer steps return status="skip" when prev.data["is_frozen"] is True
   - _gate_on_review emits frozen_spec_fallback_to_full + returns
     E_VALIDATION_RETRY with data["frozen_fallback"]=True when REVISE on frozen
@@ -37,13 +37,11 @@ from typing import Any
 # conftest.py handles sys.path; no sys.path manipulation here.
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 from bytedigger_engine.workflows import phase_45_spec as _p45  # noqa: E402
-from bytedigger_engine.workflows import phase_45_spec_lite as _p45l  # noqa: E402
 from bytedigger_engine.workflows.phase_45_spec import (  # noqa: E402
     SPEC_DOC_RELPATH,
     VERDICT_REVISE,
     phase_45_spec_workflow,
 )
-from bytedigger_engine.workflows.phase_45_spec_lite import phase_45_spec_lite_workflow  # noqa: E402
 
 
 # ─── Shared fixtures ──────────────────────────────────────────────────────────
@@ -574,82 +572,11 @@ def test_ac9_non_frozen_doc_no_frozen_events(tmp_path, monkeypatch):
     )
 
 
-# ─── AC10: phase_45_spec_lite also has step-0 and honors detector ─────────────
+# ─── AC10: (retired) ──────────────────────────────────────────────────────────
 
 
-def test_ac10_lite_workflow_honors_detector(tmp_path, monkeypatch):
-    """AC10 (step-level): phase_45_spec_lite_workflow() also contains a
-    'detect_frozen_spec' step-0 that (a) emits frozen_spec_ingested and
-    (b) returns is_frozen=True for a frozen doc, and (c) writer step skips.
-
-    The lite workflow wraps its steps in a LoopStepContract body; the new
-    step-0 is prepended to that body.  We locate it via
-    build_review_loop_contract().body or the workflow's outer step-0
-    (depending on GREEN's implementation choice)."""
-    from bytedigger_engine import skip_logic as _sl  # noqa: PLC0415
-    # Capture from all three candidate emit modules (step-0 may call _emit_safe
-    # from skip_logic, phase_45_spec, or phase_45_spec_lite depending on impl).
-    captured: list[tuple[str, dict]] = []
-    monkeypatch.setattr(_sl, "_emit_safe", lambda et, p: captured.append((et, p)))
-    monkeypatch.setattr(_p45, "_emit_safe", lambda et, p: captured.append((et, p)))
-    monkeypatch.setattr(_p45l, "_emit_safe", lambda et, p: captured.append((et, p)))
-
-    frozen_doc = _make_tmp_frozen_doc(tmp_path)
-    scratchpad = Path(os.path.realpath(tempfile.mkdtemp(dir=str(tmp_path)))) / "scratch_lite"
-
-    wf_lite = phase_45_spec_lite_workflow()
-
-    # GREEN may place step-0 as a top-level step OR inside the loop body.
-    # Try top-level first, then fall back to the loop body.
-    step0 = next((s for s in wf_lite.steps if s.name == "detect_frozen_spec"), None)
-    if step0 is None:
-        # Try the loop body (LoopStepContract): the first step in wf_lite is
-        # "review_cycle_loop"; its contract body is accessible via build_review_loop_contract.
-        from bytedigger_engine.workflows.phase_45_spec_lite import build_review_loop_contract  # noqa: PLC0415
-        loop_contract = build_review_loop_contract()
-        step0 = next(
-            (s for s in loop_contract.body if s.name == "detect_frozen_spec"), None
-        )
-
-    assert step0 is not None, (
-        "AC10 FAIL: step 'detect_frozen_spec' not found in "
-        "phase_45_spec_lite_workflow() (checked top-level AND loop body). "
-        f"Top-level steps: {[s.name for s in wf_lite.steps]}"
-    )
-
-    ctx = _make_ctx(scratchpad, complexity="SIMPLE", decision_doc=str(frozen_doc))
-    initial_prev = StepResult(status="ok", data={}, duration_ms=0, step_name="__initial__")
-    result0 = step0.execute(ctx, initial_prev)
-
-    # (a) is_frozen=True returned
-    assert result0.data.get("is_frozen") is True, (
-        f"AC10 FAIL: lite step-0 should return is_frozen=True for frozen doc. "
-        f"Got data={result0.data!r}"
-    )
-
-    # (b) frozen_spec_ingested emitted
-    ingest_events = _events_of(captured, "frozen_spec_ingested")
-    assert len(ingest_events) >= 1, (
-        f"AC10 FAIL: lite step-0 should emit 'frozen_spec_ingested'. "
-        f"Captured: {[(et, p) for et, p in captured]}"
-    )
-
-    # (c) writer step (maybe_invoke_spec_rewrite) skips when is_frozen=True
-    # Find the rewrite step in the lite loop body.
-    from bytedigger_engine.workflows.phase_45_spec_lite import build_review_loop_contract  # noqa: PLC0415
-    loop_contract = build_review_loop_contract()
-    rewrite_step = next(
-        (s for s in loop_contract.body if s.name == "maybe_invoke_spec_rewrite"), None
-    )
-    assert rewrite_step is not None, (
-        f"AC10 FAIL: 'maybe_invoke_spec_rewrite' not found in lite loop body. "
-        f"Body steps: {[s.name for s in loop_contract.body]}"
-    )
-    writer_result = rewrite_step.execute(ctx, result0)
-    assert writer_result.status == "skip", (
-        f"AC10 FAIL: lite maybe_invoke_spec_rewrite should return status='skip' "
-        f"when is_frozen=True. Got status={writer_result.status!r}"
-    )
+# (the former SIMPLE-only workflow's AC10 was retired by bd#89 P2b; the full
+# path is covered by AC3-AC9, AC11 and AC12.)
 
 
 # ─── AC11: is_frozen + frozen_doc_path survive the full real step chain ───────

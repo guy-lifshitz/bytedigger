@@ -86,10 +86,6 @@ def test_phase_45_spec_imports_atomic_write():
     from bytedigger_engine.workflows.phase_45_spec import atomic_write  # noqa: F401
 
 
-def test_phase_45_spec_lite_imports_atomic_write():
-    """AC4: from bytedigger_engine.workflows.phase_45_spec_lite import atomic_write."""
-    from bytedigger_engine.workflows.phase_45_spec_lite import atomic_write  # noqa: F401
-
 
 # ─── AC5: phases 1/4/7 USE atomic_write at write site (spy via monkeypatch) ──
 
@@ -215,12 +211,4 @@ def test_phase_45_spec_does_not_define_underscore_atomic_write():
     from bytedigger_engine.workflows import phase_45_spec
     assert not hasattr(phase_45_spec, "_atomic_write"), (
         "phase_45_spec must NOT define _atomic_write after GREEN — use io_utils.atomic_write"
-    )
-
-
-def test_phase_45_spec_lite_does_not_define_underscore_atomic_write():
-    """AC6: after GREEN, phase_45_spec_lite has no module-local _atomic_write."""
-    from bytedigger_engine.workflows import phase_45_spec_lite
-    assert not hasattr(phase_45_spec_lite, "_atomic_write"), (
-        "phase_45_spec_lite must NOT define _atomic_write after GREEN"
     )
