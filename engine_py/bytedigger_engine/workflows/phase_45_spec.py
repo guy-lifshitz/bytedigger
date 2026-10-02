@@ -4619,8 +4619,16 @@ def _write_review_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
 # ─── hal#1600 D3: task_description prohibition gate ─────────────────────
 # Spec: hal#1600 D3 prohibition-gate spec (host repo Decisions memory).
 
-_D3_NEGATION_RE = re.compile(r"do\s+not|don't|must\s+not|never|no(?=\s)", re.IGNORECASE)
-_D3_MUTATION_VERB_RE = re.compile(r"\b(?:modify|edit|change|touch|add|write|append)\b", re.IGNORECASE)
+# bd#169: negations match on word boundaries ("Whenever", "casino", "nevertheless"
+# must not). `no` keeps `(?=\s)` instead of `\bno\b`: `\bno\b` would newly match
+# "no-op" / "no.", so "make a no-op edit to x.py" would start prohibiting x.py.
+# Verb forms are nouns/base only ("modifications", "edits", "changes"): past
+# tense / participles ("is never modified in x.py") describe bugs, not prohibitions.
+_D3_NEGATION_RE = re.compile(r"\b(?:do\s+not|don't|must\s+not|never|no(?=\s))\b", re.IGNORECASE)
+_D3_MUTATION_VERB_RE = re.compile(
+    r"\b(?:modify|modifications?|edit|edits|change|changes|touch|add|write|append)\b",
+    re.IGNORECASE,
+)
 _D3_LIST_MARKER_RE = re.compile(r"(?m)^[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
 _D3_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.;])\s+")
 _D3_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n+")
