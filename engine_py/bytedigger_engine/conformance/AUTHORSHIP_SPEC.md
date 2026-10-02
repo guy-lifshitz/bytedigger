@@ -271,9 +271,14 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   exactly one `model_invocation_attested` event through `_emit_safe` (`llm_subprocess.py:2980`),
   with payload keys **exactly**
   `{step_name, backend, model_requested, prompt_sha256, injections, declared_capabilities,
-  capability_enforcement, observed_model, observed_tools}`. Asserted by exact key-set equality, so a GREEN carrying
+  capability_enforcement, observed_model, observed_tools, invocation_id, output_sha256}` (eleven keys;
+  the last two were added by bd#152). Asserted by exact key-set equality, so a GREEN carrying
   extra diagnostic keys fails and a consumer's key set cannot drift silently. Where there is no
   active run context the engine emits nothing and **MUST NOT raise** (AC-P8).
+
+  `invocation_id` is a random 32-character lowercase hex string, new for each dispatch.
+  `output_sha256` is `"sha256:"` plus the SHA-256 of the backend's `raw_response`, or `null` when
+  the backend returned no string `raw_response`.
 
   `[bd10:24]` **(gate round 2, BLOCKING-1) A dispatch that HAPPENED is attested regardless of what
   the chokepoint's checkers then decide.** The attestation records the invocation, not the verdict:
@@ -368,7 +373,7 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   | Key | Value | Why |
   |---|---|---|
   | `R3.1` | `host-attested-within-run-context` | `[bd10:25]` two narrowings, not one — see below |
-  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)); bd#147 drew the class I/E/P/M boundary (§4) and declared three more class-I segments (decision doc, inlined test files, directed-repair artifact); the call-site inventory (bd#150) declares the rest of the class-I sites; the test-run output tails (bd#192) and class-M output attestation (#152) are follow-ups |
+  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)); bd#147 drew the class I/E/P/M boundary (§4) and declared three more class-I segments (decision doc, inlined test files, directed-repair artifact); the call-site inventory (bd#150) declares the rest of the class-I sites; the test-run output tails (bd#192) are follow-ups; class-M output digests are recorded (#152) and class-M block declarations are a follow-up (bd#206) |
   | `R3.3` | `in-session-warn-only` | `[bd10:2]` — enforced at the chokepoint for reporting adapters; the in-session path still warns (bd#29) |
   | `R3.5` | `adapter-declared` | `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a mechanism outside the actor's reach |
   | `R3.6` | `tool-head-only` | AC-C6 — the operand never leaves the adapter |
@@ -504,10 +509,14 @@ The rule is structural. It asks what unit of read bytes is inlined, not whether 
   - Carried in memory: `prev.data["findings"]` and the semantic-verifier findings.
   - Held in the fields of a parsed record and re-rendered: the findings sidecar.
 
-  A file body that a model wrote, read back and inlined whole, is class I instead. The event log
-  records no model output, so a declaration would attest a provenance the log cannot back. A prompt
-  injection that reaches a model through an earlier model's output is covered only by R3.1's hash.
-  **Re-open criterion:** the log records an output digest per invocation (#152).
+  A file body that a model wrote, read back and inlined whole, is class I instead. Output digests
+  are recorded per invocation (#152). Declaring class-M blocks is deferred to bd#206. The matching
+  rule is fixed now. A class-M block's `source_id` is `"invocation:<step_name>:<invocation_id>"`,
+  naming an earlier attestation in the same run. Its digest equals that attestation's
+  `output_sha256` only when the whole `raw_response` is inlined verbatim. A re-rendered finding
+  does not match, so the check there is that the named invocation was attested earlier in the run.
+  A prompt injection that reaches a model through an earlier model's output is covered only by
+  R3.1's hash until those declarations exist.
 
 **Chunk rule.** A class-I segment is declared as one block per maximal run of source text that
 reaches the prompt unmodified, with the class-E wrapper and markers in no block. `content` is the
@@ -765,7 +774,7 @@ BD-L0/L1/L2 do not exist, bd#8, bd#9 and bd#27 are open, and bd#7's attestation 
 ADV-9's `not_executed` status and its judge, gate findings **B-1** and **B-2** in full, and gate
 edges **EDGE-1** (empty log) and **EDGE-8** (heterogeneous input filter). Nothing is discarded.
 
-**What stays here, because the seam owns it:** the nine payload keys, including `observed_model` and
+**What stays here, because the seam owns it:** the eleven payload keys, including `observed_model` and
 `observed_tools` — bd#28 recomputes verdicts *from* them, so the recording is this lot's obligation
 and the aggregation is that one's. And the requirement labels, which move from the report into
 `conformance.attest.REQUIREMENT_LABELS` (§2.2, AC-P7): the engine **records** what it can honestly

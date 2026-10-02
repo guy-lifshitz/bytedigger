@@ -31,6 +31,7 @@ NOT a framework. The caller owns:
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -1290,8 +1291,13 @@ def _attest_payload(
     allowed_tools: "list[str] | None",
     injections: "Sequence[InjectedBlock] | None",
     result: StepResult,
+    invocation_id: str,
 ) -> "dict[str, object]":
-    """bd#10 AC-P1: the NINE payload keys, exactly.
+    """bd#10 AC-P1 (amended by bd#152): the ELEVEN payload keys, exactly.
+
+    bd#152 adds `invocation_id` (per-dispatch random id) and `output_sha256`
+    (`hash_text` of `result.data["raw_response"]` when data is a dict and the
+    value is a str, else None; no stripping or normalising).
 
     `prompt` is the PRE-hoist assembled text (spec §0.4) — never
     `_invoke_subprocess`'s `effective_prompt` local, which has `stable_prefix`
@@ -1302,7 +1308,10 @@ def _attest_payload(
     """
     observed_model = _observed(result, "observed_model")
     observed_tools = _observed(result, "observed_tools")
+    raw_response = result.data.get("raw_response") if isinstance(result.data, dict) else None
     return {
+        "invocation_id": invocation_id,
+        "output_sha256": hash_text(raw_response) if isinstance(raw_response, str) else None,
         "step_name": step_name,
         "backend": resolved_backend,
         "model_requested": model,
@@ -1422,12 +1431,16 @@ def _emit_attestation(
     injections: "Sequence[InjectedBlock] | None",
     result: StepResult,
     run_ctx: "_RunCtx | None",
-) -> None:
+    invocation_id: str,
+) -> bool:
     """bd#10 R3.1 (AC-P1, AC-P6, AC-P8): one `model_invocation_attested` event
     per DISPATCH, through `_emit_safe` so a failing event log can never break
-    execution, and only where a run context is active (`[bd10:4]`)."""
+    execution, and only where a run context is active (`[bd10:4]`).
+
+    bd#152: returns True iff the event was handed to `_emit_safe` (run context
+    and event log both present); False when nothing was emitted."""
     if run_ctx is None or run_ctx.event_log is None:
-        return
+        return False
     _emit_safe(
         run_ctx.event_log,
         _ATTEST_EVENT_TYPE,
@@ -1439,9 +1452,11 @@ def _emit_attestation(
             allowed_tools=allowed_tools,
             injections=injections,
             result=result,
+            invocation_id=invocation_id,
         ),
         run_ctx.run_id,
     )
+    return True
 
 
 def _billing_mode_of(data: "dict | None", caps: "frozenset[str]") -> str:
@@ -1594,6 +1609,10 @@ def _dispatch_backend(
          (`[bd10:24]`): the attestation records the INVOCATION, not the
          verdict, so a dispatch the checks then fail is still attested — which
          is the evidence bd#28's aggregation needs to be able to say `failed`.
+         bd#152: the event carries a per-dispatch `invocation_id` and the
+         `output_sha256` of the backend's raw_response; the returned result's
+         `data` is a new dict with `invocation_id` set when an event was
+         emitted (removed otherwise), and the refusals below carry it too.
       5. Then adjudicate. The checks change the returned StepResult; they never
          change whether the event exists.
 
@@ -1703,7 +1722,10 @@ def _dispatch_backend(
         idle_timeout_sec=idle_timeout_sec,
         **optional,
     )
-    _emit_attestation(
+    # bd#152: one random id per dispatch that reached the backend call; this
+    # chokepoint is the only writer of `data["invocation_id"]`.
+    invocation_id = uuid.uuid4().hex
+    emitted = _emit_attestation(
         resolved_backend,
         prompt=prompt,
         model=effective,
@@ -1712,7 +1734,17 @@ def _dispatch_backend(
         injections=injections,
         result=result,
         run_ctx=run_ctx,
+        invocation_id=invocation_id,
     )
+    if isinstance(result.data, dict):
+        # New dict: the backend's own dict is never mutated. Stamped before the
+        # refusal checks so the refusal results (built from `result`) carry the id.
+        stamped_data = dict(result.data)
+        if emitted:
+            stamped_data["invocation_id"] = invocation_id
+        else:
+            stamped_data.pop("invocation_id", None)
+        result = dataclasses.replace(result, data=stamped_data)
     # bd#167: one cost observation per dispatch, after the attestation and
     # before the refusals (a refused-before-dispatch call never reaches here).
     _observe_cost(resolved_backend, model=model, step_name=step_name, result=result, run_ctx=run_ctx)
