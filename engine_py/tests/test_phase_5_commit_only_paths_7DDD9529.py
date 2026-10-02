@@ -23,9 +23,6 @@ PHASE_5 = ENGINE_PY_ROOT / "bytedigger_engine" / "workflows" / "phase_5_implemen
 # Ensure the engine root is importable so we can import functions for AC6.
 if str(ENGINE_PY_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY_ROOT))
-_WORKFLOWS = ENGINE_PY_ROOT / "bytedigger_engine" / "workflows"
-if str(_WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(_WORKFLOWS))
 
 
 # ---------------------------------------------------------------------------

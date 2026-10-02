@@ -27,12 +27,9 @@ import sys
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(WORKFLOWS))
 
 # Top-level import of the module (already exists — collects fine).
 # NOT-YET-EXISTING symbols (review_writer_return_source emit) are exercised

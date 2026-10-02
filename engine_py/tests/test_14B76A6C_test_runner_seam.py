@@ -33,9 +33,6 @@ from pathlib import Path
 _ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
-if str(_WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(_WORKFLOWS))
 _LIB = _ENGINE_PY / "bytedigger_engine" / "lib"
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))

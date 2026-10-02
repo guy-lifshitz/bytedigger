@@ -258,7 +258,6 @@ def test_ac7_phase1_discovery_uses_get_claude_discovery(monkeypatch, tmp_path):
     # contaminating other tests (per §1q / FBB5EB25).
     if "phase_1_discovery" in sys.modules:
         del sys.modules["bytedigger_engine.workflows.phase_1_discovery"]
-    sys.path.insert(0, str(WORKFLOWS_DIR))
     import bytedigger_engine.workflows.phase_1_discovery as phase_1_discovery  # noqa: E402  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
 
     result = phase_1_discovery._default_llm_command()
@@ -315,7 +314,6 @@ def test_ac8_phase2_explore_uses_get_claude_explore(monkeypatch, tmp_path):
     # Import lazily to avoid module-level side-effects (§1q / FBB5EB25).
     if "phase_2_explore" in sys.modules:
         del sys.modules["bytedigger_engine.workflows.phase_2_explore"]
-    sys.path.insert(0, str(WORKFLOWS_DIR))
     import bytedigger_engine.workflows.phase_2_explore as phase_2_explore  # noqa: E402  # bd#44: `import a.b.c as m` (not `from a.b import c`) — the test drops the module from sys.modules to force a re-execute, and `from` would hand back the stale attribute still bound on the parent package
 
     result = phase_2_explore._default_llm_command()

@@ -354,7 +354,7 @@ def test_allowed_tools_none_default_no_flag():
 # ─── AC 8/11: per-phase profile presence tests ───────────────────────────────
 #
 # Strategy: mock `invoke_llm_subprocess` at the symbol imported into each
-# phase module (e.g. `phase_1_discovery.invoke_llm_subprocess`), invoke the
+# phase module (e.g. `bytedigger_engine.workflows.phase_1_discovery.invoke_llm_subprocess`), invoke the
 # wrapper function, and assert `allowed_tools=` kwarg matches the spec table.
 #
 # The mock returns a minimal StepResult(status="ok") so the wrapper doesn't
@@ -644,8 +644,8 @@ def test_phase_profile_reaches_invoke_llm_subprocess(
     """
     import importlib
 
-    # Dynamically import the phase module (they live in workflows/ which is on sys.path)
-    module = importlib.import_module(module_name)
+    # Dynamically import the phase module via its fully-qualified package path
+    module = importlib.import_module(f"bytedigger_engine.workflows.{module_name}")
     wrapper_fn = getattr(module, fn_name)
 
     ctx = _make_ctx(tmp_path)
@@ -653,7 +653,7 @@ def test_phase_profile_reaches_invoke_llm_subprocess(
     prev = _ok_result(**prev_data)
 
     mock_invoke = _mock_invoke_ok()
-    patch_target = f"{module_name}.invoke_llm_subprocess"
+    patch_target = f"bytedigger_engine.workflows.{module_name}.invoke_llm_subprocess"
 
     with patch(patch_target, mock_invoke):
         wrapper_fn(ctx, prev)

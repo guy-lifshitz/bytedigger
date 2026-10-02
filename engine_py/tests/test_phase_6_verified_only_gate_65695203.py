@@ -33,8 +33,6 @@ WORKFLOWS = ENGINE_ROOT / "bytedigger_engine" / "workflows"
 # (test_phase_6_fix_structured_verdict.py, test_phase_6_1F39FB1A_soft_tag.py)
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
-if str(WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(WORKFLOWS))
 
 # Top-level import of the module (it already exists — collects fine).
 # NOT-YET-EXISTING symbols (REVIEW_FIX_DOC_RELPATH, _render_fix_doc) are accessed

@@ -35,9 +35,6 @@ import pytest
 _ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(_ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(_ENGINE_PY))
-_WORKFLOWS = _ENGINE_PY / "bytedigger_engine" / "workflows"
-if str(_WORKFLOWS) not in sys.path:
-    sys.path.insert(0, str(_WORKFLOWS))
 
 # ─── Production imports (module-level — types only, no not-yet-existing symbols) ─
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
