@@ -22,6 +22,7 @@ AC3  test_ac3_every_builder_records_role_template_verbatim[<17 producers>]
 AC4  test_ac4_prompt_bytes_unchanged[<17 producers>]           (guard: green today)
 AC4b test_ac4b_restricted_writer_does_not_inherit_role_template (guard: green today)
      test_ac4b_restricted_reviewer_does_not_inherit_role_template (guard: green today)
+     test_ac4b_decorr_does_not_inherit_stale_record            (red today: `{**prev.data}`)
 AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_call_count_is_pinned                    (guard: green today)
      test_ac5_dispatch_hidden_behind_executor_submit_declares  (the COMPLEX
@@ -684,6 +685,18 @@ def test_ac4b_restricted_reviewer_does_not_inherit_role_template(tmp_path, monke
     mod._invoke_review_llm(env.ctx(), res)
     assert len(spy.calls) == 1
     assert tuple(spy.calls[0].get("injections") or ()) == ()
+
+
+def test_ac4b_decorr_does_not_inherit_stale_record(tmp_path) -> None:
+    """`_build_decorr_prompt` returns `{**prev.data, "prompt": ...}`: with no
+    role_template_path configured, a stale record in prev.data must not survive,
+    and the key must be set explicitly (spec 2.2)."""
+    env = _Env(tmp_path / "run", None)
+    stale = {"source_id": "/stale", "content": "STALE"}
+    res = _mod("phase_6_review")._build_decorr_prompt(env.ctx(), _prev(role_template=stale))
+    assert res.status == "ok" and res.data.get("prompt"), "fixture precondition"
+    assert "role_template" in res.data, "role_template must be set explicitly on this branch"
+    assert res.data.get("role_template") is None
 
 
 # ---------------------------------------------------------------------------

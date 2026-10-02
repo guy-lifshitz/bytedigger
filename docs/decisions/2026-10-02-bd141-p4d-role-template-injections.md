@@ -1,6 +1,6 @@
 # bd#141 item 4(d): every phase declares its role template on the `injections` channel (R3.2)
 
-**Status:** r2 (gate r1 REJECTED: 3 MAJOR + 3 MINOR + 1 NIT, see `2026-10-02-bd141-p4d-gate-r1.md`; r2 closes all of them, disposition in §8. r1.1 = RED-author findings: 22nd dispatch via `executor.submit`, `_maybe_role_template` kept) · **Tier:** 2/3 boundary (one shared helper plus mechanical call-site edits in 10 workflow modules, Option D) ·
+**Status:** r3 (gate r2 APPROVED; r3 applies its MINORs M1/M2: import kept, AC4b decorr case. r2: gate r1 REJECTED: 3 MAJOR + 3 MINOR + 1 NIT, see `2026-10-02-bd141-p4d-gate-r1.md`; r2 closes all of them, disposition in §8. r1.1 = RED-author findings: 22nd dispatch via `executor.submit`, `_maybe_role_template` kept) · **Tier:** 2/3 boundary (one shared helper plus mechanical call-site edits in 10 workflow modules, Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `llm_subprocess._injection_refusal` (already the single R3.2 check, called by every
 dispatch). This lot adds no new check. It adds the missing **declarations**: one shared declare helper in
 `workflows/phase_workflows_common.py`, used by every builder that prepends the role template and by every invoke step that
@@ -17,7 +17,7 @@ so nothing is thinned on the HAL side and no host-controls registry entry is nee
 2. Only `phase_2_explore` declares anything (`_role_template_injections`, `phase_2_explore.py:179`, pinned by bd#10 AC-I5).
 3. The org-configured role template (`org_config["role_template_path"]`, an external file) is prepended by **17 other producers** (16 `_maybe_role_template` call sites plus spec_lite's free-rewrite branch, which embeds phase_1's)
    through `_maybe_role_template(ctx) -> str` (`phase_workflows_common.py:583`). That helper discards `source_id`, so none of
-   these 16 prompts declares the block. On these steps R3.2 is `not-checked`, and the attestation does not say which file shaped
+   these 17 prompts declares the block. On these steps R3.2 is `not-checked`, and the attestation does not say which file shaped
    the prompt.
 4. **Builder → dispatch map (static baseline, every `_maybe_role_template` caller and every `invoke_llm_subprocess(` under `workflows/`):**
 
@@ -41,7 +41,7 @@ so nothing is thinned on the HAL side and no host-controls registry entry is nee
    | `phase_6_fix_integrity.py:520` | `:600` |
    | `phase_7_synthesize.py:438` | `:576` |
 
-5. **Verbatim baseline.** All 16 builders place the role identically: `parts.append(role.rstrip()); parts.append("")`, then at least
+5. **Verbatim baseline.** All 16 `_maybe_role_template` builders place the role identically (the 17th, spec_lite free-rewrite, embeds phase_1's output whole): `parts.append(role.rstrip()); parts.append("")`, then at least
    one more part, joined with `"\n"`. The loader returns `content = text.rstrip() + "\n\n"` (`role_template.py:131`). So the prompt
    already contains `rt.content` byte for byte, followed by the next part. Declaring `rt.content` therefore passes the
    chokepoint's `content in prompt` check **without changing a single prompt byte** (`prompt_sha256` unchanged for every step).
@@ -57,7 +57,7 @@ so nothing is thinned on the HAL side and no host-controls registry entry is nee
 - `_declared_injections(data) -> tuple[InjectedBlock, ...]`: reads `data.get("role_template")` from a builder's data dict and returns
   `()` when absent/falsy or when `data` is not a dict, else one `InjectedBlock(source_id, content)`. This is phase_2's
   `_role_template_injections` body lifted into the shared module.
-- `_maybe_role_template(ctx) -> str` is **kept** as the string view, re-implemented as `rt = _role_template(ctx); return rt.content if rt else ""` (one reader). Reason: bd#119's tests pin its semantics and its single definition (`test_bd119_role_template.py:282,577,593,771,829`, `test_261_PH56SPLIT_stage0_common.py:37`), and four tests monkeypatch it by name (`test_34AEB235`:674,717, `test_subagent_return_discipline_fix_DACC8E2B`:237,302, `test_phase_6_verified_only_gate_65695203`:301,380, `test_subagent_return_discipline_satisfaction_1A07C325`:361,418,462). Removing it would force ~10 sibling-test edits for no attribution gain. After this lot no builder calls it; those four patches become no-ops and still pass, because their ctx has no `role_template_path`. phase_2's `_role_template_injections(prev)` becomes
+- `_maybe_role_template(ctx) -> str` is **kept** as the string view, re-implemented as `rt = _role_template(ctx); return rt.content if rt else ""` (one reader). Reason: bd#119's tests pin its semantics and its single definition (`test_bd119_role_template.py:282,577,593,771,829`, `test_261_PH56SPLIT_stage0_common.py:37`), and four tests monkeypatch it by name (`test_34AEB235`:674,717, `test_subagent_return_discipline_fix_DACC8E2B`:237,302, `test_phase_6_verified_only_gate_65695203`:301,380, `test_subagent_return_discipline_satisfaction_1A07C325`:361,418,462). Removing it would force ~10 sibling-test edits for no attribution gain. After this lot no builder calls it; those four patches become no-ops and still pass, because their ctx has no `role_template_path`. **The `_maybe_role_template` import stays** in `phase_5_implement.py:181/183` and `phase_6_review.py:150/152` even when unused there (gate r2 M1): `test_261` re-export identity and `test_34AEB235`'s name patch depend on it. phase_2's `_role_template_injections(prev)` becomes
   a thin call to `_declared_injections(prev.data)`, so there is one implementation.
 
 ### §2.2 Producers (17)
@@ -113,7 +113,8 @@ declares exactly what its first attempt declared. `phase_45_spec_lite.py:481` ta
   intermediate steps (retries, spec_lite :481), the test drives the real intermediate steps; it does not hand-build `prev`.
 - **AC4b (no stale-record leak, gate r1 F4)** Run a role-less branch (`phase_45_spec_lite._build_review_prompt` at cycle 2 with structured
   findings, and spec_lite's restricted-writer branch) with a `prev.data` that already carries a `role_template` record, and assert the
-  output's `role_template is None`.
+  output's `role_template is None`. Plus the one producer that spreads `prev.data`, `phase_6_review._build_decorr_prompt` (`:5492`):
+  run without `role_template_path` and with a stale record in `prev.data`; the output's `role_template is None` (gate r2 M2).
 - **AC6 (production side effect, §1l)** Drive the real `phase_3_clarify` workflow and the real `phase_4_architect` workflow through
   `WorkflowEngine.execute` with a recording `claude-subprocess` adapter and a fake event log, in the style of bd#10 AC-I5
   (`test_bd10_l3_authorship.py:1088`). With `role_template_path` set: `result.status == "ok"` and the single
