@@ -84,7 +84,7 @@ AC-M1 and AC-C3 each measured their third state through BOTH the payload and a
 verdict label.  The verdict half left with the report; **the payload half is
 now the entire measurement and it is sufficient** — `observed_model is None`,
 and `observed_tools` `null` versus `[]`, are two observable values on one
-fixture pair whose only difference is the adapter's report.  The nine payload
+fixture pair whose only difference is the adapter's report.  The eleven payload
 keys are unchanged: bd#28 recomputes verdicts FROM them, so recording them is
 this lot's obligation.  AC-M1 keeps its foreign-family liveness control.
 
@@ -164,7 +164,7 @@ from bytedigger_engine.lib.llm_provider import CLAUDE_PROVIDER
 EVENT_TYPE = "model_invocation_attested"
 
 # AUTHORSHIP_SPEC.md §3 AC-P1 (v3) — the payload key set, EXACTLY.
-# NINE keys: `observed_model` joined in v2 (`[bd10:5]`) and `observed_tools` in
+# ELEVEN keys (bd#152 added `invocation_id` and `output_sha256`): `observed_model` joined in v2 (`[bd10:5]`) and `observed_tools` in
 # v3 (`[bd10:12]`), so the log records not just what each adapter REPORTED but
 # whether it could observe at all.
 ATTEST_KEYS = frozenset({
@@ -177,6 +177,9 @@ ATTEST_KEYS = frozenset({
     "capability_enforcement",
     "observed_model",
     "observed_tools",
+    # bd#152 AC1: amends AC-P1 (eleven keys)
+    "invocation_id",
+    "output_sha256",
 })
 
 # CL:98 / CL:99 / CL:102 @ HAL fd35e1304 (R3.2 / R3.3 / R3.6).  NOT imported
@@ -391,10 +394,10 @@ def _bd10_isolation(monkeypatch):
 def test_ac_p1_exact_payload_key_set() -> None:
     """AC-P1 (v3): one dispatch UNDER AN ACTIVE RUN CONTEXT emits exactly one
     `model_invocation_attested` event whose payload key set is EXACTLY the
-    NINE pinned keys (`[bd10:5]` added `observed_model`, `[bd10:12]` added
-    `observed_tools`).
+    ELEVEN pinned keys (`[bd10:5]` added `observed_model`, `[bd10:12]` added
+    `observed_tools`, bd#152 added `invocation_id` and `output_sha256`).
 
-    Kills: an emitter that omits any of the nine; an emitter that adds a tenth
+    Kills: an emitter that omits any of the eleven; an emitter that adds a twelfth
     diagnostic key (which would let a consumer's key set drift silently); a
     GREEN carrying v1's seven-key or v2's eight-key payload.
 

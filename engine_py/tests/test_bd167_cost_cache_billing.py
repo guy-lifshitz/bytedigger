@@ -20,6 +20,7 @@ import io
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -864,7 +865,9 @@ def test_AC5_failing_event_append_leaves_the_step_result_unchanged(monkeypatch, 
     res = _invoke("bd167-failappend")
     assert _LogFailingOnCost.attempts >= 1, "the cost observation was never attempted"
     assert res.status == "ok" and res.error is None
-    assert res.data == data
+    # bd#152: amended (chokepoint adds invocation_id)
+    assert {k: v for k, v in res.data.items() if k != "invocation_id"} == data
+    assert re.match(r"^[0-9a-f]{32}$", res.data["invocation_id"])
 
 
 def test_AC5_exception_inside_the_cost_step_is_logged_and_result_unchanged(monkeypatch, tmp_path, caplog):
@@ -880,7 +883,11 @@ def test_AC5_exception_inside_the_cost_step_is_logged_and_result_unchanged(monke
     with caplog.at_level(logging.WARNING):
         res = _invoke("bd167-explode")
     assert res.status == "ok" and res.error is None
-    assert res.data == data
+    # bd#152: amended (chokepoint adds invocation_id)
+    assert {k: v for k, v in res.data.items() if k != "invocation_id"} == data
+    assert re.match(r"^[0-9a-f]{32}$", res.data["invocation_id"])
+    (attested,) = _events(log, "model_invocation_attested")
+    assert res.data["invocation_id"] == attested["invocation_id"]
     assert _events(log, "llm_cost_observed") == []  # nothing is emitted on a failed cost step
     prefix = getattr(llm_subprocess, "COST_STEP_FAILED_LOG_PREFIX", None)
     assert prefix == "llm cost observation failed: "
