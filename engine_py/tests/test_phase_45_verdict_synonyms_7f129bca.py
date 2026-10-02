@@ -14,7 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 ENGINE_ROOT = HERE.parent
-for p in (str(ENGINE_ROOT), str(ENGINE_ROOT / "bytedigger_engine" / "lib"), str(ENGINE_ROOT / "bytedigger_engine" / "workflows")):
+for p in (str(ENGINE_ROOT), str(ENGINE_ROOT / "bytedigger_engine" / "lib")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
