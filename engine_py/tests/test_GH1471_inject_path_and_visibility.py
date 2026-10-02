@@ -17,10 +17,10 @@ bytedigger_engine.workflows.phase_05_inject (no top-level copy). Every
 import/monkeypatch/assert below targets that module (aliased locally as
 `phase_05_inject` for readability).
 
-config_provider.py and hal_config_provider.py likewise have exactly ONE module
-location (bytedigger_engine.config_provider, bytedigger_engine.hal_config_provider),
+bytedigger_engine.config_provider likewise has exactly ONE module location,
 which is the canonical copy that bytedigger_engine.workflows.phase_05_inject
-itself binds — there is no second copy to diverge from.
+itself binds — there is no second copy to diverge from. hal_config_provider
+is host-side and not part of this package (GH444).
 
 §1i: every test below that installs a fake provider factory via
 config_provider.set_default_config_provider_factory restores it with
@@ -50,8 +50,8 @@ from pathlib import Path
 
 import pytest
 
-# conftest-import-time singleton already installed engine_py + workflows/ on
-# sys.path (§1q / 81F97F3D) — no module-level sys.path manipulation here.
+# conftest exposes engine_py/ (package parent) and tests/ (§1q / 81F97F3D) —
+# no module-level sys.path manipulation here.
 
 from bytedigger_engine.workflows import phase_05_inject as phase_05_inject  # noqa: E402 — the module the real engine executes
 from bytedigger_engine import config_provider  # noqa: E402 — single canonical copy
