@@ -273,10 +273,14 @@ def test_S11_composite_refuses_before_red(tmp_path, monkeypatch):
     p5 = _p5()
     calls = _record_llm(monkeypatch, p5)
     head_before = _head(rig.repo)
-    res = p5.phase_5_implement_workflow().steps[0].execute(_ctx(rig), None)
-    assert res.error_code == "E_READINESS_NOT_APPROVED"
+    res = None
+    try:
+        res = p5.phase_5_implement_workflow().steps[0].execute(_ctx(rig), None)
+    except _Stop:
+        pass
     assert calls == []
-    status = subprocess.run(["git", "-C", str(rig.repo), "status", "--porcelain"],
+    assert res is not None and res.error_code == "E_READINESS_NOT_APPROVED"
+    status =subprocess.run(["git", "-C", str(rig.repo), "status", "--porcelain"],
                             capture_output=True, text=True, check=True).stdout
     assert status == ""
     assert _head(rig.repo) == head_before
@@ -308,6 +312,139 @@ def test_S12_composite_passes_through_when_off(tmp_path, monkeypatch):
     assert len(verdict_calls) >= 1 and verdict_calls[0][1] == "start"
     # ... and did not swallow the loop
     assert calls or (res is not None and res.error_code != "E_READINESS_NOT_APPROVED")
+
+
+# --------------------------------------------------------------------------- S15
+
+
+def test_S15_spec_resolution_failure_degrades(tmp_path, monkeypatch):
+    rig = _approved_rig(tmp_path, monkeypatch)
+    events = _capture(monkeypatch)
+    p5 = _p5()
+    real = p5._readiness.verdict
+    calls: list = []
+
+    def spy(*a, **k):
+        calls.append((a, k))
+        return real(*a, **k)
+
+    def bad_scratch(*a, **k):
+        raise RuntimeError("scratchboom")
+
+    monkeypatch.setattr(p5._readiness, "verdict", spy)
+    monkeypatch.setattr(p5, "_resolve_scratchpad", bad_scratch)
+    assert p5._readiness_start_gate(_ctx(rig), None) is None
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    spec_arg = kwargs["spec_path"] if "spec_path" in kwargs else (args[2] if len(args) > 2 else None)
+    assert spec_arg is None
+    evs = _start_events(events)
+    assert len(evs) == 1
+    assert evs[0][1]["verdict"] == "APPROVED"
+
+
+# --------------------------------------------------------------------------- S16
+
+
+def test_S16_repo_resolution_failure_fails_open(tmp_path, monkeypatch):
+    rig = _approved_rig(tmp_path, monkeypatch)
+    events = _capture(monkeypatch)
+    p5 = _p5()
+    calls: list = []
+
+    def spy(*a, **k):
+        calls.append((a, k))
+        return {"verdict": "APPROVED"}
+
+    def bad_cwd(*a, **k):
+        raise RuntimeError("cwdboom")
+
+    monkeypatch.setattr(p5._readiness, "verdict", spy)
+    monkeypatch.setattr(p5, "_resolve_git_cwd_with_source", bad_cwd)
+    assert p5._readiness_start_gate(_ctx(rig), None) is None
+    assert calls == []
+    evs = _start_events(events)
+    assert len(evs) == 1
+    assert evs[0][1]["verdict"] == "UNAVAILABLE"
+    assert evs[0][1]["reason"].startswith("internal error")
+    assert "cwdboom" in evs[0][1]["reason"]
+
+
+# --------------------------------------------------------------------------- S17
+
+
+def test_S17_ambient_git_cwd_skipped(tmp_path, monkeypatch):
+    from bytedigger_engine.contracts import WorkflowContext
+
+    rig = _approved_rig(tmp_path, monkeypatch)
+    events = _capture(monkeypatch)
+    p5 = _p5()
+    calls: list = []
+
+    def spy(*a, **k):
+        calls.append((a, k))
+        raise AssertionError("verdict must not be called for an ambient git_cwd")
+
+    monkeypatch.setattr(p5._readiness, "verdict", spy)
+    scratch = rig.root / "scratch"
+    assert not any((p / ".git").exists() for p in [scratch.resolve(), *scratch.resolve().parents])
+    ctx = WorkflowContext(
+        tenant_id="hal", scope=None, db_path=None, org_config={"scratchpad_dir": str(scratch)},
+        question="build", session_id="p6-start-gate-ambient", persona="hal", framework=None,
+        domain=None,
+    )
+    monkeypatch.chdir(rig.repo)
+    calls_before = list(rig.gh_calls())
+    assert p5._readiness_start_gate(ctx, None) is None
+    assert calls == []
+    evs = _start_events(events)
+    assert len(evs) == 1
+    assert evs[0][1]["verdict"] == "UNAVAILABLE"
+    assert evs[0][1]["reason"] == "ambient_git_cwd"
+    ref = subprocess.run(["git", "-C", str(rig.repo), "show-ref", "--verify", "refs/bd/policy"],
+                         capture_output=True, text=True)
+    assert ref.returncode != 0
+    assert rig.gh_calls() == calls_before == []
+
+
+# --------------------------------------------------------------------------- S18
+
+
+def test_S18_refusal_before_reroute_block(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    rig = _label_absent_rig(tmp_path, monkeypatch)
+    events = _capture(monkeypatch)
+    p5 = _p5()
+    llm_calls = _record_llm(monkeypatch, p5)
+    consumed_q: list = []
+    marked: list = []
+
+    def rec_consumed(*a, **k):
+        consumed_q.append(a)
+        return False
+
+    def rec_mark(*a, **k):
+        marked.append(a)
+        return True
+
+    monkeypatch.setattr(p5, "reroute_already_consumed", rec_consumed)
+    monkeypatch.setattr(p5, "mark_reroute_consumed", rec_mark)
+    monkeypatch.setattr(p5.telemetry_ctx, "get_current_run", lambda: SimpleNamespace(run_id="p6-run"))
+    ctx = _ctx(rig)
+    ctx.org_config["phase_reroute"] = {"attempt": 1, "from_phase": "prior_phase"}
+    res = None
+    raised = None
+    try:
+        res = p5.phase_5_implement_workflow().steps[0].execute(ctx, None)
+    except Exception as exc:  # pre-GREEN the loop runs past the reroute block and may crash
+        raised = exc
+    assert consumed_q == []
+    assert marked == []
+    assert [et for et, _ in events if et == "phase_reroute_entry"] == []
+    assert llm_calls == []
+    assert raised is None, repr(raised)
+    assert res is not None and res.error_code == "E_READINESS_NOT_APPROVED"
 
 
 # --------------------------------------------------------------------------- S13
