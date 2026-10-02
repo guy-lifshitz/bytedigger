@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # readiness — thin wrapper around bytedigger_engine.readiness (bd#117).
-# Usage: readiness check --stage {start|ship} [--spec <path>] [--repo .] [--json]
+# Usage: readiness check --stage {start|review|ship} [--spec <path>] [--repo .] [--json]
 #        readiness post --spec <path> [--repo .]
 # Exit: 0 off/approved/done · 2 usage · 3 not approved · 4 unavailable · other = crash.
 

@@ -167,7 +167,7 @@ ERROR_CODES: dict[str, str] = {
     "E_COMPANION_TUNE_REFUSED": "companion_tune: the current companion is invalid, or the draft changed a second path or failed the #116 check; nothing was pushed (bd#117)",
     "E_COMPANION_TUNE_TRUNCATED": "companion_tune: a gh listing returned exactly the 1000-row limit, so the result may be cut off; no output (bd#117)",
     "E_COMPANION_TUNE_UNAVAILABLE": "companion_tune: policy, gh, git, the checker or the model could not be used (incl. malformed_tuning, bd_logins_required) (bd#117)",
-    "E_READINESS_NOT_APPROVED": "readiness/phase_5_implement/phase_8_post_deploy: the bound issue has no current `plan-approved` approval (bd#117) — refused by the phase_5_implement start gate before RED (bd#141 item 6) or by the phase_8_post_deploy ship gate before any push",
+    "E_READINESS_NOT_APPROVED": "readiness/phase_5_implement/phase_8_post_deploy: the bound issue has no current `plan-approved` approval (bd#117) — refused by the phase_5_implement start gate before RED (bd#141 item 6) or by the phase_8_post_deploy ship gate before any push — or no current review label (readiness.review_label) — refused by the phase_6_review review gate before the reviewers spawn (bd#141 item 6)",
     "E_READINESS_UNAVAILABLE": "readiness/phase_8_post_deploy: the readiness policy or the issue could not be read (git/gh/network failure); fails closed before any push (bd#117)",
     "E_RED_1Q_EXEC_IMPORT": "phase_5_implement: RED test file uses spec_from_file_location/exec_module without a '# 1q: allow' pragma (§1q non-collectable RED risk)",
     "E_RED_COLLECT_FAILED": "phase_5_implement: RED test file failed pytest collection",

@@ -56,6 +56,7 @@ default branch of the repository BD pushes to** (`git remote get-url --push orig
 | `readiness.label` | string | `"plan-approved"` | the label a human adds to approve the plan |
 | `readiness.approvers` | list of logins | `[]` | when non-empty, only these users' label counts |
 | `readiness.distinct_actor` | bool | `false` | `true` refuses a label added by the BD user itself (`self_approved`) |
+| `readiness.review_label` | string | absent (off) | the label a human adds to mark the implementation ready for review; when set, engine Phase 6 refuses review without it. Must be a non-empty string that differs from `label` (ignoring case); a malformed value makes every stage unavailable, so `check --stage ship` and `post` exit 4 |
 
 How it works:
 
@@ -63,7 +64,7 @@ How it works:
   `/build --issue <N>` puts the build on `gh<N>-<slug>` for every tier.
 - `scripts/readiness post --spec <path>` posts the plan to the issue as a record by the BD user
   (`gh api user`) and removes the label if present. A human then adds the label.
-- `scripts/readiness check --stage start|ship` decides. At `ship` (run by `scripts/ship.sh --pr` and by
+- `scripts/readiness check --stage start|review|ship` decides. At `ship` (run by `scripts/ship.sh --pr` and by
   the engine's `ship_to_pr`, before anything is pushed) an approval is consumed: BD posts a
   `<!-- bd:consumed ... -->` record, re-reads the comments, and removes the label. A second branch needs
   a new record and a new approval. BD never adds the label.
@@ -79,6 +80,11 @@ How it works:
   spec needs a new record and label (`spec_changed`). Recovery:
   `scripts/readiness post --spec $SCRATCHPAD/specs/build-spec.md`, a human adds the label, resume
   Phase 5.
+- Engine Phase 6 (`phase_6_review`, bd#141 item 6) runs the review gate before any reviewer spawns, when
+  `readiness.review_label` is set under `required: true`. Without the review label (added by a human
+  after the current spec record) it stops with `E_READINESS_NOT_APPROVED`; `review` never consumes or
+  posts, and an unavailable read, an internal error or an ambient git cwd fails open. Recovery: a human
+  adds the review label, then resume Phase 6.
 
 Residual risk: the gate is advisory against the orchestrating model. It has `git` and `gh` and can add
 the label itself or skip both ship paths with a direct `git push` / `gh pr create`. `approvers` and

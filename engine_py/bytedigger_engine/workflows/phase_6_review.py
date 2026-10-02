@@ -116,6 +116,7 @@ import time
 from pathlib import Path
 
 from bytedigger_engine import config_provider, telemetry_ctx
+from bytedigger_engine import readiness as _readiness  # bd#141 item 6: review gate
 from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin
 from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine.contracts import RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
@@ -730,7 +731,52 @@ _SATISFACTION_STABLE_PREFIX = (
 )
 
 
+def _readiness_review_gate(ctx, prev) -> "StepResult | None":
+    """bd#141 item 6: readiness review gate. Refuses (E_READINESS_NOT_APPROVED)
+    only on NOT_APPROVED; OFF/APPROVED/UNAVAILABLE and any internal error
+    proceed (fail-open; the Phase 8 ship gate is the fail-closed layer).
+    An ambient git_cwd is never touched (GH1220). Never posts or consumes."""
+    gate: dict
+    try:
+        repo, source = resolve_git_cwd_with_source((getattr(ctx, "org_config", None) or {}))
+        if is_ambient_git_cwd(source):
+            gate = {"verdict": "UNAVAILABLE", "reason": "ambient_git_cwd",
+                    "issue": None, "record_sha256": None}
+        else:
+            gate = _readiness.verdict(repo, "review")
+    except Exception as exc:  # noqa: BLE001
+        gate = {"verdict": "UNAVAILABLE",
+                "reason": "internal error: " + " ".join(repr(exc).split()),
+                "issue": None, "record_sha256": None}
+    verdict = gate.get("verdict")
+    if verdict == "OFF":
+        return None
+    _emit_safe("readiness_review_verdict", {
+        "stage": "review",
+        "verdict": verdict,
+        "reason": gate.get("reason"),
+        "issue": gate.get("issue"),
+        "record_sha256": gate.get("record_sha256"),
+    })
+    if verdict != "NOT_APPROVED":
+        return None
+    issue = gate.get("issue")
+    issue_tag = "" if issue is None else str(issue)
+    return StepResult(
+        status="error",
+        data=None,
+        duration_ms=0,
+        step_name="build_review_prompt",
+        error=f"readiness: not ready for review ({gate.get('reason')}) #{issue_tag}",
+        error_code="E_READINESS_NOT_APPROVED",
+        recoverable=False,
+    )
+
+
 def _build_review_prompt(ctx, _prev) -> StepResult:
+    refusal = _readiness_review_gate(ctx, _prev)  # bd#141 item 6: before any prompt or reviewer
+    if refusal is not None:
+        return refusal
     scratchpad = _resolve_scratchpad(ctx)
     # C834481A: load prior findings for orchestrator-driven re-attempt injection.
     _prior_findings_data: dict | None = None
