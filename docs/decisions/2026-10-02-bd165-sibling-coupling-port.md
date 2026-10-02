@@ -226,7 +226,7 @@ Removed: the script lookup, `HAL_SIBLING_AUDIT_BIN`, the `subprocess.run(["bash"
 - `engine_py/bytedigger_engine/error_codes.py`, `engine_py/ERROR_CODES.md`, `engine_py/bytedigger_engine/ERROR_CODES.md` — the six codes of §2.3
 - `engine_py/core_manifest.json` — add `"sibling_coupling.py"` to `core_modules`
 - `engine_py/tests/test_bd165_sibling_coupling.py` — new (RED)
-- `engine_py/tests/fixtures/sibling_coupling/` — new: verbatim copy of HAL `__tests__/fixtures/gh1200/` minus `lib_fail.py` and `golden/` (shell-only), plus `conftest.py` with `collect_ignore_glob = ["*"]` so pytest never collects the fixture `test_*.py` files
+- `engine_py/tests/fixtures/sibling_coupling/` — new: verbatim copy of HAL `__tests__/fixtures/gh1200/` minus `lib_fail.py` and `golden/` (shell-only), kept out of collection by `collect_ignore_glob = ["fixtures/sibling_coupling/*"]` in `engine_py/tests/conftest.py` (r2.2: a nested fixture `conftest.py` shadowed `sys.modules["conftest"]` and broke bd102 in the full suite)
 - authorized-test-edits:
   - `engine_py/tests/test_engine_path_closure.py` — drop the `ESCAPE_ALLOWLIST["sibling-test-audit.sh"]` row (the reference is gone)
 
