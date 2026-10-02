@@ -1,6 +1,6 @@
 # bd#141 item 6 (residue): the review-readiness gate inside engine Phase 6
 
-**Status: r3 (gate r1 REJECTED: 1 MAJOR + 6 MINOR; gate r2 REJECTED: 2 MAJOR in RED + 3 MINOR; all fixed, see `…-gate-r1.md`, `…-gate-r2.md`)** · **Tier:** 2 (two engine prod `.py` edits, `readiness.py` and
+**Status: r3 FROZEN (gate r3 APPROVED; gate r1 REJECTED: 1 MAJOR + 6 MINOR; gate r2 REJECTED: 2 MAJOR in RED + 3 MINOR; all fixed, see `…-gate-r1.md`, `…-gate-r2.md`)** · **Tier:** 2 (two engine prod `.py` edits, `readiness.py` and
 `workflows/phase_6_review.py`, plus docs; Option D) ·
 **Class:** SYSTEMATIC ·
 **Chokepoint:** `readiness.verdict(repo, stage, spec_path)`, which stays the only readiness decision.
