@@ -1,6 +1,6 @@
 # bd#136 items 4–6 — per-phase gate counter, declarative deliverable table, one learnings parser
 
-**Status: FROZEN Rev 2** (gate r1 REJECT M1–M4 + m1–m10 → §R2) · **Class:** SYSTEMATIC (duplication → one source of truth) ·
+**Status: FROZEN Rev 3** (gate r1 REJECT M1–M4 + m1–m10 → §R2; gate r2 REJECT M-r2-1 + minors → §R3) · **Class:** SYSTEMATIC (duplication → one source of truth) ·
 **Builds on:** main `7a4c7cd` (#191 closed items 1–3). Deterministic only, stdlib only, no model.
 
 ## §1 Problem (measured on `7a4c7cd`)
@@ -220,3 +220,42 @@ Initial content (it must reproduce today's **bash** reasons byte-for-byte):
 - **m7** A10 list adds `tests/test_bd89_p2a_phases_1_4_dropped.py`, `tests/gate-dispatcher.bats`,
   and the bun suites `build-phase-gate*.test.ts`, `worker-deliverables.test.ts` and
   `post-review-gate.test.ts`. GREEN keeps `loopPreventionCLI(statePath, phase)` exported.
+
+## §R3 Rev 3 (gate r2: REJECT on M-r2-1, minors folded in; §R3 wins over §R2 and earlier sections)
+
+- **M-r2-1 The TS module loads from a path that contains spaces.** `loadSemanticSkipPhrases`
+  builds its default path with `fileURLToPath(new URL("./lib/semantic-skip-phrases.json", import.meta.url))`
+  in place of `new URL(...).pathname`, which keeps `%20`. The `BYTEDIGGER_PHRASES_PATH` override
+  stays as it is. `config-reader.ts`'s fallback gets the same fix. This is the producing path for
+  `test_m1_plugin_copy_under_path_with_space_finds_table[ts]`.
+- **m-r2-1b** The A8 data list adds `opus_validation` and `review_complete`. Neither may remain in
+  `build-gate.sh` / `build-phase-gate.ts` outside comments. The TS `disablePhase7` keeps working: it
+  skips the phase-7 `field_eq` rows, recognised by phase and kind, not by field name.
+- **m-r2-3 Order and precedence.**
+  - Validation runs line by line in physical order:
+    1. a line with fewer than 2 TAB fields, an empty field, or a bad phase is `malformed row`;
+    2. otherwise an unknown kind is `unknown kind`;
+    3. otherwise a wrong arity for that kind is `malformed row`.
+  - Each line gives at most one validation entry.
+  - All validation entries come first. The failing entries of the phase's valid rows follow, in file
+    order.
+- **m-r2-4 Definitions.** After `\r` is stripped, a *blank* line is empty or whitespace only, and a
+  *comment* is a line whose first non-whitespace character is `#`. Both backends apply the same rule.
+- **m-r2-5 RED.** A decoy test sets `CLAUDE_PLUGIN_ROOT` to a dir whose `scripts/phase-deliverables.tsv`
+  differs from the script-adjacent one. The verdict must follow the script-adjacent table.
+- **m-r2-6 RED.** Bash canonicalises a stored phase alias too (`gate_block_phase: 52`, P=5.2 → C2).
+  Bash and TS share the alias map `45 51 52 53 55` → `4.5 5.1 5.2 5.3 5.5`.
+- **m-r2-8 RED.** If `build-red-output.log` exists but cannot be read (chmod 000, skipped as root),
+  both backends emit `build-red-output.log contains no failures (tests must be RED)`.
+- **m-r2-2** The m6 unique temp name is accepted as **spec-only**. A test cannot provoke the race
+  reliably, and a grep pin would catch only one spelling. `test_m6_guard_*` stays as a weak guard
+  that no `build-state.yaml.tmp` is left behind. GREEN still builds the name from pid and random,
+  per §R2 m6.
+- **m-r2-7 Drift.**
+  - §7's "unknown kind or a missing field" now reads `malformed row` (§R2 M2).
+  - The §R2 m7 path is `engine_py/tests/test_bd89_p2a_phases_1_4_dropped.py`.
+  - The §4 table block is shown aligned with spaces for reading only. The shipped file uses single TABs.
+- **GREEN constraints, from the gate:**
+  - the manifests CI step has no `working-directory:` (`test_version_parity.py` AC10);
+  - bash stays 3.2-safe (no `${x,,}`, no associative arrays, no `mapfile`), because test_bd89 AC10
+    runs `/bin/bash`.
