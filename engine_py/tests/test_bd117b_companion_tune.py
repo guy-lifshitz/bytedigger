@@ -287,7 +287,7 @@ def need_repo():
 
 
 REAL_FIELDS = {"number", "title", "url", "state", "mergedAt", "updatedAt", "createdAt", "closedAt",
-               "headRefName", "baseRefName", "author", "body", "labels", "comments", "reviews", "isDraft", "id"}
+               "headRefName", "baseRefName", "author", "body", "labels", "comments", "reviews", "isDraft", "id", "mergedBy"}
 LISTY = {"comments", "reviews", "labels"}
 
 
@@ -314,6 +314,8 @@ if argv[:1] in (["pr"], ["issue"]) and argv[1:2] in (["list"], ["view"]):
         if f not in REAL_FIELDS:
             die("Unknown JSON field: %r" % f)
     if argv[1] == "view":
+        if argv[0] == "pr" and sw.get("pr_view_500") is not None and str(sw["pr_view_500"]) == argv[2]:
+            die("gh: Server Error (HTTP 500)")
         row = next((r for r in rows if str(r["number"]) == argv[2]), None)
         if row is None:
             die("gh: Could not resolve to a PullRequest with the number of %s." % argv[2])
