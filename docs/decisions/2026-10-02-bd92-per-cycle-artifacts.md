@@ -19,7 +19,7 @@ paths:
 ---
 # bd#92 — per-cycle artifacts are cleared or keyed before a later cycle can read them
 
-**Status:** DRAFT r3 (gate r1 REJECT: M1, M2, m1–m8; gate r2 REJECT: M-r2-1, M-r2-2, m-r2-2..6; see `2026-10-02-bd92-gate-r1.md`, `-gate-r2.md`).
+**Status:** FROZEN r3 (gate r3 APPROVE) (gate r1 REJECT: M1, M2, m1–m8; gate r2 REJECT: M-r2-1, M-r2-2, m-r2-2..6; see `2026-10-02-bd92-gate-r1.md`, `-gate-r2.md`).
 **Tier:** OPTION_D (engine_py prod `.py`).
 **Class:** SYSTEMATIC. **Chokepoint:** each per-cycle artifact has exactly one
 owner step. The owner either unlinks the artifact before the step that
@@ -188,7 +188,7 @@ only, if those docs list events).
 - **AC8** (op3, side-effect): a `_gate_on_review` SHIP verdict writes the
   sidecar with `verdict == "SHIP"`, the sha256 of the on-disk spec, and the
   run_id.
-- **AC9** (op3): REVISE-retry, cap-reached terminal, frozen-fallback retry and exhausted-counter terminal verdicts each unlink an existing ship sidecar (one test per branch, driving the real `_gate_on_review`).
+- **AC9** (op3): REVISE-retry, cap-reached terminal, frozen-fallback retry, exhausted-counter terminal and a SHIP rejected by the D3 prohibition gate each unlink an existing ship sidecar (one test per branch, driving the real `_gate_on_review`).
 - **AC10** (op3): `_prior_ship_base_inline` with a sha-matching sidecar that
   has no `verdict` key (legacy lint-written) returns `("", [])` and emits
   `spec_prior_base_unverified`. With `verdict == "SHIP"` it returns the block.
