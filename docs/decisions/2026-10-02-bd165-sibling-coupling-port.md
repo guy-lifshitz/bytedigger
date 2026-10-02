@@ -1,6 +1,6 @@
 # bd#165 — port the seven-channel §1a sibling-coupling detector into the engine
 
-**Status: r2 (gate r1 REJECTED: 2 BLOCKER + 4 MAJOR + 11 MINOR applied, see `2026-10-02-bd165-gate-r1.md`)** · **Tier:** 3 (one new engine prod module, a 3-line dispatch in `run.py`,
+**Status: r2.1 (gate r2 APPROVED; binding rulings R-1..R-5 + MINOR-A/B/E folded in §2.7) · r2 (gate r1 REJECTED: 2 BLOCKER + 4 MAJOR + 11 MINOR applied, see `2026-10-02-bd165-gate-r1.md`)** · **Tier:** 3 (one new engine prod module, a 3-line dispatch in `run.py`,
 a rewrite of one warn-only helper in `workflows/phase_5_implement.py`; Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `sibling_coupling.audit()` — the one function that derives keys from production files,
 runs the seven channels, reconciles against a spec and returns rows. The CLI and the phase-5 helper
@@ -195,6 +195,28 @@ The helper reaches the detector as a module attribute (`from bytedigger_engine i
 Removed: the script lookup, `HAL_SIBLING_AUDIT_BIN`, the `subprocess.run(["bash", ...])`,
 `_red_import_symbols`, `_GH535_SKIP_MODULES`, reasons `script_missing|exec_error|rc_N|no_symbols`.
 `HAL_SIBLING_AUDIT_GATE` kill-switch unchanged (default ON).
+
+### §2.7 Binding rulings (gate r2, `2026-10-02-bd165-gate-r2.md`)
+- R-1: `SiblingAuditError(code: str, message: str = "")`, first positional param `code`, stored as `.code`;
+  the phase-5 skip reason is exactly `exc.code`.
+- R-2: the helper calls the existing module alias `_parse_spec_files_allowlist` (phase_5_implement.py:1698)
+  at call time (or a function-local import from `lib.run_allowlist`); no new module-top import alias.
+- R-3: `--json` `"error"` is the bare code string; class/message go to stderr only. `main(argv=None) -> int`
+  never calls `sys.exit` itself, calls the module-global `audit` by name, and reads `sys.stdout`/`sys.stderr`
+  at call time.
+- R-4 (B8g): with `corpus_root` given → no `W_GIT_ROOT_UNRESOLVED`; without it, cwd outside git →
+  the warning, text `W_GIT_ROOT_UNRESOLVED rc=<n>` (non-zero exit) or `W_GIT_ROOT_UNRESOLVED <ExcName>`
+  (spawn failure), and rows from the cwd fallback.
+- R-5: the `git rev-parse --show-toplevel` argv stays an inline list literal in the single `subprocess.run`.
+- MINOR-A: every registered code appears in the module at least once as a standalone quoted literal
+  (`"E_PARTIAL_CHANNELS_GATE"`, `"E_SIBLING_AUDIT_INTERNAL"`, ...), so `error_codes.CODE_RE` sees it;
+  `python -m bytedigger_engine.error_codes --check` exits 0 and both `ERROR_CODES.md` copies are the
+  byte-identical regenerated output.
+- MINOR-B: all `W_*` lines (incl. `W_CORPUS_UNREADABLE`) go into `AuditResult.warnings`; `audit` writes
+  nothing to stderr; `main` echoes them.
+- MINOR-E: on the gate exit-2 paths (`partial_channels` / `gate_warn` under `--require-clean`) the rows
+  are still printed (TSV) / still in `rows` (`--json`), as HAL does; `rows: []` only for
+  `SiblingAuditError` and internal-error exits.
 
 ## §3 Files
 - `engine_py/bytedigger_engine/sibling_coupling.py` — new
