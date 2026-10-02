@@ -432,6 +432,46 @@ def test_ac9c_explicit_log_without_scratchpad_still_indeterminate(tmp_path, monk
     assert out.get("error_code") == "E_ORACLE_INDETERMINATE"
 
 
+def test_ac9d_implicit_freeze_then_implementing_phase_passes_entry_verify(tmp_path, monkeypatch, capsys):
+    """AC9d: oracle stub with implicit log + scratchpad_dir freezes into <root>/R1/events.jsonl;
+    the implementing stub with the same --run-id and no --event-log is not E_ORACLE_UNFROZEN."""
+    from bytedigger_engine.conformance import oracle  # noqa: PLC0415
+
+    root = tmp_path / "root"
+    monkeypatch.setenv("HAL_RUN_LOG_ROOT", str(root))
+    monkeypatch.chdir(tmp_path)
+    scratch = tmp_path / "scratch"
+    (scratch / "specs").mkdir(parents=True)
+    (scratch / "specs" / "spec.md").write_text("# frozen spec\n")
+
+    monkeypatch.setattr(oracle, "ORACLE_WORKFLOWS", frozenset({"bd93_oracle"}))
+    monkeypatch.setattr(oracle, "IMPLEMENTING_WORKFLOWS", frozenset({"bd93_impl"}))
+    _register_counting(monkeypatch, "bd93_oracle")
+    _register_counting(monkeypatch, "bd93_impl")
+    ctx = json.dumps({"org_config": {"scratchpad_dir": str(scratch)}, "question": "x"})
+
+    _main_in_process(monkeypatch, ["--workflow", "bd93_oracle", "--run-id", "R1", "--ctx-json", ctx])
+    out1 = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out1["status"] == "ok"
+    types = [e["event_type"] for e in _events(root / "R1" / "events.jsonl")]
+    assert "oracle_frozen" in types
+
+    _main_in_process(monkeypatch, ["--workflow", "bd93_impl", "--run-id", "R1", "--ctx-json", ctx])
+    out2 = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out2.get("error_code") != "E_ORACLE_UNFROZEN"
+    assert out2["status"] == "ok"
+
+
+# --------------------------------------------------------------------------- AC4c
+def test_ac4c_empty_event_log_resolves_via_run_scoped_default(tmp_path):
+    """AC4c: `--event-log ""` is treated as absent and resolves to <root>/<rid>/events.jsonl."""
+    root, cwd = tmp_path / "root", tmp_path / "work"
+    proc = _cli("R4c", root, cwd, extra=["--event-log", ""])
+    assert proc.returncode == 0, proc.stderr
+    log_file = root / "R4c" / "events.jsonl"
+    assert log_file.is_file() and {e["run_id"] for e in _events(log_file)} == {"R4c"}
+
+
 # --------------------------------------------------------------------------- AC10
 def test_ac10_flags_catalog_has_run_log_root():
     """AC10: flags_catalog declares HAL_RUN_LOG_ROOT with kind 'path'."""
