@@ -67,11 +67,13 @@ from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
     get_out_of_role_block as _get_out_of_role_block,
+    PROMPT_FRAGMENT_SOURCE_ID as _PROMPT_FRAGMENT_SOURCE_ID,
 )
 from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
 from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  bd#84
     _declared_injections,
+    _injected_blocks_record,
     _role_template,
     _role_template_record,
     reroll_until_verdict,
@@ -434,6 +436,7 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
                 "diff_bytes": 0,
                 "verdict_override": VERDICT_NO_CHANGES,
                 "prompt": None,
+                "injected_blocks": None,  # bd#150: no prompt, nothing declared
                 "diff_command": None,
                 "pre_fix_sha": pre_fix_sha,
                 "fix_commit_sha": fix_commit_sha,
@@ -509,6 +512,7 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
                 "verdict_override": VERDICT_NO_CHANGES,
                 "prompt": None,
                 "role_template": None,  # bd#141 4(d): no prompt, no role
+                "injected_blocks": None,  # bd#150: no prompt, nothing declared
                 "diff_command": diff_cmd,
                 "pre_fix_sha": pre_fix_sha,
                 "fix_commit_sha": fix_commit_sha,
@@ -546,9 +550,13 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
     parts.append("")
     parts.append(_integrity_output_schema())
     parts.append("")
-    parts.append(_get_anti_fab_prompt())
+    _f1_text = _get_anti_fab_prompt()  # bd#150 F1: one read, inlined and declared below
+    parts.append(_f1_text)
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
+    _declared_blocks: list[dict] = []
+    if _f1_text:
+        _declared_blocks.append({"source_id": _PROMPT_FRAGMENT_SOURCE_ID, "content": _f1_text})
     return StepResult(
         status="ok",
         data={
@@ -558,6 +566,7 @@ def _build_fix_integrity_prompt(ctx, _prev) -> StepResult:
             "spec_doc_present": spec_path.is_file(),
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _declared_blocks),  # bd#150
             "prompt_bytes": len(prompt.encode("utf-8")),
             "diff_command": diff_cmd,
             "pre_fix_sha": pre_fix_sha,

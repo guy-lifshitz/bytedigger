@@ -88,6 +88,7 @@ except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted te
 from bytedigger_engine import telemetry_ctx  # noqa: E402
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
+    PROMPT_FRAGMENT_SOURCE_ID as _PROMPT_FRAGMENT_SOURCE_ID,
     get_behavioral_assertion_rubric as _get_behavioral_rubric,
     get_out_of_role_block as _get_out_of_role_block,
 )
@@ -974,7 +975,13 @@ def _read_ship_sidecar(spec_path: str) -> dict[str, Any] | None:
 
 
 def _prior_ship_base_block(spec_path: str) -> str:
-    """GH770 §2.2: build the cycle-1 "prior SHIP-spec base" block when a
+    return _prior_ship_base_inline(spec_path)[0]
+
+
+def _prior_ship_base_inline(spec_path: str) -> tuple[str, list[dict]]:
+    """bd#150 S10c: (block, chunk records); `_prior_ship_base_block` is `[0]`.
+
+    GH770 §2.2: build the cycle-1 "prior SHIP-spec base" block when a
     prior SHIP-quality spec exists on disk AND its sidecar-recorded sha256
     still matches the current on-disk content (i.e. it has not mutated
     since it last passed lint). Fail-open (empty string) otherwise, with
@@ -985,21 +992,24 @@ def _prior_ship_base_block(spec_path: str) -> str:
         path = Path(spec_path)
         if not path.is_file():
             _emit_safe("spec_prior_base_spec_missing", {"run_id": run_id, "spec_path": str(spec_path)})
-            return ""
+            return "", []
         spec_text = path.read_text(encoding="utf-8")
         sidecar = _read_ship_sidecar(spec_path)
         if sidecar is None:
             _emit_safe("spec_prior_base_spec_missing", {"run_id": run_id, "spec_path": str(spec_path)})
-            return ""
+            return "", []
         current_sha = hashlib.sha256(spec_text.encode("utf-8")).hexdigest()
         if sidecar.get("spec_sha") != current_sha:
             _emit_safe("spec_prior_base_stale", {"run_id": run_id})
-            return ""
+            return "", []
     except _SHIP_SIDECAR_FAIL_OPEN_EXC as e:
         _emit_safe("spec_prior_base_spec_missing", {"run_id": run_id, "spec_path": str(spec_path), "error": str(e)})
-        return ""
+        return "", []
 
     _emit_safe("spec_prior_base_reused", {"run_id": run_id, "prior_sha": current_sha})
+    _base_records = (
+        [{"source_id": str(path), "content": spec_text.strip()}] if spec_text.strip() else []
+    )
     return (
         "## PRIOR SHIP-SPEC BASE (surgical revise mode)\n\n"
         f"{spec_text.strip()}\n\n"
@@ -1007,7 +1017,7 @@ def _prior_ship_base_block(spec_path: str) -> str:
         "DO NOT change citation form\n"
         "NEW symbols/files MUST use the new-symbol convention\n\n"
         "REQUIRED OUTPUT SECTION: ## Unchanged Sections\n"
-    )
+    ), _base_records
 
 
 def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
@@ -1081,6 +1091,10 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
                 "cycle": cycle,
                 "delta_retry": True,
                 "role_template": None,  # bd#141 4(d): delta prompt carries no role
+                "injected_blocks": _injected_blocks_record(  # bd#150 S10a
+                    prompt,
+                    [{"source_id": str(spec_path), "content": spec_text}] if spec_text else [],
+                ),
                 "structured_findings": structured_findings,
                 "high_binding_missing": high_binding_missing,
             }),
@@ -1152,7 +1166,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     # GH770 §2.2: cycle-1 prior-SHIP-base reuse block. Empty string when
     # inactive (no prior spec / sidecar / sha mismatch) — guarded so no
     # empty-block artifact is introduced into the prompt (AC2/AC12 parity).
-    prior_block = _prior_ship_base_block(str(spec_path))
+    prior_block, prior_records = _prior_ship_base_inline(str(spec_path))  # bd#150 S10c
     if prior_block:
         parts.append(prior_block)
         parts.append("")
@@ -1192,6 +1206,7 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
     # back to the legacy free-rewrite ## REVISION block when no structured
     # findings present (backward-compat). (W1)
     # wiring (commit 702ea109).
+    writer_records: list[dict] = []  # bd#150 S10b
     if cycle >= 2 and structured_findings:
         # Restricted writer: only address flagged items, no scope widening.
         spec_path_for_writer = scratchpad / SPEC_DOC_RELPATH
@@ -1199,6 +1214,8 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             spec_text = spec_path_for_writer.read_text(encoding="utf-8")
         except OSError:
             spec_text = ""
+        if spec_text:
+            writer_records.append({"source_id": str(spec_path_for_writer), "content": spec_text})
         restricted_prompt = _restricted_writer_prompt(
             spec=spec_text, findings=structured_findings,
             verbatim_reviewer_context=findings,
@@ -1252,7 +1269,9 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
             "cycle": cycle,
             "delta_retry": False,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
-            "injected_blocks": _injected_blocks_record(prompt, decision_records),  # bd#147
+            "injected_blocks": _injected_blocks_record(  # bd#147 + bd#150 S10c/S10b
+                prompt, [*decision_records, *prior_records, *writer_records],
+            ),
             "stable_prefix": _SPEC_STABLE_PREFIX,
             "high_binding_missing": high_binding_missing,
         }),
@@ -3840,15 +3859,20 @@ def _build_review_prompt(ctx: WorkflowContext, prev: Any) -> StepResult:
         "axis your findings invoke (or `RULE-AXES: NONE` if none apply)."
     )
     parts.append("")
-    parts.append(_get_anti_fab_prompt())
+    _f1_text = _get_anti_fab_prompt()
+    parts.append(_f1_text)
 
     prompt = "\n".join(parts)
+    _declared_blocks: list[dict] = (  # bd#150 F1
+        [{"source_id": _PROMPT_FRAGMENT_SOURCE_ID, "content": _f1_text}] if _f1_text else []
+    )
     _prev_data_brp2 = prev.data if isinstance(prev.data, dict) else {}
     return StepResult(
         status="ok",
         data=_fwd_frozen(_prev_data_brp2, {
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _declared_blocks),  # bd#150 F1
             "doc_path": str(review_path),
             "spec_path": str(spec_path),
             "cycle": cycle,

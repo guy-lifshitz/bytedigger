@@ -129,6 +129,7 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
     check_citation as _check_citation_impl,
     verify_findings as _verify_findings_impl,
     get_prompt_fragment as _get_anti_fab_prompt,
+    PROMPT_FRAGMENT_SOURCE_ID as _PROMPT_FRAGMENT_SOURCE_ID,
     get_behavioral_assertion_rubric as _get_behavioral_rubric,
     get_out_of_role_block as _get_out_of_role_block,
     _SEVERITY_HDR_RE as _SEVERITY_HDR_RE_PLUGIN,
@@ -877,7 +878,13 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
     # 3F5599A6 D1 (55802041): inject the prior fix-cycle's post-fix pytest
     # report so reviewers see regression evidence instead of re-deriving it.
     _postfix = _load_postfix_pytest_report(scratchpad)
+    _declared_blocks: list[dict] = []  # bd#150 R1, F1 (prompt order)
     if _postfix is not None:
+        if _postfix[0]:
+            _declared_blocks.append({
+                "source_id": str(scratchpad / _POSTFIX_PYTEST_REPORT_RELPATH),
+                "content": _postfix[0],
+            })
         parts.append("")
         parts.append("## POST-FIX PYTEST REPORT (prior fix-cycle regression evidence)")
         parts.append(
@@ -1025,7 +1032,10 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         parts.append(_security_addendum)
     parts.append("## Aggregated Findings")  # passthrough_stub conformance marker — Python aggregator owns the real schema (F34E2C82, parent 9D520664)
     parts.append("")
-    parts.append(_get_anti_fab_prompt())
+    _f1_text = _get_anti_fab_prompt()  # bd#150 F1
+    parts.append(_f1_text)
+    if _f1_text:
+        _declared_blocks.append({"source_id": _PROMPT_FRAGMENT_SOURCE_ID, "content": _f1_text})
     parts.append("")
     parts.append(_REVIEW_STABLE_PREFIX)
     parts.append(_get_behavioral_rubric())
@@ -1047,6 +1057,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         data={
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(prompt, _declared_blocks),  # bd#150 R1, F1
             "doc_path": str(review_doc_path),
             "spec_path": str(spec_path),
             "spec_sha": spec_sha,
@@ -1089,6 +1100,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         "red_log_path": prev.data["red_log_path"],
         "green_log_path": prev.data["green_log_path"],
         "prompt": prev.data["prompt"],
+        "injected_blocks": prev.data.get("injected_blocks"),  # bd#150 §1ab
     }
     if complexity:
         extra["complexity"] = complexity
@@ -2745,6 +2757,7 @@ def _write_fix_artifact(ctx, prev) -> StepResult:
                     "review_doc_path": prev.data["review_doc_path"],
                     "verdict": prev.data["verdict"],
                     "prompt": prev.data["prompt"],
+                    "injected_blocks": prev.data.get("injected_blocks"),  # bd#150 §1ab
                 },
                 # idle_timeout disabled — outer timeout_sec is sufficient (6923B6AC 2026-05-08).
                 # Mirrors primary _invoke_fix_llm callsite; both opt out together
@@ -3022,7 +3035,8 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
             "  SCORE: <0-100>   ← MIN over dimensions (not avg, not max)\n"
         )
     parts.append("")
-    parts.append(_get_anti_fab_prompt())
+    _f1_text = _get_anti_fab_prompt()  # bd#150 F1
+    parts.append(_f1_text)
     threshold = int(cfg.get("satisfaction_threshold") or DEFAULT_SATISFACTION_THRESHOLD)
     parts.append(
         f"INVARIANT: SCORE >= {threshold} ⟺ VERDICT=PASS ⟺ structured.satisfied=true.\n"
@@ -3064,6 +3078,10 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
         data={
             "prompt": prompt,
             "role_template": _role_template_record(rt),  # bd#141 4(d)
+            "injected_blocks": _injected_blocks_record(  # bd#150 F1
+                prompt,
+                [{"source_id": _PROMPT_FRAGMENT_SOURCE_ID, "content": _f1_text}] if _f1_text else [],
+            ),
             "stable_prefix": _SATISFACTION_STABLE_PREFIX,
             "doc_path": str(sat_doc_path),
             "spec_path": str(spec_path),
@@ -5559,7 +5577,7 @@ def _build_decorr_prompt(ctx, prev) -> StepResult:
     )
     prompt = "\n".join(parts)
     # bd#141 4(d): set explicitly (record or None) so a stale record in prev.data cannot leak.
-    return StepResult(status="ok", data={**_prev_data, "prompt": prompt, "role_template": _role_template_record(rt)}, duration_ms=0, step_name="build_decorr_prompt")
+    return StepResult(status="ok", data={**_prev_data, "prompt": prompt, "role_template": _role_template_record(rt), "injected_blocks": None}, duration_ms=0, step_name="build_decorr_prompt")
 
 
 def _invoke_decorr_llm(ctx, prev) -> StepResult:
