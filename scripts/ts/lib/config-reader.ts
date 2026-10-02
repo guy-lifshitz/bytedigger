@@ -13,6 +13,7 @@
  */
 
 import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export function resolveConfigPath(): string {
   if (process.env.BYTEDIGGER_CONFIG) return process.env.BYTEDIGGER_CONFIG;
@@ -20,6 +21,6 @@ export function resolveConfigPath(): string {
     return join(process.env.CLAUDE_PLUGIN_ROOT, "bytedigger.json");
   }
   // Resolve relative to this source file: scripts/ts/lib/config-reader.ts
-  const here = dirname(new URL(import.meta.url).pathname);
+  const here = dirname(fileURLToPath(import.meta.url));
   return join(here, "..", "..", "..", "bytedigger.json");
 }

@@ -240,3 +240,22 @@ jobs:
 
       - name: worker write guard tests (bd#133)
         run: python -m pytest tests/test_worker_write_guard.py -q
+
+      # bd#136: the TS gate and the sqlite backend are driven for real, so this
+      # step needs bun (pinned + checksummed, same as the pytest job) and sqlite3.
+      - name: gate counter / deliverable table / learnings parser (bd#136)
+        env:
+          BD_REQUIRE_SQLITE: "1"
+          BUN_VERSION: "1.3.4"
+          BUN_SHA256: "33c6996049e8d37e8b815959b14b05e5b6f496121352bf11bae7d047193c28bf"
+        run: |
+          set -euo pipefail
+          command -v sqlite3 >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3; }
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/bun.zip" \
+            "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip"
+          echo "${BUN_SHA256}  $RUNNER_TEMP/bun.zip" | sha256sum -c -
+          (cd "$RUNNER_TEMP" && unzip -q bun.zip)
+          mkdir -p "$RUNNER_TEMP/bun-bin"
+          install -m 0755 "$RUNNER_TEMP/bun-linux-x64/bun" "$RUNNER_TEMP/bun-bin/bun"
+          export PATH="$RUNNER_TEMP/bun-bin:$PATH"
+          python -m pytest tests/test_bd136_gate_counter_table_parser.py -q

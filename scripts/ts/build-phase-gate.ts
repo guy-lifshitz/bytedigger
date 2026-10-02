@@ -23,15 +23,16 @@
  */
 
 import {
-  appendFileSync,
   existsSync,
   readFileSync,
   readdirSync,
   renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join, dirname, basename } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readStateField, readStateFieldOrThrow, StateReadError } from "./lib/state-reader.ts";
 import { resolveConfigPath } from "./lib/config-reader.ts";
 import { emitPhaseStart, emitPhaseEnd, emitPhaseSkip, emitGateResult, emitBuildComplete } from "./lib/emit.ts";
@@ -335,18 +336,6 @@ function checkPhase05(cwd: string): GateVerdict {
   return pass("0.5");
 }
 
-function fieldMissing(
-  statePath: string,
-  field: string,
-  expected: string,
-): string | null {
-  const v = (readStateField(statePath, field) ?? "").trim();
-  if (v !== expected) {
-    return `${field}=${expected} (got: ${v || "<missing>"})`;
-  }
-  return null;
-}
-
 function isNonEmptyFile(path: string): boolean {
   try {
     return statSync(path).size > 0;
@@ -363,9 +352,116 @@ function joinMissing(fields: readonly string[]): string {
 }
 
 function writeFileAtomic(path: string, content: string): void {
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, content);
-  renameSync(tmp, path);
+  // Unique temp name (pid + random) so concurrent writers never share a temp file.
+  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
+  try {
+    writeFileSync(tmp, content);
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // best-effort cleanup: the temp file may never have been created
+    }
+    throw err;
+  }
+}
+
+// Alias map shared with scripts/build-gate.sh: 45 51 52 53 55 -> 4.5 5.1 5.2 5.3 5.5.
+const PHASE_ALIASES: ReadonlyMap<string, string> = new Map([
+  ["45", "4.5"],
+  ["51", "5.1"],
+  ["52", "5.2"],
+  ["53", "5.3"],
+  ["55", "5.5"],
+]);
+
+export function canonPhase(phase: string): string {
+  return PHASE_ALIASES.get(phase) ?? phase;
+}
+
+// ---------------------------------------------------------------------------
+// Declarative deliverable table (bd#136): scripts/phase-deliverables.tsv, shared
+// with build-gate.sh. Columns: phase, kind, arg, [arg2]. Kinds: field_eq,
+// field_set, log_red, scratch_file. The table is read lazily, on each check.
+// ---------------------------------------------------------------------------
+
+const TABLE_PHASE_RE = /^[0-9]+(\.[0-9]+)?$/;
+
+export function checkDeliverables(cwd: string, phase: string): GateVerdict {
+  const statePath = join(cwd, "build-state.yaml");
+  const tablePath = fileURLToPath(new URL("../phase-deliverables.tsv", import.meta.url));
+  let content: string;
+  try {
+    content = readFileSync(tablePath, "utf8");
+  } catch {
+    return softBlock(joinMissing([`deliverable table unreadable: ${tablePath}`]), phase);
+  }
+
+  const validation: string[] = [];
+  const rows: string[] = [];
+  const lines = content.split("\n");
+  for (let idx = 0; idx < lines.length; idx++) {
+    const n = idx + 1;
+    const raw = lines[idx]!;
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    const trimmed = line.replace(/^[ \t\v\f\r]+/, "");
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+
+    const f = line.split("\t");
+    // 1. fewer than 2 fields, an empty field or a bad phase -> malformed row
+    if (f.length < 2 || f.some((x) => x === "") || !TABLE_PHASE_RE.test(f[0]!)) {
+      validation.push(`deliverable table: malformed row (line ${n})`);
+      continue;
+    }
+    // 2. unknown kind
+    const kind = f[1]!;
+    let want: number;
+    if (kind === "field_eq") want = 4;
+    else if (kind === "field_set" || kind === "log_red" || kind === "scratch_file") want = 3;
+    else {
+      validation.push(`deliverable table: unknown kind '${kind}' (line ${n})`);
+      continue;
+    }
+    // 3. wrong arity for the kind -> malformed row
+    if (f.length !== want) {
+      validation.push(`deliverable table: malformed row (line ${n})`);
+      continue;
+    }
+    if (f[0] !== phase) continue;
+
+    const arg = f[2]!;
+    if (kind === "field_eq") {
+      const expected = f[3]!;
+      const v = (readStateField(statePath, arg) ?? "").trim();
+      if (v !== expected) rows.push(`${arg}=${expected} (got: ${v || "<missing>"})`);
+    } else if (kind === "field_set") {
+      const v = (readStateField(statePath, arg) ?? "").trim();
+      if (!v) rows.push(`${arg} has no value`);
+    } else if (kind === "log_red") {
+      const p = join(cwd, arg);
+      if (!isNonEmptyFile(p)) {
+        rows.push(`missing artifact: ${arg}`);
+      } else {
+        let red = false;
+        try {
+          red = /FAIL|ERROR|FAILED|not ok/.test(readFileSync(p, "utf8"));
+        } catch {
+          red = false; // unreadable log follows bash: treated as "no failures"
+        }
+        if (!red) rows.push(`${arg} contains no failures (tests must be RED)`);
+      }
+    } else {
+      const scratch = (readStateField(statePath, "scratchpad_dir") ?? "").trim();
+      if (scratch && !isNonEmptyFile(join(scratch, arg))) {
+        rows.push(`missing deliverable: ${scratch}/${arg}`);
+      }
+    }
+  }
+
+  const entries = [...validation, ...rows];
+  if (entries.length > 0) return softBlock(joinMissing(entries), phase);
+  return pass(phase);
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +475,7 @@ interface SemanticScanResult {
 
 function loadSemanticSkipPhrases(): readonly string[] {
   const phrasesPath = process.env.BYTEDIGGER_PHRASES_PATH
-    ?? join(dirname(new URL(import.meta.url).pathname), "lib", "semantic-skip-phrases.json");
+    ?? fileURLToPath(new URL("./lib/semantic-skip-phrases.json", import.meta.url));
   let raw: string;
   try {
     raw = readFileSync(phrasesPath, "utf8");
@@ -482,47 +578,6 @@ export function scanSemanticSkipPhrases(cwd: string): SemanticScanResult {
   return { count, details };
 }
 
-function checkPhase45(cwd: string): GateVerdict {
-  const statePath = join(cwd, "build-state.yaml");
-  const m = fieldMissing(statePath, "plan_review", "pass");
-  if (m) return softBlock(joinMissing([m]), "4.5");
-  return pass("4.5");
-}
-
-function checkPhase51(cwd: string): GateVerdict {
-  const redLog = join(cwd, "build-red-output.log");
-  const missing: string[] = [];
-  if (!existsSync(redLog) || statSync(redLog).size === 0) {
-    missing.push("missing artifact: build-red-output.log");
-  } else {
-    let content = "";
-    let readError: string | null = null;
-    try {
-      content = readFileSync(redLog, "utf8");
-    } catch (err) {
-      readError = err instanceof Error ? err.message : String(err);
-    }
-    if (readError) {
-      missing.push(`build-red-output.log unreadable: ${readError}`);
-    } else if (!/FAIL|ERROR|FAILED|not ok/.test(content)) {
-      missing.push("build-red-output.log contains no failures (tests must be RED)");
-    }
-  }
-  if (missing.length > 0) return softBlock(joinMissing(missing), "5.1");
-  return pass("5.1");
-}
-
-function checkPhase52(cwd: string): GateVerdict {
-  const statePath = join(cwd, "build-state.yaml");
-  const missing: string[] = [];
-  const opus = (readStateField(statePath, "opus_validation") ?? "").trim();
-  if (opus !== "pass") missing.push("opus_validation=pass");
-  const gherkin = (readStateField(statePath, "phase_52a_gherkin") ?? "").trim();
-  if (gherkin !== "complete") missing.push("phase_52a_gherkin=complete");
-  if (missing.length > 0) return softBlock(joinMissing(missing), "5.2");
-  return pass("5.2");
-}
-
 export function checkPhase53(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
   // Use OrThrow here so an unreadable state file produces a hard block rather than
@@ -545,21 +600,6 @@ export function checkPhase53(cwd: string): GateVerdict {
   return pass("5.3");
 }
 
-function checkPhase5(cwd: string): GateVerdict {
-  const statePath = join(cwd, "build-state.yaml");
-  const missing: string[] = [];
-  for (const [field, expected] of [
-    ["plan_review", "pass"],
-    ["phase_5_implement", "complete"],
-    ["opus_validation", "pass"],
-  ] as const) {
-    const m = fieldMissing(statePath, field, expected);
-    if (m) missing.push(m);
-  }
-  if (missing.length > 0) return softBlock(joinMissing(missing), "5");
-  return pass("5");
-}
-
 function checkPhase55(cwd: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
   const gaming = (readStateField(statePath, "assertion_gaming_detected") ?? "").trim();
@@ -569,9 +609,7 @@ function checkPhase55(cwd: string): GateVerdict {
       "5.5",
     );
   }
-  const integrity = (readStateField(statePath, "test_integrity_check") ?? "").trim();
-  if (!integrity) return softBlock("test_integrity_check has no value", "5.5");
-  return pass("5.5");
+  return checkDeliverables(cwd, "5.5");
 }
 
 function checkPhase6(cwd: string): GateVerdict {
@@ -643,19 +681,8 @@ function checkPhase7(cwd: string): GateVerdict {
   const complexity = getComplexity(cwd);
   if (complexity === "TRIVIAL") return pass("7");
 
-  const statePath = join(cwd, "build-state.yaml");
-  const missing: string[] = [];
-  const m = fieldMissing(statePath, "review_complete", "pass");
-  if (m) missing.push(m);
-
-  // bd#127: synthesizer must have written reviews/learnings-raw.md (soft, best-effort nudge)
-  const scratchpad = (readStateField(statePath, "scratchpad_dir") ?? "").trim();
-  if (scratchpad && !isNonEmptyFile(join(scratchpad, "reviews", "learnings-raw.md"))) {
-    missing.push(`missing deliverable: ${scratchpad}/reviews/learnings-raw.md`);
-  }
-
-  if (missing.length > 0) return softBlock(joinMissing(missing), "7");
-  return pass("7");
+  // The review result and the bd#127 synthesizer deliverable come from the table.
+  return checkDeliverables(cwd, "7");
 }
 
 // ---------------------------------------------------------------------------
@@ -695,32 +722,21 @@ export function dispatchPhase(input: DispatchInput): GateVerdict {
   }
 
   let verdict: GateVerdict;
-  switch (phase) {
+  switch (canonPhase(phase)) {
     case "0.5":
     case "05":
       verdict = checkPhase05(cwd);
       break;
     case "4.5":
-    case "45":
-      verdict = checkPhase45(cwd);
-      break;
     case "5":
-      verdict = checkPhase5(cwd);
-      break;
     case "5.1":
-    case "51":
-      verdict = checkPhase51(cwd);
-      break;
     case "5.2":
-    case "52":
-      verdict = checkPhase52(cwd);
+      verdict = checkDeliverables(cwd, canonPhase(phase));
       break;
     case "5.3":
-    case "53":
       verdict = checkPhase53(cwd);
       break;
     case "5.5":
-    case "55":
       verdict = checkPhase55(cwd);
       break;
     case "6":
@@ -789,34 +805,29 @@ function cliResolveCwd(): string {
   return process.cwd();
 }
 
-export function loopPreventionCLI(statePath: string, phase: string): boolean {
+export function loopPreventionCLI(statePath: string, phaseIn: string): boolean {
   // Returns true if bypass triggered (should exit 0), false if still blocking.
-  let countRaw = "";
-  try {
-    const content = readFileSync(statePath, "utf8");
-    const m = content.match(/^gate_block_counter:\s*(\S*)/m);
-    countRaw = m ? m[1]!.replace(/["']/g, "") : "";
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[gate] WARN: loopPreventionCLI read failed: ${msg}\n`,
-    );
-    countRaw = "";
-  }
-  const count = parseInt(countRaw, 10) || 0;
-  const newCount = count + 1;
+  // Per-phase counter (bd#136): C1 no stored phase -> count+1; C2 same phase -> count+1;
+  // C3 different phase -> 1; C4 missing / non-numeric counter -> 0.
+  const phase = canonPhase(phaseIn);
+  const countRaw = (readStateField(statePath, "gate_block_counter") ?? "").trim();
+  const count = /^[0-9]+$/.test(countRaw) ? parseInt(countRaw, 10) : 0;
+  const storedPhase = canonPhase((readStateField(statePath, "gate_block_phase") ?? "").trim());
+  const newCount = storedPhase !== "" && storedPhase !== phase ? 1 : count + 1;
 
-  // Atomic rewrite: tempfile + rename, so a crash mid-write cannot corrupt
+  // One atomic rewrite: tempfile + rename, so a crash mid-write cannot corrupt
   // build-state.yaml. NOTE: still not concurrency-safe across parallel
   // gate processes — defer full flock to unification Phase 2 / batch-build.
   try {
     const content = readFileSync(statePath, "utf8");
     const filtered = content
       .split("\n")
-      .filter((l) => !/^gate_block_counter:/.test(l))
+      .filter((l) => !/^(gate_block_counter|gate_block_phase|gate_bypass|gate_bypass_phase):/.test(l))
       .join("\n");
-    const normalized = filtered.endsWith("\n") ? filtered : filtered + "\n";
-    writeFileAtomic(statePath, normalized + `gate_block_counter: ${newCount}\n`);
+    const normalized = filtered === "" || filtered.endsWith("\n") ? filtered : filtered + "\n";
+    let out = normalized + `gate_block_counter: ${newCount}\ngate_block_phase: ${phase}\n`;
+    if (newCount > 3) out += `gate_bypass: true\ngate_bypass_phase: ${phase}\n`;
+    writeFileAtomic(statePath, out);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // best-effort: state-file update is advisory, primary verdict must still emit
@@ -825,18 +836,7 @@ export function loopPreventionCLI(statePath: string, phase: string): boolean {
     );
   }
 
-  if (newCount > 3) {
-    try {
-      appendFileSync(statePath, `gate_bypass: true\ngate_bypass_phase: ${phase}\n`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(
-        `[gate] WARN: loopPreventionCLI append gate_bypass failed: ${msg}\n`,
-      );
-    }
-    return true;
-  }
-  return false;
+  return newCount > 3;
 }
 
 /**
