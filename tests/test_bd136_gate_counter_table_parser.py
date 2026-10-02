@@ -336,7 +336,8 @@ def _code_only(rel: str, comment_prefixes: tuple[str, ...]) -> str:
 
 
 _TABLE_STRINGS = ["plan_review", "phase_5_implement", "phase_52a_gherkin",
-                  "test_integrity_check", "learnings-raw.md"]  # data only (M1)
+                  "test_integrity_check", "learnings-raw.md",
+                  "opus_validation", "review_complete"]  # data only (M1, m-r2-1b)
 
 
 @pytest.mark.parametrize("needle", _TABLE_STRINGS)
@@ -733,6 +734,126 @@ def test_m4_ts_stored_phase_alias_is_canonicalised_c2(tmp_path):
     assert proc.returncode == 0, _describe(proc)
     assert _state_vals(wd, "gate_block_counter") == ["4"]
     assert _state_vals(wd, "gate_block_phase") == ["5.2"]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_m_r2_6_stored_phase_alias_is_canonicalised_c2(tmp_path, backend):
+    """m-r2-6: stored `gate_block_phase: 52` vs current 5.2, counter 3, failing 5.2
+    -> same phase (C2): bypass exit 0, counter 4 (bash and TS share the alias map)."""
+    wd = _make_workdir(tmp_path, "w", "5.2", "gate_block_counter: 3\ngate_block_phase: 52\n")
+    proc = _run(backend, wd)
+    assert proc.returncode == 0, _describe(proc)
+    assert _state_vals(wd, "gate_block_counter") == ["4"]
+    assert _state_vals(wd, "gate_bypass") == ["true"]
+
+
+# ---------------------------------------------------------------------------
+# m-r2-3 / m-r2-4 / m-r2-5 / m-r2-8 -- Rev 3 additions
+# ---------------------------------------------------------------------------
+
+def test_m_r2_3_validation_entries_first_in_physical_order_then_failing_rows(tmp_path):
+    """m-r2-3: valid failing 5.2 row (line 1), malformed (line 2), unknown kind (line 3)
+    -> validation entries in line order, then the failing row entry; byte-identical."""
+    table = (b"5.2\tfield_eq\topus_validation\tpass\n"
+             b"5.2\tfield_eq\topus_validation\n"
+             b"7\tbogus\tx\n")
+    proc = _both_with_table(tmp_path, table, "5.2", "", 2)
+    assert proc.stdout == _block_json(
+        "deliverable table: malformed row (line 2); "
+        "deliverable table: unknown kind 'bogus' (line 3); "
+        f"opus_validation=pass {_MISS}; ")
+
+
+def test_m_r2_3_unknown_kind_wins_over_wrong_arity(tmp_path):
+    """m-r2-3: `5.2 bogus x y z` is an unknown kind, not a malformed row."""
+    proc = _both_with_table(tmp_path, b"5.2\tbogus\tx\ty\tz\n", "5.2",
+                            "opus_validation: pass\n", 2)
+    assert proc.stdout == _block_json("deliverable table: unknown kind 'bogus' (line 1); ")
+
+
+def test_m_r2_3_bad_phase_is_malformed_row_before_kind_check(tmp_path):
+    """m-r2-3: bad phase `x.y` with a valid kind -> malformed row."""
+    proc = _both_with_table(tmp_path, b"x.y\tfield_set\tfoo\n", "5.2",
+                            "opus_validation: pass\n", 2)
+    assert proc.stdout == _block_json("deliverable table: malformed row (line 1); ")
+
+
+def test_m_r2_3_fewer_than_two_fields_is_malformed_row(tmp_path):
+    """m-r2-3: a single-field line -> malformed row (not unknown kind)."""
+    proc = _both_with_table(tmp_path, b"5.2\n", "5.2", "opus_validation: pass\n", 2)
+    assert proc.stdout == _block_json("deliverable table: malformed row (line 1); ")
+
+
+def test_m_r2_4_whitespace_only_and_indented_comment_lines_are_ignored(tmp_path):
+    """m-r2-4: blank-with-spaces/tab and `   # comment` lines are skipped by both
+    backends. State satisfies only the table's own row (gherkin absent), so a pass
+    proves the table, not the hand-written rules, decides."""
+    table = (b"   \n"
+             b"   # indented comment\n"
+             b" \t \n"
+             b"5.2\tfield_eq\topus_validation\tpass\n")
+    proc = _both_with_table(tmp_path, table, "5.2", "opus_validation: pass\n", 0)
+    assert proc.stdout == b""
+
+
+def test_m_r2_4_ignored_lines_still_count_in_line_numbers(tmp_path):
+    """m-r2-4: whitespace-only line 1 + indented comment line 2 -> malformed row is line 3."""
+    table = b"   \n   # indented comment\n5.2\tfield_eq\topus_validation\n"
+    proc = _both_with_table(tmp_path, table, "5.2", "opus_validation: pass\n", 2)
+    assert proc.stdout == _block_json("deliverable table: malformed row (line 3); ")
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_m_r2_5_script_adjacent_table_wins_over_claude_plugin_root_decoy(tmp_path, backend):
+    """m-r2-5: CLAUDE_PLUGIN_ROOT points at a decoy table with a different extra row;
+    the verdict follows the script-adjacent table (real_marker), not the decoy."""
+    base = ("5.2\tfield_eq\topus_validation\tpass\n"
+            "5.2\tfield_eq\tphase_52a_gherkin\tcomplete\n")
+    root = _plugin_copy(tmp_path)
+    _table(root).write_text(base + "5.2\tfield_set\treal_marker\n", encoding="utf-8")
+    decoy = (tmp_path / "decoy").resolve()
+    (decoy / "scripts").mkdir(parents=True)
+    (decoy / "scripts" / "phase-deliverables.tsv").write_text(
+        base + "5.2\tfield_set\tdecoy_marker\n", encoding="utf-8")
+    wd = _make_workdir(tmp_path, "w", "5.2",
+                       "opus_validation: pass\nphase_52a_gherkin: complete\n"
+                       "decoy_marker: x\n")
+    env = _env(BYTEDIGGER_CONFIG=str(wd / "bytedigger.json"),
+               CLAUDE_PLUGIN_ROOT=str(decoy))
+    if backend == "bash":
+        cmd = ["bash", str(root / "scripts" / "build-gate.sh")]
+    else:
+        bun = shutil.which("bun")
+        if bun is None:
+            pytest.fail("bun not found on PATH (CI installs bun; TS-gate tests must not skip)")
+        cmd = [bun, "run", str(root / "scripts" / "ts" / "build-phase-gate.ts")]
+    proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True,
+                          env=env, cwd=str(wd), timeout=120)
+    assert proc.returncode == 2, _describe(proc)
+    assert proc.stdout == _block_json("real_marker has no value; ")
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="chmod 000 does not restrict root")
+def test_m_r2_8_unreadable_red_log_is_no_failures_byte_identical(tmp_path):
+    """m-r2-8: build-red-output.log exists with FAIL content but chmod 000, phase 5.1
+    -> both backends exit 2 with the `contains no failures` reason, same bytes."""
+    runs = {}
+    for b in BACKENDS:
+        wd = _make_workdir(tmp_path, f"w-{b}", "5.1", "")
+        log = wd / "build-red-output.log"
+        log.write_text("FAILED test_x\n")
+        log.chmod(0)
+        try:
+            runs[b] = _run(b, wd)
+        finally:
+            log.chmod(0o644)
+    bash, ts = runs["bash"], runs["ts"]
+    assert bash.returncode == ts.returncode == 2, \
+        f"bash: {_describe(bash)} ts: {_describe(ts)}"
+    assert bash.stdout == ts.stdout, f"bash={bash.stdout!r} ts={ts.stdout!r}"
+    assert bash.stdout == _block_json(
+        "build-red-output.log contains no failures (tests must be RED); ")
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
