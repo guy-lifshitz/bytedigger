@@ -3,7 +3,8 @@
 Two steps, both deterministic except the one model call:
 
   collect   read what maintainers did after BD-built PRs shipped (a reopened issue, a
-            watched label added or removed) into ``signals.json``. No model.
+            watched label added or removed, a merged ``Reverts <owner>/<repo>#<N>`` PR: reverted)
+            into ``signals.json``. No model.
   propose   turn those signals into ONE proposed change of the host's companion file
             ``bytedigger/companions/<core>.md``, gated by the #116 checker before anything is
             pushed, and open a PR for a human to review. It never merges, never pushes the
@@ -66,8 +67,10 @@ _FILE_OPEN_RE = re.compile(r"^<<<bd:file path=(.*)>>>$")
 _FILE_END = "<<<bd:end>>>"
 _NOT_FOUND_RE = re.compile(r"\b404\b")
 _SINCE_RE = re.compile(r"^(\d+)d$")
+_REVERTS_RE = re.compile(r"^Reverts ([^\s/#]+/[^\s/#]+)#(\d+)$")
+_PR_GONE_RE = re.compile(r"Could not resolve to a PullRequest|\b404\b")
 
-_PR_FIELDS = "number,title,url,state,mergedAt,updatedAt,headRefName,author,body"
+_PR_FIELDS = "id,number,title,url,state,mergedAt,updatedAt,headRefName,author,body,mergedBy"
 _ISSUE_FIELDS = "number,title,url,state,updatedAt,author"
 _TUNER_FIELDS = "number,state,headRefName,author,body"
 
@@ -345,6 +348,35 @@ def _signal_for(ctx: _Ctx, event: dict[str, Any], window: tuple[datetime, dateti
     return kind, label
 
 
+def _revert_signal(ctx: _Ctx, row: dict[str, Any], window: tuple[datetime, datetime]
+                   ) -> tuple[dict[str, Any], str] | None:
+    """(target PR row, actor) when ``row`` is a maintainer-merged revert of a merged BD-built PR."""
+    merged_at = _parse_time(row.get("mergedAt"))
+    if not _is_merged(row) or merged_at is None or not window[0] <= merged_at <= window[1]:
+        return None
+    if not isinstance(row.get("id"), str) or not row["id"] or _is_bd(ctx, _login(row)):
+        return None
+    m = next((hit for hit in (_REVERTS_RE.match(ln.strip()) for ln in str(row.get("body") or "").splitlines())
+              if hit), None)
+    if m is None or m.group(1).casefold() != ctx.slug.casefold() or len(m.group(2)) > 10:
+        return None
+    number = int(m.group(2))
+    if not 1 <= number <= 2**31 - 1:
+        return None
+    actor = _login(row, "mergedBy")
+    if actor is None or actor.casefold() in {b.casefold() for b in ctx.tuning.bot_logins}:
+        return None
+    try:
+        target = _pr_info(ctx, number)
+    except _Fail as exc:
+        if _PR_GONE_RE.search(exc.detail):
+            return None
+        raise
+    if not _is_built(ctx, target) or not _is_merged(target) or not _is_maintainer(ctx, actor):
+        return None
+    return target, actor
+
+
 def _collect(args: argparse.Namespace) -> int:
     repo = Path(os.path.abspath(args.repo))
     ctx = _context(repo)
@@ -363,8 +395,8 @@ def _collect(args: argparse.Namespace) -> int:
                title: Any) -> None:
         sid = f"{kind}:{event['id']}"
         if sid not in already and sid not in found:
-            action = None if kind == "reopened" else (
-                "removed" if event.get("__typename") == "UnlabeledEvent" else "added")
+            action = ("removed" if event.get("__typename") == "UnlabeledEvent" else "added") \
+                if kind == "relabeled" else None
             found[sid] = {"id": sid, "kind": kind, "pr": pr, "issue": issue, "label": label,
                           "action": action, "actor": _login(event, "actor"), "title": title,
                           "at": event["createdAt"]}
@@ -377,6 +409,12 @@ def _collect(args: argparse.Namespace) -> int:
             hit = _signal_for(ctx, event, (frm, to), merged=False)
             if hit is not None:
                 record(event, hit[0], hit[1], number, None, row.get("title"))
+    for row in pr_rows:
+        rev = _revert_signal(ctx, row, (frm, to))
+        if rev is not None:
+            record({"__typename": "RevertPR", "id": row["id"], "actor": {"login": rev[1]},
+                    "createdAt": row["mergedAt"]}, "reverted", None, int(rev[0]["number"]), None,
+                   rev[0].get("title"))
     for irow in issue_rows:
         number = irow.get("number")
         if not isinstance(number, int):
