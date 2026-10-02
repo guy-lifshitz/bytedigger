@@ -19,7 +19,7 @@ from pathlib import Path
 from bytedigger_engine.contracts import StepResult
 
 
-from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: E402
+from bytedigger_engine.lib.resume_keying import resume_sentinel_name, resume_sentinel_glob  # noqa: E402
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402
 from bytedigger_engine.lib.phase_sentinel import ctx_cfg_sha8  # noqa: E402
 
@@ -163,7 +163,7 @@ def maybe_read_sentinel(context, step, cycle: int, run_id: str, emit, workflow_n
     return StepResult(status="ok", data=cached, duration_ms=0, step_name=step.name)
 
 
-def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=None, workflow_name: "str | None" = None, reason: str = "same_cycle_retry") -> list:
+def invalidate_cycle_sentinels(context, steps, cycle: "int | None", run_id: "str | None", emit=None, workflow_name: "str | None" = None, reason: str = "same_cycle_retry") -> list:
     """Unlink both key variants of the resume sentinel for every flagged
     step in ``steps`` at ``(cycle, run_id)``. Returns the list of removed
     filenames. Degrades silently on missing files / OS errors / disabled
@@ -172,11 +172,12 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
     A step with ``sentinel_input_field`` set has an input-hashed sentinel
     key whose hash value is not reconstructible here (the input is only
     known at read/write time) — for those steps, invalidation instead
-    globs ``{workflow}__{step}_done_c{cycle}_r{run_id}_h*.json`` (GH897
-    §2/r2 MINOR-2) anchored with a literal ``_h`` immediately after the
+    globs the hashed variant via ``resume_sentinel_glob`` (GH897
+    §2/r2 MINOR-2), anchored with a literal ``_h`` immediately after the
     run_id segment so a run_id prefix collision (e.g. invalidating "R1"
     while "R12" sentinels exist) cannot over-match, plus the exact legacy
-    (non-hashed) names. Assumes production run_id values are uuid4 hex
+    (non-hashed) names. ``cycle=None`` (bd#92) clears every cycle of the
+    run via globs. Assumes production run_id values are uuid4 hex
     (no glob metacharacters); an operator-supplied ``--run-id`` containing
     glob metacharacters is out of contract (r2 MINOR-3).
     """
@@ -194,19 +195,23 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
             continue
         names: set = set()
         input_field = getattr(step, "sentinel_input_field", None)
-        if input_field:
+        patterns: list = []
+        if cycle is None:
+            patterns.append(resume_sentinel_glob(step.name, "*", run_id, workflow_name, hashed=False))
+            patterns.append(resume_sentinel_glob(step.name, "*", run_id, workflow_name, hashed=True))
+        elif input_field:
             names.add(resume_sentinel_name(step.name, cycle, run_id, None, workflow_name))
-            prefix = f"{workflow_name}__" if workflow_name else ""
-            pattern = f"{prefix}{step.name}_done_c{cycle}_r{run_id}_h*.json"
+            patterns.append(resume_sentinel_glob(step.name, cycle, run_id, workflow_name, hashed=True))
+        else:
+            names.add(resume_sentinel_name(step.name, cycle, run_id, None, workflow_name))
+            if ctx_hash:
+                names.add(resume_sentinel_name(step.name, cycle, run_id, ctx_hash, workflow_name))
+        for pattern in patterns:
             try:
                 for match in sentinel_dir.glob(pattern):
                     names.add(match.name)
             except OSError:
                 logger.warning("step_sentinel: glob failed for pattern %s", pattern, exc_info=True)
-        else:
-            names.add(resume_sentinel_name(step.name, cycle, run_id, None, workflow_name))
-            if ctx_hash:
-                names.add(resume_sentinel_name(step.name, cycle, run_id, ctx_hash, workflow_name))
         for name in names:
             sentinel_file = sentinel_dir / name
             try:
@@ -218,7 +223,7 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
                 try:
                     emit(
                         "step_sentinel_invalidated",
-                        {"step_name": step.name, "cycle": cycle, "reason": reason},
+                        {"step_name": step.name, "cycle": "all" if cycle is None else cycle, "reason": reason},
                         run_id,
                     )
                 except Exception:
@@ -227,7 +232,7 @@ def invalidate_cycle_sentinels(context, steps, cycle: int, run_id: str, emit=Non
 
 
 def invalidate_validation_sentinels_for_run(
-    scratchpad: "Path", run_id: str,
+    scratchpad: "Path", run_id: "str | None",
     workflow_name: str = "phase_5_validation_cycle",
     step_names: "tuple[str, ...]" = ("invoke_validation_llm",),
 ) -> list:
@@ -247,8 +252,8 @@ def invalidate_validation_sentinels_for_run(
         return removed
     for step_name in step_names:
         patterns = (
-            f"{workflow_name}__{step_name}_done_c*_r{run_id}.json",
-            f"{workflow_name}__{step_name}_done_c*_r{run_id}_h*.json",
+            resume_sentinel_glob(step_name, "*", run_id, workflow_name, hashed=False),
+            resume_sentinel_glob(step_name, "*", run_id, workflow_name, hashed=True),
         )
         for pattern in patterns:
             try:

@@ -93,7 +93,7 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
     get_out_of_role_block as _get_out_of_role_block,
 )
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402
-from bytedigger_engine.findings_sidecar import persist_findings_thread, load_findings_thread  # noqa: E402  GH636
+from bytedigger_engine.findings_sidecar import persist_findings_thread, findings_thread_status, SIDECAR_RELNAME as FINDINGS_THREAD_RELNAME  # noqa: E402  GH636
 from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_spec_writer, get_claude_spec_reviewer  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import verdict_under_heading  # noqa: E402
 from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin  # noqa: E402  E843349F
@@ -955,6 +955,7 @@ def _write_ship_sidecar(spec_path: str) -> None:
         sidecar = {
             "spec_sha": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             "run_id": (_run_ctx.run_id if _run_ctx is not None else None),
+            "verdict": "SHIP",
             "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         }
         _ship_sidecar_path(spec_path).write_text(json.dumps(sidecar), encoding="utf-8")
@@ -997,6 +998,9 @@ def _prior_ship_base_inline(spec_path: str) -> tuple[str, list[dict]]:
         sidecar = _read_ship_sidecar(spec_path)
         if sidecar is None:
             _emit_safe("spec_prior_base_spec_missing", {"run_id": run_id, "spec_path": str(spec_path)})
+            return "", []
+        if sidecar.get("verdict") != "SHIP":
+            _emit_safe("spec_prior_base_unverified", {"run_id": run_id})
             return "", []
         current_sha = hashlib.sha256(spec_text.encode("utf-8")).hexdigest()
         if sidecar.get("spec_sha") != current_sha:
@@ -1048,8 +1052,20 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
         threaded = _prev.get("structured_findings")
     elif isinstance(_prev, StepResult) and isinstance(_prev.data, dict):
         threaded = _prev.data.get("structured_findings")
+    if cycle == 1:
+        # bd#92: every attempt starts at cycle 1 — clear the previous attempt's thread.
+        try:
+            (scratchpad / FINDINGS_THREAD_RELNAME).unlink(missing_ok=True)
+        except OSError:
+            logger.warning("phase_45_spec: findings-thread unlink failed", exc_info=True)
     if cycle >= 2 and not threaded and delta_enabled and not gate_retry:
-        threaded = load_findings_thread(scratchpad)  # GH636: recover thread evicted from DBOS operation_outputs on ERROR-retry
+        # GH636: recover thread evicted from DBOS operation_outputs on ERROR-retry
+        _thread_run = telemetry_ctx.get_current_run()
+        threaded, _thread_reason = findings_thread_status(
+            scratchpad, run_id=(_thread_run.run_id if _thread_run is not None else None), for_cycle=cycle,
+        )
+        if _thread_reason is not None and _thread_reason != "absent":
+            _emit_safe("spec_findings_thread_rejected", {"reason": _thread_reason, "cycle": cycle})
     if gate_retry:
         # The gate findings go through the same patch-in-place path as review
         # findings, so a gate retry never rewrites away reviewer-driven fixes.
@@ -1954,7 +1970,6 @@ def _verify_spec_lint(ctx: WorkflowContext, prev: Any) -> StepResult:
 
     if rc == 0:
         logger.info("spec_lint: no findings for %s", spec_path)
-        _write_ship_sidecar(str(spec_path))  # GH770 §2.1: SHIP-quality marker
         return StepResult(
             status="ok",
             data={**prev.data, "spec_lint_findings": []},
@@ -4554,6 +4569,7 @@ def _finalize_ship_verdict(_ctx: WorkflowContext, prev: Any, verdict: Any, cycle
             "reason": _allowlist_outcome.get("reason"),
         },
     )
+    _write_ship_sidecar(prev.data["spec_path"])  # bd#92: sidecar means "the reviewer said SHIP"
     return StepResult(
         status="ok",
         data={
@@ -4584,6 +4600,12 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
         )
     verdict = prev.data.get("verdict", VERDICT_UNKNOWN)
     cycle = int(prev.data.get("cycle", 1))
+
+    # bd#92: only a finalized SHIP leaves a ship sidecar; clear any stale one first.
+    try:
+        _ship_sidecar_path(prev.data.get("spec_path")).unlink(missing_ok=True)
+    except (TypeError, OSError):
+        pass
 
     if verdict == VERDICT_SHIP:
         # hal#1600 D3: deterministic prohibition gate — runs BEFORE any
@@ -4878,7 +4900,7 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
     if _threaded_sf:
         revise_fwd["structured_findings"] = list(_threaded_sf)
         try:  # GH636: persist thread so it survives ERROR-row evict of DBOS operation_outputs
-            persist_findings_thread(_resolve_scratchpad(_ctx), list(_threaded_sf), cycle=cycle)
+            persist_findings_thread(_resolve_scratchpad(_ctx), list(_threaded_sf), cycle=cycle, run_id=(_persist_run.run_id if (_persist_run := telemetry_ctx.get_current_run()) is not None else None))
         except Exception:
             pass  # persistence must NEVER break the build (Opus-gate required)
     _emit_safe("spec_revise_findings_threaded", {
