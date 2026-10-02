@@ -1542,6 +1542,25 @@ def _observe_cost(
         _emit_safe(run_ctx.event_log, event_type, payload, run_ctx.run_id)
 
 
+# bd#101: step families that may resume a warm session. Everything else is fresh.
+# A new writer opts in by adding its step family here.
+_WARM_RESUME_STEPS: frozenset[str] = frozenset({
+    "invoke_red_llm",
+    "invoke_green_llm",
+    "invoke_green_llm_retry",
+    "invoke_fix_llm",
+    "invoke_fix_llm_retry",
+    "invoke_spec_llm",
+})
+_WARM_RESUME_STEP_PREFIXES: tuple[str, ...] = ("repair_",)
+
+
+def _warm_resume_allowed(step_name: str) -> bool:
+    """bd#101: True when the step's family (the agent-sdk session-key family) is a listed writer."""
+    family = step_name.split(".")[0]
+    return family in _WARM_RESUME_STEPS or family.startswith(_WARM_RESUME_STEP_PREFIXES)
+
+
 def _dispatch_backend(
     resolved_backend: str,
     *,
@@ -1569,8 +1588,9 @@ def _dispatch_backend(
     GH334 §2.2: CONDITIONAL threading — only pass `stable_prefix` when
     non-empty, so strict-signature backends/test-doubles lacking the param
     stay call-compatible (back-compat byte-identity). bd#82 extends the same
-    rule to `fresh_session`, passed only to `warm_resume` backends; the
-    required keywords stay explicit so mypy checks them against the
+    rule to `fresh_session`, passed only to `warm_resume` backends; it is True
+    unless the step is a listed writer (`_WARM_RESUME_STEPS`) that is neither a
+    hard gate nor asked for fresh (bd#101); the required keywords stay explicit so mypy checks them against the
     LLMBackend protocol.
 
     bd#10 (AUTHORSHIP_SPEC.md): this is the chokepoint every backend passes
@@ -1685,7 +1705,10 @@ def _dispatch_backend(
         optional["effort"] = effort
     if "warm_resume" in caps:
         # bd#82: resolved here, so no dispatch path can forget that a gate is fresh.
-        optional["fresh_session"] = fresh_session or hard_gate
+        # bd#101: and only a listed writer step may resume; everything else is fresh.
+        optional["fresh_session"] = (
+            fresh_session or hard_gate or not _warm_resume_allowed(step_name)
+        )
     # bd#145: the dispatcher is the single point that hands extra_data to every
     # backend (including third-party ones), so reserved observation fields are
     # stripped here, before any backend can merge a forged value into result.data.
@@ -1910,6 +1933,8 @@ def invoke_llm_subprocess(
     if role is not None and role not in _ROLES:
         raise ValueError(f"invoke_llm_subprocess: role must be one of {_ROLES}, got {role!r}")
     effective_role = role or ("judge" if hard_gate else "worker")
+    # bd#101: a judge never resumes, even on a listed step name.
+    fresh_session = fresh_session or effective_role == "judge"
     # 4C03CCED Ship 1A: backend selector gate — runs before hard_gate check so
     # unknown backends fail-closed immediately and resolver telemetry always fires.
     resolved_backend, resolved_source = _resolve_backend(
@@ -2759,7 +2784,11 @@ def register_backend(
     Capability tokens are promises the dispatcher acts on: `tool_allowlist`
     (enforces `allowed_tools`), `no_tools` (text-only), and `warm_resume` —
     the impl keeps sessions across calls AND accepts a `fresh_session: bool`
-    keyword, which is True for every hard gate (bd#82); `effort` — the impl
+    keyword, which is True for every hard gate (bd#82) and, since bd#101, True
+    unless the step is a listed writer that is neither a hard gate nor a judge
+    and did not ask for fresh. A third-party backend that keeps sessions across
+    calls must declare `warm_resume`; without it, it gets no `fresh_session`
+    keyword and must treat every call as fresh; `effort` — the impl
     accepts an `effort: str | None` keyword (None: nothing configured) and
     applies any level; `effort:<level>` — the same, for the listed levels only
     (bd#82).

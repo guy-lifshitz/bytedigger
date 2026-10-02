@@ -151,16 +151,16 @@ def test_f4b_fresh_call_leaves_the_warm_session_alone(sdk):
     worker's session, even when it fails."""
     from bytedigger_engine.lib.reference_backends import agent_sdk  # noqa: PLC0415
 
-    _call()
+    _call("invoke_fix_llm")
     cached = dict(agent_sdk._SESSION_CACHE)
-    _call(fresh_session=True)
+    _call("invoke_fix_llm", fresh_session=True)
     res = invoke_llm_subprocess(
-        prompt="fail", model="opus", timeout_sec=10, step_name="invoke_review_llm",
+        prompt="fail", model="opus", timeout_sec=10, step_name="invoke_fix_llm",
         allowed_tools=["Read"], backend="agent-sdk", idle_timeout_sec=0, fresh_session=True,
     )
     assert res.status == "error"
     assert agent_sdk._SESSION_CACHE == cached
-    _call()
+    _call("invoke_fix_llm")
     assert sdk == [None, None, None, "sess-1"]
 
 
@@ -212,8 +212,9 @@ def test_f6b_chokepoint_resolves_fresh_for_gates(stable_prefix):
         stable_prefix=stable_prefix,
     )
     invoke_llm_subprocess(
-        prompt="p", model="opus", timeout_sec=5, step_name="s", allowed_tools=["Read"],
-        backend="bd82-warm", idle_timeout_sec=0, stable_prefix=stable_prefix,
+        prompt="p", model="opus", timeout_sec=5, step_name="invoke_green_llm",
+        allowed_tools=["Read"], backend="bd82-warm", idle_timeout_sec=0,
+        stable_prefix=stable_prefix,
     )
     assert [c["fresh_session"] for c in seen] == [True, False]
 

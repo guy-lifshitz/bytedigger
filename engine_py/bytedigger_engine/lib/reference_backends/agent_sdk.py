@@ -358,7 +358,9 @@ def agent_sdk_backend(
     straggler_cfg: object = None,
     idle_timeout_sec: object = None,
     stable_prefix: str = "",
-    fresh_session: bool = False,
+    # bd#101: fresh by default; a registration without `warm_resume` is never forwarded
+    # the keyword, so it degrades to a cold session instead of resuming.
+    fresh_session: bool = True,
     effort: str | None = None,
 ) -> StepResult:
     """Warm-session agentic backend via `claude-agent-sdk` (resume semantics)."""

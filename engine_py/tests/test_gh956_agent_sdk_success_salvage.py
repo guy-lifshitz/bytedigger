@@ -321,7 +321,8 @@ def test_ac7_salvage_path_still_caches_session(monkeypatch, tmp_path):
     run_ctx = types.SimpleNamespace(run_id="r1")
 
     mod.agent_sdk_backend(
-        prompt="p", timeout_sec=10, step_name="phase_5.x", **_common_kwargs(root, run_ctx)
+        prompt="p", timeout_sec=10, step_name="phase_5.x", fresh_session=False,
+        **_common_kwargs(root, run_ctx)
     )
 
     assert mod._SESSION_CACHE.get("r1:phase_5") == ("sess-salvage-1", 0), (
@@ -412,7 +413,8 @@ def test_ac10_salvage_path_duration_and_no_cache_invalidation(monkeypatch, tmp_p
     run_ctx = types.SimpleNamespace(run_id="r1")
 
     result = mod.agent_sdk_backend(
-        prompt="p", timeout_sec=10, step_name="phase_5.x", **_common_kwargs(root, run_ctx)
+        prompt="p", timeout_sec=10, step_name="phase_5.x", fresh_session=False,
+        **_common_kwargs(root, run_ctx)
     )
 
     assert isinstance(result.duration_ms, int) and result.duration_ms >= 0, (
