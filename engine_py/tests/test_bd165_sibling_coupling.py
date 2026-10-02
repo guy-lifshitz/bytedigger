@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ENGINE_DIR = str(Path(__file__).resolve().parent.parent)
 TESTS_DIR = os.path.join(ENGINE_DIR, "tests")
 FX = os.path.join(TESTS_DIR, "fixtures", "sibling_coupling")
@@ -619,7 +621,7 @@ _SPEC_CITED = "# spec\n\n" + _FILES_BOTH + "\n## Sibling tests\n\n- `tests/test_
 _SPEC_TESTS_ONLY = "# spec\n\n## Files\n\n- `tests/test_new.py`\n"
 
 
-def _run_helper(monkeypatch, root, spec_path):
+def _run_helper(monkeypatch, root, spec_path, git_cwd=None):
     from bytedigger_engine.workflows import phase_5_implement as p5
     events = []
 
@@ -628,23 +630,75 @@ def _run_helper(monkeypatch, root, spec_path):
 
     monkeypatch.setattr(p5, "_emit_safe", fake_emit)
     monkeypatch.delenv("HAL_SIBLING_AUDIT_BIN", raising=False)
-    ret = p5._sibling_audit_warn([os.path.join(root, "tests", "test_new.py")], root, spec_path=spec_path)
+    ret = p5._sibling_audit_warn(
+        [os.path.join(root, "tests", "test_new.py")],
+        root if git_cwd is None else git_cwd,
+        spec_path=spec_path,
+    )
     return ret, [e for e in events if e[0].startswith("red_sibling_audit")]
 
 
-def test_b5a_uncited_pinner_yields_one_warn(tmp_path, monkeypatch):
-    root, spec = _stage_repo(tmp_path, _SPEC_UNCITED)
-    ret, events = _run_helper(monkeypatch, root, spec)
-    assert ret is None
+def _spy_audit(monkeypatch):
+    """Wrap the real audit (not replace it) and record every call's kwargs."""
+    from bytedigger_engine import sibling_coupling
+    real = sibling_coupling.audit
+    calls = []
+
+    def spy(*a, **k):
+        calls.append((a, k))
+        return real(*a, **k)
+
+    monkeypatch.setattr(sibling_coupling, "audit", spy)
+    return calls
+
+
+def _assert_b5a_warn(events, calls, root):
     warns = [e for e in events if e[0] == "red_sibling_audit_warn"]
     assert len(warns) == 1
+    assert warns[0][2] == "warn"
     payload = warns[0][1]
     assert payload["count"] >= 1
     hits = payload["hits"]
-    pinner = [h for h in hits if "tests/test_pinner.py" in h.split("\t")[0]]
+    assert len(hits) >= 1
+    for h in hits:
+        assert not h.split("\t")[0].startswith("/")
+    pinner = [h for h in hits if h.split("\t")[0] == "tests/test_pinner.py"]
     assert len(pinner) >= 1
     assert all(h.split("\t")[-1] == "MISSING" for h in pinner)
-    assert not any("tests/test_new.py" in h.split("\t")[0] for h in hits)
+    assert not any(h.split("\t")[0] == "tests/test_new.py" for h in hits)
+    assert len(calls) == 1
+    exclude = calls[0][1].get("exclude")
+    assert exclude is not None
+    red_real = os.path.realpath(os.path.join(root, "tests", "test_new.py"))
+    assert red_real in [os.path.realpath(x) for x in exclude]
+    return hits
+
+
+def test_b5a_uncited_pinner_yields_one_warn(tmp_path, monkeypatch, capsys):
+    root, spec = _stage_repo(tmp_path, _SPEC_UNCITED)
+    calls = _spy_audit(monkeypatch)
+    capsys.readouterr()
+    ret, events = _run_helper(monkeypatch, root, spec)
+    assert ret is None
+    _assert_b5a_warn(events, calls, root)
+    assert capsys.readouterr().err == ""
+
+
+def test_b5a_symlink_git_cwd_same_hits(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    root, spec = _stage_repo(tmp_path, _SPEC_UNCITED)
+    plain_calls = _spy_audit(monkeypatch)
+    _ret0, plain_events = _run_helper(monkeypatch, root, spec)
+    plain_hits = _assert_b5a_warn(plain_events, plain_calls, root)
+    link = os.path.join(os.path.realpath(str(tmp_path_factory.mktemp("lnk"))), "repo_link")
+    os.symlink(root, link)
+    assert os.path.realpath(link) == root and link != root
+    link_calls = _spy_audit(monkeypatch)
+    capsys.readouterr()
+    ret, link_events = _run_helper(monkeypatch, root, spec, git_cwd=link)
+    assert ret is None
+    link_hits = _assert_b5a_warn(link_events, link_calls, root)
+    assert link_hits == plain_hits
+    assert capsys.readouterr().err == ""
 
 
 def test_b5b_cited_pinner_yields_clean(tmp_path, monkeypatch):
@@ -703,6 +757,38 @@ def test_b5f_always_returns_none_never_script_missing(tmp_path_factory, monkeypa
     assert seen == len(cases)
 
 
+def test_b5g_no_test_corpus_error_code_becomes_skipped_reason(tmp_path, monkeypatch):
+    root, spec = _stage_repo(tmp_path, _SPEC_UNCITED)
+    from bytedigger_engine import sibling_coupling
+
+    def no_corpus(*_a, **_k):
+        raise sibling_coupling.SiblingAuditError("E_NO_TEST_CORPUS")
+
+    monkeypatch.setattr(sibling_coupling, "audit", no_corpus)
+    ret, events = _run_helper(monkeypatch, root, spec)
+    assert ret is None
+    assert [(e[0], e[1].get("reason")) for e in events] == [
+        ("red_sibling_audit_skipped", "E_NO_TEST_CORPUS")]
+
+
+def test_b5h_allowlist_parse_exception_is_detector_error(tmp_path, monkeypatch):
+    root, spec = _stage_repo(tmp_path, _SPEC_UNCITED)
+    from bytedigger_engine.lib import run_allowlist
+    from bytedigger_engine.workflows import phase_5_implement as p5
+
+    def bad_parse(*_a, **_k):
+        raise ValueError("bad spec")
+
+    monkeypatch.setattr(p5, "_parse_spec_files_allowlist", bad_parse, raising=False)
+    monkeypatch.setattr(run_allowlist, "parse_spec_files_allowlist", bad_parse)
+    ret, events = _run_helper(monkeypatch, root, spec)
+    assert ret is None
+    assert len(events) == 1
+    assert events[0][0] == "red_sibling_audit_skipped"
+    assert events[0][1]["reason"] == "detector_error"
+    assert events[0][1]["error"] == "ValueError"
+
+
 # ---- B6 / B7: static --------------------------------------------------------
 
 def test_b6a_phase5_and_flags_cleaned():
@@ -715,28 +801,18 @@ def test_b6a_phase5_and_flags_cleaned():
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_sibling_audit_warn"]
     assert len(calls) >= 2
     for c in calls:
-        assert "spec_path" in [k.arg for k in c.keywords]
+        kws = {k.arg: k.value for k in c.keywords}
+        assert "spec_path" in kws
+        assert ast.unparse(kws["spec_path"]) == "prev.data.get('spec_path')"
     assert "HAL_SIBLING_AUDIT_BIN" not in flags_catalog.FLAGS
-
-
-_STDLIB_FALLBACK = {
-    "__future__", "argparse", "ast", "bisect", "collections", "dataclasses", "fnmatch",
-    "functools", "glob", "io", "itertools", "json", "os", "pathlib", "re", "sys",
-    "subprocess", "tokenize", "typing", "shlex", "textwrap", "string", "operator",
-}
 
 
 def test_b6b_module_is_stdlib_only_and_agnostic():
     src = Path(MODULE_PATH).read_text(encoding="utf-8")
     tree = ast.parse(src)
-    stdlib = getattr(sys, "stdlib_module_names", None) or _STDLIB_FALLBACK
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for a in node.names:
-                assert a.name.split(".")[0] in stdlib, a.name
-        elif isinstance(node, ast.ImportFrom):
+        if isinstance(node, ast.ImportFrom):
             assert node.level == 0
-            assert (node.module or "").split(".")[0] in stdlib, node.module
             if node.module == "os":
                 assert not any(a.name in ("environ", "getenv") for a in node.names)
         elif isinstance(node, ast.Attribute):
@@ -748,7 +824,17 @@ def test_b6b_module_is_stdlib_only_and_agnostic():
     assert len(sub_calls) <= 1
     for c in sub_calls:
         assert "rev-parse" in ast.dump(c)
+    # whole source, comments and docstrings included
     assert re.search(r"(?i)anthropic|claude|openai|jev|pydantic|sonnet|opus|haiku", src) is None
+    stdlib = getattr(sys, "stdlib_module_names", None)
+    if stdlib is None:
+        pytest.skip("sys.stdlib_module_names needs Python 3.10+")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                assert a.name.split(".")[0] in stdlib, a.name
+        elif isinstance(node, ast.ImportFrom):
+            assert (node.module or "").split(".")[0] in stdlib, node.module
 
 
 def test_b7_core_manifest_and_escape_allowlist():
@@ -762,3 +848,137 @@ def test_b7_core_manifest_and_escape_allowlist():
             allow = ast.literal_eval(node.value)
     assert allow is not None
     assert "sibling-test-audit.sh" not in allow
+
+
+# ---- B8 (r2): gate r1 MAJOR-1..4 + MINOR-4 -----------------------------------
+
+def test_b8a_no_spec_require_clean_all_rows_missing():
+    r = _cli(["--scope-file", PROD_VALUE_CONST, "--require-clean", "--test-glob", TESTS_GLOB])
+    assert "Traceback" not in r.stderr, r.stderr
+    rows = _rows(r)
+    assert len(rows) >= 1
+    assert all(len(f) == 6 and f[F_VERDICT] == "MISSING" for f in rows)
+    assert r.returncode == 1, r.stderr
+
+
+def test_b8b_graph_json_list_is_graph_unreadable(tmp_path):
+    graph = os.path.join(os.path.realpath(str(tmp_path)), "graph_list.json")
+    Path(graph).write_text("[]")
+    r = _cli([
+        "--scope-file", PROD_CALLEE, "--channels", "call-site",
+        "--test-glob", TESTS_GLOB, "--graph", graph, "--json",
+    ])
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["call_site"]["reason"] == "graph_unreadable"
+    assert "W_GRAPH_UNREADABLE" in r.stderr
+
+
+def test_b8c_internal_crash_exits_2_not_1(monkeypatch, capsys):
+    from bytedigger_engine import sibling_coupling as sc
+
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(sc, "audit", boom)
+    argv = ["--scope-file", PROD_VALUE_CONST, "--test-glob", TESTS_GLOB]
+    capsys.readouterr()
+    rc = sc.main(list(argv))
+    cap = capsys.readouterr()
+    assert rc == 2
+    assert "E_SIBLING_AUDIT_INTERNAL" in cap.err
+    rc_json = sc.main(list(argv) + ["--json"])
+    cap_json = capsys.readouterr()
+    assert rc_json == 2
+    obj = json.loads(cap_json.out)
+    assert obj["exit"] == 2
+    assert obj["rows"] == []
+    assert "E_SIBLING_AUDIT_INTERNAL" in str(obj.get("error"))
+
+
+def test_b8d_no_stale_cache_between_audit_calls(tmp_path):
+    from bytedigger_engine import sibling_coupling as sc
+    root = os.path.realpath(str(tmp_path))
+    scope = os.path.join(root, "stale_target.py")
+    Path(scope).write_text('STALE_BANNER = "bd165-stale-cache-banner-value"\n')
+    pin = os.path.join(root, "test_pin.py")
+    other = os.path.join(root, "test_other.py")
+    Path(pin).write_text('def test_pin():\n    assert "bd165-stale-cache-banner-value"\n')
+    Path(other).write_text("def test_other():\n    assert True\n")
+    first = sc.audit([scope], corpus_root=root)
+    assert any(os.path.basename(row[0]) == "test_pin.py" for row in first.rows)
+    Path(pin).write_text("def test_pin():\n    assert 1 + 1 == 2\n")
+    second = sc.audit([scope], corpus_root=root)
+    assert not any(os.path.basename(row[0]) == "test_pin.py" for row in second.rows)
+
+
+def test_b8e_error_paths_exit_2_with_codes():
+    from bytedigger_engine import sibling_coupling as sc
+    with pytest.raises(sc.SiblingAuditError) as ei:
+        sc.audit([])
+    assert ei.value.code == "E_NO_SCOPE_FILES"
+    base = ["--scope-file", PROD_VALUE_CONST, "--test-glob", TESTS_GLOB]
+    spec = _cli(base + ["--spec", "/nonexistent/gh1200/spec.md"])
+    assert spec.returncode == 2
+    assert "E_SCOPE_FILE_UNREADABLE" in spec.stderr
+    neg = _cli(base + ["--max-keys", "-1"])
+    assert neg.returncode == 2
+    assert "Traceback" not in neg.stderr, neg.stderr
+    legacy = _cli(base + ["--substrings", "X"])
+    assert legacy.returncode == 2
+    assert "Traceback" not in legacy.stderr, legacy.stderr
+
+
+def test_b8f_channels_without_call_site_is_channel_off():
+    r = _cli([
+        "--scope-file", PROD_CALLEE, "--channels", "import,value-literal",
+        "--test-glob", TESTS_GLOB, "--json",
+    ])
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["call_site"]["reason"] == "channel_off"
+
+
+def test_b8g_git_root_unresolved_warning_only_without_corpus_root(tmp_path, monkeypatch):
+    from bytedigger_engine import sibling_coupling as sc
+    root = os.path.realpath(str(tmp_path))
+    scope = os.path.join(root, "gitless_target.py")
+    Path(scope).write_text('GITLESS = "bd165-gitless-banner-value"\n')
+    Path(root, "test_gitless.py").write_text("# mentions gitless_target.py\n")
+    monkeypatch.delenv("GIT_DIR", raising=False)
+    monkeypatch.delenv("GIT_WORK_TREE", raising=False)
+    probe = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root,
+                           capture_output=True, text=True, timeout=60)
+    if probe.returncode == 0:
+        pytest.skip("tmp dir is inside a git repo; cannot stage a gitless root")
+    given = sc.audit([scope], corpus_root=root)
+    assert not any(w.startswith("W_GIT_ROOT_UNRESOLVED") for w in given.warnings)
+    monkeypatch.chdir(root)
+    default = sc.audit([scope])
+    assert any(w.startswith("W_GIT_ROOT_UNRESOLVED") for w in default.warnings)
+    assert len(default.rows) >= 1
+
+
+def test_b8h_scope_file_that_is_a_corpus_test_is_excluded():
+    scope = os.path.join(FX, "tests", "test_value_pin.py")
+    assert os.path.isfile(scope)
+    r = _cli(["--scope-file", scope, "--test-glob", TESTS_GLOB])
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.returncode == 0, r.stderr
+    assert [f for f in _rows(r) if os.path.realpath(f[F_FILE]) == os.path.realpath(scope)] == []
+
+
+def test_b8i_error_codes_registered_in_registry_and_both_docs():
+    from bytedigger_engine import error_codes
+    codes = [
+        "E_UNKNOWN_CHANNEL", "E_SCOPE_FILE_UNREADABLE", "E_NO_TEST_CORPUS",
+        "E_NO_SCOPE_FILES", "E_PARTIAL_CHANNELS_GATE", "E_SIBLING_AUDIT_INTERNAL",
+    ]
+    docs = [
+        Path(ENGINE_DIR, "ERROR_CODES.md").read_text(encoding="utf-8"),
+        Path(ENGINE_DIR, "bytedigger_engine", "ERROR_CODES.md").read_text(encoding="utf-8"),
+    ]
+    for code in codes:
+        assert code in error_codes.ERROR_CODES, code
+        for text in docs:
+            assert "- `%s`" % code in text, code
