@@ -63,7 +63,7 @@ Definitions:
   orchestrator) have none and are never blocked by R5–R7.
 - **Role (m3)** = `agent_type` if it has no `:`; the part after `bytedigger:` if it starts with
   `bytedigger:`; otherwise (another plugin's `x:explorer`) the full string. **Read-only
-  roles** = `explorer`, `architect`, `synthesizer` — so bare names (agents copied into
+  roles** (Rev 4: `synthesizer` only, see §R4) = `explorer`, `architect`, `synthesizer` — so bare names (agents copied into
   `.claude/agents/`) and `bytedigger:` names are restricted; `x:explorer` is not.
 - **Target** = the path string made absolute against `cwd`, then `os.path.realpath` (symlinks
   and `..` resolved; a not-yet-existing leaf resolves through its existing parents).
@@ -150,7 +150,7 @@ there; NTFS alias names (trailing dot/space, 8.3 short names); Claude Code < 2.1
 - A7 no python3 on PATH → exit 0 + the WARN line.
 - A8 docs: `docs/plugin.md` hooks table row; `docs/security.md` names the hook and every §4 known limit
   (m5, n1); CHANGELOG entry; CI `manifests` job runs the new test file.
-- A11 (CR1) each of the three added protected names → R5 for a general-purpose subagent;
+- A11 (Rev 4: CR3 cases superseded, see §R4) (CR1) each of the three added protected names → R5 for a general-purpose subagent;
   main thread may write them. (CR3) explorer → `reviews/x.md` and synthesizer →
   `research/x.md` are R7; architect → `architecture/security-review.md` allowed.
   (CR7) `docs/security.md` and CHANGELOG do not claim the main thread is never blocked; they
@@ -168,7 +168,8 @@ JSON on stdin in a tmp dir), added to CI `manifests`.
 - **Read-only roles = `synthesizer` only (r3 F2/F3).** bd#89 P2a deleted `agents/explorer.md` and
   `agents/architect.md`; their rows were dead and only matched a user's own same-name agents.
   `ROLE_DIR = {synthesizer: reviews}`. `explorer` / `architect` (bare or `bytedigger:`) are
-  ordinary subagents: R5 applies, R6/R7 do not. Escape tests move to synthesizer/`reviews/`.
+  ordinary subagents: R5 applies, R6/R7 do not. Escape tests move to synthesizer/`reviews/`. An explorer-named agent may now write
+  `reviews/learnings-raw.md`; accepted, since no bytedigger flow spawns explorer after P2a.
   Wherever the sections above list three roles, read synthesizer only.
 - **Limits (r3 F1/F4/F5), `docs/security.md` + CHANGELOG:** engine_py runs (any backend,
   including API tokens) keep no `build-state.yaml` and fire no plugin hooks, so they get no subagent

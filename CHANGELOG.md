@@ -51,7 +51,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   `build-red-output.log`, `build-green-output.log` and `.bytedigger-orchestrator-pid`, and
   confines `synthesizer` to `<scratchpad>/reviews/`. These rules (R5–R7) never apply to the
   main thread, which is blocked only on malformed tool input; unreadable input fails closed. Known limits (Bash writes and
-  others) are listed in `docs/security.md`. Hook-less backends and engine workers started as `claude -p` get no guard.
+  others) are listed in `docs/security.md`. engine_py runs (any backend) and their `claude -p` workers get no guard.
 - **Weekly companion tuning (bd#117, Part B).** New `scripts/companion-tune collect|propose`
   (`bytedigger_engine/companion_tune.py`). `collect` reads maintainer corrections (a reopened issue closed
   by a BD-built PR, a watched label added or removed) into `signals.json`; `propose` asks one model call for

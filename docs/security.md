@@ -67,15 +67,16 @@ an active build, or the check itself fails, the hook blocks (fail closed).
 Known limits, not fixed by this hook:
 
 - Bash writes. The hook sees file tools only; a general worker with Bash can still
-  write with `echo > build-state.yaml`. The read-only roles have no Bash.
+  write with `echo > build-state.yaml`. The synthesizer has no Bash.
 - Orchestrator `cd` into a subdir that persists. The hook reads `build-state.yaml` only
   from the working directory, so with no state file there the guard is off.
 - Stale state after a worktree build. A `build-state.yaml` left in the main checkout
   keeps the guard on there. A FAILED build also keeps `build-state.yaml`, so the guard
   stays on in that checkout until it is cleaned up.
 - engine_py runs on any backend, including API-token backends. It keeps no
-  `build-state.yaml` and fires no plugin hooks, so it gets no subagent guard (the
-  `build-gate.sh` checks still apply on the plugin path). Engine workers started as
+  `build-state.yaml` and fires no plugin hooks, so it gets no subagent guard. Those runs rely on
+  the engine's own write manifest and test-integrity diff guard (above); `build-gate.sh`
+  covers only the plugin path. Engine workers started as
   `claude -p` are separate main-thread sessions, not subagents.
 - NTFS alias names (trailing dot or space, 8.3 short names) are not recognised as the
   protected file names.
