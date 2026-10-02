@@ -1,6 +1,6 @@
 # bd#141 item 4 (b): `oracle verify` host CLI
 
-**Status:** r2 (gate r1 REJECTED: 2 MAJOR + 7 MINOR, all addressed; see `2026-10-02-bd141-p4b-oracle-cli-gate-r1.md`) · **Tier:** 2 (one engine prod `.py` + one new test file, Option D) ·
+**Status:** r2.1 (gate r2 APPROVED, its 4 MINOR folded in; gate r1 REJECTED: 2 MAJOR + 7 MINOR, all addressed; see `2026-10-02-bd141-p4b-oracle-cli-gate-r1.md`) · **Tier:** 2 (one engine prod `.py` + one new test file, Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `conformance/oracle.read_log_events` (the single reader of the
 event log for freeze and verify) + `find_last_freeze`/`verify_against` (the single verdict path).
 **Source:** bd#154 (bd#141 item 4(b), §7.4 portable set). Pattern: the `bd_l3` CLI of #156
@@ -80,7 +80,11 @@ whitespace; unknown flag (even with a valid log — no `parse_known_args`); a po
 `KeyError`/`TypeError`/`AttributeError`/`ValueError` raised (not `OracleRefusal`) inside the one
 `try` that encloses `find_last_freeze`, `frozen["payload"]`, `verify_against` and the
 `current_digest` computation, plus a found payload that is not an object or whose `digest` is not a
-`str`. stdout is written with `json.dumps(..., allow_nan=False)`, so the one line is always valid JSON.
+`str`. Check order: the payload-is-object and `digest`-is-`str` checks run on the found freeze BEFORE
+`verify_against` (gate r2). This is the one declared divergence from the engine, which would let such a
+row raise (bd#158); a host sees rc 2 where the engine crashes. The parser is built with
+`allow_abbrev=False`, so `--event` / `--run` / `--scratch` abbreviations are unknown flags (rc 2).
+stdout is written with `json.dumps(..., allow_nan=False)`, so the one line is always valid JSON.
 
 Mode: read-only. Never writes or appends to `P`, never writes under `D`, creates no directory.
 
@@ -150,5 +154,5 @@ In: `engine_py/bytedigger_engine/conformance/oracle.py`; new test
 - The hal-v2 shadow adapter and its host-controls entry.
 - `--json`-less human output, a `freeze` subcommand (a host must not freeze; only the oracle phase does).
 - Engine-side malformed payloads: `run._oracle_entry_verify` (run.py:152) still lets
-  `AttributeError`/`KeyError` escape on AC9's malformed rows — follow-up issue (gate r1 MINOR 9).
+  `AttributeError`/`KeyError` escape on AC9's malformed rows — follow-up bd#158 (gate r1 MINOR 9).
 - Entry-vs-exit distinction: entry and exit verify run the same two calls; the CLI is one verify.
