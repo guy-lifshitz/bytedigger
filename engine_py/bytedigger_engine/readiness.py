@@ -12,6 +12,10 @@ it. At stage ``ship`` an approved verdict is *consumed* before anything is
 pushed: BD posts a consumption record, re-reads the comments, and removes the
 label. BD never adds the label.
 
+Stage ``review`` (bd#141 item 6) is an optional second signal: when the policy
+sets ``review_label``, the same decision runs against that label. It is OFF
+without the key, and it never posts, consumes or removes anything.
+
 Exit codes of the CLI: 0 off/approved/done, 2 usage, 3 not approved, 4 unavailable.
 stdlib + the ``git`` / ``gh`` binaries only.
 """
@@ -118,6 +122,7 @@ class _Policy(NamedTuple):
     label: str
     approvers: list[str]
     distinct_actor: bool
+    review_label: str | None = None
 
 
 class _Comment(NamedTuple):
@@ -283,15 +288,19 @@ def _load_policy(repo: Path) -> _Policy | None:
     label = cfg.get("label", LABEL_DEFAULT)
     approvers = cfg.get("approvers", [])
     distinct_actor = cfg.get("distinct_actor", False)
+    review_label = cfg.get("review_label")  # absent / null = review gate off
     if (
         not isinstance(required, bool) or not isinstance(label, str) or not label
         or not isinstance(approvers, list) or not all(isinstance(a, str) for a in approvers)
         or not isinstance(distinct_actor, bool)
+        or (review_label is not None and (
+            not isinstance(review_label, str) or not review_label
+            or review_label.casefold() == label.casefold()))
     ):
         raise _Unavailable("readiness has fields of the wrong type", policy=True)
     if not required:
         return None
-    return _Policy(push_url, label, list(approvers), distinct_actor)
+    return _Policy(push_url, label, list(approvers), distinct_actor, review_label)
 
 
 def _parse_github(push_url: str) -> tuple[str, str]:
@@ -582,13 +591,15 @@ class _Bound(NamedTuple):
     issue: int
 
 
-def _bind(res: dict[str, Any], repo: Path) -> _Bound | None:
+def _bind(res: dict[str, Any], repo: Path, stage: str = "start") -> _Bound | None:
     """Shared prologue: policy -> repo -> branch -> issue. None = nothing more to do (``res`` is final)."""
     pol = _load_policy(repo)
     if pol is None:
         return None  # off
+    if stage == "review" and pol.review_label is None:
+        return None  # review gate off: no mutation of ``res``, no issue binding
     res["required"] = True
-    res["label"] = pol.label
+    res["label"] = pol.review_label if stage == "review" else pol.label
     owner, name = _parse_github(pol.push_url)
     branch = _current_branch(repo)
     issue = parse_issue_from_branch(branch)
@@ -600,12 +611,18 @@ def _bind(res: dict[str, Any], repo: Path) -> _Bound | None:
 
 
 def _evaluate(res: dict[str, Any], repo: Path, stage: str, spec_path: str | None) -> None:
-    bound = _bind(res, repo)
+    bound = _bind(res, repo, stage)
     if bound is None:
         return
     pol, owner, name, branch, issue = bound
     spec_text = _read_spec_file(spec_path) if (stage == "start" and spec_path) else None
     snap = _read_issue(repo, owner, name, issue)
+    if stage == "review":
+        # bd#141 item 6: same table with the review label; never consumes, never posts.
+        assert pol.review_label is not None
+        decision = _decide(snap, pol._replace(label=pol.review_label), branch, stage, None)
+        res.update(verdict=decision.verdict, reason=decision.reason, record_sha256=decision.sha)
+        return
     decision = _decide(snap, pol, branch, stage, spec_text)
     res.update(verdict=decision.verdict, reason=decision.reason, record_sha256=decision.sha)
     if decision.verdict != "APPROVED" or stage != "ship" or decision.retry:
@@ -630,8 +647,8 @@ def _run_guarded(res: dict[str, Any], body: Any) -> bool:
 
 
 def _verdict(repo: str | Path, stage: str, spec_path: str | None) -> tuple[dict[str, Any], bool]:
-    if stage not in ("start", "ship"):
-        raise ValueError(f"stage must be 'start' or 'ship', got {stage!r}")
+    if stage not in ("start", "review", "ship"):
+        raise ValueError(f"stage must be 'start', 'review' or 'ship', got {stage!r}")
     res = _default_result()
     policy_failure = _run_guarded(res, lambda: _evaluate(res, Path(repo), stage, spec_path))
     return res, policy_failure
@@ -687,7 +704,7 @@ def _report(res: dict[str, Any], *, policy_failure: bool, stage: str) -> int:
         return 3
     if kind == "UNAVAILABLE":
         print(f"W_READINESS_UNAVAILABLE {res['reason']}", file=sys.stderr)
-        return 0 if (stage == "start" and policy_failure) else 4
+        return 0 if (stage in ("start", "review") and policy_failure) else 4
     return 0
 
 
@@ -709,7 +726,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="readiness", description="bd#117 readiness gate")
     sub = parser.add_subparsers(dest="cmd", required=True)
     check = sub.add_parser("check", help="evaluate the gate (at --stage ship: also consume)")
-    check.add_argument("--stage", required=True, choices=("start", "ship"))
+    check.add_argument("--stage", required=True, choices=("start", "review", "ship"))
     check.add_argument("--spec", default=None)
     check.add_argument("--repo", default=".")
     check.add_argument("--json", action="store_true")

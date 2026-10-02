@@ -260,7 +260,7 @@
 
 ## E_READINESS
 
-- `E_READINESS_NOT_APPROVED` — readiness/phase_5_implement/phase_8_post_deploy: the bound issue has no current `plan-approved` approval (bd#117) — refused by the phase_5_implement start gate before RED (bd#141 item 6) or by the phase_8_post_deploy ship gate before any push
+- `E_READINESS_NOT_APPROVED` — readiness/phase_5_implement/phase_8_post_deploy: the bound issue has no current `plan-approved` approval (bd#117) — refused by the phase_5_implement start gate before RED (bd#141 item 6) or by the phase_8_post_deploy ship gate before any push — or no current review label (readiness.review_label) — refused by the phase_6_review review gate before the reviewers spawn (bd#141 item 6)
 - `E_READINESS_UNAVAILABLE` — readiness/phase_8_post_deploy: the readiness policy or the issue could not be read (git/gh/network failure); fails closed before any push (bd#117)
 
 ## E_RED
