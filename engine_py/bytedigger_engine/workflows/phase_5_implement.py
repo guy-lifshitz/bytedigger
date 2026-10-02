@@ -6903,11 +6903,11 @@ def _fm_parse_head(text: str) -> "tuple[list[str], str] | None":
 
 
 def _fm_section(text: str, title: str) -> "str | None":
-    m = re.search(rf"^##[ \t]+{re.escape(title)}\b[^\n]*$", text, re.IGNORECASE | re.MULTILINE)
+    m = re.search(rf"^(#{{1,6}})[ \t]+{re.escape(title)}\b[^\n]*$", text, re.IGNORECASE | re.MULTILINE)
     if not m:
         return None
     rest = text[m.end():]
-    nxt = re.search(r"^#{1,2}[ \t]", rest, re.MULTILINE)
+    nxt = re.search(rf"^#{{1,{len(m.group(1))}}}[ \t]", rest, re.MULTILINE)
     return rest[: nxt.start()] if nxt else rest
 
 
@@ -7050,7 +7050,7 @@ def _forward_map_coverage(
         reason: "str | None" = None
         if not tails:
             reason = "absent"
-        elif any(re.search(r"\bMISSING\b", t) for t in tails):
+        elif any(re.search(r"`MISSING`", t) for t in tails):
             reason = "MISSING"
         else:
             cited = False
