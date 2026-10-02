@@ -7940,7 +7940,7 @@ def _validation_cycle_loop_execute(ctx, prev) -> StepResult:
         return refusal
     cap = _resolve_validation_cycle_cap(getattr(ctx, "org_config", None))
     contract = build_validation_loop_contract(cap)
-    reroute =(getattr(ctx, "org_config", None) or {}).get("phase_reroute")
+    reroute = (getattr(ctx, "org_config", None) or {}).get("phase_reroute")
     run_ctx = telemetry_ctx.get_current_run()
     if reroute and run_ctx is not None:
         attempt = reroute.get("attempt")
