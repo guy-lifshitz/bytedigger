@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from pathlib import Path
 
@@ -119,17 +120,55 @@ class EvaluateTrue(DigestAdapter):
 
 
 class SleepingEvaluate(DigestAdapter):
+    def __init__(self):
+        super().__init__()
+        self.entered = threading.Event()
+
     def evaluate(self, state):
         self.calls.append("evaluate")
-        time.sleep(2.0)
+        self.entered.set()
+        time.sleep(5.0)
         return _oracle().OracleOutcome.ACCEPTED
 
 
 class SleepingFreeze(DigestAdapter):
+    def __init__(self):
+        super().__init__()
+        self.entered = threading.Event()
+
     def freeze(self, paths, *, root):
         self.calls.append("freeze")
-        time.sleep(2.0)
+        self.entered.set()
+        time.sleep(5.0)
         return self._digest(root, list(paths))
+
+
+class FreezeKeyboardInterrupt(DigestAdapter):
+    def freeze(self, paths, *, root):
+        raise KeyboardInterrupt()
+
+
+class FreezeSystemExit(DigestAdapter):
+    def freeze(self, paths, *, root):
+        raise SystemExit(3)
+
+
+class EvaluateKeyboardInterrupt(DigestAdapter):
+    def evaluate(self, state):
+        raise KeyboardInterrupt()
+
+
+class EvaluateSystemExit(DigestAdapter):
+    def evaluate(self, state):
+        raise SystemExit(3)
+
+
+class SubscriptionDigest(DigestAdapter):
+    identity = {"backend": "subscription-session", "source": "env"}
+
+
+class ApiTokenDigest(DigestAdapter):
+    identity = {"backend": "api-token", "source": "kwarg"}
 
 
 class SubscriptionUnavailable(_Base):
@@ -205,13 +244,38 @@ def test_ac3_reject_all_adapter_is_not_a_defence():
 def test_ac4_failing_adapter_degrades_to_indeterminate(kind):
     h = _h()
     assert h.OUTCOME_INDETERMINATE == "indeterminate"
+    adapter = _DEGRADE[kind]()
+    t0 = time.monotonic()
     out = h.run_adversaries(
-        only=("ADV-1", "ADV-2"), adapter=_DEGRADE[kind](), timeout_s=0.2
+        only=("ADV-1", "ADV-2"), adapter=adapter, timeout_s=0.2
     )
+    elapsed = time.monotonic() - t0
     assert out == {
         "ADV-1": h.OUTCOME_INDETERMINATE,
         "ADV-2": h.OUTCOME_INDETERMINATE,
     }
+    assert elapsed < 2.5, f"guard waited for the hung adapter ({elapsed:.2f}s)"
+    if kind in ("evaluate_sleeps", "freeze_sleeps"):
+        # The stub is still asleep (5s): the abandoned worker must be a daemon.
+        assert adapter.entered.wait(1.0)
+        main = threading.main_thread()
+        non_daemon = [
+            t.name for t in threading.enumerate()
+            if t is not main and t.is_alive() and not t.daemon
+        ]
+        assert non_daemon == []
+
+
+@pytest.mark.parametrize("cls,exc", [
+    (FreezeKeyboardInterrupt, KeyboardInterrupt),
+    (FreezeSystemExit, SystemExit),
+    (EvaluateKeyboardInterrupt, KeyboardInterrupt),
+    (EvaluateSystemExit, SystemExit),
+])
+def test_ac4b_interrupts_propagate(cls, exc):
+    h = _h()
+    with pytest.raises(exc):
+        h.run_adversaries(only=("ADV-1",), adapter=cls(), timeout_s=5.0)
 
 
 # --------------------------------------------------------------------------
@@ -255,7 +319,13 @@ def test_ac6_non_oracle_adversaries_not_executed_and_adapter_not_called():
     assert h.run_adversaries(only=("ADV-99",), adapter=c) == {"ADV-99": "not_executed"}
     assert c.calls == []
 
+    d = DigestAdapter()
+    assert h.run_adversaries(only=("ADV-9",), adapter=d) == {"ADV-9": "not_executed"}
+    assert d.calls == []
+
     full = h.run_adversaries(adapter=DigestAdapter())
+    assert set(full) == set(h.ADVERSARIES)
+    assert len(full) == 9
     assert full["ADV-1"] == h.OUTCOME_DEFENDED
     assert full["ADV-2"] == h.OUTCOME_DEFENDED
     for n in _NON_ORACLE:
@@ -324,9 +394,31 @@ def test_ac8_malformed_identity_raises_value_error():
     class BadSource:
         identity = {"backend": "b", "source": 123}
 
-    for bad in (Missing(), EmptyBackend(), BadSource()):
+    class NoneIdentity:
+        identity = None
+
+    class StrIdentity:
+        identity = "b/s"
+
+    class ListIdentity:
+        identity = ["backend", "source"]
+
+    class NoneBackend:
+        identity = {"backend": None, "source": "s"}
+
+    for bad in (Missing(), EmptyBackend(), BadSource(), NoneIdentity(),
+                StrIdentity(), ListIdentity(), NoneBackend()):
         with pytest.raises(ValueError):
             h.adapter_identity(bad)
+
+
+@pytest.mark.parametrize("cls", [SubscriptionDigest, ApiTokenDigest])
+def test_ac8_conforming_adapter_of_each_identity_shape_is_defended(cls):
+    h = _h()
+    a = cls()
+    out = h.run_adversaries(only=("ADV-1", "ADV-2"), adapter=a)
+    assert out == {"ADV-1": h.OUTCOME_DEFENDED, "ADV-2": h.OUTCOME_DEFENDED}
+    assert h.adapter_identity(a) == dict(cls.identity)
 
 
 # --------------------------------------------------------------------------
@@ -382,6 +474,12 @@ _FACTORY_SRC = textwrap.dedent('''
 
     def make_raises():
         raise RuntimeError("factory boom")
+
+    class StrIdent(Digest):
+        identity = "cli-backend/cli-source"
+
+    def make_strident():
+        return StrIdent()
 ''')
 
 _MOD = "bd195_cli_factories"
@@ -420,7 +518,8 @@ def test_ac9_cli_overclaim_exit_1_json_still_written(tmp_path):
     r = _cli(tmp_path, f"{_MOD}:make_digest", "BD-L2", "--out", str(out))
     assert r.returncode == 1
     assert r.stderr.strip() != ""
-    att = json.loads(out.read_text(encoding="utf-8"))
+    assert "level_claimed" in r.stderr
+    att =json.loads(out.read_text(encoding="utf-8"))
     assert att["level_claimed"] == "BD-L2"
     assert att["level_achieved"] == "BD-L1"
 
@@ -446,10 +545,20 @@ def test_ac9_cli_unavailable_backend_claim_l0_exit_0_indeterminate(tmp_path):
     f"{_MOD}:no_such_attribute",
     f"{_MOD}:make_raises",
     f"{_MOD}:make_noidentity",
+    f"{_MOD}:make_strident",
 ])
 def test_ac9_cli_exit_2_writes_nothing(tmp_path, spec):
     out = tmp_path / "never.json"
     r = _cli(tmp_path, spec, "BD-L0", "--out", str(out))
+    assert r.returncode == 2, (r.returncode, r.stderr)
+    assert r.stdout == ""
+    assert not out.exists()
+
+
+def test_ac9_cli_identity_override_flag_is_rejected_exit_2(tmp_path):
+    out = tmp_path / "never.json"
+    r = _cli(tmp_path, f"{_MOD}:make_digest", "BD-L1",
+             "--adapter-identity", "x", "--out", str(out))
     assert r.returncode == 2, (r.returncode, r.stderr)
     assert r.stdout == ""
     assert not out.exists()

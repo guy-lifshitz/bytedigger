@@ -44,7 +44,7 @@ issue, same pattern as ADV-11 in §8).
    - **ADV-1 / ADV-2.** These run the adapter protocol below. Engine probes are NOT used.
    - **Other names in `ADVERSARIES`.** These are recorded as `tokens.ADVERSARY_NOT_EXECUTED`. The
      adapter is not called for them.
-   - **Unknown names.** These are recorded as `not_executed`, as they are today.
+   - **Unknown names, and ADV-9.** These are recorded as `not_executed`, as they are today, with zero adapter calls.
 4. **Adapter protocol for ADV-1 / ADV-2.** The harness owns a fresh temporary directory `root`
    containing `root/specs/a.md`. `members(root)` is the non-recursive listing of regular files
    under `root/specs`, as absolute `Path`s sorted by name, taken with `iterdir`.
@@ -66,21 +66,21 @@ issue, same pattern as ADV-11 in §8).
      - `ACCEPTED` gives **undefended**.
      - `INDETERMINATE` gives **indeterminate**.
    - **Guard on `freeze`.** `freeze` runs under the same daemon-thread guard semantics as
-     `evaluate_guarded`, with the same timeout. An `Exception` gives indeterminate.
+     `evaluate_guarded`, with the same timeout: a daemon worker thread that is abandoned, never joined, when the timeout expires. The run therefore returns after about `timeout_s`, even against a `freeze` or `evaluate` that never returns. An `Exception` gives indeterminate.
      `KeyboardInterrupt` and `SystemExit` are re-raised. `oracle.py` is NOT edited.
    - **No crash.** Any other `Exception` raised in the harness's own adapter path gives
      indeterminate. Under an adapter, a failure is never `errored` and never `defended`, and it
      never crashes the run.
 5. **Identity.** `adapter_identity(adapter) -> dict[str, str]` (public) reads `adapter.identity`.
-   That attribute must be a `Mapping` whose `backend` and `source` are non-empty `str`s. The
+   That attribute must be a `Mapping` (anything else, including `None`, a `str` or a list, raises `ValueError`) whose `backend` and `source` are non-empty `str`s (anything else raises `ValueError`). The
    function returns exactly `{"backend": ..., "source": ...}` (AC-E2b shape), and any other key is
    dropped. A missing or malformed identity raises `ValueError`. The harness knows no provider
    names: the values are copied, never interpreted.
 6. **CLI.** `python -m bytedigger_engine.conformance.harness --adapter <module:factory>`
-   `--level-claimed L --engine-version V --host-identity H [--timestamp T] [--timeout-s S] [--out PATH]`.
+   `--level-claimed L --engine-version V --host-identity H [--timestamp T] [--timeout-s S] [--out PATH]`. `--timeout-s` is optional and defaults to `30.0`.
    - **Loading.** The harness imports `module`, takes the attribute `factory`, and calls it with no
      arguments. It then runs `run_adversaries(adapter=..., timeout_s=S)` and builds the attestation
-     with `adapter_identity = adapter_identity(adapter)`. There is no flag that sets the identity.
+     with the keyword `adapter_identity=adapter_identity(adapter)`. There is no flag that sets the identity, and an unknown flag such as `--adapter-identity` is a usage error (exit 2).
    - **Output.** The attestation goes to `--out`, or to stdout when `--out` is not given, as one
      JSON object (`sort_keys=True`).
    - **Timestamp.** It defaults to the current UTC time in ISO-8601 with a `Z` suffix.
@@ -120,11 +120,18 @@ anything inside `bytedigger_engine/` on the path (bd#182).
   The unavailable backend comes in two shapes: a `subscription-session` adapter whose session
   probe raises `ConnectionError`, and an `api-token` adapter whose missing token raises a custom
   `ProviderUnavailable(Exception)`.
+  The stub sleep is 5 s against `timeout_s=0.2`, and `run_adversaries` must return in under 2.5 s by
+  `time.monotonic`. While a sleeping `freeze` is still asleep, every live non-main thread is a
+  daemon.
+- **AC4b (interrupts are not ours).** `KeyboardInterrupt` and `SystemExit` raised from `freeze`,
+  and the same two raised from `evaluate`, propagate out of `run_adversaries`. That is four cases,
+  each checked with `pytest.raises`.
 - **AC5 (indeterminate sinks the level).** With `indeterminate` on ADV-1 and everything else
   `defended`, `level_achieved` is `BD-L0`, and a `BD-L1` claim draws a complaint.
 - **AC6 (non-oracle adversaries are not borrowed).** When an adapter is given, ADV-3..ADV-8 and
   ADV-10 are `not_executed`, and the adapter is never called for them (call log). This holds for
-  `only=("ADV-3",)` too, and the adapter receives zero calls.
+  `only=("ADV-3",)` and `only=("ADV-9",)` too, and in both cases the adapter receives zero calls. A
+  full run under an adapter returns exactly the nine `ADVERSARIES` keys.
 - **AC7 (adapter=None unchanged).** Two checks:
   - `run_adversaries()` and `run_adversaries(adapter=None)` both equal the literal "all nine
     `defended`" mapping.
@@ -132,20 +139,27 @@ anything inside `bytedigger_engine/` on the path (bd#182).
     hard-coded expected string.
 - **AC8 (identity from the adapter).** `adapter_identity` returns exactly `{backend, source}` for a
   stub of each shape (`subscription-session`/`env`, `api-token`/`kwarg`), and an extra key is
-  dropped. It raises `ValueError` in three cases: the attribute is missing, `backend` is empty,
-  or `source` is not a `str`.
+  dropped. It raises `ValueError` in each of these cases:
+  - the attribute is missing
+  - `backend` is empty
+  - `source` is not a `str`
+  - `identity` is `None`, a `str` or a list
+  - `backend` is `None`
+  A conforming, stub-backed adapter of EACH shape gives ADV-1 = ADV-2 = `defended` (the issue asks
+  for both backend shapes).
 - **AC9 (CLI end-to-end).** These run in a subprocess, with `cwd` and `PYTHONPATH` set to
   `engine_py/` plus a temporary directory that holds the factory module.
   - Conforming adapter, `--level-claimed BD-L1`: exit 0. The JSON has
     `adapter_identity == {"backend": ..., "source": ...}` from the adapter, `level_achieved ==
     "BD-L1"`, and ADV-3 = `not_executed`.
   - The same adapter with `--level-claimed BD-L2`: exit 1, the JSON is still written, and stderr
-    is non-empty.
+    contains `level_claimed`.
   - Accept-all adapter, `--level-claimed BD-L1`: exit 1.
   - Unavailable-backend adapter, `--level-claimed BD-L0`: exit 0, with ADV-1 = `indeterminate`.
   - Exit 2, with nothing on stdout or in `--out`, in each of these cases: `--adapter nocolon`,
     an unimportable module, a missing attribute, a factory that raises, and an adapter with no
-    identity.
+    identity, an adapter whose identity is a `str`, and an extra
+    `--adapter-identity x` flag.
 - **AC10 (surface).** `__all__` gains exactly the following, the bd58 AC10 surface test still
   passes, and `_main` is private:
   - `OUTCOME_INDETERMINATE`
@@ -157,7 +171,7 @@ anything inside `bytedigger_engine/` on the path (bd#182).
 ## Not in scope (§1v)
 
 - Changes to `oracle.py`, `bd_l2`, `bd_l3`, `attest` or `tokens`.
-- Adapter operations for ADV-3..ADV-10 (follow-up).
+- Adapter operations for ADV-3..ADV-10 (follow-up: bd#197).
 - The HAL adapter itself (hal-v2#2226).
 - Cutting the release tag (`Released under a tag`). That is a post-merge release step, and the PR
   states it.
