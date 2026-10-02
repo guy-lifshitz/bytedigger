@@ -91,12 +91,16 @@ account they cannot tell the two apart. Approval binds the posted spec, not the 
 your host companion (`bytedigger/companions/<core>.md`, see the companion docs) and opens a PR for a human
 to review. It never merges, never pushes the default branch and never adds a label.
 
-- `collect [--repo .] [--since 7d] [--out signals.json]` reads two kinds of signal, both by a maintainer
+- `collect [--repo .] [--since 7d] [--out signals.json]` reads three kinds of signal, all by a maintainer
   (repository permission `admin` or `write`, not in `tuning.bot_logins`) inside the window: `reopened` (an
-  issue that a merged BD-built PR closes) and `relabeled` (a watched label added or removed on a BD-built PR
-  or on an issue it closes). The readiness label is never a signal. Comment text is never read.
+  issue that a merged BD-built PR closes), `relabeled` (a watched label added or removed on a BD-built PR
+  or on an issue it closes) and `reverted` (a maintainer merged, inside the window, a non-BD PR whose body
+  has a line that is exactly `Reverts <owner>/<repo>#<N>` for this repository, where PR `<N>` is a merged
+  BD-built PR; the first such line counts, and the signal's `actor` is whoever merged the revert PR, its
+  `id` is `reverted:<revert PR node id>`). A revert pushed straight to the default branch is not read.
+  The readiness label is never a signal. Comment text is never read.
   `signals.json` is `{"window": [from, to], "signals": [{id, kind, pr, issue, label, action, actor, title,
-  at}]}`; `action` is `"added"` or `"removed"` for `relabeled` and `null` for `reopened`.
+  at}]}`; `action` is `"added"` or `"removed"` for `relabeled` and `null` for `reopened` and `reverted`.
 - `propose --core <id> --signals signals.json [--llm-command <cmd>] [--dry-run]` asks one model call (default:
   `claude -p --model <fallback model> --tools ""`, the prompt on stdin; `--llm-command` is split with `shlex`
   and run without a shell) for the new
