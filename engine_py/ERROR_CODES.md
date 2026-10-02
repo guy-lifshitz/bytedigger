@@ -275,12 +275,14 @@
 - `E_RED_LINT_FAIL_CAP2` — phase_5_implement: RED lint preflight retry cap exhausted, still failing
 - `E_RED_LINT_PATH_ESCAPE` — phase_5_implement: RED lint target path escaped the allowed scope
 - `E_RED_LINT_SEMGREP_MISSING` — phase_5_implement: semgrep binary unavailable for RED lint step
+- `E_RED_LINT_TARGET_UNREADABLE` — phase_5_implement: a RED content-lint could not read its target file; 'no violations' is not established for it
 - `E_RED_LINT_TIMEOUT` — phase_5_implement: RED lint subprocess timed out
 - `E_RED_MASS_DELETION` — phase_5_implement: RED diff mass-deleted a pre-existing file beyond threshold (GH282 guard)
 - `E_RED_NOT_EXECUTABLE` — phase_5_implement: RED test file could not be executed at all
 - `E_RED_NOT_FAILING` — phase_5_implement: RED tests unexpectedly passed instead of failing
 - `E_RED_NO_MARKER` — phase_5_implement: RED subagent output missing required completion marker
 - `E_RED_NO_PATHS` — phase_5_implement: no RED test file paths were supplied to verify
+- `E_RED_ONE_SIDED_PREDICATE` — phase_5_implement: RED test contains a one-sided negative code-exit predicate (`expect(<code>).not.toBe(<int>)` / `.not.toBeNull()`) with no live positive control (`.toBe(<int>)`/`.toEqual(<int>)` on a code-like subject) in the same test block (Rule P, bd#166). Escape: `one-sided-ok: <reason>` on the line or up to 3 lines above; kill switch HAL_ONE_SIDED_PREDICATE_GATE=0
 - `E_RED_PYTEST_TIMEOUT` — phase_5_implement: RED pytest subprocess timed out
 - `E_RED_SCOPE_VIOLATION` — phase_5_implement: RED diff touched files outside declared scope
 - `E_RED_STUB_PASSABLE` — phase_5_implement: RED test mocks its own UUT, making it vacuously passable

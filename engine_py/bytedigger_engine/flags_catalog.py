@@ -298,7 +298,7 @@ FLAGS: dict[str, dict] = {
         "kind": "gate",
         "default": "1",
         "module": "workflows/phase_5_implement.py",
-        "description": "Kill-switch: HAL_ONE_SIDED_PREDICATE_GATE=0 disables the GH1373 Rule P one-sided negative code-exit predicate RED lint.",
+        "description": "Kill-switch: HAL_ONE_SIDED_PREDICATE_GATE=0 disables the bd#166 Rule P (HAL GH1373 port) one-sided negative code-exit predicate RED lint.",
     },
     "HAL_SCHEMA_SMOKE_GATE": {
         "kind": "gate",

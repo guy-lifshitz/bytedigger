@@ -26,10 +26,10 @@ of the compared expression, not a paren-counted slice; a candidate inside a
 string literal or a comment cannot be matched by accident; and `assert a == []`
 spread over three lines is one node rather than a line-window heuristic.
 
-`_CODEY` is DUPLICATED here, and that is a declared defect, not a choice: HAL
-imports it from Rule P (`one_sided_predicate.py`, §1g — one denominator-exclusion
-class, not two), and Rule P is not ported to bytedigger. See bd#66. When Rule P
-lands, this constant must be deleted and imported.
+The codey test (`is_codey`, `identifier_tokens`) is imported from Rule P
+(`one_sided_predicate.py`, §1g — one denominator-exclusion class, not two), as in
+HAL. It used to be duplicated here as a declared defect pending the Rule P port;
+bd#166 landed the port and moved the helper.
 
 NO ENFORCEMENT LAYER EXISTS FOR THIS MODULE IN BYTEDIGGER. The registry
 `precommit_lints.py` names three lint drivers, zero of which exist on disk, and
@@ -68,36 +68,16 @@ import re
 import sys
 from typing import Iterator, TypedDict
 
+from bytedigger_engine.one_sided_predicate import identifier_tokens, is_codey
+
 _VERDICT_WORDS = frozenset(
     "findings violations offenders divergences unwaived errors matches candidates records hits".split()
 )
-_CODEY_WORDS = frozenset("code rc exit exitcode returncode status".split())
-
-_TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])")
-
-
-def _tokens(subject: str) -> frozenset[str]:
-    """Identifier words in `subject`, split on separators AND on camelCase humps.
-
-    HAL states both classes as `\\b`-anchored regexes, which is correct for its
-    TypeScript corpus and WRONG here, measured: `\\bcode\\b` does not fire inside
-    `exit_code` because `_` is a word character, so `assert exit_code == 2` counted
-    as a live denominator — the exact defect edition E of the HAL rule exists to
-    fix. `\\brecords\\b` missed `corpus_records` the same way, under-detecting
-    controls. One root, two faces: a boundary written for camelCase does not hold
-    on snake_case. Splitting into tokens covers both spellings and is why this is a
-    port rather than a copy.
-    """
-    return frozenset(t.lower() for t in _TOKEN_SPLIT.split(subject) if t)
 
 
 def _names_population(subject: str) -> bool:
-    return bool(_tokens(subject) & _VERDICT_WORDS)
+    return bool(identifier_tokens(subject) & _VERDICT_WORDS)
 
-
-def _is_codey(subject: str) -> bool:
-    # Duplicated from HAL's one_sided_predicate.py — see "Port, not copy" and bd#66.
-    return bool(_tokens(subject) & _CODEY_WORDS)
 
 _ESCAPE_DETAIL = re.compile(r"empty-ok:\s*(#\d+)\s+(.*)")
 _ESCAPE_WINDOW = 4  # the candidate's own line plus the three above it
@@ -165,7 +145,7 @@ def _classify(src: str, test: ast.expr) -> tuple[str, str, str] | None:
             if _is_empty_literal(src, right) and _names_population(subj):
                 return ("candidate", subj, f"assert {form_subj} == {_seg(src, right) or '0'}")
             n = _positive_int(right)
-            if n is not None and n > 0 and not _is_codey(subj):
+            if n is not None and n > 0 and not is_codey(subj):
                 return ("control", subj, f"assert {form_subj} == {n}")
             return None
 
@@ -174,14 +154,14 @@ def _classify(src: str, test: ast.expr) -> tuple[str, str, str] | None:
             sym = ">" if isinstance(op, ast.Gt) else ">="
             # `> 0` and `>= 1` are denominators; `>= 0` is vacuous and is NOT one.
             live = n is not None and (n >= 0 if isinstance(op, ast.Gt) else n >= 1)
-            if live and not _is_codey(subj):
+            if live and not is_codey(subj):
                 return ("control", subj, f"assert {form_subj} {sym} {n}")
         return None
 
     # assert <subj>  — bare truthiness is a denominator when it names a population
     if isinstance(test, (ast.Name, ast.Attribute, ast.Call, ast.Subscript)):
         subj = _seg(src, test)
-        if _names_population(subj) and not _is_codey(subj):
+        if _names_population(subj) and not is_codey(subj):
             return ("control", subj, "assert <subj>")
     return None
 
