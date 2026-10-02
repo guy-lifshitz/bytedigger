@@ -213,6 +213,15 @@ def test_ac7_chokepoint_value_both_branches(stable_prefix):
 
 
 @pytest.mark.parametrize("stable_prefix", ["", "p"])
+def test_ac7_hard_gate_term_alone_forces_fresh_on_a_listed_worker_step(stable_prefix):
+    """role="worker" so the judge term cannot be what makes this fresh."""
+    seen = _register_warm_spy("bd101-warm")
+    _dispatch("bd101-warm", "invoke_green_llm", stable_prefix=stable_prefix, role="worker",
+              hard_gate=True)
+    assert [c["fresh_session"] for c in seen] == [True]
+
+
+@pytest.mark.parametrize("stable_prefix", ["", "p"])
 def test_ac7_backend_without_warm_resume_gets_no_fresh_session_key(stable_prefix):
     seen: list[dict] = []
 
@@ -242,7 +251,8 @@ def _hung(**kwargs):
     ("invoke_fix_llm", None, False),
     ("invoke_fix_llm", "judge", True),
 ])
-def test_ac8_fallback_forwards_the_effective_value(step_name, role, expected):
+def test_ac8_fallback_forwards_the_effective_value(monkeypatch, step_name, role, expected):
+    monkeypatch.delenv("HAL_AGENT_SDK_HANG_FALLBACK", raising=False)
     register_backend("agent-sdk", _hung, manifest_source="harness_tool_record",
                      capabilities={"tool_allowlist"}, overwrite=True)
     seen = _register_warm_spy("claude-subprocess")
@@ -269,6 +279,23 @@ def test_ac9_agent_sdk_backend_fresh_session_defaults_to_true():
 
     param = inspect.signature(agent_sdk.agent_sdk_backend).parameters["fresh_session"]
     assert param.default is True
+
+
+# --- AC12 --------------------------------------------------------------------
+
+
+def test_ac12_changelog_unreleased_changed_mentions_the_opt_in():
+    text = (Path(__file__).resolve().parents[2] / "CHANGELOG.md").read_text()
+    lines = text.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("## [Unreleased]"))
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+               len(lines))
+    section = lines[start + 1:end]
+    changed = [i for i, ln in enumerate(section) if ln.strip() == "### Changed"]
+    assert len(changed) == 1, "exactly one '### Changed' in [Unreleased]"
+    body = section[changed[0] + 1:]
+    stop = next((i for i, ln in enumerate(body) if ln.startswith("### ")), len(body))
+    assert any("bd#101" in ln and "_WARM_RESUME_STEPS" in ln for ln in body[:stop])
 
 
 # --- AC10 --------------------------------------------------------------------
