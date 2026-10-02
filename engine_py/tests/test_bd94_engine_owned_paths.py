@@ -1,7 +1,7 @@
-"""bd#94 RED (spec r2): engine-owned paths are excluded from tree/manifest gates by construction.
+"""bd#94 RED (spec r3): engine-owned paths are excluded from tree/manifest gates by construction.
 
-Spec: docs/decisions/2026-10-02-bd94-engine-owned-paths.md (r2); gate r1 findings F1-F6, M1-M8 in
-docs/decisions/2026-10-02-bd94-gate-r1.md.
+Spec: docs/decisions/2026-10-02-bd94-engine-owned-paths.md (r3); gate r1 findings F1-F6, M1-M8 in
+docs/decisions/2026-10-02-bd94-gate-r1.md; gate r2 findings N1-N9 + edges in 2026-10-02-bd94-gate-r2.md.
 
 AC -> test map
 --------------
@@ -111,9 +111,16 @@ def _set_dirname(value) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _isolation():
+def _isolation(monkeypatch):
     """Telemetry slot and config provider are process-wide singletons: pre-stage a known
-    baseline before the body and restore after (workflows.md 1i)."""
+    baseline before the body and restore after (workflows.md 1i). Hermetic git (gate r2 N7): the units
+    under test (git_port.git_read, git_op_with_lock_retry) inherit the process env, so global/system git
+    config is pointed at devnull and the gate switches are unset unless a test sets them."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    for prefix in ("HAL_", "BD_", "BYTEDIGGER_"):
+        for gate in ("GREEN_CHECKPOINT_GATE", "AUTHORED_BOUNDARY_GATE"):
+            monkeypatch.delenv(prefix + gate, raising=False)
     config_provider.reset_default_config_provider_factory()
     telemetry_ctx.clear_current_run()
     yield
@@ -212,6 +219,53 @@ def test_ac1_r1_root_alias_resolves(tmp_path) -> None:
     assert eo.is_engine_owned_path(str(real / ".bytedigger" / "x"), str(alias), content_scan=False) is True
     assert eo.is_engine_owned_path(str(alias / ".bytedigger" / "x"), str(real), content_scan=False) is True
     assert eo.is_engine_owned_path(str(real / "src" / "a.py"), str(alias), content_scan=False) is False
+
+
+def test_ac1_r1_both_path_and_root_resolved_through_different_aliases(tmp_path) -> None:
+    """AC1/N5: the path goes through alias2 and the root through alias1 (both -> real): neither side is
+    lexically relative to the other, so BOTH must be resolved. `<alias2>/.bytedigger/x` is owned;
+    `<alias2>/src/a.py` is not; a path under a different real dir is not."""
+    eo = _eo()
+    real = tmp_path / "real"
+    real.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    alias1 = tmp_path / "alias1"
+    alias2 = tmp_path / "alias2"
+    os.symlink(str(real), str(alias1))
+    os.symlink(str(real), str(alias2))
+    for scan in (False, True):
+        assert eo.is_engine_owned_path(str(alias2 / ".bytedigger" / "x"), str(alias1), content_scan=scan) is True
+        assert eo.is_engine_owned_path(str(alias2 / "sub" / ".bytedigger" / "x"), str(alias1), content_scan=scan) is True
+        assert eo.is_engine_owned_path(str(alias2 / "src" / "a.py"), str(alias1), content_scan=scan) is False
+        assert eo.is_engine_owned_path(str(other / ".bytedigger" / "x"), str(alias1), content_scan=scan) is False
+
+
+def _r2b_fixture(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    (repo / ".bytedigger").mkdir(parents=True)
+    (repo / ".bytedigger" / "events.jsonl").write_text("e\n", encoding="utf-8")
+    (repo / "src").mkdir()
+    (repo / "real").mkdir()
+    (repo / "real" / "f.py").write_text("z = 1\n", encoding="utf-8")
+    os.symlink("../.bytedigger/events.jsonl", str(repo / "src" / "log.txt"))   # decoy file link
+    os.symlink("../.bytedigger", str(repo / "src" / "st"))                      # decoy dir link
+    os.symlink("../real/f.py", str(repo / "src" / "ok_link.py"))               # in-root, not state
+    return repo
+
+
+def test_ac1_r2b_decoy_links_into_state_dir_owned_only_with_content_scan(tmp_path) -> None:
+    """AC1/R2b (edge 4): `src/log.txt -> ../.bytedigger/events.jsonl` and, through the dir link
+    `src/st -> ../.bytedigger`, `src/st/events.jsonl` resolve INSIDE the root but INTO engine state: owned with
+    content_scan=True, not owned with False. Control: an in-root link to a user file stays not owned."""
+    eo = _eo()
+    root = str(_r2b_fixture(tmp_path))
+    for p in ("src/log.txt", "src/st/events.jsonl"):
+        assert eo.is_engine_owned_path(p, root, content_scan=True) is True, p
+        assert eo.is_engine_owned_path(p, root, content_scan=False) is False, p
+    for scan in (False, True):
+        assert eo.is_engine_owned_path("src/ok_link.py", root, content_scan=scan) is False
+        assert eo.is_engine_owned_path("real/f.py", root, content_scan=scan) is False
 
 
 def test_ac1_is_engine_state_path_is_r1_only(tmp_path) -> None:
@@ -382,6 +436,77 @@ def test_ac2_emitter_failure_does_not_propagate(tmp_path) -> None:
     eo = _eo()
     _install_log(raises=True)
     assert eo.drop_engine_owned([".bytedigger/x", "src/a.py"], str(tmp_path), step="s", content_scan=False) == ["src/a.py"]
+
+
+def test_ac2_porcelain_path_units() -> None:
+    """AC2/edge 3: porcelain_path drops the 3-char XY prefix, takes the rename target, C-unquotes quoted
+    paths (\\\\, \\", \\t, \\n, 3-digit octal decoded as UTF-8), and never raises (short line -> '')."""
+    eo = _eo()
+    assert eo.porcelain_path("?? .bytedigger/") == ".bytedigger/"
+    assert eo.porcelain_path(" M src/a.py") == "src/a.py"
+    assert eo.porcelain_path("R  old.py -> .bytedigger/x") == ".bytedigger/x"
+    assert eo.porcelain_path(r'?? ".bytedigger/caf\303\251.json"') == ".bytedigger/café.json"
+    assert eo.porcelain_path(r'?? "a b\\c.py"') == "a b\\c.py"
+    assert eo.porcelain_path(r'?? "a\tb\"c\nd"') == 'a\tb"c\nd'
+    assert eo.porcelain_path("") == ""
+    assert eo.porcelain_path("??") == ""
+
+
+_PORCELAIN_STATE = [
+    "?? .bytedigger/",
+    " M .bytedigger/events.jsonl",
+    "R  old.py -> .bytedigger/x",
+    r'?? ".bytedigger/caf\303\251.json"',
+    "?? sub/.bytedigger/n.json",
+]
+_PORCELAIN_KEEP = [" M src/a.py", "R  .bytedigger/x -> src/y.py", "?? c.py"]
+
+
+def test_ac2_drop_engine_owned_porcelain_keeps_order_and_drops_state_lines(tmp_path) -> None:
+    """AC2: drop_engine_owned_porcelain keeps the order of the surviving lines, drops state lines (untracked,
+    tracked-modified, rename-target, quoted/octal, nested) and blank lines, and KEEPS a rename whose
+    SOURCE is state but whose target is a user path. One event: step, n_dropped, content_scan False,
+    paths = the dropped porcelain_path values."""
+    eo = _eo()
+    log = _install_log()
+    lines = [_PORCELAIN_STATE[0], _PORCELAIN_KEEP[0], _PORCELAIN_STATE[1], _PORCELAIN_STATE[2],
+             _PORCELAIN_KEEP[1], _PORCELAIN_STATE[3], _PORCELAIN_STATE[4], _PORCELAIN_KEEP[2]]
+    out = eo.drop_engine_owned_porcelain(lines, str(tmp_path), step="dirty_guard")
+    assert out == _PORCELAIN_KEEP
+    events = log.of(EVENT_TYPE)
+    assert len(events) == 1, log.events
+    ev = events[0]
+    assert ev["step"] == "dirty_guard" and ev["n_dropped"] == 5 and ev["content_scan"] is False
+    assert sorted(ev["paths"]) == sorted([
+        ".bytedigger/", ".bytedigger/events.jsonl", ".bytedigger/x", ".bytedigger/café.json",
+        "sub/.bytedigger/n.json",
+    ])
+
+
+def test_ac2_drop_engine_owned_porcelain_drops_blank_lines_and_honours_override(tmp_path) -> None:
+    """AC2: blank / whitespace-only lines are dropped; the host dirname override applies (bdstate lines
+    dropped, .bytedigger lines kept)."""
+    eo = _eo()
+    _install_log()
+    assert eo.drop_engine_owned_porcelain(["", " M src/a.py", "   ", "?? c.py"], str(tmp_path), step="s") == \
+        [" M src/a.py", "?? c.py"]
+    _set_dirname("bdstate")
+    assert eo.drop_engine_owned_porcelain(["?? bdstate/", "?? .bytedigger/", " M src/a.py"], str(tmp_path), step="s") == \
+        ["?? .bytedigger/", " M src/a.py"]
+
+
+def test_ac2_drop_engine_owned_porcelain_no_event_when_nothing_dropped(tmp_path) -> None:
+    """AC2: nothing dropped -> no event; control: dropping state on the same log emits exactly one; an
+    emitter that raises does not propagate."""
+    eo = _eo()
+    log = _install_log()
+    assert eo.drop_engine_owned_porcelain(_PORCELAIN_KEEP, str(tmp_path), step="s") == _PORCELAIN_KEEP
+    assert eo.drop_engine_owned_porcelain([], str(tmp_path), step="s") == []
+    assert log.of(EVENT_TYPE) == []
+    assert eo.drop_engine_owned_porcelain(["?? .bytedigger/"], str(tmp_path), step="s") == []
+    assert len(log.of(EVENT_TYPE)) == 1
+    _install_log(raises=True)
+    assert eo.drop_engine_owned_porcelain(["?? .bytedigger/", "?? c.py"], str(tmp_path), step="s") == ["?? c.py"]
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +702,71 @@ def test_ac4_dirty_worktree_guard_only_state_is_clean(tmp_path) -> None:
     assert "c.py" in res.error and ".bytedigger" not in res.error
 
 
+def _set_identity(monkeypatch) -> None:
+    for k, v in (("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@example.com"),
+                 ("GIT_COMMITTER_NAME", "t"), ("GIT_COMMITTER_EMAIL", "t@example.com")):
+        monkeypatch.setenv(k, v)
+
+
+def test_ac4_dirty_worktree_guard_post_selfheal_reread_ignores_engine_state(tmp_path, monkeypatch) -> None:
+    """AC4 (gate r2 N1, MAJOR): state-only repo plus an untracked c.py. The first read is dirty (c.py), so
+    the one-shot self-heal runs through _autocommit_fix_tail; the commit must hold c.py and no .bytedigger
+    path; the post-self-heal re-read still sees `?? .bytedigger/`, which must NOT count as dirt, so the
+    result is None and a fix_integrity_tail_selfheal event is emitted. Behavioural RED today: the commit
+    stages the state dir (nothing filters the tail), and with only the first read filtered the re-read
+    returns E_FIX_UNCOMMITTED_CHANGES. Boundary scan off (not the unit under test); identity via env."""
+    _eo()
+    _set_identity(monkeypatch)
+    monkeypatch.setenv("HAL_AUTHORED_BOUNDARY_GATE", "0")
+    repo = _only_state_repo(tmp_path)
+    (repo / "c.py").write_text("C = 1\n", encoding="utf-8")
+    pre = _git(repo, "rev-parse", "HEAD")
+    log = _install_log()
+    res = _fixint()._dirty_worktree_guard(
+        repo, cfg={}, scratchpad=tmp_path / "sp", pre_fix_sha=pre, git_cwd_source="cfg_git_cwd",
+    )
+    assert res is None, getattr(res, "error", res)
+    assert _git(repo, "rev-parse", "HEAD") != pre
+    assert _git(repo, "rev-list", "--count", "HEAD") == "2"
+    head_files = _git(repo, "show", "--name-only", "--format=", "HEAD").splitlines()
+    assert "c.py" in head_files, head_files
+    assert not any(_has_seg(p, ".bytedigger") for p in head_files), head_files
+    assert _git(repo, "status", "--porcelain") == "?? .bytedigger/"
+    assert len(log.of("fix_integrity_tail_selfheal")) == 1, log.events
+
+
+def _tracked_state_repo(tmp_path: Path) -> Path:
+    """Repo whose .bytedigger/events.jsonl is COMMITTED and then modified (` M`); no other dirt."""
+    repo = tmp_path / "repo3"
+    (repo / ".bytedigger").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    (repo / "a.py").write_text("A = 1\n", encoding="utf-8")
+    (repo / ".bytedigger" / "events.jsonl").write_text("one\n", encoding="utf-8")
+    _git(repo, "add", "a.py", ".bytedigger/events.jsonl")
+    _git(repo, "commit", "-q", "-m", "base")
+    (repo / ".bytedigger" / "events.jsonl").write_text("one\ntwo\n", encoding="utf-8")
+    assert _git(repo, "status", "--porcelain") == "M .bytedigger/events.jsonl"  # _git strips the leading space
+    return repo
+
+
+def test_ac4_tracked_modified_state_is_clean_for_guard_and_checkpoint(tmp_path, monkeypatch) -> None:
+    """AC4 (gate r2 edge 2): committed-then-modified .bytedigger/events.jsonl and nothing else. The dirty
+    guard returns None; the checkpoint reports 'clean', makes no new commit and leaves the file
+    unstaged (modified in the worktree, nothing in the index). Behavioural RED today: both count ` M`."""
+    _eo()
+    _set_identity(monkeypatch)
+    repo = _tracked_state_repo(tmp_path)
+    before = _git(repo, "rev-parse", "HEAD")
+    _install_log()
+    assert _fixint()._dirty_worktree_guard(repo) is None
+    res = _phase5()._checkpoint_green_worktree(str(repo), None, 1, "bd94", "cfg_git_cwd")
+    assert res["outcome"] == "clean", res
+    assert _git(repo, "rev-parse", "HEAD") == before
+    assert _git(repo, "rev-list", "--count", "HEAD") == "1"
+    assert _git(repo, "diff", "--cached", "--name-only") == ""
+    assert _git(repo, "diff", "--name-only") == ".bytedigger/events.jsonl"
+
+
 def _call_kw_const(call: ast.Call, name: str):
     for kw in call.keywords:
         if kw.arg == name and isinstance(kw.value, ast.Constant):
@@ -602,11 +792,42 @@ def test_ac4_verify_green_lint_and_typecheck_filter_with_content_scan_true() -> 
                    for c in calls), (fname, [ast.dump(c) for c in calls])
 
 
-def test_ac4_commit_fix_tests_routes_through_filter_gitignored_paths() -> None:
-    """AC4 (AST, M1): _commit_fix_tests passes test_paths through _filter_gitignored_paths before git add."""
+def _is_git_add_argv(node: ast.AST) -> bool:
+    """A list literal whose first two elements are the string constants "git", "add" (also as the left side
+    of `["git", "add", "--"] + paths`, which contains that list node)."""
+    if not isinstance(node, ast.List) or len(node.elts) < 2:
+        return False
+    a, b = node.elts[0], node.elts[1]
+    return (isinstance(a, ast.Constant) and a.value == "git"
+            and isinstance(b, ast.Constant) and b.value == "add")
+
+
+def test_ac4_commit_fix_tests_filters_test_paths_before_any_use() -> None:
+    """AC4 (AST, M1 + gate r2 N8): _commit_fix_tests has an assignment whose target is `test_paths` and whose
+    value is a `_filter_gitignored_paths(...)` call; its line precedes EVERY `if` whose test references
+    test_paths (so an all-state manifest takes the existing no_test_paths branch) and every `git add` argv.
+    Non-vacuous: such ifs and argvs exist. Behavioural-structure RED today: no such assignment."""
     _eo()
     fn = _function_node(_review6(), "_commit_fix_tests")
-    assert "_filter_gitignored_paths" in _called_names(fn)
+    assigns = [
+        n for n in ast.walk(fn)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "test_paths" for t in n.targets)
+        and isinstance(n.value, ast.Call) and _call_name(n.value) == "_filter_gitignored_paths"
+    ]
+    assert assigns, "no `test_paths = _filter_gitignored_paths(...)` assignment in _commit_fix_tests"
+    first = min(a.lineno for a in assigns)
+    ifs = [
+        n for n in ast.walk(fn)
+        if isinstance(n, ast.If)
+        and any(isinstance(x, ast.Name) and x.id == "test_paths" for x in ast.walk(n.test))
+    ]
+    adds = [n for n in ast.walk(fn) if _is_git_add_argv(n)]
+    assert ifs and adds, (len(ifs), len(adds))
+    for n in ifs:
+        assert first < n.lineno, f"filter assignment (line {first}) does not precede `if` at line {n.lineno}"
+    for n in adds:
+        assert first < n.lineno, f"filter assignment (line {first}) does not precede git add at line {n.lineno}"
 
 
 # ---------------------------------------------------------------------------
@@ -688,30 +909,50 @@ def test_ac5_cyrillic_tracked_files_walk_skips_engine_state(state, override, tmp
     assert not any(_has_seg(p, state) for p in listed), listed
 
 
-def test_ac5_preflight_untracked_producers_call_drop_engine_owned() -> None:
-    """AC5 (AST): every function in preflight.py that reads `ls-files ... --others` calls drop_engine_owned
-    (step 'preflight_untracked', content_scan False); at least two such producers exist (:216, :355)."""
+def test_ac5_preflight_compute_state_hash_ignores_engine_state(tmp_path) -> None:
+    """AC5 (behavioural, spec 2.2-11a): on a real repo the receipt state hash is unchanged after writing an
+    untracked .bytedigger/events.jsonl and sub/.bytedigger/n.json, and after modifying a COMMITTED
+    .bytedigger/state.json; it changes after writing an untracked src/new.py (positive control, so the
+    hash is not constant). Behavioural RED today: status / diff / ls-files --others all see engine state."""
+    from bytedigger_engine import preflight
+    _eo()
+    repo = tmp_path / "hrepo"
+    (repo / "src").mkdir(parents=True)
+    (repo / ".bytedigger").mkdir()
+    _git(repo, "init", "-q")
+    (repo / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
+    (repo / ".bytedigger" / "state.json").write_text("{}\n", encoding="utf-8")
+    _git(repo, "add", "src/a.py", ".bytedigger/state.json")
+    _git(repo, "commit", "-q", "-m", "base")
+    h0 = preflight.compute_state_hash(repo)
+    (repo / ".bytedigger" / "events.jsonl").write_text(_KEY_SHAPED + "\n", encoding="utf-8")
+    (repo / "sub" / ".bytedigger").mkdir(parents=True)
+    (repo / "sub" / ".bytedigger" / "n.json").write_text("{}\n", encoding="utf-8")
+    assert preflight.compute_state_hash(repo) == h0, "untracked engine state changed the hash"
+    (repo / ".bytedigger" / "state.json").write_text('{"k": 1}\n', encoding="utf-8")
+    assert preflight.compute_state_hash(repo) == h0, "modified tracked engine state changed the hash"
+    (repo / "src" / "new.py").write_text("N = 1\n", encoding="utf-8")
+    assert preflight.compute_state_hash(repo) != h0, "positive control: a user file must change the hash"
+
+
+def test_ac5_preflight_run_changed_drops_engine_owned_as_read_set() -> None:
+    """AC5 (AST, spec 2.2-11b): preflight._Run._changed passes its final set through drop_engine_owned with
+    step='preflight_changed' and content_scan=True (it is a read set); the old 'preflight_untracked' step
+    appears nowhere in preflight.py (as a string constant)."""
     _eo()
     path = _engine_root() / "preflight.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    producers = []
-    for fn in ast.walk(tree):
-        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        has_others = False
-        for c in ast.walk(fn):
-            if isinstance(c, ast.Call):
-                toks = [a.value for a in c.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
-                if "ls-files" in toks and "--others" in toks:
-                    has_others = True
-        if has_others:
-            producers.append(fn)
-    assert len(producers) >= 2, [p.name for p in producers]
-    for fn in producers:
-        calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call) and _call_name(c) == "drop_engine_owned"]
-        assert calls, f"{fn.name} lists untracked files without drop_engine_owned"
-        assert any(_call_kw_const(c, "step") == "preflight_untracked"
-                   and _call_kw_const(c, "content_scan") is False for c in calls), fn.name
+    cls = next((n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "_Run"), None)
+    assert cls is not None, "class _Run not found in preflight.py"
+    fn = next((n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and n.name == "_changed"), None)
+    assert fn is not None, "_Run._changed not found"
+    calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call) and _call_name(c) == "drop_engine_owned"]
+    assert calls, "_Run._changed does not call drop_engine_owned"
+    assert any(_call_kw_const(c, "step") == "preflight_changed"
+               and _call_kw_const(c, "content_scan") is True for c in calls), [ast.dump(c) for c in calls]
+    consts = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert "preflight_untracked" not in consts
 
 
 # ---------------------------------------------------------------------------
@@ -754,6 +995,10 @@ def test_ac6_producers_are_classified_filters() -> None:
             assert sites[k].get("class") == "filters", (k, sites[k])
     pre = [k for k in sites if k.startswith("preflight.py::") and "::git-ls-files#" in k]
     assert len(pre) >= 2 and all(sites[k].get("class") == "filters" for k in pre), pre
+    # spec 2.2-11b: _Run._changed reads `ls-files --others` and is a filtered read set (qualname format
+    # for a method is not pinned, so match on the scope's last segment)
+    changed = [k for k in pre if "_changed::git-ls-files#" in k]
+    assert changed and all(k in live for k in changed), pre
 
 
 def test_ac6_every_git_add_key_is_filters() -> None:
@@ -790,13 +1035,38 @@ _FORMS = [
     ("f_names", "return run([\"git\", \"diff\", \"--name-only\", sha])", "git-diff-names"),
     ("f_ctl_diff", "return run([\"git\", \"diff\", sha])", None),
     ("f_ctl_revparse", "return run([\"git\", \"rev-parse\", \"HEAD\"])", None),
+    # r3 additions (gate r2 N6a), each in its own function
+    ("f_iglob", "return glob.iglob(r)", "glob.iglob"),
+    ("f_alias_glob", "return _glob.glob(r)", "glob.glob"),            # alias: ONE site, not also `glob` (N6b)
+    ("f_alias_walk", "return _os.walk(r)", "os.walk"),
+    ("f_path_glob", "return Path(r).glob(\"*.py\")", "glob"),
+    ("f_x_diff_files", "return x.diff_files(sha, r)", "diff_files"),
+    ("f_diff_files", "return diff_files(sha, r)", "diff_files"),
+    ("f_gsp", "return git_status_porcelain(r)", "git_status_porcelain"),
+    ("f_lso", "return ls_files_others(r)", "ls_files_others"),
+    ("f_tuple", "return run((\"git\", \"status\"))", "git-status"),
+    ("f_dash_c", "return run([\"git\", \"-c\", \"core.quotePath=false\", \"status\"])", "git-status"),
+    ("f_gitdir_add",
+     "return run([\"git\", \"--git-dir\", g, \"--work-tree\", w, \"add\", \"-A\"])", "git-add"),
+    ("f_name_status", "return run([\"git\", \"diff\", \"--name-status\", sha])", "git-diff-names"),
+    ("f_numstat", "return run([\"git\", \"diff\", \"--numstat\", sha])", "git-diff-names"),
+    ("f_stat", "return run([\"git\", \"diff\", \"--stat\", sha])", "git-diff-names"),
+    ("f_lambda", "return guard(lambda: run([\"git\", \"add\", \"--\", *ps]))", "git-add"),  # lambda scope (edge 6)
+    # r3 non-site controls (N4)
+    ("f_ctl_get1", "return payload.get(\"status\")", None),
+    ("f_ctl_get2", "return entry.get(\"status\", \"error\")", None),
+    ("f_ctl_guard", "return readiness.guard_git(fn, \"add\", False)", None),
+    ("f_ctl_foo", "return foo([\"status\", \"ok\"])", None),
 ]
 _EXPECTED_KEYS = sorted(f"workflows/new_gate.py::{fn}::{kind}#0" for fn, _b, kind in _FORMS if kind)
+_ADD_KEYS = sorted(k for k in _EXPECTED_KEYS if "::git-add#" in k)
 _K_ADD = "workflows/new_gate.py::f_add::git-add#0"
+_K_LAMBDA = "workflows/new_gate.py::f_lambda::git-add#0"
 
 
 def _forms_source(filtered: bool) -> str:
-    out = ["import glob", "import os", "from pathlib import Path", ""]
+    out = ["import glob", "import glob as _glob", "import os", "import os as _os",
+           "from pathlib import Path", ""]
     for fn, body, _kind in _FORMS:
         out.append(f"def {fn}(r, sha=None, x=None):")
         if filtered:
@@ -831,8 +1101,12 @@ def test_ac7_call_sites_one_per_kind_and_form_and_controls_are_not_sites(tmp_pat
     (content `git diff`, `git rev-parse`) are not sites."""
     lint = _lint()
     root = _syn_tree(tmp_path, _forms_source(False))
-    assert lint.call_sites(root) == _EXPECTED_KEYS
-    assert not any("f_ctl_" in k for k in lint.call_sites(root))
+    sites = lint.call_sites(root)
+    assert sites == sorted(_EXPECTED_KEYS)  # exact, sorted (N9a): no extra, no missing, no double count
+    assert not any("f_ctl_" in k for k in sites)
+    # N6b: an aliased glob.glob is ONE `glob.glob` site (not also `glob`); lambda scope (edge 6)
+    assert [k for k in sites if "::f_alias_glob::" in k] == ["workflows/new_gate.py::f_alias_glob::glob.glob#0"]
+    assert [k for k in sites if "::f_lambda::" in k] == [_K_LAMBDA]
 
 
 def test_ac7_unkeyed_sites_redden_one_problem_each(tmp_path) -> None:
@@ -847,10 +1121,13 @@ def test_ac7_unkeyed_sites_redden_one_problem_each(tmp_path) -> None:
         assert len(hits) == 1 and "no key" in hits[0].lower(), (key, problems)
     assert not any("f_ctl_" in p for p in problems)
     inv = _all("not-a-gate")
-    inv[_K_ADD] = _ent("filters")
-    # filters on f_add without a filter call is still reported; everything else is clean
+    for k in _ADD_KEYS:
+        inv[k] = _ent("filters")
+    # filters on the git-add functions without a filter call is still reported; everything else is clean
     only = lint.check(root, _inv(inv))
-    assert len(only) == 1 and _K_ADD in only[0], only
+    assert len(only) == len(_ADD_KEYS), only
+    for k in _ADD_KEYS:
+        assert len([p for p in only if k in p]) == 1, (k, only)
 
 
 def test_ac7_filters_without_filter_call_redden(tmp_path) -> None:
@@ -870,7 +1147,7 @@ def test_ac7_filter_call_in_function_makes_filters_entries_clean(tmp_path) -> No
     spec's set (pinned); the same entries on the unfiltered source are reported (two-sided)."""
     lint = _lint()
     assert set(lint.FILTER_NAMES) == {
-        "drop_engine_owned", "is_engine_owned_path", "is_engine_state_path",
+        "drop_engine_owned", "drop_engine_owned_porcelain", "is_engine_owned_path", "is_engine_state_path",
         "engine_owned_pathspecs", "prune_engine_owned_dirs", "_filter_gitignored_paths",
     }
     assert lint.check(_syn_tree(tmp_path / "ok", _forms_source(True)), _inv(_all("filters"))) == []
@@ -878,15 +1155,19 @@ def test_ac7_filter_call_in_function_makes_filters_entries_clean(tmp_path) -> No
 
 
 def test_ac7_git_add_must_filter(tmp_path) -> None:
-    """AC7/M1: a git-add site marked 'not-a-gate' -> 'git-add must filter' naming the key (even with a
-    filter call present); the other not-a-gate sites are fine."""
+    """AC7/M1: every git-add site (f_add, --git-dir form, lambda form) marked 'not-a-gate' -> one 'git-add
+    must filter' problem naming its key (even with a filter call present); the other not-a-gate sites are
+    fine; reclassifying the git-add sites as 'filters' -> []."""
     lint = _lint()
     root = _syn_tree(tmp_path, _forms_source(True))
     inv = _all("not-a-gate")
     problems = lint.check(root, _inv(inv))
-    assert len(problems) == 1, problems
-    assert _K_ADD in problems[0] and "git-add must filter" in problems[0].lower()
-    inv[_K_ADD] = _ent("filters")
+    assert len(problems) == len(_ADD_KEYS) and _K_ADD in _ADD_KEYS and _K_LAMBDA in _ADD_KEYS, problems
+    for k in _ADD_KEYS:
+        hits = [p for p in problems if k in p]
+        assert len(hits) == 1 and "git-add must filter" in hits[0].lower(), (k, problems)
+    for k in _ADD_KEYS:
+        inv[k] = _ent("filters")
     assert lint.check(root, _inv(inv)) == []
 
 
