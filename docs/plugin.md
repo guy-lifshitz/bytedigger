@@ -120,7 +120,7 @@ per-step model pinning — see [configuration.md](configuration.md).
 
 **Reviewers:**
 - `reviewers.mode` (values: `"toolkit"`, `"generic"`, `"auto"`, default: `"auto"`) — Controls reviewer agent selection. `"toolkit"` uses pr-review-toolkit if available, `"generic"` uses basic review agents, `"auto"` selects based on available dependencies.
-- `simple_reviewers` / `feature_reviewers` / `complex_reviewers` (defaults: `3` / `6` / `6`) — Reviewer counts per complexity tier. Parsed by both gate backends (`scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`); today the Phase 6 roster is fixed per tier (3 for SIMPLE, 6 for FEATURE/COMPLEX, +1 DevOps reviewer when infrastructure files are detected), so these act as declared expectations rather than live knobs. These flat keys are the canonical form — an earlier nested `reviewers.{SIMPLE,FEATURE,COMPLEX}` block was never read by any backend and has been removed from the sample config; only `reviewers.mode` is meaningful inside the `reviewers` object.
+- `simple_reviewers` / `feature_reviewers` / `complex_reviewers` (defaults: `3` / `6` / `6`) — Reviewer counts per complexity tier. Parsed by both gate backends (`scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`); today the Phase 6 roster is fixed per tier (3 for SIMPLE, 6 for FEATURE/COMPLEX), so these act as declared expectations rather than live knobs. These flat keys are the canonical form — an earlier nested `reviewers.{SIMPLE,FEATURE,COMPLEX}` block was never read by any backend and has been removed from the sample config; only `reviewers.mode` is meaningful inside the `reviewers` object.
 
 **Per-run overrides:**
 
@@ -154,16 +154,6 @@ Unknown values, missing `bun`, or dispatcher errors all fail closed with a JSON 
 - sqlite3 — DB engine
 - openssl — ID generation (`openssl rand -hex 8`)
 - python3 — JSON extraction from `bytedigger.json` config
-
-**DevOps validation tools** — Only needed if working with infrastructure code (.tf, Dockerfile, K8s YAML, etc.). Phase 5.6 DevOps validation runs only when these files are detected. If tools aren't installed, validation is skipped gracefully.
-- terraform — Infrastructure-as-code validation
-- hadolint — Dockerfile linting
-- actionlint — GitHub Actions workflow validation
-- kubectl — Kubernetes dry-run checks
-- helm — Helm chart linting
-- checkov — Infrastructure security scanning
-- trivy — Container and IaC vulnerability detection
-- gitleaks — Secrets detection in code
 
 ## Usage
 

@@ -1,9 +1,7 @@
 """Phase 6 (review → fix → satisfaction) as a WorkflowDefinition.
 
-Stage 2.6 port (2026-04-25). Fifth LLM-heavy phase. Replaces the partial
-``phase_6_smoke`` zsh wrapper as the canonical phase-6 implementation;
-``phase_6_smoke`` stays registered for raw-shell sanity but is no longer
-the "phase-6 workflow".
+Stage 2.6 port (2026-04-25). Fifth LLM-heavy phase. Replaced the partial
+``phase_6_smoke`` zsh wrapper (since removed) as the canonical phase-6 implementation.
 
 **Scope — prompt-driven fanout for review; single-agent for fix and satisfaction.**
 - REVIEW: 3 (SIMPLE) or 6 (FEATURE/COMPLEX) parallel sub-agents via ``pr-review-toolkit:*``
@@ -258,7 +256,6 @@ _ROW_TYPE_DESIGN_ANALYZER = "  - pr-review-toolkit:type-design-analyzer — mode
 _ROW_PR_TEST_ANALYZER = "  - pr-review-toolkit:pr-test-analyzer — model: sonnet"
 _ROW_CODE_SIMPLIFIER = "  - pr-review-toolkit:code-simplifier — model: sonnet"
 _ROW_COMMENT_ANALYZER = "  - pr-review-toolkit:comment-analyzer — model: haiku"
-_ROW_DEVOPS_REVIEWER = "  - devops-reviewer — model: sonnet — focus: CIS/OWASP/SLSA standards compliance for the detected devops artifact type"
 
 REVIEW_DOC_RELPATH = "reviews/build-review.md"
 REVIEW_FIX_DOC_RELPATH = "reviews/build-review-fix.md"
@@ -463,9 +460,6 @@ _ROW_COMPOSITE_REVIEWER = (
     "  - pr-review-toolkit:composite — model: primary — focus: correctness, silent failures, "
     "test adequacy, type design, simplification, comments"
 )
-_LINE_COMPOSITE_DEVOPS = (
-    "  - devops focus: CIS/OWASP/SLSA standards compliance for the detected devops artifact type"
-)
 
 
 def _resolve_review_fanout(org_config) -> str:
@@ -485,12 +479,9 @@ def _resolve_review_fanout(org_config) -> str:
     raise ValueError(f"review_fanout must be 'single' or 'parallel', got {raw!r}")
 
 
-def _select_reviewers(complexity: str, artifact_type: str | None = None, fanout: str = "single") -> tuple[str, int]:
+def _select_reviewers(complexity: str, fanout: str = "single") -> tuple[str, int]:
     if fanout == "single":
-        rows = [_ROW_COMPOSITE_REVIEWER]
-        if artifact_type:
-            rows.append(_LINE_COMPOSITE_DEVOPS)
-        return "\n".join(rows), 1
+        return _ROW_COMPOSITE_REVIEWER, 1
     if complexity == "SIMPLE":
         rows_list = [_ROW_CODE_REVIEWER, _ROW_SILENT_FAILURE_HUNTER, _ROW_PR_TEST_ANALYZER]
         count = 3
@@ -498,17 +489,13 @@ def _select_reviewers(complexity: str, artifact_type: str | None = None, fanout:
         rows_list = [_ROW_CODE_REVIEWER, _ROW_SILENT_FAILURE_HUNTER, _ROW_TYPE_DESIGN_ANALYZER,
                      _ROW_PR_TEST_ANALYZER, _ROW_CODE_SIMPLIFIER, _ROW_COMMENT_ANALYZER]
         count = 6
-    # Stage 4 (27843297): append devops reviewer when artifact_type is non-empty.
-    if artifact_type:  # truthy check — empty string treated as falsy per AC12
-        rows_list.append(_ROW_DEVOPS_REVIEWER)
-        count += 1
     return "\n".join(rows_list), count
 
 
-def _review_plan(ctx, complexity: str, artifact_type: str | None) -> tuple[str, str, int]:
+def _review_plan(ctx, complexity: str) -> tuple[str, str, int]:
     """Resolve (fanout, dispatch_table, reviewer_count) once. Raises ValueError on invalid fanout."""
     fanout = _resolve_review_fanout(ctx.org_config if ctx else None)
-    dispatch_table, reviewer_count = _select_reviewers(complexity, artifact_type=artifact_type, fanout=fanout)
+    dispatch_table, reviewer_count = _select_reviewers(complexity, fanout=fanout)
     return fanout, dispatch_table, reviewer_count
 
 
@@ -789,9 +776,8 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         except (OSError, ValueError, TypeError):
             _prior_findings_data = None
     complexity = _resolve_complexity(ctx)
-    _artifact_type = (ctx.org_config or {}).get("artifact_type") if ctx else None
     try:
-        _fanout, dispatch_table, reviewer_count = _review_plan(ctx, complexity, _artifact_type)
+        _fanout, dispatch_table, reviewer_count = _review_plan(ctx, complexity)
     except ValueError as exc:
         return StepResult(
             status="error", data=None, duration_ms=0,
@@ -1128,7 +1114,7 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     _plan_err: ValueError | None = None
     try:
         _scratchpad = _resolve_scratchpad(ctx)
-        _plan = _review_plan(ctx, complexity or "FEATURE", cfg.get("artifact_type"))
+        _plan = _review_plan(ctx, complexity or "FEATURE")
     except ValueError as exc:
         _plan_err = exc
     if _scfg.get("straggler_abort"):
@@ -1683,8 +1669,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     min_floor: int | None = None
     if complexity:
         try:
-            _agg_artifact_type = (ctx.org_config or {}).get("artifact_type") if ctx else None
-            _, dispatch_table, expected_reviewers = _review_plan(ctx, complexity, _agg_artifact_type)
+            _, dispatch_table, expected_reviewers = _review_plan(ctx, complexity)
             expected_slugs = _extract_expected_slugs(dispatch_table)
             # bd#139: a single reviewer needs floor 1; parallel floors stay 2/3.
             min_floor = 1 if expected_reviewers == 1 else max(2, (expected_reviewers + 1) // 2)  # ceil(N/2)

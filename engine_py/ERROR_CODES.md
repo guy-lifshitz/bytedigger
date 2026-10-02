@@ -13,12 +13,6 @@
 - `E_BOUNDARY_SCAN_FAILED` — phase_5/6: authored-boundary scan tooling itself failed to run
 - `E_BOUNDARY_SUPPRESSION` — phase_5/6: RED/GREEN suppresses or disables the boundary scan
 
-## E_CANARY
-
-- `E_CANARY_BAD_CONFIG` — phase_5_integration_canary: canary config file malformed or missing keys
-- `E_CANARY_EVENTS_MISSING` — phase_5_integration_canary: expected canary events.jsonl not found
-- `E_CANARY_NO_MATCH` — phase_5_integration_canary: expected event pattern not found in canary run
-
 ## E_CAPABILITY
 
 - `E_CAPABILITY_ENFORCEMENT_UNSUBSTANTIATED` — conformance/bd_l3: a backend declared runtime capability enforcement and the SAME invocation recorded a capability escape — the claim is refuted by its own evidence (bd#63 R3.5)
@@ -59,11 +53,6 @@
 
 - `E_DECORR_INVOKE_FAILED` — phase_6_review: decorrelated-verifier invocation failed to run
 - `E_DECORR_VERIFY_SUSPECT` — phase_6_review: decorrelated verifier flagged the fix as suspect
-
-## E_DEVOPS
-
-- `E_DEVOPS_SCAN_BLOCKED` — phase_5_devops_scan: devops/security scan blocked the build
-- `E_DEVOPS_SCAN_UNAVAILABLE` — phase_5_devops_scan: scan tooling not available on this host
 
 ## E_DIFF
 
@@ -374,11 +363,6 @@
 ## E_SKILL
 
 - `E_SKILL_COMPANION_INVALID` — skill_companion: a host companion or its core skill failed validation; render/check exit 3 and the core text is used unchanged (bd#116)
-
-## E_SMOKE
-
-- `E_SMOKE_FAILED` — phase_6_smoke: smoke test run reported a failure
-- `E_SMOKE_TIMEOUT` — phase_6_smoke: smoke test subprocess timed out
 
 ## E_SPEC
 

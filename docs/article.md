@@ -84,7 +84,7 @@ This is also why the process stays fixed rather than agentic. Agent teams negoti
 
 ## The engine
 
-The current core is a Python workflow engine, `engine_py/`, with zero runtime dependencies and no LLM vendor baked in. The pipeline diagram above is five boxes; underneath sit 27 workflow modules, phase 0 research through phase 8 post-deploy, including a spec-lite lane for small tasks, a DevOps pipeline, integrity and smoke phases, and a review fastpath for simple changes.
+The current core is a Python workflow engine, `engine_py/`, with zero runtime dependencies and no LLM vendor baked in. The pipeline diagram above is five boxes; underneath sit 21 workflow modules, phase 0 research through phase 8 post-deploy, including a spec-lite lane for small tasks, an integrity phase, and a review fastpath for simple changes.
 
 State is an append-only JSONL event log. There is no mutable state file to drift or race; the engine derives the current state of a build by replaying its events. It writes phase and step sentinels on success only, so if the process dies mid-build -- crash, laptop restart, network drop -- the run resumes from the log instead of starting over, and a sticky error can never replay as progress. A run never pays for a completed model call twice. Cost and token rollups per run, phase, and cycle come from the same log.
 
@@ -167,9 +167,8 @@ The article describes the shape. This is the inventory, for anyone deciding whet
 
 - secure-coding defaults distilled from OWASP ASVS 5.0 ride inside the generation prompt (`security/secure-codegen-rules.md`): allowlist validation, argument-vector subprocess calls, parameterized queries, path containment
 - deterministic semgrep + gitleaks gate (`security/security_lint.py`, with `semgrep-rules.yml` and `gitleaks.toml`) lints what lands
-- the review panel fields an OWASP Top 10 security reviewer; a detected DevOps artifact adds a CIS/OWASP/SLSA devops reviewer (`workflows/phase_6_review.py`)
+- the review panel fields an OWASP Top 10 security reviewer (`workflows/phase_6_review.py`)
 - mypy baseline gate (`lib/mypy_baseline.py`, wired into phase 5): a change that adds new type errors does not pass
-- phase 0.6 detects DevOps artifact types among the changed files (Dockerfile, Kubernetes manifest, Terraform, CI config) and routes the build into a fail-closed security scan (`workflows/phase_5_devops_scan.py`) whose allowlist waivers carry expiry dates
 - commit gate (`audit_gate.py`) -- a commit-msg hook blocks any commit touching engine production code unless an APPROVED audit document is co-staged
 
-All of it sits in 27 workflow modules, phase 0 research through phase 8 post-deploy. None of it is speculative: every gate on this list exists because something got through without it.
+All of it sits in 21 workflow modules, phase 0 research through phase 8 post-deploy. None of it is speculative: every gate on this list exists because something got through without it.

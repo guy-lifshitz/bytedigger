@@ -82,10 +82,6 @@ from bytedigger_engine.config_provider import get_config, timeout_policy_path, r
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
 from bytedigger_engine.skip_logic import _resolve_decision_doc_path, detect_frozen_spec
 try:
-    from ._standards_context import get_standards_context
-except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
-    from bytedigger_engine.workflows._standards_context import get_standards_context  # type: ignore[no-redef]
-try:
     from .phase_workflows_common import _declared_injections, _injected_blocks_record, _role_template, _role_template_record
 except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted test imports (GH881)
     from bytedigger_engine.workflows.phase_workflows_common import _declared_injections, _injected_blocks_record, _role_template, _role_template_record  # type: ignore[no-redef]
@@ -341,8 +337,6 @@ def _resolve_review_timeout_sec(cfg: dict[str, Any] | None) -> int:
 SPEC_DOC_RELPATH = "specs/build-spec.md"
 REVIEW_DOC_RELPATH = "specs/build-plan-review.md"
 ARCHITECTURE_DOC_RELPATH = "architecture/architecture.md"
-# 36269734: sidecar for canary event_type; counterpart in phase_5_integration_canary.py
-CANARY_META_RELPATH = "integration/canary-meta.json"
 
 # Cap matches Phase 5 validation pattern and phase_45_spec_lite. Hard-coded
 # for v1; configurable in v2 once telemetry data exists.
@@ -1298,9 +1292,6 @@ def _build_spec_prompt(ctx: WorkflowContext, _prev: Any) -> StepResult:
         )
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
-    _standards_block = get_standards_context(ctx)
-    if _standards_block:
-        prompt = _standards_block + prompt
     _prev_data_bsp = _prev.data if isinstance(_prev, StepResult) and isinstance(_prev.data, dict) else {}
     high_binding_missing = missing_high_binding_axes(prompt)
     _emit_safe("spec_prompt_high_binding", {
@@ -1459,36 +1450,6 @@ def _autoprefix_bare_citations(text: str, repo_root: Path) -> str:
     return _BARE_CITATION_RE.sub(repl, text)
 
 
-_CANARY_EVENT_TYPE_RE = re.compile(r"^\s*(?:-\s*)?event_type:\s*(\S+)\s*$")
-
-
-def _parse_canary_integration(raw: str) -> dict[str, Any]:
-    """Parse a '## Canary Integration' block from a spec document.
-
-    Scans for the line whose stripped text == '## Canary Integration',
-    then reads following lines until the next '## ' heading or EOF.
-    Returns {"event_type": <value>} for the FIRST matching event_type line,
-    or {} if the heading is absent or contains no event_type line.
-
-    Agreement 36269734 — counterpart sidecar path: CANARY_META_RELPATH.
-    """
-    lines = raw.splitlines()
-    in_section = False
-    for line in lines:
-        stripped = line.strip()
-        if not in_section:
-            if stripped == "## Canary Integration":
-                in_section = True
-            continue
-        # Stop at the next heading
-        if stripped.startswith("## "):
-            break
-        m = _CANARY_EVENT_TYPE_RE.match(line)
-        if m:
-            return {"event_type": m.group(1)}
-    return {}
-
-
 def _resolve_spec_source(doc_path: str, raw_response: str) -> tuple[str, str]:
     """Return (raw, source) selecting the spec body from file or raw_response.
 
@@ -1619,16 +1580,6 @@ def _write_spec_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
         if surgical_cycle_path is not None:
             surgical_data["spec_cycle_path"] = surgical_cycle_path
 
-        meta_canary = _parse_canary_integration(raw)
-        if meta_canary.get("event_type"):
-            scratchpad = _resolve_scratchpad(_ctx)
-            (scratchpad / "integration").mkdir(parents=True, exist_ok=True)
-            (scratchpad / CANARY_META_RELPATH).write_text(
-                json.dumps({"event_type": meta_canary["event_type"]}), encoding="utf-8"
-            )
-            surgical_data["canary_event_type"] = meta_canary["event_type"]
-            _emit_safe("canary_integration_parsed", {"event_type": meta_canary["event_type"]})
-
         # GH625: surgical_data is hand-built (no **prev.data spread), thread
         # gate_attempts through explicitly or the gate never sees prior spend.
         if isinstance(prev.data, dict) and isinstance(prev.data.get("gate_attempts"), dict):
@@ -1668,17 +1619,6 @@ def _write_spec_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
     }
     if spec_cycle_path is not None:
         data["spec_cycle_path"] = spec_cycle_path
-
-    # 36269734: parse Canary Integration block and write sidecar if event_type present.
-    meta = _parse_canary_integration(raw)
-    if meta.get("event_type"):
-        scratchpad = _resolve_scratchpad(_ctx)
-        (scratchpad / "integration").mkdir(parents=True, exist_ok=True)
-        (scratchpad / CANARY_META_RELPATH).write_text(
-            json.dumps({"event_type": meta["event_type"]}), encoding="utf-8"
-        )
-        data["canary_event_type"] = meta["event_type"]
-        _emit_safe("canary_integration_parsed", {"event_type": meta["event_type"]})
 
     # GH625: data is hand-built (no **prev.data spread), thread gate_attempts
     # through explicitly or the gate never sees prior spend.

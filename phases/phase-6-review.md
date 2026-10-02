@@ -209,12 +209,6 @@ If launched != expected → STOP and fix before proceeding to Step 2.
 
 **No excuses to skip agents within your tier. No partial reviews.**
 
-### DevOps Additional Reviewers (if profile=devops)
-
-7. **InfraSec** (Sonnet) — encryption, IAM, network security, secrets
-8. **OpsSafety** (Sonnet) — blast radius, rollback, idempotency, HA
-9. **QualityCost** (Haiku) — right-sizing, auto-scaling, cost optimization
-
 **Fallback**: If specialized review agents unavailable, use 2 Haiku Task agents.
 
 ## Step 2: Fix ALL Findings (ZERO EXCEPTIONS — GATE ENFORCED)

@@ -84,14 +84,13 @@ def discover_flag_reads(root: Path) -> dict[str, list[str]]:
     return results
 
 
-# ROUTED_MODULES: the 7 files migrated by GH446 (§2.2). Flag-routing lint
+# ROUTED_MODULES: the files migrated by GH446 (§2.2). Flag-routing lint
 # module-set seed; core-manifest modules are additionally always checked.
 ROUTED_MODULES: tuple[str, ...] = (
     "lib/dbos_setup.py",
     "lib/run_allowlist.py",
     "lib/directed_repair.py",
     "scripts/spec_lint/lint_spec.py",
-    "workflows/phase_5_devops_scan.py",
     "workflows/phase_45_spec.py",
     "workflows/phase_6_review.py",
 )
@@ -186,24 +185,6 @@ FLAGS: dict[str, dict] = {
         "default": 1,
         "module": "workflows/phase_5_integrity.py",
         "description": "GH786: bounded completeness-retry count for the integrity reviewer when it omits a standalone VERDICT marker (0 disables; fail-closed preserved).",
-    },
-    "HAL_DEVOPS_SCAN_GATE": {
-        "kind": "gate",
-        "default": "1",
-        "module": "workflows/phase_5_devops_scan.py",
-        "description": "Kill-switch: HAL_DEVOPS_SCAN_GATE=0 restores legacy fail-open devops-scan behavior.",
-    },
-    "HAL_DEVOPS_SCAN_CONFIG": {
-        "kind": "path",
-        "default": None,
-        "module": "workflows/phase_5_devops_scan.py",
-        "description": "Override path for the devops-scan fail-severities config JSON.",
-    },
-    "HAL_DEVOPS_SCAN_ALLOWLIST": {
-        "kind": "path",
-        "default": None,
-        "module": "workflows/phase_5_devops_scan.py",
-        "description": "Override path for the devops-scan finding allowlist file.",
     },
     "HAL_FACTS_PACK": {
         "kind": "gate",

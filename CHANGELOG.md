@@ -80,6 +80,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Changed
 
+- **Dropped the DevOps, canary and smoke stages (bd#89, P1).** Removed the `phase_0_6_artifact_detect`, `phase_5_devops_scan`, `phase_devops_pipeline`, `phase_5_integration_canary` and `phase_6_smoke` workflows and `_standards_context`; none was reachable from the /build flow. `_select_reviewers` and `_review_plan` no longer take `artifact_type` (an `org_config["artifact_type"]` key is ignored), `phase_45_spec` no longer writes `integration/canary-meta.json` or emits `canary_integration_parsed`, and the DevOps steps are gone from the /build docs, templates and `build-gate.sh`. Removed error codes `E_CANARY_*`, `E_DEVOPS_SCAN_*`, `E_SMOKE_*` and the flags `HAL_DEVOPS_SCAN_{GATE,CONFIG,ALLOWLIST}`.
 - **Shared frontmatter parser (#116).** `parse_frontmatter` moved to
   `bytedigger_engine.lib.frontmatter` (still importable from `verification_registry`). It now
   ignores a UTF-8 BOM and reads CRLF as LF, so a BOM or CRLF `SKILL.md` with

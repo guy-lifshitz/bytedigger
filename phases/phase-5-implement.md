@@ -380,16 +380,6 @@ After EACH Task agent returns (implementation or test generation), orchestrator 
 - Max 3 cycles total. Exhausted → STOP pipeline
 - Never proceed past Phase 5 with failing tests
 
-## Step 4 — DevOps Validation (only if profile=devops)
-
-Skip if profile is `code`.
-
-1. **Syntax validators**: terraform validate, hadolint, actionlint, kubectl dry-run, helm lint
-   - Graceful degradation: skip missing tools, log warning
-2. **Security scanning**: checkov, trivy, gitleaks, regex patterns
-   - Aggregate by severity
-3. CRITICAL/HIGH findings → fix (max 3 cycles)
-
 ## COMPLEX Worker Dispatch
 
 For COMPLEX tasks ONLY, replace monolithic Phase 5 with per-task workers:
@@ -448,5 +438,3 @@ Pass data as **file paths** (scratchpad, spec), not inline summaries. Workers re
 - [ ] All files from spec created/modified
 - [ ] No lint errors or warnings
 - [ ] `build-state.yaml` updated with phase_5 status + opus_validation
-- [ ] (DevOps) Validators pass or gracefully skipped
-- [ ] (DevOps) No CRITICAL/HIGH security findings
