@@ -137,6 +137,11 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   untracked, so the baseline is computed (0 for a new module) and the delta gate can block. A git
   failure or exception on either read also returns "not identical" and emits
   `baseline_tree_identity_check_failed` (severity `warning`) instead of failing silently.
+- **D3 prohibition gate reads negations on word boundaries (bd#169).** `_D3_NEGATION_RE` no longer
+  matches inside longer words ("Whenever", "casino", "nevertheless", "do nothing"), so a spec that
+  modifies a path the task asks for is no longer turned into REVISE. `_D3_MUTATION_VERB_RE` now also
+  counts the noun forms `modifications`, `edits` and `changes` ("no changes to `src/z.py`"); known
+  limit: "`x` never changes in `src/a.py`" still prohibits `src/a.py`.
 
 ## [0.2.0] — 2026-09-30
 
