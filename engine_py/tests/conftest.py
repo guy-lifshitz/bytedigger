@@ -77,6 +77,7 @@ except ImportError:
 # Module-level globals for PATH snapshot and guard dir (Opus advisory A2).
 _ORIG_PATH: str = ""
 _GUARD_DIR: str = ""
+_ORIG_RUN_LOG_ROOT: str | None = None  # bd#93: pre-session HAL_RUN_LOG_ROOT
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -120,6 +121,12 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ["PATH"] = guard_dir + os.pathsep + _ORIG_PATH
     os.environ["HAL_LLM_BURN_GUARD"] = guard_dir
 
+    # bd#93: session-level run-log root (covers subprocesses and session-scoped code):
+    # set unconditionally to a fresh temp dir, previous value restored in unconfigure.
+    global _ORIG_RUN_LOG_ROOT
+    _ORIG_RUN_LOG_ROOT = os.environ.get("HAL_RUN_LOG_ROOT")
+    os.environ["HAL_RUN_LOG_ROOT"] = os.path.realpath(tempfile.mkdtemp(prefix="hal-bd93-runlog-"))
+
     # bd#102 M1: freeze host-tool availability once, from inside this SAME
     # pytest_configure — never a second one (that would shadow this hook and
     # reopen the burn-guard billing seam).
@@ -136,6 +143,10 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     if _ORIG_PATH or _GUARD_DIR:
         os.environ["PATH"] = _ORIG_PATH
     os.environ.pop("HAL_LLM_BURN_GUARD", None)
+    if _ORIG_RUN_LOG_ROOT is None:  # bd#93
+        os.environ.pop("HAL_RUN_LOG_ROOT", None)
+    else:
+        os.environ["HAL_RUN_LOG_ROOT"] = _ORIG_RUN_LOG_ROOT
 
 
 def pytest_runtest_teardown(item, nextitem) -> None:  # noqa: ARG001
@@ -228,6 +239,16 @@ def _telemetry_log_isolation(monkeypatch, tmp_path):
     """
     for var, filename in _STATE_LOG_ENV_SEAMS.items():
         monkeypatch.setenv(var, str(tmp_path / filename))
+
+
+@pytest.fixture(autouse=True)
+def _bd93_run_log_root_isolation(monkeypatch, tmp_path_factory):
+    """bd#93: per-test HAL_RUN_LOG_ROOT under pytest basetemp, so run-scoped event logs
+    and the governor/sentinel state beside them never leak between tests that reuse
+    literal run ids, nor land under the developer's HOME. Its own fixture, NOT an entry
+    in `_STATE_LOG_ENV_SEAMS` (GH1113 exact-5 invariant). Outside `tmp_path` on purpose:
+    tests that inspect tmp_path contents are undisturbed."""
+    monkeypatch.setenv("HAL_RUN_LOG_ROOT", str(tmp_path_factory.mktemp("bd93-runlog")))
 
 
 # GH1118: coord-claim file seam. Kept SEPARATE from _STATE_LOG_ENV_SEAMS so the

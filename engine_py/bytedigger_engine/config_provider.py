@@ -148,6 +148,16 @@ class _DefaultConfigProvider:
         """
         return ""
 
+    def run_log_root(self) -> Path:
+        """Root under which each run keeps `<run_id>/events.jsonl` (bd#93).
+
+        Env-overridable (HAL_RUN_LOG_ROOT, BD_/BYTEDIGGER_ aliases via path());
+        neutral default is `<home>/<foreign_state_dirname>/runs` — cwd-independent.
+        Off-Protocol, mirrors event_log_path_override(); the env read stays here so
+        event_log.py remains env-free (core boundary lint).
+        """
+        return self.path("HAL_RUN_LOG_ROOT", self.home_root() / self.foreign_state_dirname() / "runs")
+
     def reject_log_relpath(self) -> str:
         """Neutral reject-log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/reject-reasons.jsonl"
@@ -276,6 +286,16 @@ def worktree_inuse_window_s() -> float:
 def event_log_path_override() -> str:
     """Absolute event-log path forced by the host, or "" (GH1309)."""
     return str(get_config().event_log_path_override())  # type: ignore[attr-defined]  # provider-concrete, off minimal Protocol
+
+def run_log_root() -> Path:
+    """Root of the run-scoped event logs (bd#93, single source, §1g). A provider
+    without run_log_root() (minimal Protocol) gets the same neutral default,
+    still env-overridable through path()."""
+    cfg = get_config()
+    fn = getattr(cfg, "run_log_root", None)
+    if fn is not None:
+        return Path(fn())
+    return cfg.path("HAL_RUN_LOG_ROOT", Path.home().resolve() / ".bytedigger" / "runs")
 
 def reject_log_relpath() -> str:
     """Host-relative path of the reject-reasons log (single source, §1g)."""

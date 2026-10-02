@@ -827,7 +827,12 @@ class TestUnfrozen:
         nothing and fails nothing: the digest is carried by the log and nowhere
         else, so there is no place to record one.  Failing it closed would break
         `build-cli.ts:40` on every spec phase and buy nothing AC-15 does not
-        already buy."""
+        already buy.
+
+        bd#93: "logless" here means no explicit `--event-log`; the driver now attaches
+        an implicit run-scoped log. `[bd8:6b]` holds for an implicit log with no
+        `scratchpad_dir` (no freeze, no refusal); with a scratchpad the implicit log
+        records `oracle_frozen`; an explicit log without one is still refused."""
         install_fixture_workflows(monkeypatch)
         rc, payload, raw = freeze(world, "run-ac15o", log=False)
         assert rc == 0, (

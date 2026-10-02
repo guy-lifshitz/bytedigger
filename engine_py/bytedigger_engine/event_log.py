@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,7 @@ from bytedigger_engine.config_provider import hal_root as _hal_root_fn  # noqa: 
 from bytedigger_engine.config_provider import event_log_relpath, resolve_event_log_hal_dir  # noqa: E402
 from bytedigger_engine.config_provider import event_log_path_override as _event_log_path_override_fn  # noqa: E402
 from bytedigger_engine.config_provider import foreign_state_dirname as _foreign_state_dirname_fn  # noqa: E402
+from bytedigger_engine.config_provider import run_log_root as _run_log_root_fn  # noqa: E402
 
 # structural: engine_py → build → cli → SYSTEM → host install root
 def _resolve_hal_dir(file_path: Path) -> Path:
@@ -73,6 +75,24 @@ def default_log_path() -> Path:
     except (OSError, ValueError, RuntimeError):
         pass
     return Path.cwd() / _foreign_state_dirname_fn() / "events.jsonl"
+
+
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def run_scoped_log_path(run_id: str, root: Path | None = None) -> Path:
+    """bd#93: `<root>/<run_id>/events.jsonl` — the run's own home, independent of cwd.
+
+    `root` defaults to the provider's run_log_root(). Pure path math, no filesystem
+    I/O. ValueError on an unsafe run id (no separators/leading dot/`..`, <=128
+    chars) or a root that is not absolute after expanduser (never cwd-dependent).
+    """
+    if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id) or ".." in run_id:
+        raise ValueError(f"unsafe run id for a run-scoped event log: {run_id!r}")
+    base = Path(root if root is not None else _run_log_root_fn()).expanduser()
+    if not base.is_absolute():
+        raise ValueError(f"run log root must be absolute: {str(base)!r}")
+    return base / run_id / "events.jsonl"
 
 
 def __getattr__(name: str) -> Any:
