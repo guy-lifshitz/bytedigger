@@ -1,6 +1,6 @@
 # bd#164 — host-callable deterministic preflight CLI with a tree-state receipt
 
-**Status: r1 (frozen for RED)** · **Tier:** 3 (one new engine prod module + a 3-line dispatch in
+**Status: r2 (gate r1 REJECTED: 2 MAJOR + 10 MINOR applied, see `2026-10-02-bd164-gate-r1.md`)** · **Tier:** 3 (one new engine prod module + a 3-line dispatch in
 `run.py`, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `preflight.run_preflight` — the one function that runs the fixed deterministic step
 list and writes the receipt; `preflight.verify_receipt` — the one function a host calls to decide
@@ -60,13 +60,20 @@ work tree, so writing it never changes the state hash). `facts.md` lives in the 
 ### op4 `run_preflight(spec, phase, *, cwd=".", base="origin/main", tier=None, classifier_cmd=None, classifier_timeout_s=check_ladder.DEFAULT_TIMEOUT_S, known_reds=None, test_timeout_s=600) -> PreflightResult`
 `PreflightResult = {"exit_code": 0|1|2, "receipt": dict|None, "error_code": str|None, "error": str|None}`.
 Order:
-1. `phase` not in `("red", "green")` → exit 2 `E_PREFLIGHT_USAGE`.
-2. Resolve toplevel (`git rev-parse --show-toplevel` in `cwd`), git dir, `HEAD`,
-   `merge-base <base> HEAD`; any failure → exit 2 `E_PREFLIGHT_GIT`. Then **delete any existing
-   receipt** (a run that ends in exit 2 must not leave an older green receipt behind).
-3. Read the spec (`cwd`-relative or absolute); unreadable, or `red_tests` or `paths` empty → exit 2
-   `E_PREFLIGHT_SPEC_FIELDS`. Exit 2 writes no receipt.
-4. Run `STEPS` in order. Each step returns `(status, detail)`; it is timed (`ms`). After the first
+1. Resolve toplevel (`git rev-parse --show-toplevel` in `cwd`) and git dir; failure → exit 2
+   `E_PREFLIGHT_GIT` (no receipt can exist that this run could find). Then **delete any existing
+   `receipt.json` and `facts.md`** in the receipt dir: every later exit — 0, 1 or 2 — starts from
+   no receipt, so an exit 2 never leaves an older green receipt behind.
+2. `phase` not in `("red", "green")` → exit 2 `E_PREFLIGHT_USAGE`.
+3. Resolve `HEAD` and `merge-base <base> HEAD`; failure → exit 2 `E_PREFLIGHT_GIT`.
+4. Read the spec (`cwd`-relative or absolute); unreadable, or `red_tests` or `paths` empty → exit 2
+   `E_PREFLIGHT_SPEC_FIELDS`. Exit 2 writes no receipt. Relative `red_tests`, `sibling_tests` and
+   `paths` entries are resolved against toplevel (never the process cwd) wherever a step touches
+   the filesystem; `tier_gate.lint_paths` receives the toplevel-joined absolute paths.
+5. `state_hash = compute_state_hash(toplevel)` is computed **now, before any step runs**: the
+   receipt binds the tree the steps actually saw, so an edit made while steps run makes the
+   receipt stale immediately.
+6. Run `STEPS` in order. Each step returns `(status, detail)`; it is timed (`ms`). After the first
    `red` step every later step is recorded `{"status": "skipped", "ms": 0, "detail": ""}` and not
    run. An exception inside steps 1–7 → `red` with detail `internal error: <msg>` (fail closed).
    `changed` = files differing from the merge-base (`git diff --name-only -z --diff-filter=d <mb>`)
@@ -78,7 +85,10 @@ Order:
    - **tier** — tier = `tier` arg, else spec `tier[0]`, upper-cased. `MICRO` →
      `tier_gate.lint_paths(paths, "MICRO")`; findings or `error` → `red` naming the paths. Other /
      none → `ok` `skip <tier|none>`.
-   - **cite** — `spec_cite.lint_spec(spec_abs, toplevel)`; any finding with status in
+   - **cite** — drop this toplevel's entry from spec_cite's per-process repo-index memo
+     (`spec_cite._REPO_INDEX_CACHE.pop(str(toplevel.resolve()), None)`, so a host calling
+     `run_preflight` twice in one process never lints against a stale index), then
+     `spec_cite.lint_spec(spec_abs, toplevel)`; any finding with status in
      `spec_cite.BLOCKING_STATUSES` → `red` listing `<status> <file> <symbol>` (first 5). Else `ok`.
    - **stub** — each `.py` in `red_tests` (existing) → `stub_passability.lint_red_file(abs)`;
      any findings or `error` → `red`. No `.py` → `ok` `no py`.
@@ -112,7 +122,7 @@ Order:
      step `error` with detail = classifier status; any exception → step `error` `internal error: …`.
      Receipt field `prescreen` = `{"status", "label", "confidence", "ms"}` of the classifier, or
      `null` when the step did not call it.
-5. `state_hash = compute_state_hash(toplevel)` computed **after** the steps. Receipt:
+7. Receipt (`state_hash` from point 5):
    `{"schema": 1, "phase", "ok", "head", "base", "state_hash", "spec", "steps":
    [{"name","status","ms","detail"} × 8], "facts_path", "prescreen", "ts"}`; `ok` = no step `red`.
    Written atomically (temp file + `os.replace`). Exit 0 if `ok`, else exit 1 with
@@ -120,8 +130,9 @@ Order:
 Step status vocabulary: `ok | red | skipped | off | error` (`off`/`error` only on prescreen).
 
 ### op5 `verify_receipt(phase, toplevel) -> "fresh" | "stale" | "red" | "missing"`
-Checked in this order: receipt absent / unreadable / not JSON / `schema != 1` / `phase` mismatch →
-`missing`; `head` ≠ current `HEAD` or `state_hash` ≠ `compute_state_hash(toplevel)` → `stale`;
+All git calls in this module run as `git --no-optional-locks …` (verify never takes the index
+lock). Checked in this order: receipt absent / unreadable / not JSON / `schema != 1` / `phase` mismatch →
+`missing`; `head` ≠ current `HEAD` or `state_hash` ≠ `compute_state_hash(toplevel)` → `stale`; the hash computation failing (git error) → `stale`;
 `ok` is not `True` → `red`; else `fresh`. Never raises (non-git dir → `missing`). Read-only.
 
 ### op6 CLI `preflight_main(argv) -> int`
@@ -130,9 +141,10 @@ Checked in this order: receipt absent / unreadable / not JSON / `schema != 1` / 
 → `run_preflight(...)`, returns its exit code. Human output: one line per step
 `<name>: <status> <detail>` then `preflight: ok` or `preflight: red <E_CODE> <error>`. `--json`:
 stdout is exactly one JSON document — the receipt (exit 0/1) or `{"ok": false, "error_code",
-"error"}` (exit 2). `--classifier-cmd` not a JSON list of strings → exit 2 `E_PREFLIGHT_USAGE`.
+"error"}` (exit 2). The parser uses `prog="bytedigger-engine preflight"`. `--classifier-cmd` not a non-empty JSON list of strings → exit 2 `E_PREFLIGHT_USAGE`.
 `bytedigger-engine preflight --verify --phase red|green [--cwd DIR]` → prints the
-`verify_receipt` word; exit 0 iff `fresh`, else 1. argparse usage errors → exit 2.
+`verify_receipt` word; exit 0 iff `fresh`, else 1. argparse usage errors → exit 2 with the usage message on stderr and nothing on stdout (also
+under `--json`; the one-JSON-document rule covers runs that reach `run_preflight`).
 
 ### Registries
 `error_codes.ERROR_CODES` gains `E_PREFLIGHT_{SYNTAX,TIER,CITE,STUB,SCOPED,SIBLINGS,FACTS,PRESCREEN,
@@ -150,6 +162,10 @@ front-matter lists `red_tests: [tests/test_calc.py]`, `paths: [calc.py]` and who
 - A1 `parse_spec_fields`: block list, inline list, scalar, quotes, no front-matter, missing keys.
 - A2 green-path red phase: exit 0, receipt at `receipt_path`, 8 steps in `STEPS` order, `ok` true,
   `head`/`state_hash` match, `facts_path` exists; `verify_receipt("red", top) == "fresh"`.
+- A3 fail-closed: `spec_cite.lint_spec` patched to raise → exit 1 `E_PREFLIGHT_CITE`, detail
+  starts `internal error`, later steps `skipped`. Green phase, RED test sleeps 30 s,
+  `test_timeout_s=1` → exit 1 `E_PREFLIGHT_SCOPED`, detail contains `no test report`.
+  Relative engine-prod `paths` entry with process cwd ≠ toplevel and tier MICRO → `E_PREFLIGHT_TIER`.
 - A3 each red step: syntax (broken `.py` in changed), cite (unresolved symbol), stub (stub-passable
   RED), scoped red-phase (passing test; vacuous file), scoped green-phase (failing test), siblings
   (failing sibling not in ledger) → exit 1, `error_code == STEP_CODES[step]`, later steps
@@ -164,16 +180,21 @@ front-matter lists `red_tests: [tests/test_calc.py]`, `paths: [calc.py]` and who
   `classifier_timeout_s` → `error`; classifier prints `{"label":"reject","confidence":0.99}` → step
   `ok`, preflight still ok (shadow never rejects); `check_ladder.prescreen` raising → `error`, ok.
   Same with a red earlier step: prescreen `skipped`.
-- A6 exit 2: missing spec, empty `red_tests`, bad phase, not a git repo, unknown `--base` → exit 2
-  with the code; no receipt file afterwards, including when a green receipt existed before.
+- A6 exit 2: missing spec, empty `red_tests`, empty `paths`, bad phase, not a git repo, unknown
+  `--base` → exit 2 with the code; for every case inside a repo a green receipt and `facts.md`
+  are produced first and are gone afterwards.
+- A4b: a tracked edit made by the RED test itself while it runs (the test writes to a tracked
+  file) → the resulting receipt is `stale` (hash taken before steps).
 - A7 provider-agnostic: the same fixture under `HAL_RUNNER_BACKEND=claude-subprocess` and
   `=anthropic-api` gives identical step names/statuses; `llm_subprocess.invoke_llm_subprocess`
   patched to raise is never reached. Module source has no `HAL_` literal and no
   `anthropic|claude|openai|jev` (case-insensitive) outside the docstring.
 - A8 CLI: `run.py` `main()` with `["preflight", …]` dispatches; `--json` emits one parseable
-  document; `--verify` prints the word and exits 0 only for fresh; bad `--classifier-cmd` → 2.
+  document; `--verify` prints the word and exits 0 only for fresh; bad `--classifier-cmd` (not JSON, not a list, `[]`) → 2; an argparse
+  usage error under `--json` → exit 2, empty stdout.
 - A9 registries: module in `core_manifest.json` `core_modules` and `mypy-strict-modules.txt`; every
   `STEP_CODES` value and the 3 input codes in `error_codes.ERROR_CODES`.
+- Hygiene: an autouse fixture clears `HAL_KNOWN_REDS_TODAY` and every `GIT_*` env var.
 - A10 one implementation: module source references `spec_cite.lint_spec`,
   `stub_passability.lint_red_file`, `tier_gate.lint_paths`, `facts_pack.collect`,
   `check_ladder.prescreen`, `known_reds_ledger.red_match_tokens`, and defines no function named
