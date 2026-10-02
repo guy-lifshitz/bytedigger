@@ -16,6 +16,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 ### Fixed
 
 - **Per-cycle artifacts are cleared or keyed (bd#92).** The phase-6 review doc is unlinked before the reviewer runs; the findings thread is keyed by run id and producing cycle (new event `spec_findings_thread_rejected`); the ship sidecar is written only on a reviewer SHIP and needs `verdict: SHIP` to be reused (new event `spec_prior_base_unverified`); sentinel globs come from one builder (`resume_sentinel_glob`), match `norun` names, and a phase reroute clears every cycle.
+- bd#206: class-M model output is declared at its three carry sites (satisfaction findings to the fix prompt, prior review findings to the next review prompt, finding fields to the semantic verifier prompt) as `invocation:<step_name>:<invocation_id>` blocks; new `lib/findings_provenance.py`; BD-L3 R3.2 checks that a named invocation was attested strictly earlier in the same run and the form of `output_sha256` / `invocation_id`.
 
 ### Removed
 

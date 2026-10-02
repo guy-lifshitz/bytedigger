@@ -27,6 +27,7 @@
     "lib/dirty_tree_guard.py::porcelain_status_map::git_read#0": {"class": "not-prompt", "note": "git status parsed into a path to status map for a gate"},
     "lib/dispatcher_report.py::collect_run_stats::open#0": {"class": "not-prompt", "note": "event log opened to count rows for the dispatcher report; report is a file, not a prompt"},
     "lib/dispatcher_report.py::emit_dispatcher_report::.open#0": {"class": "not-prompt", "note": "os.open append of the dispatcher index line; write path"},
+    "lib/findings_provenance.py::review_source_id::read_text#0": {"class": "not-prompt", "note": "bd#206: review provenance json parsed into a source_id string; the file body is never inlined"},
     "lib/git_blob.py::_git::bounded_run#0": {"class": "not-prompt", "note": "git cat-file wrapper; blob bytes hashed or compared in the engine"},
     "lib/git_port.py::_git_read_subprocess::bounded_run#0": {"class": "not-prompt", "note": "wrapper body of git_read; each caller of git_read is keyed separately"},
     "lib/git_port.py::ls_files_others::git_read#0": {"class": "not-prompt", "note": "git_port helper over git_read; no caller outside lib/git_port.py"},

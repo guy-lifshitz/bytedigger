@@ -671,7 +671,10 @@ def test_ac5_sidecar_negatives_declare_nothing(tmp_path) -> None:
     _, ev_empty = _dispatch_review_with_sidecar(
         tmp_path / "empty", {**base, "structured_findings": [], "run_id": RUN, "source_id": sid})
     assert _class_m(ev_other) == [] and _class_m(ev_legacy) == [] and _class_m(ev_empty) == []
-    assert prompt_pos == prompt_other == prompt_legacy, "AC5: declaring must not change prompt bytes"
+    def _norm(prompt: str, sub: str) -> str:  # prompts embed the per-case tmp root
+        return prompt.replace(str(tmp_path / sub), "<ROOT>")
+    assert (_norm(prompt_pos, "pos") == _norm(prompt_other, "other")
+            == _norm(prompt_legacy, "legacy")), "AC5: declaring must not change prompt bytes"
 
 
 # ---------------------------------------------------------------------------

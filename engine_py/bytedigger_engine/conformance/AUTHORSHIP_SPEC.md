@@ -373,7 +373,7 @@ stays small. `claude-subprocess` derives it from the transcript walk it already 
   | Key | Value | Why |
   |---|---|---|
   | `R3.1` | `host-attested-within-run-context` | `[bd10:25]` two narrowings, not one — see below |
-  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)); bd#147 drew the class I/E/P/M boundary (§4) and declared three more class-I segments (decision doc, inlined test files, directed-repair artifact); the call-site inventory (bd#150) declares the rest of the class-I sites; the test-run output tails (bd#192) are follow-ups; class-M output digests are recorded (#152) and class-M block declarations are a follow-up (bd#206) |
+  | `R3.2` | `injections-channel-only` | `[bd10:19]` — the channel is enforced; every role-template inlining site is migrated (bd#141 4(d)); bd#147 drew the class I/E/P/M boundary (§4) and declared three more class-I segments (decision doc, inlined test files, directed-repair artifact); the call-site inventory (bd#150) declares the rest of the class-I sites; the test-run output tails (bd#192) are follow-ups; class-M output digests are recorded (#152) and class-M blocks are declared at the three carry sites (bd#206) |
   | `R3.3` | `in-session-warn-only` | `[bd10:2]` — enforced at the chokepoint for reporting adapters; the in-session path still warns (bd#29) |
   | `R3.5` | `adapter-declared` | `[bd10:19]` — the backend declares its own enforcement; CL:101 wants a mechanism outside the actor's reach |
   | `R3.6` | `tool-head-only` | AC-C6 — the operand never leaves the adapter |
@@ -510,13 +510,21 @@ The rule is structural. It asks what unit of read bytes is inlined, not whether 
   - Held in the fields of a parsed record and re-rendered: the findings sidecar.
 
   A file body that a model wrote, read back and inlined whole, is class I instead. Output digests
-  are recorded per invocation (#152). Declaring class-M blocks is deferred to bd#206. The matching
-  rule is fixed now. A class-M block's `source_id` is `"invocation:<step_name>:<invocation_id>"`,
+  are recorded per invocation (#152). Class-M blocks are declared at three carry sites (bd#206):
+  satisfaction findings reaching the fix prompt (`invoke_satisfaction_llm`, one block per
+  contributing evaluator), the prior findings in `last_findings.json` reaching the next review
+  prompt (`invoke_review_llm`), and the finding fields reaching the verifier prompt
+  (`verify_findings_semantic`). Each site declares one block per carried unit, with `content` the
+  string as inlined; engine markers inside a unit stay inside the block. The review invocation id
+  reaches later steps through `lib/findings_provenance.py`. Other class-M carries (phase 4.5 delta
+  findings and `.findings-thread.json`, phase 5 GREEN delta `findings`, verifier verdict text via
+  the review doc) remain undeclared. A class-M block's `source_id` is `"invocation:<step_name>:<invocation_id>"`,
   naming an earlier attestation in the same run. Its digest equals that attestation's
   `output_sha256` only when the whole `raw_response` is inlined verbatim. A re-rendered finding
   does not match, so the check there is that the named invocation was attested earlier in the run.
   A prompt injection that reaches a model through an earlier model's output is covered only by
-  R3.1's hash until those declarations exist.
+  R3.1's hash, except at the three declared sites. R3.2 checks that the named invocation was
+  attested strictly earlier in the same run.
 
 **Chunk rule.** A class-I segment is declared as one block per maximal run of source text that
 reaches the prompt unmodified, with the class-E wrapper and markers in no block. `content` is the
