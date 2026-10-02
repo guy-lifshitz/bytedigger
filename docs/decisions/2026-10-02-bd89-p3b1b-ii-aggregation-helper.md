@@ -128,3 +128,11 @@ The full suite is CI only.
 ### GAP list (not ported)
 
 - None. P3b1b-ii closes the P3b1b scope of #89 row 2, apart from the multi-evaluator follow-up.
+
+## §7 Errata r1 (gate r1 APPROVED, `2026-10-02-bd89-p3b1b-ii-gate-r1.md`; not a re-freeze)
+
+- **F1 (AC2).** `step()` always wraps `execute` in an `_execute` closure, so the literal `execute is helper` cannot hold while `RetryPolicy` is kept. AC2 is therefore checked through the closure: the `fn` cell is `_aggregate_and_write_review_artifact`, `retries.max_retries == 1`, and `execute.__name__ == "_execute"`. GREEN must register the write step via `step("write_review_artifact", _aggregate_and_write_review_artifact, retries=RetryPolicy(max_retries=1))`.
+- **F2 (AC11).** AC11 is split in two. AC11a is a GUARD: `"role-composite.md"` appears in `SINGLE_REVIEW_FRAMING_TEMPLATE`, and it is green before GREEN. AC11b, `p6._COMPOSITE_ROLE_FILE == "role-composite.md"`, is red before GREEN. The expected-red line becomes: AC1-AC10 and AC11b are red, while AC11a, AC12 and AC13 are green.
+- **A1 (§6 retry).** On a write-step retry, the aggregation re-emits every event it raises: `role_report_unreadable`, `role_report_malformed`, `role_report_missing`, `review_findings_audit`, the per-finding quote-verification events, `review_zero_findings_suspect` and the suspect-rate event, plus `review_aggregation_error` from the helper. The only prod consumer, `error_locus.py:68`, takes a max over `review_findings_audit`, so duplicates do not change its output.
+- **A2 (op1).** "Missing" means `not (reviews_dir / _COMPOSITE_ROLE_FILE).is_file()`. This includes a `reviews/` dir that does not exist, and a directory sitting at that path. All of these cases emit `role_report_missing`.
+- **A4 (op4).** `complexity` is still forwarded from `_invoke_review_llm` in `prev.data`. The aggregator no longer reads it, but downstream steps may, so GREEN keeps forwarding it. The comment at `:1028` says so.
