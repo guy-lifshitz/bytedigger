@@ -103,6 +103,8 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Fixed
 
+- **An unreadable or malformed effort config no longer passes silently (bd#107).** Effort lookup now goes through one resolver, `_resolve_effort`. When the models config can't be read or parsed, or a gate pin names a family it can't resolve, `_dispatch_backend` emits an `effort_config_invalid` event (`backend`, `step_name`, `hard_gate`, `problem`, `detail`) and logs one WARNING per distinct problem. A hard gate with an unreadable or malformed config is refused with the new `E_GATE_EFFORT_CONFIG_INVALID` (non-recoverable) and the backend is not called. Every other case still dispatches, at effort `None`. `_load_effort` and `_load_effort_gate` keep their None/no-raise contract.
+
 - **Callers can no longer forge adapter observations (bd#145).** `_dispatch_backend` drops the
   reserved observation fields (`observed_model`, `observed_tools`, `worker_written_paths`,
   `manifest_source`, `mcp_server_losses`) from `extra_data` before any backend sees it, with one
