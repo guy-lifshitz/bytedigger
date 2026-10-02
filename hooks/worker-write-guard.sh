@@ -1,10 +1,11 @@
 #!/bin/bash
 # worker-write-guard.sh
-# PreToolUse hook (Write|Edit|MultiEdit|NotebookEdit): while a build is active, stops
+# PreToolUse hook (Write|Edit|MultiEdit|NotebookEdit and Bash): while a build is active, stops
 # subagents from writing orchestrator state (build-state.yaml, build-metadata.json,
-# build-red-output.log, build-green-output.log, .bytedigger-orchestrator-pid) and confines
-# the synthesizer to one scratchpad dir (synthesizer -> reviews/).
-# Logic lives in worker_write_guard.py (bd#133).
+# build-red-output.log, build-green-output.log, .bytedigger-orchestrator-pid), including
+# any Bash command that names them, and confines the synthesizer to one scratchpad dir
+# (synthesizer -> reviews/).
+# Logic lives in worker_write_guard.py (bd#133, bd#136).
 #
 # Thin wrapper: stdin JSON, cwd and state reach Python only via stdin / the process cwd,
 # never through shell interpolation.

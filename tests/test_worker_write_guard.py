@@ -134,7 +134,7 @@ def test_a1_bash_entry_unchanged_and_hook_file_exists():
 # R1 -- tools outside the write set
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("tool", ["Read", "Bash", "Grep", "Glob"])
+@pytest.mark.parametrize("tool", ["Read", "Grep", "Glob"])
 def test_r1_non_write_tool_allowed(tmp_path, tool):
     proj = _project(tmp_path)
     _allow(_run(proj, _call(tool, proj / "build-state.yaml")))

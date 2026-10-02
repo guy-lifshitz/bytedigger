@@ -53,28 +53,46 @@ isolation problem on your side of the line above.
 
 ## Subagent write guard
 
-`hooks/worker-write-guard.sh` is a PreToolUse hook on `Write|Edit|MultiEdit|NotebookEdit`.
+`hooks/worker-write-guard.sh` is a PreToolUse hook on `Write|Edit|MultiEdit|NotebookEdit`
+and `Bash`.
 While a build is active (`build-state.yaml` in the working directory has a
-`current_phase` other than `completed`) it enforces two things for subagent calls:
+`current_phase` other than `completed`, or is empty) it enforces two things for subagent calls:
 no subagent may write `build-state.yaml`, `build-metadata.json`, `build-red-output.log`,
 `build-green-output.log` or `.bytedigger-orchestrator-pid` (names compared
 case-insensitively, symlinks and hardlinks resolved), and the `synthesizer` role may write
 only under `<scratchpad_dir>/reviews/`.
+A subagent Bash command is blocked when it names one of those files (quotes and backslashes
+removed, case-insensitive, globs that spell `build` or `bytedigger` included), reads as
+well as writes. The one exception is the closing `| tee build-red-output.log` (or the green log)
+of a test run. Subagents read state with the Read tool.
 The protected-name and per-role rules (R5–R7) never apply to the orchestrator (main thread);
-it is blocked only when the tool input is malformed. If the tool input is unreadable during
+it is blocked only when the tool input is malformed (file tools); a malformed main-thread
+Bash call is allowed. If the tool input is unreadable during
 an active build, or the check itself fails, the hook blocks (fail closed).
 
 Known limits, not fixed by this hook:
 
-- Bash writes. The hook sees file tools only; a general worker with Bash can still
-  write with `echo > build-state.yaml`. The synthesizer has no Bash.
+- The Bash check is a name match, not a sandbox. Computed names, brace expansion
+  (`{build-state,x}.yaml`), a script file that writes the state, and globs without a literal
+  `build` or `bytedigger` (`*.yaml`, `b*-state.yaml`, `[b]uild-state.yaml`) are not caught.
+  Known false positives: a subagent that greps for `build-state.yaml`, and
+  `pytest -k 'build*' | tee ...`, are blocked. The synthesizer has no Bash.
+- The tee exemption checks shape, not content: a subagent can still write a fake
+  `build-red-output.log` with `echo ... | tee build-red-output.log`.
+- An empty state file counts as an active build, but a partly written file without
+  `current_phase` still reads as no build: the check catches an empty file only.
+  `build-state.yaml.tmp` is not protected; it exists for microseconds and only the
+  orchestrator writes it.
 - Orchestrator `cd` into a subdir that persists. The hook reads `build-state.yaml` only
-  from the working directory, so with no state file there the guard is off.
-- Stale state after a worktree build. A `build-state.yaml` left in the main checkout
-  keeps the guard on there. A FAILED build also keeps `build-state.yaml`, so the guard
-  stays on in that checkout until it is cleaned up.
-- engine_py runs on any backend, including API-token backends. It keeps no
-  `build-state.yaml` and fires no plugin hooks, so it gets no subagent guard. Those runs rely on
+  from the working directory, so with no state file there the guard is off. The guard
+  assumes the hook's working directory is the build's checkout.
+- After a worktree build the state files are moved (`mv`) into the worktree, so the main
+  checkout holds no state and is unguarded; that is correct, the build is no longer there.
+  A FAILED build keeps `build-state.yaml`, so the guard stays on in that checkout until it
+  is cleaned up.
+- The hook runs only on hosts that fire PreToolUse plugin hooks. A hook-less backend gets
+  no subagent guard. engine_py runs on any backend, including API-token backends. It keeps no
+  `build-state.yaml` and fires no plugin hooks. Those runs rely on
   the engine's own write manifest and test-integrity diff guard (above); `build-gate.sh`
   covers only the plugin path. Engine workers started as
   `claude -p` are separate main-thread sessions, not subagents.

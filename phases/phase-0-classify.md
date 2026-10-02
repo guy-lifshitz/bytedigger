@@ -30,7 +30,9 @@ last_updated: \"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"
 spec_path: \"./build-spec.md\"
 test_spec_path: \"./build-tests.md\"
 '''
-open('build-state.yaml','w').write(yaml)
+import os
+open('build-state.yaml.tmp','w').write(yaml)
+os.replace('build-state.yaml.tmp','build-state.yaml')
 print('build-state.yaml created')
 "
 ```
@@ -112,7 +114,7 @@ If `/build continue` was invoked:
    - Display: `Completed: [completed_phases]`
    - Skip to the phase AFTER the last completed phase
    - Continue pipeline normally from there
-3. If not found: `No build state found. Start a new /build.`
+3. If not found: look for `.bytedigger/worktrees/*/build-state.yaml` with `current_phase` != "completed". For each one, print `Build state is in worktree <path>: cd there and run /build continue` and stop. If there is none: `No build state found. Start a new /build.`
 4. If found but `current_phase` == "completed": `Previous build completed. Start a new /build.`
 5. If found and `current_phase` == "awaiting_approval": `awaiting_stage: start` → re-run the start gate below (0 → continue with the next phase); `awaiting_stage: ship` → re-run only SHIP (Phase 7, `scripts/ship.sh --pr`), never re-implement.
 
@@ -228,17 +230,18 @@ Then STOP.
 If `--worktree` flag is set OR complexity is COMPLEX with `--pr` flag:
 
 1. Create git worktree: `git worktree add .bytedigger/worktrees/build-[slug]-[timestamp] -b build/[slug]` (branch `gh<N>-[slug]` instead when an issue is bound via `--issue <N>`)
-2. **Copy state files into worktree** — without this, ALL gates are blind and pipeline runs unprotected:
+2. **Move state files into worktree** — without this, ALL gates are blind and pipeline runs unprotected:
    ```bash
    WT=<worktree-path>
-   cp build-state.yaml "$WT/"
-   [ -f build-metadata.json ] && cp build-metadata.json "$WT/"
+   [ -f build-state.yaml ] && mv build-state.yaml "$WT/"
+   [ -f build-metadata.json ] && mv build-metadata.json "$WT/"
    ```
+   Move, do not copy: a copy would leave a stale `current_phase` in the main checkout, and the guard hooks would treat the main checkout as an active build forever.
 3. **Re-anchor scratchpad inside worktree** — the `.bytedigger/` created in main checkout is unreachable from worktree CWD. Recreate inside worktree and rewrite `scratchpad_dir` to its absolute path:
    ```bash
    NEW_SCRATCH="$(cd "$WT" && pwd)/.bytedigger"
    mkdir -p "$NEW_SCRATCH"/{research,architecture,specs,tests,reviews}
-   python3 -c "import re,pathlib;p=pathlib.Path('$WT/build-state.yaml');t=p.read_text();t=re.sub(r'scratchpad_dir:.*', f'scratchpad_dir: \"$NEW_SCRATCH\"', t);p.write_text(t)"
+   python3 -c "import re,pathlib;import os;p=pathlib.Path('$WT/build-state.yaml');tmp=pathlib.Path('$WT/build-state.yaml.tmp');t=p.read_text();t=re.sub(r'scratchpad_dir:.*', f'scratchpad_dir: \"$NEW_SCRATCH\"', t);tmp.write_text(t);os.replace(tmp,p)"
    ```
 4. **Re-arm tool guard after CWD switch** — the `.bytedigger-orchestrator-pid` from the main checkout is unreachable from the worktree. Touch it inside the worktree so the PreToolUse hook stays armed:
    ```bash

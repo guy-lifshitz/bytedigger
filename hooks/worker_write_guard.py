@@ -5,11 +5,15 @@ Spec: docs/decisions/2026-09-30-bd133-worker-write-path-guard.md (decision table
 Every value (stdin JSON, cwd, state file) is data here, never program text.
 Exit codes: 0 = allow, 2 = block (one line on stderr and stdout).
 """
+import fnmatch
 import json
 import os
+import re
 import sys
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+TOKEN_SPLIT = re.compile(r"[\s;|&<>(){}=$`,]+")
+TEE_EXEMPT = re.compile(r"\|\s*tee\s+(-a\s+)?(\./)?build-(red|green)-output\.log\s*$")
 ROLE_DIR = {"synthesizer": "reviews"}
 PROTECTED = ("build-state.yaml", "build-metadata.json", "build-red-output.log",
              "build-green-output.log", ".bytedigger-orchestrator-pid")
@@ -64,11 +68,45 @@ def protected_name(raw_path, target, cwd):
     return raw if raw in PROTECTED else ""
 
 
+def bash_reference(command):
+    """First PROTECTED name the command references (bd#136 spec section 4), else ''."""
+    c = command.replace('"', "").replace("'", "").replace("\\", "").casefold()
+    c = TEE_EXEMPT.sub("", c, count=1)
+    for name in PROTECTED:
+        if name in c:
+            return name
+    tokens = [t.rsplit("/", 1)[-1] for t in TOKEN_SPLIT.split(c)]
+    # Globs count only when the token itself spells build/bytedigger (spec R2 M3).
+    globs = [t for t in tokens if ("build" in t or "bytedigger" in t)
+             and any(g in t for g in "*?[")]
+    for name in PROTECTED:
+        if any(fnmatch.fnmatchcase(name, t) for t in globs):
+            return name
+    return ""
+
+
+def check_bash(data):
+    """Rows B1-B5. Returns normally to allow, else blocks."""
+    agent_id = data.get("agent_id")
+    if not (isinstance(agent_id, str) and agent_id):
+        return  # B1: main thread, before B2
+    tool_input = data.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str) or not command:
+        block(R3_MSG)  # B2
+    name = bash_reference(command)
+    if name:
+        block(PFX + "subagents may not touch " + name
+              + " from Bash; it is orchestrator state")  # B4
+
+
 def check(data, cwd, scratch_value):
-    """Rows R3-R8 for an active build. Returns normally to allow, else blocks."""
+    """Rows R3-R8 and B1-B5 for an active build. Returns normally to allow, else blocks."""
     tool = data.get("tool_name")
     if not isinstance(tool, str) or not tool:
         block(R3_MSG)
+    if tool == "Bash":
+        return check_bash(data)
     tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
         block(R3_MSG)
@@ -113,10 +151,10 @@ def main():
     except Exception:
         data = None
 
-    # R1: a named tool outside the write set is none of our business.
+    # R1: a named tool outside the write set and Bash is none of our business.
     if isinstance(data, dict):
         tool = data.get("tool_name")
-        if isinstance(tool, str) and tool and tool not in WRITE_TOOLS:
+        if isinstance(tool, str) and tool and tool not in WRITE_TOOLS | {"Bash"}:
             return 0
 
     cwd = data.get("cwd") if isinstance(data, dict) else None
@@ -130,9 +168,11 @@ def main():
             text = fh.read()
     except Exception:
         return 0
-    phase = state_value(text, "current_phase")
-    if not phase or phase == "completed":
-        return 0
+    # B0: an empty / whitespace-only state file is an active build (phase unknown).
+    if text.strip():
+        phase = state_value(text, "current_phase")
+        if not phase or phase == "completed":
+            return 0
 
     # From here a build is active: any unexpected error fails closed (R3).
     try:
