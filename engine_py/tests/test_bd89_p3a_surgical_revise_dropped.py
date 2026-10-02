@@ -50,15 +50,22 @@ AC16 test_ac16_patch_array_always_takes_op2c_and_pins_retry_data
      (F7 + r3 F1/F2: sentinel unlinked, recoverable E_VALIDATION_RETRY, retry_from_step 0,
      cycle_count == cycle-1, findings/structured_findings/gate_attempts/retry_source forwarded,
      a patch array is never written as a spec body, with or without a doc)
-     test_ac16_guard_non_strict_array_takes_the_normal_path                   (GUARD, green today)
-     test_ac16_engine_retry_hop_replays_then_reinvokes_at_the_same_cycle      (r3 F2, 1y Host = engine)
+     (r4 F1: each row also asserts data["gate_budget_ok"] is True)
+     test_ac16_guard_non_strict_array_takes_the_normal_path[7 kinds]          (GUARD, green today; r4 F3:
+                                       missing key, empty array, non-dict element, object, prose around fence)
+     test_ac16_array_elements_with_extra_keys_are_still_a_patch_array         (r4 F3 strictness edge, red)
+     test_ac16_payload_minimal_op2c_does_not_invent_keys[cycle2|cycle3]       (r4 F2, red)
+     test_ac16_no_current_run_still_returns_the_retry_without_unlink          (r4 F5, red)
+     test_ac16_engine_retry_hop_replays_then_reinvokes_at_the_same_cycle[cycle2|cycle3]
+                                       (r3 F2, 1y Host = engine; r4 F1: cycle3 needs gate_budget_ok)
 
 Expected red today: AC1 x7, AC2 x2 (namespace, residue), AC3 x2 (flags, inert), AC4 gate-retry x2 (the
 "SPEC GATE FINDINGS" label), AC4 real-chain x2 (surgical lane), AC5 [stale_surgical_prev], AC6 x2 (stale
 state half; today the stale keys route to the surgical branch), AC7, AC8, AC10, AC11 x2, AC12 list row,
-AC13 file deletes x4, AC15, AC16 patch-array matrix x12 and the engine hop. GUARDs green today: AC1 kept
+AC13 file deletes x4, AC15, AC16 patch-array matrix x12 (now also gate_budget_ok), extra-keys, payload_minimal x2, no-current-run,
+and the engine hop x2 (cycle3 red also because the engine refuses cycle_count 2 without gate_budget_ok). GUARDs green today: AC1 kept
 surface, AC2 kept symbols, AC3 surviving flags, AC4 byte identity x2, AC5 [clean_prev], AC6 guard, AC9 x2,
-AC12 x3, AC13 corpus scan (once sibling edits land), AC14, AC16 non-strict array.
+AC12 x3, AC13 corpus scan (once sibling edits land), AC14, AC16 non-strict arrays x7.
 
 Forcing reasons today: cycle-2 writer takes the surgical lane (patch-array contract, Write tool
 withheld, `surgical_revise` data key, sidecar `surgical-delta-cycle-N.json`); the cycle-2 reviewer
@@ -503,9 +510,10 @@ def test_ac4_guard_delta_retry_prompt_default_is_byte_identical_to_reviewer_path
 
 
 def test_ac4_guard_full_non_gate_cycle2_prompt_is_unchanged_with_default_kwarg(tmp_path, monkeypatch):
-    """GUARD (green at RED, r3 F3): the FULL non-gate cycle-2 `_build_spec_prompt` output equals the
-    composition high-binding block + `build_delta_retry_prompt(...)` called WITHOUT `findings_source`
-    + out-of-role block. HAL_SURGICAL_REVISE=0 steers today's tree off the surgical lane onto the
+    """GUARD (green at RED, r3 F3, r4 F4 wording): the FULL non-gate cycle-2 `_build_spec_prompt` output
+    equals a COMPOSITIONAL expected value built from the prod helpers (`_spec_high_binding_block`,
+    `build_delta_retry_prompt(...)` called WITHOUT `findings_source`, `_get_out_of_role_block`); the
+    drift risk of that composition is covered by the literal `_DELTA_HEADER_GOLDEN`. HAL_SURGICAL_REVISE=0 steers today's tree off the surgical lane onto the
     delta lane; after GREEN the switch is inert (AC3), so the same equality holds before and after."""
     mod = _mod()
     from bytedigger_engine.lib.plugins.checklist_convergence.delta_retry_prompt import (
@@ -526,6 +534,9 @@ def test_ac4_guard_full_non_gate_cycle2_prompt_is_unchanged_with_default_kwarg(t
         + "\n\n" + mod._get_out_of_role_block()
     )
     assert res.data["prompt"] == expected
+    # r4 F4: the expected value is compositional (prod helpers), so the literal helper-level golden
+    # `_DELTA_HEADER_GOLDEN` covers the drift risk: the real prompt must carry it verbatim.
+    assert _DELTA_HEADER_GOLDEN.format(spec_path=res.data["doc_path"]) in res.data["prompt"]
 
 
 # --- AC5 -----------------------------------------------------------------------
@@ -941,6 +952,8 @@ def test_ac16_patch_array_always_takes_op2c_and_pins_retry_data(
     assert data["structured_findings"] == STRUCTURED
     assert data["gate_attempts"] == _GATE_ATTEMPTS
     assert data["retry_source"] == mod.SPEC_GATES_RETRY_SOURCE
+    # r4 F1: engine.py only retries cycle_count >= _MAX_VALIDATION_CYCLES when gate_budget_ok is set.
+    assert data["gate_budget_ok"] is True
     # A patch array is never written as a spec body, with or without a doc.
     if before is None:
         assert not doc.exists(), "no doc may be created from a patch array"
@@ -954,20 +967,102 @@ def test_ac16_patch_array_always_takes_op2c_and_pins_retry_data(
     assert not list(scratch.rglob("surgical-delta-cycle-*.json"))
 
 
-def test_ac16_guard_non_strict_array_takes_the_normal_path(tmp_path, sink):
-    """GUARD (green at RED): an array with an element missing `old` is not a patch array; op2c does
-    not fire and the worker's file is the spec body."""
+_FULL_PATCH = {"finding_id": "F1", "old": "OLD_FRAGMENT_TO_REPLACE_F1", "new": "PATCHED_FRAGMENT_F1"}
+_NON_STRICT_RAWS = {
+    "missing_old_key": "```json\n" + json.dumps([{"finding_id": "F1", "new": "x"}]) + "\n```\n",
+    "second_element_missing_key": "```json\n" + json.dumps([_FULL_PATCH, {"finding_id": "F2", "old": "a"}]) + "\n```\n",
+    "empty_array": "```json\n[]\n```\n",
+    "non_dict_element": "```json\n" + json.dumps([_FULL_PATCH, "F2"]) + "\n```\n",
+    "top_level_object": "```json\n" + json.dumps(_FULL_PATCH) + "\n```\n",
+    "leading_prose": "Here are the patches:\n" + PATCH_ARRAY_RAW,
+    "trailing_prose": PATCH_ARRAY_RAW + "\nThat is all.\n",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_NON_STRICT_RAWS))
+def test_ac16_guard_non_strict_array_takes_the_normal_path(tmp_path, sink, kind):
+    """GUARD (green at RED, r4 F3): none of these is a strict patch array (missing key, empty list,
+    non-dict element, top-level object, prose around the fence); op2c does not fire and the worker's
+    file is the spec body."""
     mod = _mod()
     scratch = tmp_path / "scratch"
     doc = _write_spec(scratch, REWRITTEN_SPEC)
-    raw = "```json\n" + json.dumps([{"finding_id": "F1", "new": "x"}]) + "\n```\n"
-    res = mod._write_spec_doc(_ctx(scratch), _step(raw_response=raw, doc_path=str(doc), cycle=2))
+    res = mod._write_spec_doc(_ctx(scratch), _step(
+        raw_response=_NON_STRICT_RAWS[kind], doc_path=str(doc), cycle=2))
     assert res.status == "ok", f"{res.error_code}: {res.error}"
     assert [p["source"] for p in sink.payloads("spec_writer_return_source")] == ["worker_file"]
     assert _text(doc).strip() == REWRITTEN_SPEC.strip()
 
 
-def test_ac16_engine_retry_hop_replays_then_reinvokes_at_the_same_cycle(tmp_path, monkeypatch):
+def test_ac16_array_elements_with_extra_keys_are_still_a_patch_array(tmp_path, sink):
+    """r4 F3 strictness edge: 'all three keys' is a floor, not an exact set. Elements carrying extra
+    keys are still a strict patch array and take op2c (red today: op2c absent, the file body wins)."""
+    mod = _mod()
+    scratch = tmp_path / "scratch"
+    doc = _write_spec(scratch, REWRITTEN_SPEC)
+    raw = "```json\n" + json.dumps([{**_FULL_PATCH, "reason": "extra"}]) + "\n```\n"
+    res = mod._write_spec_doc(_ctx(scratch), _step(raw_response=raw, doc_path=str(doc), cycle=2))
+    assert res.status == "error" and res.recoverable is True, (res.status, res.error)
+    assert res.error_code == "E_VALIDATION_RETRY"
+    assert res.data["retry_from_step"] == 0
+
+
+@pytest.mark.parametrize("cycle", [2, 3], ids=["cycle2", "cycle3"])
+def test_ac16_payload_minimal_op2c_does_not_invent_keys(tmp_path, sink, cycle):
+    """r4 F2: with gate_attempts and retry_source absent from the input they are absent from the
+    retry data (an invented retry_source would turn a review retry into a gate retry)."""
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel
+
+    mod = _mod()
+    scratch = tmp_path / "scratch"
+    doc = _write_spec(scratch, BASE_SPEC)
+    run_id = telemetry_ctx.get_current_run().run_id
+    payload = {"raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": cycle}
+    write_step_sentinel(scratch, "invoke_spec_llm", cycle, payload, run_id, None, "phase_45_spec")
+    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c{cycle}_r{run_id}.json"
+    assert sentinel.is_file(), "fixture precondition: the stale sentinel is on disk"
+
+    res = mod._write_spec_doc(_ctx(scratch), _step(**payload))
+
+    assert res.status == "error" and res.recoverable is True, (res.status, res.error)
+    assert res.error_code == "E_VALIDATION_RETRY"
+    assert not sentinel.exists()
+    assert res.data["retry_from_step"] == 0
+    assert res.data["cycle_count"] == cycle - 1
+    assert res.data["gate_budget_ok"] is True
+    assert "gate_attempts" not in res.data, sorted(res.data)
+    assert "retry_source" not in res.data, sorted(res.data)
+
+
+def test_ac16_no_current_run_still_returns_the_retry_without_unlink(tmp_path):
+    """r4 F5: with no current telemetry run op2c skips the unlink (None guard) and still returns the
+    retry; it must not raise. The engine's same-cycle invalidation removes the sentinel in a real run."""
+    from bytedigger_engine.lib.step_sentinel import write_step_sentinel
+
+    mod = _mod()
+    scratch = tmp_path / "scratch"
+    doc = _write_spec(scratch, BASE_SPEC)
+    run_id = "bd89-p3a-no-run"
+    payload = {"raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": 2,
+               "findings": _RETRY_FINDINGS, "structured_findings": STRUCTURED}
+    write_step_sentinel(scratch, "invoke_spec_llm", 2, payload, run_id, None, "phase_45_spec")
+    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c2_r{run_id}.json"
+    assert sentinel.is_file(), "fixture precondition: the stale sentinel is on disk"
+    telemetry_ctx.clear_current_run()
+    assert telemetry_ctx.get_current_run() is None, "fixture precondition: no current run"
+
+    res = mod._write_spec_doc(_ctx(scratch), _step(**payload))
+
+    assert res.status == "error" and res.recoverable is True, (res.status, res.error)
+    assert res.error_code == "E_VALIDATION_RETRY"
+    assert res.data["retry_from_step"] == 0 and res.data["cycle_count"] == 1
+    assert res.data["gate_budget_ok"] is True
+    assert sentinel.exists(), "without a run id nothing may be unlinked"
+    assert _text(doc) == BASE_SPEC, "a patch array is never written as a spec body"
+
+
+@pytest.mark.parametrize("cycle", [2, 3], ids=["cycle2", "cycle3"])
+def test_ac16_engine_retry_hop_replays_then_reinvokes_at_the_same_cycle(tmp_path, monkeypatch, cycle):
     """Host = engine retry (1y). Real steps detect_frozen_spec, build_spec_prompt, invoke_spec_llm,
     write_spec_doc under `engine._execute_steps` at cycle 2 with a replayed patch-array sentinel on
     disk. Pass 1 replays it (the LLM seam is not called), op2c fires, the engine retries; pass 2 makes
@@ -988,35 +1083,37 @@ def test_ac16_engine_retry_hop_replays_then_reinvokes_at_the_same_cycle(tmp_path
     doc = _write_spec(scratch, BASE_SPEC)  # unrevised cycle-1 body
     ctx = _ctx(scratch)
     run_id = "bd89-p3a-engine-hop"
-    payload = {"raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": 2,
+    payload = {"raw_response": PATCH_ARRAY_RAW, "doc_path": str(doc), "cycle": cycle,
                "findings": STRUCTURED_REVIEW_TEXT, "structured_findings": STRUCTURED}
-    write_step_sentinel(scratch, "invoke_spec_llm", 2, payload, run_id, None, "phase_45_spec")
-    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c2_r{run_id}.json"
+    write_step_sentinel(scratch, "invoke_spec_llm", cycle, payload, run_id, None, "phase_45_spec")
+    sentinel = scratch / "resume" / f"phase_45_spec__invoke_spec_llm_done_c{cycle}_r{run_id}.json"
     assert sentinel.is_file(), "fixture precondition: the stale sentinel is on disk"
 
     spy = _Spy(raw=NON_PATCH_RAW, body=REWRITTEN_SPEC)
     monkeypatch.setattr(mod, "invoke_llm_subprocess", spy)
     engine_sink = _Sink()
     eng = WorkflowEngine(event_log=engine_sink)
-    eng._rework_cycle_high = 1  # execute() seeds these per run; the direct _execute_steps seam does not
+    eng._rework_cycle_high = cycle - 1  # execute() seeds these per run; the direct _execute_steps seam does not
     eng._rework_last_step = None
     final = eng._execute_steps(
         wf, ctx, run_id,
-        initial_data={"cycle": 2, "findings": STRUCTURED_REVIEW_TEXT, "structured_findings": STRUCTURED},
-        cycle=2,
+        initial_data={"cycle": cycle, "findings": STRUCTURED_REVIEW_TEXT, "structured_findings": STRUCTURED},
+        cycle=cycle,
     )
 
+    # r4 F1: at cycle 3 op2c returns cycle_count 2; the engine refuses it unless gate_budget_ok is set,
+    # so without the flag this is a terminal error (no retry, no fresh call).
     assert final.status == "ok", f"{final.error_code}: {final.error}"
     assert engine_sink.names().count("step_sentinel_resumed") == 1, "pass 1 must replay the stale sentinel"
     retries = engine_sink.payloads("phase_retry_triggered")
-    assert len(retries) == 1 and retries[0]["cycle"] == 2 and retries[0]["step_name"] == "write_spec_doc", retries
+    assert len(retries) == 1 and retries[0]["cycle"] == cycle and retries[0]["step_name"] == "write_spec_doc", retries
     assert retries[0]["error_code"] == "E_VALIDATION_RETRY"
     assert len(spy.calls) == 1, "exactly one FRESH invoke_spec_llm call, made by the retry hop"
     call = spy.calls[0]
-    assert call["extra_data"]["cycle"] == 2, "the retry re-runs the SAME cycle"
+    assert call["extra_data"]["cycle"] == cycle, "the retry re-runs the SAME cycle"
     assert "Write the FULL revised spec markdown to" in call["prompt"]
     assert "FINDING_F1" in call["prompt"]
     assert _text(doc).strip() == REWRITTEN_SPEC.strip()
-    assert (scratch / "specs" / "build-spec-cycle-2.md").is_file()
+    assert (scratch / "specs" / f"build-spec-cycle-{cycle}.md").is_file()
     fresh = json.loads(sentinel.read_text(encoding="utf-8"))
     assert fresh["raw_response"] == NON_PATCH_RAW, "the sentinel on disk now holds the fresh call, not the patch array"
