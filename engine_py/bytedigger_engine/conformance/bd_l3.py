@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from . import attest as _attest
 from . import tokens as _tokens
+from ._event_type import event_type_of as _event_type_of
 from .report import L0Report as _L0Report
 from ..lib.llm_provider import get_provider as _get_provider
 
@@ -252,9 +253,10 @@ _CHECKS = {"R3.1": _r31, "R3.2": _r32, "R3.3": _r33,
 def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:
     """Adjudicate R3.3/R3.6 over `events`, returning an `L0Report`.
 
-    Only events whose `event_type` (the on-disk key written by
-    `EventLog.append`) or `type` (the harness shape) is `attest.EVENT_TYPE` are
-    read; every other event type is ignored. That filter is not incidental — a real event log is
+    Only events whose type is `attest.EVENT_TYPE` are read; every other event
+    type is ignored. The type comes from `_event_type.event_type_of`, which
+    picks `event_type` (the on-disk key written by `EventLog.append`) first and
+    falls back to `type` (the harness shape): one event, one type. That filter is not incidental — a real event log is
     heterogeneous while a fixture corpus tends to be uniform, so a checker
     without it is indistinguishable on the corpus and wrong on the real log.
     """
@@ -264,7 +266,7 @@ def check_bd_l3(events: "Iterable[Mapping[str, object]]") -> _L0Report:
     for event in events:
         if not isinstance(event, dict):
             continue
-        if _attest.EVENT_TYPE not in (event.get("event_type"), event.get("type")):
+        if _event_type_of(event) != _attest.EVENT_TYPE:
             continue
         payload = event.get("payload")
         if not isinstance(payload, dict):
