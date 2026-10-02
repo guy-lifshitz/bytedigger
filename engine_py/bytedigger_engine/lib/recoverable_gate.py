@@ -14,7 +14,6 @@ from typing import Any
 # This matches the codebase convention (per sibling tests + RED file lines 27-35).
 
 from bytedigger_engine.contracts import StepResult  # noqa: E402
-from bytedigger_engine.workflows._recoverable_policy import resolve_policy, RecoverablePolicy  # noqa: E402
 from bytedigger_engine import telemetry_ctx  # attribute-lookup idiom so monkeypatch.setattr works  # noqa: E402
 
 __all__ = ["RecoverableGateMixin"]
@@ -51,6 +50,9 @@ class RecoverableGateMixin:
           cycle >= cycle_cap -> status="error",    recoverable=False  (cap)
           else              -> status="error",    recoverable=True   (retry)
         """
+        # Lazy to break the import cycle lib.recoverable_gate -> workflows/__init__ -> phase_45_spec -> lib.recoverable_gate (bd#183).
+        from bytedigger_engine.workflows._recoverable_policy import resolve_policy
+
         pol = resolve_policy(build_class, gate)
         bc_upper = (build_class or "SIMPLE").upper()
         _terminal_msg = terminal_error_msg if terminal_error_msg is not None else error_msg
