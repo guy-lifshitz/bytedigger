@@ -1,6 +1,6 @@
 # bd#136 — write guard follow-ups: subagent Bash writes, stale main-checkout state, atomic state rewrites
 
-**Status: FROZEN Rev 1** · **Class:** SYSTEMATIC · **Builds on:** bd#133 (PR #137,
+**Status: FROZEN Rev 2** (gate r1 REJECT → M1–M4 + minors, see §R2) · **Class:** SYSTEMATIC · **Builds on:** bd#133 (PR #137,
 `hooks/worker_write_guard.py`, spec `2026-09-30-bd133-worker-write-path-guard.md` Rev 3).
 **Chokepoint:** the same PreToolUse hook, now also registered for `Bash`; plus the two
 state-file writers in the phase prompts.
@@ -104,3 +104,46 @@ Deterministic only (no model call, no network). Provider-agnostic: the hook read
 host's PreToolUse JSON and nothing provider-specific; a host without `agent_id` degrades to
 allow (bd#133 §0). Subscription (Claude Code / agent SDK) and API-token runs use the same hook
 when the host fires hooks; the limit for hook-less backends is documented (A8).
+
+## §R2 Rev 2: gate r1 (REJECT, M1–M4) folded in
+
+Where this section and §3–§6 disagree, this section wins.
+
+- **M1, R1 changes meaning.** bd#133 R1 becomes "a named tool outside `WRITE_TOOLS ∪ {Bash}`
+  → allow". RED rev 2 updates `tests/test_worker_write_guard.py::test_r1_non_write_tool_allowed`
+  (drop the `Bash` case; B2 covers it).
+- **M2, a second copy instruction.** `commands/build.md` ("**Worktree:**" line) says `cp build-state.yaml`.
+  It moves too (`mv build-state.yaml` and `build-metadata.json`). A7 pins both files: no
+  `cp build-state.yaml` / `cp build-metadata.json` in `phases/*.md` or `commands/build.md`.
+- **M3, glob false positives.** The §4 glob rule applies only to a token that contains `build`
+  or `bytedigger` (casefolded) as literal text. `pytest tests/* | tee build-red-output.log`,
+  `rm -rf dist/*`, `--include=*.json`, `find -name '*.log'` are allowed; `build-*.yaml`,
+  `build-stat?.yaml`, `.bytedigger-*` are blocked. Bare `*.yaml` / `*.json` are allowed and
+  listed as a limit (A8). A4 pins these.
+- **M4, `/build continue` from the main checkout.** Resume Check step 3 (`phase-0-classify.md`)
+  and the `commands/build.md` "Resumable" text: before "No build state found", look for
+  `.bytedigger/worktrees/*/build-state.yaml` with `current_phase` != `completed`. For each one, print
+  `Build state is in worktree <path>: cd there and run /build continue` and stop. A7 pins the glob
+  and the message in both files.
+- **m1.** The A7 truncation pin forbids `write_text(` / `open(...,'w')` only when the target is
+  the state file itself (`build-state.yaml` not followed by `.tmp`). `…/build-state.yaml.tmp`
+  + `os.replace` is the required form. The phase-0 initial creation converts too (harmless, uniform).
+- **m5.** B1 is evaluated before B2: a main-thread Bash call with a malformed `command` is allowed
+  (the same degrade as R4). This is pinned.
+- **m6/m7, docs.** One wording: "hook-less backend". `docs/security.md` keeps "The synthesizer has
+  no Bash" (the role confinement still depends on it). The "Bash writes" bullet is replaced by the
+  Bash rule; the section intro and the `.sh` header name `Bash`. The #189 engine_py / `claude -p`
+  bullet is reused, not duplicated (A8 reads its phrases from there).
+- **A8 new limit bullets:** the name match is not a sandbox (computed names, brace expansion
+  `{build-state,x}.yaml`, a script file that writes the state, bare `*.yaml` / `*.json` globs);
+  the tee exemption checks shape, not content, so a subagent can still write a fake
+  `build-red-output.log` with `echo … | tee`; B0 catches an empty file only, and a partially written
+  file without `current_phase` still reads as "no build"; the guard assumes the hook's cwd is the
+  build's checkout (bd#133 §3); after `mv` the main checkout holds no state and is unguarded,
+  which is correct because the build is no longer there. `build-state.yaml.tmp` is not protected
+  (exists for microseconds, orchestrator-only).
+- **Extra A2/A3 fixtures:** `… | tee build-red-output.log build-state.yaml` blocked; a command
+  with a newline joining a tee line and `sed -i x build-state.yaml` blocked;
+  `pytest tests/* 2>&1 | tee build-red-output.log` allowed.
+- Out of scope, noted: the stale `.bytedigger-orchestrator-pid` in the main checkout (no hook reads
+  it; see #190).
