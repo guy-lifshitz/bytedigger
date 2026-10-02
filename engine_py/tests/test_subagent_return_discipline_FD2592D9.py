@@ -32,7 +32,6 @@ All 9 tests MUST fail against current production code:
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -470,47 +469,7 @@ def test_ac7_autoprefix_applies_to_file_sourced_content(tmp_path):
     )
 
 
-# ─── AC8 ───────────────────────────────────────────────────────────────────────
-
-
-def test_ac8_canary_sidecar_written_from_file_sourced_spec(tmp_path):
-    """AC8: when doc_path file contains a Canary Integration block, the canary
-    sidecar JSON is written (even though raw_response is a short status with no block).
-
-    Fails today: _write_spec_doc uses raw_response unconditionally (line 874).
-    _SHORT_STATUS has no Canary Integration block → _parse_canary_integration
-    returns {} → no sidecar is written.
-    """
-    scratchpad = tmp_path / "scratch"
-    scratchpad.mkdir(parents=True, exist_ok=True)
-    doc_path = scratchpad / "specs" / "build-spec.md"
-    doc_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # File body contains the Canary Integration block.
-    doc_path.write_text(_SPEC_BODY_WITH_CITATION_AND_CANARY, encoding="utf-8")
-
-    ctx = _make_ctx(scratchpad)
-    # raw_response is the short status (NO canary block).
-    prev = _make_prev(doc_path, _SHORT_STATUS, cycle=1)
-
-    result = mod._write_spec_doc(ctx, prev)
-
-    assert result.status == "ok", (
-        f"_write_spec_doc failed: {result.error!r}"
-    )
-
-    # Canary sidecar must exist (sourced from file, not from short raw_response).
-    sidecar_path = scratchpad / "integration" / "canary-meta.json"
-    assert sidecar_path.exists(), (
-        f"AC8: canary sidecar must be written when file body contains Canary Integration block. "
-        f"Today raw_response (_SHORT_STATUS) is used → no canary block → sidecar never created. "
-        f"Expected sidecar at: {sidecar_path}"
-    )
-    sidecar_data = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    assert sidecar_data.get("event_type") == "spec_writer_return_source_test", (
-        f"AC8: sidecar event_type expected 'spec_writer_return_source_test', "
-        f"got {sidecar_data!r}"
-    )
+# ─── AC8 retired (bd#89 P1): the canary sidecar was dropped with phase_5_integration_canary ───
 
 
 # ─── AC9 ───────────────────────────────────────────────────────────────────────

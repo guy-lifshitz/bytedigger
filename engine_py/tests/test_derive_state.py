@@ -21,11 +21,11 @@ def test_empty_log_returns_empty_state():
 
 
 def test_workflow_started_records_run():
-    events = [evt("workflow_started", {"workflow_name": "phase_6_smoke"})]
+    events = [evt("workflow_started", {"workflow_name": "phase_6_review"})]
     state = replay(events)
     assert "r1" in state["runs"]
     run = state["runs"]["r1"]
-    assert run["workflow_name"] == "phase_6_smoke"
+    assert run["workflow_name"] == "phase_6_review"
     assert run["status"] == "running"
     assert run["started_at"].startswith("2026-04-25T08:00:00")
     assert run["steps"] == []
