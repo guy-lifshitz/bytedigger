@@ -11,15 +11,12 @@ _parse_synthesizer_status, _parse_status_marker) DO exist today, so they are
 imported normally (top-level from their modules).  Their NEW prose-ignoring
 behaviour only activates after GREEN routes them through P2.
 
-conftest singleton already adds engine_root + workflows/ to sys.path.
-lib/ is inserted inside test bodies that need verdict_parse (same pattern as
-Wave A: _ensure_lib_path() helper called inside body).
+The conftest exposes engine_py/ (package parent) and tests/; verdict_parse is
+imported inside test bodies via bytedigger_engine.lib.verdict_parse.
 
 Agreement: EEFD480F · Wave B ACs: ACB1, ACB2, ACB-P2, ACB-P3, ACB-P4.
 """
 from __future__ import annotations
-
-from pathlib import Path
 
 # Top-level imports: phase modules that already exist (GREEN changes their
 # internal routing but keeps public signatures and module paths identical).
@@ -28,26 +25,11 @@ from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_st
 from bytedigger_engine.workflows.phase_2_explore import _parse_status_marker as _p2_parse_status_marker  # noqa: E402
 from bytedigger_engine.workflows.phase_3_clarify import _parse_status_marker as _p3_parse_status_marker  # noqa: E402
 
-HERE = Path(__file__).parent
-ENGINE_ROOT = HERE.parent
-_LIB_PATH = str(ENGINE_ROOT / "bytedigger_engine" / "lib")
-
-
-# ─── helpers ─────────────────────────────────────────────────────────────────
-
-def _ensure_lib_path() -> None:
-    """Insert lib/ into sys.path inside a test body (not at module level)."""
-    import sys  # noqa: PLC0415
-    if _LIB_PATH not in sys.path:
-        sys.path.insert(0, _LIB_PATH)
-
-
 # ─── ACB1: P2 — line-start match vs prose-embedded non-match ─────────────────
 
 
 def test_acb1_p2_line_start_verdict_pass_matches():
     """ACB1: `VERDICT: PASS` at line start is matched and returns mapped value."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     raw = "Some analysis.\nVERDICT: PASS\n"
@@ -67,7 +49,6 @@ def test_acb1_p2_line_start_verdict_pass_matches():
 
 def test_acb1_p2_prose_embedded_marker_does_not_match():
     """ACB1: mid-line `I considered VERDICT: FAIL` does NOT match; fallback returned."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     raw = "Review: I considered VERDICT: FAIL but rejected it.\n"
@@ -87,7 +68,6 @@ def test_acb1_p2_prose_embedded_marker_does_not_match():
 
 def test_acb1_p2_last_line_anchored_wins_over_earlier():
     """ACB1: two standalone markers — LAST one (highest offset) wins."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     raw = "VERDICT: PARTIAL\nMore discussion.\nVERDICT: PASS\n"
@@ -108,7 +88,6 @@ def test_acb1_p2_last_line_anchored_wins_over_earlier():
 def test_acb1_p2_prose_does_not_override_standalone():
     """ACB1: standalone PASS comes first; prose-embedded FAIL appears later —
     standalone PASS must still win (prose-embedded FAIL must not match at all)."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     raw = (
@@ -132,7 +111,6 @@ def test_acb1_p2_prose_does_not_override_standalone():
 
 def test_acb1_p2_no_marker_returns_fallback():
     """ACB1: no marker present → fallback value returned."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     result = last_line_anchored_marker(
@@ -145,7 +123,6 @@ def test_acb1_p2_no_marker_returns_fallback():
 
 def test_acb1_p2_leading_whitespace_tolerated():
     """ACB1: marker with optional leading whitespace still line-anchored → matches."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     raw = "Analysis done.\n  VERDICT: FAIL\n"
@@ -164,7 +141,6 @@ def test_acb1_p2_leading_whitespace_tolerated():
 
 def test_acb2_p2_status_done_payload_extracted():
     """ACB2: STATUS: DONE at line start → mapped value 'DONE' via payload tuple."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     _STATUS_MARKERS = (
@@ -186,7 +162,6 @@ def test_acb2_p2_status_done_payload_extracted():
 
 def test_acb2_p2_absent_marker_returns_none_fallback():
     """ACB2: no STATUS marker → fallback=None returned (not a string)."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     _STATUS_MARKERS = (
@@ -207,7 +182,6 @@ def test_acb2_p2_absent_marker_returns_none_fallback():
 
 def test_acb2_p2_last_status_marker_wins():
     """ACB2: DONE_WITH_CONCERNS then DONE at line start → DONE (last) wins."""
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: PLC0415
 
     _STATUS_MARKERS = (

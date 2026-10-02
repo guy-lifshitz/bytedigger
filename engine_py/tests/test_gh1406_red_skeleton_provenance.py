@@ -21,7 +21,7 @@ COLLECTS cleanly and fails at ASSERT time.
 
 §1q / 81F97F3D: no module-level `sys.path` mutation and no `from conftest
 import` — `tests/conftest.py` (lines 23-28) is the conftest-import-time
-singleton that puts engine_py root / `workflows/` / `lib/` on `sys.path`.
+singleton that exposes engine_py/ (package parent) and tests/.
 
 §1l anchoring: every behavioural AC drives the REAL production functions
 (`_commit_red_tests`, `_verify_red_fails_mechanically`, `_invoke_red_llm`,

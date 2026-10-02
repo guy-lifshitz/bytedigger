@@ -11,9 +11,9 @@ Two coupled defects:
 `last_standalone_line_verdict(..., allow_trailing=True)` raises `TypeError` INSIDE
 each test body — the file COLLECTS cleanly but the test FAILs on assertion/exception.
 
-Import pattern mirrors test_EEFD480F_verdict_parse_lib.py (conftest singleton
-already adds engine_root + workflows to sys.path; lib/ is added inside each test
-body that needs verdict_parse — no module-level sys.path manipulation per §1q /
+Import pattern mirrors test_EEFD480F_verdict_parse_lib.py (conftest exposes
+engine_py/ and tests/; verdict_parse is imported inside each test body via
+bytedigger_engine.lib.verdict_parse — no sys.path manipulation per §1q /
 81F97F3D).
 
 Agreement: 090ED35B · Phase: RED
@@ -21,21 +21,6 @@ Agreement: 090ED35B · Phase: RED
 from __future__ import annotations
 
 from pathlib import Path
-
-HERE = Path(__file__).parent
-ENGINE_ROOT = HERE.parent
-_LIB_PATH = str(ENGINE_ROOT / "bytedigger_engine" / "lib")
-
-
-# ─── helpers ──────────────────────────────────────────────────────────────────
-
-
-def _ensure_lib_path() -> None:
-    """Insert lib/ into sys.path inside a test body (not at module level)."""
-    import sys
-    if _LIB_PATH not in sys.path:
-        sys.path.insert(0, _LIB_PATH)
-
 
 # Tokens used by both phases (order matches production call sites).
 _TOKENS = ("ASSERTION_GAMING", "LEGITIMATE_REFACTOR", "SPEC_CHANGE", "NO_CHANGES")
@@ -51,7 +36,6 @@ def test_ac1_strict_default_rejects_trailing_gloss():
     This pins the *default = strict* invariant (regression floor).
     Passes pre-GREEN and post-GREEN (default stays strict).
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE — all hunks legit\n"
@@ -70,7 +54,6 @@ def test_ac2_allow_trailing_accepts_gloss():
     `allow_trailing` does not exist yet — TypeError INSIDE the body = clean FAIL.
     Passes after GREEN adds the kwarg.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGE — all hunks legit\n"
@@ -89,7 +72,6 @@ def test_ac3_no_prefix_bleed_spec_changed():
     The char after the token is 'D' (a word char) so SPEC_CHANGE must NOT
     match inside SPEC_CHANGED.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "VERDICT: SPEC_CHANGED extra\n"
@@ -111,7 +93,6 @@ def test_ac4_head_anchor_mid_prose_ignored():
     This test may already PASS pre-GREEN (mid-prose never matched even strictly).
     It pins the invariant.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = "I think the VERDICT: SPEC_CHANGE is right\n"
@@ -131,7 +112,6 @@ def test_ac5_last_match_wins_two_glossed_lines():
     Last line:  VERDICT: ASSERTION_GAMING — prose
     Expected: ASSERTION_GAMING (last wins).
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: PLC0415
 
     raw = (

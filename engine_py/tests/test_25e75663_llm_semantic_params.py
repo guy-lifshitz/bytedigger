@@ -53,7 +53,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# conftest.py injects engine_py root + workflows dir into sys.path at import time
+# conftest.py exposes engine_py/ (package parent) and tests/ on sys.path at import time
 # (§1q singleton — this file must NOT manipulate sys.path itself).
 from bytedigger_engine import llm_subprocess
 from bytedigger_engine.llm_subprocess import (

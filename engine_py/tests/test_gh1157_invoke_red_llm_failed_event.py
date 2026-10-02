@@ -15,7 +15,7 @@ AC6  regression: ok-status result → ZERO invoke_red_llm_failed events
 AC7  defensive: error result with data=None → still emits, exit_code/stderr_tail None, no exception
 
 Import idiom: plain `import phase_5_implement as p5` (conftest-import-time
-singleton adds engine_py root + workflows to sys.path — §1q / 81F97F3D gate),
+singleton exposes engine_py/ (package parent) and tests/ — §1q / 81F97F3D gate),
 matching tests/test_3F4B71D4_red_path_fallback_chain.py. UUT (`_invoke_red_llm`)
 is called directly and NOT mocked (§1l); only `invoke_llm_subprocess` and
 `_emit_safe` are stubbed.

@@ -14,7 +14,7 @@ returns before any subprocess spawn, so no burn-guard risk. reset_backends()
 is called in a finally block around AC5/AC6 (§1i: singleton _BACKENDS
 registry pre-staged deterministically, never raced).
 
-conftest.py (this dir) already puts engine_py root + lib/ on sys.path at
+conftest.py (this dir) already exposes engine_py/ (package parent) and tests/ at
 import time (conftest-import-time singleton, §1q) — no module-level
 sys.path manipulation needed here.
 """

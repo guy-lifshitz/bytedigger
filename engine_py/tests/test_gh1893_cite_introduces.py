@@ -10,7 +10,7 @@ declared, repo-rooted target as WARNING instead of a fabricated-citation
 ERROR (never a bare/escaping path — that is the lot 1896 lock, AC9/AC12).
 
 `spec_cite` and `phase_45_spec` are imported at module level (both modules
-exist today — engine_py root + workflows dir are already on sys.path via
+exist today — engine_py/ (package parent) and tests/ are already on sys.path via
 conftest.py's import-time singleton, §1q / 81F97F3D). The NOT-YET-EXISTING
 `declared_introduced_symbols` is reached only INSIDE each test body as
 `spec_cite.declared_introduced_symbols(...)`, so every op1/op2 test fails at

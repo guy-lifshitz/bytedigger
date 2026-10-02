@@ -29,7 +29,7 @@ from unittest.mock import patch
 
 import pytest
 
-# conftest.py already inserted ENGINE_ROOT + ENGINE_ROOT/workflows onto sys.path
+# conftest.py already exposed engine_py/ (package parent) and tests/ on sys.path
 # at import time (conftest-import-time singleton pattern).  No sys.path mutation here.
 
 # ---------------------------------------------------------------------------

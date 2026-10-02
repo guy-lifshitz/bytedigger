@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-# Conftest singleton (§1q) already put engine_py root + workflows on sys.path.
+# Conftest singleton (§1q) already exposed engine_py/ (package parent) and tests/ on sys.path.
 from bytedigger_engine.workflows import phase_5_implement as p5_mod
 from bytedigger_engine.workflows import phase_8_post_deploy as p8_mod
 from bytedigger_engine.contracts import StepResult, WorkflowContext

@@ -31,8 +31,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# conftest-import-time singleton (§1q / 81F97F3D) inserts engine_py root
-# and engine_py/workflows into sys.path — no sys.path mutation here.
+# conftest-import-time singleton (§1q / 81F97F3D) exposes engine_py/
+# (package parent) and tests/ on sys.path — no sys.path mutation here.
 from bytedigger_engine.workflows import phase_5_implement
 from bytedigger_engine.derive_state import replay
 

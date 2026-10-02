@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-# conftest.py inserts engine root + workflows dir into sys.path at collection time.
+# conftest.py exposes engine_py/ (package parent) and tests/ on sys.path at collection time.
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 from bytedigger_engine.workflows import phase_6_review  # noqa: E402 — import module, not top-level symbol (§D1CF5FDF)
 

@@ -11,8 +11,8 @@ FAILs at assert time (§1q / D1CF5FDF non-collectable RED guard).
 
 Import pattern: modules imported at top level (both collect fine today);
 not-yet-existing attrs accessed inside test bodies.  Mirrors the
-conftest-path-singleton pattern (conftest.py inserts engine_py root +
-workflows on sys.path at import time) — no module-level sys.path
+conftest-path-singleton pattern (conftest.py exposes engine_py/ (package
+parent) and tests/ on sys.path at import time) — no module-level sys.path
 manipulation here (§1q / 81F97F3D).
 """
 from __future__ import annotations

@@ -12,7 +12,7 @@ Pre-GREEN expected profile (gate cycle 3 — AC23 replaced by AC23a/AC23b; AC25-
 module level. Every reference lives INSIDE a test body — the module COLLECTS cleanly
 and each test FAILS at ImportError-inside-test / assert time, never at collect time.
 No `spec_from_file_location` / `exec_module`. No module-level `sys.path` mutation —
-`tests/conftest.py` already exposes engine_py root + `workflows/` on sys.path
+`tests/conftest.py` already exposes engine_py/ (package parent) and tests/ on sys.path
 (conftest-import-time singleton, §1q / 81F97F3D).
 
 §1l forcing function: ACs 8/10/12/13/14/17 anchor on a REAL on-disk counter file

@@ -20,15 +20,6 @@ from bytedigger_engine.contracts import WorkflowContext, StepResult  # these exi
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
-_LIB_PATH = str(ENGINE_ROOT / "bytedigger_engine" / "lib")
-
-
-def _ensure_lib_path() -> None:
-    """Insert engine_py/lib/ into sys.path inside a test body."""
-    if _LIB_PATH not in sys.path:
-        sys.path.insert(0, _LIB_PATH)
-
-
 def _make_ctx(tmp_path: Path) -> WorkflowContext:
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -144,7 +135,6 @@ def test_7e274b85_sentinel_name_differs_across_run_ids():
     ImportError raised at the `from bytedigger_engine.lib.resume_keying import …` call inside this
     function → test FAILS (not at collection — §1q-ext).
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name_a = resume_sentinel_name("invoke_review_llm", 1, "aaaa")
@@ -226,7 +216,6 @@ def test_7e274b85_none_run_id_contains_norun():
     Pre-fix: lib/resume_keying.py absent → ImportError at the in-body import.
     Post-fix: returns a filename containing 'norun'.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name = resume_sentinel_name("s", 2, None)
@@ -246,7 +235,6 @@ def test_gh752_ac1_key_builder_namespaces_by_workflow_name():
     Pre-fix forcing reason: `resume_sentinel_name` has no `workflow_name`
     kwarg → TypeError at the call below → FAIL.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name_spec = resume_sentinel_name(
@@ -272,7 +260,6 @@ def test_gh752_ac2_no_workflow_name_preserves_legacy_filename():
     legacy filename. This is a regression guard and may legitimately PASS
     both pre- and post-fix.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.resume_keying import resume_sentinel_name  # noqa: PLC0415
 
     name = resume_sentinel_name("invoke_review_llm", 1, "r1")
@@ -431,7 +418,6 @@ def test_gh752_ac6_invalidate_removes_namespaced_sentinel(tmp_path):
     non-namespaced name and misses the on-disk namespaced file -> the poisoned
     sentinel survives a same-cycle retry (§1ac recursion-cap nullified).
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.step_sentinel import write_step_sentinel, invalidate_cycle_sentinels
     from bytedigger_engine.contracts import StepContract
 
@@ -468,7 +454,6 @@ def test_gh752_ac7_invalidate_no_workflow_name_is_legacy(tmp_path):
     removes the LEGACY (non-namespaced) sentinel byte-for-byte as before — the
     GH750 helper-layer callers that pass legacy-written sentinels are unaffected.
     """
-    _ensure_lib_path()
     from bytedigger_engine.lib.step_sentinel import write_step_sentinel, invalidate_cycle_sentinels
     from bytedigger_engine.contracts import StepContract
 

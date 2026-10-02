@@ -13,7 +13,7 @@ Pre-GREEN predict:
        (verified at L346-356 of current prod); guard for post-GREEN contract.
   AC6: FAIL — phase_2_explore has no attribute 'resolve_project_root' today.
 
-§1q: conftest-import-time singleton provides ENGINE_ROOT + workflows on sys.path.
+§1q: conftest-import-time singleton exposes engine_py/ (package parent) and tests/.
      No sys.path.insert here (81F97F3D gate).
 D1CF5FDF: phase module imported via importlib.import_module inside test bodies so
      missing-attribute failures occur at assert time, not collection time.

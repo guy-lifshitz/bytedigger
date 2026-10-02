@@ -861,7 +861,7 @@ class TestIsTestPathSurvives:
         try:
             from bytedigger_engine.lib.util.path_classifier import _is_test_path  # type: ignore[import]
         except ImportError:
-            # try direct import (sys.path includes lib/)
+            # retry the package import
             from bytedigger_engine.lib.util.path_classifier import _is_test_path  # type: ignore[import]
 
         assert callable(_is_test_path), "_is_test_path must be a callable"

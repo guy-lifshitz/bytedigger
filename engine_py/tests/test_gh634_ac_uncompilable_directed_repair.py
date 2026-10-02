@@ -12,8 +12,8 @@ Deferred-import discipline (§1q-extension D1CF5FDF / §1q 81F97F3D): the UUT
 `_verify_spec_ac_dsl` already exists, but we still defer the import inside
 each test body to match sibling-test style and avoid any top-level coupling.
 No module-level sys.path manipulation, no `from conftest import ...` — the
-conftest-import-time singleton already puts engine_py root + workflows/ on
-sys.path.
+conftest-import-time singleton already exposes engine_py/ (package parent)
+and tests/ on sys.path.
 
 Stub-passability guard (§1l/7AD3D393): we NEVER patch `_verify_spec_ac_dsl`
 itself (the UUT). We only patch its collaborators
@@ -47,7 +47,7 @@ class _StubRunCtx:
 
 
 def _patch_telemetry(monkeypatch, log: _CaptureEventLog | None = None):
-    from bytedigger_engine import telemetry_ctx  # deferred — reached via workflows/ on sys.path
+    from bytedigger_engine import telemetry_ctx  # deferred package import
 
     stub = _StubRunCtx(log) if log is not None else _StubRunCtx(_CaptureEventLog())
     monkeypatch.setattr(telemetry_ctx, "get_current_run", lambda: stub)

@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# conftest.py inserts ENGINE_ROOT + ENGINE_ROOT/workflows onto sys.path at import time.
+# conftest.py exposes engine_py/ (package parent) and tests/ on sys.path at import time.
 # No sys.path.insert here (§1q / 81F97F3D gate).
 
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402  # available via conftest path

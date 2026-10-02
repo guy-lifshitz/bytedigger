@@ -73,8 +73,8 @@ inside the test body. Nothing new is imported at module scope, so this file
 COLLECTS today and FAILS at assert time.
 
 §1q / 81F97F3D: no module-level `sys.path` mutation and no `from conftest
-import`. `tests/conftest.py` already puts engine_py, engine_py/bytedigger_engine/workflows and
-engine_py/bytedigger_engine/lib on `sys.path` at conftest-import time (conftest.py:23-28).
+import`. `tests/conftest.py` already exposes engine_py/ (package parent) and tests/ at
+conftest-import time.
 
 §1l / §1y production side-effect anchors: after §1W-1 the engine-level host
 left this lot together with chokepoint (A) — the "worker was never invoked"

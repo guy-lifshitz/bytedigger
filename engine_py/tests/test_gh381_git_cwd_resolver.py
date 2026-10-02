@@ -33,7 +33,7 @@ import subprocess
 from pathlib import Path
 
 from bytedigger_engine import telemetry_ctx
-from bytedigger_engine.workflows import phase_5_implement as p5  # conftest-import-time singleton puts workflows/ on sys.path
+from bytedigger_engine.workflows import phase_5_implement as p5  # package import (conftest exposes engine_py/)
 from bytedigger_engine.contracts import StepResult, WorkflowContext
 
 

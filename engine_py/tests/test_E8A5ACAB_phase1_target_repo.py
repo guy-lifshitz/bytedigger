@@ -11,7 +11,7 @@ Pre-GREEN predict:
        absent.
   AC5: PASS today — invoke_llm_subprocess return already threaded back by prod.
 
-§1q: conftest-import-time singleton provides ENGINE_ROOT + workflows on sys.path.
+§1q: conftest-import-time singleton exposes engine_py/ (package parent) and tests/.
      No sys.path.insert here (81F97F3D gate).
 D1CF5FDF: phase module imported via importlib.import_module inside test bodies so
      a missing-attribute failure occurs at assert time, not collection time.

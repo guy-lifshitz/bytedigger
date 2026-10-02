@@ -13,9 +13,10 @@ COLLECTS and each test FAILS at assert/import-inside-body time, never at
 collection time. Modules that already exist today (``phase_5_implement``,
 ``phase_6_review``, ``telemetry_ctx``, ``contracts``, ``lib.directed_repair``)
 are imported at module top level (collectable) — conftest.py's import-time
-singleton already puts ``engine_py`` root + ``workflows`` on sys.path, and
-``lib`` is a package under the engine_py root so ``lib.directed_repair``
-resolves without any extra path manipulation.
+singleton already exposes ``engine_py`` (package parent) and tests/ on sys.path,
+and ``lib`` is a subpackage of ``bytedigger_engine`` so
+``bytedigger_engine.lib.directed_repair`` resolves without any extra path
+manipulation.
 
 Stub-passability (§1l/7AD3D393): UUT symbols ``scan_boundary``,
 ``scan_added_content``, ``_commit_green_code``, ``_commit_fix_code`` are

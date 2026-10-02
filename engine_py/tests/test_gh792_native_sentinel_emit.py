@@ -19,7 +19,7 @@ new helper this ship introduces), so it is never referenced at module level —
 every reference lives inside a test body. The module COLLECTS cleanly; each test
 fails at call/assert time, never at collection time. No `spec_from_file_location`
 / `exec_module`, no module-level `sys.path` mutation (tests/conftest.py already
-exposes engine_py root + `workflows/` on sys.path).
+exposes engine_py/ (package parent) and tests/).
 """
 from __future__ import annotations
 

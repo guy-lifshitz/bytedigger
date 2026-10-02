@@ -13,7 +13,7 @@ resolved inside each test body via getattr(), never imported at module top level
 every AC fails at ASSERT time, not at collect time.
 
 81F97F3D: no module-level sys.path mutation — tests/conftest.py already exposes
-engine_py root / workflows / lib on sys.path at conftest-import time.
+engine_py/ (package parent) and tests/ at conftest-import time.
 
 §1l/7AD3D393: AC1, AC2, AC11, AC12 drive the REAL `_verify_red_fails_mechanically`
 over a REAL on-disk `.test.sh` through a REAL `bash` subprocess. The UUT and the

@@ -42,7 +42,7 @@ from pathlib import Path
 import pytest
 
 # Module-level imports of EXISTING modules — safe at collect time (§1q / D1CF5FDF).
-# conftest.py already wired engine_py root + workflows/ into sys.path at import time.
+# conftest.py already wired engine_py/ (package parent) and tests/ into sys.path at import time.
 from bytedigger_engine.lib import git_write_port
 from bytedigger_engine.lib.git_port import GitResult
 from bytedigger_engine.workflows import phase_5_implement as p5

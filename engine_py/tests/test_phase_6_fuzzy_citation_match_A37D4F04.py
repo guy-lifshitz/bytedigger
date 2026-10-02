@@ -42,7 +42,7 @@ from bytedigger_engine.workflows.phase_6_review import (  # noqa: E402
     _aggregate_review_findings,
     _verify_finding_quote,
 )
-from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402 — for monkeypatching _emit_safe; MUST be top-level alias (see test_906e37dc_review_findings_audit.py:358-361 — _aggregate_review_findings's globals resolve to the top-level module, not workflows.phase_6_review)
+from bytedigger_engine.workflows import phase_6_review as _p6  # noqa: E402 — for monkeypatching _emit_safe (single module object bytedigger_engine.workflows.phase_6_review; bd#44)
 
 
 # ─── local helpers (modelled on test_phase_6_review_21792EE7.py) ─────────────

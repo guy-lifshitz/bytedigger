@@ -13,8 +13,7 @@ Contract:
    test-scope, and emits `derived_matched_n` / `authorized_test_edits_n`
    telemetry fields (AC9, AC10).
 
-Conftest (§1q singleton) already puts ENGINE_ROOT / ENGINE_ROOT/workflows /
-ENGINE_ROOT/lib on sys.path — no module-level sys.path manipulation here.
+Conftest (§1q singleton) already exposes engine_py/ (package parent) and tests/ — no module-level sys.path manipulation here.
 Symbols that do not exist yet (`is_test_shaped`, `derived_test_scope_match`)
 are imported INSIDE each test body so the file collects cleanly today.
 

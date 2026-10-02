@@ -27,9 +27,6 @@ import pytest
 ENGINE_PY = Path(__file__).resolve().parents[1]
 if str(ENGINE_PY) not in sys.path:
     sys.path.insert(0, str(ENGINE_PY))
-LIB = ENGINE_PY / "bytedigger_engine" / "lib"
-if str(LIB) not in sys.path:
-    sys.path.insert(0, str(LIB))
 
 # ─── Production imports — MUST FAIL pre-GREEN with ModuleNotFoundError ────────
 # These imports are the RED state. Do NOT guard with try/except.

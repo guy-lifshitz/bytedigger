@@ -13,8 +13,8 @@ COLLECTS cleanly and fails at assert/call time rather than hanging
 red_runtime with an ImportError at collection.
 
 No module-level sys.path manipulation / conftest import (§1q / 81F97F3D) —
-conftest.py's conftest-import-time singleton already puts engine_py root +
-workflows/ on sys.path. No absolute host paths — all paths derive from
+conftest.py's conftest-import-time singleton already exposes engine_py/ (package
+parent) and tests/. No absolute host paths — all paths derive from
 tmp_path / __file__ (A1 RCA-1).
 """
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _payloads(log: _CaptureEventLog, event_type: str) -> list[dict]:
 
 
 def _patch_telemetry(monkeypatch, log: _CaptureEventLog | None):
-    from bytedigger_engine import telemetry_ctx  # deferred — reached via workflows/ on sys.path
+    from bytedigger_engine import telemetry_ctx  # deferred package import
 
     stub = _StubRunCtx(log) if log is not None else None
     monkeypatch.setattr(telemetry_ctx, "get_current_run", lambda: stub)

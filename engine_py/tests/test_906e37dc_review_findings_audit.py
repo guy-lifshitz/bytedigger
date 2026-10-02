@@ -363,9 +363,8 @@ def test_ac6_telemetry_review_findings_audit_emitted(tmp_path, monkeypatch):
         spy.append((event_type, payload))
 
     # _emit_safe is defined in phase_6_review module; called as module-level function.
-    # Must patch the SAME module object _aggregate_review_findings is bound to.
-    # `from bytedigger_engine.workflows.phase_6_review import ...` loads it as the top-level "phase_6_review" module,
-    # NOT "workflows.phase_6_review" — patching _p6 (the latter) leaves the spy invisible.
+    # Single module object (bd#44): bytedigger_engine.workflows.phase_6_review is the
+    # only copy, so patching it is visible to _aggregate_review_findings.
     from bytedigger_engine.workflows import phase_6_review as _p6mod
     monkeypatch.setattr(_p6mod, "_emit_safe", _fake_emit_safe)
 
