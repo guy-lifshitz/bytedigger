@@ -706,8 +706,10 @@ def test_rv2_undecodable_role_file_is_suspect(tmp_path, monkeypatch):
     reviews = tmp_path / "reviews"
     reviews.mkdir(parents=True)
     (reviews / "role-composite.md").write_bytes(b"\xff\xfe VERDICT: PASS \x80")
-    res = _aggregate(tmp_path, {}, monkeypatch)
+    events: list = []
+    res = _aggregate(tmp_path, {}, monkeypatch, events)
     assert res.data["verdict"] == "SUSPECT"
+    assert any(name == "review_zero_findings_suspect" for name, _ in events)
 
 
 def test_rv2_canonicalized_headers_are_counted(tmp_path, monkeypatch):

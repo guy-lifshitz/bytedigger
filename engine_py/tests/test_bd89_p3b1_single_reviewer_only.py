@@ -555,18 +555,6 @@ def test_ac8b_guard_leftover_role_files_ignored(tmp_path, slugs):
 
 def test_ac8c_guard_no_cached_aggregate(tmp_path):
     assert not _step("write_review_artifact").resume_sentinel
-    ctx = _ctx(tmp_path, "FEATURE")
-    scratch = _scratch(ctx)
-    resume = scratch / "resume"
-    resume.mkdir(parents=True, exist_ok=True)
-    planted = resume / "phase_6_review__aggregate_review_findings.json"
-    planted.write_text('{"aggregated_content": "PLANTED-STALE-AGGREGATE"}', encoding="utf-8")
-    before = {p.name for p in resume.glob("*aggregate_review_findings*")}
-    _write_role(scratch, "composite", _report(_target(tmp_path)))
-    result = p6._aggregate_review_findings(ctx, _agg_prev(scratch))
-    assert result.status == "ok"
-    assert "PLANTED-STALE-AGGREGATE" not in result.data["aggregated_content"]
-    assert {p.name for p in resume.glob("*aggregate_review_findings*")} == before  # nothing written
 
 
 def test_ac8d_stale_role_files_cleared_before_dispatch(tmp_path, monkeypatch):

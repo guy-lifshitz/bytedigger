@@ -201,7 +201,6 @@
 
 ## E_NO
 
-- `E_NO_ROLE_FILES` — phase_6_review: no reviewer role files found to drive the fan-out
 - `E_NO_SCOPE_FILES` — sibling_coupling: the audit was called with no scope files
 - `E_NO_TEST_CORPUS` — sibling_coupling: no test files matched the corpus globs or the default corpus walk
 

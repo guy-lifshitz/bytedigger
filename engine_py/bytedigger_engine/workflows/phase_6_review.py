@@ -66,32 +66,31 @@ Inputs (via ``ctx.org_config``):
 
 ``ctx.question`` carries the user's feature request text.
 
-Steps (10):
+Steps (20):
     1. build_review_prompt          — deterministic; spec + RED + GREEN log paths
     2. invoke_review_llm            — opaque subprocess (composite reviewer)
-    3. write_review_artifact        — capture stdout to reviews/build-review.md;
-                                      parse VERDICT (PASS / PARTIAL / FAIL)
+    3. write_review_artifact        — aggregate reviews/role-composite.md (fixed file),
+                                      write reviews/build-review.md; stdout/disk
+                                      fallback when the composite is missing
     4. verify_findings              — pure-Python post-processor; demotes findings
-                                      with fabricated path:line citations to
-                                      ## Unverified Findings (Auto-Filtered);
-                                      recomputes verdict after demotion
-    5. build_fix_prompt             — deterministic; review doc + spec paths
-    6. invoke_fix_llm               — opaque subprocess (fix worker; LLM iterates)
-    7. write_fix_artifact           — capture stdout to reviews/build-fix.md;
-                                      parse FIX COMPLETE / SKIPPED / BLOCKED;
-                                      BLOCKED → E_FIX_BLOCKED
-    GH379 (Class 5): build_decorr_prompt / invoke_decorr_llm / write_decorr_artifact
-        — inserted after verify_fix_typecheck, before build_satisfaction_prompt.
-          Decorrelated (cross-prompt) adversarial-refute verifier, FEATURE/COMPLEX
-          only (SIMPLE skips). Writes reviews/build-decorr-verify.md. Advisory by
-          default; enforce mode (org_config.decorrelated_verify_enforce, agreement
-          769EFDA3, flip on >=5 real decorr_verify_verdict emissions reviewed clean —
-          GH392 re-scope; flip-by:2026-08-01 backstop-review) blocks on SUSPECT with
-          E_DECORR_VERIFY_SUSPECT.
-    8. build_satisfaction_prompt    — deterministic; spec + GREEN log + review doc
-    9. invoke_satisfaction_llm      — opaque subprocess (Opus satisfaction)
-    10. write_satisfaction_doc      — capture stdout to reviews/build-satisfaction.md;
-                                      parse SCORE; HARD GATE on threshold
+                                      with fabricated path:line citations
+    5. verify_findings_semantic
+    6. build_fix_prompt
+    7. invoke_fix_llm
+    8. fix_watchdog
+    9. write_fix_artifact           — FIX COMPLETE / SKIPPED / BLOCKED
+    10. commit_fix_code
+    11. commit_fix_tests
+    12. run_pytest_post_fix
+    13. verify_fix_typecheck
+    14. build_decorr_prompt         — GH379 decorrelated verifier (FEATURE/COMPLEX)
+    15. invoke_decorr_llm
+    16. write_decorr_artifact       — advisory; enforce mode blocks on SUSPECT with
+                                      E_DECORR_VERIFY_SUSPECT
+    17. build_satisfaction_prompt
+    18. invoke_satisfaction_llm
+    19. write_satisfaction_doc      — parse SCORE; HARD GATE on threshold
+    20. detect_mass_unverified
 
 Outputs:
     $SCRATCHPAD/reviews/build-review.md
@@ -445,6 +444,8 @@ def _resolve_complexity(ctx) -> str:
         raise ValueError(f"complexity must be one of {VALID_COMPLEXITIES}, got {raw!r}")
     return raw
 
+
+_COMPOSITE_ROLE_FILE = "role-composite.md"
 
 _ROW_COMPOSITE_REVIEWER = (
     "  - pr-review-toolkit:composite — model: primary — focus: correctness, silent failures, "
@@ -1025,8 +1026,8 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
         )
 
     cfg = ctx.org_config or {}
-    # E8433B4E: thread complexity to aggregate_review_findings via prev.data so
-    # it can compute min_floor / fanout banner. Resolved from ctx.org_config
+    # Forward complexity via prev.data for downstream steps (the aggregator no
+    # longer reads it). Resolved from ctx.org_config
     # (defaults to FEATURE if absent — matches _build_review_prompt path).
     try:
         complexity = _resolve_complexity(ctx)
@@ -1050,13 +1051,12 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     except ValueError:
         _scratchpad = None
 
-    # bd#139 stale-file guard: the single reviewer writes only role-composite.md, so a
-    # composite from an earlier cycle (or per-role files of a pre-upgrade parallel
-    # config) must not satisfy the aggregator. Fail-safe: never fails the step.
+    # bd#139 stale-file guard: a composite from an earlier cycle must not
+    # satisfy the aggregator. Legacy role-<slug>.md files are never read, so
+    # only the fixed file is cleared. Fail-safe: never fails the step.
     try:
         if _scratchpad is not None:
-            for _stale in (_scratchpad / "reviews").glob("role-*.md"):
-                _stale.unlink()
+            (_scratchpad / "reviews" / _COMPOSITE_ROLE_FILE).unlink(missing_ok=True)
     except OSError:
         logger.warning("failed to clear stale role files before single review", exc_info=True)
 
@@ -1075,19 +1075,18 @@ def _invoke_review_llm(ctx, prev) -> StepResult:
     return result
 
 
-# ─── Step 3: aggregate review findings (Option A — Python dedup) ─────────────
+# ─── Aggregation helper (Option A — Python dedup) ────────────────────────────
 #
-# 319C2DCF follow-up: replace outer-Sonnet aggregation with deterministic
-# Python dedup over per-role review files. Each pr-review-toolkit Agent writes
-# its own ``reviews/role-<slug>.md`` directly via Write tool. After dispatch
-# returns, this step globs role-*.md, parses ``### SEVERITY:`` headers,
-# deduplicates by (severity, normalized title), and produces the canonical
-# composite-review content. ``write_review_artifact`` consumes the result.
+# 319C2DCF follow-up: deterministic Python dedup over the composite review
+# file. The single reviewer writes ``reviews/role-composite.md`` via the Write
+# tool. ``_aggregate_and_write_review_artifact`` (the write_review_artifact
+# step) reads it, parses ``### SEVERITY:`` headers, deduplicates by
+# (severity, normalized title), and hands the canonical composite-review
+# content to ``_write_review_artifact``.
 #
-# Backward-compat: when no role files exist (legacy stubs / prompt drift),
-# this step returns E_NO_ROLE_FILES with skip_on_error=True so the workflow
-# continues and write_review_artifact falls back to the legacy stdout/disk
-# resolution path.
+# When the composite file is missing (stub / prompt drift), the aggregator
+# emits ``role_report_missing`` and the writer falls back to the legacy
+# stdout/disk resolution path.
 
 # Header pattern: "### SEVERITY: <LEVEL> — <title>" (em-dash) or "- <title>" (hyphen).
 # GH970: tolerant of a 2-4 hash prefix (## / ### / ####); source of truth moved
@@ -1111,18 +1110,6 @@ def _slug_from_role_filename(path: Path) -> str:
     """``reviews/role-code-reviewer.md`` → ``code-reviewer``."""
     name = path.stem  # strip .md
     return name[len("role-"):] if name.startswith("role-") else name
-
-
-def _extract_expected_slugs(dispatch_table: str) -> list[str]:
-    """Parse expected reviewer slugs from the dispatch table string.
-
-    Dispatch lines have format:  ``  - pr-review-toolkit:<slug> — model: <model>``
-    """
-    import re as _re
-    slugs: list[str] = []
-    for m in _re.finditer(r":([\w-]+?)\s+—\s+model:", dispatch_table):
-        slugs.append(m.group(1))
-    return slugs
 
 
 def _parse_role_findings(content: str) -> list[dict]:
@@ -1528,18 +1515,15 @@ def _verify_finding_quote(
 
 
 def _aggregate_review_findings(ctx, prev) -> StepResult:
-    """Deterministic aggregation of per-role review files.
+    """Deterministic aggregation of the composite review file.
 
-    Reads ``<scratchpad>/reviews/role-*.md``, parses ``### SEVERITY:`` headers,
-    deduplicates by (severity, normalized title), composes the canonical
-    ``# Composite Review`` document, and computes the verdict from severity
-    counts. Result data carries ``aggregated_content`` for the next step.
+    Reads ``<scratchpad>/reviews/role-composite.md``, parses ``### SEVERITY:``
+    headers, deduplicates by (severity, normalized title), composes the
+    canonical ``# Composite Review`` document, and computes the verdict from
+    severity counts. Result data carries ``aggregated_content`` for the writer.
 
-    Error semantics:
-      - No role files → ``E_NO_ROLE_FILES``, recoverable=False, but
-        ``skip_on_error=True`` on the StepContract means the workflow
-        continues with prev.data forwarded so write_review_artifact can
-        fall back to the legacy stdout/disk path.
+    Missing composite file → ``role_report_missing`` event and status ok with
+    ``aggregated_content=None``, so the writer falls back to stdout/disk.
     """
     forwarded = dict(prev.data) if isinstance(getattr(prev, "data", None), dict) else {}
 
@@ -1554,37 +1538,16 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             recoverable=False,
         )
 
-    reviews_dir = scratchpad / "reviews"
-    role_files = sorted(reviews_dir.glob("role-*.md")) if reviews_dir.is_dir() else []
-
-    if not role_files:
+    composite_path = scratchpad / "reviews" / _COMPOSITE_ROLE_FILE
+    if not composite_path.is_file():
+        _emit_safe("role_report_missing", {"phase": "phase_6_review", "path": str(composite_path)})
         return StepResult(
-            status="error",
+            status="ok",
             data={**forwarded, "aggregated_content": None},
             duration_ms=0,
             step_name="aggregate_review_findings",
-            error="no per-role review files found",
-            error_code="E_NO_ROLE_FILES",
-            recoverable=False,
         )
-
-    # E8433B4E: min-floor enforcement + fanout banner.
-    # Read expected reviewer count from prev.data["complexity"] (threaded by
-    # _invoke_review_llm). Backward-compat: if complexity absent, skip floor
-    # check entirely (callers may not yet thread it).
-    complexity = forwarded.get("complexity")
-    expected_reviewers: int | None = None
-    expected_slugs: list[str] = []
-    if complexity:
-        try:
-            dispatch_table, expected_reviewers = _review_plan(ctx, complexity)
-            expected_slugs = _extract_expected_slugs(dispatch_table)
-        except Exception:
-            # Defensive: bad complexity value → skip banner expectation, log and continue.
-            logger.warning("E8433B4E: failed to compute plan for complexity=%r", complexity, exc_info=True)
-            expected_reviewers = None
-
-    observed_count = len(role_files)
+    role_files = [composite_path]
 
     # Per-role section bodies + flat findings list with role attribution.
     role_sections: list[tuple[str, str]] = []   # (slug, raw_content)
@@ -1792,17 +1755,6 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
 
     # Compose final content.
     out: list[str] = ["# Composite Review", ""]
-    if expected_reviewers is not None:
-        observed_slugs_set = {_slug_from_role_filename(p) for p in role_files}
-        missing_slugs = [s for s in expected_slugs if s not in observed_slugs_set]
-        out.append("## Fanout")
-        out.append(f"expected: {expected_reviewers}")
-        out.append(f"observed: {observed_count}")
-        if missing_slugs:
-            out.append(f"missing: {', '.join(missing_slugs)}")
-        else:
-            out.append("missing: (none)")
-        out.append("")
     for slug, body in role_sections:
         out.append(f"## {slug}")
         out.append(body)
@@ -1929,8 +1881,6 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             "findings_count": findings_count,
             "filtered_count": filtered_count,  # 21792EE7 fix-3: expose for SUSPECT detection
             "severity_counts": counts,
-            "observed_role_count": observed_count,
-            "expected_reviewers": expected_reviewers,
             "findings_audit": findings_audit,  # 906E37DC
             "verified_findings": verified_findings,  # 65695203: forwarded to step 4 for fix-doc render
             "suspect_findings": suspect_findings,  # CA50885D: forwarded for fail-OPEN fix-feed
@@ -2105,10 +2055,10 @@ def _write_review_artifact(ctx, prev) -> StepResult:
             error_code="E_MISSING_PREV_DATA",
         )
 
-    # 319C2DCF Option A: prefer aggregated_content from aggregate_review_findings
+    # 319C2DCF Option A: prefer aggregated_content from _aggregate_review_findings
     # over outer-LLM stdout. The aggregator is the canonical source when
-    # per-role files exist; outer LLM stdout is now just a stub. When the
-    # aggregator yielded no aggregated_content (legacy / no role files), fall
+    # role-composite.md exists; outer LLM stdout is now just a stub. When the
+    # aggregator yielded no aggregated_content (no composite file), fall
     # through to the existing stdout/disk resolution path.
     aggregated_content = prev.data.get("aggregated_content")
     if aggregated_content:
@@ -5843,6 +5793,17 @@ def _on_phase_6_abort(result: StepResult, ctx) -> None:
     atomic_write(doc, _render_not_assessed_stub(result))
 
 
+def _aggregate_and_write_review_artifact(ctx, prev) -> StepResult:
+    """write_review_artifact step: aggregate role-composite.md, then write the doc."""
+    agg = _aggregate_review_findings(ctx, prev)
+    if agg.status == "error":
+        _emit_safe(
+            "review_aggregation_error",
+            {"phase": "phase_6_review", "error_code": agg.error_code, "error": agg.error},
+        )
+    return _write_review_artifact(ctx, agg)
+
+
 # ─── workflow definition ─────────────────────────────────────────────────────
 
 
@@ -5853,18 +5814,11 @@ def phase_6_review_workflow() -> WorkflowDefinition:
         steps=[
             StepContract(name="build_review_prompt", execute=_build_review_prompt),
             StepContract(name="invoke_review_llm", execute=_invoke_review_llm, resume_sentinel=True),
-            # 319C2DCF Option A: deterministic Python aggregation of per-role
-            # review files. skip_on_error=True: when no role files exist
-            # (legacy / drift), the workflow falls through to the legacy
-            # stdout/disk resolution path in write_review_artifact.
-            StepContract(
-                name="aggregate_review_findings",
-                execute=_aggregate_review_findings,
-                skip_on_error=True,
-            ),
+            # Aggregation of reviews/role-composite.md is folded into the write
+            # step: a missing composite falls through to the stdout/disk path.
             step(
                 "write_review_artifact",
-                _write_review_artifact,
+                _aggregate_and_write_review_artifact,
                 retries=RetryPolicy(max_retries=1),
             ),
             StepContract(name="verify_findings", execute=_verify_findings),
