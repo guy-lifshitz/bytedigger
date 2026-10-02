@@ -32,10 +32,22 @@ The probes below use the real primitives (`oracle`, `stub_passability`,
 `known_reds_ledger` via `bd_l2`, `attest`) — this module executes, it does not
 re-implement. Import aliasing is deliberate (B-2): the public surface must
 equal `__all__`.
+
+HOST-ADAPTER SEAM (bd#195, `docs/decisions/2026-10-02-bd195-harness-adapter-seam.md`).
+`run_adversaries(adapter=...)` runs ADV-1 and ADV-2 through the caller's adapter
+(freeze, control, mutate, attack) instead of the engine's own probes. Every other
+adversary is `not_executed` under an adapter, so an adapter attestation tops out
+at BD-L1 (ADV-3..ADV-10 stay unexecuted until bd#197). An adapter that fails,
+hangs or answers badly yields `indeterminate`, which sinks the level like
+`errored`. `adapter_identity` reads the identity from the adapter itself, and
+the CLI (`--adapter module:factory`) publishes the attestation.
 """
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 import tempfile as _tempfile
+import threading as _threading
+from collections.abc import Mapping as _Mapping
+from dataclasses import dataclass as _dataclass
 from pathlib import Path as _Path
 
 from . import attest as _attest
@@ -52,6 +64,9 @@ __all__ = [
     "OUTCOME_DEFENDED",
     "OUTCOME_UNDEFENDED",
     "OUTCOME_ERRORED",
+    "OUTCOME_INDETERMINATE",
+    "AdapterState",
+    "adapter_identity",
     "run_adversaries",
     "build_attestation",
     "validate_attestation",
@@ -60,6 +75,18 @@ __all__ = [
 OUTCOME_DEFENDED = "defended"
 OUTCOME_UNDEFENDED = "undefended"
 OUTCOME_ERRORED = "errored"
+#: The adapter could not reach a verdict (raised, hung, malformed answer).
+#: Never counts as defended, so it sinks a level like `errored`.
+OUTCOME_INDETERMINATE = "indeterminate"
+
+
+@_dataclass(frozen=True)
+class AdapterState:
+    """What the harness hands an adapter's `evaluate`."""
+
+    root: "_Path"
+    frozen: str
+    members: "tuple[_Path, ...]"
 
 #: The v1 EXECUTABLE set (§8). ADV-9 is declarative and is not here — it is
 #: published separately as `not_executed`.
@@ -211,16 +238,152 @@ _PROBES = {
 }
 
 
-def run_adversaries(only: "Iterable[str] | None" = None) -> "dict[str, str]":
+_ADAPTER_ADVERSARIES = ("ADV-1", "ADV-2")
+
+
+def _adapter_members(root: "_Path") -> "list[_Path]":
+    """Regular files directly under `root/specs`, absolute, sorted by name."""
+    return sorted(
+        (p for p in (root / "specs").iterdir() if p.is_file()),
+        key=lambda p: p.name,
+    )
+
+
+def _guarded_freeze(adapter, paths, root, timeout_s):
+    """Run `adapter.freeze` on a daemon worker; return a token or None.
+
+    Mirrors `oracle.evaluate_guarded`: the worker is abandoned (never joined
+    unconditionally) when the timeout expires; KeyboardInterrupt and SystemExit
+    are re-raised; any other Exception, or a result that is not a non-empty
+    str, yields None (indeterminate).
+    """
+    box: "dict[str, object]" = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = adapter.freeze(paths, root=root)
+        except BaseException as exc:  # noqa: BLE001 — triaged below, in the caller
+            box["exc"] = exc
+
+    worker = _threading.Thread(
+        target=_run, name="conformance-freeze-guard", daemon=True
+    )
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        return None
+    if "exc" in box:
+        exc = box["exc"]
+        if not isinstance(exc, Exception):
+            raise exc  # type: ignore[misc]
+        return None
+    value = box.get("value")
+    if not isinstance(value, str) or not value:
+        return None
+    return value
+
+
+def _adapter_adversary(adapter, name: str, timeout_s: float) -> str:
+    """ADV-1 / ADV-2 through the adapter: freeze, control, mutate, attack."""
+    accepted = _oracle.OracleOutcome.ACCEPTED
+    rejected = _oracle.OracleOutcome.REJECTED
+    try:
+        with _tempfile.TemporaryDirectory() as tmp:
+            root = _Path(tmp).resolve()
+            specs = root / "specs"
+            specs.mkdir()
+            (specs / "a.md").write_text("original\n", encoding="utf-8")
+
+            token = _guarded_freeze(
+                adapter, _adapter_members(root), root, timeout_s
+            )
+            if token is None:
+                return OUTCOME_INDETERMINATE
+
+            control, _reason = _oracle.evaluate_guarded(
+                adapter,
+                AdapterState(
+                    root=root, frozen=token,
+                    members=tuple(_adapter_members(root)),
+                ),
+                timeout_s=timeout_s,
+            )
+            if control is _oracle.OracleOutcome.INDETERMINATE:
+                return OUTCOME_INDETERMINATE
+            if control is rejected:
+                return OUTCOME_UNDEFENDED
+
+            if name == "ADV-1":
+                (specs / "a.md").write_text("rewritten\n", encoding="utf-8")
+            else:
+                (specs / "b.md").write_text("added\n", encoding="utf-8")
+
+            attack, _reason = _oracle.evaluate_guarded(
+                adapter,
+                AdapterState(
+                    root=root, frozen=token,
+                    members=tuple(_adapter_members(root)),
+                ),
+                timeout_s=timeout_s,
+            )
+            if attack is rejected:
+                return OUTCOME_DEFENDED
+            if attack is accepted:
+                return OUTCOME_UNDEFENDED
+            return OUTCOME_INDETERMINATE
+    except Exception:  # noqa: BLE001 — under an adapter a failure is indeterminate
+        return OUTCOME_INDETERMINATE
+
+
+def adapter_identity(adapter) -> "dict[str, str]":
+    """Return exactly `{"backend", "source"}` read from `adapter.identity`.
+
+    The values are copied, never interpreted. A missing or malformed identity
+    raises `ValueError`.
+    """
+    try:
+        ident = adapter.identity
+    except Exception as exc:  # noqa: BLE001 — any failed read is a bad identity
+        raise ValueError(
+            f"adapter has no readable identity ({type(exc).__name__}: {exc})"
+        ) from exc
+    if not isinstance(ident, _Mapping):
+        raise ValueError("adapter identity must be a mapping")
+    result: "dict[str, str]" = {}
+    for key in ("backend", "source"):
+        value = ident.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(
+                f"adapter identity {key!r} must be a non-empty str"
+            )
+        result[key] = value
+    return result
+
+
+def run_adversaries(
+    only: "Iterable[str] | None" = None,
+    *,
+    adapter: "object | None" = None,
+    timeout_s: float = 30.0,
+) -> "dict[str, str]":
     """Execute the adversaries against this host; return name -> outcome.
 
     A probe that raises yields `OUTCOME_ERRORED`, never a missing key and never
     `not_executed`: the harness must not be able to hide its own failure as an
     absence of checking.
+
+    With `adapter`, only ADV-1 and ADV-2 run (through the adapter); every other
+    name is `not_executed` and the adapter is not called for it.
     """
     names = tuple(only) if only is not None else ADVERSARIES
     outcomes: "dict[str, str]" = {}
     for name in names:
+        if adapter is not None:
+            if name in _ADAPTER_ADVERSARIES:
+                outcomes[name] = _adapter_adversary(adapter, name, timeout_s)
+            else:
+                outcomes[name] = _tokens.ADVERSARY_NOT_EXECUTED
+            continue
         probe = _PROBES.get(name)
         if probe is None:
             outcomes[name] = _tokens.ADVERSARY_NOT_EXECUTED
@@ -316,3 +479,71 @@ def validate_attestation(attestation: "Mapping[str, object]") -> "tuple[str, ...
             )
 
     return tuple(complaints)
+
+
+def _main(argv: "list[str] | None" = None) -> int:
+    """CLI: load `module:factory`, run the adapter adversaries, publish.
+
+    Exit 0: written and publishable. 1: written, with complaints on stderr.
+    2: nothing written (bad usage, unloadable adapter, bad identity).
+    """
+    import argparse  # noqa: PLC0415
+    import importlib  # noqa: PLC0415
+    import json  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    parser = argparse.ArgumentParser(
+        prog="python -m bytedigger_engine.conformance.harness",
+        allow_abbrev=False,
+    )
+    parser.add_argument("--adapter", required=True, help="module:factory")
+    parser.add_argument("--level-claimed", required=True)
+    parser.add_argument("--engine-version", required=True)
+    parser.add_argument("--host-identity", required=True)
+    parser.add_argument("--timestamp", default=None)
+    parser.add_argument("--timeout-s", type=float, default=30.0)
+    parser.add_argument("--out", default=None)
+    args = parser.parse_args(argv)  # usage errors exit 2, nothing on stdout
+
+    module_name, sep, factory_name = args.adapter.partition(":")
+    if not sep or not module_name or not factory_name:
+        print(f"error: --adapter must be module:factory, got {args.adapter!r}",
+              file=sys.stderr)
+        return 2
+    try:
+        module = importlib.import_module(module_name)
+        factory = getattr(module, factory_name)
+        adapter = factory()
+        identity = adapter_identity(adapter)
+    except Exception as exc:  # noqa: BLE001 — every load refusal is exit 2
+        print(f"error: cannot load adapter {args.adapter!r}: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+    timestamp = args.timestamp or (
+        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+    outcomes = run_adversaries(adapter=adapter, timeout_s=args.timeout_s)
+    att = build_attestation(
+        outcomes,
+        level_claimed=args.level_claimed,
+        engine_version=args.engine_version,
+        adapter_identity=identity,  # type: ignore[arg-type]
+        host_identity=args.host_identity,
+        timestamp=timestamp,
+    )
+    text = json.dumps(att, sort_keys=True) + "\n"
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    else:
+        sys.stdout.write(text)
+    complaints = validate_attestation(att)
+    for complaint in complaints:
+        print(complaint, file=sys.stderr)
+    return 1 if complaints else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
