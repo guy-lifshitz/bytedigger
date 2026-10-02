@@ -134,6 +134,13 @@ def test_r1_review_off_without_key(tmp_path, monkeypatch):
     assert rig.gh_calls() == []
 
 
+def test_r1b_review_off_before_issue_binding(tmp_path, monkeypatch):
+    from bytedigger_engine import readiness
+
+    rig = _rig(tmp_path, monkeypatch, policy={"readiness": {"required": True}}, branch="feature-x")
+    assert _verdict(rig, "review") == readiness._default_result()
+
+
 def test_r2_review_off_when_not_required(tmp_path, monkeypatch):
     rig = _rig(tmp_path, monkeypatch,
                policy={"readiness": {"required": False, "review_label": READY}})
@@ -154,6 +161,19 @@ def test_r3_approved_with_ready_label(tmp_path, monkeypatch):
     assert v["required"] is True
     assert r117.comment_creates(rig) == []
     assert r117.label_removals(rig) == []
+
+
+def test_r3b_plan_consumption_does_not_leak(tmp_path, monkeypatch):
+    rig = _rig(tmp_path, monkeypatch)
+    rig.seed(
+        labels=[r117.LABEL, READY],
+        comments=[r117.record(1, ts=200),
+                  r117.consumption(2, "LE_1", "gh99-other", ts=500)],
+        events=[r117.levent("LE_1", "alice", 300),
+                r117.levent("LE_2", "alice", 400, label=READY)],
+    )
+    v = _verdict(rig, "review")
+    assert v["verdict"] == "APPROVED", v
 
 
 def test_r4_only_plan_label_is_not_ready(tmp_path, monkeypatch):
@@ -233,12 +253,24 @@ def test_r9_malformed_review_label_unavailable_even_when_not_required(tmp_path, 
     assert "wrong type" in v["reason"]
 
 
+def test_r9b_explicit_null_review_label_is_off(tmp_path, monkeypatch):
+    from bytedigger_engine import readiness
+
+    rig = _write_policy_rig(tmp_path, monkeypatch, {"required": True, "review_label": None})
+    rig.seed(labels=[r117.LABEL], comments=[r117.record(1)], events=[r117.levent("LE_1", "alice", 300)])
+    assert _verdict(rig, "review") == readiness._default_result()
+    assert _verdict(rig, "start")["verdict"] != "UNAVAILABLE"
+
+
 # --------------------------------------------------------------------------- R10
 
 
 def test_r10_start_and_ship_ignore_review_label(tmp_path, monkeypatch):
     rig = _plan_only_rig(tmp_path, monkeypatch)
     assert _verdict(rig, "start")["verdict"] == "APPROVED"
+    # the review stage must be accepted at all; plan-only is NOT ready. Evaluated before rig2 is
+    # built: make_rig repoints the process-wide gh/ssh env.
+    assert _verdict(rig, "review")["reason"] == "label_absent"
     # a ready label alone must not satisfy start
     rig2_root = tmp_path / "second"
     rig2_root.mkdir()
@@ -248,17 +280,17 @@ def test_r10_start_and_ship_ignore_review_label(tmp_path, monkeypatch):
     v = _verdict(rig2, "start")
     assert v["verdict"] == "NOT_APPROVED", v
     assert v["reason"] == "label_absent"
-    # the review stage must be accepted at all (the stage the lot adds); plan-only is NOT ready
-    assert _verdict(rig, "review")["reason"] == "label_absent"
 
 
 # --------------------------------------------------------------------------- R11
 
 
 def test_r11_stage_validation_names_review(tmp_path, monkeypatch):
+    from bytedigger_engine import readiness
+
     rig = _rig(tmp_path, monkeypatch)
     with pytest.raises(ValueError) as ei:
-        _verdict(rig, "deploy")
+        readiness.verdict(rig.repo, "deploy")
     assert "review" in str(ei.value)
 
 

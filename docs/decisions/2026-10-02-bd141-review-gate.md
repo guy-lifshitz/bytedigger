@@ -1,6 +1,6 @@
 # bd#141 item 6 (residue): the review-readiness gate inside engine Phase 6
 
-**Status: r2 (gate r1 REJECTED: 1 MAJOR + 6 MINOR fixed, see `2026-10-02-bd141-review-gate-gate-r1.md`)** · **Tier:** 2 (two engine prod `.py` edits, `readiness.py` and
+**Status: r3 (gate r1 REJECTED: 1 MAJOR + 6 MINOR; gate r2 REJECTED: 2 MAJOR in RED + 3 MINOR; all fixed, see `…-gate-r1.md`, `…-gate-r2.md`)** · **Tier:** 2 (two engine prod `.py` edits, `readiness.py` and
 `workflows/phase_6_review.py`, plus docs; Option D) ·
 **Class:** SYSTEMATIC ·
 **Chokepoint:** `readiness.verdict(repo, stage, spec_path)`, which stays the only readiness decision.
@@ -55,7 +55,7 @@ spec `2026-10-02-bd141-start-gate.md` §4 and bd#117 §1v deferred it to this lo
 - Stages `start` and `ship` are byte-for-byte unchanged. They ignore `review_label`, apart from the
   type check above.
 - CLI: `check --stage` choices become `start`, `review`, `ship`; the usage comment in
-  `scripts/readiness:3` becomes `--stage {start|review|ship}` (r2, m4; comment only). Choices become `start`, `review`, `ship`. `_report` treats `review` like
+  `scripts/readiness:3` becomes `--stage {start|review|ship}` (r2, m4; comment only). `_report` treats `review` like
   `start`: a policy-read UNAVAILABLE exits 0 (warn-only) and any other UNAVAILABLE exits 4.
   NOT_APPROVED still exits 3 with the line `E_READINESS_NOT_APPROVED <reason> #<N>`.
 
@@ -131,11 +131,16 @@ Events are captured by monkeypatching `p6._emit_safe`.
 **readiness.py**
 - **R1 (review OFF without key)** required policy without `review_label`: `verdict(repo, "review")`
   equals `_default_result()`; zero fake-gh calls.
+- **R1b (OFF before issue binding, r3 F5)** required policy without `review_label`, branch
+  `feature-x`: `verdict(repo, "review")` equals `_default_result()` (not `no_issue`). (Reddens if
+  the `review_label is None` short-circuit sits after `_bind`'s issue binding.)
 - **R2 (review OFF when not required)** `required: false` plus `review_label`: verdict `OFF`; zero
   fake-gh calls.
 - **R3 (APPROVED)** record posted, `plan-approved` added, then `ready-for-review` added after the
   record: `verdict="APPROVED"`, `label="ready-for-review"`, `issue=42`, `required=True`. The fake-gh
   log has no comment create and no label removal.
+- **R3b (plan consumption does not leak, r3 F5)** R3's rig plus a consumption record of the plan
+  label event for another branch: `review` is still `APPROVED`.
 - **R4 (only plan label)** record and `plan-approved` present, no ready label: `NOT_APPROVED`,
   `reason="label_absent"`. (Reddens if `review` reuses `pol.label`.)
 - **R5 (ready predates record)** ready label added, then a new record posted, label still present:
@@ -148,6 +153,8 @@ Events are captured by monkeypatching `p6._emit_safe`.
   under casefold): the verdict at **each** of `start`, `review`, `ship` is `UNAVAILABLE`, with reason
   containing `wrong type`. Also with `required: false` and `review_label: 5`: `review` → `UNAVAILABLE`
   (r2, m2).
+- **R9b (explicit null, r3 F5)** required policy with `"review_label": null`: `review` → `OFF`
+  (equals `_default_result()`), `start` is not UNAVAILABLE.
 - **R10 (start/ship unchanged)** R4's rig (plan label only, no ready label): `verdict(repo, "start")`
   is `APPROVED`. A rig with a ready label but no plan label gives `start` → `label_absent`. (Reddens
   if `start` reads `review_label`.)
@@ -231,8 +238,8 @@ Each negative AC names the change that reddens it:
   is already cached still refuses if the ready label was removed or a newer record was posted. Only the
   in-phase satisfaction fix loop (`phase_6_review.py:3699`) re-enters after step 1, after a gate that
   already passed.
-- A malformed `review_label` makes every stage UNAVAILABLE, so `check --stage ship` exits 4 (fail
-  closed) even if review is never used (r2, m2). This matches every other readiness field error.
+- A malformed `review_label` makes every stage UNAVAILABLE, so `check --stage ship` and `readiness post`
+  exit 4 (fail closed) even if review is never used (r2, m2; r3, F4). This matches every other readiness field error.
 - The bd#85 task driver does not list `E_READINESS_NOT_APPROVED` in `_STOP_CODES`
   (`lib/task_resume.py:60`), so `plan_resume` re-runs a refused Phase 6 until the run cap
   (`DEFAULT_MAX_RUNS = 3`) is spent. Each re-run refuses again at the gate before any reviewer
