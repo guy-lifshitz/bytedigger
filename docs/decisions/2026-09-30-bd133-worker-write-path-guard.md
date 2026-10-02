@@ -1,6 +1,6 @@
 # bd#133 — PreToolUse path guard for subagent Write/Edit
 
-**Status: FROZEN Rev 3** (gate r1 REJECT → F1–F6 + minors; gate r2 PASS; r2 advisories n1–n3; /code-review CR1, CR3, CR7 folded in) · **Class:** SYSTEMATIC · **Chokepoint:** one new PreToolUse hook,
+**Status: FROZEN Rev 4** (gate r1 REJECT → F1–F6 + minors; gate r2 PASS; r2 advisories n1–n3; /code-review CR1, CR3, CR7 folded in; post-rebase gate r3 F1–F5 folded in, see §R4) · **Class:** SYSTEMATIC · **Chokepoint:** one new PreToolUse hook,
 `hooks/worker-write-guard.sh`, registered in `hooks/hooks.json` for
 `Write|Edit|MultiEdit|NotebookEdit`. Every file write a subagent makes through a file tool
 passes it.
@@ -162,3 +162,16 @@ there; NTFS alias names (trailing dot/space, 8.3 short names); Claude Code < 2.1
 
 `tests/test_worker_write_guard.py` (pytest, stdlib only, runs the hook as a subprocess with
 JSON on stdin in a tmp dir), added to CI `manifests`.
+
+## §R4 Rev 4: post-rebase gate r3 (PR #189 on main `0460de7`)
+
+- **Read-only roles = `synthesizer` only (r3 F2/F3).** bd#89 P2a deleted `agents/explorer.md` and
+  `agents/architect.md`; their rows were dead and only matched a user's own same-name agents.
+  `ROLE_DIR = {synthesizer: reviews}`. `explorer` / `architect` (bare or `bytedigger:`) are
+  ordinary subagents: R5 applies, R6/R7 do not. Escape tests move to synthesizer/`reviews/`.
+  Wherever the sections above list three roles, read synthesizer only.
+- **Limits (r3 F1/F4/F5), `docs/security.md` + CHANGELOG:** engine_py runs (any backend,
+  including API tokens) keep no `build-state.yaml` and fire no plugin hooks, so they get no subagent
+  guard. Engine workers started as `claude -p` are their own main-thread sessions. Any host or
+  runner without `agent_id` is treated as the main thread (allow), not only Claude Code < 2.1.69.
+  A FAILED build keeps `build-state.yaml`, so the guard stays on in that checkout until it is cleaned up.
