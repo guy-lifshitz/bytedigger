@@ -56,6 +56,23 @@ from bytedigger_engine import llm_subprocess, telemetry_ctx  # noqa: E402  bd#82
 from bytedigger_engine.conformance.attest import InjectedBlock  # noqa: E402  bd#206 M3
 from bytedigger_engine.lib.findings_provenance import review_source_id  # noqa: E402  bd#206 M3
 from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_fallback  # type: ignore[import]  # noqa: E402
+from bytedigger_engine import config_provider  # noqa: E402  bd#102: stop-on-fatal kill switch
+from bytedigger_engine.lib.env_limit import PAUSE_LANE_ERROR_CODES  # noqa: E402  bd#102
+
+# bd#102: chokepoint codes on which every further verifier call is doomed or unsafe
+# (pause-lane spend limit, a write-tool escape, unusable backend / run id). The
+# step stops and returns the chokepoint result instead of tagging UNVERIFIED.
+_STOP_ERROR_CODES = PAUSE_LANE_ERROR_CODES | {
+    "E_CAPABILITY_ESCAPE", "E_LLM_BACKEND_UNKNOWN", "E_LLM_RUN_ID_MISSING",
+}
+
+
+class _VerifierStop(Exception):
+    """bd#102: raised by _invoke_verifier_agent on a stop code; ``result`` is the chokepoint StepResult."""
+
+    def __init__(self, result: Any) -> None:
+        super().__init__(getattr(result, "error_code", None))
+        self.result = result
 
 
 def parse_verdict(raw: str) -> dict[str, Any]:
@@ -210,6 +227,11 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
         log = logger.error if result.error_code == "E_CAPABILITY_ESCAPE" else logger.warning
         log("semantic_verify: finding %s:%s -> %s %s", finding.get("file"), finding.get("line"),
             result.error_code, result.error)
+        if (
+            result.error_code in _STOP_ERROR_CODES
+            and config_provider.get_config().gate_enabled("HAL_SEMANTIC_VERIFY_STOP_ON_FATAL")
+        ):
+            raise _VerifierStop(result)
         if result.error_code in ("E_LLM_TIMEOUT", "E_LLM_API_TIMEOUT"):
             return "UNVERIFIED:\nreason: agent_timeout\n"
         # The code first, then the head of the message — chokepoint errors lead
@@ -467,11 +489,15 @@ def verify_findings_semantic(ctx, prev) -> object:
     refuted_blocks: list[str] = []
     new_finding_blocks: list[str] = []
 
+    # bd#102: why findings ended UNVERIFIED; sums to counters["semantic_unverified"].
+    unverified_reasons: dict[str, int] = {}
+
     for idx, finding in enumerate(findings):
         if idx >= MAX_SEMANTIC_VERIFY_FINDINGS:
             tagged_header = "[UNVERIFIED OVERFLOW] " + finding["header_text"] + "\n"
             new_finding_blocks.append(tagged_header + finding["body_text"])
             counters["semantic_unverified"] += 1
+            unverified_reasons["overflow"] = unverified_reasons.get("overflow", 0) + 1
             continue
 
         if finding["is_already_low_trust"]:
@@ -479,18 +505,42 @@ def verify_findings_semantic(ctx, prev) -> object:
             new_finding_blocks.append(finding["raw_block"])
             continue
 
-        raw = _invoke_verifier_agent(finding, model_tier="haiku")
-        model_haiku_calls += 1
-        parsed = parse_verdict(raw)
-
-        if (
-            escalation_allowed
-            and parsed.get("verdict") == VERDICT_UNVERIFIED
-            and parsed.get("reason") == "cannot_decide"
-        ):
-            raw = _invoke_verifier_agent(finding, model_tier="opus")
-            model_opus_calls += 1
+        try:
+            # Counted before the call: the call that raised a stop is still a call.
+            model_haiku_calls += 1
+            raw = _invoke_verifier_agent(finding, model_tier="haiku")
             parsed = parse_verdict(raw)
+
+            if (
+                escalation_allowed
+                and parsed.get("verdict") == VERDICT_UNVERIFIED
+                and parsed.get("reason") == "cannot_decide"
+            ):
+                model_opus_calls += 1
+                raw = _invoke_verifier_agent(finding, model_tier="opus")
+                parsed = parse_verdict(raw)
+        except _VerifierStop as stop:
+            # No further verifier call and no doc rewrite: the file stays as it
+            # was so a paused run re-enters cleanly.
+            stop_duration_ms = int(time.monotonic() * 1000) - started_ms
+            if EventLog is not None:
+                try:
+                    EventLog().append(
+                        "phase_6_semantic_verify_stopped",
+                        {
+                            "step_name": "verify_findings_semantic",
+                            "error_code": stop.result.error_code,
+                            "findings_total": len(findings),
+                            "model_haiku_calls": model_haiku_calls,
+                            "model_opus_calls": model_opus_calls,
+                            "semantic_unverified_reasons": unverified_reasons,
+                            "duration_ms": stop_duration_ms,
+                        },
+                        run_id=getattr(ctx, "session_id", None),
+                    )
+                except (OSError, ValueError, TypeError) as exc:
+                    logger.warning("event_log emit failed: %s", exc, exc_info=True)
+            return stop.result
 
         verdict = parsed.get("verdict", VERDICT_UNVERIFIED)
 
@@ -508,6 +558,13 @@ def verify_findings_semantic(ctx, prev) -> object:
             new_finding_blocks.append(finding["raw_block"])
         else:
             counters["semantic_unverified"] += 1
+            reason_text = str(parsed.get("reason", "unknown"))
+            if reason_text.startswith("agent_error "):
+                reason_key = reason_text[len("agent_error "):].split(" ", 1)[0]
+            else:
+                reason_key = reason_text
+            reason_key = reason_key or "unknown"
+            unverified_reasons[reason_key] = unverified_reasons.get(reason_key, 0) + 1
             tagged_header = re.sub(
                 r"^### SEVERITY:\s+",
                 "### SEVERITY: [UNVERIFIED] ",
@@ -594,6 +651,7 @@ def verify_findings_semantic(ctx, prev) -> object:
                     "semantic_refute_rate": refute_rate,
                     "model_haiku_calls": model_haiku_calls,
                     "model_opus_calls": model_opus_calls,
+                    "semantic_unverified_reasons": unverified_reasons,
                     "duration_ms": duration_ms,
                 },
                 run_id=getattr(ctx, "session_id", None),
@@ -608,6 +666,7 @@ def verify_findings_semantic(ctx, prev) -> object:
             **counters,
             "review_doc_path": str(review_doc_path),
             "semantic_refute_rate": refute_rate,
+            "semantic_unverified_reasons": unverified_reasons,
         },
         duration_ms=duration_ms,
         step_name="verify_findings_semantic",

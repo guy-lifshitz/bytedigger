@@ -366,6 +366,14 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#165 - sibling-coupling (section 1a) warn pass - stays as a default-ON warn-only kill-switch",
     },
+    "HAL_SEMANTIC_VERIFY_STOP_ON_FATAL": {
+        "kind": "gate",
+        "default": "1",
+        "module": "lib/plugins/anti_hallucination/semantic_verifier.py",
+        "description": "Default-ON gate: the phase_6 semantic verifier stops and returns the chokepoint error on a pause-lane or fatal code (E_LLM_SPEND_LIMIT, E_CAPABILITY_ESCAPE, E_LLM_BACKEND_UNKNOWN, E_LLM_RUN_ID_MISSING) instead of tagging the finding UNVERIFIED (bd#102). =0 restores tag-and-continue.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#102 - semantic verifier stop on pause-lane and fatal codes - stays as a default-ON kill-switch (=0 restores tag-and-continue)",
+    },
     "HAL_GREEN_GATE_GUARD": {
         "kind": "gate",
         "default": "1",
