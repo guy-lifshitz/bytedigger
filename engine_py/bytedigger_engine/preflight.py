@@ -268,6 +268,40 @@ def verify_receipt(phase: str, toplevel: str | Path) -> str:
     return "fresh"
 
 
+def _first_red_step(top: str | Path) -> str | None:
+    """Name of the first step with status red in the stored receipt, or None. Never raises."""
+    try:
+        doc = json.loads(receipt_path(top).read_text(encoding="utf-8"))
+        steps = doc.get("steps") if isinstance(doc, dict) else None
+        if not isinstance(steps, list):
+            return None
+        for step in cast(list[Any], steps):
+            if isinstance(step, dict) and step.get("status") == "red":
+                name = step.get("name")
+                return name if isinstance(name, str) else None
+    except Exception:  # noqa: BLE001 -- unreadable receipt carries no red step
+        return None
+    return None
+
+
+def receipt_rung(phase: str, toplevel: str | Path) -> dict[str, Any]:
+    """bd#218 s1: rung record {status, phase, red_step} for a gate step. Read-only; never raises.
+
+    status is fresh | stale | red | missing | error. red_step is the first red step of the
+    stored receipt (kept when the receipt is stale), None when missing, unreadable or ok.
+    """
+    try:
+        top = _git_text(toplevel, "rev-parse", "--show-toplevel")
+    except Exception:  # noqa: BLE001 -- not a git work tree: no receipt
+        return {"status": "missing", "phase": phase, "red_step": None}
+    try:
+        status = verify_receipt(phase, top)
+        red_step = _first_red_step(top) if status in ("stale", "red") else None
+    except Exception:  # noqa: BLE001 -- the rung never raises
+        return {"status": "error", "phase": phase, "red_step": None}
+    return {"status": status, "phase": phase, "red_step": red_step}
+
+
 # --------------------------------------------------------------------------
 # JUnit reading and test running
 # --------------------------------------------------------------------------

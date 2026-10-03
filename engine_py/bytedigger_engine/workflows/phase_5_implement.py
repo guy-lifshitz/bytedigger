@@ -113,6 +113,7 @@ from bytedigger_engine import flags_catalog  # noqa: E402  GH529
 from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine import verification_registry  # noqa: E402  bd#115
 from bytedigger_engine import check_ladder  # noqa: E402  bd#141 item 3
+from bytedigger_engine import preflight  # noqa: E402  bd#218 s1 — module import so receipt_rung is patchable
 from bytedigger_engine import readiness as _readiness  # noqa: E402  bd#141 item 6 — start-time readiness gate
 from bytedigger_engine.suite_safety import scan_suite_safety
 from bytedigger_engine.stub_passability import scan_stub_passability
@@ -6786,6 +6787,36 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
         _emit_safe("prescreen_verdict", _ps_event)
         if _ps_extra is not None:
             extra_data["prescreen"] = _ps_extra
+    # bd#218 s1: preflight receipt rung. Read-only record of whether the cheap deterministic
+    # checks were green on this tree; the gate below always runs once whatever it says.
+    _pr_cfg = cfg.get("preflight_rung") if isinstance(cfg, dict) else None
+    _pr_off = isinstance(_pr_cfg, dict) and _pr_cfg.get("mode") == "off"
+    if not _pr_off:
+        _pr_event: dict[str, Any] = {
+            "status": "error", "red_step": None, "phase": 5,
+            "cycle": prev.data.get("cycle", 1), "gate": "validation",
+        }
+        try:
+            if _pr_cfg is not None and not (
+                isinstance(_pr_cfg, dict) and _pr_cfg.get("mode", "verify") == "verify"
+            ):
+                _pr_event["status"] = "config-error"
+            else:
+                _pr_tree, _pr_source = _resolve_git_cwd_with_source(ctx, prev)
+                if is_ambient_git_cwd(_pr_source):
+                    _pr_event["status"] = "ambient-skip"
+                else:
+                    _pr_rec = preflight.receipt_rung("red", _pr_tree)
+                    _pr_event["status"] = _pr_rec["status"]
+                    _pr_event["red_step"] = _pr_rec["red_step"]
+                    extra_data["preflight"] = {
+                        "status": _pr_rec["status"], "red_step": _pr_rec["red_step"],
+                    }
+        except Exception:  # noqa: BLE001 -- the rung must never block the gate
+            _pr_event["status"] = "error"
+            _pr_event["red_step"] = None
+            extra_data["preflight"] = {"status": "error", "red_step": None}
+        _emit_safe("preflight_receipt", _pr_event)
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=model,
@@ -7220,6 +7251,8 @@ def _write_validation_doc(_ctx, prev) -> StepResult:
             "structured_verdict": structured,
             # bd#91: deterministic AC coverage, consumed by _gate_on_validation.
             "ac_coverage": ac_coverage,
+            # bd#218 s1: rung record, forwarded only when present (data unchanged otherwise).
+            **({"preflight": prev.data["preflight"]} if "preflight" in prev.data else {}),
         },
         duration_ms=0,
         step_name="write_validation_doc",
@@ -7293,6 +7326,7 @@ def _log_validation_reject(prev, gate_verdict: str, cycle: int, reason_code: str
             validation_doc_path=prev.data.get("validation_doc_path"),
             reject_reason=getattr(structured, "reject_reason", None),
             verdict_category=getattr(structured, "verdict_category", None),
+            preflight=prev.data.get("preflight"),  # bd#218 s1
         )
     except Exception:  # noqa: BLE001
         logger.warning("validation reject log failed", exc_info=True)
