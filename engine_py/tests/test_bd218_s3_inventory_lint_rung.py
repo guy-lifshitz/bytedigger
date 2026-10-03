@@ -1,7 +1,7 @@
-"""bd#218 step 3 RED -- preflight siblings runs the inventory-lint tests when the diff adds
-git / read_text / subprocess calls under engine_py/bytedigger_engine.
+"""bd#218 step 3 RED (spec r2) -- preflight siblings runs the six inventory-lint tests whenever
+the change set contains a .py under engine_py/bytedigger_engine/ (PATH-based trigger).
 
-Spec: docs/decisions/2026-10-03-bd218-s3-inventory-lint-rung.md (AC1-AC9).
+Spec: docs/decisions/2026-10-03-bd218-s3-inventory-lint-rung.md (AC1-AC10).
 Real tmp git repos, real receipts on disk; preflight itself is never mocked. Every state
 (base commit, lint stubs, diff) is pre-staged deterministically (workflows.md 1i); no timing.
 Unit under test is imported lazily so every test fails at assert time, not at collection.
@@ -27,11 +27,14 @@ LINTS = (
     "test_bd150_class_i_inventory.py",
     "test_bd152_output_digest.py",
     "test_bd206_class_m_sites.py",
+    "test_bd89_p3c_deterministic_synthesize_report.py",
+    "test_bd89_p3b1b_ii_aggregation_helper.py",
 )
 PASS_SRC = "def test_ac():\n    assert True\n"
 FAIL_SRC = "def test_ac10():\n    assert False\n"
 ENG = "engine_py/bytedigger_engine/mod.py"
 BASE_MOD = "def f():\n    return 1\n"
+SUFFIX6 = "inventory-lint: 6 file(s)"
 
 
 @pytest.fixture(autouse=True)
@@ -103,14 +106,20 @@ def _append(repo: Path, rel: str, line: str) -> None:
     p.write_text(p.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
 
 
-# ------------------------------------------------------------------ AC1-AC3 triggers
+CALLS = [
+    "x = p.read_text()",
+    "subprocess.run(['echo'])",
+    'CMD = ["git", "status"]',
+    "x = p.read_bytes()",
+    "x = _git_read(r)",
+    "x = os.walk(r)",
+]
 
-@pytest.mark.parametrize("line", [
-    "x = p.read_text()",                      # AC1
-    "subprocess.run(['echo'])",               # AC2
-    'CMD = ["git", "status"]',                # AC3
-])
-def test_AC1_AC2_AC3_added_call_runs_failing_lint_red(tmp_path: Path, line: str) -> None:
+
+# ------------------------------------------------------------------ AC1 / AC2 / AC3 triggers
+
+@pytest.mark.parametrize("line", CALLS)
+def test_AC1_engine_py_edit_failing_lint_red(tmp_path: Path, line: str) -> None:
     bad = "test_bd150_class_i_inventory.py"
     repo, spec = _mk(tmp_path, "red", lints=_all_lints((bad,)))
     _append(repo, ENG, line)
@@ -119,16 +128,12 @@ def test_AC1_AC2_AC3_added_call_runs_failing_lint_red(tmp_path: Path, line: str)
     assert bad in sib["detail"]
 
 
-@pytest.mark.parametrize("line", [
-    "x = p.read_text()",
-    "subprocess.run(['echo'])",
-    'CMD = ["git", "status"]',
-])
-def test_AC1_AC2_AC3_added_call_passing_lint_ok_with_suffix(tmp_path: Path, line: str) -> None:
+@pytest.mark.parametrize("line", CALLS)
+def test_AC1_engine_py_edit_passing_lints_ok_suffix_6(tmp_path: Path, line: str) -> None:
     repo, spec = _mk(tmp_path, "ok", lints=_all_lints())
     _append(repo, ENG, line)
     sib = _sib(_run(repo, spec))
-    assert sib["status"] == "ok" and "inventory-lint: " in sib["detail"], sib
+    assert sib["status"] == "ok" and sib["detail"].endswith(SUFFIX6), sib
 
 
 def test_AC1_untracked_new_engine_file_triggers(tmp_path: Path) -> None:
@@ -139,56 +144,114 @@ def test_AC1_untracked_new_engine_file_triggers(tmp_path: Path) -> None:
     assert sib["status"] == "red" and bad in sib["detail"], sib
 
 
-# ------------------------------------------------------------------ AC4 / AC5 non-triggers
+@pytest.mark.parametrize("bad", LINTS[4:])
+def test_AC1_added_p3_lint_files_are_in_the_set(tmp_path: Path, bad: str) -> None:
+    repo, spec = _mk(tmp_path, "p3", lints=_all_lints((bad,)))
+    _append(repo, ENG, "x = 1")
+    sib = _sib(_run(repo, spec))
+    assert sib["status"] == "red" and bad in sib["detail"], sib
 
-def test_AC4_unrelated_line_does_not_run_lints(tmp_path: Path) -> None:
-    repo, spec = _mk(tmp_path, "unrel", lints=_all_lints(LINTS))
+
+def test_AC2_plain_assignment_edit_triggers(tmp_path: Path) -> None:
+    bad = "test_bd152_output_digest.py"
+    repo, spec = _mk(tmp_path, "plain", lints=_all_lints((bad,)))
     _append(repo, ENG, "z = 1 + 1")
     sib = _sib(_run(repo, spec))
-    assert sib["status"] == "ok" and sib["detail"] == "no siblings"
+    assert sib["status"] == "red" and bad in sib["detail"], sib
 
 
-def test_AC4_call_in_engine_tests_or_non_py_does_not_run_lints(tmp_path: Path) -> None:
-    repo, spec = _mk(tmp_path, "paths", lints=_all_lints(LINTS))
-    _write(repo / "engine_py/tests/helper_mod.py", "x = p.read_text()\n")
-    _write(repo / "engine_py/bytedigger_engine/notes.txt", "p.read_text() subprocess \"git\"\n")
-    sib = _sib(_run(repo, spec))
-    assert sib["status"] == "ok" and sib["detail"] == "no siblings"
-
-
-def test_AC5_removed_read_text_line_does_not_trigger(tmp_path: Path) -> None:
-    repo, spec = _mk(tmp_path, "removed", lints=_all_lints(LINTS),
-                     mod_src=BASE_MOD + "v = p.read_text()\n")
+def test_AC3_removal_only_edit_triggers(tmp_path: Path) -> None:
+    bad = "test_bd206_class_m_sites.py"
+    repo, spec = _mk(tmp_path, "removed", lints=_all_lints((bad,)),
+                     mod_src=BASE_MOD + "v = 2\n")
     (repo / ENG).write_text(BASE_MOD, encoding="utf-8")
     sib = _sib(_run(repo, spec))
-    assert sib["status"] == "ok" and sib["detail"] == "no siblings"
+    assert sib["status"] == "red" and bad in sib["detail"], sib
 
 
-# ------------------------------------------------------------------ AC6 dedupe / absence
+# ------------------------------------------------------------------ AC4 non-triggers
 
-def test_AC6_listed_sibling_lint_runs_once_and_rung_still_triggers(tmp_path: Path) -> None:
-    count = tmp_path / "count.log"
-    counting = (f"def test_ac():\n    open({str(count)!r}, 'a').write('x\\n')\n")
-    lints = _all_lints()
-    lints["test_bd94_engine_owned_paths.py"] = counting
-    listed = "engine_py/tests/test_bd94_engine_owned_paths.py"
-    repo, spec = _mk(tmp_path, "dedupe", lints=lints, sibling=(listed,))
-    _append(repo, ENG, "x = p.read_text()")
+def _stage_non_trigger(repo: Path, kind: str) -> None:
+    if kind == "tests_only":
+        _write(repo / "engine_py/tests/helper_mod.py", "x = p.read_text()\n")
+    elif kind == "non_py":
+        _write(repo / "engine_py/bytedigger_engine/notes.txt", "p.read_text()\n")
+    else:
+        _append(repo, "calc.py", "x = p.read_text()")
+
+
+@pytest.mark.parametrize("kind", ["tests_only", "non_py", "outside"])
+def test_AC4_non_trigger_empty_siblings_exactly_no_siblings(tmp_path: Path, kind: str) -> None:
+    repo, spec = _mk(tmp_path, "nt", lints=_all_lints(LINTS))
+    _stage_non_trigger(repo, kind)
     sib = _sib(_run(repo, spec))
-    assert "inventory-lint: " in sib["detail"], sib
+    assert sib["status"] == "ok" and sib["detail"] == "no siblings", sib
+
+
+@pytest.mark.parametrize("kind", ["tests_only", "non_py", "outside"])
+def test_AC4_non_trigger_nonempty_siblings_no_suffix(tmp_path: Path, kind: str) -> None:
+    lints = _all_lints(LINTS)
+    lints["test_sib.py"] = PASS_SRC
+    repo, spec = _mk(tmp_path, "nts", lints=lints, sibling=("engine_py/tests/test_sib.py",))
+    _stage_non_trigger(repo, kind)
+    sib = _sib(_run(repo, spec))
+    assert sib["status"] == "ok", sib
+    assert sib["detail"] != "no siblings" and "inventory-lint" not in sib["detail"], sib
+
+
+# ------------------------------------------------------------------ AC5 dedupe
+
+def _counting_lints(count: Path) -> dict[str, str]:
+    lints = _all_lints()
+    lints["test_bd94_engine_owned_paths.py"] = (
+        f"def test_ac():\n    open({str(count)!r}, 'a').write('x\\n')\n")
+    return lints
+
+
+@pytest.mark.parametrize("listed", [
+    "engine_py/tests/test_bd94_engine_owned_paths.py",
+    "./engine_py/tests/test_bd94_engine_owned_paths.py",
+])
+def test_AC5_listed_lint_runs_once_and_n_counts_only_appended(tmp_path: Path, listed: str) -> None:
+    count = tmp_path / "count.log"
+    repo, spec = _mk(tmp_path, "dedupe", lints=_counting_lints(count), sibling=(listed,))
+    _append(repo, ENG, "x = 1")
+    sib = _sib(_run(repo, spec))
+    assert sib["detail"].endswith("inventory-lint: 5 file(s)"), sib
     assert count.read_text(encoding="utf-8").count("x") == 1, "lint file ran more than once"
 
 
-def test_AC6_no_engine_py_and_missing_lint_files_no_trigger_no_crash(tmp_path: Path) -> None:
+def test_AC5_all_six_listed_n_zero_no_suffix(tmp_path: Path) -> None:
+    listed = tuple(f"./engine_py/tests/{n}" for n in LINTS)
+    repo, spec = _mk(tmp_path, "all6", lints=_all_lints(), sibling=listed)
+    _append(repo, ENG, "x = 1")
+    sib = _sib(_run(repo, spec))
+    assert sib["status"] == "ok" and "inventory-lint" not in sib["detail"], sib
+    assert sib["detail"] != "no siblings", sib
+
+
+# ------------------------------------------------------------------ AC6 absence
+
+def test_AC6_no_engine_py_no_trigger_no_crash(tmp_path: Path) -> None:
     repo, spec = _mk(tmp_path, "noeng", engine=False)
     _append(repo, "calc.py", "x = p.read_text()")
     sib = _sib(_run(repo, spec))
     assert sib["status"] == "ok" and sib["detail"] == "no siblings"
 
-    repo2, spec2 = _mk(tmp_path, "nolints")        # engine_py/bytedigger_engine only, no lint files
-    _append(repo2, ENG, "x = p.read_text()")
-    sib2 = _sib(_run(repo2, spec2))
-    assert sib2["status"] == "ok" and sib2["detail"] == "no siblings"
+
+def test_AC6_missing_lint_files_skipped_no_crash(tmp_path: Path) -> None:
+    repo, spec = _mk(tmp_path, "nolints")
+    _append(repo, ENG, "x = 1")
+    sib = _sib(_run(repo, spec))
+    assert sib["status"] == "ok" and sib["detail"] == "no siblings", sib
+
+
+def test_AC6_partial_lint_set_counts_existing_only(tmp_path: Path) -> None:
+    two = {n: PASS_SRC for n in LINTS[:2]}
+    repo, spec = _mk(tmp_path, "partial", lints=two)
+    _append(repo, ENG, "x = 1")
+    sib = _sib(_run(repo, spec))
+    assert sib["status"] == "ok" and sib["detail"].endswith("inventory-lint: 2 file(s)"), sib
 
 
 # ------------------------------------------------------------------ AC7 known-reds
@@ -196,7 +259,7 @@ def test_AC6_no_engine_py_and_missing_lint_files_no_trigger_no_crash(tmp_path: P
 def test_AC7_known_reds_tolerates_failing_lint(tmp_path: Path) -> None:
     bad = "test_bd150_class_i_inventory.py"
     repo, spec = _mk(tmp_path, "kr", lints=_all_lints((bad,)))
-    _append(repo, ENG, "x = p.read_text()")
+    _append(repo, ENG, "x = 1")
     led = tmp_path / "ledger.md"
     led.write_text(
         "| Suite | Red | Scope | Issue | Kill-by | Class |\n|---|---|---|---|---|---|\n"
@@ -238,3 +301,16 @@ def test_AC9_cli_main_reaches_trigger_receipt_on_disk(tmp_path: Path) -> None:
     sib = _sib(doc)
     assert sib["status"] == "red" and bad in sib["detail"], sib
     assert code == 1 and doc["ok"] is False
+
+
+# ------------------------------------------------------------------ AC10 committed since merge-base
+
+def test_AC10_change_committed_since_merge_base_triggers(tmp_path: Path) -> None:
+    bad = "test_bd94_engine_owned_paths.py"
+    repo, spec = _mk(tmp_path, "committed", lints=_all_lints((bad,)))
+    _append(repo, ENG, "x = 1")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "engine change")
+    assert _git(repo, "status", "--porcelain") == ""
+    sib = _sib(_run(repo, spec))
+    assert sib["status"] == "red" and bad in sib["detail"], sib
