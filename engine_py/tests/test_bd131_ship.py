@@ -1136,10 +1136,12 @@ def test_ac23_plugin_doc_lists_helper():
 
 def test_ac23_changelog_unreleased_mentions_bd131():
     """AC23: CHANGELOG.md Unreleased section mentions bd#131."""
+    from helpers.changelog import require_entry
+
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    m = re.search(r"^## \[Unreleased\]\s*$(.*?)(?=^## \[)", text, re.M | re.S)
-    assert m, "Unreleased section not found"
-    assert "bd#131" in m.group(1)
+    import re
+
+    require_entry(text, re.compile(r"bd#131\b"))
 
 
 # =========================================================================== AC31-AC38: code-review amendments (r4)

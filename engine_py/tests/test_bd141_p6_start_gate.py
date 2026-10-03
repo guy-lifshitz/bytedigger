@@ -482,5 +482,6 @@ def test_S14_docs_and_changelog():
     section = rest if not n else rest[:n.start()]
     assert "phase_5_implement" in section
     log = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = _section(log, "[Unreleased]")
-    assert "bd#141 item 6" in unreleased
+    from helpers.changelog import require_entry
+
+    require_entry(log, "**Readiness start gate in engine Phase 5 (bd#141 item 6).**")

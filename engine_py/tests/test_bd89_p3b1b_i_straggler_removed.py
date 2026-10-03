@@ -288,11 +288,11 @@ def test_ac10_docs_text():
 
     Pre-GREEN fail: neither mentions the new behaviour.
     """
+    from helpers.changelog import require_entry
+
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    parts = changelog.split("\n## ")
-    assert len(parts) >= 2, "CHANGELOG has no '## ' section"
-    first = parts[1]
-    assert "straggler_cfg_ignored" in first and "#202" in first
+    first = require_entry(changelog, "straggler_cfg_ignored").body
+    assert "#202" in first
     backends = (REPO / "docs" / "backends.md").read_text(encoding="utf-8")
     assert "straggler_cfg" in backends and "deprecated" in backends
 

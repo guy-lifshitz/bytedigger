@@ -285,17 +285,15 @@ def test_ac9_agent_sdk_backend_fresh_session_defaults_to_true():
 
 
 def test_ac12_changelog_unreleased_changed_mentions_the_opt_in():
+    import re
+
+    from helpers.changelog import require_entry, blocks
+
     text = (Path(__file__).resolve().parents[2] / "CHANGELOG.md").read_text()
-    lines = text.splitlines()
-    start = next(i for i, ln in enumerate(lines) if ln.startswith("## [Unreleased]"))
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
-               len(lines))
-    section = lines[start + 1:end]
-    changed = [i for i, ln in enumerate(section) if ln.strip() == "### Changed"]
-    assert len(changed) == 1, "exactly one '### Changed' in [Unreleased]"
-    body = section[changed[0] + 1:]
-    stop = next((i for i, ln in enumerate(body) if ln.startswith("### ")), len(body))
-    assert any("bd#101" in ln and "_WARM_RESUME_STEPS" in ln for ln in body[:stop])
+    section = require_entry(text, re.compile(r"bd#101\b"))
+    changed = blocks(section, "Changed")
+    assert len(changed) == 1, "exactly one '### Changed' in the section carrying the bd#101 entry"
+    assert any("bd#101" in ln and "_WARM_RESUME_STEPS" in ln for ln in changed[0].splitlines())
 
 
 # --- AC10 --------------------------------------------------------------------
