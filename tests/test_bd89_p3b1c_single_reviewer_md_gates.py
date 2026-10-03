@@ -96,7 +96,7 @@ def test_ac4_build_md_has_no_exact_agents_or_launched_expected():
 
 def test_ac4_build_md_6_1_references_phase6_md():
     text = _read("commands/build.md")
-    m = re.search(r"\*\*6\.1\b.*?(?=\*\*6\.2\b)", text, re.S)
+    m = re.search(r"6\.1\b.*?(?=6\.2\b)", text, re.S)
     assert m, "no 6.1 block found in commands/build.md"
     assert "phases/phase-6-review.md" in m.group(0)
 

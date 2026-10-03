@@ -438,6 +438,9 @@ EOF
   # Baseline: config without the legacy keys
   run bash "$SCRIPT" < /dev/null
   local base_status="$status"
+  # Absolute pin (gate r1 F8): a clean phase-6 fixture passes (exit 0), so a symmetric
+  # load_config break (same non-zero code on both runs) cannot hide behind equality.
+  [ "$base_status" -eq 0 ]
   # Same state, config carrying the three legacy keys
   cat > "$TMPDIR/bytedigger.json" <<'EOF'
 {

@@ -124,3 +124,7 @@ The full engine suite is CI only.
 - **F8.** The bats degrade case pins the absolute status too: the orchestrator measures the baseline status of the invoked gate on the RED commit (currently 0 for the fixture it uses, to be confirmed by the RED author's setup) and the case asserts `[ "$base_status" -eq <measured> ]`.
 - **A1.** AC10 iterates `git ls-files` (tracked files only) instead of `rglob`.
 - **A2.** The PR body follow-up names the semantic-skip glob gap explicitly (already in §4).
+
+## §8 Open point (lead 2026-10-03)
+
+- Semantic-skip scan (`scripts/ts/build-phase-gate.ts` `scanSemanticSkipPhrases`, `scripts/build-gate.sh` `scan_semantic_skip`) globs `*review*.md`; `reviews/role-composite.md` does not match, so the composite reviewer's file is never scanned. This is a fix, not a removal; kept open here and may be split into its own slice.
