@@ -129,3 +129,24 @@ The full engine suite is CI only.
 
 - Semantic-skip scan (`scripts/ts/build-phase-gate.ts` `scanSemanticSkipPhrases`, `scripts/build-gate.sh` `scan_semantic_skip`) globs `*review*.md`; `reviews/role-composite.md` does not match, so the composite reviewer's file is never scanned. This is a fix, not a removal; kept open here and may be split into its own slice.
 - op6 verbatim sentence (§7 F6) names the three config keys unbackticked, but the sibling `test_ac12_docs_rows_say_one_composite_reviewer[docs/plugin.md]` expects them backticked. The sentence must carry backticks around `simple_reviewers` / `feature_reviewers` / `complex_reviewers`, still on one physical line containing `were removed and are ignored`.
+
+## §9 Narrowing r3 (lead 2026-10-03; audit hal#2320 section 6, M11 "ok, doc sync") — overrides §0-§8 where they conflict
+
+**Slice is now:** structural doc sync of `commands/build.md` + `phases/phase-6-review.md` (+ the same fan-out table in `phases/phase-0-classify.md` and `templates/dynamic-context.md`), and the pure-drift config counts in `bytedigger.json` and both gate parsers. Nothing else.
+
+**Dropped (listed in the PR body under Follow-ups):**
+- All wording-only ACs from errata r2 F3 (`reviewer panel`, `review agents`, `ALL reviewers complete`, `Re-run affected`, `specialized reviewer agents`, `Re-run reviewers`, `Step 1: Run the reviewer` / `ignored` markers, per-row `1: composite reviewer` token, `README.md` `reviewer counts`). The md is still rewritten structurally (one reviewer, no count enforcement); only the prose-pinning tests go.
+- F2 file additions: `skills/bytedigger/SKILL.md`, `examples/claude-code-skill/*`, `docs/plugin.md:37` ("3-6 agents") and `README.md:122`.
+- The #128 text fixes (7 vs 9 reviewer count, `$CONSTITUTION_BLOCK` / `$QUALITY_GATE_BLOCK`): not touched; the PR does not mention #128.
+- The semantic-skip glob (§8): not a one-line pure fix, because scanning `role-composite.md` would newly hard-block on skip phrases a legitimate reviewer text may contain (`cosmetic`, `pre-existing`). Follow-up, needs its own slice and a decision.
+- Audit M10 follow-up (PR body only): a deterministic check that the stdout/disk fallback after `role_report_missing` actually produced findings, so zero findings are not read as clean.
+
+**Kept ACs:** AC1 (structural tokens only: `phase_6_reviewers_launched`, `phase_6_reviewers_expected`, `<3|4|6|7>`, `Determine Reviewer Count`, `Launch ALL agents`, `2 Haiku`, `reviews/{agent-name}.md`, `Reviewer counts`), AC2 (role-composite named + guards), AC3, AC4 (`EXACT agents`, `launched != expected`, `Reviewer count mismatch`, `SIMPLE=3`, 6.1 references phase-6 md), AC5 (`3x`/`6x reviewers`, `<3|4|6|7>`, `Review Agent Roster`, `3 for SIMPLE`), AC6, AC7 (case-insensitive), AC8 (legacy keys removed from `docs/plugin.md`, sentence with backticks on one line), AC9, AC10 (git ls-files), AC11, F8 absolute bats status.
+
+### Provenance table (one line per removal)
+
+| Removal | introduced | protected against | why it can go / what it becomes |
+|---|---|---|---|
+| fan-out text in `phases/phase-6-review.md`, `commands/build.md` 6.1, classify/dynamic-context rows (3/6/7 agents, launch in parallel, 2 Haiku fallback) | `640cbc4` ByteDigger v1.0.0 (initial pipeline) | no incident found; original design of the multi-agent panel | the engine stopped fanning out in bd#139 (`f718084`), #198, #209; text is drift (audit M11 "bd#139 drift"); the rule it expressed is now one composite reviewer in code |
+| `phase_6_reviewers_launched` / `phase_6_reviewers_expected` STOP check ("launched != expected -> STOP") | `640cbc4`/`902451c` (initial gate enforcement); `git log -S` finds nothing later | an orchestrator silently running fewer review agents than the tier requires | no provenance found beyond the initial import (no GH issue or incident located); with one reviewer the count is always 1 and the engine's `role_report_missing` event plus findings audit cover a missing reviewer. Becomes: nothing new (engine owns it); M10 follow-up covers the zero-findings fallback |
+| `simple_reviewers` / `feature_reviewers` / `complex_reviewers` keys, `parseReviewerCount`, `*_REVIEWERS` shell vars | `640cbc4`; touched by `ad0cfd2` (polish) | per-tier panel size | no provenance found for any incident; no reader exists anywhere (docs/configuration.md already calls them "declared expectation only"); old configs carrying them keep working (AC9) |
