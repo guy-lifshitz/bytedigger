@@ -99,6 +99,14 @@ _PHASES = ("red", "green")
 _FIELD_KEYS = ("red_tests", "sibling_tests", "paths", "red_pins", "tier")
 _KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
 _ITEM_RE = re.compile(r"^\s*-\s*(.*)$")
+INVENTORY_LINT_TESTS = (
+    "engine_py/tests/test_bd94_engine_owned_paths.py",
+    "engine_py/tests/test_bd150_class_i_inventory.py",
+    "engine_py/tests/test_bd152_output_digest.py",
+    "engine_py/tests/test_bd206_class_m_sites.py",
+    "engine_py/tests/test_bd89_p3c_deterministic_synthesize_report.py",
+    "engine_py/tests/test_bd89_p3b1b_ii_aggregation_helper.py",
+)
 _JS_TEST_SUFFIXES = (".test.ts", ".test.tsx", ".test.js")
 _JS_SYNTAX_SUFFIXES = (".ts", ".tsx", ".js")
 
@@ -557,7 +565,20 @@ class _Run:
         problems: list[str] = []
         notes: list[str] = []
         ran = 0
-        for rel in self.fields["sibling_tests"]:
+        rels = list(self.fields["sibling_tests"])
+        added = 0
+        if any(
+            p.startswith("engine_py/bytedigger_engine/") and p.endswith(".py")
+            for p in self._changed()
+        ):
+            have = {os.path.normpath(r) for r in rels}
+            for lint in INVENTORY_LINT_TESTS:
+                if os.path.normpath(lint) in have or not self.abs(lint).is_file():
+                    continue
+                rels.append(lint)
+                have.add(os.path.normpath(lint))
+                added += 1
+        for rel in rels:
             if not _is_runnable(rel):
                 continue
             ran += 1
@@ -588,7 +609,10 @@ class _Run:
             return "red", "; ".join(problems)
         if ran == 0:
             return "ok", "no siblings"
-        return "ok", "; ".join(notes)
+        detail = "; ".join(notes)
+        if added:
+            detail += f"; inventory-lint: {added} file(s)"
+        return "ok", detail
 
     def step_facts(self) -> tuple[str, str]:
         try:
