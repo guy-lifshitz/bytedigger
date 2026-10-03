@@ -32,12 +32,19 @@ In the r3 stand (`~/ab2208`, 2281) the event logs hold no `prescreen_verdict` ev
 | fix / decorr / synthesizer LLM | yes | n/a |
 | CI-red | no rerun-once rule found in the engine | n/a |
 
+## Principle (Guy 2026-10-03, takes priority)
+
+Bare C0 passes 8/8 at $14.5, so bd must not be slower or dearer in substance: C0 plus cheap checks. Every LLM stage (gate, review, retry) must show it catches what scripts and tests do not; otherwise it moves into a script or is removed. Deterministic checks first, LLM last. This plan adds no LLM call; the classifier rung is optional and off by default.
+
 ## Rollout (one PR each, usual bd process)
 
-1. Pre-GREEN gate: replace the shadow-only block with a ladder that runs `preflight.verify_receipt` first (script, $0), then the optional classifier, then the gate. Highest cost: the gate is the most expensive per-call Opus step. Confirm against the r3 stage breakdown in doc-PR #2208 before freezing the order.
-2. Spec/plan-review gate: same ladder, using `spec_cite`/`tier_gate` findings as the script rung.
-3. Review and satisfaction gates: script rung from `baseline_delta_gate`/`sibling_coupling`; classifier rung optional.
+0. Evidence per LLM stage, from existing logs only (`reject_log.py`, `reject_stats.py`, event logs; no new runs): for each gate and review, how many of its rejects/findings a script or the test suite would have caught anyway. Output: a table that decides, per stage, keep / move to script / remove.
+1. Pre-GREEN gate: run `preflight.verify_receipt` first (script, $0). Where step 0 shows the gate adds nothing over preflight, skip the gate when the receipt is fresh and green. The optional classifier sits between, shadow only until recall is measured.
+2. Spec/plan-review: same, with `spec_cite`/`tier_gate` findings as the script rung.
+3. Review and satisfaction gates, and retries: script rung from `baseline_delta_gate`/`sibling_coupling`; stages that step 0 shows redundant are dropped.
 4. CI-red rerun-once: rerun the same head once; green means flake.
 5. Integrity / fix-integrity gates.
 
-Rules for every step: classifier optional (no key or unreachable means the rung is skipped, never an error), provider-agnostic (command in config, works on subscription and API), only the gate approves, shadow first with a measured recall before enforce.
+Order is provisional until step 0 and the r3 stage breakdown (doc-PR #2208) are in.
+
+Rules for every step: classifier optional (no key or unreachable skips the rung, no failure), provider-agnostic (subscription and API), only a gate approves, shadow before enforce.
