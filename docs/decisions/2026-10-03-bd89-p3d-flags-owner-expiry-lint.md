@@ -82,3 +82,18 @@ The RED author greps `engine_py/tests` and `tests` for: `HAL_ORPHAN_CALLSITE_ENF
 ## §6 Verify scope (§1r)
 
 `python3 -m pytest tests/test_bd89_p3d_flag_expiry_lint.py -q` · the §5.3 engine files from `engine_py/` · `python3 scripts/flag_expiry_lint.py --today 2026-10-03` · `python3 -m compileall -q scripts engine_py/bytedigger_engine/flags_catalog.py` · `python3 cyrillic-prose-lint.py` · `python3 -m bytedigger_engine.error_codes --check` (unchanged).
+
+## §7 Errata r2 (gate r1 REJECTED on F1; fixes below, re-gate as r2)
+
+The RED file runs on every CI push (op4), so it must not pin migration-time snapshots that break on a documented lifecycle action (renewal, new flag).
+
+- **F1a.** AC2 pins the per-name `default` table only. No "stray `*_ENFORCE`" check: a new flag must not break the test.
+- **F1b.** AC3 asserts `ROLLOUT_NAMES <= rollout` (superset), plus owner / ISO `expires` / floor checks for every rollout entry. The floor is 2026-10-03.
+- **F1c.** AC6 runs on a synthetic catalog with one rollout entry `expires: "2026-11-02"`: `--today 2026-11-02` exits 0, `--today 2026-11-03` exits 1 with a line starting with the entry name. The live catalog is checked only date-independently: `--today 2999-01-01` exits 1.
+- **F1d (Option 1).** AC4 relaxes exact dates to `expires >= "2026-11-02"` for the renewed set and `>= "2027-01-15"` for `HAL_AC_DSL_GATE_ENFORCE` / `HAL_SPEC_DEFECT_REROUTE`. The orchestrator checks the exact values by diff at GREEN.
+- **F2.** AC2 pins 19 names: the 18 rollout entries plus `HAL_ORPHAN_CALLSITE_GATE`. AC3 floor is 2026-10-03.
+- **F3.** AC11 adds: a catalog without `FLAGS`, one with `FLAGS = []`, one that raises at import. Each exits 2 with one line and no `Traceback`. (`FLAGS = []` is not a dict: exit 2.)
+- **F4.** op3 `lint()` reports any non-dict entry whose name is in `_EXTRA_ROLLOUT` or ends with `_ENFORCE`. AC9's synthetic catalog adds `HAL_SIBLING_AUDIT_GATE: None`.
+- **A1.** GREEN verify: `git diff` of `flags_catalog.py` shows exactly one removed entry and, on the rollout entries, only added `owner` / `expires` lines.
+- **A2.** CONTRIBUTING states that `expires` is compared to the CI runner's UTC date and an entry is valid through the `expires` day.
+- **A3.** `HAL_ORPHAN_CALLSITE_GATE` and a possibly effect-free `HAL_CORPUS_PARITY_ENFORCE` go to PR-body Follow-ups.
