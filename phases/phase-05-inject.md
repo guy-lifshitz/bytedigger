@@ -27,15 +27,24 @@ Get file list via git diff (available before build-spec exists):
 FILES=$(git diff --name-only main...HEAD 2>/dev/null || git diff --name-only HEAD 2>/dev/null || echo "")
 ```
 
-If no git diff available (fresh repo, no commits), scan all tracked files:
+If there is no diff, do NOT fall back to scanning all tracked files: the whole repo
+nearly always matches some security keyword. The scan classifies the task text
+(`--task`) plus the diff files when there are any. Phase 4.5 re-runs it on the
+spec's file list.
+
+Legacy kill switch: only when `BD_SECURITY_SCAN_LEGACY=1` is set (old substring
+patterns, `--task` ignored), the old fallback applies:
 ```
+# BD_SECURITY_SCAN_LEGACY=1 only
 FILES=${FILES:-$(git ls-files 2>/dev/null || echo "")}
 ```
 
 Run security scan in background:
 ```
+TASK=$(sed -n 's/^task: *//p' build-state.yaml | head -1 | sed 's/^"//; s/"$//')
 bash scripts/security-scan.sh \
   --cwd "$(pwd)" \
+  --task "$TASK" \
   --files "$(echo "$FILES" | tr '\n' ',')" \
   --state-file ./build-state.yaml
 ```
@@ -43,6 +52,7 @@ bash scripts/security-scan.sh \
 Results written to build-state.yaml:
 - `security_classification: HIGH|MEDIUM|LOW`
 - `security_patterns_found: [categories]`
+- `security_triggers: [AUTH=src/a.ts:3, SECRETS=task]` (first trigger per category)
 
 **HIGH** classification triggers:
 - Security review emphasis in the Phase 4.5 spec
