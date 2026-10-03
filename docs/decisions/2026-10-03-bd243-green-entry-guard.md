@@ -1,6 +1,6 @@
 # bd#243 — GREEN cannot start without an approving gate verdict on the current spec revision
 
-**Status: r2 DRAFT (gate r1 REJECTED: 4 blocking + 8 advisory, folded below; see `2026-10-03-bd243-green-entry-guard-gate-r1.md`)** · **Tier:** 2 (engine prod `.py`: one new module + one call site; Option D: RED, Opus gate, GREEN) ·
+**Status: r3 DRAFT (gate r1 and r2 REJECTED; findings folded; see `...-gate-r1.md`, `...-gate-r2.md`)** · **Tier:** 2 (engine prod `.py`: one new module + one call site; Option D: RED, Opus gate, GREEN) ·
 **Class:** process-order enforcement (SYSTEMATIC) ·
 **Chokepoint:** the pre-commit enforcement layer (`precommit_enforce.main`), the one place every
 commit of a lot passes through, before a non-test source file can enter history.
@@ -25,7 +25,7 @@ implementation written with no verdict on v3).
 
 ## 2. Design
 
-New module (stdlib plus `bytedigger_engine.verdict_verify` for the anchor regexes; no third-party imports) `engine_py/bytedigger_engine/green_entry_guard.py`, public
+New module (stdlib plus `bytedigger_engine.verdict_verify` for the anchor regexes and `bytedigger_engine.precommit_lints` for the test-file predicates; no third-party imports) `engine_py/bytedigger_engine/green_entry_guard.py`, public
 `check(root: str, staged: list[str], env: Mapping[str, str]) -> list[str]` returning refusal lines
 (empty = allowed). It makes no model call. `precommit_enforce.main` calls it once, after the
 registry pre-pass and `repo_root()`, before `nothing_to_lint`; non-empty result -> print lines, return 1.
@@ -39,9 +39,12 @@ return, so a commit staging only binary/unclassified source still reaches it.
   (`precommit_lints.is_test_file` / `is_ts_test_file`), not under a `docs/`, `tests/` or
   `__tests__/` directory at any depth, not `*.md`;
 - (b) a base ref resolves: `origin/main` if `git rev-parse --verify` accepts it, else `main`, else
-  none -> `[]`. A `git merge-base HEAD <base>` failure -> `[]` (no lot context, e.g. unrelated
-  histories). HEAD equal to the base tip (committing on the base branch itself) yields no added
-  spec, hence `[]`;
+  none -> `[]`. The `rev-parse --verify` probes are base lookups, not "git failures" (2.3). Once a
+  base resolves, a `git merge-base HEAD <base>` failure (e.g. an orphan branch, unrelated
+  histories) is fail closed: `E_GREEN_GATE_UNREADABLE`. There is no special case for HEAD equal to
+  the base tip: the added-spec list is computed as usual (on the base branch itself it is empty, so
+  `[]`; a first commit on a new lot branch that stages spec and source together lists the spec as
+  added, so it is checked and, having no gate doc, refused with MISSING);
 - (c) at least one **lot spec** exists.
 
 **Lot spec** = a path `docs/decisions/<name>.md` reported as status `A` by
@@ -58,11 +61,15 @@ For each lot spec `S` (stem `<stem>`), in order:
 1. Escalation marker: file `docs/decisions/<stem>-escalation.md` exists and contains a line
    matching `^ESCALATION:[ \t]*\S` (single-line match, no cross-line whitespace) -> `S` passes (reason recorded in the bypass log, 2.6).
 2. Gate docs = the UNION of files matching exactly `docs/decisions/<stem>-gate-r<N>.md` and
-   `docs/decisions/<key>-gate-r<N>.md`, where `<key>` is the first four dash-separated segments of
-   `<stem>` (`2026-10-03-bd243-green-entry-guard` -> `2026-10-03-bd243`; the corpus names most gate
-   docs `<date>-bdN-gate-rN.md`). `N` is a positive integer; the newest is the highest `N` across
+   `docs/decisions/<prefix>-gate-r<N>.md` for EVERY dash-separated prefix `<prefix>` of `<stem>` that
+   has at least four segments (`2026-10-03-bd218-s1-preflight-rung` -> prefixes
+   `2026-10-03-bd218-s1-preflight`, `2026-10-03-bd218-s1`, `2026-10-03-bd218`; the corpus names gate
+   docs `<date>-bdN-gate-rN.md` and `<date>-bdN-sK-gate-rN.md`). `N` is a positive integer; the newest is the highest `N` across
    the union (numeric, not lexical: r10 > r9; on equal `N` the stem form wins). None -> refusal
-   `E_GREEN_GATE_MISSING`. A stem of fewer than four segments uses the stem form only.
+   `E_GREEN_GATE_MISSING`. A stem of fewer than four segments uses the stem form only. A revision that is not a plain positive
+   integer (e.g. `r3.1`) is not a gate doc. Only the FIRST verdict-anchor block of a gate doc is read.
+   When the refusal is MISSING/STALE/REJECTED because a base ref is `origin/main`, the line's detail
+   ends with `(base=origin/main; run git fetch if stale)`.
 3. Verdict of the newest gate doc = the LAST line matching `^VERDICT:\s*(APPROVED?|REJECT(ED)?)\s*$`
    (case-insensitive, CRLF tolerated). No such line -> `E_GREEN_GATE_UNREADABLE` (fail closed).
    `REJECT*` -> `E_GREEN_GATE_REJECTED`.
@@ -78,20 +85,24 @@ failing spec; every failing spec is reported (no early exit).
 ### 2.3 Fail-closed rules
 
 Unreadable spec/gate file, `git` failure while listing, or any exception inside the guard after (a)
-is true -> `E_GREEN_GATE_UNREADABLE` refusal (never silent allow). Unreadable means: a spec or gate file that cannot be read, a non-zero `git` exit while listing or
-resolving after (a) is true (except the merge-base failure of 2.1(b)), or any exception.
+is true -> `E_GREEN_GATE_UNREADABLE` refusal (never silent allow). Unreadable means: a spec, gate or escalation file that cannot be read (all read from disk), a
+non-zero `git` exit from the listing calls (`diff --cached --name-status`, `merge-base`,
+`ls-files`) once a base has resolved and (a) is true (e.g. a corrupt index), or any exception.
 The spec hash is computed from the file on disk, and so are gate docs; the lot-spec list comes
 from the index. The only silent allows are the non-application cases in 2.1.
 
 ### 2.4 Error codes
 
 `E_GREEN_GATE_MISSING`, `E_GREEN_GATE_REJECTED`, `E_GREEN_GATE_STALE`, `E_GREEN_GATE_UNREADABLE`,
-`E_GREEN_GATE_BYPASS_NO_REASON`: each added to `error_codes.py` and both `ERROR_CODES.md` copies
-(`engine_py/ERROR_CODES.md`, `engine_py/bytedigger_engine/ERROR_CODES.md`), in the existing format.
+`E_GREEN_GATE_BYPASS_NO_REASON`: each added to `error_codes.py` (dict entry) and BOTH `ERROR_CODES.md` copies
+(`engine_py/ERROR_CODES.md`, `engine_py/bytedigger_engine/ERROR_CODES.md`), the latter two
+regenerated byte-identically with `python -m bytedigger_engine.error_codes --markdown` (five existing
+tests compare them to `render_markdown()`). Each code must also appear as a quoted string literal in
+`green_entry_guard.py` (the dead-code checks `test_gh1591` AC13 and `test_bd166` AC25).
 
 ### 2.5 Kill switch
 
-`HAL_GREEN_GATE_GUARD=0` skips the guard only when `HAL_GREEN_GATE_BYPASS_REASON` is non-blank; with
+`HAL_GREEN_GATE_GUARD` equal to exactly the string `0` skips the guard (any other value, e.g. `false`, `00`, ` 0`, leaves the guard on) only when `HAL_GREEN_GATE_BYPASS_REASON` is non-blank; with
 a blank/missing reason the guard refuses with `E_GREEN_GATE_BYPASS_NO_REASON` (it does not run the
 checks either). Both vars are added to `flags_catalog.py`; `HAL_GREEN_GATE_GUARD` has `kind` `gate` (so the owner lint covers it) and carries `owner` and
 `provenance: "introduced: bd#243 ..."`. The switch is evaluated first (2.1 step 0): with it on and a
@@ -102,9 +113,9 @@ Reverting the lot removes the check entirely.
 ### 2.6 Bypass log
 
 Every escalation-marker pass and every kill-switch skip appends ONE JSON line
-`{"ts": <iso utc>, "kind": "escalation"|"kill_switch", "spec": <S or null>, "reason": <text>}` to
+`{"ts": <iso utc>, "kind": "escalation"|"kill_switch"|"gate_exempt", "spec": <S or null>, "reason": <text>}` to
 `<git-common-dir>/bytedigger/bypass.log` (directory created on demand; untracked). A failure to
-write the log refuses with `E_GREEN_GATE_UNREADABLE` (a bypass that cannot be recorded is not allowed).
+write the log (for any of the three kinds) refuses with `E_GREEN_GATE_UNREADABLE` (a bypass that cannot be recorded is not allowed).
 
 ## 3. Acceptance criteria
 
@@ -135,12 +146,11 @@ write the log refuses with `E_GREEN_GATE_UNREADABLE` (a bypass that cannot be re
   testing the real layer. `precommit_enforce` imports the guard at module level; the import is NOT
   wrapped (fail closed).
 - `conformance/tree_scan_inventory.json`: new keys for each tree-scan call site in the guard
-  (class `not-a-gate` is wrong for a gate input, so the guard avoids glob/listdir/walk entirely:
-  gate docs are listed with `git ls-files` + `git diff --cached --name-only`, and that call site is
-  registered with class `filters` only if the lint demands it; the implementer runs
-  `test_bd94_engine_owned_paths.py::test_ac6_real_tree_passes_tree_scan_lint` and registers exactly
-  what it reports, class `not-a-gate` with a note citing this section where the class definition
-  allows it).
+  (class `not-a-gate`, the only class the lint accepts for these call sites, with a note citing this
+  section; `head_registry_tampered` is the precedent for a gate input classed so). The guard uses
+  no glob/listdir/walk: gate docs are listed by `git ls-files` and `git diff --cached --name-only`.
+  The implementer runs `test_bd94_engine_owned_paths.py::test_ac6_real_tree_passes_tree_scan_lint`
+  and registers exactly the sites it reports.
 
 ## 3b. Added acceptance criteria (gate r1 blocker 3 and advisories)
 
@@ -159,6 +169,14 @@ write the log refuses with `E_GREEN_GATE_UNREADABLE` (a bypass that cannot be re
 | AC28 | only binary/unclassified source staged (`nothing_to_lint` true) on a REJECTED lot, via the real hook | refused |
 | AC29 | `ESCALATION:` line followed by text only on the NEXT line | not a marker |
 | AC30 | bd66 sibling suite `test_bd66_precommit_enforcement.py` and `test_bd94_engine_owned_paths.py` | stay green |
+
+| AC31 | corrupt `<git-dir>/index` (garbage bytes) after a base resolves, source staged by a prior add | one `E_GREEN_GATE_UNREADABLE` line |
+| AC32 | orphan lot branch (unrelated history) while `main` exists | `E_GREEN_GATE_UNREADABLE` |
+| AC33 | sub-lot naming: spec `<date>-bd218-s1-preflight-rung.md`, gate `<date>-bd218-s1-gate-r1.md` APPROVED+anchor -> `[]`; REJECTED -> refused; gate `<date>-bd218-s2-gate-r1.md` (sibling sub-lot) never binds |
+| AC34 | gate doc `<stem>-gate-r3.1.md` APPROVED next to REJECTED `r2` | `r3.1` ignored -> REJECTED |
+| AC35 | `HAL_GREEN_GATE_GUARD` set to `false`, `00`, ` 0` on a REJECTED lot | guard stays on -> REJECTED |
+| AC36 | a gate doc with two anchor blocks, first for a stale hash, second matching | STALE (first block only) |
+| AC37 | first commit on a new lot branch staging spec and source together | MISSING (spec is added, no gate doc) |
 
 ## 4. Out of scope
 
