@@ -104,6 +104,11 @@
 - `E_GREEN_COMMIT_EMPTY` — phase_5_implement: GREEN commit landed with no in-scope change since red_commit_sha
 - `E_GREEN_COMMIT_FAILED` — phase_5_implement: git commit of GREEN code failed
 - `E_GREEN_CWD_GONE` — phase_5_implement: GREEN subprocess working directory disappeared mid-run
+- `E_GREEN_GATE_BYPASS_NO_REASON` — green_entry_guard: HAL_GREEN_GATE_GUARD=0 was set without a non-blank HAL_GREEN_GATE_BYPASS_REASON (bd#243)
+- `E_GREEN_GATE_MISSING` — green_entry_guard: a lot spec added on this branch has no gate doc docs/decisions/<stem>-gate-rN.md (bd#243)
+- `E_GREEN_GATE_REJECTED` — green_entry_guard: the newest gate doc of a lot spec carries a REJECT verdict (bd#243)
+- `E_GREEN_GATE_STALE` — green_entry_guard: the newest gate doc approves, but its verdict-anchor is missing or does not match the current spec sha256 (bd#243)
+- `E_GREEN_GATE_UNREADABLE` — green_entry_guard: a spec, gate or escalation file, a git listing, or the bypass log could not be read or written; fail closed (bd#243)
 - `E_GREEN_LINT_BAD_JSON` — phase_5_implement: GREEN lint tool emitted malformed JSON output
 - `E_GREEN_LINT_FAIL_CAP2` — phase_5_implement: GREEN lint retry cap exhausted, still failing
 - `E_GREEN_LINT_PATH_ESCAPE` — phase_5_implement: GREEN lint target path escaped the allowed scope

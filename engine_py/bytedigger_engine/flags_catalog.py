@@ -366,6 +366,20 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#165 - sibling-coupling (section 1a) warn pass - stays as a default-ON warn-only kill-switch",
     },
+    "HAL_GREEN_GATE_GUARD": {
+        "kind": "gate",
+        "default": "1",
+        "module": "green_entry_guard.py",
+        "description": "Default-ON gate: the pre-commit GREEN-entry guard refuses a source commit when a lot spec added on the branch has no approving gate verdict bound to its current sha256 (bd#243). =0 skips it, only with a non-blank HAL_GREEN_GATE_BYPASS_REASON; the skip is logged.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#243 - GREEN-entry gate-verdict guard - stays as a default-ON hard block (=0 plus a reason is the logged escape)",
+    },
+    "HAL_GREEN_GATE_BYPASS_REASON": {
+        "kind": "str",
+        "default": None,
+        "module": "green_entry_guard.py",
+        "description": "bd#243: non-blank reason required with HAL_GREEN_GATE_GUARD=0; recorded in the bypass log. Blank or missing makes the guard refuse with E_GREEN_GATE_BYPASS_NO_REASON.",
+    },
     "HAL_DIRTY_TREE_GUARD": {
         "kind": "gate",
         "default": "1",

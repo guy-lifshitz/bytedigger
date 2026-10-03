@@ -421,6 +421,10 @@ def _materialize_package_copy(clone: Path) -> Path:
     (pkg / "__init__.py").write_text("")
     shutil.copy2(PACKAGE_DIR / "precommit_lints.py", pkg / "precommit_lints.py")
     shutil.copy2(ENFORCE_MODULE, pkg / "precommit_enforce.py")
+    # bd#243: precommit_enforce imports the GREEN-entry guard (unwrapped), and the
+    # guard imports verdict_verify for the anchor regexes.
+    shutil.copy2(PACKAGE_DIR / "green_entry_guard.py", pkg / "green_entry_guard.py")
+    shutil.copy2(PACKAGE_DIR / "verdict_verify.py", pkg / "verdict_verify.py")
     # The executable entry point lives OUTSIDE the package (bd#44 AC7/AC11
     # forbid the package from path-hacking), so the copy must carry it too.
     scripts = clone / "scripts"
