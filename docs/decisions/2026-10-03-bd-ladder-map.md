@@ -54,3 +54,9 @@ Step 0 outputs this line per stage. So far: nothing removed or simplified by thi
 Fix per the audit first, measure after. Order is provisional until step 0 and the r3 stage breakdown (doc-PR #2208) are in.
 
 Rules for every step: classifier optional (no key or unreachable skips the rung, no failure), provider-agnostic (subscription and API), only a gate approves, shadow before enforce.
+
+## Status (2026-10-03, bd-s6)
+
+- **Step 2 (spec/plan-review rung): covered, no PR.** Before the plan-review LLM (`invoke_review_llm`, `phase_45_spec.py:5008`) the workflow already runs 13 script steps, `verify_spec_completeness` .. `verify_spec_reality` (`phase_45_spec.py:4994-5006`), among them `verify_spec_coverage` (`_verify_spec_coverage`, `phase_45_spec.py:2952`, step at `:5003`, recoverable `E_SPEC_COVERAGE`). `tier_gate` is HAL-path-bound (`ENGINE_PY_MARKER`) and MICRO-only; the phase has no tier, so a `tier_gate` rung has nothing to read in bd. The "not run as one pre-step" row above is stale for the spec gate.
+- **Step 4 (CI-red rerun-once): deferred, decision MGR 2026-10-03.** Enforce behaviour that masks flakes; not taken.
+- **Step 5 (integrity gate): in progress as s5**, choice A: the engine writes a phase-green receipt (syntax/stub/facts) before the integrity gate and records the rung; shadow, add-only, 0 LLM, owner bd-ladder, expires 2026-10-17. Spec `2026-10-03-bd218-s5-green-receipt.md`.
