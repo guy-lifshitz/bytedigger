@@ -1,5 +1,4 @@
 {
-  "HAL_ORPHAN_CALLSITE_ENFORCE": {"until": "2026-11-03", "ref": "hal#564", "reason": "catalog-only entry: the reader (orphan-callsite-lint.py) lives in the host repo, bd has no consumer; decide host adoption; no removal before the lot-assume audit"},
   "HAL_SPEC_PREFLIGHT_BATCH": {"until": "2026-11-03", "ref": "hal#747", "reason": "opt-in batching of spec lints, not an enforce flag; spec-text lints are out of the 2026-10-03 lot; decide separately"},
   "HAL_SPEC_REENTRY_ENFORCE": {"until": "2026-11-03", "ref": "hal#823", "reason": "spec-text lint: dropped from the enforce lot 2026-10-03 (wording/format checks are not a cheap check); no removal before the lot-assume audit (keep / to-script / drop verdict with provenance)"},
   "HAL_SPEC_HELPER_EXTRACTION_ENFORCE": {"until": "2026-11-03", "ref": "hal#863", "reason": "spec-text lint: dropped from the enforce lot 2026-10-03; no removal before the lot-assume audit (keep / to-script / drop verdict with provenance)"},

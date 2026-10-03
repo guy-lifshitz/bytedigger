@@ -244,6 +244,12 @@ jobs:
       - name: version parity pointer-pin unit tests (bd#11)
         run: python -m pytest tests/test_version_parity_pin.py -q
 
+      - name: flag owner + provenance lint (bd#89 P3d)
+        run: python3 scripts/flag_owner_lint.py
+
+      - name: flag owner lint unit tests (bd#89 P3d)
+        run: python -m pytest tests/test_bd89_p3d_flag_owner_lint.py -q
+
       - name: ci main-heartbeat unit tests (bd#12 re-wedge fence)
         run: python -m pytest tests/test_ci_main_heartbeat.py -q
 

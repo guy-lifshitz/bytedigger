@@ -37,6 +37,21 @@ Every PR runs four jobs, and all must pass:
 
 The "imports clean without dbos" check matters most: the core is meant to run on a bare Python install, and CI is what keeps it that way. If your change needs a new dependency, put it behind an optional extra and bring it up in the PR.
 
+## Flag lifecycle
+
+Every rollout flag in `engine_py/bytedigger_engine/flags_catalog.py` (a `flag` or `gate` entry
+named `*_ENFORCE`, one whose description carries a `flip-by:`, `retire-by:` or `kill-by:` token,
+or one that already has `owner` or `provenance`; plus `HAL_SIBLING_AUDIT_GATE`) must carry both:
+
+- `owner`: a non-blank string naming who decides the flag's fate.
+- `provenance`: a string that starts with `introduced:` followed by non-blank text, in the shape
+  `introduced: <issue> - what it protected against - why it stays`. If no issue can be found,
+  write `introduced: no provenance found in this repo`.
+
+`python3 scripts/flag_owner_lint.py` checks this and runs in the `manifests` CI job. Expiry is not
+this lint's job: `scripts/flip_horizon.py` and its ledger (`scripts/flip_horizon_ledger.json`) own
+every dated flip, kill and retire deadline.
+
 ## Releasing
 
 The version lives in one place: `engine_py/pyproject.toml` `[project].version`. Everything else
