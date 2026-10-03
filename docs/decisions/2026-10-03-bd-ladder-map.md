@@ -45,6 +45,12 @@ Bare C0 passes 8/8 at $14.5, so bd must not be slower or dearer in substance: C0
 4. CI-red rerun-once: rerun the same head once; green means flake.
 5. Integrity / fix-integrity gates.
 
+## Provenance rule (Guy 2026-10-03)
+
+Before removing or simplifying any layer, gate, check or flag, find why it was introduced (git log -S/blame, GH issue, continuity agreement, learning, incident). Each PR carries one line: `introduced: <link> -- what it guarded -- why it can go now / what it becomes (script)`. A layer that guarded against a real incident is not deleted; it is converted into a cheap check. No provenance found: say so in the line.
+
+Step 0 outputs this line per stage. So far: nothing removed or simplified by this lot. The validation gate was ported from HAL (`never_skip_opus_validation_gate`, HAL `workflows.md` step 3); bd git history shows it only from the engine extraction (da4d41e, 2026-07-16), so incident provenance for it is still to be found in the HAL post-mortems before step 1 may skip it.
+
 Order is provisional until step 0 and the r3 stage breakdown (doc-PR #2208) are in.
 
 Rules for every step: classifier optional (no key or unreachable skips the rung, no failure), provider-agnostic (subscription and API), only a gate approves, shadow before enforce.
