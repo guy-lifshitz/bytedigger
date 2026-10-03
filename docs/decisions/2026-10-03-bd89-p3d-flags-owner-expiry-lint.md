@@ -97,3 +97,14 @@ The RED file runs on every CI push (op4), so it must not pin migration-time snap
 - **A1.** GREEN verify: `git diff` of `flags_catalog.py` shows exactly one removed entry and, on the rollout entries, only added `owner` / `expires` lines.
 - **A2.** CONTRIBUTING states that `expires` is compared to the CI runner's UTC date and an entry is valid through the `expires` day.
 - **A3.** `HAL_ORPHAN_CALLSITE_GATE` and a possibly effect-free `HAL_CORPUS_PARITY_ENFORCE` go to PR-body Follow-ups.
+
+## §8 Errata r3 (MGR/Guy 2026-10-03: removal stop until the lot-assume audit; provenance rule). Supersedes op1, AC1, and the "Removed" wording
+
+- **No removal in this PR.** `HAL_ORPHAN_CALLSITE_ENFORCE` STAYS in `FLAGS`. op1 is void. It gets `owner`, `expires` (`2026-11-02`) and a provenance note that says "no reader in this repo, removal pending lot-assume audit". The lint must pass with it present. Nothing in the PR removes a flag, an enforce branch or a gate. The removal is a PR-body Follow-up.
+- **AC1 (replaced).** `HAL_ORPHAN_CALLSITE_ENFORCE` IS in `FLAGS`, in the rollout set, with owner and expires, and its `provenance` contains `removal pending lot-assume audit`. The catalog has exactly the 110 entries of base `1e391ed` (no entry removed).
+- **AC2.** The default table now pins 20 names: the 19 rollout entries (18 plus the orphan flag, `HAL_ORPHAN_CALLSITE_ENFORCE` default `"0"`) plus `HAL_ORPHAN_CALLSITE_GATE`. `ROLLOUT_NAMES` includes the orphan flag; AC4's renewed set includes it.
+- **Provenance field.** Every rollout entry carries `"provenance": "<one line>"`: `introduced: <issue/PR> - what it protected against - why it stays / what it becomes`. The lint requires a non-blank str `provenance` for rollout entries (violation by flag name, same degrade rules as owner/expires). AC7/AC9 cover a missing or non-str `provenance`; AC3 asserts presence for every live rollout entry.
+- **Provenance of the orphan flag (measured).** Introduced in HAL commit 3ddf98a15 `feat(564): orphan-callsite-lint`, PR #578 (GH564): a deterministic gate for "script without call-site", warn-only, flip-by 2026-08-07. The reader lives in the HAL repo (`SYSTEM/cli/build/orphan-callsite-lint.py:189`, `=1` makes orphans exit 1); this repo only mirrors the catalog entry, and no code here reads it. It is not deleted: the check exists elsewhere, so removal here waits for the audit.
+- **Other provenance lines.** The RED/GREEN authors derive each line from the entry's own description (GH/issue numbers, flip-by text). Where the description names no issue, the line says `introduced: no provenance found in this repo`.
+- **op5 / AC14.** CHANGELOG has an Added bullet only (no Removed bullet); it names `flag_expiry_lint`. The doc may still mention the orphan flag as the follow-up.
+- **A1 (GREEN diff).** `git diff` of `flags_catalog.py` shows zero removed entries; on rollout entries only added `owner`, `expires`, `provenance` lines.
