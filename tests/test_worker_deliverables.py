@@ -33,12 +33,6 @@ GATE = REPO_ROOT / "scripts" / "build-gate.sh"
 STORE = REPO_ROOT / "scripts" / "learning-store.sh"
 SCHEMA = REPO_ROOT / "tests" / "fixtures" / "learning-schema.sql"
 
-OLD_TOOLS = {
-    "Glob", "Grep", "LS", "Read", "NotebookRead", "WebFetch",
-    "TodoWrite", "WebSearch", "KillShell", "BashOutput",
-}
-
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -47,136 +41,22 @@ def _read(rel: str) -> str:
     return (REPO_ROOT / rel).read_text(encoding="utf-8")
 
 
-def _tools(rel: str) -> set[str]:
-    text = _read(rel)
-    m = re.search(r"^---\n(.*?)\n---", text, re.S)
-    assert m, f"{rel}: no frontmatter"
-    for line in m.group(1).splitlines():
-        if line.startswith("tools:"):
-            return {t.strip() for t in line[len("tools:"):].split(",") if t.strip()}
-    raise AssertionError(f"{rel}: no tools: line in frontmatter")
-
-
-def _strip_fences(text: str) -> str:
-    # M7: drop fenced code blocks so an example containing "## New Learnings"
-    # cannot truncate the "## Deliverable" section.
-    return re.sub(r"^```.*?^```[^\n]*\n?", "", text, flags=re.S | re.M)
-
-
-def _deliverable_section(rel: str) -> str:
-    text = _strip_fences(_read(rel))
-    m = re.search(r"^## Deliverable[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
-    assert m, f"{rel}: no '## Deliverable' section"
-    return m.group(1)
-
-
 def _clean_env(home: Path, **extra: str) -> dict[str, str]:
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home)}
     env.update(extra)
     return env
 
 
-# ---------------------------------------------------------------------------
-# AC1 -- tools: old set + Write, nothing else
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("agent", ["synthesizer"])
-def test_ac1_tools_are_old_set_plus_write(agent):
-    assert _tools(f"agents/{agent}.md") == OLD_TOOLS | {"Write"}
-
-
-# ---------------------------------------------------------------------------
-# AC2 -- agent body has a ## Deliverable section
-# ---------------------------------------------------------------------------
-
-AGENT_PATHS = {
-    "synthesizer": "{scratchpad_dir}/reviews/learnings-raw.md",
-}
-
-
-@pytest.mark.parametrize("agent", ["synthesizer"])
-def test_ac2_agent_deliverable_section_names_single_path(agent):
-    sec = _deliverable_section(f"agents/{agent}.md")
-    assert AGENT_PATHS[agent] in sec
-
-
-@pytest.mark.parametrize("agent", ["synthesizer"])
-def test_ac2_agent_deliverable_write_is_for_that_one_path_only(agent):
-    sec = _deliverable_section(f"agents/{agent}.md")
-    assert re.search(r"\bWrite\b", sec)
-    assert re.search(r"\b(only|never|solely|no other)\b", sec, re.I)
-    # M8: both words required ("no source or test files"), not just "other".
-    assert re.search(r"\bsource\b", sec, re.I)
-    assert re.search(r"\btest\b", sec, re.I)
-
-
-@pytest.mark.parametrize("agent", ["synthesizer"])
-def test_ac2_agent_deliverable_names_build_state_yaml_as_forbidden(agent):
-    # M8/R8: agents now hold Write; build-state.yaml must be named as off-limits.
-    sec = _deliverable_section(f"agents/{agent}.md")
-    assert "build-state.yaml" in sec
-    assert re.search(r"(never|not|no)\b[^.\n]{0,120}build-state\.yaml"
-                     r"|build-state\.yaml[^.\n]{0,80}(forbidden|off-limits|never|not)",
-                     sec, re.I)
-
-
-# architect-agent cases retired by bd#89 P2a (agents/architect.md deleted).
-
-
-@pytest.mark.parametrize("agent", ["synthesizer"])
-def test_ac2_agent_deliverable_final_reply_is_summary_plus_path(agent):
-    sec = _deliverable_section(f"agents/{agent}.md")
-    assert re.search(r"summary", sec, re.I)
-    assert re.search(r"\bpath\b", sec, re.I)
-    assert re.search(r"\b(not|never|instead|rather than)\b", sec, re.I)
-
-
-def test_ac2_synthesizer_uses_scratchpad_dir_placeholder():
-    text = _read("agents/synthesizer.md")
-    assert "{scratchpad_dir}/reviews/learnings-raw.md" in text
-    assert "{scratchpad}" not in text
+# AC1 / AC2 (agents/synthesizer.md frontmatter and ## Deliverable section) and the
+# AC3 phase-7 step-1 contract are retired by bd#89 P3c: the synthesizer agent and the
+# md step that launched it are deleted (the engine derives learnings-raw.md itself).
 
 
 # ---------------------------------------------------------------------------
 # AC3 -- phase prompts
 # ---------------------------------------------------------------------------
 
-_NON_EMPTY = r"non-?empty|not empty|zero-byte|size\s*>\s*0"
-_NOT_ON_BEHALF = (
-    r"(?:not|never|n't)[^.\n]{0,80}behalf"
-    r"|behalf[^.\n]{0,40}(?:not|never)"
-    r"|(?:not|never)[^.\n]{0,60}\bwrit\w*[^.\n]{0,40}\bfor (?:the|that) "
-    r"(?:agent|architect|explorer|synthesizer)"
-)
-# F3: only explicit re-prompt/respawn wording. "spawn fresh" and "send message" already
-# appear in phase-2/phase-4 on main for unrelated reasons (vacuous), so they are excluded.
-_REPROMPT = r"re-?prompt|re-?spawn"
-
-
-def _assert_orchestrator_verifies(text: str):
-    assert re.search(_NON_EMPTY, text, re.I), "no non-empty-on-disk verification"
-    assert re.search(_REPROMPT, text, re.I), "no re-prompt/respawn on a miss"
-    assert re.search(_NOT_ON_BEHALF, text, re.I), "no 'orchestrator does not write it for the agent'"
-
-
-def _slice(text: str, start_re: str, end_re: str) -> str:
-    m = re.search(start_re + r"(.*?)(?=" + end_re + r"|\Z)", text, re.S | re.M)
-    assert m, f"section not found: {start_re}"
-    return m.group(1)
-
-
 # phase-2 / phase-4 contract cases retired by bd#89 P2a (phase files deleted).
-
-
-def test_ac3_phase7_step1_contract():
-    text = _read("phases/phase-7-synthesize.md")
-    step1 = _slice(text, r"^1\. Launch", r"^\*\*Orchestrator flow")
-    assert "reviews/learnings-raw.md" in step1
-    assert re.search(r"itself", step1, re.I)
-    assert re.search(r"summary", step1, re.I) and re.search(r"\bpath\b", step1, re.I)
-    # R3: verification wording lives in step 1 .. before step 4 (slice), not anywhere in the file.
-    verify_slice = _slice(text, r"^1\. Launch", r"^4\. ")
-    _assert_orchestrator_verifies(verify_slice)
 
 
 @pytest.mark.parametrize("rel", ["phases/phase-7-synthesize.md"])
@@ -191,11 +71,6 @@ def test_ac3_phase7_no_bare_scratchpad_placeholder():
     assert "{scratchpad}" not in text
     assert "{scratchpad_dir}/reviews/learnings-raw.md" in text or \
         "reviews/learnings-raw.md" in text
-
-
-def test_ac3_phase7_documents_line_format():
-    text = _read("phases/phase-7-synthesize.md")
-    assert re.search(r"-\s*\[category\]\s*---\s*\[?lesson\]?", text)
 
 
 # ---------------------------------------------------------------------------

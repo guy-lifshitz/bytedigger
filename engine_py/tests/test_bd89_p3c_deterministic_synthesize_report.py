@@ -1,6 +1,8 @@
-"""bd#89 P3c RED (spec FROZEN r1.2).
+"""bd#89 P3c RED (spec FROZEN r1.2 + Errata r2, section 10).
 
-Spec: docs/decisions/2026-10-03-bd89-p3c-deterministic-synthesize-report.md (section 3, AC1-AC16).
+Spec: docs/decisions/2026-10-03-bd89-p3c-deterministic-synthesize-report.md (section 3, AC1-AC16;
+section 10 changes AC12/AC13 and adds AC17-AC22: the same step also derives
+``reviews/learnings-raw.md`` from the review doc and the event log).
 
 Phase 7 writes ``post-deploy/post-deploy-report.md`` from the event log with no LLM:
 one step ``write_post_deploy_report``; the synthesizer steps, the ``E_SYNTHESIZER_*``
@@ -28,9 +30,16 @@ AC mapping:
     test_ac10_retired_error_codes_are_gone                     -> AC10
     test_ac11_retired_timeout_key_and_schema_are_gone          -> AC11
     test_ac11b_phase_7_module_has_no_retired_symbols           -> AC11
-    test_ac12_synthesizer_agent_and_learnings_flow_removed     -> AC12
+    test_ac12_synthesizer_agent_removed_extraction_step_kept   -> AC12 (r2)
     test_ac12b_guard_phase_7_md_keeps_cleanup_and_ship         -> AC12 (GUARD)
-    test_ac13_tsv_row_removed_and_bash_gate_passes_without_raw -> AC13
+    test_ac13_guard_tsv_row_kept_and_bash_gate_still_demands_raw -> AC13 (r2 GUARD)
+    test_ac17_derived_learnings_raw_parses_with_expected_entries -> AC17 (r2)
+    test_ac18_review_finding_entries_capped_at_ten_in_file_order -> AC18 (r2)
+    test_ac19_nothing_derivable_writes_not_derived_file        -> AC19 (r2)
+    test_ac20_fix_process_and_acceptance_entries               -> AC20 (r2)
+    test_ac21_learning_store_extract_stores_derived_entries    -> AC21 (r2)
+    test_ac22_learnings_write_failure_degrades                 -> AC22 (r2)
+    test_ac22b_learnings_render_failure_degrades               -> AC22 (r2)
     test_ac14_guard_extract_without_raw_degrades_to_zero       -> AC14 (GUARD, both backends)
     test_ac15_guard_class_i_lint_compileall_config_parses      -> AC15 (GUARD)
     test_ac15_guard_tree_scan_lint_real_tree_clean             -> AC15 (GUARD)
@@ -501,12 +510,14 @@ def test_ac11b_phase_7_module_has_no_retired_symbols():
 
 # --- AC12 ----------------------------------------------------------------------
 
-def test_ac12_synthesizer_agent_and_learnings_flow_removed():
+def test_ac12_synthesizer_agent_removed_extraction_step_kept():
+    # r2: the agent and the Haiku launch go; the extraction step stays (its producer is op9).
     assert not (REPO_ROOT / "agents" / "synthesizer.md").exists()
     for rel in ("phases/phase-7-synthesize.md", "commands/build.md"):
         body = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        for token in ("learnings-raw", "agents/synthesizer.md", "7.1b", "learning-store.sh extract"):
+        for token in ("agents/synthesizer.md", "Launch Haiku"):
             assert token not in body, f"{token!r} still in {rel}"
+        assert "learning-store.sh extract" in body, f"extraction step missing from {rel}"
 
 
 def test_ac12b_guard_phase_7_md_keeps_cleanup_and_ship():
@@ -535,11 +546,12 @@ def _gate_fixture(tmp_path: Path, extra_state: str) -> Path:
     return scratch
 
 
-def test_ac13_tsv_row_removed_and_bash_gate_passes_without_raw(tmp_path):
+def test_ac13_guard_tsv_row_kept_and_bash_gate_still_demands_raw(tmp_path):
+    # GUARD (r2): the gate, tsv and learning-store are unchanged; the deliverable now has
+    # a producer (op9), so the soft gate keeps its meaning.
     tsv = (REPO_ROOT / "scripts" / "phase-deliverables.tsv").read_text(encoding="utf-8")
-    assert "learnings-raw" not in tsv
     rows = [ln for ln in tsv.splitlines() if ln.strip() and not ln.startswith("#")]
-    assert len(rows) == 9, rows
+    assert any(re.match(r"^7\s+scratch_file\s+reviews/learnings-raw\.md\s*$", r) for r in rows), rows
 
     scratch = _gate_fixture(tmp_path, "review_complete: pass\nlearning_backend: file\n")
     assert not (scratch / "reviews" / "learnings-raw.md").exists()
@@ -549,10 +561,9 @@ def test_ac13_tsv_row_removed_and_bash_gate_passes_without_raw(tmp_path):
         ["bash", str(REPO_ROOT / "scripts" / "build-gate.sh")], stdin=subprocess.DEVNULL,
         capture_output=True, text=True, env=env, cwd=str(tmp_path), timeout=60,
     )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "learnings-raw" not in proc.stdout + proc.stderr
-    # A2: the orphaned soft warning ("learnings_extracted not set") is gone from the gate.
-    assert "learnings_extracted" not in proc.stdout + proc.stderr
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "missing deliverable" in proc.stdout + proc.stderr
+    assert "learnings-raw.md" in proc.stdout + proc.stderr
 
 
 # --- AC14 (GUARD) --------------------------------------------------------------
@@ -624,6 +635,200 @@ def test_ac15b_anti_hallucination_config_drops_phase_7():
         (ENGINE_PKG / "lib" / "plugins" / "anti_hallucination" / "config.yaml").read_text(encoding="utf-8"))
     assert "phase_7_synthesize" not in cfg["applied_phases"]
     assert "phase_5_implement" in cfg["applied_phases"]
+
+
+# --- AC17-AC22 (r2): derived reviews/learnings-raw.md --------------------------
+
+RAW_REL = "reviews/learnings-raw.md"
+_EMDASH = "—"
+
+
+def _parse_raw(path: Path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "bd89_p3c_learnings_parse", REPO_ROOT / "scripts" / "learnings_parse.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.parse(str(path))
+
+
+def _review_doc(headers: list[str]) -> str:
+    body = "Composite review.\n\n"
+    for h in headers:
+        body += f"{h}\n- File: a.py:1\n\nSome prose about the finding.\n\n"
+    return body + "VERDICT: FAIL\n"
+
+
+_LONG_TITLE = "T" * 250
+
+
+def _ac17_review() -> str:
+    return _review_doc([
+        f"### SEVERITY: HIGH {_EMDASH} Missing retry on sync [verify: ok]",
+        f"### SEVERITY: MEDIUM -- {_LONG_TITLE}",
+        "### SEVERITY: LOW - Naming nit",
+    ])
+
+
+def _by_cat(entries, cat: str) -> list[str]:
+    return [lesson for c, lesson in entries if c == cat]
+
+
+def test_ac17_derived_learnings_raw_parses_with_expected_entries(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    log.append("review_findings_audit", {"lost_to_prose": 2, "malformed_headers": 0,
+                                         "filtered": 0, "suspect_withhold": False}, "r-audit")
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    _write(scratch, REVIEW_REL, _ac17_review())
+    result = _run_step(_ctx(scratch), log)
+
+    raw = scratch / RAW_REL
+    assert raw.is_file()
+    entries, errors = _parse_raw(raw)
+    assert errors == 0
+    assert _by_cat(entries, "review-finding") == [
+        "HIGH finding: Missing retry on sync",
+        "MEDIUM finding: " + "T" * 200,
+        "LOW finding: Naming nit",
+    ]
+    audit = _by_cat(entries, "review-audit")
+    assert len(audit) == 1 and re.search(r"\b2\b", audit[0]), audit
+    assert len(entries) == 4
+    assert result.status == "ok"
+    assert result.data["learnings_written"] is True
+    assert result.data["learnings_entries"] == 4
+    assert result.data["learnings_raw_path"] == str(raw)
+    written = _events(log, "learnings_raw_written")
+    assert len(written) == 1
+    assert written[0]["payload"]["path"] == str(raw)
+    assert written[0]["payload"]["entries"] == 4
+
+
+def test_ac18_review_finding_entries_capped_at_ten_in_file_order(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    headers = [f"### SEVERITY: HIGH {_EMDASH} Finding number {i:02d}" for i in range(1, 13)]
+    _write(scratch, REVIEW_REL, _review_doc(headers))
+    result = _run_step(_ctx(scratch), log)
+
+    entries, errors = _parse_raw(scratch / RAW_REL)
+    assert errors == 0
+    assert _by_cat(entries, "review-finding") == [
+        f"HIGH finding: Finding number {i:02d}" for i in range(1, 11)]
+    assert result.data["learnings_entries"] == 10
+
+
+def test_ac19_nothing_derivable_writes_not_derived_file(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    result = _run_step(_ctx(scratch), log)
+
+    raw = scratch / RAW_REL
+    assert raw.is_file()
+    text = raw.read_text(encoding="utf-8")
+    assert text.strip() != ""
+    assert "# not derived" in text
+    assert _parse_raw(raw) == ([], 0)
+    assert result.status == "ok"
+    assert result.data["report_written"] is True
+    assert (scratch / REPORT_REL).is_file()
+    assert result.data["learnings_written"] is True
+    assert result.data["learnings_entries"] == 0
+
+
+def test_ac20_fix_process_and_acceptance_entries(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    log.append("fix_watchdog_no_progress", {"round": 1}, "r-w1")
+    log.append("fix_watchdog_no_progress", {"round": 2}, "r-w2")
+    log.append("post_fix_pytest_infra_error",
+               {"reason": "timeout", "phase": 6, "step": "run_pytest_post_fix"}, "r-infra")
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    _write(scratch, SAT_REL, "SATISFACTION: NOT_ASSESSED\n")
+    _run_step(_ctx(scratch), log)
+
+    entries, errors = _parse_raw(scratch / RAW_REL)
+    assert errors == 0
+    fix = _by_cat(entries, "fix-process")
+    assert any(re.search(r"\b2\b", e) for e in fix), fix
+    assert any("timeout" in e and re.search(r"\b1\b", e) for e in fix), fix
+    acceptance = _by_cat(entries, "acceptance")
+    assert len(acceptance) == 1
+    assert "not assessed" in acceptance[0]
+
+
+def test_ac21_learning_store_extract_stores_derived_entries(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    log.append("review_findings_audit", {"lost_to_prose": 2}, "r-audit")
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    _write(scratch, REVIEW_REL, _ac17_review())
+    _run_step(_ctx(scratch), log)
+
+    cfg = tmp_path / "bytedigger.json"
+    cfg.write_text(json.dumps({"learning": {
+        "backend": "file", "max_inject": 10, "max_stored": 200,
+        "storage_path": ".bytedigger/learnings"}}))
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(tmp_path),
+           "BYTEDIGGER_CONFIG": str(cfg)}
+    proc = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "learning-store.sh"), "extract", str(scratch),
+         "--config", str(cfg)],
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env,
+        cwd=str(tmp_path), timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    state = (tmp_path / "build-state.yaml").read_text()
+    assert re.search(r"^learnings_extracted: 4$", state, re.M), state
+    assert re.search(r"^learnings_parse_errors: 0$", state, re.M), state
+    stored = tmp_path / ".bytedigger" / "learnings" / "review-finding.md"
+    assert stored.is_file()
+    assert sum(1 for ln in stored.read_text().splitlines() if ln.startswith("- ")) == 3
+
+
+def test_ac22_learnings_write_failure_degrades(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "reviews").write_text("i am a file, not a directory", encoding="utf-8")
+    result = _run_step(_ctx(scratch), log)
+
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert (scratch / REPORT_REL).is_file()
+    assert result.data["report_written"] is True
+    assert result.data["learnings_written"] is False
+    skipped = _events(log, "learnings_raw_skipped")
+    assert len(skipped) == 1
+    assert skipped[0]["payload"]["reason"] == "write_failed"
+    assert _events(log, "learnings_raw_written") == []
+
+
+def test_ac22b_learnings_render_failure_degrades(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+
+    def _raise(*a, **kw):
+        raise RuntimeError("injected learnings render fault")
+
+    # Fault injection on the named pure helper only; the step and writer are real.
+    monkeypatch.setattr(p7, "_build_learnings_text", _raise, raising=False)
+    result = _run_step(_ctx(scratch), log)
+
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert (scratch / REPORT_REL).is_file()
+    assert result.data["report_written"] is True
+    assert result.data["learnings_written"] is False
+    skipped = _events(log, "learnings_raw_skipped")
+    assert len(skipped) == 1
+    assert skipped[0]["payload"]["reason"] == "render_failed"
+    assert not (scratch / RAW_REL).exists()
 
 
 # --- AC16 (GUARD) --------------------------------------------------------------
