@@ -1,6 +1,6 @@
 # bd#218 step 5 — the engine writes the phase-green receipt before the integrity gate (SHADOW, add-only, no LLM)
 
-**Status: r2 (amended after gate r1: diff-path contract, minors)** · **Tier:** 3 (two production files, Option D) · **Class:** SYSTEMATIC ·
+**Status: r3 (amended after gate r1/r2: diff-path contract, unresolvable top, minors)** · **Tier:** 3 (two production files, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `preflight.run_engine_preflight` — the one function that runs the cheap deterministic steps on explicit
 fields and writes the receipt; s5 only adds a `phase` argument to it. **Source:** bd#218, `2026-10-03-bd-ladder-map.md` (rollout step 5,
 choice A by MGR 2026-10-03); follows s1 (#228) and s2 (#230, `2026-10-03-bd218-s2-receipt-producer.md`).
@@ -49,7 +49,7 @@ A `fresh` green receipt means syntax, stub and facts passed on the tree the inte
 - **AC1** In a tmp git repo with a clean test file and a changed production file, `run_engine_preflight(..., phase="green")` writes `phase: green`, `ok: true`, `producer: engine`, steps syntax/stub/facts; `receipt_rung("green", repo)` is `fresh` and `receipt_rung("red", repo)` is `missing`.
 - **AC2** Default call (no `phase`) is unchanged: `phase: red`, same bytes as s2 (`test_bd218_s2_receipt_producer.py` passes without edits).
 - **AC3** A green test file that mocks its unit under test → `receipt_rung("green")` is `red` with `red_step == "stub"`, `facts` skipped. A changed production `.py` with a syntax error → `red_step == "syntax"`.
-- **AC4** `phase="bogus"` → failure result, no exception, no receipt, an existing receipt removed.
+- **AC4** `phase="bogus"` → failure result with the `_CODE_USAGE` code, no exception, no receipt, an existing receipt removed.
 - **AC5** No subprocess whose command contains `pytest` or `bun test` is started.
 - **AC6 (reachability)** `_invoke_integrity_llm`, default mode, non-ambient real-repo `git_cwd`, non-empty diff naming an existing test file: a `preflight_receipt` event with `gate == "integrity"` and `status == "fresh"`, `extra_data["preflight"]["status"] == "fresh"`, the LLM called once. With a mocking test file: `red` / `red_step == "stub"`, LLM still once.
 - **AC7** `{"produce": false}` → producer not called, event `missing` on a repo without receipt; `{"mode": "off"}` → no producer, no event; non-bool `produce` or unknown mode → `config-error`; LLM once each.
@@ -62,6 +62,8 @@ A `fresh` green receipt means syntax, stub and facts passed on the tree the inte
 - **AC15** Subdirectory `git_cwd`: repo with the mocking test file under `sub/`, `git_cwd = repo/sub`, the diff built with toplevel-relative headers → event `red`, `red_step == "stub"` (not `missing`); a clean file → `fresh`.
 - **AC16** A diff with a C-quoted header (non-ASCII filename) for a mocking test file plus a clean unquoted test file → status `missing`, never `fresh`. Same for a rename header and a header whose path resolves outside the toplevel (symlink).
 - **AC17** Absent/unreadable `diff_path` → `missing`, no exception, LLM once.
+- **AC18** `git_cwd` is a non-git directory (not ambient): no exception out of the step, event status `error`, producer not called, LLM called once.
+- **AC19** A header path containing `..` (hand-written diff) → scope empty → `missing`, never `fresh`.
 - **AC14** Sibling tests pass without edits: `test_phase_5_integrity.py`, `test_GH781_integrity_verdict_forcing.py`, `test_GH786_integrity_completeness_gate.py`, `test_090ED35B_integrity_verdict_trailing.py`, `test_bd_red_test_integrity.py`, `test_phase_5_integrity_schema_smoke.py`, plus `test_bd218_s1_preflight_rung.py`, `test_bd218_s2_receipt_producer.py`, `test_bd164_preflight.py`, and the six inventory-lint tests (s3 list) after the class-I entry below.
 
 ## §4 Files
