@@ -128,3 +128,4 @@ The full engine suite is CI only.
 ## §8 Open point (lead 2026-10-03)
 
 - Semantic-skip scan (`scripts/ts/build-phase-gate.ts` `scanSemanticSkipPhrases`, `scripts/build-gate.sh` `scan_semantic_skip`) globs `*review*.md`; `reviews/role-composite.md` does not match, so the composite reviewer's file is never scanned. This is a fix, not a removal; kept open here and may be split into its own slice.
+- op6 verbatim sentence (§7 F6) names the three config keys unbackticked, but the sibling `test_ac12_docs_rows_say_one_composite_reviewer[docs/plugin.md]` expects them backticked. The sentence must carry backticks around `simple_reviewers` / `feature_reviewers` / `complex_reviewers`, still on one physical line containing `were removed and are ignored`.

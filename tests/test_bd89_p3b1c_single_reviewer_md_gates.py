@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -141,12 +142,12 @@ def test_ac6_guard_bytedigger_json_reviewers_mode_auto():
 # ─── AC7 ─────────────────────────────────────────────────────────────────────
 
 def test_ac7_gate_sources_have_no_legacy_reviewer_count_tokens():
-    tokens = ("simple_reviewers", "SIMPLE_REVIEWERS", "feature_reviewers", "complex_reviewers",
-              "parseReviewerCount")
+    # F4: case-insensitive, so FEATURE_REVIEWERS / COMPLEX_REVIEWERS are covered too.
+    tokens = ("simple_reviewers", "feature_reviewers", "complex_reviewers", "parseReviewerCount")
     bad = {}
     for rel in ("scripts/build-gate.sh", "scripts/ts/build-phase-gate.ts"):
-        text = _read(rel)
-        hit = [t for t in tokens if t in text]
+        text = _read(rel).lower()
+        hit = [t for t in tokens if t.lower() in text]
         if hit:
             bad[rel] = hit
     assert not bad, bad
@@ -175,6 +176,95 @@ def test_ac8_plugin_md_mentions_composite_reviewer():
     assert "composite reviewer" in _read("docs/plugin.md")
 
 
+# ─── Errata r2 (gate r1): F1 / F2 / F3 token ACs ─────────────────────────────
+
+def _policy_table_data_rows(text: str) -> list[str]:
+    lines = text.splitlines()
+    start = next((i for i, ln in enumerate(lines) if re.match(r"^\|\s*Complexity\s*\|", ln)), None)
+    assert start is not None, "policy table header not found in phases/phase-6-review.md"
+    rows = []
+    for ln in lines[start:]:
+        if not ln.startswith("|"):
+            break
+        rows.append(ln)
+    return rows[2:]  # drop header + separator
+
+
+def test_f1_phase6_md_has_no_reviewer_counts_phrase():
+    assert "reviewer counts" not in _read("phases/phase-6-review.md").lower()
+
+
+def test_f1_build_md_has_no_reviewer_count_mismatch_or_simple_3():
+    text = _read("commands/build.md")
+    present = [s for s in ("Reviewer count mismatch", "SIMPLE=3") if s in text]
+    assert not present, present
+
+
+def test_f1_build_md_has_no_reviewer_count_phrase():
+    assert "reviewer count" not in _read("commands/build.md").lower()
+
+
+def test_f1_classify_md_dry_run_has_no_3_for_simple():
+    assert "3 for SIMPLE" not in _read("phases/phase-0-classify.md")
+
+
+_F2_FILES = ("skills/bytedigger/SKILL.md", "examples/claude-code-skill/SKILL.md",
+             "examples/claude-code-skill/README.md", "docs/plugin.md")
+
+
+def test_f2_skill_example_and_plugin_docs_have_no_count_phrases():
+    bad = {}
+    for rel in _F2_FILES:
+        low = _read(rel).lower()
+        hit = [s for s in ("3 review agents", "reviewer counts", "3-6 agents") if s in low]
+        if hit:
+            bad[rel] = hit
+    assert not bad, bad
+
+
+def test_f3_phase6_md_has_no_multi_reviewer_wording():
+    low = _read("phases/phase-6-review.md").lower()
+    tokens = ("reviewer panel", "review agents", "all reviewers complete", "re-run affected",
+              "specialized reviewer agents")
+    present = [t for t in tokens if t in low]
+    assert not present, present
+
+
+def test_f3_phase6_md_has_step_1_run_the_reviewer():
+    assert "Step 1: Run the reviewer" in _read("phases/phase-6-review.md")
+
+
+def test_f3_guard_phase6_md_keeps_security_review_enabled():
+    assert "security_review_enabled" in _read("phases/phase-6-review.md")
+
+
+def test_f3_phase6_md_says_old_format_review_files_are_ignored():
+    lines = _read("phases/phase-6-review.md").splitlines()
+    assert any("reviews/" in ln and "ignored" in ln for ln in lines)
+
+
+def test_f3_every_policy_table_row_names_the_composite_reviewer():
+    rows = _policy_table_data_rows(_read("phases/phase-6-review.md"))
+    assert rows, "policy table has no data rows"
+    bad = [r for r in rows if "1: composite reviewer" not in r]
+    assert not bad, bad
+
+
+def test_f3_build_md_has_no_re_run_reviewers():
+    assert "Re-run reviewers" not in _read("commands/build.md")
+
+
+def test_f3_dynamic_context_has_no_roster_leftovers():
+    text = _read("templates/dynamic-context.md")
+    present = [s for s in ("code-reviewer", "launched != expected", "Launch all parallel",
+                           "phase_6_reviewers") if s in text]
+    assert not present, present
+
+
+def test_f3_readme_has_no_reviewer_counts():
+    assert "reviewer counts" not in _read("README.md").lower()
+
+
 # ─── AC10 (GUARD) ────────────────────────────────────────────────────────────
 
 _SKIP_TOP = {"docs/decisions", "engine_py"}
@@ -183,12 +273,17 @@ _SKIP_FILES = {"CHANGELOG.md", "docs/configuration.md"}
 
 
 def test_ac10_guard_no_decorrelated_verifier_text():
+    # A1: tracked files only (git ls-files), so untracked artifacts cannot redden the guard.
+    out = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout
+    this_file = Path(__file__).resolve().relative_to(REPO).as_posix()
     hits = []
-    for path in REPO.rglob("*"):
+    for relp in out.splitlines():
+        path = REPO / relp
+        rel = Path(relp)
         if path.suffix not in (".md", ".sh", ".ts", ".json") or not path.is_file():
             continue
-        rel = path.relative_to(REPO)
-        relp = rel.as_posix()
+        if relp == this_file:
+            continue
         if _SKIP_PARTS & set(rel.parts):
             continue
         if any(relp == s or relp.startswith(s + "/") for s in _SKIP_TOP):
