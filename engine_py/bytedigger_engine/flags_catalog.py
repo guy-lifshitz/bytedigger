@@ -228,12 +228,6 @@ FLAGS: dict[str, dict] = {
         "module": "SYSTEM/cli/build/orphan-callsite-lint.py",
         "description": "Kill-switch: HAL_ORPHAN_CALLSITE_GATE=0 skips the GH564 orphan-callsite lint.",
     },
-    "HAL_ORPHAN_CALLSITE_ENFORCE": {
-        "kind": "flag",
-        "default": "0",
-        "module": "SYSTEM/cli/build/orphan-callsite-lint.py",
-        "description": "GH564 warn-only rollout: =1 makes orphan scripts exit 1. flip-by:2026-08-07 issue #564.",
-    },
     "HAL_SSH_PREAMBLE_ALLOWLIST_EXTRA": {
         "kind": "str",
         "default": None,
@@ -335,6 +329,8 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: =0 returns the collect-probe to warn-only; default ON hard-blocks non-collectable RED (E_RED_COLLECT_PROBE, recoverable=True). Flipped ON 2026-10-03 after 229 shadow runs (1 true positive, 0 false), Refs #542.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #542 - non-collectable RED (collect-probe) - stays as the hard block (=0 returns it to warn-only)",
     },
     "HAL_RED_COLLECT_PROBE_TIMEOUT_MS": {
         "kind": "int",
@@ -359,12 +355,16 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "workflows/phase_45_spec.py",
         "description": "Opt-in (default-OFF, flip-by:2026-08-13): HAL_SPEC_PREFLIGHT_BATCH=1 enables the GH747 phase_4.5 spec-gate pre-flight batch (spec_lint + spec_cite_lint drivers, one collect-then-report pass, single directed-repair). Off → legacy sequential steps.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: GH747 - legacy sequential spec-gate pre-flight steps - stays default-OFF as an opt-in; rollout not yet decided",
     },
     "HAL_SIBLING_AUDIT_GATE": {
         "kind": "gate",
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: HAL_SIBLING_AUDIT_GATE=0 disables the §1a sibling-coupling warn pass (bd#165, in-package detector, warn-only).",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#165 - sibling-coupling (section 1a) warn pass - stays as a default-ON warn-only kill-switch",
     },
     "HAL_DIRTY_TREE_GUARD": {
         "kind": "gate",
@@ -389,6 +389,8 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: =0 returns RED mass-deletion to warn-only; default ON hard-blocks (E_RED_MASS_DELETION, recoverable=False). Flipped ON 2026-10-03 after 232 clean shadow runs, Refs #282.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #282 - RED mass-deletion - stays as the hard block (=0 returns it to warn-only)",
     },
     "HAL_RED_MASS_DELETION_MAX_LINES": {
         "kind": "int",
@@ -407,6 +409,8 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch: =0 returns RED test-integrity to warn-only; default ON hard-blocks (E_RED_TEST_INTEGRITY, recoverable=False) (bd#226).",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#226 - RED test-integrity violations - stays as the hard block (=0 returns it to warn-only)",
     },
     "HAL_RED_TEST_INTEGRITY_MAX_DELETED_FILES": {
         "kind": "int",
@@ -499,6 +503,8 @@ FLAGS: dict[str, dict] = {
             "Default-OFF enforce flip for the GH823 spec re-entry AC lint "
             "(warn-only until flip-by:2026-07-29, issue #823)."
         ),
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #823 - spec re-entry AC lint running warn-only - stays default-OFF; rollout not yet decided",
     },
     "HAL_SPEC_HELPER_EXTRACTION_GATE": {
         "kind": "gate",
@@ -514,6 +520,8 @@ FLAGS: dict[str, dict] = {
             "Default-OFF enforce flip for the GH863 spec helper-extraction (§1aa) lint "
             "(warn-only until flip-by:2026-07-29, issue #863)."
         ),
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #863 - spec helper-extraction (section 1aa) lint running warn-only - stays default-OFF; rollout not yet decided",
     },
     "HAL_SPEC_COVERAGE_GATE": {
         "kind": "gate",
@@ -544,6 +552,8 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "workflows/phase_45_spec.py",
         "description": "Default-OFF enforce flip for the GH540 spec-lint batch (warn-only until flip-by:2026-07-24, #559).",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: GH540 - spec-lint batch running warn-only (flip tracker #559) - stays default-OFF; rollout not yet decided",
     },
     "HAL_AC_DSL_GATE": {
         "kind": "gate",
@@ -556,6 +566,8 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_45_spec.py",
         "description": "Kill-switch: HAL_AC_DSL_GATE_ENFORCE=0 returns the GH517 A2 AC-DSL admission gate to warn-only; default ON blocks specs whose ### AC-checks section is not accepted (retire-by:2027-01-15 Refs #91).",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: GH517 - specs whose ### AC-checks section is not accepted by the A2 AC-DSL admission gate (retire-by tracker #91) - stays as the default-ON block until the retire-by date",
     },
     "HAL_SPEC_CITE_PRELINT_ENFORCE": {
         "kind": "flag",
@@ -563,6 +575,8 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_45_spec.py",
         # flip-by:2026-07-26 Refs #681
         "description": "Default-OFF enforce flip for the GH675 spec-cite pre-lint (bounded 1× writer re-prompt; warn-only until flip-by:2026-07-26, #681).",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: GH675 - spec-cite pre-lint running warn-only (flip tracker #681) - stays default-OFF; rollout not yet decided",
     },
     "HAL_INJECT_LEARNINGS_TS": {
         "kind": "path",
@@ -635,6 +649,8 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "engine-py-audit-gate.py + workflows/phase_5_implement.py",
         "description": "=1 flips verdict-gate lint warn→block at both seams. 34E0B77B flip-by:2026-08-01.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: 34E0B77B - verdict-gate lint running warn-only (warn to block flip) - stays default-OFF; rollout not yet decided",
     },
     "HAL_FLAG_UNREGISTERED_GATE": {
         "kind": "gate",
@@ -647,6 +663,8 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "workflows/phase_5_implement.py",
         "description": "GH529 warn-only rollout: =1 makes unregistered HAL_* tokens a recoverable E_FLAG_UNREGISTERED gate failure. flip-by:2026-07-24 issue #529.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #529 - unregistered HAL_* tokens (GH529 warn-only rollout) - stays default-OFF; rollout not yet decided",
     },
     "HAL_BASELINE_DELTA_GATE": {
         "kind": "gate",
@@ -659,6 +677,8 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "workflows/_baseline_delta.py",
         "description": "GH561 warn-only rollout: =1 makes a FAIL verdict from baseline_delta_gate.py a recoverable E_BASELINE_DELTA gate failure in phase_5. flip-by:2026-08-07 Refs #561.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #561 - baseline-delta gate FAIL verdicts (GH561 warn-only rollout) - stays default-OFF; rollout not yet decided",
     },
     "HAL_BASELINE_DELTA_BIN": {
         "kind": "path",
@@ -671,12 +691,16 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "workflows/_baseline_delta.py",
         "description": "GH1338 warn-only rollout: =1 makes a corpus-parity BLOCKED verdict a recoverable E_CORPUS_PARITY gate failure in phase_5. flip-by:2026-08-13 Refs #1338.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #1338 - corpus-parity BLOCKED verdicts (GH1338 warn-only rollout) - stays default-OFF; rollout not yet decided",
     },
     "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE": {
         "kind": "flag",
         "default": "0",
         "module": "workflows/phase_6_review.py",
         "description": "S4/M10 shadow-by-default rollout (owner s4-bytedigger (MGR)): =1 makes a findingless stdout-fallback review a terminal E_REVIEW_EMPTY_FALLBACK error in phase_6; unset = shadow (event + rejected copy only), and enforce after expiry. flip-by:2026-10-17.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd PR #236 (S4/M10) - findingless stdout-fallback review accepted as a real review (fail-closed empty review fallback, SHADOW) - stays default-OFF shadow until the enforce decision; the description cites no issue token, so no provenance found in this repo beyond that PR",
     },
     "HAL_CORPUS_ALLOW_REMOVED": {
         "kind": "flag",
@@ -701,6 +725,8 @@ FLAGS: dict[str, dict] = {
         "default": "1",
         "module": "workflows/phase_5_implement.py",
         "description": "Kill-switch (default ON, retire-by:2027-01-15 Refs #91): HAL_SPEC_DEFECT_REROUTE=0 disables the bounded auto-reroute of a SPEC_DEFECT verdict from phase_5_implement back to phase_45_spec. Off → legacy TEST_GAP retry path, byte-identical.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: not recorded in this repo (retire-by tracker #91) - bounded auto-reroute of a SPEC_DEFECT verdict from phase_5_implement back to phase_45_spec - stays as a default-ON kill-switch until the retire-by date",
     },
     "HAL_RED_BASELINE_REFRESH": {
         "kind": "flag",
@@ -725,12 +751,16 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "known_reds_ledger.py",
         "description": "Falsy-default rollout flag for GH1199 kill-by enforcement in known-reds.md, agreement CD666B9B-D319-403D-8EF2-8B8870E0F834, flip-by:2026-08-08.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: CD666B9B - GH1199 kill-by enforcement in known-reds.md - stays default-OFF; rollout not yet decided",
     },
     "HAL_KNOWN_REDS_SCOPE_ENFORCE": {
         "kind": "gate",
         "default": "0",
         "module": "known_reds_ledger.py",
         "description": "Falsy-default rollout flag for GH1470 Scope-column enforcement in known-reds.md (a row whose declared Scope does not match the declared run context stops muting), agreement 92237C8D-8B77-4294-8DC6-5B81020A86D7, flip-by:2026-08-16.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: 92237C8D - GH1470 Scope-column enforcement in known-reds.md - stays default-OFF; rollout not yet decided",
     },
     "HAL_KNOWN_REDS_RUN_CI": {
         "kind": "flag",
@@ -773,12 +803,16 @@ FLAGS: dict[str, dict] = {
         "default": "0",
         "module": "known_reds_ledger.py",
         "description": "Falsy-default rollout flag for GH1230 owner-liveness enforcement in known-reds.md (dead owner = CLOSED issue blocks the canary ship gate until the row is rehung), agreement C4B6B16C-0E22-4286-8064-EEAFF9ECEE9A, flip-by:2026-08-08.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: C4B6B16C - GH1230 owner-liveness enforcement in known-reds.md - stays default-OFF; rollout not yet decided",
     },
     "HAL_KNOWN_REDS_RED_SHAPE_ENFORCE": {
         "kind": "gate",
         "default": "0",
         "module": "known_reds_ledger.py",
         "description": "Falsy-default rollout flag for GH1231 Red-cell shape enforcement in known-reds.md (a Red cell that does not yield exactly one anchor token blocks known-reds-owner-audit.py --check red-shape with exit 4), agreement CB74189B-6A03-49DF-A65D-7520D528C45D, flip-by:2026-08-08.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: CB74189B - GH1231 Red-cell shape enforcement in known-reds.md - stays default-OFF; rollout not yet decided",
     },
     "HAL_KNOWN_REDS_REPO": {
         "kind": "str",
