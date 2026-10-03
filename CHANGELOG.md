@@ -40,10 +40,6 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 - **Surgical revise and the restricted cycle-2 reviewer dropped (bd#89 P3a).** Cycle 2 of phase 4.5 now always asks the writer for a full revised spec (the delta retry) and the reviewer uses the same full prompt as cycle 1, so a cycle-2 reviewer can raise new findings and the score downgrade applies to it. The `HAL_SURGICAL_REVISE` and `HAL_DELTA_REREVIEW` flags and the `surgical_revise_*` / `delta_rereview_*` events are gone. A resumed run that replays a cached patch-array writer result re-runs the same cycle as a full revise.
 - **Per-tier reviewer count config removed (bd#89 P3b1c).** The `simple_reviewers` / `feature_reviewers` / `complex_reviewers` keys are gone from `bytedigger.json`, `docs/plugin.md` and both gate parsers (`scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`, including `parseReviewerCount`). Nothing read them; a config that still carries them keeps working, the keys are ignored.
 
-### Changed
-
-- `phases/phase-6-review.md`, `commands/build.md`, `phases/phase-0-classify.md` and `templates/dynamic-context.md` now describe the single composite reviewer (`reviews/role-composite.md`) instead of a per-tier panel with launched/expected count enforcement.
-
 ### Fixed
 
 - **The package version is now checked against release tags (bd#211).** Tag `v1.1.0` shipped while every declaration said `0.2.0`, and nothing compared the two. `scripts/version_parity.py --check-release [--tag TAG]` fails when any strict `vX.Y.Z` tag in the repo is ahead of the canonical version, when git cannot list tags, or when `--tag` is malformed or differs from `v` plus the canonical version. The `manifests` CI job runs it with full tag history, passing the tag on `v*` tag pushes. The declarations are bumped to 1.1.1.
@@ -157,6 +153,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
   the step with `E_ROLE_TEMPLATE_INVALID` instead of being skipped or crashing. On the full phase 6
   the abort handler also runs and writes its `NOT_ASSESSED` stub; the simple fast path halts
   without one.
+- `phases/phase-6-review.md`, `commands/build.md`, `phases/phase-0-classify.md` and `templates/dynamic-context.md` now describe the single composite reviewer (`reviews/role-composite.md`) instead of a per-tier panel with launched/expected count enforcement.
 
 ### Fixed
 
