@@ -30,4 +30,14 @@ Idempotence (AC3): the cap compares the `cycle_count` carried in step data; the 
 Design constraints: no LLM call anywhere on the path (test patches the LLM subprocess to fail); provider-down path covered (AC4); both backends: the check reads no backend config (test runs with backend env set to `claude-subprocess` and `anthropic-api`, same decisions).
 
 ## Files in scope
-engine_py/bytedigger_engine/{lib/gate_round_cap.py (new), engine.py, config_provider.py, error_codes.py, ERROR_CODES.md, lib/task_resume.py}; engine_py/tests/test_bd163_gate_round_cap.py (new); docs (CHANGELOG line). NOT in scope: workflow-level `MAX_REVIEW_CYCLES` constants in phase_45_spec/phase_6_review (their consistency test stays at 2).
+engine_py/bytedigger_engine/{lib/gate_round_cap.py (new), engine.py, config_provider.py, error_codes.py, ERROR_CODES.md, lib/task_resume.py}; engine_py/ERROR_CODES.md (both md files regenerated from `error_codes.render_markdown()`, byte-identical, test_bd166 AC25 requires it); engine_py/tests/test_bd163_gate_round_cap.py (new); docs (CHANGELOG line). NOT in scope: workflow-level `MAX_REVIEW_CYCLES` constants in phase_45_spec/phase_6_review (their consistency test stays at 2).
+
+## Gate round 1 amendments (r1)
+- Direct `_execute_steps` seam: tests seed `eng._rework_cycle_high = 1; eng._rework_last_step = None` (execute() sets them per run, engine.py:300).
+- Table precedence: the first source that is not None wins, even if malformed (malformed -> fallback + warning, no fall-through to the next source). Exception: a provider that RAISES counts as unavailable (warning `gate_round_cap_provider_unavailable`) and falls through to env. A provider without `gate_round_caps()` is silent (no warning, convention: silent fallback). `{}` = valid empty table -> default, no warning.
+- Table must parse to a dict; an invalid entry that is not the matched label is ignored; no label + valid table -> default, source default.
+- Cache `self._gate_caps` is cleared at the start of `execute()`; `cycle` in `gate_round_cap_exceeded` is `cycle_count`.
+- `BD_GATE_TIER` is read through `get_config().binary("BD_GATE_TIER", "")`, not os.environ in engine.py.
+- The E_GATE_ROUND_CAP exit goes through the existing terminal path (no early return), so `invalidate_cycle_sentinels_on_fail` cleanup still runs.
+- `gate_budget_ok` retries (recoverable_gate, always True) are bounded by HARD_MAX only, NOT by the tier cap: the tier cap limits first-clause retries. Pinned by a test (table cap 1 + gate_budget_ok retry at cycle_count 1 is still allowed; at cycle_count 6 denied). Out of scope here, noted as follow-up.
+- HAL-parity example table shipped in docs/CHANGELOG: `{"MICRO":1,"TIER2":2,"TIER3":2}` (HAL today, hal#2316); bd default stays 2 for all (no behaviour change). Provenance: `_MAX_VALIDATION_CYCLES` = Design A decree 2026-04-26 (engine.py comment), `_GATE_BUDGET_HARD_BACKSTOP` = GH625; both kept.
