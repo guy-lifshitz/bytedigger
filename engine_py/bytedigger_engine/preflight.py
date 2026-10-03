@@ -837,8 +837,9 @@ def run_engine_preflight(
     spec_text: str,
     *,
     base: str | None = None,
+    phase: str = "red",
 ) -> PreflightResult:
-    """bd#218 s2: run syntax, stub and facts on explicit fields and write the phase-red receipt.
+    """bd#218 s2: run syntax, stub and facts on explicit fields and write the phase receipt (red; green since s5).
 
     No test run, no LLM. Never raises; a failure result leaves no receipt file behind.
     """
@@ -859,6 +860,8 @@ def run_engine_preflight(
             except OSError as exc:
                 return _failure(_CODE_GIT, f"cannot remove old receipt file: {exc}")
 
+        if phase not in _PHASES:
+            return _failure(_CODE_USAGE, f"phase must be one of {', '.join(_PHASES)}, got {phase!r}")
         if not isinstance(red_tests, list) or not red_tests:
             return _failure(_CODE_SPEC_FIELDS, "red_tests must be a non-empty list")
         top_real = Path(os.path.realpath(str(toplevel)))
@@ -895,7 +898,7 @@ def run_engine_preflight(
         fields["red_tests"] = rebased
         run = _Run(
             top=toplevel, spec_abs=Path(""), spec_text=spec_text if isinstance(spec_text, str) else "",
-            phase="red", fields=fields, tier="", head=head, merge_base=merge_base,
+            phase=phase, fields=fields, tier="", head=head, merge_base=merge_base,
             receipt_dir=receipt_dir, classifier_cmd=None,
             classifier_timeout_s=float(check_ladder.DEFAULT_TIMEOUT_S),
             known_reds=None, test_timeout_s=600,
