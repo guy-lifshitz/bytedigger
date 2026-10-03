@@ -108,3 +108,11 @@ The RED file runs on every CI push (op4), so it must not pin migration-time snap
 - **Other provenance lines.** The RED/GREEN authors derive each line from the entry's own description (GH/issue numbers, flip-by text). Where the description names no issue, the line says `introduced: no provenance found in this repo`.
 - **op5 / AC14.** CHANGELOG has an Added bullet only (no Removed bullet); it names `flag_expiry_lint`. The doc may still mention the orphan flag as the follow-up.
 - **A1 (GREEN diff).** `git diff` of `flags_catalog.py` shows zero removed entries; on rollout entries only added `owner`, `expires`, `provenance` lines.
+
+## §9 Errata r4 (MGR/Guy 2026-10-03, audit hal#2320 section 6). Supersedes §8's "flag stays"; keeps §8's `provenance` field
+
+- **Delete only the dead flag.** op1 and AC1 are restored: `HAL_ORPHAN_CALLSITE_ENFORCE` is removed from `FLAGS` (catalog 109 entries) and appears in no tracked text file under `engine_py/` or `scripts/` outside CHANGELOG and `docs/decisions/`. Provenance: introduced in HAL #578 / GH564 (commit 3ddf98a15, `orphan-callsite-lint`, warn-only, flip-by 2026-08-07); its only reader is HAL `SYSTEM/cli/build/orphan-callsite-lint.py:189`; this repo has none. The check lives on in HAL, so nothing is lost here.
+- **Every other flag is untouched.** No flag, enforce branch or gate is removed, including the incident-born lints (cite-prelint GH681, known-reds GH1164, baseline-delta 585E30E3). `owner` + `expires` + `provenance` on the remaining 19 rollout entries, as in §2/§8. AC2 pins the 19 rollout defaults plus `HAL_ORPHAN_CALLSITE_GATE` (20 names minus the deleted one = 19 rollout + GATE, i.e. the §7 table). `ROLLOUT_NAMES` excludes the deleted flag. AC4's renewed set excludes it.
+- **AC14.** CHANGELOG has a Removed bullet naming `HAL_ORPHAN_CALLSITE_ENFORCE` and an Added bullet naming `flag_expiry_lint`.
+- **A1.** `git diff` of `flags_catalog.py`: exactly one removed entry; on the rollout entries only added `owner`, `expires`, `provenance` lines.
+- **PR body.** Per-flag proposal table (flag / incident link if any / turn on or delete / data needed) is a proposal for Guy, no code. PR opens as DRAFT with a HOLD note.
