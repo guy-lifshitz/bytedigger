@@ -38,8 +38,17 @@ def _entry(until, ref="hal#1", reason="why not flipped"):
 
 
 def _lines_for(lines, flag, code=None):
-    return [ln for ln in lines
-            if flag in ln and (code is None or ln.startswith(code))]
+    out = []
+    for ln in lines:
+        words = ln.split()
+        if len(words) < 2:
+            continue
+        if words[1].rstrip(":") != flag:
+            continue
+        if code is not None and words[0] != code:
+            continue
+        out.append(ln)
+    return out
 
 
 # ---------------------------------------------------------------- AC1
@@ -63,7 +72,7 @@ def test_ac2_uncovered_then_covered(fh):
     flags = _flags(A="flip-by:2026-08-01")
     out = fh.check(flags, {}, TODAY)
     assert len(out) == 1
-    assert out[0].startswith("UNCOVERED") and "A" in out[0]
+    assert len(_lines_for(out, "A", "UNCOVERED")) == 1
     assert fh.check(flags, {"A": _entry("2026-10-20")}, TODAY) == []
 
 
@@ -147,7 +156,7 @@ def test_ac6_exit_1_on_problem_with_line_on_stdout(fh, tmp_path, capsys):
     assert rc == 1
     lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
     assert len(lines) == 1
-    assert lines[0].startswith("UNCOVERED") and "SYN_A" in lines[0]
+    assert len(_lines_for(lines, "SYN_A", "UNCOVERED")) == 1
 
 
 def test_ac6_exit_2_on_malformed_ledger(fh, tmp_path, capsys):
@@ -255,6 +264,24 @@ def test_ac11_prose_is_not_a_token(fh):
     flags = _flags(A="GH1199 kill-by enforcement", B="kill-by classification")
     assert fh.check(flags, {}, TODAY) == []
     assert fh.find_tokens(flags) == []
+
+
+def test_n4_near_miss_yields_only_bad_token(fh):
+    out = fh.check(_flags(A="flip-by 2026-08-07"), {}, TODAY)
+    assert len(_lines_for(out, "A", "BAD_TOKEN")) == 1
+    assert _lines_for(out, "A", "UNCOVERED") == []
+    assert len(out) == 1
+
+
+# ---------------------------------------------------------------- N2
+@pytest.mark.parametrize("bad", [None, 5])
+def test_n2_non_string_description_ignored(fh, bad):
+    flags = _flags(OK="flip-by:2026-08-01")
+    flags["NS"] = {"kind": "env", "default": "0", "module": "m", "description": bad}
+    assert fh.find_tokens(flags) == [("OK", "flip-by", "2026-08-01")]
+    out = fh.check(flags, {}, TODAY)
+    assert _lines_for(out, "NS") == []
+    assert len(_lines_for(out, "OK", "UNCOVERED")) == 1
 
 
 # ---------------------------------------------------------------- AC12
