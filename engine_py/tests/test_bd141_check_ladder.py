@@ -542,7 +542,7 @@ def test_L16_no_prescreen_config_is_byte_for_byte_today(tmp_path: Path, monkeypa
     assert base["timeout_sec"] == p5._resolve_validation_timeout_sec({"complexity": "SIMPLE"})
     assert "prescreen" not in base["extra_data"]
     assert set(base["extra_data"]) == {"doc_path", "spec_path", "red_log_path",
-                                       "red_test_paths", "cycle", "red_commit_sha"}
+                                       "red_test_paths", "cycle", "red_commit_sha", "preflight"}
     org = {} if cfg is _ABSENT else {"prescreen": cfg}
     _result, calls, events = _drive(monkeypatch, tmp_path, "PROMPT-A", **org)
     assert len(calls) == 1

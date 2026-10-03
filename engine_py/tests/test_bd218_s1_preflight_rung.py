@@ -192,7 +192,8 @@ def _prev(tmp_path: Path, prompt: str = "PROMPT-218") -> Any:
     return StepResult(status="ok", data=data, duration_ms=0, step_name="check_red_executable")
 
 
-def _drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **org: Any):
+def _drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, _raw: str = "VERDICT: PASS\n",
+           _prev_obj: Any = None, **org: Any):
     """Returns (result, llm_calls, events, order). `order` interleaves ('emit', type) and ('llm',)."""
     from bytedigger_engine.contracts import StepResult
     p5 = _p5()
@@ -203,7 +204,7 @@ def _drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **org: Any):
     def fake_llm(**kw: Any) -> Any:
         calls.append(kw)
         order.append(("llm",))
-        return StepResult(status="ok", data={"raw_response": "VERDICT: PASS\n", **kw["extra_data"]},
+        return StepResult(status="ok", data={"raw_response": _raw, **kw["extra_data"]},
                           duration_ms=0, step_name="invoke_validation_llm")
 
     def fake_emit(event_type: str, payload: dict, severity: str = "info") -> None:
@@ -212,7 +213,7 @@ def _drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **org: Any):
 
     monkeypatch.setattr(p5, "invoke_llm_subprocess", fake_llm)
     monkeypatch.setattr(p5, "_emit_safe", fake_emit)
-    result = p5._invoke_validation_llm(_ctx(**org), _prev(tmp_path))
+    result = p5._invoke_validation_llm(_ctx(**org), _prev_obj if _prev_obj is not None else _prev(tmp_path))
     return result, calls, events, order
 
 
@@ -221,6 +222,28 @@ def _rung_events(events: list) -> list[dict]:
 
 
 _BASE_EXTRA_KEYS = {"doc_path", "spec_path", "red_log_path", "red_test_paths", "cycle", "red_commit_sha"}
+
+
+def _expected_kwargs(tmp_path: Path) -> dict:
+    """Today's (pre-change) invoke_llm_subprocess kwargs for _prev(tmp_path) + SIMPLE config, spelled out."""
+    p5 = _p5()
+    prev = _prev(tmp_path)
+    return {
+        "prompt": "PROMPT-218",
+        "model": p5._default_validation_model(),
+        "timeout_sec": p5._resolve_validation_timeout_sec({"complexity": "SIMPLE"}),
+        "step_name": "invoke_validation_llm",
+        "extra_data": {
+            "doc_path": str(tmp_path / "d.md"), "spec_path": str(tmp_path / "s.md"),
+            "red_log_path": str(tmp_path / "r.log"), "red_test_paths": [], "cycle": 1,
+            "red_commit_sha": None,
+        },
+        "hard_gate": True,
+        "gate_label": "validation",
+        "allowed_tools": ["Read", "Grep", "Glob", "Bash(graphify-shim.sh:*)"],
+        "stable_prefix": "",
+        "injections": p5._declared_injections(prev.data),
+    }
 
 
 def _assert_passthrough(result: Any, call: dict) -> None:
@@ -243,8 +266,11 @@ def test_AC3_default_config_emits_one_preflight_receipt_before_gate(
     ev = evs[0]
     assert ev["status"] == state
     assert ev["phase"] == 5 and ev["cycle"] == 1 and ev["gate"] == "validation"
+    want_step = "cite" if state == "red" else None
+    assert ev["red_step"] == want_step
     assert len(calls) == 1, "gate runs exactly once whatever the rung says"
-    assert calls[0]["extra_data"]["preflight"] == {"status": state}
+    # Record is exactly {status, red_step} (it rides in every reject row, 4096-byte cap).
+    assert calls[0]["extra_data"]["preflight"] == {"status": state, "red_step": want_step}
     assert order.index(("emit", "preflight_receipt")) < order.index(("llm",))
     _assert_passthrough(result, calls[0])
 
@@ -289,13 +315,13 @@ def test_AC5_mode_off_is_todays_behaviour(tmp_path: Path, monkeypatch: pytest.Mo
                                        preflight_rung={"mode": "off"})
     assert not _rung_events(events) and not seen
     assert len(calls) == 1
-    assert set(calls[0]["extra_data"]) == _BASE_EXTRA_KEYS and "preflight" not in calls[0]["extra_data"]
+    assert calls[0] == _expected_kwargs(tmp_path), "off mode: full kwargs equal today's"
     _assert_passthrough(result, calls[0])
     # Forcing: the same run in default mode does call the rung and emits.
     seen.clear()
     _r2, calls2, events2, _o2 = _drive(monkeypatch, tmp_path, git_cwd=str(tmp_path))
     assert len(seen) == 1 and len(_rung_events(events2)) == 1
-    assert calls2[0]["extra_data"]["preflight"] == {"status": "fresh"}
+    assert calls2[0]["extra_data"]["preflight"] == {"status": "fresh", "red_step": None}
 
 
 # --------------------------------------------------------------------------
@@ -449,7 +475,12 @@ def _row(reason: str, pf: Any, head: str | None = None, phase: str = "phase_5_im
 
 
 def test_AC9c_ladder_table_groups_counts_and_caps_heads() -> None:
-    """AC9c: groups by (preflight.status|none, red_step), sorted by rejects desc, heads capped at 3, noise ignored."""
+    """AC9c: groups by (preflight.status|none, red_step), sorted by rejects desc, heads capped at 3, noise ignored.
+
+    Reading rule (spec 2): only fresh/red carry information; stale/missing/none are "no evidence". That is
+    informational for the reader of the table -- ladder_table itself still counts every group, so the counts
+    and caps below are unchanged.
+    """
     rs = importlib.import_module("bytedigger_engine.reject_stats")
     fresh = {"status": "fresh", "red_step": None}
     red_cite = {"status": "red", "red_step": "cite"}
@@ -480,3 +511,165 @@ def test_AC9c_ladder_table_groups_counts_and_caps_heads() -> None:
     assert len(heads[("red", "cite")]) == 3 and set(heads[("red", "cite")]) <= {f"c{i}" for i in range(1, 5)}
     assert heads[("stale", None)] == []
     assert rs.ladder_table([]) == []
+
+
+# --------------------------------------------------------------------------
+# AC11 add-only: default-mode kwargs minus extra_data["preflight"] == off-mode kwargs
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("state", ["fresh", "red"])
+def test_AC11_default_kwargs_minus_record_equal_off_kwargs(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str) -> None:
+    """AC11: the rung changes nothing the gate sees except the added extra_data["preflight"] key."""
+    repo = _staged_repo(tmp_path, state)
+    _r, on_calls, on_events, _o = _drive(monkeypatch, tmp_path, git_cwd=str(repo))
+    _r2, off_calls, off_events, _o2 = _drive(monkeypatch, tmp_path, git_cwd=str(repo),
+                                             preflight_rung={"mode": "off"})
+    assert len(on_calls) == 1 and len(off_calls) == 1, "gate once in both modes"
+    assert len(_rung_events(on_events)) == 1 and not _rung_events(off_events)
+    on = dict(on_calls[0])
+    on_extra = dict(on["extra_data"])
+    assert on_extra.pop("preflight")["status"] == state, "forcing: the record must be present in default mode"
+    on["extra_data"] = on_extra
+    assert on == off_calls[0]
+    assert off_calls[0] == _expected_kwargs(tmp_path)
+
+
+# --------------------------------------------------------------------------
+# AC12 reachability: invoke -> write_validation_doc -> verify citations -> gate -> reject row
+# --------------------------------------------------------------------------
+
+_FAIL_RAW = "## Quality Findings\n- a finding\n\nVERDICT: FAIL\n"
+
+
+def _run_chain(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **org: Any) -> tuple[Any, Any, Any, Any]:
+    from bytedigger_engine.contracts import StepResult
+    p5 = _p5()
+    prev = StepResult(status="ok", duration_ms=0, step_name="check_red_executable", data={
+        "prompt": "PROMPT-218", "doc_path": str(tmp_path / "out" / "v.md"),
+        "spec_path": str(tmp_path / "s.md"), "red_log_path": str(tmp_path / "r.log"),
+        "cycle": p5.MAX_VALIDATION_CYCLES, "stable_prefix": "",
+    })
+    (tmp_path / "s.md").write_text("# spec\n", encoding="utf-8")
+    ctx = _ctx(**org)
+    r1, _calls, _events, _o = _drive(monkeypatch, tmp_path, _raw=_FAIL_RAW, _prev_obj=prev, **org)
+    r2 = p5._write_validation_doc(ctx, r1)
+    r3 = p5._verify_validation_citations(ctx, r2)
+    gate = _with_run(lambda: p5._gate_on_validation(ctx, r3))
+    return r1, r2, r3, gate
+
+
+def test_AC12_record_reaches_reject_row_through_real_step_chain(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC12: FAIL at cap -> real reject-log row has detail.preflight == the record; no record -> no key in steps."""
+    log = tmp_path / "rr.jsonl"
+    monkeypatch.setenv("HAL_REJECT_LOG", str(log))
+    repo = _staged_repo(tmp_path, "red")
+    rec = {"status": "red", "red_step": "cite"}
+    r1, r2, r3, gate = _run_chain(monkeypatch, tmp_path, git_cwd=str(repo))
+    assert r1.data["preflight"] == rec
+    assert r2.data["preflight"] == rec, "_write_validation_doc must forward the record"
+    assert r3.data["preflight"] == rec, "_verify_validation_citations must forward the record"
+    assert gate.status == "error" and gate.error_code == "E_VALIDATION_FAILED"
+    (row,) = _rows(log)
+    assert row["detail"]["preflight"] == rec
+
+    # No record (mode off): no 'preflight' key in any intermediate step, row carries null.
+    log2 = tmp_path / "rr2.jsonl"
+    monkeypatch.setenv("HAL_REJECT_LOG", str(log2))
+    s1, s2, s3, gate2 = _run_chain(monkeypatch, tmp_path, git_cwd=str(repo), preflight_rung={"mode": "off"})
+    assert "preflight" not in s1.data and "preflight" not in s2.data and "preflight" not in s3.data
+    assert gate2.error_code == "E_VALIDATION_FAILED"
+    (row2,) = _rows(log2)
+    assert "preflight" in row2["detail"] and row2["detail"]["preflight"] is None
+
+
+# --------------------------------------------------------------------------
+# AC13 mode dispatch: verify / {} / None behave as default
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("cfg", [{"mode": "verify"}, {}, None], ids=["verify", "empty-dict", "none"])
+def test_AC13_verify_empty_and_none_behave_as_default(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cfg: Any) -> None:
+    """AC13: only {"mode":"off"} opts out; verify / {} / None run the rung."""
+    repo = _staged_repo(tmp_path, "fresh")
+    result, calls, events, _o = _drive(monkeypatch, tmp_path, git_cwd=str(repo), preflight_rung=cfg)
+    evs = _rung_events(events)
+    assert len(evs) == 1 and evs[0]["status"] == "fresh"
+    assert len(calls) == 1
+    assert calls[0]["extra_data"]["preflight"] == {"status": "fresh", "red_step": None}
+    _assert_passthrough(result, calls[0])
+
+
+# --------------------------------------------------------------------------
+# AC14 ambient git cwd
+# --------------------------------------------------------------------------
+
+def test_AC14_ambient_cwd_skips_receipt_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC14: no git_cwd / current_worktree_path / scratchpad repo -> ambient-skip, receipt_rung never called."""
+    pf, p5 = _pf(), _p5()
+    seen: list[tuple] = []
+
+    def spy(*a: Any, **k: Any) -> dict:
+        seen.append((a, k))
+        return {"status": "fresh", "phase": "red", "red_step": None}
+
+    monkeypatch.setattr(pf, "receipt_rung", spy)                  # absent today -> AttributeError
+    monkeypatch.setattr(p5, "receipt_rung", spy, raising=False)
+    result, calls, events, _o = _drive(monkeypatch, tmp_path)     # no git_cwd: ambient process cwd
+    evs = _rung_events(events)
+    assert len(evs) == 1 and evs[0]["status"] == "ambient-skip"
+    assert evs[0]["phase"] == 5 and evs[0]["gate"] == "validation"
+    assert not seen, "an ambient repo's receipt must not be read"
+    assert len(calls) == 1
+    assert "preflight" not in calls[0]["extra_data"]
+    _assert_passthrough(result, calls[0])
+
+
+# --------------------------------------------------------------------------
+# AC15 ladder_table legacy rows, malformed preflight, tie order
+# --------------------------------------------------------------------------
+
+def _legacy(reason: str = "VALIDATION_FAILED", head: str | None = None) -> dict:
+    row = _row(reason, None, head)
+    del row["detail"]["preflight"]
+    return row
+
+
+def test_AC15_ladder_table_legacy_rows_malformed_preflight_and_tie_order() -> None:
+    """AC15: missing key -> 'none'; non-dict / non-str status -> skipped; ties ordered by status then red_step."""
+    rs = importlib.import_module("bytedigger_engine.reject_stats")
+    legacy = [_legacy(head=f"l{i}") for i in range(3)]
+    malformed = [
+        _row("VALIDATION_FAILED", "fresh"), _row("VALIDATION_FAILED", ["fresh"]),
+        _row("VALIDATION_FAILED", {"red_step": "cite"}), _row("VALIDATION_FAILED", {"status": 5}),
+        _row("VALIDATION_FAILED", {"status": None, "red_step": None}),
+    ]
+    table = rs.ladder_table(legacy + malformed)
+    assert [(g["status"], g["red_step"], g["rejects"]) for g in table] == [("none", None, 3)]
+    assert sorted(table[0]["findings_heads"]) == ["l0", "l1", "l2"]
+
+    def rec(status: str, step: str | None) -> dict:
+        return {"status": status, "red_step": step}
+
+    groups = [rec("red", "lint"), rec("missing", None), rec("red", "cite"), rec("fresh", None), rec("red", None)]
+    rows = [_row("VALIDATION_FAILED", g) for g in reversed(groups)] + [_row("VALIDATION_FAILED", g) for g in groups]
+    tied = rs.ladder_table(rows)
+    assert [(g["status"], g["red_step"], g["rejects"]) for g in tied] == [
+        ("fresh", None, 2), ("missing", None, 2), ("red", None, 2), ("red", "cite", 2), ("red", "lint", 2),
+    ]
+    assert rs.ladder_table(list(reversed(rows))) == tied, "deterministic regardless of input order"
+
+
+# --------------------------------------------------------------------------
+# AC16 stale receipt that was red
+# --------------------------------------------------------------------------
+
+def test_AC16_stale_but_was_red_keeps_first_red_step(tmp_path: Path) -> None:
+    """AC16: red receipt then a tracked edit -> status 'stale', red_step = the receipt's first red step."""
+    pf = _pf()
+    repo, spec = _mk(tmp_path, "ac16", body=BAD_CITE_BODY)
+    assert _g(_preflight(repo, spec, "red"), "exit_code") == 1
+    assert pf.receipt_rung("red", str(repo))["status"] == "red"
+    (repo / "calc.py").write_text(CALC + "# edit\n", encoding="utf-8")
+    assert pf.receipt_rung("red", str(repo)) == {"status": "stale", "phase": "red", "red_step": "cite"}
