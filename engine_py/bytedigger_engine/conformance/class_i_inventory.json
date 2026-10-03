@@ -249,6 +249,7 @@
     "workflows/phase_6_review.py::_resolve_satisfaction_source::read_text#0": {"class": "M", "note": "model-written satisfaction doc re-read to choose the final text; model output, not repo bytes"},
     "workflows/phase_6_review.py::_run_pytest_post_fix::read_text#0": {"class": "not-prompt", "note": "pytest stdout parsed for failing ids and persisted to the post-fix report; the report is declared at _load_postfix_pytest_report::read_bytes#0"},
     "workflows/phase_6_review.py::_run_pytest_post_fix::run_test_command#0": {"class": "not-prompt", "note": "post-fix pytest run; stdout tail persisted to the report that the review builder declares via _load_postfix_pytest_report"},
+    "workflows/phase_6_review.py::_post_fix_test_scope::subprocess.run#0": {"class": "not-prompt", "note": "git ls-files -z to list tracked test files for the post-fix sibling scope (bd#90); output is a path list, never prompt text"},
     "workflows/phase_6_review.py::_verify_finding_quote::read_text#0": {"class": "not-prompt", "note": "cited file read to verify a quote; gate verdict only"},
     "workflows/phase_6_review.py::_verify_fix_typecheck::bounded_run#0": {"class": "E", "note": "mypy output parsed into structured findings carried as retry findings (class-E fields)"},
     "workflows/phase_6_review.py::_verify_fix_typecheck::bounded_run#1": {"class": "not-prompt", "note": "baseline mypy run at the parent revision; compared as counts"},
