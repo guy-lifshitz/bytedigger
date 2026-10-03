@@ -10,9 +10,6 @@
   "reviewers": {
     "mode": "auto"
   },
-  "simple_reviewers": 3,
-  "feature_reviewers": 6,
-  "complex_reviewers": 6,
   "gates_enabled": true,
   "gate_backend": "bash",
   "tdd_mandatory": true,

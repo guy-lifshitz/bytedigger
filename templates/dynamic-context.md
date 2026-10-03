@@ -11,20 +11,15 @@
 | 5.2a Gherkin | Sonnet | Sonnet | Sonnet |
 | 5.2b Validate | Opus | Opus | Opus |
 | 5.3 Green | Sonnet | Sonnet | Sonnet |
-| 6 Review | 3x reviewers | 6x reviewers | 6x reviewers |
+| 6 Review | 1x composite reviewer | 1x composite reviewer | 1x composite reviewer |
 | 6 Satisfaction | Opus (3D) | Opus (5D) | 3x Opus (5D) |
 | 7 Synthesize | Haiku | Haiku | Haiku |
 
 Models are configurable via `bytedigger.json`.
 
-## Review Agent Roster
+## Review Reviewer
 
-| Complexity | Agents | List |
-|-----------|--------|------|
-| SIMPLE | 3 | code-reviewer, silent-failure-hunter, pr-test-analyzer |
-| FEATURE/COMPLEX | 6 | + comment-analyzer, type-design-analyzer, code-simplifier |
-
-Launch all parallel (`run_in_background: true`) | Log: `phase_6_reviewers_launched: <N> | phase_6_reviewers_expected: <3|4|6|7>` | If launched != expected → STOP
+Phase 6 runs one composite reviewer for every tier (details: `phases/phase-6-review.md`).
 
 ## Satisfaction Scoring
 

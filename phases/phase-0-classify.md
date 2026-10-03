@@ -219,7 +219,7 @@ If `--dry-run` flag is set, display the following and STOP (do not proceed to Ph
 | **Phases** | [list phases that will run] |
 | **Model allocation** | [table from model allocation section] |
 | **Estimated agents** | [count of Task agents that will spawn] |
-| **Review agents** | [3 for SIMPLE, 6 for FEATURE/COMPLEX] |
+| **Review agents** | [1 composite reviewer] |
 | **Opus gates** | Test validation (Phase 5.2) + Satisfaction scoring (Phase 6) |
 | **Constitution** | [found/not found] |
 
@@ -286,7 +286,7 @@ At EVERY phase transition: update `current_phase`, append to `completed_phases`,
 | 5.1 Red | Haiku | Sonnet | Opus |
 | 5.2 Validate | Opus | Opus | Opus |
 | 5.3 Green | Sonnet | Sonnet | Sonnet |
-| 6 Review | 3x reviewers | 6x reviewers | 6x reviewers |
+| 6 Review | 1x composite reviewer | 1x composite reviewer | 1x composite reviewer |
 | 6 Satisfaction | Opus (3 dim) | Opus (5 dim) | 3x Opus voting (5 dim) |
 | 7 Synthesize | Haiku | Haiku | Haiku |
 

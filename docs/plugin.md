@@ -81,9 +81,6 @@ per-step model pinning — see [configuration.md](configuration.md).
   "activeWorkInjection": true,
   "logging": false,
   "reviewers": { "mode": "auto" },
-  "simple_reviewers": 3,
-  "feature_reviewers": 6,
-  "complex_reviewers": 6,
   "learning": { "backend": "file", "storage_path": ".bytedigger/learnings" }
 }
 ```
@@ -116,7 +113,7 @@ per-step model pinning — see [configuration.md](configuration.md).
 
 **Reviewers:**
 - `reviewers.mode` (values: `"toolkit"`, `"generic"`, `"auto"`, default: `"auto"`) — Controls reviewer agent selection. `"toolkit"` uses pr-review-toolkit if available, `"generic"` uses basic review agents, `"auto"` selects based on available dependencies.
-- `simple_reviewers` / `feature_reviewers` / `complex_reviewers` (defaults: `3` / `6` / `6`) — Reviewer counts per complexity tier. Parsed by both gate backends (`scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`); declared expectation only; the engine runs one composite reviewer in Phase 6 for every tier, so these are not live knobs. These flat keys are the canonical form — an earlier nested `reviewers.{SIMPLE,FEATURE,COMPLEX}` block was never read by any backend and has been removed from the sample config; only `reviewers.mode` is meaningful inside the `reviewers` object.
+- Phase 6 runs one composite reviewer for every tier; the former `simple_reviewers` / `feature_reviewers` / `complex_reviewers` keys were removed and are ignored if present in an existing config.
 
 **Per-run overrides:**
 
