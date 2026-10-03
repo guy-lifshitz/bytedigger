@@ -565,13 +565,39 @@ def test_a8_plugin_md_hooks_table_row():
     assert "PreToolUse" in rows[0]
 
 
+def _load_changelog_helper():
+    # Loaded lazily by path (no sys.path mutation, no conftest import -- §1q).
+    import importlib.util
+    import sys
+
+    path = REPO_ROOT / "engine_py" / "tests" / "helpers" / "changelog.py"
+    assert path.is_file(), f"missing shared CHANGELOG helper: {path}"
+    spec = importlib.util.spec_from_file_location("_bd212_changelog_helper", path)
+    assert spec and spec.loader, f"cannot build an import spec for {path}"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # needed so NamedTuple/dataclass resolve under by-path loading
+    spec.loader.exec_module(module)
+    return module
+
+
+_BD133_NEEDLE = "**Subagent write guard (bd#133).**"
+
+
+def _bd133_bullet(section_body: str) -> str:
+    lines = section_body.splitlines()
+    start = next((i for i, l in enumerate(lines) if _BD133_NEEDLE in l), None)
+    assert start is not None, f"section has no {_BD133_NEEDLE!r} bullet"
+    bullet = [lines[start]]
+    for l in lines[start + 1:]:
+        if l.strip() == "" or l.startswith("- ") or l.startswith("#"):
+            break
+        bullet.append(l)
+    return "\n".join(bullet)
+
+
 def test_a8_changelog_topmost_section_mentions_bd133():
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    heads = list(re.finditer(r"^## \[", text, re.M))
-    assert heads, "CHANGELOG has no version sections"
-    end = heads[1].start() if len(heads) > 1 else len(text)
-    top = text[heads[0].start():end]
-    assert re.search(r"bd#133|#133\b", top), "topmost CHANGELOG section must mention bd#133"
+    _load_changelog_helper().require_entry(text, _BD133_NEEDLE)
 
 
 def test_a8_ci_manifests_job_runs_this_suite():
@@ -948,11 +974,10 @@ def test_a11_cr7_security_md_guard_section_does_not_say_never_blocked():
 
 def test_a11_cr7_changelog_bd133_entry_does_not_say_never_blocked():
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    heads = list(re.finditer(r"^## \[", text, re.M))
-    end = heads[1].start() if len(heads) > 1 else len(text)
-    top = text[heads[0].start():end]
-    assert re.search(r"bd#133|#133\b", top)
-    assert "never blocked" not in top
+    cl = _load_changelog_helper()
+    for sec in cl.entry_sections(text, _BD133_NEEDLE):
+        assert "never blocked" not in _bd133_bullet(sec.body)
+    cl.require_entry(text, _BD133_NEEDLE)
 
 
 def test_awaiting_approval_phase_is_active(tmp_path):
@@ -976,9 +1001,7 @@ def _security_guard_section() -> str:
 
 def _top_changelog_section() -> str:
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    heads = list(re.finditer(r"^## \[", text, re.M))
-    end = heads[1].start() if len(heads) > 1 else len(text)
-    return text[heads[0].start():end]
+    return _load_changelog_helper().require_entry(text, _BD133_NEEDLE).body
 
 
 def test_rev4_security_md_names_only_synthesizer_role():
@@ -998,17 +1021,7 @@ def test_rev4_plugin_md_hook_row_names_only_synthesizer_role():
 
 
 def test_rev4_changelog_bd133_entry_names_only_synthesizer_role():
-    top = _top_changelog_section()
-    lines = top.splitlines()
-    start = next((i for i, l in enumerate(lines)
-                  if l.startswith("- **Subagent write guard (bd#133).**")), None)
-    assert start is not None, "CHANGELOG top section has no '- **Subagent write guard (bd#133).**' bullet"
-    bullet = [lines[start]]
-    for l in lines[start + 1:]:
-        if l.strip() == "" or l.startswith("- ") or l.startswith("#"):
-            break
-        bullet.append(l)
-    bullet_text = "\n".join(bullet)
+    bullet_text = _bd133_bullet(_top_changelog_section())
     assert "synthesizer" in bullet_text
     assert not re.search(r"\bexplorer\b|\barchitect\b", bullet_text, re.I)
 

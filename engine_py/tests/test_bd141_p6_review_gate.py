@@ -589,6 +589,10 @@ def test_r23_docs_and_changelog():
 
     assert "review label" in error_codes.ERROR_CODES["E_READINESS_NOT_APPROVED"]
     log = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = _section(log, "[Unreleased]")
-    assert "bd#141 item 6" in unreleased
-    assert "review_label" in unreleased
+    from helpers.changelog import require_entry
+
+    carrying = require_entry(
+        log, "**Readiness review gate in engine Phase 6 (bd#141 item 6).**"
+    ).body
+    assert "bd#141 item 6" in carrying
+    assert "review_label" in carrying

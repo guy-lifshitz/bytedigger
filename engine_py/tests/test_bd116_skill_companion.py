@@ -724,10 +724,10 @@ def test_ac13_configuration_docs():
 
 
 def test_ac13_changelog_unreleased_mentions_116():
+    from helpers.changelog import require_entry
+
     text = _read("CHANGELOG.md")
-    m = re.search(r"(?ms)^## \[Unreleased\]\s*$(.*?)(?=^## \[)", text)
-    assert m
-    assert re.search(r"#116\b", m.group(1))
+    require_entry(text, "**Skill companions (#116).**")
 
 
 def test_ac13_core_boundary_lint_clean_with_new_module():

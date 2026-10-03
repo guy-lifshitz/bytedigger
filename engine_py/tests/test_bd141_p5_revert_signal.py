@@ -274,10 +274,10 @@ def test_v10_propose_renders_a_reverted_signal(tmp_path, monkeypatch):
 
 
 def _unreleased() -> str:
+    from helpers.changelog import require_entry
+
     text = CHANGELOG.read_text(encoding="utf-8")
-    m = re.search(r"^## \[Unreleased\]\s*$(.*?)(?=^## \[)", text, re.S | re.M)
-    assert m, "CHANGELOG.md has no [Unreleased] section"
-    return m.group(1)
+    return require_entry(text, "bd#141 item 5").body
 
 
 @pytest.mark.parametrize("where", ["configuration_md", "changelog_unreleased", "module_docstring"])
@@ -288,7 +288,8 @@ def test_v11_docs_name_the_reverted_signal(where):
         text = DOC_CONFIG.read_text(encoding="utf-8")
         assert "reverted" in text and "Reverts <owner>/<repo>#<N>" in text
     elif where == "changelog_unreleased":
-        assert "reverted" in _unreleased()
+        body = _unreleased()
+        assert "`reverted`" in body and "Reverts <owner>/<repo>#<N>" in body
     else:
         import ast
 

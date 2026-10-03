@@ -424,10 +424,15 @@ class TestBd89P3dFlagOwnerLint:
         assert re.search(r"(?m)^#{1,6}\s+.*Flag lifecycle", contributing), (
             "CONTRIBUTING.md has no 'Flag lifecycle' heading"
         )
-        changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        m = re.search(r"(?ms)^## \[Unreleased\]\s*\n(.*?)(?=^## \[)", changelog)
-        assert m, "CHANGELOG has no [Unreleased] section"
-        parts = re.split(r"(?m)^(?=### )", m.group(1))
+        spec = importlib.util.spec_from_file_location(
+            "bd212_changelog_helper",
+            REPO_ROOT / "engine_py" / "tests" / "helpers" / "changelog.py",
+        )
+        cl = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cl)
+        unreleased = [s for s in cl.parse_sections(cl.read_changelog()) if cl.is_unreleased(s)]
+        assert unreleased, "CHANGELOG has no [Unreleased] section"
+        parts = re.split(r"(?m)^(?=### )", unreleased[0].body)
         added = [s for s in parts if s.startswith("### Added")]
         removed = [s for s in parts if s.startswith("### Removed")]
         assert any("flag_owner_lint" in s for s in added), (

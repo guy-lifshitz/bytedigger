@@ -1810,10 +1810,10 @@ def test_ac_r_configuration_doc_names_tuning():
 
 def test_ac_r_changelog_mentions_part_b_companion_tuning():
     """AC-R: CHANGELOG.md [Unreleased] mentions #117 Part B / companion tuning (Part A's entry does not)."""
+    from helpers.changelog import require_entry
+
     text = _read("CHANGELOG.md")
-    m = re.search(r"(?ms)^## \[Unreleased\]\s*$(.*?)(?=^## \[)", text)
-    assert m, "CHANGELOG.md needs an [Unreleased] section"
-    assert re.search(r"(?i)companion[- ]tun", m.group(1)), "[Unreleased] must mention companion tuning"
+    require_entry(text, "**Weekly companion tuning (bd#117, Part B).**")
 
 
 def test_ac_r_core_boundary_lint_clean_with_companion_tune():

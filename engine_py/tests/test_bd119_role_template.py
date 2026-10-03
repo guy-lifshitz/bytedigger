@@ -1487,10 +1487,12 @@ def test_security_doc_amended():
 
 
 def _unreleased() -> str:
+    from helpers.changelog import require_entry
+
     text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    start = text.index("## [Unreleased]")
-    end = text.find("\n## [", start + 1)
-    return text[start:end if end != -1 else len(text)]
+    import re
+
+    return require_entry(text, re.compile(r"bd#119\b")).body
 
 
 def test_changelog_entries():
