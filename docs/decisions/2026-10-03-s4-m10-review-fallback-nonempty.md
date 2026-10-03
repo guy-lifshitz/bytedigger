@@ -1,6 +1,6 @@
 # S4/M10: fail-closed check that the review stdout-fallback path produced findings
 
-**Status: DRAFT r3 (gate r1 REJECT 4 MAJOR, r2 REJECT 2 MAJOR: `-gate-r1.md`, `-gate-r2.md`; r3 pending MGR acceptance)** · **Tier:** 2 (engine self-mod, one function + one error code, no flag) · **Class:** COVERAGE (review verdict integrity)
+**Status: DRAFT r4 (gate r1 REJECT 4 MAJOR, r2 REJECT 2 MAJOR: `-gate-r1.md`, `-gate-r2.md`; r3 accepted by MGR over the cap with conditions, recorded in `-s4-mgr-acceptance.md`; r4 = MGR condition 3: SHADOW by default)** · **Tier:** 2 (engine self-mod, one function + one error code + one `*_ENFORCE` flag) · **Class:** COVERAGE (review verdict integrity)
 **Note:** SUSPECT on the fallback path means "no JSON structured block and no PARTIAL/FAIL marker"; it also covers real `### SEVERITY:` blocks (the prompt's own format), which `_persist_fix_feed` parses and feeds to the fix worker. So SUSPECT alone is NOT "empty" (gate r1 M4); the rule below keys on findings actually parsed.
 **Chokepoint:** `phase_6_review._write_review_artifact`, stdout-fallback branch (after `_derive_fallback_verdict`): the only place a fallback review becomes `status=ok`.
 **Provenance:** audit hal#2320 §6 row M10 (P3b1b-ii 56fbbfa folded aggregation into `write_review_artifact`; absent composite = event `role_report_missing`, status ok, fallback to stdout/disk). Plan approved by Guy 2026-10-03 (audit repair step 4).
@@ -35,6 +35,18 @@ In the fallback branch, BEFORE anything is written to `doc_path` by the engine a
 - Not blocked (unchanged): any content with a structured block with a recognised severity, any `### SEVERITY:` block parsed by the fix-feed parser, any explicit `VERDICT: PARTIAL/FAIL` marker.
 - Accepted gap (named): a bare `VERDICT: PARTIAL/FAIL` with no findings anywhere stays ok (explicit reviewer claim).
 
+
+## 1a. Rollout flag (MGR condition 3: degrade, do not fall over)
+
+Flag `HAL_REVIEW_EMPTY_FALLBACK_ENFORCE`, read via `get_config().flag(...)`, registered in `flags_catalog.py` (`kind: flag`, `default: "0"`, `module: workflows/phase_6_review.py`, description naming owner `s4-bytedigger (MGR)` and `flip-by:2026-10-17`). Module constants `_EMPTY_FALLBACK_FLAG_OWNER = "s4-bytedigger (MGR)"`, `_EMPTY_FALLBACK_FLAG_EXPIRES = "2026-10-17"`; today = UTC date via one module-level helper `_utc_today()` (the test seam).
+
+Mode = `enforce` iff the flag is on, or the SHADOW window has expired (`today > expires`: an expired shadow flag fails closed instead of silently staying permissive). Otherwise `shadow` (default).
+
+On every findingless fallback, in BOTH modes: emit `review_empty_fallback` `{phase, reason, bytes, mode, flag: {name, owner, expires, expired}}` and write the diagnosis to `reviews/build-review.rejected.md` (the pre-normalisation text, only when that file does not yet exist).
+- **shadow:** nothing else changes: the step continues exactly as today (normalised doc persisted at `build-review.md`, fix feed written, `status=ok`, verdict unchanged). Known consequence, accepted by MGR for the shadow window: phase 7 still reports the review PRESENT.
+- **enforce:** the terminal behaviour of section 1 (move the on-disk doc to `.rejected.md`, doc_path absent, stale fix doc removed, `E_REVIEW_EMPTY_FALLBACK`, recoverable False).
+Section 1 below describes the enforce branch; AC1/AC1b/AC4/AC4b run with the flag on, plus shadow ACs in section 4.
+
 ## 2. Adjacent hole in the same function
 
 `_derive_fallback_verdict`: a structured block with >= 1 finding object but none with a recognised severity (CRITICAL/HIGH/MEDIUM/LOW, case-insensitive, stripped) currently counts as all-zero -> `PASS`. Fail-closed: it yields `SUSPECT`; the findingless rule then rejects it with reason `unrecognised_severity` unless (b)/(c) say otherwise (an explicit `VERDICT: FAIL` marker alongside such a block: marker wins -> FAIL, not an error). Empty list `[]` stays `PASS`. A non-empty structured list with zero object entries (e.g. `["CRITICAL: x"]`, which the extractor filters to `[]`) is also `SUSPECT` (gate r2 M1): GREEN detects it from the in-memory content (no disk read) and rejects with reason `no_findings_parsed`; malformed JSON / dict root in a structured fence is `no_findings_parsed` as well. Mixed recognised/unrecognised keeps the recognised-severity verdict.
@@ -57,6 +69,11 @@ Drive `_write_review_artifact` with `prev.data = {raw_response, doc_path, spec_p
 - AC5: aggregator path with SUSPECT and a suspect list -> still ok (non-regression).
 - AC6: code registered in `ERROR_CODES` with a description; `_CLASS_REGISTRY` entry exists with remedy `terminal`.
 - AC7: behavioural purity (no LLM subprocess, no disk read beyond existing; the class_i_inventory read_text pin test stays green).
+
+- AC8 (shadow, MGR condition 3/4): flag unset, each AC1 cell and each AC4/AC4b cell -> `status=ok`, verdict as today (SUSPECT/PASS), `build-review.md` present, fix doc written, event `review_empty_fallback` with `mode == "shadow"` and `flag.owner` non-empty and `flag.expires == "2026-10-17"`, `build-review.rejected.md` present with the pre-normalisation bytes; pre-existing `.rejected.md` is not overwritten.
+- AC9 (expiry): with `_utc_today` patched to 2026-10-17 and flag unset -> shadow; to 2026-10-18 and flag unset -> terminal enforce behaviour, event `flag.expired == True`, `mode == "enforce"`; flag set after expiry -> enforce.
+- AC10 (r2 MAJOR cells, enforce): non-empty structured list with zero object entries -> error `no_findings_parsed`; GH1399 `test_ac9` shape (disk doc findingless, enforce) -> `doc_path` absent.
+- AC6b: flag registered in `flags_catalog.FLAGS` (kind flag, default "0", description mentions owner and 2026-10-17).
 
 ## 5. Existing tests that GREEN must update (spec change, not test gaming)
 
