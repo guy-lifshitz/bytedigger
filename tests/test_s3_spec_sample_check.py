@@ -1025,7 +1025,7 @@ class TestS3SpecSampleCheck:
             "share below 0.25",
             "share less than 0.25",
             "0.25 > share",
-            "не более 0.25",
+            "\u043d\u0435 \u0431\u043e\u043b\u0435\u0435 0.25",
             "up to 200",
             "exceeds 40",
             "share under 0.25",
@@ -1037,9 +1037,9 @@ class TestS3SpecSampleCheck:
             "share max 0.25",
             "share min 0.25",
             "share over 0.9",
-            "меньше 0.25",
-            "больше 0.25",
-            "не менее 12",
+            "\u043c\u0435\u043d\u044c\u0448\u0435 0.25",
+            "\u0431\u043e\u043b\u044c\u0448\u0435 0.25",
+            "\u043d\u0435 \u043c\u0435\u043d\u0435\u0435 12",
         ],
     )
     def test_ac13_phrase_and_reversed_forms_are_numeric_acs(self, tmp_path, text):
@@ -1060,9 +1060,9 @@ class TestS3SpecSampleCheck:
             ("up to 200", "300", True),
             ("up to 200", "200", False),
             ("more than 0.9", "0.5", True),
-            ("не более 0.25", "0.31", True),
-            ("не более 0.25", "0.1", False),
-            ("не менее 12", "5", True),
+            ("\u043d\u0435 \u0431\u043e\u043b\u0435\u0435 0.25", "0.31", True),
+            ("\u043d\u0435 \u0431\u043e\u043b\u0435\u0435 0.25", "0.1", False),
+            ("\u043d\u0435 \u043c\u0435\u043d\u0435\u0435 12", "5", True),
         ],
     )
     def test_ac13_phrase_forms_contradiction_with_measured(self, tmp_path, text, measured, contradicts):
