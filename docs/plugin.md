@@ -212,7 +212,9 @@ Every tier runs phases 0, 0.5, 4.5, 5, 6, 7.
 
 ## Agents
 
-The plugin ships no agents. The phase 7 post-deploy report is deterministic: the engine writes it from the event log, with no model call.
+| Agent | Model | Role |
+|-------|-------|------|
+| synthesizer | Haiku | Post-build summary, learning extraction |
 
 ## Tests
 
@@ -288,7 +290,7 @@ See [events.md](events.md) for complete event schema, metadata vocabulary, HAL m
 
 ## Learning System
 
-Learnings are no longer extracted automatically after a build, because the post-deploy report is deterministic. `learning-store.sh extract` still stores a hand-written `reviews/learnings-raw.md` in `.bytedigger/learnings/`. Phase 0.5 injects relevant learnings from previous builds into the current context.
+Post-build learnings are extracted by the synthesizer agent and stored in `.bytedigger/learnings/`. Phase 0.5 injects relevant learnings from previous builds into the current context.
 
 Default backend: `file`. Configurable via `bytedigger.json`:
 

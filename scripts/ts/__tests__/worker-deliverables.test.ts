@@ -1,10 +1,8 @@
 // bd#127 AC4 + AC5 (TS gate): workers write their own deliverables, the gate
 // checks them on disk. Bash twin is covered by tests/test_worker_deliverables.py.
 // Shadow mode compares stdout byte-for-byte, so reason strings are asserted exactly.
-// bd#89 P3c: phase 7 no longer has a worker deliverable (learnings-raw.md retired);
-// the phase 7 gate checks review_complete only.
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchPhase } from "../build-phase-gate.ts";
@@ -38,6 +36,12 @@ function phase7State(extra: Record<string, string> = {}): void {
   });
 }
 
+function put(rel: string, content: string): void {
+  const p = join(scratch, rel);
+  mkdirSync(join(p, ".."), { recursive: true });
+  writeFileSync(p, content);
+}
+
 function softReason(v: GateVerdict): string {
   expect(v.decision).toBe("block");
   if (v.decision !== "block") throw new Error("unreachable");
@@ -62,25 +66,42 @@ afterEach(() => {
 });
 
 // bd#89 P2a: the AC4 block (phase 4 gate: findings / approach deliverables) is
-// retired together with phases 1-4. bd#89 P3c: the AC5 learnings-raw.md deliverable
-// block is retired; the cases below pin the review_complete-only phase 7 gate.
+// retired together with phases 1-4. Only the AC5 (phase 7) block remains.
 
-describe("phase 7 gate: review_complete only (no deliverable)", () => {
-  test("review_complete pass + no learnings-raw.md -> pass", () => {
+describe("AC5 — phase 7 gate: learnings-raw.md deliverable", () => {
+  test("AC5 — review_complete pass + learnings-raw.md missing → soft block, exact reason", () => {
     phase7State({ review_complete: "pass" });
     const v = dispatchPhase({ cwd: dir });
-    expect(v.decision).toBe("pass");
-    expect(v.exit_code).toBe(0);
+    expect(softReason(v)).toBe(`missing deliverable: ${scratch}/reviews/learnings-raw.md; `);
   });
 
-  // joinMissing parity: the reason ends with "; " like every other joinMissing phase.
-  test("review_complete missing -> reason is the review_complete entry only", () => {
+  test("AC5 — zero-byte learnings-raw.md → soft block", () => {
+    phase7State({ review_complete: "pass" });
+    put("reviews/learnings-raw.md", "");
+    const v = dispatchPhase({ cwd: dir });
+    expect(softReason(v)).toBe(`missing deliverable: ${scratch}/reviews/learnings-raw.md; `);
+  });
+
+  // R1 parity: checkPhase7 collects entries and joins with joinMissing, so the
+  // reason is byte-identical to bash `printf '%s; '` (trailing "; " after every entry).
+  test("AC5 — both missing → exact joined reason (bash parity, joinMissing)", () => {
     phase7State();
+    const v = dispatchPhase({ cwd: dir });
+    expect(softReason(v)).toBe(
+      `review_complete=pass (got: <missing>); missing deliverable: ${scratch}/reviews/learnings-raw.md; `,
+    );
+  });
+
+  // R1: review_complete-only reason now ends with "; " like every other joinMissing phase.
+  test("AC5 — review_complete missing, learnings-raw.md present → reason ends with '; ' (joinMissing)", () => {
+    phase7State();
+    put("reviews/learnings-raw.md", "- [testing] --- a lesson\n");
     const v = dispatchPhase({ cwd: dir });
     expect(softReason(v)).toBe("review_complete=pass (got: <missing>); ");
   });
 
-  test("phase 7 without scratchpad_dir, review_complete pass -> pass", () => {
+  // Guard (passes on main): no scratchpad_dir → no deliverable entry.
+  test("AC5 guard — phase 7 without scratchpad_dir, review_complete pass → pass", () => {
     writeState({
       task: "x",
       complexity: "FEATURE",
@@ -93,18 +114,36 @@ describe("phase 7 gate: review_complete only (no deliverable)", () => {
     expect(v.decision).toBe("pass");
   });
 
-  test("TRIVIAL without review_complete -> pass (not checked)", () => {
+  test("AC5 — header-only learnings-raw.md (## New Learnings) passes", () => {
+    phase7State({ review_complete: "pass" });
+    put("reviews/learnings-raw.md", "## New Learnings\n");
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("pass");
+    expect(v.exit_code).toBe(0);
+  });
+
+  test("AC5 — TRIVIAL + learnings-raw.md missing → pass (not checked)", () => {
     phase7State({ complexity: "TRIVIAL" });
+    const v = dispatchPhase({ cwd: dir });
+    expect(v.decision).toBe("pass");
+  });
+
+  // Guard (passes on main).
+  test("AC5 guard — learnings-raw.md present + review_complete pass → pass", () => {
+    phase7State({ review_complete: "pass" });
+    put("reviews/learnings-raw.md", "- [testing] --- a lesson\n");
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("pass");
   });
 });
 
 describe("Rev 3 — C2 spaced scratchpad path", () => {
-  test("C2 guard — phase 7 with spaced scratchpad path, review_complete pass -> pass", () => {
+  // C2 guard: TS already handles spaces (bash is fixed to match).
+  test("C2 guard — phase 7 with spaced scratchpad path, file present → pass", () => {
     scratch = join(dir, "my scratch");
     mkdirSync(scratch, { recursive: true });
     phase7State({ review_complete: "pass" });
+    put("reviews/learnings-raw.md", "- [testing] --- a lesson\n");
     const v = dispatchPhase({ cwd: dir });
     expect(v.decision).toBe("pass");
     expect(v.exit_code).toBe(0);

@@ -33,20 +33,169 @@ GATE = REPO_ROOT / "scripts" / "build-gate.sh"
 STORE = REPO_ROOT / "scripts" / "learning-store.sh"
 SCHEMA = REPO_ROOT / "tests" / "fixtures" / "learning-schema.sql"
 
-# bd#89 P3c: the synthesizer agent and its learnings-raw.md deliverable are retired,
-# so the agent-frontmatter (AC1/AC2) and phase-7 contract (AC3) tests are gone. The
-# learning-store extract tests (AC6/C6/C7) stay: extract still parses a
-# learnings-raw.md when one exists.
+OLD_TOOLS = {
+    "Glob", "Grep", "LS", "Read", "NotebookRead", "WebFetch",
+    "TodoWrite", "WebSearch", "KillShell", "BashOutput",
+}
 
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
+def _read(rel: str) -> str:
+    return (REPO_ROOT / rel).read_text(encoding="utf-8")
+
+
+def _tools(rel: str) -> set[str]:
+    text = _read(rel)
+    m = re.search(r"^---\n(.*?)\n---", text, re.S)
+    assert m, f"{rel}: no frontmatter"
+    for line in m.group(1).splitlines():
+        if line.startswith("tools:"):
+            return {t.strip() for t in line[len("tools:"):].split(",") if t.strip()}
+    raise AssertionError(f"{rel}: no tools: line in frontmatter")
+
+
+def _strip_fences(text: str) -> str:
+    # M7: drop fenced code blocks so an example containing "## New Learnings"
+    # cannot truncate the "## Deliverable" section.
+    return re.sub(r"^```.*?^```[^\n]*\n?", "", text, flags=re.S | re.M)
+
+
+def _deliverable_section(rel: str) -> str:
+    text = _strip_fences(_read(rel))
+    m = re.search(r"^## Deliverable[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    assert m, f"{rel}: no '## Deliverable' section"
+    return m.group(1)
+
+
 def _clean_env(home: Path, **extra: str) -> dict[str, str]:
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home)}
     env.update(extra)
     return env
+
+
+# ---------------------------------------------------------------------------
+# AC1 -- tools: old set + Write, nothing else
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("agent", ["synthesizer"])
+def test_ac1_tools_are_old_set_plus_write(agent):
+    assert _tools(f"agents/{agent}.md") == OLD_TOOLS | {"Write"}
+
+
+# ---------------------------------------------------------------------------
+# AC2 -- agent body has a ## Deliverable section
+# ---------------------------------------------------------------------------
+
+AGENT_PATHS = {
+    "synthesizer": "{scratchpad_dir}/reviews/learnings-raw.md",
+}
+
+
+@pytest.mark.parametrize("agent", ["synthesizer"])
+def test_ac2_agent_deliverable_section_names_single_path(agent):
+    sec = _deliverable_section(f"agents/{agent}.md")
+    assert AGENT_PATHS[agent] in sec
+
+
+@pytest.mark.parametrize("agent", ["synthesizer"])
+def test_ac2_agent_deliverable_write_is_for_that_one_path_only(agent):
+    sec = _deliverable_section(f"agents/{agent}.md")
+    assert re.search(r"\bWrite\b", sec)
+    assert re.search(r"\b(only|never|solely|no other)\b", sec, re.I)
+    # M8: both words required ("no source or test files"), not just "other".
+    assert re.search(r"\bsource\b", sec, re.I)
+    assert re.search(r"\btest\b", sec, re.I)
+
+
+@pytest.mark.parametrize("agent", ["synthesizer"])
+def test_ac2_agent_deliverable_names_build_state_yaml_as_forbidden(agent):
+    # M8/R8: agents now hold Write; build-state.yaml must be named as off-limits.
+    sec = _deliverable_section(f"agents/{agent}.md")
+    assert "build-state.yaml" in sec
+    assert re.search(r"(never|not|no)\b[^.\n]{0,120}build-state\.yaml"
+                     r"|build-state\.yaml[^.\n]{0,80}(forbidden|off-limits|never|not)",
+                     sec, re.I)
+
+
+# architect-agent cases retired by bd#89 P2a (agents/architect.md deleted).
+
+
+@pytest.mark.parametrize("agent", ["synthesizer"])
+def test_ac2_agent_deliverable_final_reply_is_summary_plus_path(agent):
+    sec = _deliverable_section(f"agents/{agent}.md")
+    assert re.search(r"summary", sec, re.I)
+    assert re.search(r"\bpath\b", sec, re.I)
+    assert re.search(r"\b(not|never|instead|rather than)\b", sec, re.I)
+
+
+def test_ac2_synthesizer_uses_scratchpad_dir_placeholder():
+    text = _read("agents/synthesizer.md")
+    assert "{scratchpad_dir}/reviews/learnings-raw.md" in text
+    assert "{scratchpad}" not in text
+
+
+# ---------------------------------------------------------------------------
+# AC3 -- phase prompts
+# ---------------------------------------------------------------------------
+
+_NON_EMPTY = r"non-?empty|not empty|zero-byte|size\s*>\s*0"
+_NOT_ON_BEHALF = (
+    r"(?:not|never|n't)[^.\n]{0,80}behalf"
+    r"|behalf[^.\n]{0,40}(?:not|never)"
+    r"|(?:not|never)[^.\n]{0,60}\bwrit\w*[^.\n]{0,40}\bfor (?:the|that) "
+    r"(?:agent|architect|explorer|synthesizer)"
+)
+# F3: only explicit re-prompt/respawn wording. "spawn fresh" and "send message" already
+# appear in phase-2/phase-4 on main for unrelated reasons (vacuous), so they are excluded.
+_REPROMPT = r"re-?prompt|re-?spawn"
+
+
+def _assert_orchestrator_verifies(text: str):
+    assert re.search(_NON_EMPTY, text, re.I), "no non-empty-on-disk verification"
+    assert re.search(_REPROMPT, text, re.I), "no re-prompt/respawn on a miss"
+    assert re.search(_NOT_ON_BEHALF, text, re.I), "no 'orchestrator does not write it for the agent'"
+
+
+def _slice(text: str, start_re: str, end_re: str) -> str:
+    m = re.search(start_re + r"(.*?)(?=" + end_re + r"|\Z)", text, re.S | re.M)
+    assert m, f"section not found: {start_re}"
+    return m.group(1)
+
+
+# phase-2 / phase-4 contract cases retired by bd#89 P2a (phase files deleted).
+
+
+def test_ac3_phase7_step1_contract():
+    text = _read("phases/phase-7-synthesize.md")
+    step1 = _slice(text, r"^1\. Launch", r"^\*\*Orchestrator flow")
+    assert "reviews/learnings-raw.md" in step1
+    assert re.search(r"itself", step1, re.I)
+    assert re.search(r"summary", step1, re.I) and re.search(r"\bpath\b", step1, re.I)
+    # R3: verification wording lives in step 1 .. before step 4 (slice), not anywhere in the file.
+    verify_slice = _slice(text, r"^1\. Launch", r"^4\. ")
+    _assert_orchestrator_verifies(verify_slice)
+
+
+@pytest.mark.parametrize("rel", ["phases/phase-7-synthesize.md"])
+def test_ac3_worker_constraints_no_direct_edit_bash_line(rel):
+    # F7/R6: the old line contradicts AC1/AC2 exactly where Write is granted.
+    assert "Use Read/Edit/Write/Bash directly" not in _read(rel)
+
+
+def test_ac3_phase7_no_bare_scratchpad_placeholder():
+    # M4: `{scratchpad}` -> `{scratchpad_dir}` (incl. the line-62 mention).
+    text = _read("phases/phase-7-synthesize.md")
+    assert "{scratchpad}" not in text
+    assert "{scratchpad_dir}/reviews/learnings-raw.md" in text or \
+        "reviews/learnings-raw.md" in text
+
+
+def test_ac3_phase7_documents_line_format():
+    text = _read("phases/phase-7-synthesize.md")
+    assert re.search(r"-\s*\[category\]\s*---\s*\[?lesson\]?", text)
 
 
 # ---------------------------------------------------------------------------
@@ -108,41 +257,85 @@ _P5_STATE = "plan_review: pass\nphase_5_implement: complete\nopus_validation: pa
 # AC5 -- gate 7
 # ---------------------------------------------------------------------------
 
-# bd#89 P3c: the learnings-raw.md deliverable entry is retired from gate 7; the
-# deliverable-presence cases (missing / zero-byte / header-only / reviews-dir-absent)
-# are gone. Gate 7 now checks review_complete only; these retargeted cases pin that.
-
-def test_ac5_missing_learnings_raw_does_not_block(tmp_path):
-    _gate_fixture(tmp_path, "7", "review_complete: pass\n")
-    proc = _run_gate(tmp_path)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "learnings-raw" not in proc.stdout
-
-
-def test_ac5_review_complete_missing_is_the_only_reason(tmp_path):
-    _gate_fixture(tmp_path, "7", "")
+def test_ac5_missing_learnings_raw_soft_blocks(tmp_path):
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\n")
     proc = _run_gate(tmp_path)
     assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert _reason(proc) == "review_complete=pass (got: <missing>); "
+    assert _reason(proc) == f"missing deliverable: {scratch}/reviews/learnings-raw.md; "
+
+
+def test_ac5_zero_byte_learnings_raw_soft_blocks(tmp_path):
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\n")
+    (scratch / "reviews" / "learnings-raw.md").write_text("")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert _reason(proc) == f"missing deliverable: {scratch}/reviews/learnings-raw.md; "
+
+
+def test_ac5_both_missing_exact_joined_reason(tmp_path):
+    # F1(d): review_complete entry, then deliverable entry, bash printf '%s; ' format.
+    scratch = _gate_fixture(tmp_path, "7", "")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert _reason(proc) == (
+        "review_complete=pass (got: <missing>); "
+        f"missing deliverable: {scratch}/reviews/learnings-raw.md; ")
 
 
 def test_ac5_no_scratchpad_dir_no_deliverable_entry(tmp_path):
-    # phase 7 without scratchpad_dir must not build "/reviews/learnings-raw.md".
+    # F1(f): phase 7 without scratchpad_dir must not build "/reviews/learnings-raw.md".
+    # AC5c on main: also dies on the missing learning_backend read -> RED on main.
     _gate_fixture(tmp_path, "7", "review_complete: pass\n", with_scratch_dir=False)
     proc = _run_gate(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "learnings-raw" not in proc.stdout
 
 
-def test_ac5c_backend_file_no_extracted_passes_without_raw(tmp_path):
-    # learning_backend set, learnings_extracted absent, no raw file -> exit 0.
-    _gate_fixture(tmp_path, "7", "review_complete: pass\nlearning_backend: file\n")
+def test_ac5c_backend_file_no_extracted_missing_raw_soft_blocks(tmp_path):
+    # F2(a)/R2: real synthesizer-stop state (learning_backend set, learnings_extracted absent)
+    # must not crash the :309 read; it reaches the verdict.
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\nlearning_backend: file\n")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert _reason(proc) == f"missing deliverable: {scratch}/reviews/learnings-raw.md; "
+
+
+def test_ac5c_backend_file_no_extracted_header_only_passes(tmp_path):
+    # F2(b): same state, header-only file -> exit 0 (stderr may carry the existing WARN).
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\nlearning_backend: file\n")
+    (scratch / "reviews" / "learnings-raw.md").write_text("## New Learnings\n")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_ac5c_trivial_backend_sqlite_no_extracted_passes(tmp_path):
+    # F2(c): TRIVIAL + learning_backend: sqlite + no learnings_extracted -> exit 0, not checked.
+    _gate_fixture(tmp_path, "7", "review_complete: pass\nlearning_backend: sqlite\n",
+                  complexity="TRIVIAL")
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "learnings-raw" not in proc.stdout
+
+
+def test_ac5c_reviews_dir_absent_soft_blocks_not_crash(tmp_path):
+    # F2(e)/R2: no reviews/ directory -> soft block with the AC5 entry, never a crash.
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\nlearning_backend: file\n",
+                            subdirs=("research", "architecture"))
+    proc = _run_gate(tmp_path)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert _reason(proc) == f"missing deliverable: {scratch}/reviews/learnings-raw.md; "
+
+
+def test_ac5_header_only_learnings_raw_passes(tmp_path):
+    # AC5c: RED on main (gate_phase_7 dies on missing learning_backend under pipefail).
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\n")
+    (scratch / "reviews" / "learnings-raw.md").write_text("## New Learnings\n")
     proc = _run_gate(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_ac5_trivial_missing_file_not_checked(tmp_path):
-    # TRIVIAL never gains a learnings-raw check.
+    # AC5c: RED on main (same crash); TRIVIAL must never gain a learnings-raw check.
     _gate_fixture(tmp_path, "7", "review_complete: pass\n", complexity="TRIVIAL")
     proc = _run_gate(tmp_path)
     assert "learnings-raw" not in proc.stdout
@@ -162,17 +355,20 @@ def test_c2_gate4_scratchpad_path_with_space_passes(tmp_path):
 
 
 def test_c2_gate7_scratchpad_path_with_space_passes(tmp_path):
-    # bd#89 P3c: no learnings-raw.md needed; a spaced scratchpad path must not break gate 7.
-    _gate_fixture(tmp_path, "7", "review_complete: pass\n", scratch_name="my scratch")
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\n",
+                            scratch_name="my scratch")
+    (scratch / "reviews" / "learnings-raw.md").write_text("- [testing] --- a lesson\n")
     proc = _run_gate(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def test_c2_gate7_spaced_path_review_complete_missing_soft_blocks(tmp_path):
-    _gate_fixture(tmp_path, "7", "", scratch_name="my scratch")
+def test_c2_gate7_missing_file_reason_contains_real_spaced_path(tmp_path):
+    scratch = _gate_fixture(tmp_path, "7", "review_complete: pass\n",
+                            scratch_name="my scratch")
     proc = _run_gate(tmp_path)
     assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert _reason(proc) == "review_complete=pass (got: <missing>); "
+    assert _reason(proc) == f"missing deliverable: {scratch}/reviews/learnings-raw.md; "
+    assert "my scratch" in _reason(proc)
 
 
 def test_c3_gate7_trivial_without_review_complete_passes(tmp_path):

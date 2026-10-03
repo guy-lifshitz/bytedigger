@@ -10,3 +10,4 @@
 5.2	field_eq	phase_52a_gherkin	complete
 5.5	field_set	test_integrity_check
 7	field_eq	review_complete	pass
+7	scratch_file	reviews/learnings-raw.md
