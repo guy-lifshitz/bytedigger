@@ -14,7 +14,18 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterator, List, NamedTuple, Optional, Tuple, Union
 
-CHANGELOG_PATH = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
+
+
+def _changelog_path() -> Path:
+    """Nearest ancestor carrying CHANGELOG.md; never counts ancestors (bd#97)."""
+    here = Path(__file__).resolve()
+    for ancestor in here.parents:
+        if (ancestor / "CHANGELOG.md").is_file() and (ancestor / "engine_py").is_dir():
+            return ancestor / "CHANGELOG.md"
+    return here.parent / "CHANGELOG.md"
+
+
+CHANGELOG_PATH = _changelog_path()
 
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _RELEASE_RE = re.compile(r"^\[\d+\.\d+\.\d+[^\]]*\]")
