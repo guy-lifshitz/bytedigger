@@ -241,6 +241,8 @@ def test_verify_red_lint_rules_fails_loud_when_semgrep_missing(tmp_path, monkeyp
     from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules
 
     monkeypatch.setattr(shutil, "which", lambda name: None)
+    # bd flip 2026-10-03: foo.py is not collectable; keep collect-probe warn-only
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
     prev = StepResult(
         status="ok",
         data={
@@ -333,6 +335,9 @@ def test_verify_red_lint_rules_handles_semgrep_internal_error(tmp_path, monkeypa
 
     # Patch subprocess.run as imported into phase_5_implement module
     monkeypatch.setattr("bytedigger_engine.workflows.phase_5_implement.subprocess.run", _fake_run)
+    # bd flip 2026-10-03: the module-wide subprocess stub (rc 2) also feeds the
+    # collect-probe; keep it warn-only.
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
 
     prev = StepResult(
         status="ok",

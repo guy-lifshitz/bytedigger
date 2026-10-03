@@ -152,7 +152,7 @@ def test_ac4_enforce_on_non_collectable_fixture_returns_error(tmp_path, monkeypa
 def test_ac5_warn_only_emits_event_without_reject(tmp_path, monkeypatch):
     from bytedigger_engine.workflows import phase_5_implement as p5  # noqa: PLC0415
 
-    monkeypatch.delenv("HAL_RED_COLLECT_PROBE_ENFORCE", raising=False)
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")  # bd flip 2026-10-03: default ON, =0 is warn-only
 
     relpath = _write_test_file(tmp_path, "tests/test_1q_noncollect_warn.py", _NON_COLLECTABLE)
     ctx = _make_ctx(tmp_path)

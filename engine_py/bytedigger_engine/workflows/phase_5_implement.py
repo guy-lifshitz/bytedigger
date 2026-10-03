@@ -3588,7 +3588,10 @@ def _red_collect_probe(resolved_paths: list[str], git_cwd: str) -> tuple[list[st
         return ([], "")
     if proc.returncode == 124:
         return (["collect-probe timeout"], "")
-    tail = ((proc.stdout or "") + (proc.stderr or ""))[-400:]
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    if re.search(r"No module named '?pytest'?(?![\w.])", combined):
+        return ([], "pytest_unavailable")
+    tail = combined[-400:]
     return ([f"{', '.join(py_paths)}: {tail}"], "")
 
 
@@ -3807,8 +3810,7 @@ def _collect_red_lint_findings(
     # ── 4. collect-probe (findings enter batch ONLY under enforce, N6) ──
     if get_config().gate_enabled("HAL_RED_COLLECT_PROBE_GATE"):
         _cp_violations, _cp_skip = _red_collect_probe(resolved_paths, git_cwd)
-        _cp_cfg = get_config()
-        _cp_enforce = _cp_cfg.flag("HAL_RED_COLLECT_PROBE_ENFORCE") if hasattr(_cp_cfg, "flag") else False
+        _cp_enforce = get_config().gate_enabled("HAL_RED_COLLECT_PROBE_ENFORCE")
         _emit_safe("red_collect_probe_check", {
             "phase": 5, "step": step, "red_paths_n": len(resolved_paths),
             "violations_n": len(_cp_violations), "violations": _cp_violations,
@@ -3966,10 +3968,8 @@ def _verify_red_lint_rules_legacy(ctx, prev, step, cfg, git_cwd, resolved_paths)
     # ── GH542/§1q: collect-probe — non-collectable RED (D1CF5FDF 30-min-hang class) ──
     if get_config().gate_enabled("HAL_RED_COLLECT_PROBE_GATE"):      # kill-switch, default ON
         _cp_violations, _cp_skip = _red_collect_probe(resolved_paths, git_cwd)
-        _cp_cfg = get_config()
-        _cp_enforce = _cp_cfg.flag("HAL_RED_COLLECT_PROBE_ENFORCE") if hasattr(_cp_cfg, "flag") else False
-        # warn-only rollout: HAL_RED_COLLECT_PROBE_ENFORCE default OFF —
-        # flip-by:2026-07-24 Refs #542 (rollout-completion-check token)
+        # default ON since 2026-10-03 (Refs #542); HAL_RED_COLLECT_PROBE_ENFORCE=0 is the warn-only kill-switch
+        _cp_enforce = get_config().gate_enabled("HAL_RED_COLLECT_PROBE_ENFORCE")
         _emit_safe("red_collect_probe_check", {
             "phase": 5, "step": step, "red_paths_n": len(resolved_paths),
             "violations_n": len(_cp_violations), "violations": _cp_violations,

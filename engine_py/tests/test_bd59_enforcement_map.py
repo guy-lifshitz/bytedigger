@@ -6,7 +6,8 @@ Class: a duplicate guard. The exposure measurement (mandated by the issue BEFORE
 showed that a production refusal ALREADY exists for all three observable requirements:
 R2.2 — `E_RED_STUB_PASSABLE` (recoverable=False, 6 sites, the gate is on by
 default); R2.1 — `E_RED_COLLECT_PROBE` (recoverable=True, the enforcement flag
-defaults to 0); R2.6 — blocking of `_baseline_delta` (flag default=0).
+is on by default since the flip; `=0` is the kill-switch); R2.6 — blocking of
+`_baseline_delta` (flag default=0, the off-by-default example).
 
 ⇒ Wiring the L2 verdicts into the phases would mean placing a SECOND guard on an already
 guarded condition. The price is known by name from bd#29 §5a: the later guard
@@ -77,7 +78,7 @@ def test_ac4_three_enforcement_states_are_distinguishable():
     report = bd_l2.check_bd_l2([])
 
     enforced = report.labels["enforcement:R2.2"]
-    declared_off = report.labels["enforcement:R2.1"]
+    declared_off = report.labels["enforcement:R2.6"]  # R2.1 is on by default since the 2026-10-03 flip
     absent = report.labels["enforcement:R2.5"]
 
     assert len({enforced, declared_off, absent}) == 3, (
@@ -91,8 +92,8 @@ def test_ac5_a_disabled_consequence_never_reads_as_enforced():
     bd_l2 = _bd_l2()
     report = bd_l2.check_bd_l2([])
 
-    assert report.labels["enforcement:R2.1"] != report.labels["enforcement:R2.2"], (
-        "R2.1 is enforced only under a flag with default=0, R2.2 by default; "
+    assert report.labels["enforcement:R2.6"] != report.labels["enforcement:R2.2"], (
+        "R2.6 is enforced only under a flag with default=0, R2.2 by default; "
         "an identical label erases the difference"
     )
 
@@ -105,7 +106,8 @@ def test_ac6_measured_defaults_are_pinned():
     bd_l2 = _bd_l2()
 
     assert bd_l2.ENFORCEMENT["R2.2"]["enforced_by_default"] is True
-    assert bd_l2.ENFORCEMENT["R2.1"]["enforced_by_default"] is False
+    # R2.1 flipped by bd flip 2026-10-03 (HAL_RED_COLLECT_PROBE_ENFORCE default ON)
+    assert bd_l2.ENFORCEMENT["R2.1"]["enforced_by_default"] is True
     assert bd_l2.ENFORCEMENT["R2.6"]["enforced_by_default"] is False
 
 
