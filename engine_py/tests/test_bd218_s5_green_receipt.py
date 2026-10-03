@@ -1,6 +1,7 @@
 """bd#218 step 5 RED -- the engine writes the phase-green receipt before the integrity gate.
 
-Spec: docs/decisions/2026-10-03-bd218-s5-green-receipt.md (AC1-AC13; AC14 is a sibling run).
+Spec: docs/decisions/2026-10-03-bd218-s5-green-receipt.md (r3; AC1-AC13 and AC15-AC19 here;
+AC14 is a sibling-suite run, not a test in this file).
 
 Changed symbols (imported lazily, so every test fails at attribute/assert time, not collection):
   preflight.run_engine_preflight(top, red_tests, spec_text, *, base=None, phase="red")
@@ -140,6 +141,7 @@ def test_AC4_bogus_phase_is_failure_no_receipt_old_removed(tmp_path: Path) -> No
     assert pf.receipt_path(repo).exists()
     res = pf.run_engine_preflight(str(repo), [TEST_REL], "# engine spec\n", phase="bogus")
     assert res["receipt"] is None and res["exit_code"] != 0
+    assert res["error_code"] == pf._CODE_USAGE == "E_PREFLIGHT_USAGE"
     assert not pf.receipt_path(repo).exists()
 
 
@@ -396,8 +398,15 @@ def _mk_sub(tmp_path: Path, name: str, test_src: str) -> Path:
 
 
 def _real_diff(repo: Path, tmp_path: Path) -> str:
+    """Real `git diff`, isolated from user/system git config (noprefix, mnemonicPrefix, color...)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+    proc = subprocess.run(
+        ["git", "-c", "core.quotePath=true", "diff", "origin/main", "HEAD"],
+        cwd=str(repo), check=True, capture_output=True, text=True, env=env,
+    )
     out = tmp_path / "real.patch"
-    out.write_text(_git(repo, "diff", "origin/main", "HEAD") + "\n", encoding="utf-8")
+    out.write_text(proc.stdout + "\n", encoding="utf-8")
     return str(out)
 
 
@@ -462,6 +471,35 @@ def test_AC16_symlink_resolving_outside_toplevel_empties_scope(
     diff = _hand_diff(tmp_path, [_clean_hdr("tests/test_link.py"), _clean_hdr()])
     _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo), prev_extra={"diff_path": diff})
     _assert_missing(events, calls)
+
+
+def test_AC19_dotdot_header_path_empties_scope_never_fresh(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _mk(tmp_path, "ac19")
+    _write(repo / "tests" / "tm.py", STUB_SRC)
+    seen = _spy(monkeypatch)
+    _r, _c, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo))
+    assert len(seen) == 1 and _rung(events)[0]["status"] == "fresh", "forcing: clean header reaches producer"
+    diff = _hand_diff(tmp_path, [_clean_hdr("tests/../tests/tm.py"), _clean_hdr()])
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo), prev_extra={"diff_path": diff})
+    _assert_missing(events, calls)
+
+
+def test_AC18_non_git_git_cwd_is_error_gate_once_no_producer(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _mk(tmp_path, "ac18")
+    seen = _spy(monkeypatch)
+    _r, _c, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo))
+    assert len(seen) == 1 and _rung(events)[0]["status"] == "fresh", "forcing: git repo reaches producer"
+    seen.clear()
+    nogit = tmp_path / "nogit"
+    nogit.mkdir()
+    result, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(nogit))
+    assert not seen
+    (ev,) = _rung(events)
+    assert ev["status"] == "error" and ev["gate"] == "integrity"
+    assert len(calls) == 1 and calls[0]["extra_data"]["preflight"]["status"] == "error"
+    assert result.status == "ok"
 
 
 def test_AC17_absent_and_unreadable_diff_path_is_missing(
