@@ -17,7 +17,7 @@ No step is added, removed or reordered; the receipt schema and `STEPS` stay as t
 - Trigger path rule exactly: a changed path `p` with `p.startswith("engine_py/bytedigger_engine/")` and `p.endswith(".py")`. (`tests/` lives at `engine_py/tests/`, outside that prefix. Conformance files under the prefix do trigger: editing a lint can break the others.)
 - `step_siblings`: when triggered, the lint files that exist in the tree and are not already in `sibling_tests` (compared after `os.path.normpath`) are appended to the list to run; they go through the same `_run_tests`, known-reds tolerance and pin logic as any sibling. The OK detail gets `; inventory-lint: N file(s)` where N = number appended, only when N > 0. When not triggered, or N = 0, behaviour and detail are byte-identical to today (including `no siblings`).
 - Implementation constraint (gate r1 finding 3): no new git call and no new file-system walk. The only data source is `self._changed()`; the new code adds no `read_text`/`subprocess`/`ls-files`/`status`/`add`/`--name-only` call, so no inventory entry is needed.
-- Failure: `_changed()` raising keeps today's behaviour for `siblings` (it fails closed with the existing internal-error red); the trigger adds no new failure path.
+- Failure: if `_changed()` raises, the rung is treated as not triggered (fail-open), so `siblings` behaves exactly as before the change; the trigger adds no new failure path.
 - Repos without `engine_py/` (every non-bytedigger target repo) never trigger; a lint file missing from the tree is skipped.
 - The engine-side producer (`run_engine_preflight`) runs only syntax/stub/facts, so it is unaffected.
 - A pure file deletion is not in `_changed()` (`--diff-filter=d`), so it does not trigger; stated, not handled.

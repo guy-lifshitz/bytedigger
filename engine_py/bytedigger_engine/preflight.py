@@ -567,9 +567,13 @@ class _Run:
         ran = 0
         rels = list(self.fields["sibling_tests"])
         added = 0
+        try:
+            changed = self._changed()
+        except Exception:  # noqa: BLE001 -- the inventory-lint rung must not change the siblings outcome
+            changed = set()
         if any(
             p.startswith("engine_py/bytedigger_engine/") and p.endswith(".py")
-            for p in self._changed()
+            for p in changed
         ):
             have = {os.path.normpath(r) for r in rels}
             for lint in INVENTORY_LINT_TESTS:
