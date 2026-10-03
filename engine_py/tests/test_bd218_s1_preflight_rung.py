@@ -215,6 +215,9 @@ def _drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, _raw: str = "VERD
 
     monkeypatch.setattr(p5, "invoke_llm_subprocess", fake_llm)
     monkeypatch.setattr(p5, "_emit_safe", fake_emit)
+    # s2 added an engine-side receipt producer ahead of the rung; s1 tests pre-stage their own receipts.
+    from bytedigger_engine import preflight as _pf
+    monkeypatch.setattr(_pf, "run_engine_preflight", lambda *a, **k: None, raising=False)
     result = p5._invoke_validation_llm(_ctx(**org), _prev_obj if _prev_obj is not None else _prev(tmp_path))
     return result, calls, events, order
 

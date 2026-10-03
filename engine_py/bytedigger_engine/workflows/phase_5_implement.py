@@ -6883,11 +6883,27 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
                 isinstance(_pr_cfg, dict) and _pr_cfg.get("mode", "verify") == "verify"
             ):
                 _pr_event["status"] = "config-error"
+            elif isinstance(_pr_cfg, dict) and not isinstance(_pr_cfg.get("produce", True), bool):
+                _pr_event["status"] = "config-error"
             else:
                 _pr_tree, _pr_source = _resolve_git_cwd_with_source(ctx, prev)
                 if is_ambient_git_cwd(_pr_source):
                     _pr_event["status"] = "ambient-skip"
                 else:
+                    # bd#218 s2: produce the phase-red receipt (no LLM, no test run) so the
+                    # rung below reads evidence; fail-open, the gate still runs once.
+                    if not (isinstance(_pr_cfg, dict) and _pr_cfg.get("produce", True) is False):
+                        _pr_spec_text = ""
+                        try:
+                            _pr_spec_text = Path(prev.data["spec_path"]).read_text(
+                                encoding="utf-8", errors="replace")
+                        except Exception:  # noqa: BLE001 -- absent or unreadable spec -> ""
+                            _pr_spec_text = ""
+                        try:
+                            preflight.run_engine_preflight(
+                                _pr_tree, prev.data.get("red_test_paths"), _pr_spec_text)
+                        except Exception:  # noqa: BLE001 -- producer failure is swallowed
+                            pass
                     _pr_rec = preflight.receipt_rung("red", _pr_tree)
                     _pr_event["status"] = _pr_rec["status"]
                     _pr_event["red_step"] = _pr_rec["red_step"]

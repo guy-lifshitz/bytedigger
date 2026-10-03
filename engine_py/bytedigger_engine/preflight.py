@@ -720,6 +720,23 @@ def run_preflight(
         classifier_cmd=classifier_cmd, classifier_timeout_s=classifier_timeout_s,
         known_reds=known_reds, test_timeout_s=test_timeout_s,
     )
+    return _run_steps_and_write(
+        run, STEPS, receipt_file=receipt_file, state_hash=state_hash, base=base,
+        spec_value=str(spec_abs), extra=None,
+    )
+
+
+def _run_steps_and_write(
+    run: _Run,
+    names: Sequence[str],
+    *,
+    receipt_file: Path,
+    state_hash: str,
+    base: str,
+    spec_value: str | None,
+    extra: dict[str, Any] | None,
+) -> PreflightResult:
+    """Shared by run_preflight and run_engine_preflight: run ``names`` in order, write the receipt."""
     steps: dict[str, Callable[[], tuple[str, str]]] = {
         "syntax": run.step_syntax,
         "tier": run.step_tier,
@@ -732,7 +749,7 @@ def run_preflight(
     }
     first_red: str | None = None
     first_red_detail = ""
-    for name in STEPS:
+    for name in names:
         if first_red is not None:
             run.results.append({"name": name, "status": "skipped", "ms": 0, "detail": ""})
             continue
@@ -751,17 +768,19 @@ def run_preflight(
 
     receipt: dict[str, Any] = {
         "schema": RECEIPT_SCHEMA,
-        "phase": phase,
+        "phase": run.phase,
         "ok": first_red is None,
-        "head": head,
+        "head": run.head,
         "base": base,
         "state_hash": state_hash,
-        "spec": str(spec_abs),
+        "spec": spec_value,
         "steps": run.results,
         "facts_path": run.facts_path,
         "prescreen": run.prescreen_info,
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
+    if extra:
+        receipt.update(extra)
     try:
         _write_atomic(receipt_file, json.dumps(receipt, indent=2))
     except OSError as exc:
@@ -774,6 +793,96 @@ def run_preflight(
         "error_code": STEP_CODES[first_red],
         "error": _first_line(first_red_detail),
     }
+
+
+# --------------------------------------------------------------------------
+# bd#218 s2 run_engine_preflight
+# --------------------------------------------------------------------------
+
+_ENGINE_STEPS = ("syntax", "stub", "facts")
+_ENGINE_NOT_RUN = ["cite", "tier", "scoped", "siblings", "prescreen"]
+
+
+def run_engine_preflight(
+    top: str | Path,
+    red_tests: Any,
+    spec_text: str,
+    *,
+    base: str | None = None,
+) -> PreflightResult:
+    """bd#218 s2: run syntax, stub and facts on explicit fields and write the phase-red receipt.
+
+    No test run, no LLM. Never raises; a failure result leaves no receipt file behind.
+    """
+    receipt_file: Path | None = None
+    try:
+        cwd_abs = os.path.abspath(str(top))
+        try:
+            toplevel = Path(_git_text(cwd_abs, "rev-parse", "--show-toplevel"))
+            receipt_file = receipt_path(toplevel)
+        except RuntimeError as exc:
+            return _failure(_CODE_GIT, str(exc))
+        receipt_dir = receipt_file.parent
+        for stale in (receipt_file, receipt_dir / "facts.md"):
+            try:
+                stale.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                return _failure(_CODE_GIT, f"cannot remove old receipt file: {exc}")
+
+        if not isinstance(red_tests, list) or not red_tests:
+            return _failure(_CODE_SPEC_FIELDS, "red_tests must be a non-empty list")
+        top_real = Path(os.path.realpath(str(toplevel)))
+        rebased: list[str] = []
+        for entry in cast(list[Any], red_tests):
+            if not isinstance(entry, str) or not entry:
+                return _failure(_CODE_SPEC_FIELDS, "red_tests entry is not a path string")
+            given = Path(entry)
+            real = Path(os.path.realpath(str(given if given.is_absolute() else Path(cwd_abs) / given)))
+            if not real.is_file():
+                return _failure(_CODE_SPEC_FIELDS, f"red test is not a file: {entry}")
+            try:
+                rebased.append(str(real.relative_to(top_real)))
+            except ValueError:
+                rebased.append(str(real))
+
+        base_used: str | None = None
+        merge_base = ""
+        candidates = [base] if base else ["origin/main", "main", "HEAD"]
+        for cand in candidates:
+            try:
+                _git(toplevel, "rev-parse", "--verify", "--quiet", f"{cand}^{{commit}}")
+                merge_base = _git_text(toplevel, "merge-base", cand, "HEAD")
+            except RuntimeError:
+                continue
+            base_used = cand
+            break
+        if base_used is None:
+            return _failure(_CODE_GIT, "no base ref resolvable")
+        head = _git_text(toplevel, "rev-parse", "HEAD")
+        state_hash = compute_state_hash(toplevel)
+
+        fields: dict[str, list[str]] = {k: [] for k in _FIELD_KEYS}
+        fields["red_tests"] = rebased
+        run = _Run(
+            top=toplevel, spec_abs=Path(""), spec_text=spec_text if isinstance(spec_text, str) else "",
+            phase="red", fields=fields, tier="", head=head, merge_base=merge_base,
+            receipt_dir=receipt_dir, classifier_cmd=None,
+            classifier_timeout_s=float(check_ladder.DEFAULT_TIMEOUT_S),
+            known_reds=None, test_timeout_s=600,
+        )
+        return _run_steps_and_write(
+            run, _ENGINE_STEPS, receipt_file=receipt_file, state_hash=state_hash, base=base_used,
+            spec_value=None, extra={"producer": "engine", "not_run": list(_ENGINE_NOT_RUN)},
+        )
+    except Exception as exc:  # noqa: BLE001 -- the producer never raises
+        if receipt_file is not None:
+            try:
+                receipt_file.unlink()
+            except OSError:
+                pass
+        return _failure(_CODE_GIT, _first_line(str(exc)) or type(exc).__name__)
 
 
 # --------------------------------------------------------------------------
