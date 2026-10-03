@@ -169,7 +169,7 @@ def test_a4_two_bypasses_keep_each_key_once(tmp_path, backend):
 # ---------------------------------------------------------------------------
 
 _MISS = "(got: <missing>)"
-# phase -> (extra_state, expected reason; "{S}" = scratch dir)
+# phase -> (extra_state, expected reason)
 _A5_CASES = {
     "4.5": ("", f"plan_review=pass {_MISS}; "),
     "5": ("", f"plan_review=pass {_MISS}; phase_5_implement=complete {_MISS}; "
@@ -186,7 +186,6 @@ def _a5_parity(tmp_path: Path, phase: str):
     extra, expected = _A5_CASES[phase]
     scratch = tmp_path / "scratch"
     (scratch / "reviews").mkdir(parents=True, exist_ok=True)
-    expected = expected.replace("{S}", str(scratch))
     runs = {}
     for b in BACKENDS:
         wd = _make_workdir(tmp_path, b, phase, extra,
@@ -293,6 +292,74 @@ def test_a6_adding_a_row_changes_verdict_without_code_edit(tmp_path, backend):
     after = _run(backend, _make_workdir(tmp_path, "after", "5.2", state), root)
     assert after.returncode == 2, _describe(after)
     assert after.stdout == _block_json("custom_marker has no value; ")
+
+
+# bd#89 P3c (gate r1 F2): the real table no longer has a scratch_file row, but both
+# parsers keep the kind. Cover it with a synthetic table written by the test.
+_SCRATCH_TABLE = ("# synthetic\n"
+                  "7\tfield_eq\treview_complete\tpass\n"
+                  "7\tscratch_file\treviews/x.md\n").encode("utf-8")
+
+
+def _scratch_file_run(tmp_path: Path, backend: str, scratch: Path | None):
+    root = _plugin_copy(tmp_path, f"plugin-{backend}")
+    _table(root).write_bytes(_SCRATCH_TABLE)
+    wd = _make_workdir(tmp_path, f"w-{backend}", "7", "review_complete: pass\n",
+                       scratch=scratch)
+    return _run(backend, wd, root)
+
+
+def _scratch_file_both(tmp_path: Path, scratch: Path | None):
+    bash = _scratch_file_run(tmp_path, "bash", scratch)
+    ts = _scratch_file_run(tmp_path, "ts", scratch)
+    assert bash.returncode == ts.returncode, f"bash: {_describe(bash)} ts: {_describe(ts)}"
+    assert bash.stdout == ts.stdout, f"bash={bash.stdout!r} ts={ts.stdout!r}"
+    return bash, ts
+
+
+def test_scratch_file_kind_absent_file_blocks_with_exact_reason_bash_eq_ts(tmp_path):
+    """F2(a): scratch_file row, file absent -> exit 2, exact reason, bash == TS bytes."""
+    scratch = tmp_path / "scratch"
+    (scratch / "reviews").mkdir(parents=True)
+    bash, _ts = _scratch_file_both(tmp_path, scratch)
+    assert bash.returncode == 2, _describe(bash)
+    assert bash.stdout == _block_json(f"missing deliverable: {scratch}/reviews/x.md; ")
+
+
+def test_scratch_file_kind_absent_file_in_spaced_scratchpad_path(tmp_path):
+    """F2(a'): same block when the scratchpad path contains a space."""
+    scratch = tmp_path / "my scratch"
+    (scratch / "reviews").mkdir(parents=True)
+    bash, _ts = _scratch_file_both(tmp_path, scratch)
+    assert bash.returncode == 2, _describe(bash)
+    assert bash.stdout == _block_json(f"missing deliverable: {scratch}/reviews/x.md; ")
+
+
+def test_scratch_file_kind_zero_byte_file_blocks_like_absent(tmp_path):
+    """F2(b): a zero-byte file is missing (-s rule), same block in both backends."""
+    scratch = tmp_path / "scratch"
+    (scratch / "reviews").mkdir(parents=True)
+    (scratch / "reviews" / "x.md").write_bytes(b"")
+    bash, _ts = _scratch_file_both(tmp_path, scratch)
+    assert bash.returncode == 2, _describe(bash)
+    assert bash.stdout == _block_json(f"missing deliverable: {scratch}/reviews/x.md; ")
+
+
+def test_scratch_file_kind_non_empty_file_passes(tmp_path):
+    """F2(c): a non-empty file satisfies the row, exit 0 and empty stdout in both."""
+    scratch = tmp_path / "scratch"
+    (scratch / "reviews").mkdir(parents=True)
+    (scratch / "reviews" / "x.md").write_text("content\n")
+    bash, _ts = _scratch_file_both(tmp_path, scratch)
+    assert bash.returncode == 0, _describe(bash)
+    assert bash.stdout == b""
+
+
+def test_scratch_file_kind_skipped_without_scratchpad_dir(tmp_path):
+    """F2(d): no scratchpad_dir in the state -> the scratch_file row is skipped, exit 0."""
+    bash, _ts = _scratch_file_both(tmp_path, None)
+    assert bash.returncode == 0, _describe(bash)
+    assert bash.stdout == b""
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

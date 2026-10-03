@@ -180,6 +180,13 @@ def test_ac2_report_written_with_all_docs_present(tmp_path, monkeypatch):
     assert result.error_code is None
     assert result.data["report_written"] is True
     assert result.data["report_bytes_written"] == len(report.read_bytes())
+    assert result.data["artifact_states"] == {
+        "spec": "PRESENT", "review": "PRESENT", "fix": "PRESENT", "satisfaction": "PRESENT"}
+    written = _events(log, "synthesize_report_written")
+    assert len(written) == 1
+    assert written[0]["payload"]["report_bytes"] == len(report.read_bytes())
+    assert written[0]["payload"]["gaps"] == []
+    assert written[0]["payload"]["doc_path"] == str(report)
 
 
 # --- AC3 -----------------------------------------------------------------------
@@ -200,6 +207,11 @@ def test_ac3_missing_docs_degrade_to_not_assessed(tmp_path, monkeypatch):
     concerns = _bullets(_section(text, "Concerns"))
     assert len(concerns) == 4, concerns
     assert all("not assessed" in c for c in concerns)
+    assert result.data["artifact_states"] == {
+        "spec": "MISSING", "review": "MISSING", "fix": "MISSING", "satisfaction": "MISSING"}
+    written = _events(log, "synthesize_report_written")
+    assert len(written) == 1
+    assert sorted(written[0]["payload"]["gaps"]) == ["fix", "review", "satisfaction", "spec"]
 
 
 # --- AC4 -----------------------------------------------------------------------
@@ -228,7 +240,10 @@ def test_ac5_step_needs_no_model_and_no_tool(tmp_path, monkeypatch):
     scratch = tmp_path / "scratch"
     _seed_all(scratch)
 
+    calls: list[str] = []
+
     def _boom(*a, **kw):
+        calls.append("called")
         raise AssertionError("model or tool invoked by the deterministic step")
 
     import bytedigger_engine.llm_subprocess as llm_mod
@@ -241,6 +256,8 @@ def test_ac5_step_needs_no_model_and_no_tool(tmp_path, monkeypatch):
     result = _run_step(_ctx(scratch), log)
     assert result.status == "ok"
     assert (scratch / REPORT_REL).is_file()
+    # A broad `except` in the step must not be able to hide a model or tool call.
+    assert calls == []
 
 
 def test_ac5b_module_imports_no_llm_or_subprocess():
@@ -327,7 +344,35 @@ def test_ac7b_empty_request_has_no_done_line(tmp_path, monkeypatch):
     assert _parse_report_summary(text) == ""
 
 
+def test_ac7c_none_request_has_no_done_line(tmp_path, monkeypatch):
+    from bytedigger_engine.workflows.phase_8_post_deploy import _parse_report_summary
+
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    result = _run_step(_ctx(scratch, question=None), log)
+    assert result.status == "ok"
+    assert result.data["report_written"] is True
+    text = (scratch / REPORT_REL).read_text(encoding="utf-8")
+    assert not re.search(r"^\s*Done:", text, re.M)
+    assert _parse_report_summary(text) == ""
+
+
 # --- AC8 -----------------------------------------------------------------------
+
+def test_ac8c_lone_surrogate_request_still_writes_report(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    result = _run_step(_ctx(scratch, question="\ud800x second"), log)
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert result.data["report_written"] is True
+    report = scratch / REPORT_REL
+    text = report.read_bytes().decode("utf-8")  # strict: the file must be valid UTF-8
+    assert text.startswith("# Post-Deploy Report")
+    assert _events(log, "post_deploy_report_skipped") == []
+
 
 def test_ac8_no_scratchpad_degrades_to_skipped_event(tmp_path, monkeypatch):
     log = _make_log(tmp_path, monkeypatch)
@@ -373,6 +418,17 @@ def test_ac9_retired_org_keys_are_ignored_with_one_event(tmp_path, monkeypatch):
     before = len(_events(log, "synthesizer_config_ignored"))
     _run_step(_ctx(scratch2), log)
     assert len(_events(log, "synthesizer_config_ignored")) == before
+
+
+def test_ac9b_ignored_keys_event_also_fires_without_scratchpad(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    result = _run_step(_ctx(None, synthesizer_model="x"), log)
+    assert result.status == "ok"
+    assert result.data["report_written"] is False
+    ignored = _events(log, "synthesizer_config_ignored")
+    assert len(ignored) == 1
+    assert ignored[0]["payload"]["keys"] == ["synthesizer_model"]
+    assert len(_events(log, "post_deploy_report_skipped")) == 1
 
 
 # --- AC10 ----------------------------------------------------------------------
@@ -470,6 +526,8 @@ def test_ac13_tsv_row_removed_and_bash_gate_passes_without_raw(tmp_path):
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "learnings-raw" not in proc.stdout + proc.stderr
+    # A2: the orphaned soft warning ("learnings_extracted not set") is gone from the gate.
+    assert "learnings_extracted" not in proc.stdout + proc.stderr
 
 
 # --- AC14 (GUARD) --------------------------------------------------------------
@@ -524,6 +582,14 @@ def test_ac15_guard_class_i_lint_compileall_config_parses():
         (ENGINE_PKG / "lib" / "plugins" / "anti_hallucination" / "config.yaml").read_text(encoding="utf-8"))
     assert cfg["plugin"] == "anti_hallucination"
     assert isinstance(cfg["applied_phases"], dict)
+
+
+def test_ac15_guard_tree_scan_lint_real_tree_clean():
+    # F1: deleting _emit_synthesize_disk_truth_telemetry must not leave a stale
+    # tree_scan_inventory.json key. Green before GREEN, must stay green.
+    from bytedigger_engine.conformance import tree_scan_lint
+
+    assert tree_scan_lint.check(ENGINE_PKG, tree_scan_lint.load_inventory()) == []
 
 
 def test_ac15b_anti_hallucination_config_drops_phase_7():
