@@ -297,3 +297,228 @@ scan_invocations() {
   done < <(scan_invocations "$PHASE45")
   [ "$found" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Delta r2 (spec section 5): AC11-AC18
+# ---------------------------------------------------------------------------
+
+# Write $1 as the only content line of src/probe.txt, scan it, require HIGH.
+assert_content_high() {
+  printf '%s\n' "$1" > "$WORK/src/probe.txt"
+  scan --files "src/probe.txt"
+  [ "$status" -eq 0 ] || { echo "input [$1]: exit $status"; return 1; }
+  out_has_line "security_classification: HIGH" \
+    || { echo "input [$1] not HIGH: $output"; return 1; }
+}
+
+# Scan an absent planned path $1, require HIGH.
+assert_path_high() {
+  [ ! -e "$WORK/$1" ]
+  scan --files "$1"
+  [ "$status" -eq 0 ] || { echo "input [$1]: exit $status"; return 1; }
+  out_has_line "security_classification: HIGH" \
+    || { echo "input [$1] not HIGH: $output"; return 1; }
+}
+
+# Scan task text $1 with no files, require HIGH.
+assert_task_high() {
+  scan --task "$1"
+  [ "$status" -eq 0 ] || { echo "input [$1]: exit $status"; return 1; }
+  out_has_line "security_classification: HIGH" \
+    || { echo "input [$1] not HIGH: $output"; return 1; }
+}
+
+# Guard: content $1 must exit 0 and not be HIGH.
+assert_content_not_high() {
+  printf '%s\n' "$1" > "$WORK/src/probe.txt"
+  scan --files "src/probe.txt"
+  [ "$status" -eq 0 ] || { echo "input [$1]: exit $status"; return 1; }
+  if out_has_line "security_classification: HIGH"; then
+    echo "input [$1] wrongly HIGH: $output"; return 1
+  fi
+  printf '%s\n' "$output" | grep -q '^security_classification: ' \
+    || { echo "input [$1] no classification line: $output"; return 1; }
+}
+
+# --- AC11 content plurals/phrases ---
+
+@test "AC11_content_passwords_table_is_high" { assert_content_high "passwords table"; }
+@test "AC11_content_hashed_passwords_is_high" { assert_content_high "hashed_passwords"; }
+@test "AC11_content_user_sessions_is_high" { assert_content_high "user sessions"; }
+@test "AC11_content_API_keys_is_high" { assert_content_high "API keys"; }
+@test "AC11_content_bearer_tokens_is_high" { assert_content_high "bearer tokens"; }
+@test "AC11_content_private_key_is_high" { assert_content_high "private key"; }
+@test "AC11_content_BEGIN_RSA_PRIVATE_KEY_is_high" { assert_content_high "BEGIN RSA PRIVATE KEY"; }
+@test "AC11_content_id_rsa_is_high" { assert_content_high "id_rsa"; }
+@test "AC11_content_ssh_key_is_high" { assert_content_high "ssh key"; }
+@test "AC11_content_authz_is_high" { assert_content_high "authz"; }
+@test "AC11_content_ldap_bind_is_high" { assert_content_high "ldap bind"; }
+
+# --- AC12 identifiers in content ---
+
+@test "AC12_identifier_refresh_token_is_high" { assert_content_high "refresh_token"; }
+@test "AC12_identifier_jwtToken_is_high" { assert_content_high "jwtToken"; }
+@test "AC12_identifier_sessionId_is_high" { assert_content_high "sessionId"; }
+@test "AC12_identifier_SessionMiddleware_is_high" { assert_content_high "SessionMiddleware"; }
+@test "AC12_identifier_authMiddleware_is_high" { assert_content_high "authMiddleware"; }
+
+# --- AC13 planned paths (files absent) ---
+
+@test "AC13_planned_path_authService_ts_is_high" { assert_path_high "src/authService.ts"; }
+@test "AC13_planned_path_AuthService_ts_is_high" { assert_path_high "src/AuthService.ts"; }
+@test "AC13_planned_path_token_store_py_is_high" { assert_path_high "src/token_store.py"; }
+@test "AC13_planned_path_session_manager_rb_is_high" { assert_path_high "src/session_manager.rb"; }
+
+# --- AC14 task text, no files ---
+
+@test "AC14_task_hash_passwords_with_salt_is_high" { assert_task_high "hash passwords with salt"; }
+@test "AC14_task_rotate_API_keys_is_high" { assert_task_high "rotate API keys"; }
+@test "AC14_task_store_user_token_in_cookie_is_high" { assert_task_high "store user token in cookie"; }
+@test "AC14_task_sign_webhook_payloads_is_high" { assert_task_high "sign webhook payloads"; }
+@test "AC14_task_enable_2FA_is_high" { assert_task_high "enable 2FA"; }
+@test "AC14_task_require_MFA_is_high" { assert_task_high "require MFA"; }
+@test "AC14_task_fix_CSRF_is_high" { assert_task_high "fix CSRF"; }
+@test "AC14_task_rename_getApiKey_helper_is_high" { assert_task_high "rename getApiKey helper"; }
+@test "AC14_task_upgrade_OAuth2_flow_is_high" { assert_task_high "upgrade OAuth2 flow"; }
+
+# --- AC15 guards: never HIGH, exit 0 ---
+
+@test "AC15_GUARD_reference_session_token_hash_sign_not_high" { assert_content_not_high "session token hash sign"; }
+@test "AC15_GUARD_bare_tokens_not_high" { assert_content_not_high "tokens"; }
+@test "AC15_GUARD_bare_sessions_not_high" { assert_content_not_high "sessions"; }
+@test "AC15_GUARD_sessionStorage_not_high" { assert_content_not_high "sessionStorage"; }
+@test "AC15_GUARD_author_authority_not_high" { assert_content_not_high "author authority"; }
+@test "AC15_GUARD_process_env_NODE_ENV_not_high" { assert_content_not_high "process.env.NODE_ENV"; }
+@test "AC15_GUARD_tokenizer_hashtable_not_high" { assert_content_not_high "tokenizer hashtable"; }
+
+@test "AC15_GUARD_planned_path_src_config_reader_ts_not_high" {
+  [ ! -e "$WORK/src/config/reader.ts" ]
+  scan --files "src/config/reader.ts"
+  [ "$status" -eq 0 ]
+  if out_has_line "security_classification: HIGH"; then echo "wrongly HIGH: $output"; return 1; fi
+  printf '%s\n' "$output" | grep -q '^security_classification: '
+}
+
+@test "AC15_GUARD_task_consolidate_a_config_file_reader_not_high" {
+  scan --task "consolidate a config-file reader"
+  [ "$status" -eq 0 ]
+  if out_has_line "security_classification: HIGH"; then echo "wrongly HIGH: $output"; return 1; fi
+  printf '%s\n' "$output" | grep -q '^security_classification: '
+}
+
+# --- AC16 $TASK definition line in both phase docs ---
+
+# The exact spec section 5.5 line.
+TASK_LINE=$'TASK=$(sed -n \'s/^task: *//p\' build-state.yaml | head -1 | sed \'s/^"//; s/"$//\')'
+
+assert_task_line_works() {
+  local f="$1" n m line got v want
+  # Exactly one column-0 line equal to the section 5.5 line (exact compare).
+  n="$(grep -cxF -- "$TASK_LINE" "$f" || true)"
+  [ "$n" -eq 1 ] || { echo "$f: expected exactly one exact TASK line, found $n"; return 1; }
+  # No other column-0 TASK= line (a hardcoded TASK="..." must fail).
+  m="$(grep -c '^TASK=' "$f" || true)"
+  [ "$m" -eq 1 ] || { echo "$f: expected exactly one ^TASK= line, found $m"; return 1; }
+  line="$(grep -xF -- "$TASK_LINE" "$f")"
+  for v in "Add user authentication" "Fix the login page"; do
+    printf 'task: "%s"\ncomplexity: FEATURE\n' "$v" > "$WORK/build-state.yaml"
+    got="$(cd "$WORK" && bash -c "$line"$'\n''printf %s "$TASK"')"
+    want="$v"
+    [ "$got" = "$want" ] || { echo "$f: TASK was [$got], wanted [$want]"; return 1; }
+  done
+}
+
+@test "AC16_phase05_TASK_line_yields_task_from_build_state" {
+  [ -f "$PHASE05" ]
+  assert_task_line_works "$PHASE05"
+}
+
+@test "AC16_phase45_TASK_line_yields_task_from_build_state" {
+  [ -f "$PHASE45" ]
+  assert_task_line_works "$PHASE45"
+}
+
+# --- AC17 state file without trailing newline ---
+
+# Every line of the state file is a known key, each security key appears once
+# on its own line (no joined lines).
+assert_state_keys_on_own_lines() {
+  local f="$1" bad
+  [ "$(grep -c '^security_classification: ' "$f")" -eq 1 ] || { cat "$f"; return 1; }
+  [ "$(grep -c '^security_patterns_found: ' "$f")" -eq 1 ] || { cat "$f"; return 1; }
+  [ "$(grep -c '^security_triggers: ' "$f")" -eq 1 ] || { cat "$f"; return 1; }
+  bad="$(grep -vE '^(k|other|security_classification|security_patterns_found|security_triggers): ' "$f" || true)"
+  [ -z "$bad" ] || { echo "unexpected/joined lines: [$bad]"; cat "$f"; return 1; }
+}
+
+@test "AC17_stale_classification_as_last_line_without_newline_is_replaced_and_keys_on_own_lines" {
+  printf '%s\n' "console.log('hello');" > "$WORK/src/b.ts"
+  printf 'k: v\nother: x\nsecurity_classification: OLD' > "$WORK/state"
+  scan --files "src/b.ts" --state-file "$WORK/state"
+  [ "$status" -eq 0 ]
+  grep -qxF 'k: v' "$WORK/state"
+  grep -qxF 'other: x' "$WORK/state"
+  ! grep -q 'OLD' "$WORK/state"
+  assert_state_keys_on_own_lines "$WORK/state"
+}
+
+@test "AC17_no_key_present_and_no_trailing_newline_keeps_last_line_and_keys_on_own_lines" {
+  printf '%s\n' "console.log('hello');" > "$WORK/src/b.ts"
+  printf 'k: v' > "$WORK/state"
+  scan --files "src/b.ts" --state-file "$WORK/state"
+  [ "$status" -eq 0 ]
+  grep -qxF 'k: v' "$WORK/state"
+  assert_state_keys_on_own_lines "$WORK/state"
+}
+
+# --- AC18 legacy parity ---
+
+@test "AC18_legacy_1_does_not_split_identifiers_getApiKey_content_stays_not_high" {
+  printf '%s\n' "getApiKey()" > "$WORK/src/probe.txt"
+  run env BD_SECURITY_SCAN_LEGACY=1 bash "$SCRIPT" --cwd "$WORK" --files "src/probe.txt"
+  [ "$status" -eq 0 ]
+  if out_has_line "security_classification: HIGH"; then echo "legacy wrongly HIGH: $output"; return 1; fi
+  printf '%s\n' "$output" | grep -q '^security_classification: ' || { echo "$output"; return 1; }
+}
+
+@test "AC18_legacy_1_reference_result_AUTH_CRYPTO_SECRETS_unchanged" {
+  printf '%s\n' "session token hash sign" > "$WORK/src/ref.ts"
+  run env BD_SECURITY_SCAN_LEGACY=1 bash "$SCRIPT" --cwd "$WORK" --files "src/ref.ts"
+  [ "$status" -eq 0 ]
+  out_has_line "security_classification: HIGH"
+  out_has_line "security_patterns_found: AUTH,CRYPTO,SECRETS"
+}
+
+# --- AC19 raw pass (no digit split, no single-letter-run split) ---
+
+@test "AC19_raw_pass_content_2FA_is_high" { assert_content_high "2FA"; }
+@test "AC19_raw_pass_content_OAuth2_is_high" { assert_content_high "OAuth2"; }
+@test "AC19_raw_pass_content_JWTToken_is_high" { assert_content_high "JWTToken"; }
+
+# --- AC20 invalid UTF-8 byte before a hit, UTF-8 locale forced ---
+
+@test "AC20_invalid_byte_line1_password_line2_is_high_with_line2_trigger_under_utf8_locale" {
+  printf '\xff\npassword\n' > "$WORK/src/bad.txt"
+  run env -u BD_SECURITY_SCAN_LEGACY LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
+    bash "$SCRIPT" --cwd "$WORK" --files "src/bad.txt"
+  [ "$status" -eq 0 ]
+  out_has_line "security_classification: HIGH"
+  assert_trigger "AUTH=src/bad\\.txt:2"
+}
+
+# --- AC21 trigger labels name the original path / line, never split text ---
+
+@test "AC21_planned_path_authService_ts_trigger_is_exact_original_path" {
+  [ ! -e "$WORK/src/authService.ts" ]
+  scan --files "src/authService.ts"
+  [ "$status" -eq 0 ]
+  out_has_line "security_triggers: [AUTH=src/authService.ts]"
+}
+
+@test "AC21_getApiKey_on_line_3_trigger_is_SECRETS_original_path_line_3" {
+  printf '%s\n' "// x" "const a = 1;" "getApiKey()" > "$WORK/src/c.ts"
+  scan --files "src/c.ts"
+  [ "$status" -eq 0 ]
+  out_has_line "security_classification: HIGH"
+  out_has_line "security_triggers: [SECRETS=src/c.ts:3]"
+}

@@ -9,7 +9,7 @@ paths:
 
 # bd#129: security scan classifies almost every repo as HIGH
 
-**Status: DRAFT r1** · **Tier:** 2 · **Class:** deterministic shell check (no model call)
+**Status: DRAFT r3 (gate r2 REJECTED the r2 delta, 3 MAJOR: `-gate-r2.md`; §5.9 folds them; MGR authorized exactly one gate round r3, REJECTED = stop). Was DRAFT r2 (delta §5 after MGR pre-merge review of PR #245; gate r1 APPROVED the r1 contract, r2 gates the delta only)** · **Tier:** 2 · **Class:** deterministic shell check (no model call)
 **Chokepoint:** `scripts/security-scan.sh` (the only writer of `security_classification` / `security_patterns_found`) and the two phase docs that call it.
 
 ## 0. Verified premises (live, base 43d3b49)
@@ -57,3 +57,31 @@ Phase 4/6 reviewer wiring, engine code, `commands/build.md`, the DATA/INFRA patt
 ## 4. Known limits (accepted, go into the PR body)
 
 Keyword matching stays heuristic: a task phrased without any auth vocabulary that edits an auth file under a neutral path is caught only by the file content at the Phase 4.5 re-scan. A repo whose spec `Files` list names real auth code is HIGH, as intended.
+
+## 5. Delta r2: fail-open fixes (MGR review of PR #245)
+
+Applies to default mode only; legacy mode (`BD_SECURITY_SCAN_LEGACY=1`) is unchanged. Everything in sections 1-4 stays, except where this section widens a pattern.
+
+1. **Identifier splitting, raw plus split (gate r2 M1).** In default mode a line (file content, path string, task text) matches when the **raw** text matches a term **or** the **split** text does. The split form puts a space at a lowercase-to-uppercase boundary (`([[:lower:]])([[:upper:]])`: `authService` -> `auth Service`, `jwtToken` -> `jwt Token`, `SessionMiddleware` -> `Session Middleware`) and before the last capital of an uppercase run of two or more followed by a lowercase letter (`([[:upper:]]{2,})([[:upper:]][[:lower:]])`: `JWTToken` -> `JWT Token`). There is no digit-based split and no single-letter-run split, so `2FA` and `OAuth2` are matched by the raw pass. `_`, `-`, `.`, `/` were already boundaries. All-caps names (`NODE_ENV`) are not split. Trigger labels always name the original path or `task`, never split text; the line number is the original line.
+2. **Optional plurals.** `passw(or)?ds?`, `api[_ -]?keys?`, `secrets?`, `credentials?`, `(private|public)[_ -]?keys?` (the separator may now be a space), `certificates?`.
+3. **New terms.**
+   - AUTH: `authz`, `authn`, `ldap`, `csrf`, `xsrf`, `2fa`, `mfa`, `totp`, `user[_ -]?tokens?`, `(user|login|web|http)[_ -]?sessions?`, `session[_ -]?(id|ids|cookie|secret|store|middleware|manager|fixation|hijack[[:alnum:]_]*)`.
+   - SECRETS: `(refresh|access|auth|bearer|csrf|id|api)[_ -]?tokens?`, `token[_ -]?(store|vault|secret)`, `id[_-]?(rsa|ed25519|ecdsa)`, `ssh[_ -]?keys?`, `BEGIN [A-Z ]*PRIVATE KEY` (covered by the private-key term).
+   - CRYPTO: `sign(s|ed|ing)?[_ -]?(webhook|payload|request|jwt|token|cookie|message)s?`.
+4. **Deliberately still LOW (the #129 reference case):** bare `session`, `sessions`, `token`, `tokens`, `hash`, `sign`, `sessionStorage`, `hashtable`, `tokenizer`, `author`, `authority`. The review listed bare `tokens` as a miss; it is not changed because `session token hash sign` must stay LOW. Qualified forms above are HIGH.
+5. **`$TASK` definition.** `phase-05-inject.md` and `phase-45-spec.md` each contain, before the scan call, at column 0 inside a fenced block (dedent the phase-45 block if needed), exactly one line `TASK=$(sed -n 's/^task: *//p' build-state.yaml | head -1 | sed 's/^"//; s/"$//')`. Run in a dir whose `build-state.yaml` has `task: "Add user authentication"` it must set `TASK` to exactly `Add user authentication`.
+6. **State file newline.** After the existing `sed` delete of the three keys and before the appends, if the state file is non-empty and its last byte is not `\n`, the scan appends one `\n`. The existing last line is never altered.
+7. **Acceptance (RED cells appended to `tests/security-scan-scope.bats`, AC11-AC15):**
+   - AC11 content plurals/phrases, each its own file, expected `security_classification: HIGH`: `passwords table`, `hashed_passwords`, `user sessions`, `API keys`, `bearer tokens`, `private key`, `BEGIN RSA PRIVATE KEY`, `id_rsa`, `ssh key`, `authz`, `ldap bind`.
+   - AC12 identifiers in content -> HIGH: `refresh_token`, `jwtToken`, `sessionId`, `SessionMiddleware`, `authMiddleware`.
+   - AC13 planned paths (files absent) -> HIGH: `authService.ts`, `AuthService.ts`, `token_store.py`, `session_manager.rb`.
+   - AC14 task text, no files -> HIGH: `hash passwords with salt`, `rotate API keys`, `store user token in cookie`, `sign webhook payloads`, `enable 2FA`, `require MFA`, `fix CSRF`, `rename getApiKey helper` (split task text), `upgrade OAuth2 flow` (raw pass).
+   - AC15 guards, each LOW or MEDIUM, never HIGH: the #129 reference file `session token hash sign` (no other words), bare `tokens` and `sessions`, `sessionStorage`, `author authority`, `process.env.NODE_ENV`, `tokenizer hashtable`; path `src/config/reader.ts`; task `consolidate a config-file reader`.
+   - AC16 `$TASK`: each phase file contains exactly one column-0 line equal to the §5.5 line (exact string compare, so a hardcoded `TASK="..."` fails); eval that line in a temp dir against two different `build-state.yaml` `task:` values (`Add user authentication`, `Fix the login page`) and assert each result exactly.
+   - AC17 state file without trailing newline (`printf 'k: v' > state`): after a run the file contains the exact line `k: v`, and each of the three keys on its own line, once.
+   - AC18 legacy parity: with `BD_SECURITY_SCAN_LEGACY=1` file content `getApiKey()` (LOW under the old patterns, would be HIGH only if splitting leaked into legacy) stays LOW, and the old reference result `AUTH,CRYPTO,SECRETS` on `session token hash sign` is unchanged.
+   - AC19 raw pass: file content `2FA`, `OAuth2` and `JWTToken` each -> HIGH.
+   - AC20 (gate r2 M3 shield): a file whose line 1 is the invalid UTF-8 byte `\xff` and line 2 is `password` -> HIGH, trigger `AUTH=<file>:2`, exit 0, with the shell locale forced to a UTF-8 one (`LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`). Default mode pins `LC_ALL=C` for both the split step and the grep.
+   - AC21 trigger label: a planned path `src/authService.ts` -> trigger `AUTH=src/authService.ts` exactly; file content `getApiKey()` on line 3 of `c.ts` -> `SECRETS=<path>:3` with the original path.
+8. **Out of scope:** running `.bats` in CI (separate issue; noted in the PR report), DATA/INFRA patterns, a general tokenizer for other naming styles (kebab-case already splits on `-`).
+9. **Gate r2 fold-in (r3).** M1 -> §5.1 (raw plus split, narrowed split), AC14 cells `enable 2FA`/`require MFA` replace `add 2FA / MFA`, AC19. M2 -> AC16 exact line plus two task values. M3 -> `LC_ALL=C` for split and grep, AC20. Minors folded: portable `hijack` term, trigger-label cell AC21, AC18 uses `getApiKey()`, phase-45 block at column 0, newline check ordering. Accepted limits (PR body): extra HIGHs from TS/Java member names like `private key:`, `user tokens` meaning LLM tokens, `idToken` in lexers, and random-word hits inside base64, minified or lockfile text; bare `tokens` stays LOW (MGR accepted).

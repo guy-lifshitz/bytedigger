@@ -74,13 +74,16 @@ What to test, expected outcomes (derived from acceptance criteria).
 
 - Verify against the codebase — conflicts with existing patterns?
 - Re-run the security scan on what the task will touch, so the classification is re-derived before Phase 5/6 read it. Pass the CREATE and MODIFY paths from the spec's `Files` list as `FILES` (comma-separated):
-  ```
-  bash scripts/security-scan.sh \
-    --cwd "$(pwd)" \
-    --task "$TASK" \
-    --files "$FILES" \
-    --state-file ./build-state.yaml
-  ```
+
+```
+TASK=$(sed -n 's/^task: *//p' build-state.yaml | head -1 | sed 's/^"//; s/"$//')
+bash scripts/security-scan.sh \
+  --cwd "$(pwd)" \
+  --task "$TASK" \
+  --files "$FILES" \
+  --state-file ./build-state.yaml
+```
+
 
 **Orchestrator flow:**
 1. Read `mode` from build-state.yaml — strip surrounding quotes before comparing (`grep '^mode:' build-state.yaml | sed "s/^mode:[[:space:]]*//;s/^['\"]//;s/['\"]$//"`)

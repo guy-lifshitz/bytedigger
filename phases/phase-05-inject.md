@@ -41,6 +41,7 @@ FILES=${FILES:-$(git ls-files 2>/dev/null || echo "")}
 
 Run security scan in background:
 ```
+TASK=$(sed -n 's/^task: *//p' build-state.yaml | head -1 | sed 's/^"//; s/"$//')
 bash scripts/security-scan.sh \
   --cwd "$(pwd)" \
   --task "$TASK" \

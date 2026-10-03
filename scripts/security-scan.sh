@@ -43,10 +43,27 @@ if [[ $LEGACY -eq 1 ]]; then
   PAT_CRYPTO='encrypt|decrypt|hash|sign|crypto|key.*gen|certificate'
   PAT_SECRETS='api.key|secret|token|\.env|keychain|vault'
 else
-  PAT_AUTH="$(bound 'auth|authenticat[[:alnum:]_]*|authoriz[[:alnum:]_]*|login|jwt|oauth2?|saml|rbac|passw(or)?d|credentials?')"
-  PAT_CRYPTO="$(bound 'encrypt[[:alnum:]_]*|decrypt[[:alnum:]_]*|crypto[[:alnum:]_]*|cipher|hmac|bcrypt|argon2|pbkdf2|(private|public)[_-]?key|certificate')"
-  PAT_SECRETS="$(bound 'api[_-]?key|secrets?|(access|auth|bearer)[_-]?token|keychain|vault')|(^|[[:space:]\"'/(=])\\.env([^[:alnum:]]|\$)"
+  PAT_AUTH="$(bound 'auth|authenticat[[:alnum:]_]*|authoriz[[:alnum:]_]*|authz|authn|login|jwt|oauth2?|saml|rbac|passw(or)?ds?|credentials?|ldap|csrf|xsrf|2fa|mfa|totp|user[_ -]?tokens?|(user|login|web|http)[_ -]?sessions?|session[_ -]?(id|ids|cookie|secret|store|middleware|manager|fixation|hijack[[:alnum:]_]*)')"
+  PAT_CRYPTO="$(bound 'encrypt[[:alnum:]_]*|decrypt[[:alnum:]_]*|crypto[[:alnum:]_]*|cipher|hmac|bcrypt|argon2|pbkdf2|(private|public)[_ -]?keys?|certificates?|sign(s|ed|ing)?[_ -]?(webhook|payload|request|jwt|token|cookie|message)s?')"
+  PAT_SECRETS="$(bound 'api[_ -]?keys?|secrets?|(refresh|access|auth|bearer|csrf|id|api)[_ -]?tokens?|token[_ -]?(store|vault|secret)|id[_-]?(rsa|ed25519|ecdsa)|ssh[_ -]?keys?|keychain|vault')|(^|[[:space:]\"'/(=])\\.env([^[:alnum:]]|\$)"
 fi
+
+# Default mode: put a space at identifier word boundaries (authService ->
+# auth Service, JWTToken -> JWT Token). No digit split. Read stdin.
+split_ids() {
+  LC_ALL=C sed -E -e 's/([[:lower:]])([[:upper:]])/\1 \2/g' \
+                  -e 's/([[:upper:]]{2,})([[:upper:]][[:lower:]])/\1 \2/g'
+}
+
+# first_line RAW SPLIT: grep outputs ("N:text" or empty); print the smaller N.
+first_line() {
+  local r="${1%%:*}" s="${2%%:*}"
+  if [[ -z "$1" ]]; then printf '%s' "$s"
+  elif [[ -z "$2" ]]; then printf '%s' "$r"
+  elif [[ $s -lt $r ]]; then printf '%s' "$s"
+  else printf '%s' "$r"
+  fi
+}
 PAT_DATA='fetch|axios|request|query|insert|update|where|user.*input'
 PAT_INFRA='Dockerfile|terraform|k8s|pipeline|deploy|helm'
 
@@ -73,23 +90,33 @@ note_hit() {
 
 # scan_file FILE: classify file content; label is <file>:<line>.
 scan_file() {
-  local file="$1" cat pat out
+  local file="$1" cat pat out raw spl ln
   for cat in AUTH CRYPTO SECRETS DATA INFRA; do
     eval "pat=\$PAT_$cat"
-    out="$(grep -m1 -n -a -iE -e "$pat" -- "$file" 2>/dev/null || true)"
-    [[ -n "$out" ]] && note_hit "$cat" "$file:${out%%:*}"
+    if [[ $LEGACY -eq 1 ]]; then
+      out="$(grep -m1 -n -a -iE -e "$pat" -- "$file" 2>/dev/null || true)"
+      [[ -n "$out" ]] && note_hit "$cat" "$file:${out%%:*}"
+    else
+      raw="$(LC_ALL=C grep -m1 -n -a -iE -e "$pat" -- "$file" 2>/dev/null || true)"
+      spl="$(split_ids < "$file" 2>/dev/null | LC_ALL=C grep -m1 -n -a -iE -e "$pat" 2>/dev/null || true)"
+      if [[ -n "$raw" || -n "$spl" ]]; then
+        ln="$(first_line "$raw" "$spl")"
+        note_hit "$cat" "$file:$ln"
+      fi
+    fi
   done
   return 0
 }
 
 # scan_text LABEL TEXT WITH_DATA_INFRA: classify a string (task text or a path).
 scan_text() {
-  local label="$1" text="$2" all="$3" cat pat out
+  local label="$1" text="$2" all="$3" cat pat out spl
   for cat in AUTH CRYPTO SECRETS DATA INFRA; do
     [[ "$all" != "1" && ( "$cat" == "DATA" || "$cat" == "INFRA" ) ]] && continue
     eval "pat=\$PAT_$cat"
-    out="$(printf '%s\n' "$text" | grep -m1 -I -iE -e "$pat" 2>/dev/null || true)"
-    [[ -n "$out" ]] && note_hit "$cat" "$label"
+    out="$(printf '%s\n' "$text" | LC_ALL=C grep -m1 -a -iE -e "$pat" 2>/dev/null || true)"
+    spl="$(printf '%s\n' "$text" | split_ids 2>/dev/null | LC_ALL=C grep -m1 -a -iE -e "$pat" 2>/dev/null || true)"
+    [[ -n "$out" || -n "$spl" ]] && note_hit "$cat" "$label"
   done
   return 0
 }
@@ -185,6 +212,10 @@ echo "security_triggers: $TRIGGERS_STR"
 if [[ -n "$STATE_FILE" && -f "$STATE_FILE" ]]; then
   # Remove any pre-existing keys before appending to avoid duplicates
   sed -i.bak '/^security_classification:/d; /^security_patterns_found:/d; /^security_triggers:/d' "$STATE_FILE" && rm -f "${STATE_FILE}.bak"
+  # Terminate an unterminated last line so the appended keys start on their own line.
+  if [[ -s "$STATE_FILE" && -n "$(tail -c1 "$STATE_FILE")" ]]; then
+    echo >> "$STATE_FILE"
+  fi
   printf 'security_classification: %s\n' "$CLASSIFICATION" >> "$STATE_FILE"
   printf 'security_patterns_found: %s\n' "$PATTERNS_STR"   >> "$STATE_FILE"
   printf 'security_triggers: %s\n' "$TRIGGERS_STR"         >> "$STATE_FILE"
