@@ -303,6 +303,103 @@ def test_AC9_gate_kwargs_equal_with_and_without_producer_and_across_receipts(
     assert stripped(on[0]) == stripped(off[0]) == stripped(red[0])
 
 
+def _drive_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_cwd: Path, paths: Any,
+                 absent: bool = False) -> tuple:
+    """Like _drive, but red_test_paths is under test control (real gate function, real producer)."""
+    from bytedigger_engine.contracts import StepResult
+    p5 = _p5()
+    calls: list[dict] = []
+    events: list[tuple[str, dict]] = []
+
+    def fake_llm(**kw: Any) -> Any:
+        calls.append(kw)
+        return StepResult(status="ok", data={"raw_response": "VERDICT: PASS\n", **kw["extra_data"]},
+                          duration_ms=0, step_name="invoke_validation_llm")
+
+    monkeypatch.setattr(p5, "invoke_llm_subprocess", fake_llm)
+    monkeypatch.setattr(p5, "_emit_safe", lambda t, p, severity="info": events.append((t, p)))
+    prev = _prev(tmp_path)
+    if absent:
+        prev.data.pop("red_test_paths")
+    else:
+        prev.data["red_test_paths"] = paths
+    result = p5._invoke_validation_llm(_ctx(git_cwd=str(git_cwd)), prev)
+    return result, calls, events
+
+
+def test_AC13_empty_scope_direct_failure_no_receipt_old_removed(tmp_path: Path) -> None:
+    pf = _pf()
+    repo = _mk(tmp_path, "ac13a")
+    for bad in ([], None, "tests/test_calc.py", {"a": 1}, ["tests/nope.py"], [TEST_REL, "tests/nope.py"]):
+        _write(pf.receipt_path(repo), "{}")
+        res = pf.run_engine_preflight(str(repo), bad, "# engine spec\n")
+        assert res["receipt"] is None and res["exit_code"] != 0, f"red_tests={bad!r}"
+        assert not pf.receipt_path(repo).exists(), f"old receipt must be removed for {bad!r}"
+
+
+@pytest.mark.parametrize("case", ["absent", "empty", "nonexistent"])
+def test_AC13_empty_scope_via_gate_is_missing_never_fresh(
+        case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pf = _pf()
+    repo = _mk(tmp_path, f"ac13_{case}")
+    assert _produce(repo)["exit_code"] == 0, "forcing: a valid producer run pre-stages a fresh receipt"
+    assert pf.receipt_rung("red", str(repo))["status"] == "fresh"
+    paths = {"absent": None, "empty": [], "nonexistent": ["tests/nope.py"]}[case]
+    result, calls, events = _drive_paths(monkeypatch, tmp_path, repo, paths, absent=(case == "absent"))
+    (ev,) = _rung(events)
+    assert ev["status"] == "missing"
+    assert len(calls) == 1 and result.status == "ok"
+    assert not pf.receipt_path(repo).exists()
+
+
+def _mk_sub(tmp_path: Path, name: str, test_src: str) -> tuple[Path, Path]:
+    repo = tmp_path / name / "repo"
+    sub = repo / "sub"
+    sub.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _write(sub / "calc.py", CALC)
+    _write(sub / TEST_REL, test_src)
+    _write(repo / ".gitignore", "__pycache__/\n.pytest_cache/\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    return repo.resolve(), (repo / "sub").resolve()
+
+
+def test_AC14_subdirectory_git_cwd_clean_is_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, sub = _mk_sub(tmp_path, "ac14a", RED_SRC)
+    _r, calls, events = _drive_paths(monkeypatch, tmp_path, sub, [TEST_REL])
+    (ev,) = _rung(events)
+    assert ev["status"] == "fresh"
+    assert len(calls) == 1
+    assert _receipt(repo)["producer"] == "engine"
+
+
+def test_AC14_subdirectory_git_cwd_mocking_red_is_red_stub(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, sub = _mk_sub(tmp_path, "ac14b", STUB_SRC)
+    _r, calls, events = _drive_paths(monkeypatch, tmp_path, sub, [TEST_REL])
+    (ev,) = _rung(events)
+    assert ev["status"] == "red" and ev["red_step"] == "stub"
+    assert len(calls) == 1
+
+
+def test_AC15_internal_write_failure_is_failure_result_no_receipt(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pf = _pf()
+    repo = _mk(tmp_path, "ac15")
+    assert _produce(repo)["exit_code"] == 0, "forcing: producer exists and works unpatched"
+    pf.receipt_path(repo).unlink()
+
+    def boom(*a: Any, **k: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pf, "_write_atomic", boom)
+    res = _produce(repo)
+    assert res["receipt"] is None and res["exit_code"] != 0
+    assert not pf.receipt_path(repo).exists()
+
+
 def test_AC10_ambient_cwd_does_not_call_producer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = _mk(tmp_path, "ac10")
     seen = _spy(monkeypatch)
