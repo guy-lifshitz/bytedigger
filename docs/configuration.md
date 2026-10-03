@@ -268,8 +268,8 @@ text.
 | `empty` | zero length, or only whitespace |
 
 Steps that read the template: phase 4.5 spec and review, phase 5 red, validation,
-green and integrity, phase 6 review, fix, fix-integrity, satisfaction and
-decorrelated verifier. Delta-retry prompts and the
+green and integrity, phase 6 review, fix, fix-integrity and satisfaction.
+Delta-retry prompts and the
 restricted spec writer carry no template and do not read the file.
 In phase 6 a template error runs the abort handler, which writes the
 `NOT_ASSESSED` satisfaction stub.

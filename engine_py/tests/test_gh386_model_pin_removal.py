@@ -72,55 +72,59 @@ class TestGH386ModelPinRemoval:
         assert as_chain(["a", "b"]) == ["a", "b"]
         assert as_chain("") == []
 
-    def test_ac2_decorrelated_verifier_fable_available_unchanged(self, model_config_fixture):
-        """AC2: fable available -> "fable" (behavior with fable available MUST NOT change)."""
-        model_config_fixture({"claude": {"decorrelated_verifier": "fable"}})
-        assert model_config.get_claude_decorrelated_verifier() == "fable"
+    # bd#89 P3b2: the decorrelated_verifier role is gone; the fallback-chain cases below run on
+    # the surviving "critical" role (FALLBACK_CONFIG chain ["opus"], models.json value first).
 
-    def test_ac3_decorrelated_verifier_unavailable_via_models_json(self, model_config_fixture, monkeypatch):
+    def test_ac2_critical_fable_available_unchanged(self, model_config_fixture, monkeypatch):
+        """AC2: fable available -> "fable" (behavior with fable available MUST NOT change)."""
+        monkeypatch.delenv("HAL_MODEL_UNAVAILABLE", raising=False)
+        model_config_fixture({"claude": {"critical": "fable"}})
+        assert model_config.get_claude_critical() == "fable"
+
+    def test_ac3_critical_unavailable_via_models_json(self, model_config_fixture, monkeypatch):
         """AC3: models.json unavailable=["fable"] -> resolves to "opus", no exception."""
         monkeypatch.delenv("HAL_MODEL_UNAVAILABLE", raising=False)
         model_config_fixture({
-            "claude": {"decorrelated_verifier": "fable", "unavailable": ["fable"]},
+            "claude": {"critical": "fable", "unavailable": ["fable"]},
         })
-        assert model_config.get_claude_decorrelated_verifier() == "opus"
+        assert model_config.get_claude_critical() == "opus"
 
-    def test_ac4_decorrelated_verifier_unavailable_via_env(self, model_config_fixture, monkeypatch):
+    def test_ac4_critical_unavailable_via_env(self, model_config_fixture, monkeypatch):
         """AC4: HAL_MODEL_UNAVAILABLE="fable" env, no unavailable key -> resolves to "opus"."""
-        model_config_fixture({"claude": {"decorrelated_verifier": "fable"}})
+        model_config_fixture({"claude": {"critical": "fable"}})
         monkeypatch.setenv("HAL_MODEL_UNAVAILABLE", "fable")
-        assert model_config.get_claude_decorrelated_verifier() == "opus"
+        assert model_config.get_claude_critical() == "opus"
 
     def test_ac5_family_match_full_model_name_unavailable(self, model_config_fixture, monkeypatch):
         """AC5: unavailable=["fable"] matches full model name "claude-fable-5" via family."""
         monkeypatch.delenv("HAL_MODEL_UNAVAILABLE", raising=False)
         model_config_fixture({
-            "claude": {"decorrelated_verifier": "claude-fable-5", "unavailable": ["fable"]},
+            "claude": {"critical": "claude-fable-5", "unavailable": ["fable"]},
         })
-        assert model_config.get_claude_decorrelated_verifier() == "opus"
+        assert model_config.get_claude_critical() == "opus"
 
     def test_ac6_list_role_value_successor_configurable(self, model_config_fixture, monkeypatch):
         """AC6: role value is a list; first-unavailable entry skipped, successor returned."""
         monkeypatch.delenv("HAL_MODEL_UNAVAILABLE", raising=False)
         model_config_fixture({
             "claude": {
-                "decorrelated_verifier": ["fable", "test-successor"],
+                "critical": ["fable", "test-successor"],
                 "unavailable": ["fable"],
             },
         })
-        assert model_config.get_claude_decorrelated_verifier() == "test-successor"
+        assert model_config.get_claude_critical() == "test-successor"
 
     def test_ac7_chain_exhausted_degrades_and_warns(self, model_config_fixture, monkeypatch, caplog):
         """AC7: all chain entries unavailable -> returns chain head, logs model_config_all_unavailable."""
         monkeypatch.delenv("HAL_MODEL_UNAVAILABLE", raising=False)
         model_config_fixture({
             "claude": {
-                "decorrelated_verifier": ["fable"],
+                "critical": ["fable"],
                 "unavailable": ["fable", "opus"],
             },
         })
         with caplog.at_level(logging.WARNING, logger="model_config"):
-            result = model_config.get_claude_decorrelated_verifier()
+            result = model_config.get_claude_critical()
         assert result == "fable"
         assert any("model_config_all_unavailable" in rec.message for rec in caplog.records)
 

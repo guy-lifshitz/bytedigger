@@ -135,7 +135,7 @@ def test_r6_resolution_event_carries_the_role(routed, tmp_path):
 
 
 def test_r7_non_gate_judges_declare_the_judge_role():
-    """The phase 6 reviewer, the decorrelated verifier and the semantic verifier."""
+    """The phase 6 reviewer and the semantic verifier."""
     from bytedigger_engine.lib.plugins.anti_hallucination import semantic_verifier as sv  # noqa: PLC0415
     from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
 
@@ -155,10 +155,8 @@ def test_r7_non_gate_judges_declare_the_judge_role():
     with patch.object(p6, "invoke_llm_subprocess", _capture), \
          patch.object(sv.llm_subprocess, "invoke_llm_subprocess", _capture):
         p6._invoke_review_llm(ctx, review_prev)
-        p6._invoke_decorr_llm(ctx, StepResult(status="ok", duration_ms=0, step_name="x",
-                                              data={"prompt": "verify"}))
         sv._invoke_verifier_agent({"file": "f", "line": 1, "quote": "q", "claim": "c"})
-    assert [c.get("role") for c in seen] == ["judge", "judge", "judge"]
+    assert [c.get("role") for c in seen] == ["judge", "judge"]
 
 
 def test_r8_phase6_straggler_check_resolves_the_reviewers_backend(monkeypatch, tmp_path):

@@ -241,7 +241,6 @@ def test_ac11_get_role_model_matches_getters_and_get_gate_floor_none_without_key
         "fallback": model_config.get_claude_fallback,
         "critical": model_config.get_claude_critical,
         "spec_writer": model_config.get_claude_spec_writer,
-        "decorrelated_verifier": model_config.get_claude_decorrelated_verifier,
     }
     for role, getter in role_map.items():
         assert get_role_model(role) == getter()

@@ -284,10 +284,9 @@ class TestPostFixTypecheckGate:
             f"Expected 'verify_fix_typecheck' immediately after 'run_pytest_post_fix' "
             f"(positions {idx_pytest + 1} vs {idx_typecheck}). All steps: {step_names!r}"
         )
-        idx_build_decorr = step_names.index("build_decorr_prompt")
-        assert idx_typecheck == idx_build_decorr - 1, (
-            f"Expected 'verify_fix_typecheck' immediately before 'build_decorr_prompt' "
-            f"(positions {idx_build_decorr - 1} vs {idx_typecheck}). All steps: {step_names!r}"
+        assert idx_typecheck == idx_satisfaction - 1, (
+            f"Expected 'verify_fix_typecheck' immediately before 'build_satisfaction_prompt' "
+            f"(positions {idx_satisfaction - 1} vs {idx_typecheck}). All steps: {step_names!r}"
         )
 
     # ── AC5: net-new errors blocked (real git + real mypy) ────────────────────

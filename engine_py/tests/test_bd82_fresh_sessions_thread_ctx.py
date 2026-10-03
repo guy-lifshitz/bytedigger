@@ -219,17 +219,6 @@ def test_f6b_chokepoint_resolves_fresh_for_gates(stable_prefix):
     assert [c["fresh_session"] for c in seen] == [True, False]
 
 
-def test_f6c_decorrelated_verifier_asks_for_a_fresh_session():
-    """The decorrelated verifier is a judge too — it must not read its earlier verdict."""
-    from bytedigger_engine.workflows.phase_6_review import _invoke_decorr_llm  # noqa: PLC0415
-
-    seen = _register_warm_spy("claude-subprocess")
-    prev = StepResult(status="ok", duration_ms=0, step_name="build_decorr_prompt",
-                      data={"prompt": "verify"})
-    _invoke_decorr_llm(types.SimpleNamespace(org_config={}), prev)
-    assert len(seen) == 1 and seen[0].get("fresh_session") is True
-
-
 def test_f2c_agent_sdk_gate_fresh_even_without_the_capability(sdk):
     """Defence in depth: a registration that omits warm_resume never forwards
     fresh_session, yet the backend itself treats a hard gate as fresh."""

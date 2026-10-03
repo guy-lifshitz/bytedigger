@@ -7,7 +7,7 @@ Phase 6 folds the aggregation step into the write step through the named helper
 ``role-composite.md``, the ``## Fanout`` banner and ``E_NO_ROLE_FILES`` go away.
 
 AC mapping:
-    test_ac1_workflow_has_20_steps_without_aggregate_step         -> AC1
+    test_ac1_workflow_has_17_steps_without_aggregate_step         -> AC1
     test_ac2_write_step_runs_the_helper_with_retry_policy_1       -> AC2
     test_ac3_write_step_writes_composite_review_doc               -> AC3 (side effect)
     test_ac4_leftover_role_file_is_ignored                        -> AC4
@@ -45,7 +45,7 @@ _BASE_STEPS_MINUS_AGGREGATE = [
     "build_review_prompt", "invoke_review_llm", "write_review_artifact",
     "verify_findings", "verify_findings_semantic", "build_fix_prompt", "invoke_fix_llm", "fix_watchdog",
     "write_fix_artifact", "commit_fix_code", "commit_fix_tests", "run_pytest_post_fix",
-    "verify_fix_typecheck", "build_decorr_prompt", "invoke_decorr_llm", "write_decorr_artifact",
+    "verify_fix_typecheck",
     "build_satisfaction_prompt", "invoke_satisfaction_llm", "write_satisfaction_doc", "detect_mass_unverified",
 ]
 
@@ -147,9 +147,9 @@ class _Events:
 
 # ─── AC1 / AC2 ────────────────────────────────────────────────────────────────
 
-def test_ac1_workflow_has_20_steps_without_aggregate_step():
+def test_ac1_workflow_has_17_steps_without_aggregate_step():
     names = [s.name for s in p6.phase_6_review_workflow().steps]
-    assert len(names) == 20, f"expected 20 steps, got {len(names)}: {names}"
+    assert len(names) == 17, f"expected 17 steps, got {len(names)}: {names}"
     assert names == _BASE_STEPS_MINUS_AGGREGATE
     assert names[2] == "write_review_artifact"
 

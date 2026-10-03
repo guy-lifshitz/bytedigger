@@ -35,9 +35,8 @@ PINNED_STEPS = [
     "build_review_prompt", "invoke_review_llm",
     "write_review_artifact", "verify_findings", "verify_findings_semantic", "build_fix_prompt",
     "invoke_fix_llm", "fix_watchdog", "write_fix_artifact", "commit_fix_code",
-    "commit_fix_tests", "run_pytest_post_fix", "verify_fix_typecheck", "build_decorr_prompt",
-    "invoke_decorr_llm", "write_decorr_artifact", "build_satisfaction_prompt",
-    "invoke_satisfaction_llm", "write_satisfaction_doc", "detect_mass_unverified",
+    "commit_fix_tests", "run_pytest_post_fix", "verify_fix_typecheck",
+    "build_satisfaction_prompt", "invoke_satisfaction_llm", "write_satisfaction_doc", "detect_mass_unverified",
 ]
 
 
