@@ -13,6 +13,10 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Added
+
+- **Gate round cap per tier/complexity (bd#163).** Optional table `{"<TIER>": int}` from `org_config["gate_round_caps"]`, else the host provider's `gate_round_caps()`, else env `BD_GATE_ROUND_CAPS`; label from `org_config["gate_tier"]`, `["complexity"]` or env `BD_GATE_TIER`. Over a table cap the retry is denied with new `E_GATE_ROUND_CAP` (not auto-resumed; the host decides). No table or a malformed one keeps the default cap of 2 (new `lib/gate_round_cap.py`, events `gate_round_cap_resolved`, `gate_round_cap_exceeded`, `gate_round_cap_table_invalid`, `gate_round_cap_provider_unavailable`). HAL-parity example table: `{"MICRO":1,"TIER2":2,"TIER3":2}`. Provenance: `_MAX_VALIDATION_CYCLES` = Design A decree 2026-04-26 and `_GATE_BUDGET_HARD_BACKSTOP` = GH625, both kept as the default and the hard max (6).
+
 ### Fixed
 
 - **Per-cycle artifacts are cleared or keyed (bd#92).** The phase-6 review doc is unlinked before the reviewer runs; the findings thread is keyed by run id and producing cycle (new event `spec_findings_thread_rejected`); the ship sidecar is written only on a reviewer SHIP and needs `verdict: SHIP` to be reused (new event `spec_prior_base_unverified`); sentinel globs come from one builder (`resume_sentinel_glob`), match `norun` names, and a phase reroute clears every cycle.

@@ -66,6 +66,11 @@ class _DefaultConfigProvider:
         v = _aliased_env_get(env_var)
         return v if v is not None else default
 
+    def gate_round_caps(self) -> str | None:
+        # bd#163: off-Protocol. Raw JSON table {"<TIER>": int} from env, or None.
+        v = _aliased_env_get("BD_GATE_ROUND_CAPS")
+        return v if v else None
+
     def int_value(self, env_var: str, default: int) -> int:
         # ValueError on non-int env MUST propagate (same contract as timeout_ms).
         v = _aliased_env_get(env_var)

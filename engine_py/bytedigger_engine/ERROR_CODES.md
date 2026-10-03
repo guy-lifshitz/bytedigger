@@ -92,6 +92,7 @@
 - `E_GATE_EFFORT_CONFIG_INVALID` — llm_subprocess: a hard gate's effort pin cannot be resolved — the models config is unreadable or malformed (bd#107)
 - `E_GATE_EFFORT_UNSUPPORTED` — llm_subprocess: a hard gate's pinned effort cannot be applied by the resolved backend (bd#82)
 - `E_GATE_INDETERMINATE` — conformance/bd_l2: a gate raised and was recorded as absent rather than failed; a gate that cannot reach a verdict fails closed (bd#9 R2.4 / ADV-5)
+- `E_GATE_ROUND_CAP` — engine.py: the tier/complexity gate round cap from a configured table was reached; no further retry, the host decides (bd#163)
 
 ## E_GIT
 
