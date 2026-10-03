@@ -256,8 +256,17 @@ def test_ac7_horizon_token_and_ledger_entry_removed_together() -> None:
     assert not [p for p in problems if flag in p], problems
     # (b) the ledger key is gone
     assert flag not in ledger, "ledger entry must be deleted together with the catalog token"
-    # (c) the read site carries no flip-by token
-    assert "flip-by:" not in inspect.getsource(phase_5_implement._commit_red_tests)
+    # (c) the mass-deletion read site carries no flip-by token (other flags'
+    # tokens in the same function are unrelated and legitimate)
+    lines = inspect.getsource(phase_5_implement._commit_red_tests).splitlines()
+    start = next(i for i, ln in enumerate(lines) if "HAL_RED_MASS_DELETION_GATE" in ln)
+    end = next(
+        i for i, ln in enumerate(lines) if i >= start and "_red_mass_deletion_violations(" in ln
+    )
+    block = "\n".join(lines[start : end + 1])
+    assert block, "mass-deletion block slice must be non-empty"
+    assert "HAL_RED_MASS_DELETION_ENFORCE" in block
+    assert "flip-by" not in block
 
 
 # ═══════════════════════════════════════════════════════════════════════════

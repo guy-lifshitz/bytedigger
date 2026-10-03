@@ -385,10 +385,10 @@ FLAGS: dict[str, dict] = {
         "description": "Kill-switch: HAL_RED_MASS_DELETION_GATE=0 disables the RED mass-deletion detection+telemetry entirely (GH282).",
     },
     "HAL_RED_MASS_DELETION_ENFORCE": {
-        "kind": "flag",
-        "default": "0",
+        "kind": "gate",
+        "default": "1",
         "module": "workflows/phase_5_implement.py",
-        "description": "=1 hard-blocks RED mass-deletion (E_RED_MASS_DELETION, recoverable=False). Warn-only until flip-by:2026-07-24 Refs #282.",
+        "description": "Kill-switch: =0 returns RED mass-deletion to warn-only; default ON hard-blocks (E_RED_MASS_DELETION, recoverable=False). Flipped ON 2026-10-03 after 232 clean shadow runs, Refs #282.",
     },
     "HAL_RED_MASS_DELETION_MAX_LINES": {
         "kind": "int",
