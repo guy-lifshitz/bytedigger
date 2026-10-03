@@ -87,14 +87,20 @@ Verdict markers (last-marker-wins via rfind):
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from bytedigger_engine import preflight  # noqa: E402  bd#218 s5 — module import so the producer is patchable
 from bytedigger_engine.lib import git_port  # noqa: E402
-from bytedigger_engine.lib.git_cwd import resolve_git_cwd  # noqa: E402  GH381
+from bytedigger_engine.lib.git_cwd import (  # noqa: E402  GH381  bd#218 s5
+    is_ambient_git_cwd,
+    resolve_git_cwd,
+    resolve_git_cwd_with_source,
+)
 from bytedigger_engine.lib.schema_smoke import run_schema_smoke  # noqa: E402  GH892
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
@@ -108,6 +114,7 @@ from bytedigger_engine.lib.model_config import get_claude_critical  # noqa: E402
 from bytedigger_engine.lib.verdict_parse import last_standalone_line_verdict  # noqa: E402
 from bytedigger_engine.workflows.phase_workflows_common import (  # noqa: E402  GH786 / bd#84
     _declared_injections,
+    _emit_safe,
     _injected_blocks_record,
     _role_template,
     _role_template_record,
@@ -408,6 +415,51 @@ def _build_integrity_prompt(ctx, _prev) -> StepResult:
 # ─── Step 2: invoke LLM (skipped on NO_CHANGES) ──────────────────────────────
 
 
+def _green_test_paths(tree: str, diff_path: Any) -> list[str]:
+    """bd#218 s5: test paths named by the integrity diff, for the green-receipt producer.
+
+    Only a header `diff --git a/<P> b/<P>` (same unquoted <P>) is parseable; any other header,
+    a `..` component, or a path resolving outside the toplevel empties the whole scope.
+    Absent/deleted files drop out. Paths are relative to `tree` (absolute if outside it).
+    Raises when the toplevel cannot be resolved (caller reports status `error`).
+    """
+    res = git_port.git_read(["rev-parse", "--show-toplevel"], cwd=tree, timeout=30)
+    if res.returncode != 0 or not res.stdout.strip():
+        raise RuntimeError("cannot resolve git toplevel")
+    top = Path(res.stdout.strip())
+    top_real = os.path.realpath(str(top))
+    try:
+        diff_text = Path(str(diff_path)).read_text(encoding="utf-8")
+    except Exception:  # noqa: BLE001 -- absent or unreadable diff -> empty scope
+        return []
+    tree_real = os.path.realpath(tree)
+    found: list[str] = []
+    for line in diff_text.splitlines():
+        if not line.startswith("diff --git "):
+            continue
+        rest = line[len("diff --git "):]
+        body = len(rest) - 5
+        if not rest.startswith("a/") or body < 1 or body % 2:
+            return []
+        n = body // 2
+        rel = rest[2:2 + n]
+        if rest[2 + n:5 + n] != " b/" or rest[5 + n:] != rel:
+            return []
+        if rel.startswith("/") or ".." in rel.split("/"):
+            return []
+        real = os.path.realpath(os.path.join(top_real, rel))
+        if real != top_real and not real.startswith(top_real + os.sep):
+            return []
+        if not os.path.isfile(real):
+            continue
+        out = os.path.relpath(real, tree_real)
+        if out.startswith(".."):
+            out = real
+        if out not in found:
+            found.append(out)
+    return found
+
+
 def _invoke_integrity_llm(ctx, prev) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -433,6 +485,47 @@ def _invoke_integrity_llm(ctx, prev) -> StepResult:
 
     cfg = ctx.org_config or {}
 
+    # bd#218 s5 shadow rung owner:bd-ladder expires:2026-10-17
+    # Fail-open, add-only: write the phase-green receipt (no LLM, no test run), read the rung,
+    # record it. Computed once per step call; the gate below always runs.
+    _pr_extra: dict[str, Any] = {}
+    _pr_cfg = cfg.get("preflight_rung") if isinstance(cfg, dict) else None
+    if not (isinstance(_pr_cfg, dict) and _pr_cfg.get("mode") == "off"):
+        _pr_event: dict[str, Any] = {
+            "status": "error", "red_step": None, "phase": 5,
+            "cycle": prev.data.get("cycle", 1), "gate": "integrity",
+        }
+        try:
+            if _pr_cfg is not None and not (
+                isinstance(_pr_cfg, dict) and _pr_cfg.get("mode", "verify") == "verify"
+            ):
+                _pr_event["status"] = "config-error"
+            elif isinstance(_pr_cfg, dict) and not isinstance(_pr_cfg.get("produce", True), bool):
+                _pr_event["status"] = "config-error"
+            else:
+                _pr_tree, _pr_source = resolve_git_cwd_with_source(cfg, prev.data)
+                if is_ambient_git_cwd(_pr_source):
+                    _pr_event["status"] = "ambient-skip"
+                else:
+                    if not (isinstance(_pr_cfg, dict) and _pr_cfg.get("produce", True) is False):
+                        _pr_paths = _green_test_paths(_pr_tree, prev.data.get("diff_path"))
+                        try:
+                            preflight.run_engine_preflight(
+                                _pr_tree, _pr_paths, "", phase="green")
+                        except Exception:  # noqa: BLE001 -- producer failure is swallowed
+                            pass
+                    _pr_rec = preflight.receipt_rung("green", _pr_tree)
+                    _pr_event["status"] = _pr_rec["status"]
+                    _pr_event["red_step"] = _pr_rec["red_step"]
+                    _pr_extra["preflight"] = {
+                        "status": _pr_rec["status"], "red_step": _pr_rec["red_step"],
+                    }
+        except Exception:  # noqa: BLE001 -- the rung must never block the gate
+            _pr_event["status"] = "error"
+            _pr_event["red_step"] = None
+            _pr_extra["preflight"] = {"status": "error", "red_step": None}
+        _emit_safe("preflight_receipt", _pr_event)
+
     def _attempt() -> StepResult:
         return invoke_llm_subprocess(
             prompt=prev.data["prompt"],
@@ -442,6 +535,7 @@ def _invoke_integrity_llm(ctx, prev) -> StepResult:
             extra_data={
                 "doc_path": prev.data["doc_path"],
                 "diff_path": prev.data["diff_path"],
+                **_pr_extra,
             },
             hard_gate=True,
             gate_label="integrity",

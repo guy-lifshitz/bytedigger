@@ -216,6 +216,8 @@
     "workflows/phase_5_implement.py::_verify_security_lint::read_text#0": {"class": "not-prompt", "note": "spec read to parse authorized pragma paths; gate only"},
     "workflows/phase_5_implement.py::_write_validation_doc::read_text#0": {"class": "not-prompt", "note": "spec read for AC-id parse; only derived AC ids (never spec bytes) reach next-cycle findings"},
     "workflows/phase_5_integrity.py::_build_integrity_prompt::git_read#0": {"class": "not-prompt", "note": "integrity diff handed to the LLM by path (written to the scratchpad), not inlined in the prompt"},
+    "workflows/phase_5_integrity.py::_green_test_paths::git_read#0": {"class": "not-prompt", "note": "git toplevel for the shadow green-receipt scope; path resolution only, never rendered"},
+    "workflows/phase_5_integrity.py::_green_test_paths::read_text#0": {"class": "not-prompt", "note": "integrity diff scanned for test paths handed to the shadow green-receipt producer; not inlined in any prompt"},
     "workflows/phase_5_integrity.py::_resolve_diff_command::read_text#0": {"class": "not-prompt", "note": "pre-RED sha ref file used as a git diff argument"},
 
     "workflows/phase_6_fix_integrity.py::_build_fix_integrity_prompt::git_read#0": {"class": "not-prompt", "note": "fix-integrity diff handed to the LLM by path (written to the scratchpad), not inlined in the prompt"},
