@@ -64,7 +64,9 @@ from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
 
 from bytedigger_engine.lib import git_port  # noqa: E402
 from bytedigger_engine.lib.util.engine_owned import drop_engine_owned_porcelain  # noqa: E402  bd#94 — engine-owned paths
-from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source  # noqa: E402  GH381
+from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381
+from bytedigger_engine import preflight  # noqa: E402  bd#219 s6
+from bytedigger_engine.workflows.phase_5_integrity import _green_test_paths  # noqa: E402  bd#219 s6
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
     get_out_of_role_block as _get_out_of_role_block,
@@ -615,6 +617,47 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
     model = _resolve_model(cfg, "fix_integrity_model", _default_model())
     timeout_sec = _resolve_integrity_timeout_sec(cfg)
 
+    # bd#219 s6 shadow rung owner:bd-ladder expires:2026-10-17
+    # Fail-open, add-only: write the phase-green receipt (no LLM, no test run), read the rung,
+    # record it. Computed once per step call; the gate below always runs.
+    _pr_extra: dict[str, Any] = {}
+    _pr_cfg = cfg.get("preflight_rung") if isinstance(cfg, dict) else None
+    if not (isinstance(_pr_cfg, dict) and _pr_cfg.get("mode") == "off"):
+        _pr_event: dict[str, Any] = {
+            "status": "error", "red_step": None, "phase": 6,
+            "cycle": cfg.get("cycle", 1), "gate": "fix_integrity",
+        }
+        try:
+            if _pr_cfg is not None and not (
+                isinstance(_pr_cfg, dict) and _pr_cfg.get("mode", "verify") == "verify"
+            ):
+                _pr_event["status"] = "config-error"
+            elif isinstance(_pr_cfg, dict) and not isinstance(_pr_cfg.get("produce", True), bool):
+                _pr_event["status"] = "config-error"
+            else:
+                _pr_tree, _pr_source = resolve_git_cwd_with_source(cfg, prev.data)
+                if is_ambient_git_cwd(_pr_source):
+                    _pr_event["status"] = "ambient-skip"
+                else:
+                    if not (isinstance(_pr_cfg, dict) and _pr_cfg.get("produce", True) is False):
+                        _pr_paths = _green_test_paths(_pr_tree, prev.data.get("diff_path"))
+                        try:
+                            preflight.run_engine_preflight(
+                                _pr_tree, _pr_paths, "", phase="green")
+                        except Exception:  # noqa: BLE001 -- producer failure is swallowed
+                            pass
+                    _pr_rec = preflight.receipt_rung("green", _pr_tree)
+                    _pr_event["status"] = _pr_rec["status"]
+                    _pr_event["red_step"] = _pr_rec["red_step"]
+                    _pr_extra["preflight"] = {
+                        "status": _pr_rec["status"], "red_step": _pr_rec["red_step"],
+                    }
+        except Exception:  # noqa: BLE001 -- the rung must never block the gate
+            _pr_event["status"] = "error"
+            _pr_event["red_step"] = None
+            _pr_extra["preflight"] = {"status": "error", "red_step": None}
+        _emit_safe("preflight_receipt", _pr_event)
+
     def _attempt() -> StepResult:
         return invoke_llm_subprocess(
             prompt=prev.data["prompt"],
@@ -624,6 +667,7 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
             extra_data={
                 "doc_path": prev.data["doc_path"],
                 "diff_path": prev.data["diff_path"],
+                **_pr_extra,
             },
             hard_gate=True,
             gate_label="fix_integrity",
