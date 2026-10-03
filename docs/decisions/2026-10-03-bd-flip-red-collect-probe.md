@@ -1,11 +1,11 @@
 # bd: HAL_RED_COLLECT_PROBE_ENFORCE defaults ON (kill-switch kept)
 
-**Status:** r1 spec (frozen before RED; AC7(c) wording corrected after RED) · **Class:** SYSTEMATIC · **Chokepoint:** the two read sites of the
+**Status:** r2 spec (folds gate r1: see ...-collect-probe-gate-r1.md) · **Class:** SYSTEMATIC · **Chokepoint:** the two read sites of the
 flag in `workflows/phase_5_implement.py` (`_collect_red_lint_findings`, `_verify_red_lint_rules_legacy`),
 the one catalog entry and the one enforcement-map row (`conformance/bd_l2.py` R2.1).
 **Enforcement layer (Principle C):** deterministic gate in the engine (`E_RED_COLLECT_PROBE`,
 recoverable=True) plus the horizon guard from bd#221 (the overdue `flip-by` token and the ledger line are
-removed together). **Adds no LLM call.** Note for the inbox: `recoverable=True` means a retry (an LLM re-write
+removed together). **Adds no new LLM call site** (on the batch path the existing directed-repair step, on by default, may spend one cheap-model call when a probe finding enters the batch; that call site is pre-existing). Note for the inbox: `recoverable=True` holds only while delta-retry is on, fewer than 2 attempts are used and no `E_RED_LINT_F1` finding is in the same batch; a retry (an LLM re-write
 of the RED) happens only when the RED genuinely fails to collect.
 **Depends on:** bd#221 (guard + ledger), stacked after the MASS_DELETION flip (bd#223).
 **Source:** wave-2 principle 5; hal#1892.
@@ -30,8 +30,16 @@ becomes a kill-switch (`=0` restores warn-only).
    follows the catalog; `test_bd59_enforcement_map.py::test_ac6` demands exactly this decision).
 4. `scripts/flip_horizon_ledger.json`: the `HAL_RED_COLLECT_PROBE_ENFORCE` line STAYS through spec and RED and
    is deleted in GREEN together with the catalog token.
-5. `authorized-test-edits:` `engine_py/tests/test_gh542_collect_probe.py` (AC5 pinned default-OFF, needs
-   `=0`), `engine_py/tests/test_bd59_enforcement_map.py` (AC6 R2.1 pin flips to True).
+5. (gate r1 F3) `_red_collect_probe` treats a probe whose output contains `No module named pytest` (the engine
+   interpreter lacks pytest, e.g. a pipx install without the `[test]` extra) as a SKIP (`skip_reason="pytest_unavailable"`),
+   not a violation. Reason: the default flips from warn to block, and the shadow data (229 runs) came from host
+   runs where the engine interpreter has pytest. All other non-zero exits stay violations.
+6. `authorized-test-edits:` `engine_py/tests/test_gh542_collect_probe.py` (AC5 pinned default-OFF, needs
+   `=0`), `engine_py/tests/test_bd59_enforcement_map.py` (AC6 R2.1 pin flips to True; AC4 and AC5 use R2.1 as the
+   "exists but off" example and switch to R2.6), and, for fixtures that cannot be collected by pytest and now hit
+   the default-ON probe (gate r1 F2), `engine_py/tests/test_gh595_red_lint_preflight_batch.py` and
+   `engine_py/tests/test_phase_5_implement_C76F6F3C.py` (set `HAL_RED_COLLECT_PROBE_ENFORCE=0` in the affected tests;
+   no assertion changes).
 
 ## §2 Acceptance checks (real `_verify_red_lint_rules` / legacy path on a non-collectable fixture)
 
@@ -51,13 +59,16 @@ becomes a kill-switch (`=0` restores warn-only).
   contains no `flip-by` (the same function holds an unrelated GH535 token elsewhere, out of scope).
 - **AC8 (sibling migration)** `test_gh542_collect_probe.py` AC5 sets `=0`; `test_bd59_enforcement_map.py` AC6
   expects R2.1 `enforced_by_default is True`; every other assertion unchanged.
+- **AC10 (gate r1 F3)** `_red_collect_probe` with `sys.executable` replaced by an interpreter without pytest
+  (or `bounded_run` patched to return rc 1 with `No module named pytest`) returns `([], "pytest_unavailable")`;
+  an ordinary collection error still returns a violation.
+- **AC11 (gate r1 F7)** legacy path (`HAL_RED_LINT_PREFLIGHT_BATCH=0`): `=0`, `"false"` and `BD_...=0` behave as on the batch path.
 - **AC9** `bd_l2.ENFORCEMENT["R2.1"]["enforced_by_default"] is True` and agrees with the catalog
   (`FLAGS[flag]["default"] != "0"` or kind gate with default `"1"`).
 
 ## §3 Edge cases / sweep
 
-Sibling sweep (§1a, done): grep over engine_py/scripts/docs plus a scoped run with the flip applied of 38
-flag/rollout/collect-probe/bd_l2 test files: the only default-OFF reliance is `test_gh542` AC5; AC6 of bd59
+Sibling sweep (§1a, redone after gate r1 by caller, not by flag name): all test files calling `_verify_red_lint_rules`/`_collect_red_lint_findings`. Default-OFF reliance: `test_gh542` AC5, bd59 AC4/AC5/AC6, `test_gh595` (AC1, AC3, AC5, AC7, AC8) and `test_phase_5_implement_C76F6F3C` (semgrep-missing, semgrep-internal-error); unaffected: gh602, p1a, gh501, 9AB32375. AC6 of bd59
 pins the static map (§1.3). `test_gh602` (retry eligibility lists the code) and `test_gh542` AC4 (sets `=1`)
 are unaffected. ERROR_CODES.md does not mention ENFORCE. `docs/decisions/2026-08-04-bd59-enforcement-map.md`
 D5 ("no flag flipped by this lot") is historical and stays. A value like `"false"` or an empty string
@@ -65,7 +76,9 @@ enforces, same contract as every kill-switch gate. Release note / PR body mentio
 
 ## §4 Files in scope / NOT in scope
 
-In scope: `flags_catalog.py` (one entry), `workflows/phase_5_implement.py` (two reads + one comment),
+In scope: `flags_catalog.py` (one entry), `workflows/phase_5_implement.py` (two reads + one comment + the pytest-unavailable skip in `_red_collect_probe`),
 `conformance/bd_l2.py` (one value), the ledger line, the two authorized sibling test files, one new test file
 `engine_py/tests/test_bd_flip_red_collect_probe.py`.
-**NOT in scope:** `_red_collect_probe`, the timeout flag, the GATE flag, any other flag, the host repo.
+**NOT in scope:** the rest of `_red_collect_probe` (command, interpreter choice, 400-char tail), the timeout flag, the GATE flag, any other flag, the host repo.
+
+**Known/advisory (not done here):** the probe's output tail reaching the RED retry prompt is class I-deferred (bd#192); `hasattr` fallback for providers without `gate_enabled` is the existing config-provider contract.
