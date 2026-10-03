@@ -235,6 +235,7 @@ bats tests/build-gate.bats
 | `tests/post-deploy.bats` | 3 |
 | `tests/pre-build-gate.bats` | 8 |
 | `tests/security-scan.bats` | 8 |
+| `tests/security-scan-scope.bats` | 22 |
 | `tests/ship-protocol.bats` | 12 |
 
 ## Observability & Events
