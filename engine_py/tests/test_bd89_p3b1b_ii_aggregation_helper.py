@@ -200,11 +200,18 @@ def test_ac5_missing_composite_emits_event_and_uses_stdout(tmp_path):
     ctx = _ctx(tmp_path)
     scratch = Path(ctx.org_config["scratchpad_dir"])
     _write_role(scratch, "security", _finding_body(_target_file(tmp_path), _LEFTOVER_MARKER))
-    prev = _prev(scratch, raw="stdout-only review body STDOUT-MARKER-5512")
+    # S4/M10: the stdout body carries a real structured finding (not findingless), so the
+    # step is ok in shadow AND enforce mode and on any date.
+    prev = _prev(scratch, raw=(
+        "stdout-only review body STDOUT-MARKER-5512\n"
+        "## Findings (structured)\n```json\n"
+        '[{"id": "F1", "severity": "MEDIUM", "path": "src/x.py:1", "description": "d"}]\n'
+        "```\n"
+    ))
     with _Events(tmp_path) as ev:
         result = _step("write_review_artifact").execute(ctx, prev)
     assert result.status == "ok", f"{result.error_code}: {result.error}"
-    missing = ev.of_type("role_report_missing")
+    missing =ev.of_type("role_report_missing")
     assert len(missing) == 1, [e["event_type"] for e in ev.log.read_all()]
     assert missing[0]["payload"]["path"].endswith("role-composite.md")
     assert "E_NO_ROLE_FILES" not in str(result)

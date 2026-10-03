@@ -313,6 +313,7 @@
 ## E_REVIEW
 
 - `E_REVIEW_DEGRADED` — phase_6_review: review ran in a degraded mode (reduced fan-out/evaluators)
+- `E_REVIEW_EMPTY_FALLBACK` — phase_6_review: stdout-fallback review had no parsed findings (empty/unstructured); diagnosis kept as build-review.rejected.md
 - `E_REVIEW_FAILED` — phase_45_spec/phase_6_review: review subagent returned a FAILED verdict
 - `E_REVIEW_FIX_FEED_DIVERGENCE` — phase_6_review: fix feed does not cover the review's aggregated findings
 - `E_REVIEW_UNPARSEABLE` — phase_45_spec: review verdict output could not be parsed
