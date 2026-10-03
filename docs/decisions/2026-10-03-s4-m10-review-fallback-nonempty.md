@@ -1,6 +1,6 @@
 # S4/M10: fail-closed check that the review stdout-fallback path produced findings
 
-**Status: DRAFT r4 (gate r1 REJECT 4 MAJOR, r2 REJECT 2 MAJOR: `-gate-r1.md`, `-gate-r2.md`; r3 accepted by MGR over the cap with conditions, recorded in `-s4-mgr-acceptance.md`; r4 = MGR condition 3: SHADOW by default)** · **Tier:** 2 (engine self-mod, one function + one error code + one `*_ENFORCE` flag) · **Class:** COVERAGE (review verdict integrity)
+**Status: FROZEN r4 (gate r3 PASS, minors in `-gate-r3.md`) · was DRAFT r4 (gate r1 REJECT 4 MAJOR, r2 REJECT 2 MAJOR: `-gate-r1.md`, `-gate-r2.md`; r3 accepted by MGR over the cap with conditions, recorded in `-s4-mgr-acceptance.md`; r4 = MGR condition 3: SHADOW by default)** · **Tier:** 2 (engine self-mod, one function + one error code + one `*_ENFORCE` flag) · **Class:** COVERAGE (review verdict integrity)
 **Note:** SUSPECT on the fallback path means "no JSON structured block and no PARTIAL/FAIL marker"; it also covers real `### SEVERITY:` blocks (the prompt's own format), which `_persist_fix_feed` parses and feeds to the fix worker. So SUSPECT alone is NOT "empty" (gate r1 M4); the rule below keys on findings actually parsed.
 **Chokepoint:** `phase_6_review._write_review_artifact`, stdout-fallback branch (after `_derive_fallback_verdict`): the only place a fallback review becomes `status=ok`.
 **Provenance:** audit hal#2320 §6 row M10 (P3b1b-ii 56fbbfa folded aggregation into `write_review_artifact`; absent composite = event `role_report_missing`, status ok, fallback to stdout/disk). Plan approved by Guy 2026-10-03 (audit repair step 4).
@@ -78,3 +78,11 @@ Drive `_write_review_artifact` with `prev.data = {raw_response, doc_path, spec_p
 ## 5. Existing tests that GREEN must update (spec change, not test gaming)
 
 Each asserts `ok` on findingless fallback input; rewrite with a structured block (intent kept) or expect the new error where the input IS findingless: `test_bd89_p3b1_single_reviewer_only.py` ac9b (~595-600); `test_F7830037_insession_review_normalize.py` (~193, ~240); `test_GH1399_advisory_format_terminal.py` (~440, ~499, ~780, and `test_ac9_review_artifact_persisted_with_header_and_body_agent_sdk` ~697-745: its `doc_path.is_file()` at ~728 is false by design) and its `_CLASS_REGISTRY` (add the code); `test_bd92_per_cycle_artifacts.py` (~154-170); `test_bd89_p3b1b_ii_aggregation_helper.py::test_ac5_missing_composite_emits_event_and_uses_stdout`; `test_phase_6_review_return_discipline_CF838E6F.py` ac6 (~307), ac9 (~479). Re-check `test_phase_6_stdout_fallback_verdict_4E0BAC38.py` (a block with all-unrecognised severities expecting PASS). Regenerate both `ERROR_CODES.md` (guards `test_ac7_guard_error_codes_md_identical`, `error_codes --check`).
+
+## 6. Gate r3 clarifications (binding on GREEN)
+
+- Shadow verdict for the AC4/AC4b findingless cells is SUSPECT (section 2 changes `_derive_fallback_verdict` in both modes); AC8's "as today" wording means "ok, no terminal".
+- The `flags_catalog` description must contain the exact token `flip-by:2026-10-17` (flip_horizon guard).
+- Enforce on restart with BOTH `doc_path` and `.rejected.md` present: keep the existing `.rejected.md`, `unlink(doc_path)` so phase 7 never sees the review as present.
+- Existing tests in section 5: rewrite them mode- and date-independent (give the input a structured block / `### SEVERITY:` blocks) or pin both the flag and `_utc_today`; they must not go red on 2026-10-18.
+- Shadow: a failing `.rejected.md` copy never fails the step (event only); enforce: evidence write failure -> `E_REVIEW_WRITE_FAILED`.
