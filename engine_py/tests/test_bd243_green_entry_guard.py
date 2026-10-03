@@ -1,7 +1,7 @@
 """RED tests for bd#243 - GREEN cannot start without an approving gate verdict on
 the current spec revision.
 
-Spec: docs/decisions/2026-10-03-bd243-green-entry-guard.md (AC1-AC17).
+Spec: docs/decisions/2026-10-03-bd243-green-entry-guard.md (AC1-AC37, r3).
 
 Unit under test (ABSENT pre-GREEN):
   - engine_py/bytedigger_engine/green_entry_guard.py
@@ -821,6 +821,9 @@ def test_ac21_origin_main_is_preferred_over_stale_local_main(tmp_path, monkeypat
     # Computed against origin/main (old_base): the other lot's spec counts as added.
     _assert_single(lines, C_MISSING, spec_stem=other)
     assert STEM not in lines[0]
+    assert "base=origin/main" in lines[0] and "git fetch" in lines[0], (
+        f"a refusal computed against origin/main must carry the fetch hint: {lines[0]!r}"
+    )
 
     # Control: without origin/main it falls back to `main`, where only the lot spec
     # is added and it is approved.
@@ -899,7 +902,8 @@ def test_ac23_decoys_other_key_and_short_stem_do_not_bind(tmp_path, monkeypatch)
     repo, env = _key_lot(tmp_path, "a", [("2026-10-03-bd244", 1, "APPROVED", True)])
     _assert_single(_check(repo, env, monkeypatch), C_MISSING, spec_stem=KEY_STEM)
 
-    # A stem with fewer than four segments uses the stem form only.
+    # A three-segment stem uses the stem form only: the gate doc
+    # `2026-10-03-gate-r1.md` (a three-segment prefix of the stem) must not bind.
     short = "2026-10-03-short"
     repo, env = _new_repo(tmp_path, "b")
     spec = _write_spec(repo, short, "# short\n")
@@ -907,6 +911,11 @@ def test_ac23_decoys_other_key_and_short_stem_do_not_bind(tmp_path, monkeypatch)
     _commit_docs(repo, env)
     _stage_source(repo, env)
     _assert_single(_check(repo, env, monkeypatch), C_MISSING, spec_stem=short)
+
+    # Only prefixes with at least four segments count, also for a longer stem:
+    # the three-segment prefix `2026-10-03` of KEY_STEM must not bind either.
+    repo, env = _key_lot(tmp_path, "c", [("2026-10-03", 1, "APPROVED", True)])
+    _assert_single(_check(repo, env, monkeypatch), C_MISSING, spec_stem=KEY_STEM)
 
 
 # --- AC24: non-spec decoys and the Gate-exempt line --------------------------
@@ -1117,3 +1126,245 @@ def test_ac30_bd66_and_bd94_sibling_suites_stay_green():
         f"sibling suites must pass, rc={result.returncode}\n"
         f"{result.stdout[-3000:]}\n{result.stderr[-1000:]}"
     )
+
+
+# =============================================================================
+# r3 additions: AC17 extension, AC19 gate_exempt, AC31-AC37
+# =============================================================================
+
+
+@pytest.mark.parametrize("md_path", ERROR_CODES_MD, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_ac17_error_codes_md_byte_identical_to_render_markdown(md_path):
+    rendered = error_codes.render_markdown()
+    for code in ALL_CODES:
+        assert f"- `{code}` " in rendered, f"{code} missing from render_markdown()"
+    assert md_path.read_bytes() == rendered.encode("utf-8"), (
+        f"{md_path} must be byte-identical to render_markdown() "
+        f"(regenerate with python -m bytedigger_engine.error_codes --markdown)"
+    )
+
+
+def test_ac17_each_code_is_a_quoted_literal_in_the_guard_module():
+    assert GUARD_MODULE.is_file(), f"{GUARD_MODULE} must exist first (dead-code checks)"
+    text = GUARD_MODULE.read_text()
+    for code in ALL_CODES:
+        assert re.search(rf"[\"']{code}[\"']", text), (
+            f"{code} must appear as a quoted string literal in {GUARD_MODULE.name}"
+        )
+
+
+# --- AC19 (extension): gate_exempt log-write failure refuses -----------------
+
+
+def test_ac19_gate_exempt_log_write_failure_refuses(tmp_path, monkeypatch):
+    repo, env, _ = _approved_lot(tmp_path)
+    exempt = "2026-10-03-exemptnote"
+    (repo / "docs" / "decisions" / f"{exempt}.md").write_text(
+        "# note\n\nGate-exempt: docs only note\n"
+    )
+    _commit_docs(repo, env, "exempt doc")
+    blocker = _common_dir(repo, env) / "bytedigger"
+    blocker.write_text("not a directory\n")
+
+    lines = _check(repo, env, monkeypatch)
+
+    assert len(lines) == 1 and _code(lines[0]) == C_UNREADABLE, (
+        f"an unrecordable gate_exempt must be refused, got {lines!r}"
+    )
+
+    blocker.unlink()
+    assert _check(repo, env, monkeypatch) == []
+    assert [e["kind"] for e in _bypass_lines(repo, env)] == ["gate_exempt"]
+
+
+# --- AC31: corrupt index fails closed ----------------------------------------
+
+
+def test_ac31_corrupt_git_index_is_unreadable(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+    _assert_single(_check(repo, env, monkeypatch), C_REJECTED)  # control: guard live
+
+    git_dir = Path(_git_ok(["rev-parse", "--absolute-git-dir"], repo, env).stdout.strip())
+    (git_dir / "index").write_bytes(b"this is not a git index\x00\xff" * 8)
+
+    lines = _check(repo, env, monkeypatch)
+
+    assert len(lines) == 1 and _code(lines[0]) == C_UNREADABLE, (
+        f"a git failure while listing must refuse, never allow: {lines!r}"
+    )
+
+
+# --- AC32: merge-base failure with a resolvable base fails closed ------------
+
+
+def test_ac32_orphan_lot_branch_with_main_present_is_unreadable(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    _git_ok(["checkout", "-q", "--orphan", "orphan-lot"], repo, env)
+    _git_ok(["rm", "-rf", "-q", "."], repo, env)
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, 1, "APPROVED", anchor_for=spec)
+    _commit_docs(repo, env, "root commit of unrelated history")
+    _stage_source(repo, env)
+    mb = _git(["merge-base", "HEAD", "main"], repo, env)
+    assert mb.returncode != 0, "arrange: histories must be unrelated"
+
+    lines = _check(repo, env, monkeypatch)
+
+    assert len(lines) == 1 and _code(lines[0]) == C_UNREADABLE, (
+        f"merge-base failure after a base resolved must be fail closed: {lines!r}"
+    )
+
+    # Control: with no base at all (probe failure, not merge-base failure) it allows.
+    _git_ok(["branch", "-D", "main"], repo, env)
+    assert _check(repo, env, monkeypatch) == []
+
+
+# --- AC33: sub-lot prefix naming ---------------------------------------------
+
+SUB_STEM = "2026-10-03-bd218-s1-preflight-rung"
+
+
+def _stem_lot(tmp_path, name, stem, gates):
+    """gates: list of (file_stem, n, verdict, anchored)."""
+    repo, env = _new_repo(tmp_path, name)
+    spec = _write_spec(repo, stem, "# sub-lot spec\n")
+    for file_stem, n, verdict, anchored in gates:
+        _write_gate(
+            repo, stem, n, verdict,
+            anchor_for=spec if anchored else None, file_stem=file_stem,
+        )
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    return repo, env
+
+
+def test_ac33_sub_lot_prefix_gate_binds(tmp_path, monkeypatch):
+    s1 = "2026-10-03-bd218-s1"
+    repo, env = _stem_lot(tmp_path, "a", SUB_STEM, [(s1, 1, "APPROVED", True)])
+    assert _check(repo, env, monkeypatch) == []
+
+    repo, env = _stem_lot(tmp_path, "b", SUB_STEM, [(s1, 1, "REJECTED", True)])
+    _assert_single(
+        _check(repo, env, monkeypatch), C_REJECTED,
+        spec_stem=SUB_STEM, gate_name=f"{s1}-gate-r1.md",
+    )
+
+    # The shorter lot-level prefix is in the union too: bd218 r2 REJECTED beats s1 r1.
+    repo, env = _stem_lot(
+        tmp_path, "c",
+        SUB_STEM,
+        [(s1, 1, "APPROVED", True), ("2026-10-03-bd218", 2, "REJECTED", True)],
+    )
+    _assert_single(
+        _check(repo, env, monkeypatch), C_REJECTED,
+        spec_stem=SUB_STEM, gate_name="2026-10-03-bd218-gate-r2.md",
+    )
+
+
+def test_ac33_sibling_sub_lot_s2_gate_never_binds(tmp_path, monkeypatch):
+    s1, s2 = "2026-10-03-bd218-s1", "2026-10-03-bd218-s2"
+    # Only the sibling's gate exists: MISSING.
+    repo, env = _stem_lot(tmp_path, "a", SUB_STEM, [(s2, 1, "APPROVED", True)])
+    _assert_single(_check(repo, env, monkeypatch), C_MISSING, spec_stem=SUB_STEM)
+
+    # The sibling's higher-N APPROVED must not mask this lot's REJECTED.
+    repo, env = _stem_lot(
+        tmp_path, "b", SUB_STEM, [(s1, 1, "REJECTED", True), (s2, 5, "APPROVED", True)]
+    )
+    _assert_single(
+        _check(repo, env, monkeypatch), C_REJECTED,
+        spec_stem=SUB_STEM, gate_name=f"{s1}-gate-r1.md",
+    )
+
+
+# --- AC34: non-integer revision is not a gate doc ----------------------------
+
+
+def test_ac34_fractional_revision_is_ignored(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path, "a")
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, 2, "REJECTED", anchor_for=spec)
+    _write_gate(repo, STEM, "3.1", "APPROVED", anchor_for=spec)
+    assert (repo / "docs" / "decisions" / f"{STEM}-gate-r3.1.md").is_file()
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    _assert_single(
+        _check(repo, env, monkeypatch), C_REJECTED, gate_name=f"{STEM}-gate-r2.md"
+    )
+
+    # Alone, r3.1 is not a gate doc at all.
+    repo, env = _new_repo(tmp_path, "b")
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, "3.1", "APPROVED", anchor_for=spec)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    _assert_single(_check(repo, env, monkeypatch), C_MISSING)
+
+
+# --- AC35: only the exact string "0" is the kill switch ----------------------
+
+
+@pytest.mark.parametrize("value", ["false", "00", " 0", "0 ", "off"])
+def test_ac35_other_kill_switch_values_keep_the_guard_on(tmp_path, monkeypatch, value):
+    repo, env, _ = _rejected_lot(tmp_path)
+
+    lines = _check(repo, env, monkeypatch, extra={KILL: value, REASON: "has a reason"})
+
+    _assert_single(lines, C_REJECTED)
+    assert _bypass_lines(repo, env) == [], "no kill_switch line for a non-switch value"
+
+
+def test_ac35_control_exact_zero_is_the_switch(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+
+    assert _check(repo, env, monkeypatch, extra={KILL: "0", REASON: "has a reason"}) == []
+    assert [e["kind"] for e in _bypass_lines(repo, env)] == ["kill_switch"]
+
+
+# --- AC36: first anchor block only -------------------------------------------
+
+
+def _two_anchor_gate(repo, first: bytes, second: bytes, verdict="APPROVED"):
+    body = (
+        f"# gate r1 for {STEM}\n\nProse.\n\n"
+        + _anchor(STEM, first)
+        + "\nMore prose, then a second block.\n\n"
+        + _anchor(STEM, second)
+        + f"\nVERDICT: {verdict}\n"
+    )
+    (repo / "docs" / "decisions" / f"{STEM}-gate-r1.md").write_text(body)
+
+
+def test_ac36_only_the_first_anchor_block_is_read(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path, "a")
+    stale = b"# widget spec OLD\n"
+    current = _write_spec(repo, STEM, "# widget spec\n")
+    _two_anchor_gate(repo, first=stale, second=current)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    _assert_single(_check(repo, env, monkeypatch), C_STALE)
+
+    # Control: first block matching, second stale -> allowed (not "any"/"last").
+    repo, env = _new_repo(tmp_path, "b")
+    current = _write_spec(repo, STEM, "# widget spec\n")
+    _two_anchor_gate(repo, first=current, second=stale)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    assert _check(repo, env, monkeypatch) == []
+
+
+# --- AC37: first commit staging spec and source together ---------------------
+
+
+def test_ac37_spec_and_source_staged_together_is_missing(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    _write_spec(repo, STEM, "# widget spec\n")
+    _git_ok(["add", _spec_rel(STEM)], repo, env)
+    _stage_source(repo, env)
+    head = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+    main = _git_ok(["rev-parse", "main"], repo, env).stdout.strip()
+    assert head == main, "arrange: HEAD is the base tip (first commit on the lot branch)"
+
+    lines = _check(repo, env, monkeypatch)
+
+    _assert_single(lines, C_MISSING)
