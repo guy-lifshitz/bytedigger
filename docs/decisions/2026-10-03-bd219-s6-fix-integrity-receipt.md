@@ -1,6 +1,6 @@
 # bd#219 step 6 — the engine writes the phase-green receipt before the fix-integrity gate (SHADOW, add-only, no LLM)
 
-**Status: r1 (draft for gate)** · **Tier:** 3 (one production file + changelog, Option D) · **Class:** SYSTEMATIC ·
+**Status: r2 (amended after gate r1: cycle AC, strict AC4, import literal, minors)** · **Tier:** 3 (one production file + changelog, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `_invoke_fix_integrity_llm` in `phase_6_fix_integrity.py` — the single call site of the fix-side hard gate.
 **Source:** bd#219 ladder map (`2026-10-03-bd-ladder-map.md`), next rung after s5 (#235, `2026-10-03-bd218-s5-green-receipt.md`); same template.
 **Owner:** bd-ladder lot · **expires:** 2026-10-17 (+14 d): by then the fix-side green rung has shadow evidence and a keep/convert decision, or it is removed.
@@ -20,22 +20,23 @@ After the `verdict_override` (NO_CHANGES) short-circuit and before `reroll_until
 - Tree: `resolve_git_cwd_with_source(cfg, prev.data)`; ambient source (`is_ambient_git_cwd`) → no producer, status `ambient-skip`.
 - Test paths: the s5 helper is **reused, not copied**: `from bytedigger_engine.workflows.phase_5_integrity import _green_test_paths` (precedent: the `_autocommit_fix_tail` import from `phase_6_review`; module-level, no cycle: `phase_5_integrity` imports nothing from phase 6). Called as `_green_test_paths(tree, prev.data.get("diff_path"))`. The fix diff (`pre_fix..fix`, filtered by `diff_patterns`) has the same `diff --git a/<P> b/<P>` headers; the s5 parse rule applies unchanged (unparseable header / `..` / outside toplevel empties the scope → `missing`; absent files drop out). The helper's own inventory entries already exist; **no new `read_text`/`git_read` is added in phase 6**, so `class_i_inventory.json` is unchanged.
 - Producer: `preflight.run_engine_preflight(tree, paths, "", phase="green")` called as a module attribute (`from bytedigger_engine import preflight`, so tests patch `preflight.run_engine_preflight`), inside its own swallow; then `preflight.receipt_rung("green", tree)`.
-- Emit `_emit_safe("preflight_receipt", {"status", "red_step", "phase": 6, "cycle": cfg.get("cycle", 1), "gate": "fix_integrity"})`; add `extra_data["preflight"] = {"status", "red_step"}` to the LLM call, inside the `_attempt` closure (spread like s5). Both `_emit_safe` names already exist in the module.
-- Fail-open: any exception → status `error` (and `extra_data["preflight"]` = error record), the gate runs once. The block runs once per step call, not per re-roll. Resume replays the cached step result (neither producer nor rung re-runs).
+- Emit `_emit_safe("preflight_receipt", {"status", "red_step", "phase": 6, "cycle": cfg.get("cycle", 1), "gate": "fix_integrity"})`; add `extra_data["preflight"] = {"status", "red_step"}` to the LLM call, inside the `_attempt` closure (spread like s5). `_emit_safe` is already a module global of `phase_6_fix_integrity`. The `cycle` source is `cfg.get("cycle", 1)` (phase-6 step 1 puts no `cycle` into `prev.data`; the dirty-guard reads `cfg["cycle"]` the same way); do NOT copy s5's `prev.data.get("cycle", 1)`.
+- Fail-open: any exception → status `error` (and `extra_data["preflight"]` = error record), the gate runs once. The block runs once per step call, not per re-roll. This step has no resume sentinel, so no replay claim is made: a re-entered step re-runs the block once.
 - The receipt file is the single `receipt_path(top)`; the fix-side green write replaces the phase-5 green one for the same tree (same `phase: green`); readers compare `phase`/HEAD, so freshness is judged on the post-fix HEAD the gate saw.
 
 ### Out of scope
 Running tests, `cite`, `tier`, a classifier; any LLM call; skipping/replacing the gate; changing `preflight.py`, `phase_5_integrity.py`, reject rows, `reject_stats`, the `StepContract` list, `check_ladder.py`, `engine.py`. A new `phase="fix"` receipt value (would touch `_PHASES` and every reader) is not introduced.
 
 ### Limit stated
-A `fresh` receipt means syntax, stub and facts passed on the post-fix tree; it does not mean tests ran. `missing` also covers an empty scope (no parseable test path, unparseable header, absent diff). Because the fix diff is filtered to test-like paths, a fix that edits only production code yields an empty/`missing` scope by construction. The receipt is `phase: green`, so a fix-side receipt overwrites a phase-5 green one and is indistinguishable from it on disk; the event's `gate` field is the discriminator.
+A `fresh` receipt means syntax, stub and facts passed on the post-fix tree; it does not mean tests ran. `missing` also covers an empty scope (no parseable test path, unparseable header, absent diff). Because the fix diff is filtered to test-like paths, a fix that edits only production code yields an empty/`missing` scope by construction. The receipt describes the tree at HEAD, not `fix_commit_sha` (they are equal in the normal flow, where the fix is already committed); the fix-side producer also deletes a pre-existing `phase: red` receipt; renames, `--no-prefix` and a `diff_command` override give a fail-safe `missing`. The receipt is `phase: green`, so a fix-side receipt overwrites a phase-5 green one and is indistinguishable from it on disk; the event's `gate` field is the discriminator.
 
 ## §3 Acceptance criteria
 
 - **AC1 (reachability)** `_invoke_fix_integrity_llm`, default mode, non-ambient real-repo `git_cwd`, non-empty diff file naming an existing clean test file: a `preflight_receipt` event with `gate == "fix_integrity"`, `phase == 6`, `status == "fresh"`; `extra_data["preflight"]["status"] == "fresh"`; the LLM called once. With a test file that mocks its unit under test: `red` / `red_step == "stub"`, LLM still once.
 - **AC2** `{"produce": false}` → producer not called, event `missing` on a repo without receipt; `{"mode": "off"}` → no producer, no event; non-bool `produce` or unknown mode → `config-error`; LLM once each.
 - **AC3** Producer raising (patched) → no exception out of the step, rung runs, LLM once.
-- **AC4 (add-only)** All `invoke_llm_subprocess` kwargs minus `extra_data["preflight"]` are equal for produce on, `produce: false`, `fresh` and `red`; prompt byte-equal.
+- **AC4 (add-only)** The `invoke_llm_subprocess` kwargs are checked against an explicit expected shape, not only across modes: key set exactly `{prompt, model, timeout_sec, step_name, extra_data, hard_gate, gate_label, allowed_tools, injections}`; `step_name == "invoke_fix_integrity_llm"`, `hard_gate is True`, `gate_label == "fix_integrity"`, `allowed_tools == ["Read"]`, `prompt == prev.data["prompt"]` byte-equal; `extra_data` minus `preflight` is exactly `{doc_path, diff_path}`. These kwargs (minus `extra_data["preflight"]`) are equal for produce on, `produce: false`, `{"mode": "off"}`, `fresh` and `red`.
+- **AC4b (cycle)** `cfg["cycle"] = 3` with `prev.data["cycle"] = 7` → event `cycle == 3`; no `cycle` in cfg → `cycle == 1` (also asserted in AC1's default run).
 - **AC5** Ambient git cwd → producer not called, status `ambient-skip`, LLM once.
 - **AC6** NO_CHANGES short-circuit (`verdict_override`): no producer, no rung, no event, LLM not called (as today).
 - **AC7** Diff naming only deleted/missing test files → `missing`, never `fresh`; absent/unreadable `diff_path` → `missing`, no exception, LLM once.
@@ -43,12 +44,12 @@ A `fresh` receipt means syntax, stub and facts passed on the post-fix tree; it d
 - **AC9** C-quoted header for a mocking file plus a clean file → `missing`, never `fresh`; a `..` header → `missing`.
 - **AC10** `git_cwd` a non-git directory (not ambient): no exception, status `error`, producer not called, LLM once.
 - **AC11** No subprocess whose command contains `pytest` or `bun test` is started.
-- **AC12** `phase_6_fix_integrity` imports `_green_test_paths` from `phase_5_integrity` (identity: `phase_6_fix_integrity._green_test_paths is phase_5_integrity._green_test_paths`) and `preflight.py`, `phase_5_integrity.py` are byte-unchanged by this lot.
+- **AC12** `phase_6_fix_integrity` imports `_green_test_paths` from `phase_5_integrity` (identity: `phase_6_fix_integrity._green_test_paths is phase_5_integrity._green_test_paths`) and `preflight.py`, `phase_5_integrity.py` are byte-unchanged by this lot (orchestrator check at GREEN: `git diff --exit-code origin/main -- engine_py/bytedigger_engine/preflight.py engine_py/bytedigger_engine/workflows/phase_5_integrity.py`; the test covers identity only).
 - **AC13** Sibling tests pass without edits: `grep -l "phase_6_fix_integrity\|_invoke_fix_integrity_llm" engine_py/tests`, `test_bd218_s5_green_receipt.py`, `test_bd218_s2_receipt_producer.py`, `test_bd218_s1_preflight_rung.py`, `test_gh381_git_cwd_resolver.py`, the six inventory-lint tests, and any text-scan test over `phase_6_fix_integrity.py` (stable-prefix/injection scans).
 
 ## §4 Files
 
-In scope: `engine_py/bytedigger_engine/workflows/phase_6_fix_integrity.py` (two imports + one block in `_invoke_fix_integrity_llm`), new `engine_py/tests/test_bd219_s6_fix_green_receipt.py`, `CHANGELOG.md`.
+In scope: `engine_py/bytedigger_engine/workflows/phase_6_fix_integrity.py` (imports + one block; the existing line `from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source` gets `is_ambient_git_cwd` APPENDED on that same single line, keeping the literal prefix `from bytedigger_engine.lib.git_cwd import resolve_git_cwd` (GH381 AC9(c) text-matches it; no parenthesised or sorted rewrite) in `_invoke_fix_integrity_llm`), new `engine_py/tests/test_bd219_s6_fix_green_receipt.py`, `CHANGELOG.md`.
 NOT in scope: everything else (see Out of scope). Sibling audit (§1a): AC13 list; any sibling driving `_invoke_fix_integrity_llm` on a real non-ambient repo now sees a producer run — audit for pre-staged receipts (the producer deletes the old one first).
 
 ## §5 Provenance (Guy 2026-10-03)

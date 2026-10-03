@@ -187,6 +187,7 @@ def test_AC1_reachability_fresh_green_receipt_before_fix_gate(
     result, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo))
     (ev,) = _rung(events)
     assert ev["gate"] == "fix_integrity" and ev["phase"] == 6 and ev["status"] == "fresh"
+    assert ev["cycle"] == 1
     assert len(calls) == 1 and calls[0]["extra_data"]["preflight"]["status"] == "fresh"
     doc = json.loads(_pf().receipt_path(repo).read_text(encoding="utf-8"))
     assert doc["producer"] == "engine" and doc["phase"] == "green"
@@ -270,10 +271,36 @@ def test_AC4_gate_kwargs_equal_across_modes_and_receipts(
     _r, red, _e = _drive(monkeypatch, tmp_path / "c", git_cwd=str(red_repo))
     assert red[0]["extra_data"]["preflight"]["status"] == "red"
 
-    assert norm(on[0]) == norm(off[0]) == norm(red[0])
-    for c in (on[0], off[0], red[0]):
+    mode_off_repo = _mk(tmp_path / "d", "ac4d")
+    _r, mode_off, _e = _drive(monkeypatch, tmp_path / "d", git_cwd=str(mode_off_repo),
+                              preflight_rung={"mode": "off"})
+    assert "preflight" not in mode_off[0]["extra_data"]
+
+    assert norm(on[0]) == norm(off[0]) == norm(red[0]) == norm(mode_off[0])
+    expected_keys = {"prompt", "model", "timeout_sec", "step_name", "extra_data",
+                     "hard_gate", "gate_label", "allowed_tools", "injections"}
+    for c in (on[0], off[0], red[0], mode_off[0]):
+        assert set(c) == expected_keys
         assert c["prompt"] == "PROMPT-219-S6"
+        assert c["step_name"] == "invoke_fix_integrity_llm"
         assert c["gate_label"] == "fix_integrity" and c["hard_gate"] is True
+        assert c["allowed_tools"] == ["Read"]
+        assert set(k for k in c["extra_data"] if k != "preflight") == {"doc_path", "diff_path"}
+
+
+def test_AC4b_event_cycle_comes_from_cfg_not_prev_data(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _mk(tmp_path / "a", "ac4b1")
+    _r, _c, events = _drive(monkeypatch, tmp_path / "a", git_cwd=str(repo),
+                            cycle=3, prev_extra={"cycle": 7})
+    (ev,) = _rung(events)
+    assert ev["status"] == "fresh", "forcing: the rung ran"
+    assert ev["cycle"] == 3
+
+    repo2 = _mk(tmp_path / "b", "ac4b2")
+    _r, _c, events = _drive(monkeypatch, tmp_path / "b", git_cwd=str(repo2))
+    (ev,) = _rung(events)
+    assert ev["status"] == "fresh" and ev["cycle"] == 1
 
 
 # ---------------------------------------------------------------- AC5
