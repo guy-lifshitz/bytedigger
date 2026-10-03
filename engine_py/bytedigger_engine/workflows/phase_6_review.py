@@ -5624,6 +5624,120 @@ def _write_decorr_artifact(ctx, prev) -> StepResult:
     return StepResult(status="ok", data=dict(prev.data), duration_ms=0, step_name="write_decorr_artifact")
 
 
+_POST_FIX_SIBLING_CAP = 50
+
+
+def _post_fix_test_scope(prev_data, scratchpad, git_cwd, manifest):
+    """bd#90: build the post-fix pytest scope; returns ``(paths, counts)``.
+
+    Legs, in order: RED (prev_data["red_test_paths"] list if present, else the
+    persisted RED file plus manifest test files), then sibling tracked tests of
+    changed ``.py`` sources (sorted, capped).  Never raises.
+    """
+    import os as _os
+
+    def _norm(p):
+        s = str(p).strip()
+        if not s:
+            return None
+        if _os.path.isabs(s):
+            s = _os.path.relpath(s, git_cwd)
+        s = _os.path.normpath(s).replace("\\", "/")
+        if s == ".." or s.startswith("../") or s == ".":
+            return None
+        return s
+
+    def _exists(rel):
+        return _os.path.isfile(_os.path.join(git_cwd, rel))
+
+    seen = set()  # type: set
+    paths = []  # type: list
+    n_red = 0
+    n_manifest = 0
+    prev_red = (prev_data or {}).get("red_test_paths")
+
+    if prev_red is not None:
+        red_raw = list(prev_red)
+        red_check_exists = False
+    else:
+        red_raw = []
+        red_check_exists = True
+        if scratchpad:
+            try:
+                try:
+                    from .phase_5_implement import _read_red_test_paths
+                except ImportError:  # pragma: no cover — bare fallback (GH881)
+                    from bytedigger_engine.workflows.phase_5_implement import _read_red_test_paths  # type: ignore[no-redef]
+                red_raw = list(_read_red_test_paths(scratchpad))
+            except Exception:  # noqa: BLE001
+                red_raw = []
+
+    for p in red_raw:
+        rel = _norm(p)
+        if rel is None or not _is_test_py_path(rel) or rel in seen:
+            continue
+        if red_check_exists and not _exists(rel):
+            continue
+        seen.add(rel)
+        paths.append(rel)
+        n_red += 1
+
+    norm_manifest = []  # type: list
+    for p in manifest or []:
+        rel = _norm(p)
+        if rel is not None:
+            norm_manifest.append(rel)
+
+    if prev_red is None:
+        for rel in norm_manifest:
+            if _is_test_py_path(rel) and rel not in seen:
+                seen.add(rel)
+                paths.append(rel)
+                n_manifest += 1
+
+    # Sibling leg: tracked tests next to / named after changed .py sources.
+    sources = [r for r in norm_manifest if r.endswith(".py") and not _is_test_py_path(r)]
+    tracked = []  # type: list
+    if sources:
+        try:
+            proc = subprocess.run(
+                ["git", "ls-files", "-z"], cwd=git_cwd, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, timeout=30, check=False,
+            )
+            if proc.returncode == 0:
+                tracked = [t for t in proc.stdout.decode("utf-8", "replace").split("\0") if t]
+        except Exception:  # noqa: BLE001
+            tracked = []
+    candidates = set()  # type: set
+    for src in sources:
+        src_dir = _os.path.dirname(src)
+        stem = _os.path.splitext(_os.path.basename(src))[0]
+        stem_ok = len(stem) >= 4 and stem != "__init__"
+        for t in tracked:
+            if not _is_test_py_path(t):
+                continue
+            if (src_dir and _os.path.dirname(t) == src_dir) or (
+                stem_ok and stem in _os.path.basename(t)
+            ):
+                candidates.add(t)
+    siblings = []  # type: list
+    for t in sorted(candidates):
+        if t in seen or not _exists(t):
+            continue
+        siblings.append(t)
+        if len(siblings) >= _POST_FIX_SIBLING_CAP:
+            break
+    paths.extend(siblings)
+
+    counts = {
+        "n_red": n_red,
+        "n_manifest": n_manifest,
+        "n_sibling": len(siblings),
+        "n_total": len(paths),
+    }
+    return paths, counts
+
+
 def _run_pytest_post_fix(ctx, prev) -> StepResult:
     """Step 6+: deterministic post-fix sibling-regression gate (7A940850).
 
@@ -5672,19 +5786,15 @@ def _run_pytest_post_fix(ctx, prev) -> StepResult:
                 step_name="run_pytest_post_fix",
             )
 
-    # ── Test scope resolution (priority: red_test_paths > manifest) ──────────
-    # 4961254A: git_diff_files fallback removed — commit-steps now own manifest;
+    # ── Test scope resolution (bd#90: RED leg + manifest tests + sibling tests) ──
+    # 4961254A: git_diff_files fallback removed — commit-steps own the manifest;
     # scope follows the same bounded manifest to prevent ambient dirt from slipping in.
-    red_test_paths = (prev.data or {}).get("red_test_paths")
-    if red_test_paths is not None:
-        # red_test_paths channel is present — filter to pytest files, short-circuit manifest
-        py_test_paths = [p for p in red_test_paths if _is_test_py_path(p)]
-    else:
-        # Fallback: manifest filtered to pytest test files (no git_diff_files call)
+    manifest: list = []
+    try:
         # 4C03CCED Ship 1C G1-AC3: canonical accessor replaces legacy .get() pattern.
-        try:
-            manifest, _manifest_src = manifest_from_result(prev)
-        except _ManifestError as e:
+        manifest, _manifest_src = manifest_from_result(prev)
+    except _ManifestError as e:
+        if (prev.data or {}).get("red_test_paths") is None:
             return StepResult(
                 status="error",
                 data=None,
@@ -5694,7 +5804,10 @@ def _run_pytest_post_fix(ctx, prev) -> StepResult:
                 error_code="E_LLM_MANIFEST_MISSING_AT_CONSUMER",
                 recoverable=False,
             )
-        py_test_paths = [p for p in manifest if _is_test_py_path(p)]
+        manifest = []  # red_test_paths list present: manifest only feeds sibling discovery
+
+    py_test_paths, scope_counts = _post_fix_test_scope(prev.data, scratchpad_dir, git_cwd, manifest)
+    _emit_safe("post_fix_pytest_scope", {**scope_counts, "phase": 6, "step": "run_pytest_post_fix"})
 
     if not py_test_paths:
         _emit_safe("post_fix_pytest_skipped", {"reason": "no_test_scope", "phase": 6, "step": "run_pytest_post_fix"})

@@ -23,6 +23,7 @@ Five event types represent the full build lifecycle:
 | `phase-skip` | Phase skipped due to complexity/tier | TRIVIAL tier skips phase 6 |
 | `gate-result` | Gate verdict (pass/block) | After phase-specific checks complete |
 | `build-complete` | Build finished (success/failure/fatal) | mainCLI exit (all phases done or error caught) |
+| `post_fix_pytest_scope` | Post-fix pytest scope counts `{n_red, n_manifest, n_sibling, n_total}` (bd#90); sits with the other `post_fix_pytest_*` events (`_skipped`, `_pass`, `_fail_with_regressions`, `_infra_error`) | Phase 6 `_run_pytest_post_fix`, after scope resolution and before pytest is invoked (not emitted when the step skips earlier) |
 
 ## Common Payload Schema
 
