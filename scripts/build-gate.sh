@@ -309,6 +309,183 @@ gate_phase_53() {
   fi
 }
 
+DEVOPS_SCAN_BUDGET_S=8
+DEVOPS_SCAN_OWNER="s4-bytedigger (MGR)"
+DEVOPS_SCAN_EXPIRES="2026-10-17"
+_DS_PID=""
+_DS_TMP=""
+
+_devops_scan_cleanup() {
+  if [ -n "$_DS_PID" ]; then
+    kill -9 "$_DS_PID" 2>/dev/null || true
+  fi
+  if [ -n "$_DS_TMP" ]; then
+    rm -f "$_DS_TMP" 2>/dev/null || true
+  fi
+}
+
+# _devops_scan_clean <text> — drop backslash, double quote and control characters
+# so the text is safe inside a hand-built JSON string.
+_devops_scan_clean() {
+  printf '%s' "$1" | LC_ALL=C tr -d '\\"\000-\037\177'
+}
+
+# run_devops_scan — S4 wiring of scripts/devops_scan.py (SHADOW by default).
+# Spec: docs/decisions/2026-10-03-s4-wire-devops-scan-build-gate.md
+# PRECONDITION for flipping DEVOPS_SCAN_ENFORCE anywhere: the TS gate
+# (scripts/ts/build-phase-gate.ts) must get a port of this scan plus a parity
+# test; until then ENFORCE only takes effect on the bash backend.
+run_devops_scan() {
+  local script mode today expired ds_rc ds_status ds_gating ds_ids ds_reason
+  local parsed p_ok p_status p_gating p_ids p_reason budget_hit start ts
+  local events_dir tmp pid
+
+  script="${DEVOPS_SCAN_SCRIPT_TEST_OVERRIDE:-}"
+  if [ -z "$script" ]; then
+    script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/devops_scan.py"
+  fi
+
+  mode=shadow
+  if [ "${DEVOPS_SCAN_ENFORCE:-}" = "1" ]; then mode=enforce; fi
+
+  today="${BD_GATE_TODAY_TEST_OVERRIDE:-}"
+  local date_re='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+  if ! [[ "$today" =~ $date_re ]]; then
+    today="$(date -u +%F)"
+  fi
+  expired=false
+  if [ "$mode" = "shadow" ] && [[ "$today" > "$DEVOPS_SCAN_EXPIRES" ]]; then
+    expired=true
+    echo "WARN: DEVOPS_SCAN_ENFORCE SHADOW window expired $DEVOPS_SCAN_EXPIRES (owner $DEVOPS_SCAN_OWNER): flip to 1 or extend" >&2
+  fi
+
+  ds_rc=0
+  ds_status=""
+  ds_gating=0
+  ds_ids=""
+  ds_reason=""
+  budget_hit=0
+  parsed=""
+
+  if ! command -v python3 > /dev/null 2>&1; then
+    ds_rc=2; ds_reason="python3_missing"
+  elif [ ! -f "$script" ]; then
+    ds_rc=2; ds_reason="script_missing"
+  elif ! tmp="$(mktemp "${TMPDIR:-/tmp}/devops-scan.XXXXXX" 2>/dev/null)"; then
+    ds_rc=2; ds_reason="mktemp_failed"
+  else
+    _DS_TMP="$tmp"
+    trap _devops_scan_cleanup EXIT
+    python3 "$script" --root "$CWD" --timeout 3 > "$tmp" 2>/dev/null &
+    pid=$!
+    _DS_PID="$pid"
+    start=$SECONDS
+    while kill -0 "$pid" 2>/dev/null; do
+      if [ $((SECONDS - start)) -ge "$DEVOPS_SCAN_BUDGET_S" ]; then
+        budget_hit=1
+        kill "$pid" 2>/dev/null || true
+        sleep 0.2
+        kill -9 "$pid" 2>/dev/null || true
+        break
+      fi
+      sleep 0.2
+    done
+    ds_rc=0
+    wait "$pid" 2>/dev/null || ds_rc=$?
+    _DS_PID=""
+
+    if [ "$budget_hit" -eq 1 ] || [ "$ds_rc" -eq 143 ] || [ "$ds_rc" -eq 137 ]; then
+      ds_rc=2; ds_reason="budget_exceeded"
+    else
+      local py_parse=""
+      read -r -d '' py_parse <<'PYEOF' || true
+import json, re, sys
+
+def clean(s):
+    return re.sub(r'[\x00-\x1f\x7f"\\]', '', str(s))
+
+try:
+    d = json.load(open(sys.argv[1]))
+    if not isinstance(d, dict):
+        raise ValueError("not an object")
+    g = d.get("gating") or []
+    if not isinstance(g, list):
+        g = []
+    ids = [clean(x.get("id", "")) if isinstance(x, dict) else clean(x) for x in g]
+    print("OK")
+    print(clean(d.get("status", "")))
+    print(len(g))
+    print(",".join(ids))
+    print(clean(d.get("reason", "")))
+except Exception:
+    print("BAD")
+PYEOF
+      parsed="$(python3 -c "$py_parse" "$tmp" 2>/dev/null)" || parsed="BAD"
+      p_ok="BAD"; p_status=""; p_gating=0; p_ids=""; p_reason=""
+      {
+        IFS= read -r p_ok || true
+        IFS= read -r p_status || true
+        IFS= read -r p_gating || true
+        IFS= read -r p_ids || true
+        IFS= read -r p_reason || true
+      } <<< "$parsed"
+      if ! [[ "$p_gating" =~ ^[0-9]+$ ]]; then p_gating=0; fi
+      if [ "$p_ok" = "OK" ]; then
+        ds_status="$p_status"; ds_gating="$p_gating"; ds_ids="$p_ids"; ds_reason="$p_reason"
+      else
+        ds_status=""; ds_gating=0; ds_ids=""; ds_reason="non_json_output"
+      fi
+      if [ "$ds_rc" -eq 0 ] && [ "$p_ok" != "OK" ]; then
+        ds_rc=2   # clean exit but unusable output: unavailable
+      elif [ "$ds_rc" -ne 0 ] && [ "$ds_rc" -ne 1 ] && { [ -z "$ds_reason" ] || [ "$p_ok" != "OK" ]; }; then
+        ds_reason="exit_$ds_rc"
+      fi
+    fi
+    rm -f "$tmp" 2>/dev/null || true
+    _DS_TMP=""
+    trap - EXIT
+  fi
+
+  # rc is authoritative: derive the event status from it.
+  if [ "$ds_rc" -eq 0 ]; then
+    [ -n "$ds_status" ] || ds_status="clean"
+  elif [ "$ds_rc" -eq 1 ]; then
+    ds_status="blocked"
+  else
+    ds_status="unavailable"
+    [ -n "$ds_reason" ] || ds_reason="exit_$ds_rc"
+  fi
+  ds_reason="$(_devops_scan_clean "$ds_reason")"
+  ds_ids="$(_devops_scan_clean "$ds_ids")"
+
+  if [ "$ds_rc" -ne 0 ] || [ "$expired" = "true" ]; then
+    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    events_dir="$CWD/.bytedigger"
+    {
+      mkdir -p "$events_dir" &&
+      printf '{"ts":"%s","mode":"%s","rc":%s,"status":"%s","gating":%s,"reason":"%s","flag":{"name":"DEVOPS_SCAN_ENFORCE","owner":"%s","expires":"%s","expired":%s}}\n' \
+        "$ts" "$mode" "$ds_rc" "$(_devops_scan_clean "$ds_status")" "$ds_gating" "$ds_reason" \
+        "$DEVOPS_SCAN_OWNER" "$DEVOPS_SCAN_EXPIRES" "$expired" >> "$events_dir/devops-scan-shadow.jsonl"
+    } 2>/dev/null || true
+  fi
+
+  if [ "$ds_rc" -eq 0 ]; then
+    return 0
+  fi
+  if [ "$mode" = "enforce" ]; then
+    if [ "$ds_rc" -eq 1 ]; then
+      hard_block "devops_scan blocked: $ds_gating gating finding(s): $ds_ids"
+    fi
+    hard_block "devops_scan unavailable: $ds_reason"
+  fi
+  if [ "$ds_rc" -eq 1 ]; then
+    echo "WARN: devops_scan SHADOW blocked: $ds_gating gating finding(s)" >&2
+  else
+    echo "WARN: devops_scan SHADOW unavailable: $ds_reason" >&2
+  fi
+  return 0
+}
+
 gate_phase_55() {
   # An absent key means "not detected" (yaml_get never fails).
   local gaming
@@ -317,6 +494,7 @@ gate_phase_55() {
     hard_block "assertion_gaming_detected — tests were written to pass without real implementation"
   fi
   check_deliverables "5.5"
+  run_devops_scan
 }
 
 gate_phase_6() {
