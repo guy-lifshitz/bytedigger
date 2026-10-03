@@ -77,7 +77,7 @@ ENFORCEMENT: "dict[str, dict[str, object]]" = {
     "R2.1": {
         "error_code": "E_RED_COLLECT_PROBE",
         "flag": "HAL_RED_COLLECT_PROBE_ENFORCE",
-        "enforced_by_default": False,
+        "enforced_by_default": True,
     },
     "R2.2": {
         "error_code": "E_RED_STUB_PASSABLE",

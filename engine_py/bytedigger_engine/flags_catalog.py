@@ -331,10 +331,10 @@ FLAGS: dict[str, dict] = {
         "description": "Kill-switch: HAL_RED_COLLECT_PROBE_GATE=0 disables the §1q pytest --co collect-probe RED gate (GH542).",
     },
     "HAL_RED_COLLECT_PROBE_ENFORCE": {
-        "kind": "flag",
-        "default": "0",
+        "kind": "gate",
+        "default": "1",
         "module": "workflows/phase_5_implement.py",
-        "description": "=1 hard-blocks non-collectable RED (E_RED_COLLECT_PROBE, recoverable=True). Warn-only until flip-by:2026-07-24 Refs #542.",
+        "description": "Kill-switch: =0 returns the collect-probe to warn-only; default ON hard-blocks non-collectable RED (E_RED_COLLECT_PROBE, recoverable=True). Flipped ON 2026-10-03 after 229 shadow runs (1 true positive, 0 false), Refs #542.",
     },
     "HAL_RED_COLLECT_PROBE_TIMEOUT_MS": {
         "kind": "int",
