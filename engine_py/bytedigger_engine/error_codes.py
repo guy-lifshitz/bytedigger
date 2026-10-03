@@ -192,6 +192,7 @@ ERROR_CODES: dict[str, str] = {
     "E_RED_SCOPE_VIOLATION": "phase_5_implement: RED diff touched files outside declared scope",
     "E_RED_STUB_PASSABLE": "phase_5_implement: RED test mocks its own UUT, making it vacuously passable",
     "E_RED_SUITE_UNSAFE": "phase_5_implement: RED suite considered unsafe to execute as-is",
+    "E_RED_TEST_INTEGRITY": "phase_5_implement: RED deleted a pre-existing test file, removed tests from one, or added skip/xfail markers beyond the integrity thresholds without authorization (bd#226)",
     "E_RED_TESTS_IN_EXISTING_FILE": "phase_5_implement: RED wrote new tests into a pre-existing test file (hal#1600 D1 — refused at commit_red_tests, before the RED commit lands)",
     "E_RED_BASELINE_FILE_MODIFIED": "phase_5/6: frozen RED test file content was modified after freeze",
     "E_RED_TEST_RUNNER_TIMEOUT": "phase_5_implement: RED test runner subprocess timed out",
