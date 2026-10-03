@@ -56,7 +56,7 @@ An engine `fresh` receipt means syntax, stub and facts passed on the tree the ga
 - **AC8** Producer raising (patched `preflight.run_engine_preflight`) → no exception out of the step, rung runs, gate once.
 - **AC9 (add-only)** All `invoke_llm_subprocess` kwargs, minus `extra_data["preflight"]`, are equal for produce on and `produce: false`, and for a `fresh` and a `red` receipt.
 - **AC10** Ambient git cwd (no `git_cwd`) → producer not called, `ambient-skip`, gate once.
-- **AC11** `run_preflight` is unchanged: `test_bd164_preflight.py`, `test_bd218_s1_preflight_rung.py`, `test_bd141_check_ladder.py` and the other s1 sibling files pass without edits; a CLI receipt has no `producer` key.
+- **AC11** `run_preflight` is unchanged: `test_bd164_preflight.py`, `test_bd141_check_ladder.py` and the other s1 sibling files pass without edits; `test_bd218_s1_preflight_rung.py` passes with one edit, its `_drive` helper stubs `preflight.run_engine_preflight` to a no-op (its tests pre-stage receipts the producer would delete); a CLI receipt has no `producer` key.
 - **AC12** Receipt freshness: after the producer ran, `verify_receipt` is `fresh`; after any edit of a tracked file it is `stale`.
 
 ## §4 Files
@@ -64,7 +64,7 @@ An engine `fresh` receipt means syntax, stub and facts passed on the tree the ga
 In scope: `engine_py/bytedigger_engine/preflight.py`, `engine_py/bytedigger_engine/workflows/phase_5_implement.py` (the rung block only), new `engine_py/tests/test_bd218_s2_receipt_producer.py`, `CHANGELOG.md`.
 NOT in scope: `check_ladder.py`, `reject_log.py`, `reject_stats.py`, `workflows/engine.py`, `phases/`, the `StepContract` list, every order-asserting test.
 Sibling-test audit (§1a): the s1 list (`test_bd218_s1_preflight_rung.py`, `test_bd141_check_ladder.py`, `test_bd164_preflight.py`, `test_bd92_per_cycle_artifacts.py`, `test_gh705_callsite_stable_prefix.py`, `test_phase_5_implement_A3398552.py`, `test_gh963_validation_execution_failure.py`, `test_llm_subprocess_allowed_tools.py`, `test_7C4D70ED_red_executability_check.py`, `test_phase_5_graphfirst_DA48BEAC.py`, `test_bd141_p4d_role_template_injections.py`, `test_bd139_single_reviewer.py`) plus `grep -l run_preflight engine_py/tests`.
-The s1 tests whose harness has a real non-ambient repo (AC3/AC8/AC11/AC12 family) now see a producer run before the rung; audit them for the receipt they pre-stage being removed by the producer (the producer deletes the old receipt first). If any breaks, that is a spec defect to resolve before freeze, not a test edit.
+The s1 tests whose harness has a real non-ambient repo (AC3/AC8/AC11/AC12 family) now see a producer run before the rung; audit them for the receipt they pre-stage being removed by the producer (the producer deletes the old receipt first). Resolved: `_drive` in `test_bd218_s1_preflight_rung.py` (my own merged file) stubs the producer; every other sibling is ambient (no `git_cwd`) so no producer call happens.
 
 ## §5 Provenance (Guy 2026-10-03)
 
