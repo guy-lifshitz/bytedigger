@@ -1,4 +1,4 @@
-"""bd#89 P3b1c RED (spec FROZEN r1).
+"""bd#89 P3b1c RED (spec FROZEN r3).
 
 Spec: docs/decisions/2026-10-03-bd89-p3b1c-single-reviewer-md-gates.md (section 3).
 
@@ -49,6 +49,7 @@ def _read(rel: str) -> str:
 _AC1_FORBIDDEN = [
     "phase_6_reviewers_launched", "phase_6_reviewers_expected", "<3|4|6|7>",
     "Determine Reviewer Count", "Launch ALL agents", "2 Haiku", "reviews/{agent-name}.md",
+    "launched != expected", "launched ≠ expected",
 ]  # section 9: structural tokens only ("Reviewer counts" is test_f1_phase6_md_...)
 
 
@@ -110,10 +111,18 @@ def test_ac5_classify_and_dynamic_context_have_no_multi_reviewer():
     bad = {}
     for rel in _AC5_FILES:
         text = _read(rel)
-        hit = [s for s in ("3x reviewers", "6x reviewers", "<3|4|6|7>", "Review Agent Roster") if s in text]
+        hit = [s for s in ("3x reviewers", "6x reviewers", "<3|4|6|7>", "Review Agent Roster",
+                           "phase_6_reviewers", "launched != expected", "launched ≠ expected")
+               if s in text]
         if hit:
             bad[rel] = hit
     assert not bad, bad
+
+
+def test_ac5_dynamic_context_has_no_per_tier_reviewer_count_rows():
+    text = _read("templates/dynamic-context.md")
+    rows = re.findall(r"^\|\s*[A-Z][A-Z/+ ]*\|\s*[2-9]\s*\|.*$", text, re.M)
+    assert not rows, rows
 
 
 def test_ac5_classify_and_dynamic_context_say_composite():
