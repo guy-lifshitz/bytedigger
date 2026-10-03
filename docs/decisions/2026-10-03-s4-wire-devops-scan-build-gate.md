@@ -1,6 +1,6 @@
 # S4 wiring: devops_scan in scripts/build-gate.sh (SHADOW, +14 days)
 
-**Status: DRAFT r2 (gate r1 REJECT 4 MAJOR: `-gate-r1.md`)** · **Tier:** 2 (gate script change, flag with owner/expiry) · **Class:** SECURITY wiring
+**Status: FROZEN r2 (gate r2 PASS, minors in `-gate-r2.md`) · was DRAFT r2 (gate r1 REJECT 4 MAJOR: `-gate-r1.md`)** · **Tier:** 2 (gate script change, flag with owner/expiry) · **Class:** SECURITY wiring
 **Chokepoint:** `gate_phase_55` in `scripts/build-gate.sh`: the last gate before the LLM review phase; the only place the scan verdict meets the pipeline.
 **Provenance:** S4/M1 (#229) added `scripts/devops_scan.py` (exit 0 clean, 1 blocked, 2 unavailable) and explicitly left wiring out. MGR decision 2026-10-03: call it in `build-gate.sh` before the LLM review, flag SHADOW by default (warn + event), owner + expiry +14 days. Audit hal#2320 §6 row M1.
 
@@ -44,3 +44,12 @@ Hard block uses the existing `hard_block` (not soft MISSING_FIELDS), so loop pre
 ## 3. Out of scope
 
 Changing `devops_scan.py`, phase-specific file lists (`--files` from the diff), engine registry, docs sweep, TS gate port (precondition for ENFORCE, see Backends), flipping the flag (owner decision at expiry), `commands/build.md` text.
+
+## 4. Gate r2 clarifications (binding on GREEN)
+
+- Event field types: `rc` and `gating` JSON numbers, `flag.expired` JSON boolean, others strings.
+- rc 1 with non-JSON stdout: still rc 1 (blocked, count unknown -> `gating` 0, reason `non_json_output`); rc wins.
+- The gate's own kill on budget overrun (rc 143/137) maps to reason `budget_exceeded`; an EXIT trap kills a still-running background scan and removes its temp file.
+- Path-derived text in `hard_block` messages is sanitised the same way as ids.
+- Code comment at `run_devops_scan` states the ENFORCE precondition (TS gate port + parity test before flipping anywhere).
+- Accepted limits (PR body): an orphaned hadolint/trivy child after a budget kill; repos with 3+ scanner targets will routinely exceed 8 s (input to the owner's flip decision); event file unbounded.
