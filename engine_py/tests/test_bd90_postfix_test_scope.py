@@ -1,11 +1,12 @@
 """RED tests for bd#90 - phase_6 _run_pytest_post_fix scope is never empty.
 
-Spec: docs/decisions/2026-10-03-bd90-postfix-test-scope.md (AC1-AC5).
+Spec: docs/decisions/2026-10-03-bd90-postfix-test-scope.md (AC1-AC10).
 
 The scope is the ordered, de-duplicated union of RED paths (prev.data list, else
 the persisted integrity/red-test-paths.txt), manifest test files, and sibling
-tracked tests of changed source files (max 50, sorted). Only paths that exist on
-disk under the git cwd are kept. A `post_fix_pytest_scope` event is emitted with
+tracked tests of changed source files (max 50, sorted). The on-disk existence
+filter applies only to the persisted RED leg and to siblings; the prev.data list
+and manifest legs pass through unchanged. A `post_fix_pytest_scope` event is emitted with
 {n_red, n_manifest, n_sibling, n_total} before pytest is invoked.
 
 Hermetic: tmp_path, a real tiny git repo (git init + git add, no commits needed),
@@ -44,6 +45,8 @@ class _Env:
         subprocess.run(["git", "init", "-q"], cwd=str(self.repo), check=True)
         self.events = []  # type: list
         self.run_calls = []  # type: list
+        for var in ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"):
+            monkeypatch.delenv(var, raising=False)
         stdout = tmp_path / "stdout.txt"
         stdout.write_text("1 passed in 0.1s")
 
@@ -113,11 +116,11 @@ class TestPostFixTestScope:
 
     def test_ac1_red_path_from_persisted_file_joins_scope(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         env.write("tests/test_red_one.py")
         env.persist_red(["tests/test_red_one.py"])
 
-        result = env.run(["pkg/mod.py"])
+        result = env.run(["pkg/module.py"])
 
         assert result.status == "ok"
         assert _has(env.test_args(), "tests/test_red_one.py"), env.run_calls
@@ -129,16 +132,16 @@ class TestPostFixTestScope:
 
     def test_ac2_sibling_tests_pulled_in_for_changed_source(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
-        env.write("tests/test_mod_extra.py")   # stem match, different directory
+        env.write("pkg/module.py")
+        env.write("tests/test_module_extra.py")   # stem match, different directory
         env.write("pkg/test_neighbor.py")      # same directory
         env.write("tests/test_unrelated.py")   # must NOT be pulled in
 
-        result = env.run(["pkg/mod.py"])
+        result = env.run(["pkg/module.py"])
 
         assert result.status == "ok"
         args = env.test_args()
-        assert _has(args, "tests/test_mod_extra.py"), env.run_calls
+        assert _has(args, "tests/test_module_extra.py"), env.run_calls
         assert _has(args, "pkg/test_neighbor.py"), env.run_calls
         assert not _has(args, "tests/test_unrelated.py"), env.run_calls
         scopes = env.scope_events()
@@ -148,12 +151,12 @@ class TestPostFixTestScope:
 
     def test_ac2_siblings_capped_at_50_sorted(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         names = ["pkg/test_c%02d.py" % i for i in range(60)]
         for n in names:
             env.write(n)
 
-        result = env.run(["pkg/mod.py"])
+        result = env.run(["pkg/module.py"])
 
         assert result.status == "ok"
         args = env.test_args()
@@ -168,9 +171,9 @@ class TestPostFixTestScope:
 
     def test_ac3_empty_scope_skips_without_running_pytest(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")  # no RED file, no manifest tests, no siblings
+        env.write("pkg/module.py")  # no RED file, no manifest tests, no siblings
 
-        result = env.run(["pkg/mod.py"])
+        result = env.run(["pkg/module.py"])
 
         assert result.status == "ok"
         assert env.run_calls == [], "pytest must not be invoked on empty scope"
@@ -178,16 +181,14 @@ class TestPostFixTestScope:
         assert len(skips) == 1 and skips[0].get("reason") == "no_test_scope", env.events
         assert env.scope_events() == [] or env.scope_events()[0]["n_total"] == 0
 
-    def test_ac4_missing_red_path_not_passed_to_pytest(self, tmp_path, monkeypatch):
+    def test_ac4_missing_persisted_red_path_not_passed_to_pytest(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         env.write("tests/test_present.py")
         # tests/test_gone.py is never created on disk
+        env.persist_red(["tests/test_gone.py", "tests/test_present.py"])
 
-        result = env.run(
-            ["pkg/mod.py"],
-            red_test_paths=["tests/test_gone.py", "tests/test_present.py"],
-        )
+        result = env.run(["pkg/module.py"])
 
         assert result.status == "ok"
         args = env.test_args()
@@ -197,16 +198,34 @@ class TestPostFixTestScope:
         assert len(scopes) == 1, env.events
         assert scopes[0]["n_red"] == 1
 
+    def test_ac4_converse_phantom_path_in_prev_data_list_passes_through(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/module.py")
+        env.write("tests/test_present.py")
+
+        result = env.run(
+            ["pkg/module.py"],
+            red_test_paths=["tests/test_gone.py", "tests/test_present.py"],
+        )
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert _has(args, "tests/test_gone.py"), "phantom prev.data path must pass through: %r" % (env.run_calls,)
+        assert _has(args, "tests/test_present.py"), env.run_calls
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert scopes[0]["n_red"] == 2
+
     def test_ac5_prev_data_red_paths_win_over_persisted_and_manifest(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         env.write("tests/test_from_prev.py")
         env.write("tests/test_from_file.py")
         env.write("tests/test_manifest_only.py")
         env.persist_red(["tests/test_from_file.py"])
 
         result = env.run(
-            ["pkg/mod.py", "tests/test_manifest_only.py"],
+            ["pkg/module.py", "tests/test_manifest_only.py"],
             red_test_paths=["tests/test_from_prev.py"],
         )
 
@@ -224,14 +243,14 @@ class TestPostFixTestScope:
 
     def test_ac6_union_dedupes_and_counts_match_argv(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         env.write("tests/test_touched.py")      # manifest only
         env.write("tests/test_red_both.py")     # in RED and in manifest
         env.write("tests/test_red_only.py")     # RED only
         env.write("pkg/test_neighbor.py")       # sibling
         env.persist_red(["tests/test_red_both.py", "tests/test_red_only.py"])
 
-        result = env.run(["pkg/mod.py", "tests/test_touched.py", "tests/test_red_both.py"])
+        result = env.run(["pkg/module.py", "tests/test_touched.py", "tests/test_red_both.py"])
 
         assert result.status == "ok"
         args = env.test_args()
@@ -249,7 +268,7 @@ class TestPostFixTestScope:
 
     def test_ac7_cap_never_drops_red_or_manifest(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         env.write("tests/test_red_keep.py")
         env.write("tests/test_manifest_keep.py")
         env.persist_red(["tests/test_red_keep.py"])
@@ -257,7 +276,7 @@ class TestPostFixTestScope:
         for n in names:
             env.write(n)
 
-        result = env.run(["pkg/mod.py", "tests/test_manifest_keep.py"])
+        result = env.run(["pkg/module.py", "tests/test_manifest_keep.py"])
 
         assert result.status == "ok"
         args = env.test_args()
@@ -270,7 +289,7 @@ class TestPostFixTestScope:
 
     def test_ac8_whitespace_stripped_and_escaping_path_dropped(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         env.write("tests/test_padded.py")
         # A real file outside the git cwd that the escaping path would resolve to.
         outside = tmp_path / "x"
@@ -278,7 +297,7 @@ class TestPostFixTestScope:
         (outside / "test_a.py").write_text("# outside\n")
         env.persist_red(["  tests/test_padded.py  ", "../x/test_a.py"])
 
-        result = env.run(["pkg/mod.py"])
+        result = env.run(["pkg/module.py"])
 
         assert result.status == "ok"
         args = env.test_args()
@@ -291,14 +310,14 @@ class TestPostFixTestScope:
 
     def test_ac9_git_ls_files_failure_degrades_to_other_legs(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
-        env.write("pkg/mod.py")
+        env.write("pkg/module.py")
         env.write("pkg/test_neighbor.py")
         env.write("tests/test_red_ok.py")
         env.persist_red(["tests/test_red_ok.py"])
         # Corrupt the index so a real `git ls-files` fails, whatever git seam is used.
         (env.repo / ".git" / "index").write_bytes(b"not a git index")
 
-        result = env.run(["pkg/mod.py"])
+        result = env.run(["pkg/module.py"])
 
         assert result.status == "ok", "ls-files failure must degrade, not error: %r" % (result,)
         args = env.test_args()
@@ -308,3 +327,112 @@ class TestPostFixTestScope:
         assert len(scopes) == 1, env.events
         assert scopes[0]["n_sibling"] == 0
         assert scopes[0]["n_red"] == 1
+
+    # ---- AC10: edges -------------------------------------------------------
+
+    def test_ac10_empty_red_list_means_no_manifest_no_persisted_but_siblings(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/module.py")
+        env.write("tests/test_manifest_t.py")
+        env.write("tests/test_persisted.py")
+        env.write("tests/test_module_extra.py")
+        env.persist_red(["tests/test_persisted.py"])
+
+        result = env.run(["pkg/module.py", "tests/test_manifest_t.py"], red_test_paths=[])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert not _has(args, "tests/test_manifest_t.py"), env.run_calls
+        assert not _has(args, "tests/test_persisted.py"), env.run_calls
+        assert _has(args, "tests/test_module_extra.py"), env.run_calls
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert (scopes[0]["n_red"], scopes[0]["n_manifest"], scopes[0]["n_sibling"], scopes[0]["n_total"]) == (0, 0, 1, 1)
+
+    def test_ac10_root_level_source_has_no_same_dir_siblings(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("utilities.py")
+        env.write("test_unrelated_root.py")        # same (root) directory: must not match
+        env.write("tests/test_utilities_x.py")     # stem match: must match
+
+        result = env.run(["utilities.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert not _has(args, "test_unrelated_root.py"), env.run_calls
+        assert _has(args, "tests/test_utilities_x.py"), env.run_calls
+
+    def test_ac10_init_and_short_stem_have_no_stem_match(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/__init__.py")
+        env.write("pkg/mod.py")                    # stem "mod" < 4 chars
+        env.write("tests/test_mod_x.py")
+        env.write("tests/test___init__.py")
+        env.write("tests/test_red_runs.py")        # keeps scope non-empty so pytest runs
+        env.persist_red(["tests/test_red_runs.py"])
+
+        result = env.run(["pkg/__init__.py", "pkg/mod.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert not _has(args, "tests/test_mod_x.py"), env.run_calls
+        assert not _has(args, "tests/test___init__.py"), env.run_calls
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert scopes[0]["n_sibling"] == 0
+
+    def test_ac10_non_py_and_test_files_in_manifest_add_no_siblings(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("docs/notes_guide.md")
+        env.write("docs/test_docs_neighbor.py")    # same dir as a non-.py change
+        env.write("tests/test_alpha_thing.py")     # manifest test file
+        env.write("tests/test_other_thing.py")     # same dir as a manifest test file
+
+        result = env.run(["docs/notes_guide.md", "tests/test_alpha_thing.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert _has(args, "tests/test_alpha_thing.py"), env.run_calls
+        assert not _has(args, "docs/test_docs_neighbor.py"), env.run_calls
+        assert not _has(args, "tests/test_other_thing.py"), env.run_calls
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert scopes[0]["n_sibling"] == 0
+
+    def test_ac10_tracked_but_deleted_sibling_is_dropped(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/module.py")
+        env.write("pkg/test_alive.py")
+        env.write("pkg/test_deleted.py")
+        (env.repo / "pkg" / "test_deleted.py").unlink()  # still in the index
+
+        result = env.run(["pkg/module.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert _has(args, "pkg/test_alive.py"), env.run_calls
+        assert not _has(args, "pkg/test_deleted.py"), env.run_calls
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert scopes[0]["n_sibling"] == 1
+
+    def test_ac10_path_spelling_dedupe(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/module.py")
+        env.write("tests/test_a.py")
+        env.persist_red(["./tests/test_a.py"])
+
+        result = env.run(["pkg/module.py", "tests/test_a.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        hits = [a for a in args if a.replace("\\", "/").endswith("tests/test_a.py")]
+        assert len(hits) == 1, "spelling variants must dedupe to one entry: %r" % (env.run_calls,)
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert (scopes[0]["n_red"], scopes[0]["n_manifest"], scopes[0]["n_total"]) == (1, 0, 1)
+
+    def test_ac10_events_doc_has_scope_row(self):
+        events_md = Path(__file__).resolve().parents[2] / "docs" / "events.md"
+        text = events_md.read_text(encoding="utf-8")
+        assert _SCOPE_EVENT in text, "docs/events.md must document %s" % _SCOPE_EVENT
