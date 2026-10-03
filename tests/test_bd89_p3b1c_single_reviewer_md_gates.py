@@ -16,7 +16,8 @@ AC mapping (GUARD = green before GREEN):
     test_ac4_build_md_6_1_references_phase6_md                   -> AC4
     test_ac5_classify_and_dynamic_context_have_no_multi_reviewer -> AC5
     test_ac5_classify_and_dynamic_context_say_composite          -> AC5
-    test_ac5_classify_md_does_not_say_reviewer_count             -> AC5
+    test_f1_*  (phase-6 "Reviewer counts", build.md mismatch/SIMPLE=3, classify "3 for SIMPLE")
+    test_ac8_removal_note_is_one_line_with_backticked_keys       -> AC8 (section 8/9)
     test_ac6_bytedigger_json_has_no_reviewers_count_keys         -> AC6 (first clause, red)
     test_ac6_guard_bytedigger_json_reviewers_mode_auto           -> AC6 (GUARD)
     test_ac7_gate_sources_have_no_legacy_reviewer_count_tokens   -> AC7
@@ -47,10 +48,8 @@ def _read(rel: str) -> str:
 
 _AC1_FORBIDDEN = [
     "phase_6_reviewers_launched", "phase_6_reviewers_expected", "<3|4|6|7>",
-    "Determine Reviewer Count", "Launch ALL agents", "launch security-reviewer", "2 Haiku",
-    "reviews/code-reviewer.md", "reviews/{agent-name}.md", "pr-test-analyzer",
-    "type-design-analyzer", "comment-analyzer", "code-simplifier", "silent-failure-hunter",
-]
+    "Determine Reviewer Count", "Launch ALL agents", "2 Haiku", "reviews/{agent-name}.md",
+]  # section 9: structural tokens only ("Reviewer counts" is test_f1_phase6_md_...)
 
 
 def test_ac1_phase6_md_has_no_multi_reviewer_text():
@@ -122,10 +121,6 @@ def test_ac5_classify_and_dynamic_context_say_composite():
     assert not missing, missing
 
 
-def test_ac5_classify_md_does_not_say_reviewer_count():
-    assert "reviewer count" not in _read("phases/phase-0-classify.md")
-
-
 # ─── AC6 ─────────────────────────────────────────────────────────────────────
 
 def test_ac6_bytedigger_json_has_no_reviewers_count_keys():
@@ -176,19 +171,17 @@ def test_ac8_plugin_md_mentions_composite_reviewer():
     assert "composite reviewer" in _read("docs/plugin.md")
 
 
-# ─── Errata r2 (gate r1): F1 / F2 / F3 token ACs ─────────────────────────────
+def test_ac8_removal_note_is_one_line_with_backticked_keys():
+    # Spec section 8: one physical line, keys backticked (the engine sibling
+    # test_ac12_docs_rows_say_one_composite_reviewer[docs/plugin.md] needs that shape).
+    lines = [ln for ln in _read("docs/plugin.md").splitlines() if "were removed and are ignored" in ln]
+    assert len(lines) == 1, lines
+    for key in _LEGACY_KEYS:
+        assert f"`{key}`" in lines[0], key
+    assert "one composite reviewer" in lines[0].lower()
 
-def _policy_table_data_rows(text: str) -> list[str]:
-    lines = text.splitlines()
-    start = next((i for i, ln in enumerate(lines) if re.match(r"^\|\s*Complexity\s*\|", ln)), None)
-    assert start is not None, "policy table header not found in phases/phase-6-review.md"
-    rows = []
-    for ln in lines[start:]:
-        if not ln.startswith("|"):
-            break
-        rows.append(ln)
-    return rows[2:]  # drop header + separator
 
+# ─── Errata r2 (gate r1) + section 9 narrowing: structural count tokens ──────
 
 def test_f1_phase6_md_has_no_reviewer_counts_phrase():
     assert "reviewer counts" not in _read("phases/phase-6-review.md").lower()
@@ -200,69 +193,8 @@ def test_f1_build_md_has_no_reviewer_count_mismatch_or_simple_3():
     assert not present, present
 
 
-def test_f1_build_md_has_no_reviewer_count_phrase():
-    assert "reviewer count" not in _read("commands/build.md").lower()
-
-
 def test_f1_classify_md_dry_run_has_no_3_for_simple():
     assert "3 for SIMPLE" not in _read("phases/phase-0-classify.md")
-
-
-_F2_FILES = ("skills/bytedigger/SKILL.md", "examples/claude-code-skill/SKILL.md",
-             "examples/claude-code-skill/README.md", "docs/plugin.md")
-
-
-def test_f2_skill_example_and_plugin_docs_have_no_count_phrases():
-    bad = {}
-    for rel in _F2_FILES:
-        low = _read(rel).lower()
-        hit = [s for s in ("3 review agents", "reviewer counts", "3-6 agents") if s in low]
-        if hit:
-            bad[rel] = hit
-    assert not bad, bad
-
-
-def test_f3_phase6_md_has_no_multi_reviewer_wording():
-    low = _read("phases/phase-6-review.md").lower()
-    tokens = ("reviewer panel", "review agents", "all reviewers complete", "re-run affected",
-              "specialized reviewer agents")
-    present = [t for t in tokens if t in low]
-    assert not present, present
-
-
-def test_f3_phase6_md_has_step_1_run_the_reviewer():
-    assert "Step 1: Run the reviewer" in _read("phases/phase-6-review.md")
-
-
-def test_f3_guard_phase6_md_keeps_security_review_enabled():
-    assert "security_review_enabled" in _read("phases/phase-6-review.md")
-
-
-def test_f3_phase6_md_says_old_format_review_files_are_ignored():
-    lines = _read("phases/phase-6-review.md").splitlines()
-    assert any("reviews/" in ln and "ignored" in ln for ln in lines)
-
-
-def test_f3_every_policy_table_row_names_the_composite_reviewer():
-    rows = _policy_table_data_rows(_read("phases/phase-6-review.md"))
-    assert rows, "policy table has no data rows"
-    bad = [r for r in rows if "1: composite reviewer" not in r]
-    assert not bad, bad
-
-
-def test_f3_build_md_has_no_re_run_reviewers():
-    assert "Re-run reviewers" not in _read("commands/build.md")
-
-
-def test_f3_dynamic_context_has_no_roster_leftovers():
-    text = _read("templates/dynamic-context.md")
-    present = [s for s in ("code-reviewer", "launched != expected", "Launch all parallel",
-                           "phase_6_reviewers") if s in text]
-    assert not present, present
-
-
-def test_f3_readme_has_no_reviewer_counts():
-    assert "reviewer counts" not in _read("README.md").lower()
 
 
 # ─── AC10 (GUARD) ────────────────────────────────────────────────────────────
