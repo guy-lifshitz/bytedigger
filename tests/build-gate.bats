@@ -416,6 +416,42 @@ EOF
   [ "$status" -eq 1 ]
 }
 
+@test "legacy *_reviewers keys in bytedigger.json are ignored (gate exit code unchanged)" {
+  cat > "$TMPDIR/build-state.yaml" <<EOF
+task: "test"
+complexity: FEATURE
+mode: AUTONOMOUS
+current_phase: "6"
+last_updated: "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+plan_review: approved
+opus_validation: pass
+phase_53_green: true
+phase_6_findings_total: 5
+phase_6_findings_fixed: 5
+phase_6_findings_skipped: 0
+post_review_gate: pass
+EOF
+  mkdir -p "$TMPDIR/reviews"
+  echo "VERDICT: PASS" > "$TMPDIR/reviews/role-composite.md"
+  echo "VERDICT: PASS" > "$TMPDIR/reviews/role-correctness.md"
+  echo "VERDICT: PASS" > "$TMPDIR/reviews/role-security.md"
+  # Baseline: config without the legacy keys
+  run bash "$SCRIPT" < /dev/null
+  local base_status="$status"
+  # Same state, config carrying the three legacy keys
+  cat > "$TMPDIR/bytedigger.json" <<'EOF'
+{
+  "gates_enabled": true,
+  "tdd_mandatory": true,
+  "simple_reviewers": 3,
+  "feature_reviewers": 6,
+  "complex_reviewers": 6
+}
+EOF
+  run bash "$SCRIPT" < /dev/null
+  [ "$status" -eq "$base_status" ]
+}
+
 # ---------------------------------------------------------------------------
 # 6. Stdin handling
 # ---------------------------------------------------------------------------
