@@ -1,6 +1,6 @@
-"""RED tests for scripts/devops_scan.py (S4/M1, spec r2
-docs/decisions/2026-10-03-s4-m1-devops-scan-script.md, AC1-AC10; gate r1 fixes
-in docs/decisions/2026-10-03-s4-m1-gate-r1.md).
+"""RED tests for scripts/devops_scan.py (S4/M1, spec r3
+docs/decisions/2026-10-03-s4-m1-devops-scan-script.md, AC1-AC11; gate r1/r2 fixes
+in docs/decisions/2026-10-03-s4-m1-gate-r1.md and -gate-r2.md).
 
 The script under test does not exist yet. Per workflows.md §1q nothing here
 imports it: every test resolves the path lazily and invokes it as a
@@ -40,6 +40,8 @@ _SHIM_HEAD = """#!/bin/sh
 D="$(dirname "$0")"
 echo "$@" >> "$D/@N@.calls"
 echo "cwd=$(pwd -P) home=$HOME" >> "$D/@N@.env"
+echo "--run--" >> "$D/@N@.fullenv"
+/usr/bin/env >> "$D/@N@.fullenv"
 prev=""
 for a in "$@"; do
   if [ "$prev" = "--ignorefile" ]; then
@@ -77,6 +79,20 @@ def _calls(bin_dir: Path, name: str) -> list:
 def _envlog(bin_dir: Path, name: str) -> list:
     f = bin_dir / f"{name}.env"
     return f.read_text().splitlines() if f.exists() else []
+
+
+def _fullenv(bin_dir: Path, name: str) -> list:
+    """One dict per shim invocation: the full environment the scanner received."""
+    f = bin_dir / f"{name}.fullenv"
+    runs: list = []
+    if f.exists():
+        for ln in f.read_text().splitlines():
+            if ln == "--run--":
+                runs.append({})
+            elif "=" in ln and runs:
+                k, _, val = ln.partition("=")
+                runs[-1][k] = val
+    return runs
 
 
 def _under(path: str, root: Path) -> bool:
@@ -146,7 +162,7 @@ def _env(tmp_path: Path, bin_dir: Path) -> dict:
     }
 
 
-def _run(tmp_path: Path, root, *args, bin_dir=None):
+def _run(tmp_path: Path, root, *args, bin_dir=None, env_extra=None):
     # An absent script makes the interpreter itself exit 2, which would
     # satisfy every F-case by accident; fail loudly instead.
     assert SCRIPT.exists(), f"{SCRIPT} does not exist yet"
@@ -155,13 +171,15 @@ def _run(tmp_path: Path, root, *args, bin_dir=None):
     (tmp_path / "home").mkdir(exist_ok=True)
     cwd = tmp_path / "neutral-cwd"
     cwd.mkdir(exist_ok=True)
+    env = _env(tmp_path, bin_dir)
+    env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--root", str(root), *args],
         capture_output=True,
         text=True,
         timeout=60,
         cwd=str(cwd),
-        env=_env(tmp_path, bin_dir),
+        env=env,
     )
 
 
@@ -219,11 +237,26 @@ def _allow(tmp_path: Path, *lines: str) -> Path:
     return p
 
 
-TODAY = datetime.date.today()
-FUTURE = (TODAY + datetime.timedelta(days=30)).isoformat()
-EDGE = (TODAY + datetime.timedelta(days=365)).isoformat()
-LONG = (TODAY + datetime.timedelta(days=400)).isoformat()
-PAST = (TODAY - datetime.timedelta(days=1)).isoformat()
+class _UtcDay:
+    """UTC date + delta days, evaluated when formatted (inside the test body),
+    never at import time (gate r2 minor 9; spec: "today" is the UTC date)."""
+
+    def __init__(self, delta: int):
+        self.delta = delta
+
+    def __str__(self) -> str:
+        now = datetime.datetime.now(datetime.timezone.utc).date()
+        return (now + datetime.timedelta(days=self.delta)).isoformat()
+
+    def __format__(self, spec: str) -> str:
+        return format(str(self), spec)
+
+
+TODAY = _UtcDay(0)
+FUTURE = _UtcDay(30)
+EDGE = _UtcDay(365)
+LONG = _UtcDay(400)
+PAST = _UtcDay(-1)
 
 DOCKERFILE = "FROM ubuntu:latest\n"
 MAIN_TF = 'resource "aws_s3_bucket" "b" {}\n'
@@ -308,6 +341,8 @@ class TestS4M1DevopsScan:
         "name",
         [
             "main.tf",
+            "main.tf.json",
+            "infra/net.tf.json",
             "prod.tfvars",
             "docker-compose.yml",
             "docker-compose.prod.yaml",
@@ -520,7 +555,7 @@ class TestS4M1DevopsScan:
 
     def test_ac5_kill_by_today_still_waives_inclusive(self, tmp_path):
         root = self._blocked_dockerfile_repo(tmp_path)
-        allow = _allow(tmp_path, f"DL3006 :: ABCDEF12 :: kill-by:{TODAY.isoformat()}")
+        allow = _allow(tmp_path, f"DL3006 :: ABCDEF12 :: kill-by:{TODAY}")
         r = _run(tmp_path, root, "--allowlist", str(allow))
         assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
         assert _verdict(r)["waived"]
@@ -544,19 +579,20 @@ class TestS4M1DevopsScan:
         "line",
         [
             "garbage line without separators",
-            f"DL3006 :: kill-by:{FUTURE}",
-            f"DL3006 :: NOTHEX!! :: kill-by:{FUTURE}",
+            "DL3006 :: kill-by:{FUTURE}",
+            "DL3006 :: NOTHEX!! :: kill-by:{FUTURE}",
             "DL3006 :: ABCDEF12 :: kill-by:not-a-date",
             "DL3006 :: ABCDEF12 :: kill-by:2099-13-45",
             "DL3006 :: ABCDEF12",
-            f" :: ABCDEF12 :: kill-by:{FUTURE}",
-            f"    :: ABCDEF12 :: kill-by:{FUTURE}",
-            f"DL3006 :: ABCDEF1 :: kill-by:{FUTURE}",
-            f"DL3006 :: ABCDEF123 :: kill-by:{FUTURE}",
-            f"DL3006 :: ABCDEF12 :: kill-by:{LONG}",
+            " :: ABCDEF12 :: kill-by:{FUTURE}",
+            "    :: ABCDEF12 :: kill-by:{FUTURE}",
+            "DL3006 :: ABCDEF1 :: kill-by:{FUTURE}",
+            "DL3006 :: ABCDEF123 :: kill-by:{FUTURE}",
+            "DL3006 :: ABCDEF12 :: kill-by:{LONG}",
         ],
     )
     def test_ac5_malformed_line_waives_nothing_never_raises(self, tmp_path, line):
+        line = line.format(FUTURE=FUTURE, LONG=LONG)  # dates computed at test time
         root = self._blocked_dockerfile_repo(tmp_path)
         allow = _allow(tmp_path, line)
         r = _run(tmp_path, root, "--allowlist", str(allow))
@@ -687,7 +723,9 @@ class TestS4M1DevopsScan:
             f"../Dockerfile,../outside.tf,{tmp_path / 'outside.tf'},Dockerfile.nope,missing/main.tf",
         )
         assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
-        assert _verdict(r)["status"] == "nothing_to_scan"
+        v = _verdict(r)
+        assert v["status"] == "nothing_to_scan"
+        assert "5" in v["reason"], f"reason must state the dropped-entry count (5): {v['reason']!r}"
         assert not _calls(bin_dir, "hadolint") and not _calls(bin_dir, "trivy")
 
     def test_ac7_no_files_scans_only_git_tracked_candidates(self, tmp_path):
@@ -1017,7 +1055,8 @@ class TestS4M1DevopsScan:
         r = _run(tmp_path, root)
         assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
         v = _verdict(r)
-        assert {f["id"] for f in v["gating"]} == {"DL3006", "AVD-X-1"}
+        # the inline pragmas in the fixture files are themselves gating findings (spec r3)
+        assert {f["id"] for f in v["gating"]} == {"DL3006", "AVD-X-1", "inline_ignore_pragma"}
 
         hcalls, tcalls = _calls(bin_dir, "hadolint"), _calls(bin_dir, "trivy")
         assert hcalls and tcalls
@@ -1149,3 +1188,273 @@ class TestS4M1DevopsScan:
         assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
         files = {f["id"]: f["file"] for f in _verdict(r)["gating"]}
         assert files == {"A-1": "infra/main.tf", "A-2": outside}, files
+
+    # ------------------------------------------------------------ AC11 ---
+    # (spec r3 / gate r2). Every test runs the real script as a subprocess;
+    # no singleton resource or timing is involved (workflows.md 1i n/a).
+
+    # M1: constructed scanner env
+    def test_ac11_m1_scanner_env_is_whitelist_only(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "hadolint", "[]", rc=0)
+        _shim(bin_dir, "trivy", "{}", rc=0)
+        xdg = tmp_path / "xdg"
+        xdg.mkdir()
+        (xdg / "hadolint.yaml").write_text("ignored:\n  - DL3006\n")
+        root = _make_repo(tmp_path, {"Dockerfile": DOCKERFILE, "main.tf": MAIN_TF})
+        leak = {
+            "HADOLINT_IGNORE": "DL3006",
+            "HADOLINT_OVERRIDE_INFO": "DL3006",
+            "TRIVY_SEVERITY": "LOW",
+            "TRIVY_SKIP_DIRS": "infra",
+            "XDG_CONFIG_HOME": str(xdg),
+            "XDG_CACHE_HOME": str(tmp_path / "xdgcache"),
+            "ZZ_SENTINEL": "1",
+            "LANG": "en_US.UTF-8",
+            "TMPDIR": str(tmp_path),
+        }
+        r = _run(tmp_path, root, env_extra=leak)
+        v = _verdict(r)
+        assert r.returncode == 0 and v["status"] == "clean", (r.stdout, r.stderr)
+        allowed = {"PATH", "HOME", "LANG", "TMPDIR", "PWD", "OLDPWD", "SHLVL", "_"}
+        for name in ("hadolint", "trivy"):
+            runs = _fullenv(bin_dir, name)
+            assert runs, f"{name} never ran"
+            for env in runs:
+                assert not set(env) - allowed, f"{name} got non-whitelisted vars: {sorted(set(env) - allowed)}"
+                assert {"PATH", "HOME", "TMPDIR"} <= set(env), (name, sorted(env))
+                assert env.get("LANG") == "C", (name, env.get("LANG"))
+
+    def test_ac11_m1_trivy_argv_full_severity_list_and_cache_dir(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", "{}", rc=0)
+        root = _make_repo(tmp_path, {"main.tf": MAIN_TF})
+        r = _run(tmp_path, root, env_extra={"TRIVY_SEVERITY": "LOW"})
+        assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+        calls = _calls(bin_dir, "trivy")
+        assert calls, "trivy never ran"
+        for c in calls:
+            w = c.split()
+            assert "--severity" in w, c
+            sev = w[w.index("--severity") + 1]
+            assert set(sev.split(",")) == {"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}, c
+            assert "--cache-dir" in w, c
+            cache = w[w.index("--cache-dir") + 1]
+            assert os.path.isabs(cache) and not _under(cache, root), c
+            # the invoking user's real cache dir (under the harness HOME), not the fresh scanner HOME
+            assert _under(cache, tmp_path / "home"), f"cache dir must derive from the invoking HOME: {c}"
+
+    # M2: inline suppression pragmas become gating findings
+    @pytest.mark.parametrize(
+        "rel,content",
+        [
+            ("main.tf", MAIN_TF + "#trivy:ignore:AVD-X-1\n"),
+            ("main.tf", MAIN_TF + "#tfsec:ignore:aws-s3-x\n"),
+            ("main.tf", MAIN_TF + "// TRIVY:IGNORE:AVD-X-1\n"),
+            ("k8s/dep.yaml", "# trivy:ignore:AVD-KSV-0001\nkind: Pod\n"),
+            ("Dockerfile", "# hadolint ignore=DL3008\nFROM ubuntu:latest\n"),
+            ("Dockerfile", "FROM ubuntu:latest\n# HADOLINT IGNORE=DL3008\n"),
+        ],
+    )
+    def test_ac11_m2_inline_ignore_pragma_is_gating_finding(self, tmp_path, rel, content):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "hadolint", "[]", rc=0)
+        _shim(bin_dir, "trivy", "{}", rc=0)
+        root = _make_repo(tmp_path, {rel: content})
+        r = _run(tmp_path, root)
+        assert r.returncode == 1, (rel, r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "blocked" and len(v["gating"]) == 1, v
+        f = v["gating"][0]
+        assert (f["scanner"], f["id"], f["severity"], f["file"]) == (
+            "pragma",
+            "inline_ignore_pragma",
+            "HIGH",
+            rel,
+        ), f
+
+    def test_ac11_m2_pragma_waivable_only_by_allowlist(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", "{}", rc=0)
+        root = _make_repo(tmp_path, {"main.tf": MAIN_TF + "#trivy:ignore:AVD-X-1\n"})
+        allow = _allow(tmp_path, f"inline_ignore_pragma :: ABCDEF12 :: kill-by:{FUTURE}")
+        r = _run(tmp_path, root, "--allowlist", str(allow))
+        assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert not v["gating"] and [f["id"] for f in v["waived"]] == ["inline_ignore_pragma"], v
+
+    def test_ac11_m2_no_pragma_text_and_non_candidates_are_not_flagged(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", "{}", rc=0)
+        root = _make_repo(
+            tmp_path,
+            {
+                "main.tf": MAIN_TF + "# please ignore the trivy docs\n",
+                "a.py": "# trivy:ignore:AVD-X-1\n# hadolint ignore=DL3008\n",
+            },
+        )
+        r = _run(tmp_path, root)
+        assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "clean" and not v["gating"] and not v["waived"], v
+
+    # M3: empty/whitespace stdout is never clean, whatever rc 0
+    @pytest.mark.parametrize("out", ["", "  \n\t\n"])
+    def test_ac11_m3_hadolint_rc0_empty_stdout_exit2(self, tmp_path, out):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "hadolint", out, rc=0)
+        root = _make_repo(tmp_path, {"Dockerfile": DOCKERFILE})
+        r = _run(tmp_path, root)
+        assert r.returncode == 2, (out, r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "unavailable" and "json_decode_error" in v["reason"], v
+
+    @pytest.mark.parametrize("out", ["", "  \n\t\n"])
+    def test_ac11_m3_trivy_rc0_empty_stdout_exit2(self, tmp_path, out):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", out, rc=0)
+        root = _make_repo(tmp_path, {"main.tf": MAIN_TF})
+        r = _run(tmp_path, root)
+        assert r.returncode == 2, (out, r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "unavailable" and "json_decode_error" in v["reason"], v
+
+    # M4: identity fields never skipped; non-object Results entries
+    @pytest.mark.parametrize(
+        "misc,sev",
+        [
+            ({"Severity": "CRITICAL", "Title": "t", "Description": "d"}, "CRITICAL"),
+            ({"Title": "t", "Description": "d"}, "HIGH"),
+        ],
+    )
+    def test_ac11_m4_trivy_misconfiguration_without_id_gates_as_missing(self, tmp_path, misc, sev):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", _tv_raw(misc), rc=0)
+        root = _make_repo(tmp_path, {"main.tf": MAIN_TF})
+        r = _run(tmp_path, root)
+        assert r.returncode == 1, (misc, r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert [(f["id"], f["severity"]) for f in v["gating"]] == [("<missing>", sev)], v
+
+    def test_ac11_m4_hadolint_finding_without_code_gates_as_missing(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        item = {"level": "error", "message": "m", "file": "Dockerfile", "line": 1, "column": 1}
+        _shim(bin_dir, "hadolint", _hl_raw(item), rc=1)
+        root = _make_repo(tmp_path, {"Dockerfile": DOCKERFILE})
+        r = _run(tmp_path, root)
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert [(f["id"], f["severity"]) for f in v["gating"]] == [("<missing>", "HIGH")], v
+
+    @pytest.mark.parametrize("out", ['{"Results": ["x"]}', '{"Results": [null]}', '{"Results": [7]}'])
+    def test_ac11_m4_trivy_non_object_results_entry_exit2(self, tmp_path, out):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", out, rc=0)
+        root = _make_repo(tmp_path, {"main.tf": MAIN_TF})
+        r = _run(tmp_path, root)
+        assert r.returncode == 2, (out, r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "unavailable" and "json_shape_error" in v["reason"], v
+
+    # M5: run shape
+    def test_ac11_m5_hadolint_once_per_dockerfile_file_is_relative_input_path(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        # the shim's own "file" field says "Dockerfile": it must be ignored
+        _shim(bin_dir, "hadolint", _hl(("DL3006", "error")), rc=1)
+        root = _make_repo(tmp_path, {"a/Dockerfile": DOCKERFILE, "b/Dockerfile": DOCKERFILE})
+        r = _run(tmp_path, root)
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert sorted(f["file"] for f in v["gating"]) == ["a/Dockerfile", "b/Dockerfile"], v
+        calls = _calls(bin_dir, "hadolint")
+        assert len(calls) == 2, calls
+        for c in calls:
+            assert sum(1 for w in c.split() if w.endswith("Dockerfile")) == 1, c
+
+    def test_ac11_m5_trivy_once_per_distinct_directory(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", "{}", rc=0)
+        root = _make_repo(
+            tmp_path, {"infra/a.tf": MAIN_TF, "infra/b.tf": MAIN_TF, "prod/c.tf": MAIN_TF}
+        )
+        r = _run(tmp_path, root)
+        assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+        assert len(_calls(bin_dir, "trivy")) == 2, _calls(bin_dir, "trivy")
+
+    # MINOR: de-dup (same file|id|description)
+    def test_ac11_dedup_identical_findings_in_one_run(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", _tv(("AVD-X-1", "CRITICAL"), ("AVD-X-1", "CRITICAL")), rc=0)
+        root = _make_repo(tmp_path, {"main.tf": MAIN_TF})
+        r = _run(tmp_path, root)
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        assert [f["id"] for f in _verdict(r)["gating"]] == ["AVD-X-1"]
+
+    def test_ac11_dedup_nested_scan_dirs_report_once(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "trivy", _tv(("AVD-X-1", "CRITICAL"), target="infra/main.tf"), rc=0)
+        root = _make_repo(tmp_path, {"infra/main.tf": MAIN_TF, "infra/mod/x.tf": MAIN_TF})
+        r = _run(tmp_path, root)
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        assert len(_calls(bin_dir, "trivy")) == 2, "one trivy run per distinct directory"
+        assert [f["id"] for f in _verdict(r)["gating"]] == ["AVD-X-1"], "duplicate must be reported once"
+
+    # M6: absolute --files entries
+    def test_ac11_m6_absolute_in_root_files_entry_is_scanned(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "hadolint", _hl(("DL3006", "error")), rc=1)
+        root = _make_repo(tmp_path, {"Dockerfile": DOCKERFILE}, git=False)
+        r = _run(tmp_path, root, "--files", f"{root / 'Dockerfile'},../nope,missing.tf")
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "blocked" and "Dockerfile" in v["gating"][0]["file"]
+        assert not os.path.isabs(v["gating"][0]["file"]), "file must be root-relative"
+        assert "2" in v["reason"], f"reason must state 2 dropped entries: {v['reason']!r}"
+
+    # *.tf.json routing is covered by test_ac2_iac_path_variants_routed_to_trivy
+
+    # G1 minor: git absent from PATH
+    def test_ac11_g1_git_missing_from_path_without_files_exit2(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "hadolint", "[]", rc=0)
+        root = _make_repo(tmp_path, {"Dockerfile": DOCKERFILE})
+        nogit = tmp_path / "nogit-bin"
+        nogit.mkdir()
+        r = _run(tmp_path, root, env_extra={"PATH": str(nogit)})
+        assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "unavailable" and "git_ls_files_failed" in v["reason"], v
+        assert not _calls(bin_dir, "hadolint")
+
+    # UTC today (minor 9): TZ is set so a local-date implementation disagrees with UTC
+    @pytest.mark.parametrize(
+        "tz,kill_by,expected_rc",
+        [
+            ("Pacific/Kiritimati", TODAY, 0),  # UTC+14: local date is ahead of UTC for 14h/day
+            ("Etc/GMT+12", PAST, 1),  # UTC-12: local date is behind UTC for 12h/day
+        ],
+    )
+    def test_ac11_today_is_utc_not_local_date(self, tmp_path, tz, kill_by, expected_rc):
+        root = self._blocked_dockerfile_repo(tmp_path)
+        allow = _allow(tmp_path, f"DL3006 :: ABCDEF12 :: kill-by:{kill_by}")
+        r = _run(tmp_path, root, "--allowlist", str(allow), env_extra={"TZ": tz})
+        assert r.returncode == expected_rc, (tz, r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert bool(v["waived"]) == (expected_rc == 0), v
+
+    # top-level exception handler
+    def test_ac11_internal_error_unreadable_candidate_exit2_not_1(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _shim(bin_dir, "hadolint", "[]", rc=0)
+        root = _make_repo(tmp_path, {"Dockerfile": DOCKERFILE})
+        target = root / "Dockerfile"
+        target.chmod(0)
+        try:
+            if os.access(target, os.R_OK):
+                pytest.skip("cannot make a file unreadable here (running as root?)")
+            r = _run(tmp_path, root)
+        finally:
+            target.chmod(0o644)
+        assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)  # one JSON verdict, no Traceback on stderr
+        assert v["status"] == "unavailable" and "internal_error" in v["reason"], v
