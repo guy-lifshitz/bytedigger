@@ -94,13 +94,18 @@ def _git_ok(args, cwd, env):
     return r
 
 
-def _new_repo(tmp_path: Path, name: str = "repo", main_files: dict | None = None):
-    """Repo with one commit on `main` (optionally carrying main_files), then a
-    lot branch checked out. Returns (repo, env)."""
+def _new_repo(
+    tmp_path: Path,
+    name: str = "repo",
+    main_files: dict | None = None,
+    base_branch: str = "main",
+):
+    """Repo with one commit on the base branch (default `main`, optionally
+    carrying main_files), then a lot branch checked out. Returns (repo, env)."""
     env = _hermetic_git_env(tmp_path)
     repo = (tmp_path / name).resolve()
     repo.mkdir(parents=True)
-    _git_ok(["init", "-q", "-b", "main"], repo, env)
+    _git_ok(["init", "-q", "-b", base_branch], repo, env)
     for key, value in (
         ("user.email", "bd243@example.com"),
         ("user.name", "bd243 tester"),
@@ -143,14 +148,16 @@ def _write_gate(
     anchor_for: bytes | None = None,
     eol: str = "\n",
     trailing_newline: bool = True,
+    file_stem: str | None = None,
 ) -> Path:
-    """Gate doc; the verdict (if any) is the LAST line."""
+    """Gate doc; the verdict (if any) is the LAST line. `file_stem` names the
+    FILE (e.g. the key form `<date>-bdN`) while the anchor still binds `stem`."""
     body = f"# gate r{n} for {stem}\n\nReview prose. Mentions spec r{n}.\n\n"
     if anchor_for is not None:
         body += _anchor(stem, anchor_for) + "\n"
     if verdict is not None:
         body += f"VERDICT: {verdict}" + (eol if trailing_newline else "")
-    path = repo / "docs" / "decisions" / f"{stem}-gate-r{n}.md"
+    path = repo / "docs" / "decisions" / f"{file_stem or stem}-gate-r{n}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(body.encode())
     return path
@@ -574,7 +581,7 @@ def test_ac14_every_failing_spec_is_reported_without_early_exit(tmp_path, monkey
 # --- AC15: end to end through the installed hook -----------------------------
 
 
-def _hooked_lot(tmp_path, name, verdict):
+def _hooked_lot(tmp_path, name, verdict, binary=False):
     repo, env = _new_repo(tmp_path, name)
     spec = _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
     _write_gate(repo, STEM, 1, verdict, anchor_for=spec)
@@ -596,7 +603,14 @@ def _hooked_lot(tmp_path, name, verdict):
     assert install.returncode == 0, (
         f"arrange: installer failed rc={install.returncode} {install.stderr!r}"
     )
-    _stage_source(repo, env)
+    if binary:
+        # Only a binary/unclassified source path: nothing_to_lint is True, so a
+        # guard placed after that early return in main() is never reached.
+        (repo / "assets").mkdir()
+        (repo / "assets" / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n bd243 fixture")
+        _git_ok(["add", "assets/logo.png"], repo, env)
+    else:
+        _stage_source(repo, env)
     return repo, env
 
 
@@ -632,16 +646,23 @@ def test_ac15_real_commit_succeeds_on_approved_lot(tmp_path):
 # --- AC16 --------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("trailing_newline", [True, False])
-def test_ac16_crlf_verdict_line_is_tolerated(tmp_path, monkeypatch, trailing_newline):
+@pytest.mark.parametrize("shape", ["crlf_verdict", "whole_doc_crlf", "bare_cr_at_eof"])
+def test_ac16_crlf_verdict_line_is_tolerated(tmp_path, monkeypatch, shape):
     repo, env = _new_repo(tmp_path)
     spec = _write_spec(repo, STEM, "# widget spec\n")
     gate = _write_gate(
         repo, STEM, 1, "APPROVE", anchor_for=spec, eol="\r\n",
-        trailing_newline=trailing_newline,
+        trailing_newline=(shape != "bare_cr_at_eof"),
     )
     raw = gate.read_bytes()
-    assert raw.rstrip(b"\n").endswith(b"VERDICT: APPROVE") or raw.endswith(b"APPROVE\r\n")
+    if shape == "whole_doc_crlf":
+        raw = raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    elif shape == "bare_cr_at_eof":
+        raw = raw + b"\r"
+    gate.write_bytes(raw)
+    assert raw.endswith(b"APPROVE\r\n") or raw.endswith(b"APPROVE\r")
+    if shape == "whole_doc_crlf":
+        assert b"-->\r\n" in raw, "arrange: anchor lines must be CRLF too"
     _commit_docs(repo, env)
     _stage_source(repo, env)
 
@@ -687,4 +708,412 @@ def test_ac17_flags_catalogued_and_flag_owner_lint_passes():
     )
     assert result.returncode == 0, (
         f"flag_owner_lint rc={result.returncode} {result.stdout!r} {result.stderr!r}"
+    )
+
+
+# =============================================================================
+# r2 additions: AC18-AC30 (gate r1 findings folded into the spec)
+# =============================================================================
+
+
+def _common_dir(repo: Path, env: dict) -> Path:
+    common = Path(_git_ok(["rev-parse", "--git-common-dir"], repo, env).stdout.strip())
+    return common if common.is_absolute() else repo / common
+
+
+# --- AC18: unreadable spec / gate file fails closed --------------------------
+
+
+@pytest.mark.parametrize("victim", ["spec", "gate"])
+def test_ac18_unreadable_spec_or_gate_file_is_unreadable(tmp_path, monkeypatch, victim):
+    repo, env, _ = _approved_lot(tmp_path)
+    assert _check(repo, env, monkeypatch) == [], "control: the intact lot is allowed"
+
+    name = f"{STEM}.md" if victim == "spec" else f"{STEM}-gate-r1.md"
+    path = repo / "docs" / "decisions" / name
+    saved = path.read_bytes()
+    path.unlink()
+    path.mkdir()  # a directory in its place: unreadable even when running as root
+
+    lines = _check(repo, env, monkeypatch)
+    assert len(lines) == 1 and _code(lines[0]) == C_UNREADABLE, (
+        f"unreadable {victim} must refuse with {C_UNREADABLE}, got {lines!r}"
+    )
+
+    path.rmdir()
+    path.write_bytes(saved)
+    assert _check(repo, env, monkeypatch) == [], "restored lot is allowed again"
+
+
+# --- AC19: bypass log write failure refuses ----------------------------------
+
+
+def test_ac19_bypass_log_unwritable_on_escalation_pass_refuses(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+    (repo / "docs" / "decisions" / f"{STEM}-escalation.md").write_text(
+        "ESCALATION: owner accepted risk\n"
+    )
+    _commit_docs(repo, env, "escalation")
+    blocker = _common_dir(repo, env) / "bytedigger"
+    blocker.write_text("not a directory\n")  # a regular file where the dir must go
+
+    lines = _check(repo, env, monkeypatch)
+
+    assert len(lines) == 1 and _code(lines[0]) == C_UNREADABLE, (
+        f"a bypass that cannot be recorded must be refused, got {lines!r}"
+    )
+
+    # Positive control: with the blocker removed the same lot is allowed + logged.
+    blocker.unlink()
+    assert _check(repo, env, monkeypatch) == []
+    assert len(_bypass_lines(repo, env)) == 1
+
+
+def test_ac19_bypass_log_unwritable_on_kill_switch_skip_refuses(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+    (_common_dir(repo, env) / "bytedigger").write_text("not a directory\n")
+
+    lines = _check(repo, env, monkeypatch, extra={KILL: "0", REASON: "owner says go"})
+
+    assert len(lines) == 1 and _code(lines[0]) == C_UNREADABLE, (
+        f"an unrecordable kill-switch skip must be refused, got {lines!r}"
+    )
+
+
+# --- AC20: no base ref resolvable --------------------------------------------
+
+
+def test_ac20_no_origin_main_and_no_main_allows_silently(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path, base_branch="trunk")
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, 1, "REJECTED", anchor_for=spec)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    refs = _git_ok(["for-each-ref", "--format=%(refname)"], repo, env).stdout.split()
+    assert "refs/heads/main" not in refs and "refs/remotes/origin/main" not in refs
+
+    assert _check(repo, env, monkeypatch) == []
+
+    # Positive control: once `main` exists (at the trunk tip) the lot is enforced.
+    _git_ok(["branch", "main", "trunk"], repo, env)
+    _assert_single(_check(repo, env, monkeypatch), C_REJECTED)
+
+
+# --- AC21: origin/main is preferred over main --------------------------------
+
+
+def test_ac21_origin_main_is_preferred_over_stale_local_main(tmp_path, monkeypatch):
+    other = "2026-10-02-othersurface"
+    repo, env = _new_repo(tmp_path)
+    old_base = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+    _git_ok(["checkout", "-q", "main"], repo, env)
+    _write_spec(repo, other, "# merged by another lot\n")  # no gate doc at all
+    _commit_docs(repo, env, "other lot merged on main")
+    _git_ok(["update-ref", "refs/remotes/origin/main", old_base], repo, env)
+    _git_ok(["checkout", "-q", "-B", "lot-243", "main"], repo, env)
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, 1, "APPROVED", anchor_for=spec)
+    _commit_docs(repo, env, "lot docs")
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    # Computed against origin/main (old_base): the other lot's spec counts as added.
+    _assert_single(lines, C_MISSING, spec_stem=other)
+    assert STEM not in lines[0]
+
+    # Control: without origin/main it falls back to `main`, where only the lot spec
+    # is added and it is approved.
+    _git_ok(["update-ref", "-d", "refs/remotes/origin/main"], repo, env)
+    assert _check(repo, env, monkeypatch) == []
+
+
+# --- AC22: committing on the base branch itself ------------------------------
+
+
+def test_ac22_staging_on_the_base_branch_itself_is_allowed(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path, "onmain")
+    _git_ok(["checkout", "-q", "main"], repo, env)
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, 1, "REJECTED", anchor_for=spec)
+    _commit_docs(repo, env, "docs on main")
+    _stage_source(repo, env)
+
+    assert _check(repo, env, monkeypatch) == []
+
+    # Positive control: identical docs on a lot branch are enforced.
+    repo2, env2, _ = _rejected_lot(tmp_path, "onlot")
+    _assert_single(_check(repo2, env2, monkeypatch), C_REJECTED)
+
+
+# --- AC23: key-form gate docs ------------------------------------------------
+
+KEY_STEM = "2026-10-03-bd243-green-entry-guard"
+KEY = "2026-10-03-bd243"
+
+
+def _key_lot(tmp_path, name, gates):
+    """gates: list of (file_stem, n, verdict, anchored)."""
+    repo, env = _new_repo(tmp_path, name)
+    spec = _write_spec(repo, KEY_STEM, "# guard spec\n")
+    for file_stem, n, verdict, anchored in gates:
+        _write_gate(
+            repo, KEY_STEM, n, verdict,
+            anchor_for=spec if anchored else None, file_stem=file_stem,
+        )
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    return repo, env
+
+
+def test_ac23_key_form_gate_docs_are_honoured(tmp_path, monkeypatch):
+    repo, env = _key_lot(tmp_path, "a", [(KEY, 1, "REJECTED", True)])
+    _assert_single(
+        _check(repo, env, monkeypatch), C_REJECTED,
+        spec_stem=KEY_STEM, gate_name=f"{KEY}-gate-r1.md",
+    )
+
+    repo, env = _key_lot(tmp_path, "b", [(KEY, 1, "APPROVED", True)])
+    assert _check(repo, env, monkeypatch) == []
+
+
+def test_ac23_union_of_stem_and_key_forms_newest_n_wins(tmp_path, monkeypatch):
+    # stem r1 APPROVED, key r2 REJECTED: newest across the union is r2.
+    repo, env = _key_lot(
+        tmp_path, "a", [(KEY_STEM, 1, "APPROVED", True), (KEY, 2, "REJECTED", True)]
+    )
+    _assert_single(
+        _check(repo, env, monkeypatch), C_REJECTED,
+        spec_stem=KEY_STEM, gate_name=f"{KEY}-gate-r2.md",
+    )
+
+    # Equal N: the stem form wins (stem r1 APPROVED beats key r1 REJECTED).
+    repo, env = _key_lot(
+        tmp_path, "b", [(KEY_STEM, 1, "APPROVED", True), (KEY, 1, "REJECTED", True)]
+    )
+    assert _check(repo, env, monkeypatch) == []
+
+
+def test_ac23_decoys_other_key_and_short_stem_do_not_bind(tmp_path, monkeypatch):
+    # A different lot's key must not bind this spec.
+    repo, env = _key_lot(tmp_path, "a", [("2026-10-03-bd244", 1, "APPROVED", True)])
+    _assert_single(_check(repo, env, monkeypatch), C_MISSING, spec_stem=KEY_STEM)
+
+    # A stem with fewer than four segments uses the stem form only.
+    short = "2026-10-03-short"
+    repo, env = _new_repo(tmp_path, "b")
+    spec = _write_spec(repo, short, "# short\n")
+    _write_gate(repo, short, 1, "APPROVED", anchor_for=spec, file_stem="2026-10-03")
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    _assert_single(_check(repo, env, monkeypatch), C_MISSING, spec_stem=short)
+
+
+# --- AC24: non-spec decoys and the Gate-exempt line --------------------------
+
+
+def test_ac24_decoy_docs_are_not_specs_and_exemption_is_logged(tmp_path, monkeypatch):
+    repo, env, _ = _approved_lot(tmp_path)
+    decoys = [
+        f"{STEM}-inventory.md",
+        f"{STEM}-acceptance.md",
+        f"{STEM}-close-gate.md",
+        f"{STEM}-gate-verdict-r1.md",
+        f"{STEM}-post-mortem.md",
+    ]
+    for name in decoys:
+        (repo / "docs" / "decisions" / name).write_text("# decoy\n\nno verdict here\n")
+    exempt = "2026-10-03-exemptnote"
+    (repo / "docs" / "decisions" / f"{exempt}.md").write_text(
+        "# note\n\nGate-exempt: docs only note\n"
+    )
+    _commit_docs(repo, env, "decoys")
+
+    assert _check(repo, env, monkeypatch) == []
+
+    entries = _bypass_lines(repo, env)
+    assert len(entries) == 1, f"exactly one gate_exempt line expected: {entries!r}"
+    assert entries[0]["kind"] == "gate_exempt"
+    assert exempt in str(entries[0]["spec"])
+    assert "docs only note" in entries[0]["reason"]
+
+
+def test_ac24_control_blank_or_late_exemption_is_still_a_spec(tmp_path, monkeypatch):
+    repo, env, _ = _approved_lot(tmp_path)
+    blank, late = "2026-10-03-blankexempt", "2026-10-03-lateexempt"
+    (repo / "docs" / "decisions" / f"{blank}.md").write_text("# n\n\nGate-exempt:\n")
+    (repo / "docs" / "decisions" / f"{late}.md").write_text(
+        "# n\n" + "filler\n" * 24 + "Gate-exempt: too late to count\n"
+    )
+    _commit_docs(repo, env, "controls")
+
+    lines = _check(repo, env, monkeypatch)
+
+    assert len(lines) == 2, f"both docs are lot specs without gate docs: {lines!r}"
+    assert all(_code(ln) == C_MISSING for ln in lines)
+    assert any(blank in ln for ln in lines) and any(late in ln for ln in lines)
+    assert not any(e["kind"] == "gate_exempt" for e in _bypass_lines(repo, env))
+
+
+# --- AC25: git mv-ed spec counts as added ------------------------------------
+
+
+def test_ac25_renamed_spec_is_still_a_lot_spec(tmp_path, monkeypatch):
+    body = b"# widget draft\n\n" + b"enough shared content for rename detection\n" * 6
+    repo, env = _new_repo(
+        tmp_path, main_files={"docs/decisions/2026-09-01-draft-widget.md": body}
+    )
+    _git_ok(
+        ["mv", "docs/decisions/2026-09-01-draft-widget.md", _spec_rel(STEM)], repo, env
+    )
+    _git_ok(["commit", "-q", "-m", "rename spec"], repo, env)
+    status = _git_ok(["diff", "--name-status", "main", "HEAD"], repo, env).stdout
+    assert status.startswith("R"), f"arrange: git must see a rename, got {status!r}"
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    _assert_single(lines, C_MISSING)
+
+
+# --- AC26: directory exclusions ----------------------------------------------
+
+
+def test_ac26_directory_rule_excludes_non_test_names_under_docs_tests(
+    tmp_path, monkeypatch
+):
+    repo, env, _ = _rejected_lot(tmp_path)
+    # Names that would be SOURCE paths if the directory rule were missing.
+    dir_only = [
+        "docs/x/helper.py",
+        "tests/helpers.py",
+        "tests/data.json",
+        "web/__tests__/util.ts",
+        "docs/diagram.svg",
+        "pkg/tests/fixtures/conf.yaml",
+        "a/docs/b/tool.sh",
+    ]
+    for rel in dir_only:
+        assert _check(repo, env, monkeypatch, staged=[rel]) == [], (
+            f"{rel} is excluded by the directory rule and must not be GREEN entry"
+        )
+    # Positive controls: names that merely contain 'test'/'docs' are real sources.
+    for rel in ("src/contest.py", "src/latest/main.py", "docsy/readme.py"):
+        _assert_single(_check(repo, env, monkeypatch, staged=[rel]), C_REJECTED)
+
+
+# --- AC27: kill switch is evaluated first ------------------------------------
+
+
+def test_ac27_kill_switch_with_reason_skips_docs_only_commit_and_logs(
+    tmp_path, monkeypatch
+):
+    repo, env, _ = _rejected_lot(tmp_path)
+
+    # Control: switch off, docs-only is not GREEN entry -> [] and no log.
+    assert _check(repo, env, monkeypatch, staged=["docs/notes.md"]) == []
+    assert _bypass_lines(repo, env) == []
+
+    extra = {KILL: "0", REASON: "shell export"}
+    assert _check(repo, env, monkeypatch, staged=["docs/notes.md"], extra=extra) == []
+    entries = _bypass_lines(repo, env)
+    assert len(entries) == 1, f"one kill_switch line even for docs-only: {entries!r}"
+    assert entries[0]["kind"] == "kill_switch" and entries[0]["spec"] is None
+
+
+def test_ac27_kill_switch_without_reason_refuses_docs_only_commit(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+
+    lines = _check(
+        repo, env, monkeypatch, staged=["docs/notes.md"], extra={KILL: "0"}
+    )
+
+    assert len(lines) == 1 and _code(lines[0]) == C_NO_REASON, lines
+    assert _bypass_lines(repo, env) == []
+
+
+# --- AC28: binary-only source through the real hook --------------------------
+
+
+def test_ac28_binary_only_source_on_rejected_lot_is_refused_by_hook(tmp_path):
+    repo, env = _hooked_lot(tmp_path, "rejbin", "REJECTED", binary=True)
+    head_before = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+
+    result = _git(["commit", "-m", "binary only"], repo, env)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0, f"must be refused even with nothing to lint: {output!r}"
+    assert _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip() == head_before
+    assert C_REJECTED in output, output
+
+
+def test_ac28_control_binary_only_source_on_approved_lot_commits(tmp_path):
+    repo, env = _hooked_lot(tmp_path, "okbin", "APPROVED", binary=True)
+    head_before = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+
+    result = _git(["commit", "-m", "binary only"], repo, env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip() != head_before
+    assert GUARD_MODULE.is_file()
+
+
+# --- AC29: ESCALATION marker is single-line ----------------------------------
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "ESCALATION:\nowner accepted risk\n",
+        "ESCALATION:\n\n   \nreason far below\n",
+        "ESCALATION:   \n\treason on a tab line\n",
+    ],
+    ids=["next_line", "blank_gap", "indented_next"],
+)
+def test_ac29_escalation_text_on_next_line_is_not_a_marker(tmp_path, monkeypatch, content):
+    repo, env, _ = _rejected_lot(tmp_path)
+    (repo / "docs" / "decisions" / f"{STEM}-escalation.md").write_text(content)
+    _commit_docs(repo, env, "escalation")
+
+    _assert_single(_check(repo, env, monkeypatch), C_REJECTED)
+    assert _bypass_lines(repo, env) == []
+
+
+def test_ac29_control_same_line_tab_separated_reason_is_a_marker(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+    (repo / "docs" / "decisions" / f"{STEM}-escalation.md").write_text(
+        "ESCALATION:\tshort reason\n"
+    )
+    _commit_docs(repo, env, "escalation")
+
+    assert _check(repo, env, monkeypatch) == []
+    assert len(_bypass_lines(repo, env)) == 1
+
+
+# --- AC30: sibling suites stay green -----------------------------------------
+
+
+def test_ac30_bd66_and_bd94_sibling_suites_stay_green():
+    # Depends on the guard existing: only then does the sibling run exercise the
+    # wired layer (bd66 package-copy fixture, bd94 tree-scan inventory).
+    assert GUARD_MODULE.is_file(), f"{GUARD_MODULE} must exist (spec 2.7)"
+    tests_dir = REPO_ROOT / "engine_py" / "tests"
+    targets = [
+        str(tests_dir / "test_bd66_precommit_enforcement.py"),
+        str(tests_dir / "test_bd94_engine_owned_paths.py")
+        + "::test_ac6_real_tree_passes_tree_scan_lint",
+    ]
+    env = dict(os.environ)
+    env.pop("BD66_LINT_DIR", None)
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *targets],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=1200,
+    )
+    assert result.returncode == 0, (
+        f"sibling suites must pass, rc={result.returncode}\n"
+        f"{result.stdout[-3000:]}\n{result.stderr[-1000:]}"
     )
