@@ -73,7 +73,7 @@ becomes a kill-switch (`=0` restores warn-only).
 
 ## §3 Edge cases / sweep
 
-Complete caller sweep (gate r2, 16 files, verdicts): breaks and migrated: gh542, gh595, C76F6F3C, BFEC3E71; bd59 (not a caller, static map). Unaffected: bd166 (all `.test.ts`, probe skipped), gh1017 (extra finding sorts after 1Q, assertions use `!=`/`in`), gh891 (filters by `rule`), bd61 (events only), gh1245 and test_only_verify_gates (short-circuit in test_only mode), bd150 (string only), gh602, p1a, gh501, 9AB32375. Earlier text: (redone after gate r1 by caller, not by flag name): all test files calling `_verify_red_lint_rules`/`_collect_red_lint_findings`. Default-OFF reliance: `test_gh542` AC5, bd59 AC4/AC5/AC6, `test_gh595` (AC1, AC3, AC5, AC7, AC8) and `test_phase_5_implement_C76F6F3C` (semgrep-missing, semgrep-internal-error); unaffected: gh602, p1a, gh501, 9AB32375. AC6 of bd59
+Complete caller sweep (gate r2, 16 files, verdicts): breaks and migrated: gh542, gh595, C76F6F3C, BFEC3E71; bd59 (not a caller, static map). Unaffected: bd166 (all `.test.ts`, probe skipped), gh1017 (extra finding sorts after 1Q, assertions use `!=`/`in`), gh891 (filters by `rule`), bd61 (events only), gh1245 and test_only_verify_gates (short-circuit in test_only mode), bd150 (string only), gh602, p1a, gh501, 9AB32375. (Redone after gate r1 by caller, not by flag name): all test files calling `_verify_red_lint_rules`/`_collect_red_lint_findings`. Default-OFF reliance: `test_gh542` AC5, bd59 AC4/AC5/AC6, `test_gh595` (AC1, AC3, AC5, AC7, AC8) and `test_phase_5_implement_C76F6F3C` (semgrep-missing, semgrep-internal-error); unaffected: gh602, p1a, gh501, 9AB32375. AC6 of bd59
 pins the static map (§1.3). `test_gh602` (retry eligibility lists the code) and `test_gh542` AC4 (sets `=1`)
 are unaffected. ERROR_CODES.md does not mention ENFORCE. `docs/decisions/2026-08-04-bd59-enforcement-map.md`
 D5 ("no flag flipped by this lot") is historical and stays. A value like `"false"` or an empty string
@@ -82,10 +82,10 @@ enforces, same contract as every kill-switch gate. Release note / PR body mentio
 ## §4 Files in scope / NOT in scope
 
 In scope: `flags_catalog.py` (one entry), `workflows/phase_5_implement.py` (two reads + one comment + the pytest-unavailable skip in `_red_collect_probe`),
-`conformance/bd_l2.py` (one value), the ledger line, the two authorized sibling test files, one new test file
+`conformance/bd_l2.py` (one value), the ledger line, the five authorized sibling test files (§1.6), one new test file
 `engine_py/tests/test_bd_flip_red_collect_probe.py`.
 **NOT in scope:** the rest of `_red_collect_probe` (command, interpreter choice, 400-char tail), the timeout flag, the GATE flag, any other flag, the host repo.
 
 **Residual risk accepted (gate r2 F2, interpreter choice):** the probe runs pytest with the engine's interpreter, while the RED runner resolves the project's pytest. Missing pytest is handled (§1.5). A RED that imports a dependency installed only in the project's environment, on an engine installed in an isolated environment (pipx), would be blocked by the probe and burn the two RED retries (`E_RED_LINT_FAIL_CAP2`). Not changed here (interpreter choice stays out of scope; follow-up: reuse `interpreter.resolve_pytest_runner` in the probe). Evidence for the host: 229 runs, 0 false positives. Mitigation: `HAL_RED_COLLECT_PROBE_ENFORCE=0` (named in the PR body and release note).
 
-**Known/advisory (not done here):** the probe's output tail reaching the RED retry prompt is class I-deferred (bd#192); `hasattr` fallback for providers without `gate_enabled` is the existing config-provider contract.
+**Known/advisory (not done here):** the probe's output tail reaching the RED retry prompt is class I-deferred (bd#192); GREEN must use the plain `get_config().gate_enabled(...)` of §1.2 at both read sites; keeping a `hasattr(...) else False` fallback is NOT allowed (it would silently stay warn-only).
