@@ -442,9 +442,14 @@ def test_ac8d_render_failure_degrades_to_render_failed_event(tmp_path, monkeypat
     skipped = _events(log, "post_deploy_report_skipped")
     assert len(skipped) == 1
     assert skipped[0]["payload"]["reason"] == "render_failed"
+    # r5 F1: op9 is independent of the report's render_failed branch.
+    assert (scratch / RAW_REL).is_file()
+    assert result.data["learnings_written"] is True
+    assert result.data["learnings_raw_path"] == str(scratch / RAW_REL)
+    assert len(_events(log, "learnings_raw_written")) == 1
 
 
-# --- AC9 -----------------------------------------------------------------------
+# --- AC9-----------------------------------------------------------------------
 
 def test_ac9_retired_org_keys_are_ignored_with_one_event(tmp_path, monkeypatch):
     log = _make_log(tmp_path, monkeypatch)
@@ -534,9 +539,10 @@ def _phase_7_text(rel: str) -> str:
     body = (REPO_ROOT / rel).read_text(encoding="utf-8")
     if rel == "phases/phase-7-synthesize.md":
         return body  # the whole file is the phase 7 flow
-    start = body.index("## PHASE 7: SYNTHESIZE")
-    end = body.index("## PHASE 8: POST-DEPLOY")
-    assert start < end
+    start = body.find("## PHASE 7: SYNTHESIZE")
+    end = body.find("## PHASE 8: POST-DEPLOY")
+    assert start >= 0 and end > start, (
+        f"phase 7 slice headings missing or out of order in {rel} (start={start}, end={end})")
     return body[start:end]
 
 
@@ -722,7 +728,7 @@ def test_ac17_derived_learnings_raw_parses_with_expected_entries(tmp_path, monke
         "LOW finding: Naming nit",
     ]
     audit = _by_cat(entries, "review-audit")
-    assert len(audit) == 1 and re.search(r"\b2\b", audit[0]), audit
+    assert len(audit) == 1 and re.search(r"(?<!\d)2(?!\d)", audit[0]), audit
     assert len(entries) == 4
     assert result.status == "ok"
     assert result.data["learnings_written"] is True
@@ -784,8 +790,8 @@ def test_ac20_fix_process_and_acceptance_entries(tmp_path, monkeypatch):
     entries, errors = _parse_raw(scratch / RAW_REL)
     assert errors == 0
     fix = _by_cat(entries, "fix-process")
-    assert any(re.search(r"\b2\b", e) for e in fix), fix
-    assert any("timeout" in e and re.search(r"\b1\b", e) for e in fix), fix
+    assert any(re.search(r"(?<!\d)2(?!\d)", e) for e in fix), fix
+    assert any("timeout" in e and re.search(r"(?<!\d)1(?!\d)", e) for e in fix), fix
     acceptance = _by_cat(entries, "acceptance")
     assert len(acceptance) == 1
     assert "not assessed" in acceptance[0]
@@ -893,6 +899,7 @@ def test_ac23a_refuted_section_skipped_and_unverified_token_kept(tmp_path, monke
     _write(scratch, REVIEW_REL, (
         "Composite review.\n\n"
         f"### SEVERITY: HIGH {_EMDASH} Real finding\n- File: a.py:1\n\n"
+        f"### SEVERITY: HIGH {_EMDASH} retry - backoff missing\n- File: e.py:5\n\n"
         f"### SEVERITY: [UNVERIFIED] MEDIUM {_EMDASH} Unchecked claim\n- File: b.py:2\n\n"
         "## Refuted (Semantic)\n\n"
         f"### SEVERITY: HIGH {_EMDASH} Refuted claim\n- File: c.py:3\n\n"
@@ -908,6 +915,8 @@ def test_ac23a_refuted_section_skipped_and_unverified_token_kept(tmp_path, monke
     findings = _by_cat(entries, "review-finding")
     assert findings == [
         "HIGH finding: Real finding",
+        # title keeps everything after the FIRST separator (including an inner " - ")
+        "HIGH finding: retry - backoff missing",
         "UNVERIFIED MEDIUM finding: Unchecked claim",
         "LOW finding: After refuted section",
     ]
@@ -928,7 +937,7 @@ def test_ac23b_latest_review_findings_audit_event_wins(tmp_path, monkeypatch):
     assert errors == 0
     audit = _by_cat(entries, "review-audit")
     assert len(audit) == 1, audit
-    assert re.search(r"\b3\b", audit[0]) and not re.search(r"\b5\b", audit[0]), audit
+    assert re.search(r"(?<!\d)3(?!\d)", audit[0]) and not re.search(r"(?<!\d)5(?!\d)", audit[0]), audit
 
 
 def test_ac23c_missing_review_doc_still_yields_event_derived_entries(tmp_path, monkeypatch):
