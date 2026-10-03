@@ -27,10 +27,11 @@ CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 DEAD_FLAG = "HAL_ORPHAN_CALLSITE_ENFORCE"
 
-# AC2: literal {name: default} table measured on base 1e391ed (zero behaviour
-# change). The deleted dead flag is deliberately absent. HAL_ORPHAN_CALLSITE_GATE
-# is pinned here but is NOT part of the rollout set (no _ENFORCE suffix, no
-# flip-by text, no owner/expires), so it is not required to carry the new fields.
+# AC2 (errata r4): literal {name: default} table measured on base 1e391ed (zero
+# behaviour change). The deleted dead flag is deliberately absent.
+# HAL_ORPHAN_CALLSITE_GATE is pinned here but is NOT part of the rollout set
+# (no _ENFORCE suffix, no flip-by text, no owner/expires), so it is not required
+# to carry the new fields.
 PINNED_DEFAULTS = {
     "HAL_RED_COLLECT_PROBE_ENFORCE": "0",
     "HAL_RED_MASS_DELETION_ENFORCE": "0",
@@ -102,7 +103,11 @@ def _write_catalog(tmp_path: Path, flags: dict, name: str = "flags_catalog.py") 
     return path
 
 
-def _flag(owner="guy-lifshitz", expires="2026-12-01", **extra) -> dict:
+_PROV = "introduced: GH1 - synthetic - stays"
+_UNSET = object()
+
+
+def _flag(owner="guy-lifshitz", expires="2026-12-01", provenance=_PROV, **extra) -> dict:
     entry = {
         "kind": "flag",
         "default": "0",
@@ -113,6 +118,8 @@ def _flag(owner="guy-lifshitz", expires="2026-12-01", **extra) -> dict:
         entry["owner"] = owner
     if expires is not None:
         entry["expires"] = expires
+    if provenance is not None:
+        entry["provenance"] = provenance
     entry.update(extra)
     return entry
 
@@ -138,10 +145,14 @@ class TestBd89P3dFlagExpiryLint:
     # ---- data ACs (read the real catalog) ---------------------------------
 
     def test_ac1_dead_flag_deleted_and_token_absent_from_code(self):
-        """AC1: HAL_ORPHAN_CALLSITE_ENFORCE is gone from FLAGS and from every
-        text file under engine_py/ and scripts/ (CHANGELOG and docs/decisions
-        are outside these roots)."""
-        assert DEAD_FLAG not in _live_flags(), f"{DEAD_FLAG} is still in FLAGS"
+        """AC1 (errata r4): HAL_ORPHAN_CALLSITE_ENFORCE is gone from FLAGS and
+        from every text file under engine_py/ and scripts/ (CHANGELOG and
+        docs/decisions are outside these roots). Only that one entry is
+        removed: base 1e391ed had 110 entries, so at least 109 remain (a
+        lower bound, so adding a flag later does not break this test)."""
+        flags = _live_flags()
+        assert DEAD_FLAG not in flags, f"{DEAD_FLAG} is still in FLAGS"
+        assert len(flags) >= 109, f"more than the dead flag was removed: {len(flags)}"
         hits = []
         for root in (REPO_ROOT / "engine_py", REPO_ROOT / "scripts"):
             if not root.exists():
@@ -161,29 +172,24 @@ class TestBd89P3dFlagExpiryLint:
 
     def test_ac2_remaining_flags_keep_their_defaults(self):
         """AC2: zero behaviour change. Every pinned remaining rollout entry is
-        still in FLAGS with its default unchanged, and no *_ENFORCE name other
-        than the deleted one exists outside the pinned table."""
+        still in FLAGS with its default unchanged. New flags must not break
+        this test, so there is no check for unpinned names."""
         flags = _live_flags()
         for name, default in PINNED_DEFAULTS.items():
             assert name in flags, f"{name} vanished from FLAGS"
             assert flags[name].get("default") == default, (
                 f"{name} default changed: {flags[name].get('default')!r} != {default!r}"
             )
-        stray = sorted(
-            n for n in flags
-            if n.endswith("_ENFORCE") and n != DEAD_FLAG and n not in PINNED_DEFAULTS
-        )
-        assert not stray, f"unpinned *_ENFORCE entries: {stray}"
 
     def test_ac3_every_rollout_entry_has_owner_and_future_expires(self):
         """AC3: by the script's own is_rollout, every live rollout entry has a
-        non-blank owner and an ISO expires not before 2026-10-03."""
+        non-blank owner, an ISO expires not before 2026-10-03, and a non-blank
+        str provenance (errata r3)."""
         mod = _load_script()
         flags = mod.load_flags(CATALOG)
         rollout = {n for n, e in flags.items() if mod.is_rollout(n, e)}
-        assert rollout == ROLLOUT_NAMES, (
-            f"rollout set drifted: extra={sorted(rollout - ROLLOUT_NAMES)} "
-            f"missing={sorted(ROLLOUT_NAMES - rollout)}"
+        assert ROLLOUT_NAMES <= rollout, (
+            f"rollout set lost entries: missing={sorted(ROLLOUT_NAMES - rollout)}"
         )
         floor = datetime.date.fromisoformat(BASE_DATE)
         for name in sorted(rollout):
@@ -195,23 +201,31 @@ class TestBd89P3dFlagExpiryLint:
                 f"{name}: expires missing/not ISO: {exp!r}"
             )
             assert datetime.date.fromisoformat(exp) >= floor, f"{name}: expires {exp} is past"
+            prov = entry.get("provenance")
+            assert isinstance(prov, str) and prov.strip(), (
+                f"{name}: provenance missing/blank/non-str: {prov!r}"
+            )
 
     def test_ac4_sibling_audit_gate_and_renewed_dates(self):
         """AC4: HAL_SIBLING_AUDIT_GATE stays a default-1 gate with owner and
-        expires; the two late-dated entries keep 2027-01-15; every previously
-        expired entry is renewed to 2026-11-02."""
+        expires; the two late-dated entries have expires >= 2027-01-15; every
+        previously expired entry has expires >= 2026-11-02."""
         flags = _live_flags()
         sib = flags["HAL_SIBLING_AUDIT_GATE"]
         assert sib.get("default") == "1" and sib.get("kind") == "gate"
         assert isinstance(sib.get("owner"), str) and sib["owner"].strip()
         assert isinstance(sib.get("expires"), str) and sib["expires"]
+        # Relaxed (errata F1d): renewals move dates later, so only a floor is
+        # pinned; the orchestrator checks exact values by diff at GREEN.
         for name, date in LATE_DATED.items():
-            assert flags[name].get("expires") == date, (
-                f"{name}: expires {flags[name].get('expires')!r} != {date}"
+            exp = flags[name].get("expires")
+            assert isinstance(exp, str) and exp >= date, (
+                f"{name}: expires {exp!r} < {date}"
             )
         for name in PREVIOUSLY_EXPIRED:
-            assert flags[name].get("expires") == "2026-11-02", (
-                f"{name}: expires {flags[name].get('expires')!r} != '2026-11-02'"
+            exp = flags[name].get("expires")
+            assert isinstance(exp, str) and exp >= "2026-11-02", (
+                f"{name}: expires {exp!r} < '2026-11-02'"
             )
 
     # ---- CLI on the live catalog ------------------------------------------
@@ -223,13 +237,18 @@ class TestBd89P3dFlagExpiryLint:
         assert "OK:" in r.stdout, r.stdout
 
     def test_ac6_cli_expiry_and_boundary(self, tmp_path):
-        """AC6: after 2026-11-02 the renewed entries are expired (exit 1, named
-        on stderr); on 2026-11-02 itself nothing is expired (exit 0)."""
-        late = _run(tmp_path, "--today", "2026-11-03")
-        assert late.returncode == 1, f"rc={late.returncode} stderr={late.stderr!r}"
-        assert "HAL_SIBLING_AUDIT_GATE" in late.stderr
-        edge = _run(tmp_path, "--today", "2026-11-02")
+        """AC6: on a synthetic catalog with one rollout entry expiring
+        2026-11-02, --today 2026-11-02 exits 0 and --today 2026-11-03 exits 1
+        naming the entry. The live catalog is checked date-independently:
+        --today 2999-01-01 exits 1."""
+        cat = _write_catalog(tmp_path, {"HAL_EDGE_ENFORCE": _flag(expires="2026-11-02")})
+        edge = _run(tmp_path, "--catalog", str(cat), "--today", "2026-11-02")
         assert edge.returncode == 0, f"expires == today must pass; stderr={edge.stderr!r}"
+        late = _run(tmp_path, "--catalog", str(cat), "--today", "2026-11-03")
+        assert late.returncode == 1, f"rc={late.returncode} stderr={late.stderr!r}"
+        assert _named(late, "HAL_EDGE_ENFORCE"), late.stderr
+        far = _run(tmp_path, "--today", "2999-01-01")
+        assert far.returncode == 1, f"rc={far.returncode} stderr={far.stderr!r}"
 
     # ---- CLI on synthetic catalogs ----------------------------------------
 
@@ -240,11 +259,17 @@ class TestBd89P3dFlagExpiryLint:
             "HAL_NO_OWNER_ENFORCE": _flag(owner=None),
             "HAL_NO_EXPIRES_ENFORCE": _flag(expires=None),
             "HAL_BLANK_OWNER_ENFORCE": _flag(owner="   "),
+            "HAL_NO_PROV_ENFORCE": _flag(provenance=None),
+            "HAL_BLANK_PROV_ENFORCE": _flag(provenance="  "),
+            "HAL_INT_PROV_ENFORCE": _flag(provenance=7),
             "HAL_GOOD_ENFORCE": _flag(),
         })
         r = _run(tmp_path, "--catalog", str(cat), "--today", BASE_DATE)
         assert r.returncode == 1, f"rc={r.returncode} stdout={r.stdout!r}"
-        for name in ("HAL_NO_OWNER_ENFORCE", "HAL_NO_EXPIRES_ENFORCE", "HAL_BLANK_OWNER_ENFORCE"):
+        for name in (
+            "HAL_NO_OWNER_ENFORCE", "HAL_NO_EXPIRES_ENFORCE", "HAL_BLANK_OWNER_ENFORCE",
+            "HAL_NO_PROV_ENFORCE", "HAL_BLANK_PROV_ENFORCE", "HAL_INT_PROV_ENFORCE",
+        ):
             assert _named(r, name), f"{name} not reported: {r.stderr!r}"
         assert not _named(r, "HAL_GOOD_ENFORCE"), r.stderr
 
@@ -261,7 +286,7 @@ class TestBd89P3dFlagExpiryLint:
         assert "OK:" in r_ok.stdout
 
     def test_ac9_malformed_entries_degrade_without_traceback(self, tmp_path):
-        """AC9: non-dict entries and bad owner/expires values each yield a
+        """AC9: non-dict entries and bad owner/expires/provenance values each yield a
         violation line starting with the flag name; exit 1; no traceback."""
         bad = {
             "HAL_NONE_ENFORCE": None,
@@ -271,6 +296,10 @@ class TestBd89P3dFlagExpiryLint:
             "HAL_BADDATE_ENFORCE": _flag(expires="2026-13-45"),
             "HAL_SOON_ENFORCE": _flag(expires="soon"),
             "HAL_LIST_OWNER_ENFORCE": _flag(owner=["x"]),
+            "HAL_LIST_PROV_ENFORCE": _flag(provenance=["x"]),
+            # Non-dict entry in the rollout set WITHOUT the _ENFORCE suffix
+            # (errata F4): membership in _EXTRA_ROLLOUT must still report it.
+            "HAL_SIBLING_AUDIT_GATE": None,
         }
         flags = dict(bad)
         flags["HAL_CONTROL_ENFORCE"] = _flag()
@@ -322,6 +351,20 @@ class TestBd89P3dFlagExpiryLint:
         assert "Traceback" not in syn.stderr
         assert len(_stderr_lines(syn)) == 1, syn.stderr
 
+        # Errata F3: other unloadable shapes also exit 2, one line, no traceback.
+        shapes = {
+            "no_flags.py": "OTHER = {}\n",
+            "flags_list.py": "FLAGS = []\n",
+            "raises.py": "raise RuntimeError('boom at import')\n",
+        }
+        for fname, body in shapes.items():
+            p = tmp_path / fname
+            p.write_text(body, encoding="utf-8")
+            res = _run(tmp_path, "--catalog", str(p), "--today", BASE_DATE)
+            assert res.returncode == 2, f"{fname}: rc={res.returncode} stderr={res.stderr!r}"
+            assert "Traceback" not in res.stderr, f"{fname}: {res.stderr!r}"
+            assert len(_stderr_lines(res)) == 1, f"{fname}: {res.stderr!r}"
+
         garbage = _run(tmp_path, "--today", "garbage")
         assert garbage.returncode == 2, f"rc={garbage.returncode} stderr={garbage.stderr!r}"
         assert "Traceback" not in garbage.stderr
@@ -361,7 +404,8 @@ class TestBd89P3dFlagExpiryLint:
 
     def test_ac14_docs_flag_lifecycle_and_changelog(self):
         """AC14 (GUARD): CONTRIBUTING.md has a Flag lifecycle heading and the
-        CHANGELOG [Unreleased] section mentions the lint and the removed flag."""
+        CHANGELOG [Unreleased] mentions the lint and has a Removed bullet
+        naming the deleted orphan flag (errata r4)."""
         contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         assert re.search(r"(?m)^#{1,6}\s+.*Flag lifecycle", contributing), (
             "CONTRIBUTING.md has no 'Flag lifecycle' heading"
@@ -371,4 +415,8 @@ class TestBd89P3dFlagExpiryLint:
         assert m, "CHANGELOG has no [Unreleased] section"
         section = m.group(1)
         assert "flag_expiry_lint" in section, "[Unreleased] does not mention flag_expiry_lint"
-        assert DEAD_FLAG in section, f"[Unreleased] does not mention {DEAD_FLAG}"
+        # Errata r4: a Removed bullet names the deleted flag.
+        removed = [s for s in re.split(r"(?m)^(?=### )", section) if s.startswith("### Removed")]
+        assert any(DEAD_FLAG in s for s in removed), (
+            f"no Removed bullet in [Unreleased] names {DEAD_FLAG}"
+        )
