@@ -1,6 +1,6 @@
-# bd#218 step 1 — preflight receipt rung in front of the validation gate (add-only)
+# bd#218 step 1 — preflight receipt rung in front of the validation gate + shadow reject-log evidence (add-only)
 
-**Status: r1 (draft for the Opus gate)** · **Tier:** 2 (one function in `preflight.py`, one call block in `workflows/phase_5_implement.py`, Option D) ·
+**Status: r2 (draft for the Opus gate; r2 adds the shadow reject-log collection after the lot-assume audit, hal#2320, pause lifted by Guy 2026-10-03)** · **Tier:** 2 (one function in `preflight.py`, one call block in `workflows/phase_5_implement.py`, Option D) ·
 **Class:** SYSTEMATIC · **Chokepoint:** `preflight.receipt_rung` — the one function that turns
 (phase, work tree) into the rung record the gate step emits. The phase-5 call adds only the event.
 **Side of the seam:** engine. **Source:** bd#218, `2026-10-03-bd-ladder-map.md`; builds on bd#141 item 3
@@ -18,10 +18,10 @@
 ## §2 Design — ADD-ONLY
 
 **Nothing is removed, skipped or reordered. The validation gate runs exactly once per call, whatever the rung says.**
-Skipping the gate on a fresh green receipt is paused until Guy answers "yes" on the lot-assume audit.
+Skipping or replacing the gate is a separate PR that must carry the `ladder_table` evidence (audit hal#2320 verdict: the Opus stage stays until the reject logs show a script catches all its findings).
 
 ### op1 `preflight.receipt_rung(phase, toplevel) -> dict`
-Returns `{"status": "fresh"|"stale"|"red"|"missing"|"error", "phase": phase}`. Read-only: calls `verify_receipt`
+Returns `{"status": "fresh"|"stale"|"red"|"missing"|"error", "phase": phase, "red_step": <first red step name from the receipt>|None}`. Read-only: calls `verify_receipt`
 and nothing else (no test run, no classifier, no network, no write). Never raises: any exception → `status: "error"`.
 Stdlib only; added to the existing module, so `core_manifest.json` and `mypy-strict-modules.txt` need no change.
 
@@ -35,10 +35,16 @@ Before `invoke_llm_subprocess`, after the existing shadow block: read `cfg.get("
 - the whole block is wrapped so an exception emits `status: "error"` and never blocks the gate (same shape as the shadow block).
 `extra_data["preflight"]` is read by no consumer in this PR.
 
+### op3 shadow reject-log evidence (audit hal#2320: the Opus pre-GREEN gate stays until the reject logs show all its findings are caught by a script)
+- `_log_validation_reject` passes `prev.data.get("preflight")` (the op2 record) into `reject_log.record_validation_reject(..., preflight=...)`; the row's `detail` gains `preflight: {"status", "red_step"} | null`. No other field of the row changes; logging still never alters the gate outcome (existing swallow).
+- `reject_stats.ladder_table(rows) -> list[dict]`: over rows with `phase == "phase_5_implement"` and `reason_code` starting `VALIDATION_`, group by `detail.preflight.status` (`null` → `none`) and `red_step`; each group `{"status", "red_step", "rejects", "findings_heads": [up to 3 heads]}`, sorted by `rejects` desc. Pure, never raises on malformed rows (skipped).
+- Reading: a gate REJECT while the receipt is `fresh` = the gate caught something the scripts did not (evidence for keeping the LLM stage). A REJECT with `red`/`stale`/`missing` = a script would have, or could have, caught it first. This table is the evidence the separate gate-replacement PR must carry.
+- Shadow means: collected only, no behaviour depends on it.
+
 ### Out of scope (stated so nothing is silently dropped)
 - Running `run_preflight` from the engine (the receipt is only read). No new subprocess except the git reads inside `verify_receipt`.
 - Any LLM call, any classifier, any change to `check_ladder`, to the shadow block, to gate prompts or retries.
-- Skipping or removing any gate, check or flag (paused, see above). Wording/citation-format checks (Guy 2026-10-03).
+- Skipping, replacing or removing any gate, check or flag (separate PR with the `ladder_table` evidence). Wording/citation-format checks (Guy 2026-10-03).
 
 ## §3 Acceptance criteria
 
@@ -50,11 +56,14 @@ Before `invoke_llm_subprocess`, after the existing shadow block: read `cfg.get("
 - **AC6** unknown mode string and non-dict config → event `status: "config-error"`, gate called once.
 - **AC7** the rung starts no LLM call and no classifier: with `prescreen.classifier_cmd` unset, the only `invoke_llm_subprocess` call is the gate's.
 - **AC8** order: with `prescreen.classifier_cmd` set, shadow events and the `preflight_receipt` event both precede the gate call; the shadow verdict still does not skip the gate.
+- **AC9a** `record_validation_reject(..., preflight={"status": "fresh", "red_step": None})` writes a reject row whose `detail.preflight` equals it; without the argument `detail.preflight` is `null` and every other field equals today's row.
+- **AC9b** `_log_validation_reject` forwards `prev.data["preflight"]` into the row (real reject-log file in a tmp path, rejected-gate path driven end to end); a missing `preflight` key is `null`; a logging failure still does not change the gate outcome.
+- **AC9c** `reject_stats.ladder_table` over a mixed fixture (fresh/red/stale/missing/none, non-validation rows, malformed rows) returns the expected groups and counts, ignores the non-validation and malformed rows, and caps `findings_heads` at 3.
 - **AC9** `test_bd141_check_ladder.py` (L16/L17 family) and `test_bd164_preflight.py` pass unchanged.
 
 ## §4 Files
 
-In scope: `engine_py/bytedigger_engine/preflight.py`, `engine_py/bytedigger_engine/workflows/phase_5_implement.py`,
+In scope: `engine_py/bytedigger_engine/preflight.py`, `engine_py/bytedigger_engine/reject_log.py`, `engine_py/bytedigger_engine/reject_stats.py`, `engine_py/bytedigger_engine/workflows/phase_5_implement.py`,
 new `engine_py/tests/test_bd218_s1_preflight_rung.py`, `CHANGELOG.md`.
 NOT in scope: `check_ladder.py`, `workflows/engine.py`, `phases/`, `error_codes.py`, every other workflow file.
 Sibling-test audit (§1a) from this list, run with `--require-clean` before freeze: `test_bd141_check_ladder.py`, `test_bd164_preflight.py`, and the 7 other tests that reference `_invoke_validation_llm`: `test_bd141_p4d_role_template_injections.py`, `test_bd92_per_cycle_artifacts.py`, `test_gh705_callsite_stable_prefix.py`, `test_phase_5_implement_A3398552.py`, `test_gh963_validation_execution_failure.py`, `test_llm_subprocess_allowed_tools.py`, `test_7C4D70ED_red_executability_check.py`, `test_phase_5_graphfirst_DA48BEAC.py` (grep at branch point).
@@ -72,8 +81,6 @@ Baseline for the cost claim: none made — this step adds an event, no $ change 
 
 ## §7 LLM stages in this step (Guy 2026-10-03: remove LLM wherever a script/test/Jev can do it)
 
-This step adds no LLM call. The one LLM stage it touches is the pre-GREEN validation gate; it is **kept for now**, not because a
-script is shown unable to do its job, but because replacing it is a removal and removals wait for the lot-assume audit verdict
-(keep / to-script / remove, with provenance) and Guy's yes. Justification owed in the PR that does replace it: which findings of
+This step adds no LLM call. The one LLM stage it touches is the pre-GREEN validation gate; it is **kept**: the audit verdict (hal#2320) is "Opus stage stays until the reject logs show all its findings are caught by a script". Op3 collects that evidence in shadow. Justification owed in the PR that does replace it: which findings of
 the gate (from the reject logs) a script or test already catches, and what stays. This rung is the measuring point: the
 `preflight_receipt` event next to the gate's verdict gives, per run, whether the cheap checks were green when the gate ran.
