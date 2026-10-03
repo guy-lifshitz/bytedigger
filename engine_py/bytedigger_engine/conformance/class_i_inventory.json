@@ -154,6 +154,7 @@
     "workflows/phase_5_implement.py::_compute_baseline_typecheck_count::bounded_run#0": {"class": "not-prompt", "note": "baseline mypy run reduced to a count"},
     "workflows/phase_5_implement.py::_derive_green_paths_from_git::git_read#0": {"class": "not-prompt", "note": "git path list of GREEN-modified files; paths are only a list; really class E where later rendered as fields, a residual"},
     "workflows/phase_5_implement.py::_green_lint_prompt_digest::read_text#0": {"class": "M", "note": "rules.yml reduced to rule ids plus 100-char hints inlined in the GREEN prompt; derived summary, not verbatim bytes (same treatment as the RED digest)"},
+    "workflows/phase_5_implement.py::_invoke_validation_llm::read_text#0": {"class": "not-prompt", "note": "engine spec text read for the bd#218 receipt producer; never enters a prompt (the producer does not use it for any verdict)"},
     "workflows/phase_5_implement.py::_one_sided_predicate_hits::read_text#0": {"class": "E", "note": "bd#166 Rule P: RED .ts test text scanned by the one-sided-predicate detector; only engine-generated findings (path, line, rule, reason) reach retry findings (class-E fields)"},
     "workflows/phase_5_implement.py::_persist_red_cycle_sha::read_text#0": {"class": "not-prompt", "note": "per-cycle sha sidecar read then merged and rewritten"},
     "workflows/phase_5_implement.py::_detect_head_drift::git_read#0": {"class": "not-prompt", "note": "git rev-parse HEAD for a drift check"},
