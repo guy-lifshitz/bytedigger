@@ -43,8 +43,8 @@ Inputs (via ``ctx.org_config``):
     scratchpad_dir                  — REQUIRED. Absolute path to scratchpad root.
     complexity                      — Optional. SIMPLE | FEATURE | COMPLEX. Default: FEATURE.
                                       Controls reviewer count (3 for SIMPLE, 6 for FEATURE/COMPLEX).
-    role_template_path              — Optional. Prepended to all four prompt builders
-                                      (review, fix, satisfaction, decorr); the step fails with
+    role_template_path              — Optional. Prepended to all three prompt builders
+                                      (review, fix, satisfaction); the step fails with
                                       E_ROLE_TEMPLATE_INVALID if configured but unusable.
                                       The workflow error_handler then runs and writes the
                                       NOT_ASSESSED satisfaction stub (bd#119).
@@ -66,7 +66,7 @@ Inputs (via ``ctx.org_config``):
 
 ``ctx.question`` carries the user's feature request text.
 
-Steps (20):
+Steps (17):
     1. build_review_prompt          — deterministic; spec + RED + GREEN log paths
     2. invoke_review_llm            — opaque subprocess (composite reviewer)
     3. write_review_artifact        — aggregate reviews/role-composite.md (fixed file),
@@ -83,14 +83,10 @@ Steps (20):
     11. commit_fix_tests
     12. run_pytest_post_fix
     13. verify_fix_typecheck
-    14. build_decorr_prompt         — GH379 decorrelated verifier (FEATURE/COMPLEX)
-    15. invoke_decorr_llm
-    16. write_decorr_artifact       — advisory; enforce mode blocks on SUSPECT with
-                                      E_DECORR_VERIFY_SUSPECT
-    17. build_satisfaction_prompt
-    18. invoke_satisfaction_llm
-    19. write_satisfaction_doc      — parse SCORE; HARD GATE on threshold
-    20. detect_mass_unverified
+    14. build_satisfaction_prompt
+    15. invoke_satisfaction_llm
+    16. write_satisfaction_doc      — parse SCORE; HARD GATE on threshold
+    17. detect_mass_unverified
 
 Outputs:
     $SCRATCHPAD/reviews/build-review.md
@@ -138,8 +134,7 @@ from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E
 from bytedigger_engine.lib.plugins.anti_hallucination.semantic_verifier import (  # noqa: E402
     verify_findings_semantic as _verify_findings_semantic_impl,
 )
-from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_primary, get_claude_decorrelated_verifier  # noqa: E402
-from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
+from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_primary  # noqa: E402
 from bytedigger_engine.verdict_verify import _classify_parity, file_sha256  # noqa: E402  GH749/GH751
 from bytedigger_engine.lib.worktree_root import resolve_worktree_root as _resolve_worktree_root  # noqa: E402
 try:
@@ -768,6 +763,9 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
     _raw_fanout = (ctx.org_config or {}).get("review_fanout") if ctx else None
     if _raw_fanout is not None and str(_raw_fanout).strip().lower() not in ("", "single"):
         _emit_safe("review_fanout_ignored", {"value": str(_raw_fanout)})
+    _raw_enforce = (ctx.org_config or {}).get("decorrelated_verify_enforce") if ctx else None
+    if bool(_raw_enforce):
+        _emit_safe("decorrelated_verify_enforce_ignored", {"value": str(_raw_enforce)})
     dispatch_table, reviewer_count = _review_plan(ctx, complexity)
     _role_line = (
         "ROLE: You are the sole reviewer. Review the work yourself, write your findings "
@@ -5579,289 +5577,6 @@ def _verify_fix_typecheck(ctx, prev) -> StepResult:  # noqa: C901
     return StepResult(status="ok", data=dict(prev.data or {}), duration_ms=0, step_name=step_name)
 
 
-# ─── GH379: Class 5 decorrelated verifier (advisory→enforce, agreement 769EFDA3) ─
-
-DECORR_DOC_RELPATH = "reviews/build-decorr-verify.md"
-_DECORR_VERDICT_MARKERS = [("DECORR VERDICT: CLEAR", "CLEAR"), ("DECORR VERDICT: SUSPECT", "SUSPECT")]
-
-
-def _build_decorr_prompt(ctx, prev) -> StepResult:
-    """Step: build the adversarial-refute prompt for the decorrelated verifier.
-
-    SIMPLE tier skips (ratified scope); FEATURE/COMPLEX both proceed. References
-    artifacts by path only — never inlines file bodies (Q8 token lesson).
-    """
-    _prev_data = prev.data if isinstance(prev, StepResult) and isinstance(prev.data, dict) else {}
-    complexity = _resolve_complexity(ctx)
-    if complexity == "SIMPLE":
-        _emit_safe("decorr_verify_skipped", {"complexity": complexity})
-        return StepResult(
-            status="ok",
-            data={**_prev_data, "decorr_skipped": "simple_tier"},
-            duration_ms=0, step_name="build_decorr_prompt",
-        )
-
-    scratchpad = _resolve_scratchpad(ctx)
-    spec_path = scratchpad / SPEC_DOC_RELPATH
-    review_path = scratchpad / REVIEW_DOC_RELPATH
-    fix_path = scratchpad / FIX_DOC_RELPATH
-    green_log_path = scratchpad / GREEN_LOG_RELPATH
-
-    parts: list[str] = []
-    rt = _role_template(ctx)  # bd#141 4(d): one read; record + prompt from the same object
-    role = rt.content if rt else ""
-    if role:
-        parts.append(role.rstrip())
-        parts.append("")
-    parts.append(
-        "ROLE: You are the DECORRELATED VERIFIER — a second, independent pass "
-        "whose job is to REFUTE this ship, not confirm it. Assume the prior "
-        "review and fix passes already missed something. Hunt for bypasses, "
-        "self-exemptions, and fail-open edges in the FINAL authored state."
-    )
-    parts.append("")
-    parts.append("READ_FIRST (paths only — open and read these yourself; do NOT trust summaries):")
-    parts.append(f"  - Spec: {spec_path}")
-    parts.append(f"  - Review doc: {review_path}")
-    parts.append(f"  - Fix doc: {fix_path}")
-    parts.append(f"  - GREEN diff ref: {green_log_path}")
-    parts.append("")
-    parts.append(
-        "Actively try to REFUTE the ship. Do not default to CLEAR to keep the "
-        "pipeline moving."
-    )
-    parts.append("")
-    parts.append(
-        "End your reply with exactly one final line, verbatim, one of:\n"
-        "DECORR VERDICT: CLEAR\n"
-        "DECORR VERDICT: SUSPECT"
-    )
-    prompt = "\n".join(parts)
-    # bd#141 4(d): set explicitly (record or None) so a stale record in prev.data cannot leak.
-    return StepResult(status="ok", data={**_prev_data, "prompt": prompt, "role_template": _role_template_record(rt), "injected_blocks": None}, duration_ms=0, step_name="build_decorr_prompt")
-
-
-def _invoke_decorr_llm(ctx, prev) -> StepResult:
-    """Step: dispatch the decorrelated-verifier subprocess.
-
-    §1n OWN: this step owns all subprocess failure modes — it never returns
-    status="error" itself. Failures degrade to data={"decorr_error": ..., "stdout": ""}
-    so the chain-terminal `error` status is reserved for `_write_decorr_artifact`'s
-    single enforce-mode decision point (§1g single source).
-    """
-    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
-        return StepResult(
-            status="error", data=None, duration_ms=0,
-            step_name="invoke_decorr_llm",
-            error="prev step did not produce a prompt",
-            error_code="E_MISSING_PREV_DATA",
-        )
-    if prev.data.get("decorr_skipped"):
-        return StepResult(status="ok", data=dict(prev.data), duration_ms=0, step_name="invoke_decorr_llm")
-
-    cfg = getattr(ctx, "org_config", None) or {}
-    result = invoke_llm_subprocess(
-        prompt=prev.data.get("prompt", ""),
-        model=get_claude_decorrelated_verifier(),
-        timeout_sec=_resolve_review_timeout_sec(cfg),
-        step_name="invoke_decorr_llm",
-        hard_gate=False,
-        fresh_session=True,  # bd#82: a judge must not resume its earlier verdict
-        role="judge",
-        injections=_declared_injections(prev.data),  # bd#141 4(d)
-    )
-    if result.status != "ok" or not isinstance(result.data, dict):
-        error_code = result.error_code or "E_DECORR_INVOKE_FAILED"
-        _emit_safe("decorr_verify_invoke_failed", {"error_code": error_code, "error": result.error})
-        return StepResult(
-            status="ok",
-            data={**prev.data, "decorr_error": error_code, "stdout": ""},
-            duration_ms=0, step_name="invoke_decorr_llm",
-        )
-
-    return StepResult(
-        status="ok",
-        data={**prev.data, "stdout": result.data.get("raw_response", "")},
-        duration_ms=0, step_name="invoke_decorr_llm",
-    )
-
-
-def _write_decorr_artifact(ctx, prev) -> StepResult:
-    """Step: persist decorrelated-verifier stdout, resolve verdict, gate on enforce.
-
-    Absent stdout, unparseable marker, or an upstream `decorr_error` all
-    resolve to the conservative SUSPECT verdict (Class-1 conservative default).
-    Emits exactly one `decorr_verify_verdict` event per non-skipped run,
-    including on the enforce-mode error-terminal branch (emit-before-return).
-    """
-    if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
-        return StepResult(
-            status="error", data=None, duration_ms=0,
-            step_name="write_decorr_artifact",
-            error="prev step did not produce stdout",
-            error_code="E_MISSING_PREV_DATA",
-        )
-    if prev.data.get("decorr_skipped"):
-        return StepResult(status="ok", data=dict(prev.data), duration_ms=0, step_name="write_decorr_artifact")
-
-    stdout = prev.data.get("stdout") or ""
-    decorr_error = prev.data.get("decorr_error")
-
-    parse_source = "marker"
-    if decorr_error or not stdout:
-        verdict = VERDICT_SUSPECT
-        parse_source = "conservative_default"
-    else:
-        verdict = last_line_anchored_marker(stdout, _DECORR_VERDICT_MARKERS, None)
-        if verdict is None:
-            verdict = VERDICT_SUSPECT
-            parse_source = "conservative_default"
-
-    if stdout:
-        scratchpad = _resolve_scratchpad(ctx)
-        doc_path = scratchpad / DECORR_DOC_RELPATH
-        doc_path.parent.mkdir(parents=True, exist_ok=True)
-        doc_path.write_text(stdout, encoding="utf-8")
-
-    model = get_claude_decorrelated_verifier()
-    # GH379 advisory rollout — agreement 769EFDA3; GH392 re-scope: flip on >=5 real
-    # decorr_verify_verdict emissions (FEATURE/COMPLEX builds) reviewed clean, NOT
-    # calendar date. flip-by:2026-08-01 (backstop re-review if still zero emissions)
-    enforce = bool(ctx.org_config.get("decorrelated_verify_enforce"))
-
-    _emit_safe("decorr_verify_verdict", {
-        "verdict": verdict,
-        "model": model,
-        "enforce": enforce,
-        "parse_source": parse_source,
-    })
-
-    if verdict == VERDICT_SUSPECT and enforce:
-        return StepResult(
-            status="error", data=dict(prev.data), duration_ms=0,
-            step_name="write_decorr_artifact",
-            error="decorrelated verifier flagged SUSPECT under enforce mode",
-            error_code="E_DECORR_VERIFY_SUSPECT",
-            recoverable=False,
-        )
-
-    return StepResult(status="ok", data=dict(prev.data), duration_ms=0, step_name="write_decorr_artifact")
-
-
-_POST_FIX_SIBLING_CAP = 50
-
-
-def _post_fix_test_scope(prev_data, scratchpad, git_cwd, manifest):
-    """bd#90: build the post-fix pytest scope; returns ``(paths, counts)``.
-
-    Legs, in order: RED (prev_data["red_test_paths"] list if present, else the
-    persisted RED file plus manifest test files), then sibling tracked tests of
-    changed ``.py`` sources (sorted, capped).  Never raises.
-    """
-    import os as _os
-
-    def _norm(p):
-        s = str(p).strip()
-        if not s:
-            return None
-        if _os.path.isabs(s):
-            s = _os.path.relpath(s, git_cwd)
-        s = _os.path.normpath(s).replace("\\", "/")
-        if s == ".." or s.startswith("../") or s == ".":
-            return None
-        return s
-
-    def _exists(rel):
-        return _os.path.isfile(_os.path.join(git_cwd, rel))
-
-    seen = set()  # type: set
-    paths = []  # type: list
-    n_red = 0
-    n_manifest = 0
-    prev_red = (prev_data or {}).get("red_test_paths")
-
-    if prev_red is not None:
-        red_raw = list(prev_red)
-        red_check_exists = False
-    else:
-        red_raw = []
-        red_check_exists = True
-        if scratchpad:
-            try:
-                try:
-                    from .phase_5_implement import _read_red_test_paths
-                except ImportError:  # pragma: no cover — bare fallback (GH881)
-                    from bytedigger_engine.workflows.phase_5_implement import _read_red_test_paths  # type: ignore[no-redef]
-                red_raw = list(_read_red_test_paths(scratchpad))
-            except Exception:  # noqa: BLE001
-                red_raw = []
-
-    for p in red_raw:
-        rel = _norm(p)
-        if rel is None or not _is_test_py_path(rel) or rel in seen:
-            continue
-        if red_check_exists and not _exists(rel):
-            continue
-        seen.add(rel)
-        paths.append(rel)
-        n_red += 1
-
-    norm_manifest = []  # type: list
-    for p in manifest or []:
-        rel = _norm(p)
-        if rel is not None:
-            norm_manifest.append(rel)
-
-    if prev_red is None:
-        for rel in norm_manifest:
-            if _is_test_py_path(rel) and rel not in seen:
-                seen.add(rel)
-                paths.append(rel)
-                n_manifest += 1
-
-    # Sibling leg: tracked tests next to / named after changed .py sources.
-    sources = [r for r in norm_manifest if r.endswith(".py") and not _is_test_py_path(r)]
-    tracked = []  # type: list
-    if sources:
-        try:
-            proc = subprocess.run(
-                ["git", "ls-files", "-z"], cwd=git_cwd, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, timeout=30, check=False,
-            )
-            if proc.returncode == 0:
-                tracked = [t for t in proc.stdout.decode("utf-8", "replace").split("\0") if t]
-        except Exception:  # noqa: BLE001
-            tracked = []
-    candidates = set()  # type: set
-    for src in sources:
-        src_dir = _os.path.dirname(src)
-        stem = _os.path.splitext(_os.path.basename(src))[0]
-        stem_ok = len(stem) >= 4 and stem != "__init__"
-        for t in tracked:
-            if not _is_test_py_path(t):
-                continue
-            if (src_dir and _os.path.dirname(t) == src_dir) or (
-                stem_ok and stem in _os.path.basename(t)
-            ):
-                candidates.add(t)
-    siblings = []  # type: list
-    for t in sorted(candidates):
-        if t in seen or not _exists(t):
-            continue
-        siblings.append(t)
-        if len(siblings) >= _POST_FIX_SIBLING_CAP:
-            break
-    paths.extend(siblings)
-
-    counts = {
-        "n_red": n_red,
-        "n_manifest": n_manifest,
-        "n_sibling": len(siblings),
-        "n_total": len(paths),
-    }
-    return paths, counts
-
-
 def _run_pytest_post_fix(ctx, prev) -> StepResult:
     """Step 6+: deterministic post-fix sibling-regression gate (7A940850).
 
@@ -6189,9 +5904,6 @@ def phase_6_review_workflow() -> WorkflowDefinition:
             StepContract(name="commit_fix_tests", execute=_commit_fix_tests),   # 8FE3D757
             StepContract(name="run_pytest_post_fix", execute=_run_pytest_post_fix),
             StepContract(name="verify_fix_typecheck", execute=_verify_fix_typecheck),  # GH316
-            StepContract(name="build_decorr_prompt", execute=_build_decorr_prompt),  # GH379
-            StepContract(name="invoke_decorr_llm", execute=_invoke_decorr_llm, resume_sentinel=True),  # GH379
-            StepContract(name="write_decorr_artifact", execute=_write_decorr_artifact),  # GH379
             StepContract(name="build_satisfaction_prompt", execute=_build_satisfaction_prompt),
             StepContract(name="invoke_satisfaction_llm", execute=_invoke_satisfaction_llm),
             StepContract(name="write_satisfaction_doc", execute=_write_satisfaction_doc),

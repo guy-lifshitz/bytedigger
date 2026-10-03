@@ -43,11 +43,6 @@
 - `E_CTX_MALFORMED` — dbos_setup: ctx JSON payload could not be parsed or is shape-invalid
 - `E_CTX_MISSING_FIELDS` — phase_05_inject: injected ctx is missing required fields
 
-## E_DECORR
-
-- `E_DECORR_INVOKE_FAILED` — phase_6_review: decorrelated-verifier invocation failed to run
-- `E_DECORR_VERIFY_SUSPECT` — phase_6_review: decorrelated verifier flagged the fix as suspect
-
 ## E_DIFF
 
 - `E_DIFF_CMD_MISSING` — phase_5/6 integrity: git diff command binary not found
