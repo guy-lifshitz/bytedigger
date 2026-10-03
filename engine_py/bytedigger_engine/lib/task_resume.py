@@ -64,6 +64,8 @@ _STOP_CODES = frozenset({
     # phase result carrying these codes also means a human is needed.
     "E_RESTART_CAP",
     "E_RESTART_SHORT_CIRCUIT",
+    # bd#163: the configured gate round cap was reached; the host decides.
+    "E_GATE_ROUND_CAP",
 })
 _REROUTE_CODE = "E_SPEC_DEFECT"
 _RESET_EVENT = "task_cap_reset"

@@ -61,6 +61,7 @@ ERROR_CODES: dict[str, str] = {
     "E_FIX_WRITE_FAILED": "phase_6_review: writing the fix artifact/doc to disk failed",
     "E_FLAG_UNREGISTERED": "phase_5_implement: GREEN diff reads a HAL_* flag with no flags_catalog entry (GH529)",
     "E_FLAG_UNREGISTERED_CAP2": "phase_5_implement: flag-registration gate retry cap exhausted (GH529)",
+    "E_GATE_ROUND_CAP": "engine.py: the tier/complexity gate round cap from a configured table was reached; no further retry, the host decides (bd#163)",
     "E_GIT_BAD_STATE": "phase_5_implement: git working tree in an unexpected/bad state",
     "E_GIT_COMMIT_FAILED": "phase_5_implement: git commit invocation failed",
     "E_GIT_CWD_AMBIENT": "phase_5/6: git_cwd resolved from the ambient process CWD — refusing to run a mutating git op",

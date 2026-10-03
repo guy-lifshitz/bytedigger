@@ -43,6 +43,7 @@ from bytedigger_engine import package_meta
 from bytedigger_engine.config_provider import hal_root as _hal_root_fn, path as _path_fn, rework_log_relpath as _rework_log_relpath, foreign_state_dirname as _foreign_state_dirname_fn, get_config, env_mapping as _config_env_mapping
 from bytedigger_engine.event_log import _LINE_LIMIT_BYTES as _EVENT_LOG_LINE_LIMIT_BYTES
 from bytedigger_engine.lib.git_port import git_read
+from bytedigger_engine.lib.gate_round_cap import HARD_MAX as _GATE_HARD_MAX, GateCap, resolve_gate_round_cap
 from bytedigger_engine.execution_provenance import (
     SHADOW_EVENT_TYPE,
     execution_provenance,
@@ -275,6 +276,8 @@ class WorkflowEngine:
         self._delta_paths: set[str] = set()
         self._phase_steps_run = 0
         self._phase_steps_delta_ok = 0
+        # bd#163: per-run gate round cap cache, keyed by run_id; cleared per run in execute().
+        self._gate_caps: dict[str, GateCap] = {}
 
     def register(self, name: str, workflow: WorkflowDefinition) -> None:
         if name in self._workflows:
@@ -302,6 +305,7 @@ class WorkflowEngine:
         # GH750 §2.3 (B4): reset the same-cycle-retry budget per run so a
         # reused engine instance does not leak a prior run's counters.
         self._same_cycle_retries = {}
+        self._gate_caps = {}
         # bd#18 §5: phase_artifacts accounting, reset per run (one execute()
         # call == one phase, even across the retry recursion) so a reused
         # engine instance does not leak a prior run's written paths or
@@ -472,6 +476,38 @@ class WorkflowEngine:
     # is a deterministic runaway guard should gate_attempts ever be dropped
     # by a step that rebuilds data.
     _GATE_BUDGET_HARD_BACKSTOP = 6
+
+    def _resolve_gate_cap(self, context: WorkflowContext, run_id: str) -> GateCap:
+        """bd#163: per-run gate round cap, cached per run_id; warnings emitted once."""
+        cached = self._gate_caps.get(run_id)
+        if cached is not None:
+            return cached
+        org = context.org_config if isinstance(context.org_config, dict) else {}
+        warnings: list[dict] = []
+        table: Any = org.get("gate_round_caps")
+        if table is None:
+            fn = getattr(get_config(), "gate_round_caps", None)
+            if callable(fn):
+                try:
+                    table = fn()
+                except Exception as exc:  # provider down -> degrade, fall through to env
+                    warnings.append({
+                        "event": "gate_round_cap_provider_unavailable",
+                        "reason": f"{type(exc).__name__}: {exc}",
+                    })
+        if table is None:
+            table = get_config().binary("BD_GATE_ROUND_CAPS", "") or None
+        label = org.get("gate_tier") or org.get("complexity") or get_config().binary("BD_GATE_TIER", "") or None
+        gate_cap = resolve_gate_round_cap(None if label is None else str(label), table)
+        for w in [*warnings, *gate_cap.warnings]:
+            self._emit(w["event"], {k: v for k, v in w.items() if k != "event"}, run_id)
+        self._emit(
+            "gate_round_cap_resolved",
+            {"cap": gate_cap.cap, "source": gate_cap.source, "label": gate_cap.label},
+            run_id,
+        )
+        self._gate_caps[run_id] = gate_cap
+        return gate_cap
 
     def _execute_steps(
         self,
@@ -699,8 +735,10 @@ class WorkflowEngine:
                     cycle_count = int(result.data.get("cycle_count", 1))
                     findings = _findings_to_str(result.data.get("findings", ""))
                     gate_budget_ok = bool(result.data.get("gate_budget_ok"))
-                    if cycle_count < self._MAX_VALIDATION_CYCLES or (
-                        gate_budget_ok and cycle_count < self._GATE_BUDGET_HARD_BACKSTOP
+                    gate_cap = self._resolve_gate_cap(context, run_id)
+                    if cycle_count < gate_cap.cap or (
+                        gate_budget_ok
+                        and cycle_count < min(self._GATE_BUDGET_HARD_BACKSTOP, _GATE_HARD_MAX)
                     ):
                         next_cycle = cycle_count + 1
                         red_index = result.data.get("retry_from_step")
@@ -830,6 +868,35 @@ class WorkflowEngine:
                             run_id,
                         )
                         return retry_result
+                    elif not gate_budget_ok:
+                        # bd#163: the retry is denied by the round cap. Record it;
+                        # a table-sourced cap is a declared exit (host decides),
+                        # default/fallback keeps the legacy result. No early return:
+                        # the terminal path below still runs its sentinel cleanup.
+                        self._emit(
+                            "gate_round_cap_exceeded",
+                            {
+                                "phase": workflow.name,
+                                "step_name": result.step_name,
+                                "cycle": cycle_count,
+                                "cap": gate_cap.cap,
+                                "source": gate_cap.source,
+                                "label": gate_cap.label,
+                                "exit": "host_escalation",
+                            },
+                            run_id,
+                        )
+                        if gate_cap.source == "table":
+                            result = replace(
+                                result,
+                                error_code="E_GATE_ROUND_CAP",
+                                recoverable=False,
+                                data={
+                                    **result.data,
+                                    "gate_round_cap": gate_cap.cap,
+                                    "escalation": "host_decision_required",
+                                },
+                            )
                 # GH925: terminal (non-retried) error exit — if the failing step
                 # declared "invalidate_cycle_sentinels_on_fail", the cycle's
                 # cycle-keyed sentinels are stale (re-entry over the same
