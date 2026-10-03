@@ -2449,11 +2449,27 @@ def _commit_red_tests(ctx, prev) -> StepResult:
             if isinstance(_spec_path_raw, str) and _spec_path_raw
             else []
         )
+        _ti_base = _resolve_frozen_pre_red_sha(scratchpad, _git_cwd_early)
+
+        def _ti_has_pragma(_p: str) -> bool:
+            # bd#226 r2: the pragma exempts only if the token existed at
+            # base_sha (operator-authored) AND is still present post-RED.
+            # Fail-closed on any read/decode error.
+            try:
+                _shown = git_port.git_read(
+                    ["show", f"{_ti_base}:{_p}"], cwd=_git_cwd_early, timeout=30,
+                )
+                if _shown.returncode != 0 or _MASS_DELETION_ALLOW_PRAGMA not in _shown.stdout:
+                    return False
+            except Exception:
+                return False
+            return _has_mass_deletion_allow_pragma(str(Path(_git_cwd_early) / _p))
+
         _ti_res = _test_integrity.compute_test_integrity(
-            _resolve_frozen_pre_red_sha(scratchpad, _git_cwd_early),
+            _ti_base,
             _git_cwd_early,
             is_authorized=lambda _p: _path_matches_allowlist(_p, _ti_auth),
-            has_pragma=lambda _p: _has_mass_deletion_allow_pragma(str(Path(_git_cwd_early) / _p)),
+            has_pragma=_ti_has_pragma,
         )
         _ti_deleted = list(_ti_res["deleted_files"])
         _ti_removed = list(_ti_res["removed_tests"])
@@ -2474,6 +2490,11 @@ def _commit_red_tests(ctx, prev) -> StepResult:
             "phase": 5, "step": "commit_red_tests",
             "violations": _ti_viol, "violations_n": _ti_viol_n,
             "exempted": _ti_res.get("exempted", []),
+            "skipped_files": _ti_res.get("skipped_files", []),
+            "observed": {
+                "deleted_files": _ti_deleted, "removed_tests": _ti_removed,
+                "added_skips": _ti_skips,
+            },
             "thresholds": _ti_thr, "enforced": _ti_enforce,
             "skip_reason": _ti_res.get("skip_reason"),
         })

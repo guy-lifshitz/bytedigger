@@ -30,14 +30,18 @@ _SKIP_PATTERNS = tuple(
         r"pytest\.mark\.skip",
         r"pytest\.mark\.xfail",
         r"pytest\.skip\(",
+        r"importorskip",
+        r"skipTest\(",
         r"unittest\.skip",
         r"\.skip\(",
         r"\bxit\(",
         r"\bxdescribe\(",
         r"t\.Skip\(",
-        r"^\s*skip(?:\s|$)",
+        r"SkipNow\(",
     )
 )
+# bats `skip` as a command: only counted in *.bats files.
+_BATS_SKIP = re.compile(r"^\s*skip(?:\s|$)")
 
 
 def _defined_names(text: str) -> "set[str]":
@@ -53,10 +57,11 @@ def _defined_names(text: str) -> "set[str]":
     return names
 
 
-def _skip_count(text: str) -> int:
+def _skip_count(text: str, path: str = "") -> int:
+    bats = path.endswith(".bats")
     n = 0
     for line in text.splitlines():
-        if any(p.search(line) for p in _SKIP_PATTERNS):
+        if any(p.search(line) for p in _SKIP_PATTERNS) or (bats and _BATS_SKIP.match(line)):
             n += 1
     return n
 
@@ -67,8 +72,24 @@ def _empty(skip_reason: "str | None") -> "dict[str, Any]":
         "removed_tests": [],
         "added_skips": [],
         "exempted": [],
+        "skipped_files": [],
         "skip_reason": skip_reason,
     }
+
+
+def _safe(pred: Callable[[str], bool], path: str) -> bool:
+    """Exemption callback; an exception means NOT exempt (fail-closed)."""
+    try:
+        return bool(pred(path))
+    except Exception:
+        return False
+
+
+def _fixture_only(path: str) -> bool:
+    # Lazy import: phase_5_implement imports this module lazily, so no cycle.
+    from bytedigger_engine.workflows.phase_5_implement import _is_fixture_only_path
+
+    return _is_fixture_only_path(path)
 
 
 def compute_test_integrity(
@@ -78,12 +99,14 @@ def compute_test_integrity(
     is_authorized: Callable[[str], bool],
     has_pragma: Callable[[str], bool],
 ) -> "dict[str, Any]":
-    """Return non-exempt integrity findings of the worktree vs ``base_sha``.
+    """Return raw integrity findings of the worktree vs ``base_sha``.
 
     Keys: ``deleted_files`` (list[str]), ``removed_tests`` (list of
     ``{path, names}``), ``added_skips`` (list of ``{path, n}``), ``exempted``
-    (list of ``{kind, path, ...}`` entries skipped by the callbacks) and
-    ``skip_reason`` (None, or why detection was skipped -- fail-open).
+    (list of ``{kind, path, ...}`` entries exempted by the callbacks or moved),
+    ``skipped_files`` (list of ``{path, reason}``: unreadable/undecodable files)
+    and ``skip_reason`` (None, or why detection was skipped globally -- fail-open,
+    only when listing the changed files fails). Thresholds are the caller's job.
     """
     if not base_sha:
         return _empty("no_base_sha")
@@ -100,26 +123,55 @@ def compute_test_integrity(
         while i + 1 < len(toks):
             status, path = toks[i], toks[i + 1]
             i += 2
-            if status and path and _is_test_path(path):
+            if status and path and _is_test_path(path) and not _fixture_only(path):
                 entries.append((status[0], path))
 
+        out = _empty(None)
+
+        untracked_tests: "list[str]" = []
         untracked = git_port.git_read(
             ["ls-files", "--others", "--exclude-standard", "-z"],
             cwd=git_cwd, timeout=_GIT_TIMEOUT,
         )
         if untracked.returncode != 0:
-            return _empty("untracked_failed")
-        untracked_tests = [p for p in untracked.stdout.split("\0") if p and _is_test_path(p)]
+            # Fail-closed: without destinations a move cannot be proven.
+            out["skipped_files"].append({"path": "<untracked>", "reason": "untracked_failed"})
+        else:
+            untracked_tests = [
+                p for p in untracked.stdout.split("\0")
+                if p and _is_test_path(p) and not _fixture_only(p)
+            ]
 
         root = Path(git_cwd)
+        skipped: "dict[str, str]" = {}
 
         def _post(path: str) -> "str | None":
             try:
-                return (root / path).read_text(errors="replace")
+                return (root / path).read_bytes().decode("utf-8")
+            except UnicodeDecodeError:
+                skipped.setdefault(path, "undecodable")
+                return None
             except OSError:
+                skipped.setdefault(path, "unreadable")
                 return None
 
-        # Names defined in ANY post-RED test file among the changed set.
+        def _base(path: str) -> "str | None":
+            try:
+                show = git_port.git_read(
+                    ["show", f"{base_sha}:{path}"], cwd=git_cwd, timeout=_GIT_TIMEOUT,
+                )
+            except UnicodeDecodeError:
+                skipped.setdefault(path, "undecodable")
+                return None
+            except Exception:
+                skipped.setdefault(path, "unreadable")
+                return None
+            if show.returncode != 0:
+                skipped.setdefault(path, "unreadable")
+                return None
+            return show.stdout
+
+        # Names defined in ANY post-RED test file among the changed/new set.
         post_text: "dict[str, str]" = {}
         post_names: "set[str]" = set()
         for st, path in entries + [("?", p) for p in untracked_tests]:
@@ -131,11 +183,18 @@ def compute_test_integrity(
             post_text[path] = text
             post_names |= _defined_names(text)
 
-        out = _empty(None)
         for st, path in sorted(entries, key=lambda e: e[1]):
             if st == "D":
-                if is_authorized(path):
+                if _safe(is_authorized, path):
                     out["exempted"].append({"kind": "deleted_file", "path": path})
+                    continue
+                base_text = _base(path)
+                # A deleted file whose base cannot be decoded still counts as
+                # a deletion (a move needs readable names).
+                skipped.pop(path, None)
+                names = _defined_names(base_text) if base_text is not None else set()
+                if names and names <= post_names:
+                    out["exempted"].append({"kind": "moved", "path": path})
                 else:
                     out["deleted_files"].append(path)
                 continue
@@ -144,16 +203,14 @@ def compute_test_integrity(
             post = post_text.get(path)
             if post is None:
                 continue
-            show = git_port.git_read(
-                ["show", f"{base_sha}:{path}"], cwd=git_cwd, timeout=_GIT_TIMEOUT,
-            )
-            if show.returncode != 0:
+            base_text = _base(path)
+            if base_text is None:
                 continue
-            removed = sorted(_defined_names(show.stdout) - post_names)
-            added = _skip_count(post) - _skip_count(show.stdout)
+            removed = sorted(_defined_names(base_text) - post_names)
+            added = _skip_count(post, path) - _skip_count(base_text, path)
             if not removed and added <= 0:
                 continue
-            if has_pragma(path):
+            if _safe(has_pragma, path):
                 if removed:
                     out["exempted"].append({"kind": "removed_tests", "path": path, "names": removed})
                 if added > 0:
@@ -163,6 +220,9 @@ def compute_test_integrity(
                 out["removed_tests"].append({"path": path, "names": removed})
             if added > 0:
                 out["added_skips"].append({"path": path, "n": added})
+
+        for p in sorted(skipped):
+            out["skipped_files"].append({"path": p, "reason": skipped[p]})
         return out
     except Exception:
         return _empty("integrity_failed")
