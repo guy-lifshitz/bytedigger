@@ -13,6 +13,7 @@ run_test_command and _emit_safe stubbed. No sys.path mutation.
 """
 from __future__ import annotations
 
+import fnmatch
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,9 +95,14 @@ class _Env:
         return [e["payload"] for e in self.events if e["type"] == _SCOPE_EVENT]
 
     def test_args(self):
-        """Test paths in the single pytest argv (everything ending in .py)."""
+        """Test file paths in the single pytest argv (test_*.py / *_test.py only)."""
         assert len(self.run_calls) == 1, "pytest must be invoked exactly once: %r" % (self.run_calls,)
-        return [a for a in self.run_calls[0] if a.endswith(".py")]
+        out = []
+        for a in self.run_calls[0]:
+            base = a.replace("\\", "/").rsplit("/", 1)[-1]
+            if fnmatch.fnmatch(base, "test_*.py") or fnmatch.fnmatch(base, "*_test.py"):
+                out.append(a)
+        return out
 
 
 def _has(args, rel: str) -> bool:
@@ -191,19 +197,114 @@ class TestPostFixTestScope:
         assert len(scopes) == 1, env.events
         assert scopes[0]["n_red"] == 1
 
-    def test_ac5_prev_data_red_paths_take_precedence_over_persisted(self, tmp_path, monkeypatch):
+    def test_ac5_prev_data_red_paths_win_over_persisted_and_manifest(self, tmp_path, monkeypatch):
         env = _Env(tmp_path, monkeypatch)
         env.write("pkg/mod.py")
         env.write("tests/test_from_prev.py")
         env.write("tests/test_from_file.py")
+        env.write("tests/test_manifest_only.py")
         env.persist_red(["tests/test_from_file.py"])
 
-        result = env.run(["pkg/mod.py"], red_test_paths=["tests/test_from_prev.py"])
+        result = env.run(
+            ["pkg/mod.py", "tests/test_manifest_only.py"],
+            red_test_paths=["tests/test_from_prev.py"],
+        )
 
         assert result.status == "ok"
         args = env.test_args()
         assert _has(args, "tests/test_from_prev.py"), env.run_calls
         assert not _has(args, "tests/test_from_file.py"), env.run_calls
+        assert not _has(args, "tests/test_manifest_only.py"), (
+            "manifest tests must NOT be in scope when red_test_paths list is present: %r" % (env.run_calls,)
+        )
         scopes = env.scope_events()
         assert len(scopes) == 1, env.events
+        assert scopes[0]["n_red"] == 1
+        assert scopes[0]["n_manifest"] == 0
+
+    def test_ac6_union_dedupes_and_counts_match_argv(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/mod.py")
+        env.write("tests/test_touched.py")      # manifest only
+        env.write("tests/test_red_both.py")     # in RED and in manifest
+        env.write("tests/test_red_only.py")     # RED only
+        env.write("pkg/test_neighbor.py")       # sibling
+        env.persist_red(["tests/test_red_both.py", "tests/test_red_only.py"])
+
+        result = env.run(["pkg/mod.py", "tests/test_touched.py", "tests/test_red_both.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        for rel in ("tests/test_touched.py", "tests/test_red_both.py",
+                    "tests/test_red_only.py", "pkg/test_neighbor.py"):
+            assert _has(args, rel), "%s missing from argv: %r" % (rel, env.run_calls)
+        assert len([a for a in args if _has([a], "tests/test_red_both.py")]) == 1, "dup must appear once"
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        s = scopes[0]
+        assert s["n_red"] == 2
+        assert s["n_manifest"] == 1, "n_manifest must exclude the RED duplicate: %r" % (s,)
+        assert s["n_sibling"] == 1
+        assert s["n_total"] == len(args) == 4
+
+    def test_ac7_cap_never_drops_red_or_manifest(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/mod.py")
+        env.write("tests/test_red_keep.py")
+        env.write("tests/test_manifest_keep.py")
+        env.persist_red(["tests/test_red_keep.py"])
+        names = ["pkg/test_c%02d.py" % i for i in range(60)]
+        for n in names:
+            env.write(n)
+
+        result = env.run(["pkg/mod.py", "tests/test_manifest_keep.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert _has(args, "tests/test_red_keep.py"), "RED path dropped by cap"
+        assert _has(args, "tests/test_manifest_keep.py"), "manifest path dropped by cap"
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert scopes[0]["n_sibling"] == 50
+        assert scopes[0]["n_total"] == len(args) == 52
+
+    def test_ac8_whitespace_stripped_and_escaping_path_dropped(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/mod.py")
+        env.write("tests/test_padded.py")
+        # A real file outside the git cwd that the escaping path would resolve to.
+        outside = tmp_path / "x"
+        outside.mkdir()
+        (outside / "test_a.py").write_text("# outside\n")
+        env.persist_red(["  tests/test_padded.py  ", "../x/test_a.py"])
+
+        result = env.run(["pkg/mod.py"])
+
+        assert result.status == "ok"
+        args = env.test_args()
+        assert _has(args, "tests/test_padded.py"), env.run_calls
+        assert not any("test_a.py" in a for a in args), "escaping path must be dropped: %r" % (args,)
+        assert not any(a != a.strip() for a in env.run_calls[0]), "argv entries must be stripped"
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert scopes[0]["n_red"] == 1
+
+    def test_ac9_git_ls_files_failure_degrades_to_other_legs(self, tmp_path, monkeypatch):
+        env = _Env(tmp_path, monkeypatch)
+        env.write("pkg/mod.py")
+        env.write("pkg/test_neighbor.py")
+        env.write("tests/test_red_ok.py")
+        env.persist_red(["tests/test_red_ok.py"])
+        # Corrupt the index so a real `git ls-files` fails, whatever git seam is used.
+        (env.repo / ".git" / "index").write_bytes(b"not a git index")
+
+        result = env.run(["pkg/mod.py"])
+
+        assert result.status == "ok", "ls-files failure must degrade, not error: %r" % (result,)
+        args = env.test_args()
+        assert _has(args, "tests/test_red_ok.py"), env.run_calls
+        assert not _has(args, "pkg/test_neighbor.py"), env.run_calls
+        scopes = env.scope_events()
+        assert len(scopes) == 1, env.events
+        assert scopes[0]["n_sibling"] == 0
         assert scopes[0]["n_red"] == 1
