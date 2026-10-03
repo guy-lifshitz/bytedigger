@@ -231,3 +231,8 @@ Audit source: `DOCS/decisions/2026-10-03_build_bd_assumptions_audit.md` (HAL rep
 - **Test text (F4, F5).** AC18/AC20 assert `raw.is_file()` first. `test_ac3_phase7_no_bare_scratchpad_placeholder` is NOT retired (reads the kept step 3); the §10 retirement list is amended accordingly.
 - **Disk-truth (F6).** Decision: kept out (no tool dependency); `Files:` says `not assessed`. A `git diff --name-only` Files line is filed as a Follow-up in the PR body.
 - **Haiku wording (F8).** `phases/phase-7-synthesize.md` ("log Haiku summary", "Model Selection: Always Haiku") and `commands/build.md` line ~133 are reworded to "the engine writes the report deterministically (no model)". AC12 additionally asserts neither file contains "Haiku" in the phase 7 sections.
+
+## §12 Errata r2.2 (gate r5 REJECT F1; advisory F2-F5). Extends §11
+- op9 must not depend on `_collect_completed_phases` / `_telemetry_digest`, and a failure of the report render (`render_failed`) never skips op9. AC8d additionally asserts the learnings file is written, `learnings_written is True`, `learnings_raw_path` set, one `learnings_raw_written` event. If an artifact-state read raises, op9 still runs with the satisfaction state unknown (no `acceptance` entry).
+- A finding title is everything after the first separator that follows the level token (a title may contain ` - `); AC23a gains such a header.
+- Counts in lessons are matched as standalone numbers (`(?<!\d)<n>(?!\d)`), wording of the count is free. AC12c locates the phase-7 section with `find` and asserts it exists.
