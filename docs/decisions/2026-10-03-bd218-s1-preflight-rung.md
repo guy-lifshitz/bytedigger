@@ -57,7 +57,7 @@ Before `invoke_llm_subprocess`, after the existing shadow block: read `cfg.get("
 In scope: `engine_py/bytedigger_engine/preflight.py`, `engine_py/bytedigger_engine/workflows/phase_5_implement.py`,
 new `engine_py/tests/test_bd218_s1_preflight_rung.py`, `CHANGELOG.md`.
 NOT in scope: `check_ladder.py`, `workflows/engine.py`, `phases/`, `error_codes.py`, every other workflow file.
-Sibling-test audit (§1a) from this list, run with `--require-clean` before freeze: `test_bd141_check_ladder.py`, `test_bd164_preflight.py`, the phase-5 validation-gate tests (`grep -l _invoke_validation_llm engine_py/tests`).
+Sibling-test audit (§1a) from this list, run with `--require-clean` before freeze: `test_bd141_check_ladder.py`, `test_bd164_preflight.py`, and the 7 other tests that reference `_invoke_validation_llm`: `test_bd141_p4d_role_template_injections.py`, `test_bd92_per_cycle_artifacts.py`, `test_gh705_callsite_stable_prefix.py`, `test_phase_5_implement_A3398552.py`, `test_gh963_validation_execution_failure.py`, `test_llm_subprocess_allowed_tools.py`, `test_7C4D70ED_red_executability_check.py`, `test_phase_5_graphfirst_DA48BEAC.py` (grep at branch point).
 The PR must show zero deleted lines in `workflows/` and `check_ladder.py` (add-only).
 
 ## §5 Provenance (Guy 2026-10-03)
