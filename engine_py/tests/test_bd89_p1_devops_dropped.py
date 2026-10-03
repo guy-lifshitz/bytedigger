@@ -407,6 +407,13 @@ def test_ac7_spec_and_red_prompts_do_not_shell_out_to_devops_prompt_context(tmp_
 
 # --- AC8 -----------------------------------------------------------------------
 
+# S4/M1 wiring (PR #237): scripts/devops_scan.py is deliberately invoked from the gate
+# script via run_devops_scan. That is a gate-script mechanism, distinct from the removed
+# devops pipeline STAGE (integration_canary, phase_6_smoke, artifact_detect, devops-prompt-context),
+# which must stay dropped. Only this file is exempt, and only for 'devops' / 'devops_scan'.
+DEVOPS_SCAN_WIRING_FILE = REPO_ROOT / "scripts" / "build-gate.sh"
+
+
 def _md_flow_files() -> list[Path]:
     files = [REPO_ROOT / "commands" / "build.md",
              REPO_ROOT / "skills" / "bytedigger" / "SKILL.md",
@@ -423,6 +430,7 @@ def test_ac8_no_devops_in_md_flow_and_gate_script():
     hits = {
         str(f.relative_to(REPO_ROOT)): len(re.findall("devops", _text(f), re.IGNORECASE))
         for f in _md_flow_files()
+        if f != DEVOPS_SCAN_WIRING_FILE
     }
     hits = {k: v for k, v in hits.items() if v}
     assert not hits, f"devops mentions remain: {hits}"
@@ -432,7 +440,13 @@ def test_ac8_no_dropped_stage_names_in_md_flow_gate_script_and_ts():
     ts_files = sorted((REPO_ROOT / "scripts" / "ts").glob("*.ts"))
     assert ts_files, "fixture precondition: scripts/ts/*.ts exist"
     pat = re.compile(r"integration_canary|phase_6_smoke|devops_scan|artifact_detect")
-    hits = [str(f.relative_to(REPO_ROOT)) for f in _md_flow_files() + ts_files if pat.search(_text(f))]
+    # The wiring file is exempt ONLY for 'devops_scan'; other dropped stage names still fail.
+    pat_wiring = re.compile(r"integration_canary|phase_6_smoke|artifact_detect")
+    hits = [
+        str(f.relative_to(REPO_ROOT))
+        for f in _md_flow_files() + ts_files
+        if (pat_wiring if f == DEVOPS_SCAN_WIRING_FILE else pat).search(_text(f))
+    ]
     assert not hits, f"dropped stage names remain in: {hits}"
 
 
