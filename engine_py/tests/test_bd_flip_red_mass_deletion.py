@@ -14,7 +14,6 @@ Do NOT implement the contract here — RED-only file.
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -36,6 +35,9 @@ ENV_TOKENS = (
 def _clean_env(monkeypatch):
     for tok in ENV_TOKENS:
         monkeypatch.delenv(tok, raising=False)
+        suffix = tok[len("HAL_"):]
+        for prefix in ("BD_", "BYTEDIGGER_"):
+            monkeypatch.delenv(prefix + suffix, raising=False)
 
 
 # ─── helpers (copied from test_gh282_red_mass_deletion.py) ────────────────────
@@ -231,13 +233,64 @@ def test_ac6_gate_zero_turns_gate_fully_off(tmp_path: Path, monkeypatch) -> None
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_ac7_flip_horizon_check_exits_zero() -> None:
-    proc = subprocess.run(
-        [sys.executable, "scripts/flip_horizon.py", "--check"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
+def test_ac7_horizon_token_and_ledger_entry_removed_together() -> None:
+    import datetime
+    import importlib.util
+    import inspect
+    import json
+
+    from bytedigger_engine import flags_catalog
+    from bytedigger_engine.workflows import phase_5_implement
+
+    flag = "HAL_RED_MASS_DELETION_ENFORCE"
+    spec = importlib.util.spec_from_file_location(
+        "flip_horizon_under_test", REPO_ROOT / "scripts" / "flip_horizon.py"
     )
-    assert proc.returncode == 0, (
-        f"flip_horizon --check rc={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"
-    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    ledger = json.loads((REPO_ROOT / "scripts" / "flip_horizon_ledger.json").read_text())
+    problems = mod.check(flags_catalog.FLAGS, ledger, datetime.date(2026, 10, 3))
+
+    # (a) no guard problem line names the flag
+    assert not [p for p in problems if flag in p], problems
+    # (b) the ledger key is gone
+    assert flag not in ledger, "ledger entry must be deleted together with the catalog token"
+    # (c) the read site carries no flip-by token
+    assert "flip-by:" not in inspect.getsource(phase_5_implement._commit_red_tests)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AC9 — only exactly "0" disables; "false" still enforces
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_ac9_enforce_false_string_still_enforces(tmp_path: Path, monkeypatch) -> None:
+    repo, spec_file = _setup_deletion_repo(tmp_path)
+    monkeypatch.setenv("HAL_RED_MASS_DELETION_ENFORCE", "false")
+
+    result, captured = _run(tmp_path, monkeypatch, repo, spec_file)
+
+    assert result.status == "error"
+    assert result.error_code == "E_RED_MASS_DELETION"
+    events = [p for (n, p) in captured if n == "red_mass_deletion_check"]
+    assert len(events) == 1
+    assert events[0]["enforced"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AC10 — BD_ alias of the kill-switch restores warn-only
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_ac10_bd_alias_enforce_zero_restores_warn_only(tmp_path: Path, monkeypatch) -> None:
+    repo, spec_file = _setup_deletion_repo(tmp_path)
+    monkeypatch.setenv("BD_RED_MASS_DELETION_ENFORCE", "0")
+
+    result, captured = _run(tmp_path, monkeypatch, repo, spec_file)
+
+    assert result.error_code != "E_RED_MASS_DELETION"
+    events = [p for (n, p) in captured if n == "red_mass_deletion_check"]
+    assert len(events) == 1
+    assert events[0]["enforced"] is False
+    assert events[0]["violations_n"] >= 1

@@ -1,6 +1,6 @@
 # bd: HAL_RED_MASS_DELETION_ENFORCE defaults ON (kill-switch kept)
 
-**Status:** r1 spec (frozen before RED) · **Class:** SYSTEMATIC · **Chokepoint:** the one read site,
+**Status:** r2 spec (folds gate r1, see ...-gate-r1.md) · **Class:** SYSTEMATIC · **Chokepoint:** the one read site,
 `_commit_red_tests` in `workflows/phase_5_implement.py` (`_mdl_enforce`), and the one catalog entry.
 **Enforcement layer (Principle C):** deterministic gate in the engine (`E_RED_MASS_DELETION`,
 recoverable=False) plus the horizon guard from bd#221 (the overdue `flip-by` token and its ledger line
@@ -25,7 +25,7 @@ a kill-switch (`=0` restores warn-only), the pragma escape and the threshold sta
 2. In `_commit_red_tests` the read becomes `get_config().gate_enabled("HAL_RED_MASS_DELETION_ENFORCE")`
    (enabled unless exactly `"0"`). The stale `flip-by:2026-07-24` comment lines at the read site are
    rewritten without a token. No other behavior changes.
-3. `scripts/flip_horizon_ledger.json`: delete the `HAL_RED_MASS_DELETION_ENFORCE` line.
+3. `scripts/flip_horizon_ledger.json`: the `HAL_RED_MASS_DELETION_ENFORCE` line STAYS through spec and RED (so the base guard test stays green) and is deleted in GREEN together with the catalog token.
 4. `authorized-test-edits:` `engine_py/tests/test_gh282_red_mass_deletion.py`,
    `engine_py/tests/test_gh1600_red_tests_in_existing_file.py` (siblings that pinned default-OFF, §1a).
 
@@ -37,10 +37,14 @@ a kill-switch (`=0` restores warn-only), the pragma escape and the threshold sta
 - **AC4** env unset, same deletion but the post-RED file carries `# red-mass-deletion: allow` → not blocked by this gate (pragma escape unchanged).
 - **AC5** env unset, deletion below the threshold (e.g. 10 lines) → not blocked (no false positive), event shows `enforced: true`, `violations_n == 0`.
 - **AC6** `HAL_RED_MASS_DELETION_GATE=0` with the AC2 fixture → gate fully off, no check event.
-- **AC7** `python3 scripts/flip_horizon.py --check` exits 0 on the branch (token and ledger line removed together).
+- **AC7** `flip_horizon.check(FLAGS, ledger, today)` reports no problem line naming `HAL_RED_MASS_DELETION_ENFORCE`, and the key is absent from `scripts/flip_horizon_ledger.json` (asserted on the key and problem lines, not the whole-guard exit code, which goes red from 2026-10-18 because of the sibling flag's entry). Also asserts the `_commit_red_tests` source text contains no `flip-by:`.
+- **AC9** `HAL_RED_MASS_DELETION_ENFORCE="false"` with the AC2 fixture still enforces (enforced true, `E_RED_MASS_DELETION`).
+- **AC10** the alias `BD_RED_MASS_DELETION_ENFORCE=0` restores warn-only (same observable as AC3).
 - **AC8 (sibling migration)** in the two authorized files the tests that relied on default-OFF now set `HAL_RED_MASS_DELETION_ENFORCE=0` explicitly (gh282 AC6; gh1600 AC8d and AC10, whose discriminating shape needs GH282 not to fire first), and the catalog-kind assertion expects `"gate"`; every other assertion is unchanged.
 
 ## §3 Edge cases
+
+Sibling sweep (§1a, done): grep over engine_py/scripts/docs plus a scoped run with the flip applied of 10 other `_commit_red_tests` callers and 36 flag/rollout test files found no other reliance on default-OFF; `test_gh282_pragma_escape.py` sets `=1` explicitly (unaffected). ERROR_CODES.md text does not mention ENFORCE. Release note / PR body mention the `=0` kill-switch.
 
 `ENFORCE=1` still enforces (gate_enabled is true for any value but `"0"`). A value like `"false"` is enabled — same contract as every other kill-switch gate in the catalog.
 
