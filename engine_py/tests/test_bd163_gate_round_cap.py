@@ -94,15 +94,18 @@ def _ctx(tmp_path: Path, **org: Any) -> WorkflowContext:
     )
 
 
-def _workflow() -> WorkflowDefinition:
+def _workflow(gate_budget_ok: bool = False) -> WorkflowDefinition:
     """step0 always asks for a retry; its cycle_count is the cycle the engine
     forwarded (prev["cycle"]), so the real loop advances 1, 2, 3 ..."""
 
     def step0(ctx, prev):
         cc = int(prev.get("cycle", 1)) if isinstance(prev, dict) else 1
+        data = {"retry_from_step": 0, "cycle_count": cc}
+        if gate_budget_ok:
+            data["gate_budget_ok"] = True
         return StepResult(
             status="error",
-            data={"retry_from_step": 0, "cycle_count": cc},
+            data=data,
             duration_ms=0,
             step_name="step0",
             error_code="E_BD163_LEGACY_RETRY",
@@ -118,11 +121,15 @@ def _workflow() -> WorkflowDefinition:
     )
 
 
-def _run(tmp_path, *, engine=None, run_id="bd163-run", cycle=1, initial=None, **org):
+def _run(tmp_path, *, engine=None, run_id="bd163-run", cycle=1, initial=None, gate_budget_ok=False, **org):
     log = engine._event_log if engine is not None else _FakeEventLog()
     eng = engine or WorkflowEngine(event_log=log)
+    # execute() sets these per run (engine.py:300); direct seam must seed them.
+    eng._rework_cycle_high = 1
+    eng._rework_last_step = None
     result = eng._execute_steps(
-        _workflow(), _ctx(tmp_path, **org), run_id, initial_data=initial, start_step=0, cycle=cycle
+        _workflow(gate_budget_ok), _ctx(tmp_path, **org), run_id,
+        initial_data=initial, start_step=0, cycle=cycle,
     )
     return eng, log, result
 
@@ -204,8 +211,13 @@ def test_ac2_error_code_registered_everywhere_and_resume_stops(tmp_path):
 
     assert "E_GATE_ROUND_CAP" in ERROR_CODES
     assert "E_GATE_ROUND_CAP" in _STOP_CODES
-    md = (ENGINE_PKG / "ERROR_CODES.md").read_text(encoding="utf-8")
-    assert "`E_GATE_ROUND_CAP`" in md
+    from bytedigger_engine.error_codes import render_markdown
+
+    rendered = render_markdown()
+    for md_path in (ENGINE_PKG / "ERROR_CODES.md", ENGINE_PKG.parent / "ERROR_CODES.md"):
+        md = md_path.read_text(encoding="utf-8")
+        assert "`E_GATE_ROUND_CAP`" in md, md_path
+        assert md == rendered, f"{md_path} not byte-identical to render_markdown()"
 
     path = tmp_path / "events.jsonl"
     EventLog(path).append(
@@ -313,6 +325,65 @@ def test_ac4_provider_without_method_is_no_table_no_warning(tmp_path, no_llm):
     _, log, result = _run(tmp_path, gate_tier="MICRO")
     assert result.error_code == "E_BD163_LEGACY_RETRY"
     assert log.of_type("gate_round_cap_resolved")[0]["source"] == "default"
+    assert log.of_type("gate_round_cap_provider_unavailable") == []
+    assert log.of_type("gate_round_cap_table_invalid") == []
+
+
+def test_ac4_provider_raising_falls_through_to_env_table(tmp_path, monkeypatch, no_llm):
+    class _Down(_DefaultConfigProvider):
+        def gate_round_caps(self):
+            raise RuntimeError("provider down")
+
+    config_provider.set_default_config_provider_factory(_Down)
+    monkeypatch.setenv("BD_GATE_ROUND_CAPS", json.dumps({"MICRO": 1}))
+    _, log, result = _run(tmp_path, gate_tier="MICRO")
+    assert len(log.of_type("gate_round_cap_provider_unavailable")) == 1
+    r = log.of_type("gate_round_cap_resolved")[0]
+    assert (r["cap"], r["source"]) == (1, "table")
+    assert result.error_code == "E_GATE_ROUND_CAP"
+
+
+def test_malformed_first_source_does_not_fall_through(tmp_path, monkeypatch, no_llm):
+    monkeypatch.setenv("BD_GATE_ROUND_CAPS", json.dumps({"MICRO": 1}))
+    _, log, result = _run(tmp_path, gate_tier="MICRO", gate_round_caps="not json")
+    r = log.of_type("gate_round_cap_resolved")[0]
+    assert (r["cap"], r["source"]) == (2, "fallback")
+    assert len(log.of_type("gate_round_cap_table_invalid")) == 1
+    assert result.error_code == "E_BD163_LEGACY_RETRY"
+
+
+def test_empty_table_is_valid_default_no_warning(tmp_path, no_llm):
+    from bytedigger_engine.lib.gate_round_cap import resolve_gate_round_cap
+
+    cap = resolve_gate_round_cap("MICRO", {})
+    assert (cap.cap, cap.source, cap.warnings) == (2, "default", [])
+    _, log, _ = _run(tmp_path, gate_tier="MICRO", gate_round_caps={})
+    assert log.of_type("gate_round_cap_table_invalid") == []
+    assert log.of_type("gate_round_cap_resolved")[0]["source"] == "default"
+
+
+def test_unmatched_invalid_entry_is_ignored(no_llm):
+    from bytedigger_engine.lib.gate_round_cap import resolve_gate_round_cap
+
+    cap = resolve_gate_round_cap("MICRO", {"MICRO": 1, "TIER2": "x", "TIER3": 99})
+    assert (cap.cap, cap.source, cap.warnings) == (1, "table", [])
+    nolabel = resolve_gate_round_cap(None, {"MICRO": 1})
+    assert (nolabel.cap, nolabel.source) == (2, "default")
+
+
+# --------------------------------------------------------------------------
+# gate_budget_ok pin (amendment r1): bounded by HARD_MAX only, not tier cap
+# --------------------------------------------------------------------------
+
+
+def test_gate_budget_ok_retries_bounded_by_hard_max_not_tier_cap(tmp_path, no_llm):
+    _, log, result = _run(
+        tmp_path, gate_budget_ok=True, gate_tier="MICRO", gate_round_caps={"MICRO": 1}
+    )
+    # allowed at cycle_count 1 despite cap 1; denied only at cycle_count 6
+    assert _retry_cycles(log) == [2, 3, 4, 5, 6]
+    assert result.error_code == "E_BD163_LEGACY_RETRY"
+    assert log.of_type("gate_round_cap_exceeded") == []
 
 
 # --------------------------------------------------------------------------
