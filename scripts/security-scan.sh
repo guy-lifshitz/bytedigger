@@ -76,7 +76,7 @@ scan_file() {
   local file="$1" cat pat out
   for cat in AUTH CRYPTO SECRETS DATA INFRA; do
     eval "pat=\$PAT_$cat"
-    out="$(grep -m1 -n -I -iE -e "$pat" -- "$file" 2>/dev/null || true)"
+    out="$(grep -m1 -n -a -iE -e "$pat" -- "$file" 2>/dev/null || true)"
     [[ -n "$out" ]] && note_hit "$cat" "$file:${out%%:*}"
   done
   return 0
