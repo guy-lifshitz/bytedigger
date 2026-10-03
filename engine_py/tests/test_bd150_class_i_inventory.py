@@ -19,7 +19,7 @@ AC6  test_ac6_s10c_prior_ship_base_declared
      test_ac6_s10c_stale_sidecar_declares_nothing
 AC7  test_ac7_r1_postfix_report_declared[small|tail_capped]
      test_ac7_r1_absent_or_empty_report_declares_nothing
-AC8  test_ac8_prompt_bytes_unchanged[f1_integrity|f2_synthesizer|s10c|r1]
+AC8  test_ac8_prompt_bytes_unchanged[f1_integrity|s10c|r1]
 AC9  test_ac9_fragment_block_helpers_equal_legacy_views
      test_ac9_missing_security_fragment_still_raises
 AC10 test_ac10_real_tree_passes_lint
@@ -283,10 +283,6 @@ def _d_fix_integrity(env, **x):
         env.ctx(pre_fix_sha=env.base_sha, fix_commit_sha=fix_sha, diff_patterns=["*.txt"], **x), None)
 
 
-def _d_synthesizer(env, **x):
-    return _mod("phase_7_synthesize")._build_synthesizer_prompt(env.ctx(**x), None)
-
-
 def _d_spec_writer(env, prev=None, **x):
     return _mod("phase_45_spec")._build_spec_prompt(env.ctx(**x), prev if prev is not None else _prev())
 
@@ -302,7 +298,6 @@ _F1_BUILDERS = {
 _F2_BUILDERS = {
     "phase_5_red": _d_red,
     "phase_5_green": _d_green,
-    "phase_7_synthesizer": _d_synthesizer,
 }
 
 
@@ -324,7 +319,8 @@ def test_ac1_f1_prompt_fragment_declared(name, tmp_path) -> None:
 
 @pytest.mark.parametrize("name", sorted(_F2_BUILDERS))
 def test_ac2_f2_producer_fragment_declared(name, tmp_path) -> None:
-    """AC2 (F2): each of the 3 producer builders declares producer_prompt_fragment.md."""
+    """AC2 (F2): each of the 2 producer builders declares producer_prompt_fragment.md
+    (bd#89 P3c dropped the phase-7 synthesizer builder)."""
     built = _F2_BUILDERS[name](_Env(tmp_path / "run"))
     _assert_declares(built, F2_ID, _fragment_text("producer_prompt_fragment.md"))
 
@@ -534,17 +530,13 @@ def test_ac7_r1_absent_or_empty_report_declares_nothing(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 def _patch_record_to_none(monkeypatch) -> None:
-    for modname in ("phase_workflows_common", "phase_5_integrity", "phase_7_synthesize",
+    for modname in ("phase_workflows_common", "phase_5_integrity",
                     "phase_45_spec", "phase_6_review"):
         monkeypatch.setattr(_mod(modname), "_injected_blocks_record", lambda *a, **k: None, raising=False)
 
 
 def _ac8_f1_integrity(env):
     return _d_integrity(env)
-
-
-def _ac8_f2_synth(env):
-    return _d_synthesizer(env)
 
 
 def _ac8_s10c(env):
@@ -557,8 +549,8 @@ def _ac8_r1(env):
     return _d_review(env)
 
 
-@pytest.mark.parametrize("build", [_ac8_f1_integrity, _ac8_f2_synth, _ac8_s10c, _ac8_r1],
-                         ids=["f1_integrity", "f2_synthesizer", "s10c", "r1"])
+@pytest.mark.parametrize("build", [_ac8_f1_integrity, _ac8_s10c, _ac8_r1],
+                         ids=["f1_integrity", "s10c", "r1"])
 def test_ac8_prompt_bytes_unchanged(build, tmp_path, monkeypatch) -> None:
     """AC8: the prompt built with the declaration in place equals the prompt built with
     `_injected_blocks_record` patched to None (the record is data beside the prompt)."""

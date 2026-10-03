@@ -38,8 +38,7 @@ PARITY_TABLE = [
     ("review.fix", 900, None, None, None, "fix_llm_timeout_sec"),
     ("review.satisfaction", 600, 1000, 1500, None, "satisfaction_llm_timeout_sec"),
     ("fix_integrity.llm", 600, None, None, None, "fix_integrity_llm_timeout_sec"),
-    ("synthesize.llm", 600, None, None, None, "synthesizer_llm_timeout_sec"),
-]
+]  # synthesize.llm row retired by bd#89 P3c (phase 7 has no model call)
 
 
 # ---------------------------------------------------------------------------

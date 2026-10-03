@@ -526,20 +526,7 @@ _PHASE_PROFILE_CASES: list[tuple[str, str, object, list[str]]] = [
         },
         ["Read", "Write"],
     ),
-    # phase_7_synthesize._invoke_synthesizer_llm
-    (
-        "phase_7_synthesize",
-        "_invoke_synthesizer_llm",
-        lambda p: {
-            "prompt": "x",
-            "doc_path": str(p / "synthesize.md"),
-            "spec_path": str(p / "spec.md"),
-            "review_doc_path": str(p / "review.md"),
-            "fix_doc_path": str(p / "fix.md"),
-            "satisfaction_doc_path": str(p / "satisfaction.md"),
-        },
-        ["Read", "Write", "Glob"],
-    ),
+    # phase_7_synthesize._invoke_synthesizer_llm retired by bd#89 P3c (no model call).
 ]
 
 _PHASE_IDS = [

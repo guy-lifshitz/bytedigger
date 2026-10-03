@@ -24,7 +24,6 @@ from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E40
 from bytedigger_engine.workflows import phase_5_implement  # noqa: E402
 from bytedigger_engine.workflows import phase_6_review  # noqa: E402
 from bytedigger_engine.workflows import phase_45_spec  # noqa: E402
-from bytedigger_engine.workflows import phase_7_synthesize  # noqa: E402
 from bytedigger_engine.workflows import phase_5_integrity  # noqa: E402
 
 
@@ -238,17 +237,7 @@ def test_spec_prompt_includes_out_of_role_block(tmp_path):
     _assert_out_of_role(result, "_build_spec_prompt")
 
 
-# ─── T08: phase_7_synthesize._build_synthesizer_prompt ───────────────────────
-
-
-def test_synthesizer_prompt_includes_out_of_role_block(tmp_path):
-    scratch = tmp_path / "s"
-    _seed_injection(scratch)
-    ctx = _make_ctx(scratch)
-    result = phase_7_synthesize._build_synthesizer_prompt(ctx, None)
-    _assert_out_of_role(result, "_build_synthesizer_prompt")
-
-
+# T08 (phase_7_synthesize._build_synthesizer_prompt) retired by bd#89 P3c: no prompt.
 # T09-T11 (architect / explore / clarify) retired by bd#89 P2a: modules deleted.
 
 

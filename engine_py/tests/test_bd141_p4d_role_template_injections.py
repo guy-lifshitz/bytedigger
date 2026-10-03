@@ -27,7 +27,7 @@ AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_hidden_behind_executor_submit_declares  (the COMPLEX
        satisfaction pool path hands `invoke_llm_subprocess` to `executor.submit`:
        it is the 20th dispatch, counted separately from the 19 direct calls)
-AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<13 cases>]
+AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<12 cases>]
        (real producer output -> real invoke step -> module-attribute spy; covers
        the pool path with every submitted call, both phase_45_spec review
        dispatches, and phase_2's existing one as a guard; the
@@ -384,10 +384,6 @@ def _d_fix_integrity(env):
         env.ctx(pre_fix_sha=env.base_sha, fix_commit_sha=fix_sha, diff_patterns=["*.txt"]), None)
 
 
-def _d_synthesizer(env):
-    return _mod("phase_7_synthesize")._build_synthesizer_prompt(env.ctx(), None)
-
-
 _DRIVERS = {
     "phase_45_spec_writer": _d_spec_writer,
     "phase_45_spec_review": _d_spec_review,
@@ -400,9 +396,8 @@ _DRIVERS = {
     "phase_6_satisfaction": _d_satisfaction,
     "phase_6_decorr": _d_decorr,
     "phase_6_fix_integrity": _d_fix_integrity,
-    "phase_7_synthesizer": _d_synthesizer,
 }
-assert len(_DRIVERS) == 12
+assert len(_DRIVERS) == 11
 
 
 def _drive(name: str, root: Path, role_path: "Path | None") -> StepResult:
@@ -584,9 +579,10 @@ def test_ac5_every_dispatch_declares_injections() -> None:
 def test_ac5_dispatch_call_count_is_pinned() -> None:
     """Guard: 15 after bd#89 P2a (phases 1-4 dropped: 4 sites removed, + the dropped phase_2_explore).
     bd#91: −1 (phase_45_spec spec-review re-poll removed).
+    bd#89 P3c: −1 (phase_7_synthesize synthesizer dispatch removed).
     A new call site is a visible change."""
     rows = _scan_dispatches()
-    assert len(rows) == 14, f"direct dispatch count changed: {len(rows)} (expected 14): {rows}"
+    assert len(rows) == 13, f"direct dispatch count changed: {len(rows)} (expected 13): {rows}"
 
 
 def test_ac5_dispatch_hidden_behind_executor_submit_declares() -> None:
@@ -755,7 +751,6 @@ _MATRIX = {
     "phase_6_review:3044-pool": (_d_satisfaction_complex, "phase_6_review", "_invoke_satisfaction_llm", {"complexity": "COMPLEX"}, "x", 3, False, (_F1,)),
     "phase_6_review:5514": (_d_decorr, "phase_6_review", "_invoke_decorr_llm", {}, "x", 1, False, ()),
     "phase_6_fix_integrity:600": (_d_fix_integrity, "phase_6_fix_integrity", "_invoke_fix_integrity_llm", {}, "x", 1, False, (_F1,)),
-    "phase_7_synthesize:576": (_d_synthesizer, "phase_7_synthesize", "_invoke_synthesizer_llm", {}, "x", 1, False, (_F2,)),
 }
 
 

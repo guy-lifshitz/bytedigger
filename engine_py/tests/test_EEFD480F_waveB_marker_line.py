@@ -7,7 +7,7 @@ top level — so the file COLLECTS cleanly and tests FAIL at assertion time, not
 at collection-time ImportError.
 
 The phase parse functions (_parse_review_verdict, _parse_fix_status,
-_parse_synthesizer_status, _parse_status_marker) DO exist today, so they are
+_parse_status_marker) DO exist today, so they are
 imported normally (top-level from their modules).  Their NEW prose-ignoring
 behaviour only activates after GREEN routes them through P2.
 
@@ -21,7 +21,6 @@ from __future__ import annotations
 # Top-level imports: phase modules that already exist (GREEN changes their
 # internal routing but keeps public signatures and module paths identical).
 from bytedigger_engine.workflows.phase_6_review import _parse_review_verdict, _parse_fix_status  # noqa: E402
-from bytedigger_engine.workflows.phase_7_synthesize import _parse_synthesizer_status  # noqa: E402
 
 # ─── ACB1: P2 — line-start match vs prose-embedded non-match ─────────────────
 
@@ -242,36 +241,8 @@ def test_acb_p2_fix_status_standalone_complete_wins_over_prose_blocked():
     )
 
 
-# ─── ACB-P3: phase_7_synthesize tightening — prose-quoted status does not win ─
-#
-# §1y: Point = _parse_synthesizer_status body (phase_7_synthesize.py),
-#       Host = function itself,
-#       Test-path = direct call with crafted raw string.
-
-
-def test_acb_p3_synthesizer_standalone_done_wins_over_prose_blocked():
-    """ACB-P3: standalone STATUS: DONE followed by prose-embedded STATUS: BLOCKED
-    must return STATUS_DONE; rfind bug would return STATUS_BLOCKED."""
-    raw = (
-        "Synthesis complete.\n"
-        "STATUS: DONE\n"
-        "Note: an earlier draft quoted `STATUS: BLOCKED` in a cautionary note.\n"
-    )
-    result = _parse_synthesizer_status(raw)
-    # STATUS_DONE = "DONE"
-    assert result == "DONE", (
-        f"prose-embedded STATUS: BLOCKED after standalone STATUS: DONE must not "
-        f"override; got {result!r} (rfind bug still present)"
-    )
-
-
-def test_acb_p3_synthesizer_no_marker_returns_no_marker_sentinel():
-    """ACB-P3 parity: no status marker → STATUS_NO_MARKER ('NO_MARKER')."""
-    result = _parse_synthesizer_status("No status here.\n")
-    # STATUS_NO_MARKER = "NO_MARKER"
-    assert result == "NO_MARKER", (
-        f"absent marker should return NO_MARKER; got {result!r}"
-    )
+# ACB-P3 (phase_7_synthesize._parse_synthesizer_status) retired by bd#89 P3c: the
+# synthesizer STATUS marker and its parser are gone with the LLM step.
 
 
 # ACB-P4 (phase_2_explore / phase_3_clarify `_parse_status_marker` tightening)

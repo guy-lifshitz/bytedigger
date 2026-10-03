@@ -86,15 +86,12 @@ def test_phase_45_spec_imports_atomic_write():
 # phase_1 / phase_4 AC5 write-site spies retired by bd#89 P2a (modules deleted).
 
 
-def test_phase_7_write_synthesizer_artifact_uses_atomic_write(tmp_path, monkeypatch):
-    """AC5: phase_7 _write_synthesizer_artifact invokes atomic_write with (doc_path, content).
-
-    prev.data shape (from phase_7_synthesize.py:531-542):
-      raw_response, doc_path, spec_path, review_doc_path,
-      fix_doc_path, satisfaction_doc_path.
+def test_phase_7_write_post_deploy_report_uses_atomic_write(tmp_path, monkeypatch):
+    """AC5 (bd#89 P3c re-point): the phase_7 ``write_post_deploy_report`` step writes
+    the report through atomic_write with (doc_path, content), exactly once.
     """
     from bytedigger_engine.workflows import phase_7_synthesize
-    from bytedigger_engine.contracts import StepResult
+    from bytedigger_engine.contracts import WorkflowContext
 
     calls = []
 
@@ -105,28 +102,23 @@ def test_phase_7_write_synthesizer_artifact_uses_atomic_write(tmp_path, monkeypa
 
     monkeypatch.setattr(phase_7_synthesize, "atomic_write", spy)
 
-    raw = "## STATUS: SHIP\nsynthesizer body\n"
-    doc_path = tmp_path / "scratch" / "synthesize" / "report.md"
-    prev = StepResult(
-        status="ok",
-        data={
-            "raw_response": raw,
-            "doc_path": str(doc_path),
-            "spec_path": str(tmp_path / "spec.md"),
-            "review_doc_path": str(tmp_path / "review.md"),
-            "fix_doc_path": str(tmp_path / "fix.md"),
-            "satisfaction_doc_path": str(tmp_path / "satisfaction.md"),
-        },
-        duration_ms=0,
-        step_name="invoke_synthesizer_llm",
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    ctx = WorkflowContext(
+        tenant_id="hal", scope=None, db_path=None,
+        org_config={"scratchpad_dir": str(scratch)},
+        question="Add foo to bar", session_id="s", persona="hal",
+        framework=None, domain=None,
     )
-    from bytedigger_engine.workflows.phase_7_synthesize import _write_synthesizer_artifact
-    _write_synthesizer_artifact(None, prev)
+    wf = phase_7_synthesize.phase_7_synthesize_workflow()
+    step = next((s for s in wf.steps if s.name == "write_post_deploy_report"), None)
+    assert step is not None, f"no write_post_deploy_report step; steps: {[s.name for s in wf.steps]}"
+    step.execute(ctx, None)
 
     assert len(calls) == 1, f"expected atomic_write called once, got {len(calls)}"
     called_path, called_content = calls[0]
-    assert called_path == doc_path
-    assert called_content == raw
+    assert called_path == scratch.resolve() / "post-deploy" / "post-deploy-report.md"
+    assert called_content.startswith("# Post-Deploy Report")
 
 
 # ─── AC6: phase_45_spec and _lite no longer define _atomic_write ─────────────

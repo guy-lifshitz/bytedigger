@@ -1,35 +1,34 @@
-"""RED tests — GH450: phase_7 synthesizer resumed-run context rehydration.
+"""GH450: phase_7 resumed-run context rehydration (digest behaviour kept).
 
 Spec: SHARED/memory/Decisions/2026-07-09_GH450_synth_resume_context_spec.md
 
-Covers AC1-AC7. AC8 (existing suite green) is orchestrator's suite run, not
-covered here.
+bd#89 P3c re-point: the phase-7 prompt is gone (the engine writes the report from
+the event log), so the prompt-embedding asserts of AC1-AC3, AC5 and AC7 became
+report-text asserts on ``post-deploy/post-deploy-report.md``, and the digest
+helpers ``_collect_completed_phases`` / ``_completed_phase_digest`` keep their
+direct tests. Retired: AC4 (the empty-diff / ``git log --stat -10`` prompt
+guidance; the report has no prompt and no git call).
 
-Per §1q ext (D1CF5FDF): the not-yet-existing symbol `_completed_phase_digest`
-is accessed via getattr() INSIDE test bodies (never at module import time) so
-this file collects cleanly and fails at assert time, not collection time.
+The report step is reached through the workflow definition by name; a missing
+step fails that test only. No ``sys.path`` manipulation.
 """
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
-import pytest
-
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE.parent))
-
-from bytedigger_engine.contracts import WorkflowContext  # noqa: E402
-from bytedigger_engine import derive_state as ds  # noqa: E402
-from bytedigger_engine.workflows import phase_7_synthesize as p7  # noqa: E402
-from bytedigger_engine.workflows.phase_7_synthesize import (  # noqa: E402
+from bytedigger_engine.contracts import WorkflowContext
+from bytedigger_engine import derive_state as ds
+from bytedigger_engine.workflows import phase_7_synthesize as p7
+from bytedigger_engine.workflows.phase_7_synthesize import (
     FIX_DOC_RELPATH,
+    REPORT_DOC_RELPATH,
     REVIEW_DOC_RELPATH,
     SATISFACTION_DOC_RELPATH,
     SPEC_DOC_RELPATH,
-    _build_synthesizer_prompt,
 )
+
+_STEP = "write_post_deploy_report"
 
 
 def make_ctx(scratchpad: Path, *, question: str = "Add foo to bar", **org_extra) -> WorkflowContext:
@@ -81,67 +80,72 @@ _RESUMED_EVENTS = [
 ]
 
 
-def _get_digest_fn():
-    fn = getattr(p7, "_completed_phase_digest", None)
-    assert fn is not None, (
-        "phase_7_synthesize._completed_phase_digest does not exist yet "
-        "(GH450 fix not implemented) — see spec §2.1"
-    )
-    return fn
+def _run_report(ctx: WorkflowContext):
+    """Run the one deterministic phase-7 step; return (StepResult, report text)."""
+    wf = p7.phase_7_synthesize_workflow()
+    step = next((s for s in wf.steps if s.name == _STEP), None)
+    assert step is not None, f"phase_7 has no step {_STEP!r}; steps: {[s.name for s in wf.steps]}"
+    result = step.execute(ctx, None)
+    scratchpad = Path(ctx.org_config["scratchpad_dir"])
+    return result, (scratchpad / REPORT_DOC_RELPATH).read_text(encoding="utf-8")
 
 
-def test_ac1_completed_phases_block_present_with_phases(tmp_path, monkeypatch):
-    """AC1: resumed-run fixture -> prompt has COMPLETED PHASES block + phase_5_implement line."""
+def _completed_section(text: str) -> str:
+    head = "## Completed Phases"
+    assert head in text, text
+    return text.split(head, 1)[1].split("\n## ", 1)[0]
+
+
+def test_ac1_completed_phases_listed_in_report(tmp_path, monkeypatch):
+    """AC1: resumed-run fixture -> report lists the completed phases."""
     log_path = tmp_path / "build-events.jsonl"
     _write_events(log_path, _RESUMED_EVENTS)
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
 
     scratchpad = tmp_path / "scratch"
     _seed_all_docs(scratchpad)
-    result = _build_synthesizer_prompt(make_ctx(scratchpad), None)
+    _, report = _run_report(make_ctx(scratchpad))
 
-    prompt = result.data["prompt"]
-    assert "COMPLETED PHASES (engine-derived from event log — authoritative):" in prompt
-    assert "- phase_5_implement" in prompt
-    assert "- phase_45_spec" in prompt
-    assert "- phase_6_review" in prompt
+    section = _completed_section(report)
+    assert "- phase_5_implement" in section
+    assert "- phase_45_spec" in section
+    assert "- phase_6_review" in section
 
 
-def test_ac2_digest_excludes_phase_7_self(tmp_path, monkeypatch):
-    """AC2: literal '- phase_7_synthesize' absent from the COMPLETED PHASES block."""
+def test_ac2_report_excludes_phase_7_self(tmp_path, monkeypatch):
+    """AC2: literal '- phase_7_synthesize' absent from the Completed Phases section."""
     log_path = tmp_path / "build-events.jsonl"
     _write_events(log_path, _RESUMED_EVENTS)
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
 
     scratchpad = tmp_path / "scratch"
     _seed_all_docs(scratchpad)
-    result = _build_synthesizer_prompt(make_ctx(scratchpad), None)
+    _, report = _run_report(make_ctx(scratchpad))
 
-    prompt = result.data["prompt"]
-    assert "COMPLETED PHASES (engine-derived from event log — authoritative):" in prompt
-    assert "- phase_7_synthesize" not in prompt
+    section = _completed_section(report)
+    assert "- phase_5_implement" in section
+    assert "- phase_7_synthesize" not in report
 
 
 def test_ac3_artifacts_on_disk_all_present(tmp_path, monkeypatch):
-    """AC3a: all 4 docs present -> ARTIFACTS ON DISK block shows all PRESENT."""
+    """AC3a: all 4 docs present -> Artifacts section shows all PRESENT."""
     log_path = tmp_path / "build-events.jsonl"
     _write_events(log_path, _RESUMED_EVENTS)
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
 
     scratchpad = tmp_path / "scratch"
     _seed_all_docs(scratchpad)
-    result = _build_synthesizer_prompt(make_ctx(scratchpad), None)
+    _, report = _run_report(make_ctx(scratchpad))
 
-    prompt = result.data["prompt"]
-    assert "ARTIFACTS ON DISK (engine-verified):" in prompt
-    assert "spec: PRESENT" in prompt
-    assert "review: PRESENT" in prompt
-    assert "fix: PRESENT" in prompt
-    assert "satisfaction: PRESENT" in prompt
+    assert "## Artifacts" in report
+    assert "spec: PRESENT" in report
+    assert "review: PRESENT" in report
+    assert "fix: PRESENT" in report
+    assert "satisfaction: PRESENT" in report
 
 
 def test_ac3_artifacts_on_disk_review_missing(tmp_path, monkeypatch):
-    """AC3b: review doc deleted -> ARTIFACTS ON DISK shows review: MISSING."""
+    """AC3b: review doc deleted -> Artifacts section shows review: MISSING."""
     log_path = tmp_path / "build-events.jsonl"
     _write_events(log_path, _RESUMED_EVENTS)
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
@@ -149,32 +153,14 @@ def test_ac3_artifacts_on_disk_review_missing(tmp_path, monkeypatch):
     scratchpad = tmp_path / "scratch"
     _seed_all_docs(scratchpad)
     (scratchpad / REVIEW_DOC_RELPATH).unlink()
-    result = _build_synthesizer_prompt(make_ctx(scratchpad), None)
+    _, report = _run_report(make_ctx(scratchpad))
 
-    prompt = result.data["prompt"]
-    assert "review: MISSING" in prompt
-    assert "spec: PRESENT" in prompt
-
-
-def test_ac4_resumed_run_diff_guidance_present(tmp_path, monkeypatch):
-    """AC4: prompt has the empty-diff-not-evidence sentence + git log --stat -10."""
-    log_path = tmp_path / "build-events.jsonl"
-    log_path.write_text("")
-    monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
-
-    scratchpad = tmp_path / "scratch"
-    _seed_all_docs(scratchpad)
-    result = _build_synthesizer_prompt(make_ctx(scratchpad), None)
-
-    prompt = result.data["prompt"]
-    assert "an empty working diff is NOT evidence the build halted" in prompt
-    assert "git log --stat -10" in prompt
+    assert "review: MISSING" in report
+    assert "spec: PRESENT" in report
 
 
-def test_ac5_fresh_run_no_completed_phases_block_and_empty_list(tmp_path, monkeypatch):
-    """AC5: empty/absent events.jsonl -> digest '' , no COMPLETED PHASES line, data key []."""
-    digest_fn = _get_digest_fn()
-
+def test_ac5_fresh_run_no_completed_phases_digest_and_empty_list(tmp_path, monkeypatch):
+    """AC5: empty events.jsonl -> digest '', collected list [], report says none recorded."""
     log_path = tmp_path / "build-events.jsonl"
     log_path.write_text("")
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
@@ -183,17 +169,16 @@ def test_ac5_fresh_run_no_completed_phases_block_and_empty_list(tmp_path, monkey
     _seed_all_docs(scratchpad)
     ctx = make_ctx(scratchpad)
 
-    assert digest_fn(ctx) == ""
+    assert p7._completed_phase_digest(ctx) == ""
+    assert p7._collect_completed_phases(ctx) == []
 
-    result = _build_synthesizer_prompt(ctx, None)
-    prompt = result.data["prompt"]
-    assert "COMPLETED PHASES" not in prompt
+    result, report = _run_report(ctx)
     assert result.data["completed_phases"] == []
+    assert "none recorded" in _completed_section(report)
 
 
 def test_ac6_default_log_path_raises_best_effort_guard(tmp_path, monkeypatch):
-    """AC6: default_log_path raising -> digest '' and prompt build still status ok."""
-    digest_fn = _get_digest_fn()
+    """AC6: default_log_path raising -> digest '' and the report step still status ok."""
 
     def _raise():
         raise RuntimeError("boom")
@@ -204,24 +189,28 @@ def test_ac6_default_log_path_raises_best_effort_guard(tmp_path, monkeypatch):
     _seed_all_docs(scratchpad)
     ctx = make_ctx(scratchpad)
 
-    assert digest_fn(ctx) == ""
+    assert p7._completed_phase_digest(ctx) == ""
+    assert p7._collect_completed_phases(ctx) == []
 
-    result = _build_synthesizer_prompt(ctx, None)
+    result, _ = _run_report(ctx)
     assert result.status == "ok"
 
 
-def test_ac7_completed_phases_data_key_deduped_first_seen_order(tmp_path, monkeypatch):
-    """AC7: data["completed_phases"] == first-seen deduped order, phase_5_implement dedup'd."""
+def test_ac7_completed_phases_deduped_first_seen_order(tmp_path, monkeypatch):
+    """AC7: collected list and result data are first-seen deduped; phase_5_implement once."""
     log_path = tmp_path / "build-events.jsonl"
     _write_events(log_path, _RESUMED_EVENTS)
     monkeypatch.setattr(ds, "default_log_path", lambda: log_path, raising=False)
 
     scratchpad = tmp_path / "scratch"
     _seed_all_docs(scratchpad)
-    result = _build_synthesizer_prompt(make_ctx(scratchpad), None)
+    ctx = make_ctx(scratchpad)
+    expected = ["phase_45_spec", "phase_5_implement", "phase_6_review"]
 
-    assert result.data["completed_phases"] == [
-        "phase_45_spec",
-        "phase_5_implement",
-        "phase_6_review",
-    ]
+    assert p7._collect_completed_phases(ctx) == expected
+    digest = p7._completed_phase_digest(ctx)
+    assert digest.splitlines()[0].startswith("COMPLETED PHASES")
+    assert [ln.strip()[2:] for ln in digest.splitlines()[1:]] == expected
+
+    result, _ = _run_report(ctx)
+    assert result.data["completed_phases"] == expected

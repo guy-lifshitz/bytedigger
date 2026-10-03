@@ -177,8 +177,8 @@ _A5_CASES = {
     "5.1": ("", "missing artifact: build-red-output.log; "),
     "5.2": ("", f"opus_validation=pass {_MISS}; phase_52a_gherkin=complete {_MISS}; "),
     "5.5": ("test_integrity_check: \n", "test_integrity_check has no value; "),
-    "7": ("", f"review_complete=pass {_MISS}; "
-              "missing deliverable: {S}/reviews/learnings-raw.md; "),
+    # bd#89 P3c: the learnings-raw.md deliverable row is gone from gate 7.
+    "7": ("", f"review_complete=pass {_MISS}; "),
 }
 
 
