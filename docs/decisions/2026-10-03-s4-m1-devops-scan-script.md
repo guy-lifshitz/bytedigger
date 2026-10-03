@@ -2,7 +2,7 @@
 
 **Status: FROZEN r3 (gate r3 PASS, non-blocking minors in `-gate-r3.md`)** · was DRAFT r3 (gate r1 REJECT 7 MAJOR; gate r2 REJECT 6 MAJOR: `2026-10-03-s4-m1-gate-r1.md`, `-gate-r2.md`)** · **Tier:** 2 (new standalone `scripts/*.py`, no engine registry, no flag) · **Class:** SECURITY (IaC/Dockerfile severity gate)
 **Chokepoint:** `scripts/devops_scan.py` main(): the only place a scan verdict is produced; exit code is the verdict.
-**Provenance:** HAL GH#342 A+B (PR #360, PM GH342B 2026-07-05): the severity gate was fail-open (findings and scanner malfunction both swallowed as ok), fixed to fail-closed. bd#176 (892bb0f, bd#89 P1) deleted the engine stage `phase_5_devops_scan`; the audit hal#2320 §6 row M1 found the class (CRITICAL/HIGH in Dockerfile/IaC) left with no layer, verdict "в скрипт". Plan approved by Guy 2026-10-03 (audit repair step 4).
+**Provenance:** HAL GH#342 A+B (PR #360, PM GH342B 2026-07-05): the severity gate was fail-open (findings and scanner malfunction both swallowed as ok), fixed to fail-closed. bd#176 (892bb0f, bd#89 P1) deleted the engine stage `phase_5_devops_scan`; the audit hal#2320 §6 row M1 found the class (CRITICAL/HIGH in Dockerfile/IaC) left with no layer, verdict "to script". Plan approved by Guy 2026-10-03 (audit repair step 4).
 **Principles:** script first, no LLM reviewer, provider-agnostic (no `claude`, no API key, no HAL path, no bun), RED first, nothing added to the engine registry or `flags_catalog`.
 
 ## 1. Contract
