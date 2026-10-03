@@ -88,7 +88,9 @@ def test_phase_45_spec_imports_atomic_write():
 
 def test_phase_7_write_post_deploy_report_uses_atomic_write(tmp_path, monkeypatch):
     """AC5 (bd#89 P3c re-point): the phase_7 ``write_post_deploy_report`` step writes
-    the report through atomic_write with (doc_path, content), exactly once.
+    the report through atomic_write with (doc_path, content), exactly once. The step
+    also writes reviews/learnings-raw.md via atomic_write (spec section 10), so
+    atomic_write is called twice in total: one report call and one learnings call.
     """
     from bytedigger_engine.workflows import phase_7_synthesize
     from bytedigger_engine.contracts import WorkflowContext
@@ -115,10 +117,14 @@ def test_phase_7_write_post_deploy_report_uses_atomic_write(tmp_path, monkeypatc
     assert step is not None, f"no write_post_deploy_report step; steps: {[s.name for s in wf.steps]}"
     step.execute(ctx, None)
 
-    assert len(calls) == 1, f"expected atomic_write called once, got {len(calls)}"
-    called_path, called_content = calls[0]
-    assert called_path == scratch.resolve() / "post-deploy" / "post-deploy-report.md"
-    assert called_content.startswith("# Post-Deploy Report")
+    assert len(calls) == 2, f"expected atomic_write called twice, got {len(calls)}"
+    report_path = scratch.resolve() / "post-deploy" / "post-deploy-report.md"
+    learnings_path = scratch.resolve() / "reviews" / "learnings-raw.md"
+    report_calls = [c for c in calls if c[0] == report_path]
+    learnings_calls = [c for c in calls if c[0] == learnings_path]
+    assert len(report_calls) == 1, f"expected one report write, got {len(report_calls)}"
+    assert report_calls[0][1].startswith("# Post-Deploy Report")
+    assert len(learnings_calls) == 1, f"expected one learnings write, got {len(learnings_calls)}"
 
 
 # ─── AC6: phase_45_spec and _lite no longer define _atomic_write ─────────────

@@ -126,14 +126,14 @@ Process: Collect ALL issues (single list) → Task agent fixes EVERY finding →
 
 **Entry Gate:** `review_complete: pass` exists
 
-**7.1 Summary:** Launch Haiku with: original request | files modified | review verdicts | spec → What was built (3-5 bullets) + learnings. **AUTONOMOUS:** log output only, do NOT stop for user review. **SUPERVISED:** present to user before proceeding.
+**7.1 Summary:** The engine writes `post-deploy/post-deploy-report.md` and `reviews/learnings-raw.md` deterministically from the event log and the scratchpad docs (no model). **AUTONOMOUS:** log the report path only, do NOT stop for user review. **SUPERVISED:** present the report to the user before proceeding.
 
 **Orchestrator flow:**
 1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)
-2. If mode == "AUTONOMOUS": log Haiku summary output to scratchpad, proceed immediately to learning extraction — no pause to present to user
-3. If mode == "SUPERVISED": present summary to user (What was built + learnings bullets), wait for acknowledgement, then proceed
+2. If mode == "AUTONOMOUS": log the report path, proceed immediately to the next step — no pause to present to user
+3. If mode == "SUPERVISED": present the report to user (What was built + learnings bullets), wait for acknowledgement, then proceed
 
-**7.1b Learning Extraction:** After synthesizer returns, run `bash scripts/learning-store.sh extract "$SCRATCHPAD"` — persists `reviews/learnings-raw.md` to `.bytedigger/learnings/`. Writes `learnings_extracted: <N>` to build-state.yaml. Gracefully exits 0 on any error.
+**7.1b Learning Extraction:** After the report is written, run `bash scripts/learning-store.sh extract "$SCRATCHPAD"` — persists `reviews/learnings-raw.md` to `.bytedigger/learnings/`. Writes `learnings_extracted: <N>` to build-state.yaml. Gracefully exits 0 on any error.
 
 **7.1c SHIP (if `--pr`):** `bash scripts/ship.sh --pr --state ./build-state.yaml` — commit, push, PR. It runs `readiness check --stage ship` first (verdict + consumption), so nothing leaves the machine unapproved. It ships every commit ahead of the base plus tracked changes (no hand-maintained file list needed) and writes the PR title and body from the spec and the review fields. When `required: true` (from the Phase 0 readiness read), any non-zero exit is STOP: set `current_phase: awaiting_approval` and `awaiting_stage: ship`, keep `build-state.yaml` and `build-metadata.json`, skip 7.2, print the verdict line and — for `no_spec_record` / `label_predates_spec` — the recovery `scripts/readiness post --spec ./build-spec.md`, then a human adds `<label>`, then `/build continue`. When `required: false`: best-effort, log a warning and continue.
 
