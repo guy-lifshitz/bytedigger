@@ -719,13 +719,17 @@ def test_ac12_no_other_md_names_review_fanout():
 
 
 def test_ac12_guard_reviewer_counts_untouched():
+    # bd#89 P3b1c section 5.1: the three count keys are gone from the config and both gate parsers.
     import json
 
     cfg = json.loads((REPO_ROOT / "bytedigger.json").read_text(encoding="utf-8"))
-    assert (cfg["simple_reviewers"], cfg["feature_reviewers"], cfg["complex_reviewers"]) == (3, 6, 6)
+    for key in ("simple_reviewers", "feature_reviewers", "complex_reviewers"):
+        assert key not in cfg, key
     assert cfg["reviewers"] == {"mode": "auto"}
     for rel in ("scripts/build-gate.sh", "scripts/ts/build-phase-gate.ts"):
-        assert "simple_reviewers" in (REPO_ROOT / rel).read_text(encoding="utf-8"), rel
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        for key in ("simple_reviewers", "feature_reviewers", "complex_reviewers"):
+            assert key not in text, (rel, key)
 
 
 # ─── AC13 test-corpus closure (GUARD once the sibling edits are made) ────────

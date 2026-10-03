@@ -1,0 +1,160 @@
+# bd#89 P3b1c: bring the orchestrator-flow md, the gate config parsers and `bytedigger.json` to the single-reviewer reality
+
+**Status: FROZEN r3** (gate r1 REJECTED, errata in §7 folded in) · **Tier:** 2 (md + shell + TS + json; no engine prod `.py`) · **Class:** PROCESS (doc/config drift removal; the engine has run one composite reviewer since #139/#198/#209) ·
+**Chokepoint:** the per-tier reviewer counts `simple_reviewers` / `feature_reviewers` / `complex_reviewers`. They are declared in `bytedigger.json`, parsed by both gate backends (`scripts/build-gate.sh:38-82`, `scripts/ts/build-phase-gate.ts:121-192`) and consumed by nothing (grep over the tree finds no reader). The md flow restates the same 3/6/7 numbers in five files. Removing the keys and rewriting the md removes the drift in one pass.
+**Side of the seam (decision 2026-07-26 §7.1):** orchestrator-flow md, gate scripts, plugin config and plugin docs. No engine prod `.py` (that is p3b2 / p3c / p3d).
+**Base:** `origin/main` `1e391ed`. **Source:** bd#89 row 2, plan comment 5955412867. Template: `2026-10-02-bd89-p3b1b-ii-aggregation-helper.md`.
+
+## §0 Scope size
+
+- 4 md files rewritten: `phases/phase-6-review.md`, `commands/build.md` (6.1 only), `phases/phase-0-classify.md` (one table row), `templates/dynamic-context.md` (the roster, which `commands/build.md` 6.1 points at).
+- 1 json: `bytedigger.json`. 2 gate sources: `scripts/build-gate.sh`, `scripts/ts/build-phase-gate.ts`.
+- 3 plugin docs touched: `docs/plugin.md` (config example + key list), `README.md:122` (one phrase). `docs/configuration.md:30-32` is p3b2's file: left as a follow-up (§4).
+- 1 RED file: `tests/test_bd89_p3b1c_single_reviewer_md_gates.py` (root `tests/`, python, reads files; no engine import) plus one TS test block in `scripts/ts/__tests__/post-review-gate.test.ts` and one bats case in `tests/build-gate.bats`.
+- 1 engine sibling test migrated: `engine_py/tests/test_bd89_p3b1_single_reviewer_only.py::test_ac12_guard_reviewer_counts_untouched` (§5).
+- Net: about -120 md/gate lines, +40 new test lines.
+
+## §1 Problem (measured on `1e391ed`)
+
+- `phases/phase-6-review.md` still has: the 6-row "Review Agent Policy by Complexity" table (`:76-85`, 3/4/6/7 agents), per-agent `reviews/{agent-name}.md` persistence with a resume rule keyed on `phase_6_reviewers_expected` (`:113-166`), "Step 1: Determine Reviewer Count" listing 7 named agents, "Launch ALL agents for your tier in parallel", the launched/expected count enforcement block with `phase_6_reviewers_launched` / `phase_6_reviewers_expected: <3|4|6|7>` (`:172-210`), the "2 Haiku Task agents" fallback, and a LAUNCH RULE that names a "reviewer panel" (`:19`).
+- The engine does something else: one composite reviewer writes `reviews/role-composite.md` (`_COMPOSITE_ROLE_FILE`, bd89 p3b1b-ii); `_select_reviewers` returns exactly `composite`; there is no count to check.
+- `commands/build.md:105-107` (6.1 "EXACT agents mandatory ... If launched != expected -> STOP"), `phases/phase-0-classify.md:289` (`3x reviewers | 6x reviewers | 6x reviewers`) and `templates/dynamic-context.md:14,22-27` (same row, the 3/6 roster, "Launch all parallel", `<3|4|6|7>`) repeat it. `phase-0-classify.md:89` says the tier changes "reviewer count".
+- Issue #128 notes COMPLEX+HIGH = 7 reviewers in one place and 9 in another. After this slice there is one reviewer everywhere, so the count part of #128 is gone (undefined `$CONSTITUTION_BLOCK` / `$QUALITY_GATE_BLOCK` are not touched).
+- `bytedigger.json:13-15` declares 3/6/6; both gate parsers read and default to them; `docs/plugin.md:84-86,119` documents them as "declared expectation only; not live knobs". `engine_py/tests/test_bd89_p3b1_single_reviewer_only.py:716-721` pins them as a GUARD ("untouched until the md slice").
+- Role files in the gates: neither gate parses `role-*.md` or counts reviewer files (grep of `scripts/` finds no `role-` token; the semantic-skip scan globs `*review*.md`). So "gates degrade on old-format artifacts" is already true; this spec pins it (AC9) instead of changing behaviour.
+- Decorrelated verifier: grep of every md/gate/json in this slice's scope finds **zero** mentions (the only non-engine hit is `docs/configuration.md`, p3b2's file). AC10 pins the absence so a later revert is caught.
+- Baseline on `1e391ed`: `bun test scripts/ts/__tests__` and `bats tests/build-gate.bats` recorded by the orchestrator before RED (§6); engine siblings in §5 recorded the same way.
+
+## §2 Design (pure deletion + rewording; no new behaviour)
+
+- **op1, phase-6 md.** In `phases/phase-6-review.md`:
+  - Replace the "Review Agent Policy by Complexity" table with a table whose reviewer column is the same for every row: `1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH)`; the satisfaction column keeps its current values (3 Opus evaluators for COMPLEX stays, out of scope).
+  - Rewrite "Scratchpad Persistence": the reviewer writes `{scratchpad_dir}/reviews/role-composite.md`; keep the VERDICT format and the confidence >=80 rule; resume rule becomes "if `reviews/role-composite.md` exists, do not re-run the reviewer". Old-format scratchpads that hold several `reviews/*.md` are ignored, not an error (one sentence).
+  - Replace "Step 1: Determine Reviewer Count" with "Step 1: Run the reviewer": one agent, no tier count, no parallel launch, no launched/expected enforcement, no 7-agent list, no Haiku fallback. Drop `phase_6_reviewers_launched`, `phase_6_reviewers_expected`; keep `security_review_enabled`.
+  - Fix wording that assumes many reviewers: LAUNCH RULE (`:19`: drop "reviewer panel"; keep the rule for fix agents and evaluators), "Collect ALL issues from ALL review agents" -> "from the reviewer", "Re-run affected review agents" -> "Re-run the reviewer", "REMAINING FINDINGS (from review agents)", the per-agent purpose statements and Runtime/Static reviewer split (`:28-64`) -> one reviewer section. "After ALL reviewers complete" -> "After the reviewer completes".
+  - **Unchanged:** Step 3 satisfaction scoring (incl. the 3 parallel Opus evaluators for COMPLEX), Step 4, Boy Scout rules, the post-review gate section.
+- **op2, build.md 6.1.** Replace the 6.1 block with: `6.1 Reviewer (one composite reviewer, every tier):` -> see `phases/phase-6-review.md`; drop "EXACT agents mandatory" and "If launched != expected -> STOP". In 6.2 "Re-run reviewers" -> "Re-run the reviewer". Other lines of build.md unchanged.
+- **op3, classify md + dynamic-context.** `phases/phase-0-classify.md`: the `6 Review` row reads `1x composite reviewer` in all three tiers; `:89` drops "reviewer count" from the knob list. `templates/dynamic-context.md`: same row; "Review Agent Roster" section becomes a one-line "Review Reviewer" section (one composite reviewer, no launch count). No `<3|4|6|7>` left.
+- **op4, config.** Delete `simple_reviewers`, `feature_reviewers`, `complex_reviewers` from `bytedigger.json`. Keep `reviewers.mode` (read by `loadConfig`, tested by P6-F10-*).
+- **op5, gate parsers (degrade, not fail).**
+  - `scripts/ts/build-phase-gate.ts`: remove the three fields from `BytediggerConfig`, the defaults and the `loadConfig` assignments, and `parseReviewerCount` (now unused). `loadConfig` must still accept a config file that carries the three legacy keys (extra keys are ignored by construction).
+  - `scripts/build-gate.sh`: remove `SIMPLE_/FEATURE_/COMPLEX_REVIEWERS` defaults, the three python `print`s and the three `grep|cut` assignments. A config that still carries the legacy keys must not change gate behaviour or exit code.
+- **op6, docs.** `docs/plugin.md`: delete the three keys from the JSON example (`:84-86`) and the key-list bullet (`:119`); add one sentence under `reviewers.mode`: "Phase 6 runs one composite reviewer for every tier; the former `simple_reviewers` / `feature_reviewers` / `complex_reviewers` keys were removed and are ignored if present in an existing config." `README.md:122`: drop "reviewer counts" from the list. `reviewers.mode` text unchanged.
+- **op7, CHANGELOG.** `[Unreleased]` / Removed bullet: the three config keys and their parsers; Changed bullet: phase-6 / build / classify / dynamic-context md now describe the single composite reviewer (partially addresses #128).
+
+## §3 Acceptance criteria. RED file: `tests/test_bd89_p3b1c_single_reviewer_md_gates.py` (+ the TS and bats cases in §3b)
+
+Reads the real repo files; no mocks. Gate behaviour ACs run the real scripts on `tmp_path` fixtures.
+
+- **AC1** `phases/phase-6-review.md` contains none of: `phase_6_reviewers_launched`, `phase_6_reviewers_expected`, `<3|4|6|7>`, `Determine Reviewer Count`, `Launch ALL agents`, `launch security-reviewer`, `2 Haiku`, `reviews/code-reviewer.md`, `reviews/{agent-name}.md`, `pr-test-analyzer`, `type-design-analyzer`, `comment-analyzer`, `code-simplifier`, `silent-failure-hunter`.
+- **AC2** `phases/phase-6-review.md` names `reviews/role-composite.md` at least once and still contains `VERDICT: PASS` and `phase_6_findings_skipped` (GUARD half: the second and third strings are green before GREEN; the first is red).
+- **AC3** In `phases/phase-6-review.md` the review-policy table has no row whose reviewer column matches `^\|.*\|\s*[2-9]:` (no "N: ..." agent counts) and no line matches `[3467] agents` or `[3467]x reviewers`.
+- **AC4** `commands/build.md` has no `EXACT agents`, no `launched ≠ expected` / `launched != expected`, and its 6.1 block references `phases/phase-6-review.md`.
+- **AC5** `phases/phase-0-classify.md` and `templates/dynamic-context.md` contain no `3x reviewers`, `6x reviewers`, `<3|4|6|7>` nor `Review Agent Roster`; both contain `1x composite reviewer`; `phase-0-classify.md` does not say `reviewer count`.
+- **AC6** `bytedigger.json` parses, has no key matching `*_reviewers`, and `cfg["reviewers"] == {"mode": "auto"}` (GUARD half green before GREEN).
+- **AC7** Neither `scripts/build-gate.sh` nor `scripts/ts/build-phase-gate.ts` contains `simple_reviewers`, `SIMPLE_REVIEWERS`, `feature_reviewers`, `complex_reviewers` or `parseReviewerCount`; `scripts/ts/build-phase-gate.ts` still exports `parseReviewerMode`.
+- **AC8** `docs/plugin.md` and `README.md` contain none of the three legacy key names outside the one "were removed and are ignored" sentence in `docs/plugin.md`; `docs/plugin.md` contains `composite reviewer`.
+- **AC9** (degrade, GUARD) With a scratchpad/`cwd` holding several old-format `reviews/role-<slug>.md` files plus `role-composite.md`, and a config file that still carries the three legacy keys (3/6/6), running `scripts/build-gate.sh` for phase 6 exits with the same code as with a config without them, and `loadConfig()` (TS) returns a config object without throwing. Implemented as one bats case (gate exit code equality) and one TS test. Green before and after GREEN (the legacy keys are ignored both ways).
+- **AC10** (GUARD) Across every `*.md`, `*.sh`, `*.ts` (not in `__tests__`), `*.json` outside `docs/decisions/`, `engine_py/`, `CHANGELOG.md`, `docs/configuration.md` and node_modules, the strings `decorr` and `decorrelated` (case-insensitive) do not occur.
+- **AC11** (GUARD) The satisfaction step is untouched: `phases/phase-6-review.md` still contains `3-Agent Majority Vote` and `Launch 3 Opus agents in parallel`; `bytedigger.json` still has `satisfaction_thresholds` with 80/85/90.
+- **AC12** (GUARD) `bun test scripts/ts/__tests__/post-review-gate.test.ts` P6-F10-01..07 (reviewers.mode) stay green.
+
+### §3b Added tests in existing files
+
+- `scripts/ts/__tests__/post-review-gate.test.ts`: one test `P6-F10-08` "config carrying legacy *_reviewers keys loads, mode default kept, no *_reviewers fields on the result" (covers AC7 behaviour + AC9 TS half).
+- `tests/build-gate.bats`: one `@test` "legacy *_reviewers keys in bytedigger.json are ignored (gate exit code unchanged)" (AC9 bash half).
+
+### §1w op <-> AC map
+
+op1 -> AC1, AC2, AC3, AC11 · op2 -> AC4 · op3 -> AC5 · op4 -> AC6 · op5 -> AC7, AC9, AC12 · op6 -> AC8 · op7 -> none (doc) · (AC10 guards the decorrelated-verifier absence across all of the above).
+
+### §3 expected-red summary
+
+Before GREEN, AC1, AC2 (first clause), AC3, AC4, AC5, AC6 (first clause), AC7, AC8 and TS P6-F10-08's "no `*_reviewers` fields" assertion are red; AC2 (guard clauses), AC6 (mode clause), AC9, AC10, AC11, AC12 are green. A GUARD that comes out red before GREEN is a RED bug.
+
+## §4 Out of scope (§1v: files and behaviours NOT in this PR)
+
+- Engine prod `.py`, `error_codes`, `ERROR_CODES.md`, `org_config`, model roles: p3b2 / p3c / p3d. This slice has no decorrelated-verifier text to remove (§1); engine removal is p3b2's.
+- `docs/configuration.md:30-32` still lists the three removed keys ("Declared expectation only"). That file is p3b2's. Follow-up: delete those three rows after both PRs merge. `docs/configuration.md` is excluded from AC10 for the same reason.
+- The multi-evaluator SATISFACTION step (3 Opus evaluators for COMPLEX): untouched (AC11); follow-up.
+- `scripts/ts/build-phase-gate.ts` / `build-gate.sh` semantic-skip scan matches `*review*.md`; `reviews/role-composite.md` does not match that glob, so the composite reviewer's own file is not scanned. Pre-existing, behaviour change not in a deletion slice: PR-body follow-up.
+- Issue #128's undefined `$CONSTITUTION_BLOCK` / `$QUALITY_GATE_BLOCK`: not touched (PR says "partially addresses #128").
+- `agents/synthesizer.md`, `learning-store.sh`, `learnings-raw.md`: p3c.
+- `docs/article.md` / `docs/security.md` mentions of "reviewers" are prose about the pipeline in general, not counts: unchanged.
+
+## §5 Scope list (§1a sibling-test audit). RED edits these; GREEN treats tests as read-only (§1s)
+
+Candidate set: every test that mentions the three legacy keys, `phase_6_reviewers_*`, the md files above, or reads those md by text. Measured by grep on `1e391ed`.
+
+1. `engine_py/tests/test_bd89_p3b1_single_reviewer_only.py::test_ac12_guard_reviewer_counts_untouched` (`:714-721`). Rewrite: assert the three keys are absent from `bytedigger.json` and from both gate sources; keep `cfg["reviewers"] == {"mode": "auto"}`. This is the only test that pins the old values.
+2. `engine_py/tests/test_bd89_p3b1_single_reviewer_only.py::test_ac12_no_other_md_names_review_fanout` (`:700`): audit only; must stay green (the rewritten md must not contain `review_fanout`).
+3. Any other test reading `phases/phase-6-review.md`, `commands/build.md`, `phases/phase-0-classify.md` or `templates/dynamic-context.md` as text (`tests/test_bd190_build_md_hook_truth.py`, `tests/test_worker_deliverables.py`, `engine_py/tests/*` that read those md): RED author greps for each file name and each removed string from AC1/AC4/AC5, lists the hits in the RED commit message, and adjusts only pins on removed text (never loosen a pin on surviving text).
+4. `scripts/ts/__tests__/*.test.ts`, `tests/*.bats`: audit for the legacy keys and `reviewers`; `post-review-gate.test.ts:499-505` (P6-F10-06 old-style nested object) must stay green.
+5. Engine tests that parse `phase_6_reviewers_*` state fields or the `Review Agent Roster`: grep; none expected.
+
+Verify scope (§1r):
+- the RED file, the added TS/bats cases, and the files in §5.1-5.5;
+- `bun test scripts/ts/__tests__` and `bats tests/*.bats` (the gate suites, whole);
+- `pytest tests/` (root);
+- engine: `engine_py/tests/test_bd89_p3b1_single_reviewer_only.py` and every `engine_py/tests/*phase_6*` file that reads md (baseline recorded before RED, post-GREEN 0 failed);
+- `python3 cyrillic-prose-lint.py` and an English-only check over the diff.
+
+The full engine suite is CI only.
+
+## §6 Resolved (orchestrator, 2026-10-03, AUTO-DECISION)
+
+- **Delete the three count keys rather than default them to 1.** Why: nothing reads them; a default of 1 would still be a dead knob and a third place to keep in sync. Old configs that carry them keep working because JSON/python ignore unknown keys (AC9).
+- **Keep `reviewers.mode`.** Why: it is read by `loadConfig` and has seven tests; whether it is live for a single composite reviewer is a separate question (follow-up).
+- **`templates/dynamic-context.md` is in scope though not named in the lead's list.** Why: `commands/build.md` 6.1 points at it for the roster, so rewriting 6.1 alone would leave the 3/6 roster as the live source.
+- **No gate role-file parser exists, so op5 is config-only.** The lead's "role-file / reviewer-count parsers" reduces to the count parsers; AC9 pins degrade behaviour for old role files.
+
+### GAP list (not ported)
+
+- Semantic-skip scan does not cover `role-composite.md` (see §4); `reviewers.mode` liveness; `docs/configuration.md:30-32`.
+
+## §7 Errata r2 (gate r1 `2026-10-03-bd89-p3b1c-gate-r1.md` REJECTED; these amend §0-§5, RED author applies them)
+
+- **F1 (inventory).** More count restatements exist in in-scope files and are now in scope: `commands/build.md:59` ("reviewer count" in the knob list; same phrase as classify.md:89), `commands/build.md:179` (`Reviewer count mismatch (SIMPLE=3, FEATURE/COMPLEX=6)` in the STOP list; delete that item), `phases/phase-0-classify.md:222` (`--dry-run` row `Review agents | [3 for SIMPLE, 6 for FEATURE/COMPLEX]` -> `1 composite reviewer`), `phases/phase-6-review.md:87` ("Reviewer counts and thresholds are configurable" -> "Thresholds are configurable"). op2's "other lines unchanged" is amended accordingly. New tokens: AC4 build.md has no `Reviewer count mismatch`, `SIMPLE=3`, nor (case-insensitive) `reviewer count`; AC5 classify.md has no `3 for SIMPLE`; AC1 phase-6-review.md has no `Reviewer counts`.
+- **F2 (more files).** In scope now: `skills/bytedigger/SKILL.md:17,36` and `examples/claude-code-skill/SKILL.md:23,37` ("3 review agents" -> "1 composite reviewer"), `examples/claude-code-skill/README.md:43` ("reviewer counts" dropped), `docs/plugin.md:37` ("**3-6 agents**" -> "**1 composite reviewer**"). AC tokens: none of those four md contain `3 review agents`, `reviewer counts` (case-insensitive) or `3-6 agents`. The §1 "five files" claim is "nine files".
+- **F3 (wording ACs).** `phases/phase-6-review.md` contains none of (case-insensitive) `reviewer panel`, `review agents`, `ALL reviewers complete`, `Re-run affected`, `specialized reviewer agents`; and contains (GUARD where already true) `Step 1: Run the reviewer`, `security_review_enabled`, and one line naming `reviews/` together with `ignored`. Every data row of the policy table contains `1: composite reviewer`. `commands/build.md` has no `Re-run reviewers`. `templates/dynamic-context.md` has none of `code-reviewer`, `launched != expected`, `Launch all parallel`, `phase_6_reviewers`. `README.md` has no `reviewer counts` (case-insensitive). The word `reviewer`/`reviewers` alone stays legal (the single reviewer).
+- **F4.** AC7 tokens are matched case-insensitively (covers `FEATURE_REVIEWERS`, `COMPLEX_REVIEWERS`).
+- **F5.** AC8's `composite reviewer` clause is green before GREEN (plugin.md:119) and becomes load-bearing once op6 deletes that bullet; expected-red count is recomputed by the orchestrator after the RED amendments.
+- **F6.** Sibling audit adds `engine_py/tests/test_bd89_p3b1_single_reviewer_only.py::test_ac12_docs_rows_say_one_composite_reviewer[docs/plugin.md]` (`:687-697`), audit-only, must stay green. The op6 sentence in `docs/plugin.md` is ONE physical line, verbatim: `Phase 6 runs one composite reviewer for every tier; the former simple_reviewers / feature_reviewers / complex_reviewers keys were removed and are ignored if present in an existing config.` (the line must contain `were removed and are ignored`).
+- **F7.** op2: the `**6.1 ...:**` and `**6.2 ...:**` bold markers stay as they are. The RED locator for the 6.1 block may also be loosened to `6\.1\b.*?(?=6\.2\b)`.
+- **F8.** The bats degrade case pins the absolute status too: the orchestrator measures the baseline status of the invoked gate on the RED commit (currently 0 for the fixture it uses, to be confirmed by the RED author's setup) and the case asserts `[ "$base_status" -eq <measured> ]`.
+- **A1.** AC10 iterates `git ls-files` (tracked files only) instead of `rglob`.
+- **A2.** The PR body follow-up names the semantic-skip glob gap explicitly (already in §4).
+
+## §8 Open point (lead 2026-10-03)
+
+- Semantic-skip scan (`scripts/ts/build-phase-gate.ts` `scanSemanticSkipPhrases`, `scripts/build-gate.sh` `scan_semantic_skip`) globs `*review*.md`; `reviews/role-composite.md` does not match, so the composite reviewer's file is never scanned. This is a fix, not a removal; kept open here and may be split into its own slice.
+- op6 verbatim sentence (§7 F6) names the three config keys unbackticked, but the sibling `test_ac12_docs_rows_say_one_composite_reviewer[docs/plugin.md]` expects them backticked. The sentence must carry backticks around `simple_reviewers` / `feature_reviewers` / `complex_reviewers`, still on one physical line containing `were removed and are ignored`.
+
+## §9 Narrowing r3 (lead 2026-10-03; audit hal#2320 section 6, M11 "ok, doc sync") — overrides §0-§8 where they conflict
+
+**Slice is now:** structural doc sync of `commands/build.md` + `phases/phase-6-review.md` (+ the same fan-out table in `phases/phase-0-classify.md` and `templates/dynamic-context.md`), and the pure-drift config counts in `bytedigger.json` and both gate parsers. Nothing else.
+
+**Dropped (listed in the PR body under Follow-ups):**
+- All wording-only ACs from errata r2 F3 (`reviewer panel`, `review agents`, `ALL reviewers complete`, `Re-run affected`, `specialized reviewer agents`, `Re-run reviewers`, `Step 1: Run the reviewer` / `ignored` markers, per-row `1: composite reviewer` token, `README.md` `reviewer counts`). The md is still rewritten structurally (one reviewer, no count enforcement); only the prose-pinning tests go.
+- F2 file additions: `skills/bytedigger/SKILL.md`, `examples/claude-code-skill/*`, `docs/plugin.md:37` ("3-6 agents") and `README.md:122`.
+- The #128 text fixes (7 vs 9 reviewer count, `$CONSTITUTION_BLOCK` / `$QUALITY_GATE_BLOCK`): not touched; the PR does not mention #128.
+- The semantic-skip glob (§8): not a one-line pure fix, because scanning `role-composite.md` would newly hard-block on skip phrases a legitimate reviewer text may contain (`cosmetic`, `pre-existing`). Follow-up, needs its own slice and a decision.
+- Audit M10 follow-up (PR body only): a deterministic check that the stdout/disk fallback after `role_report_missing` actually produced findings, so zero findings are not read as clean.
+
+**Kept ACs:** AC1 (structural tokens only: `phase_6_reviewers_launched`, `phase_6_reviewers_expected`, `<3|4|6|7>`, `Determine Reviewer Count`, `Launch ALL agents`, `2 Haiku`, `reviews/{agent-name}.md`, `Reviewer counts`), AC2 (role-composite named + guards), AC3, AC4 (`EXACT agents`, `launched != expected`, `Reviewer count mismatch`, `SIMPLE=3`, 6.1 references phase-6 md), AC5 (`3x`/`6x reviewers`, `<3|4|6|7>`, `Review Agent Roster`, `3 for SIMPLE`), AC6, AC7 (case-insensitive), AC8 (legacy keys removed from `docs/plugin.md`, sentence with backticks on one line), AC9, AC10 (git ls-files), AC11, F8 absolute bats status.
+
+### Provenance table (one line per removal)
+
+| Removal | introduced | protected against | why it can go / what it becomes |
+|---|---|---|---|
+| fan-out text in `phases/phase-6-review.md`, `commands/build.md` 6.1, classify/dynamic-context rows (3/6/7 agents, launch in parallel, 2 Haiku fallback) | `640cbc4` ByteDigger v1.0.0 (initial pipeline) | no incident found; original design of the multi-agent panel | the engine stopped fanning out in bd#139 (`f718084`), #198, #209; text is drift (audit M11 "bd#139 drift"); the rule it expressed is now one composite reviewer in code |
+| `phase_6_reviewers_launched` / `phase_6_reviewers_expected` STOP check ("launched != expected -> STOP") | `640cbc4` (v1.0.0; `git log -S` finds no other commit) | an orchestrator silently running fewer review agents than the tier requires | no provenance found beyond the initial import (no GH issue or incident located); with one reviewer the count is always 1 and the engine's `role_report_missing` event plus findings audit cover a missing reviewer. Becomes: nothing new (engine owns it); M10 follow-up covers the zero-findings fallback |
+| `simple_reviewers` / `feature_reviewers` / `complex_reviewers` keys, `parseReviewerCount`, `*_REVIEWERS` shell vars | `902451c` (gate enforcement, first parse), touched by `ad0cfd2` (polish) and `81a93d6` (TS gate port, added `parseReviewerCount`) | per-tier panel size | no provenance found for any incident; no reader exists anywhere (docs/configuration.md already calls them "declared expectation only"); old configs carrying them keep working (AC9) |
+
+## §10 Errata r3 (gate r2 REJECTED; amends §9)
+
+- **F1.** AC5 forbidden list for `templates/dynamic-context.md` (and `phases/phase-0-classify.md`) adds `phase_6_reviewers`, `launched != expected`, `launched ≠ expected`; `_AC1_FORBIDDEN` for `phases/phase-6-review.md` adds `launched != expected` / `launched ≠ expected`; one AC5 assertion: `templates/dynamic-context.md` has no table row with a reviewer count >1 (`^\|\s*[A-Z][A-Z/+ ]*\|\s*[2-9]\s*\|`). Kept-AC list in §9 is extended accordingly.
+- **F2.** The `reviewer count` knob phrase (`commands/build.md:59`, `phases/phase-0-classify.md:89`) is DROPPED as wording (§9 Dropped list), no AC; GREEN may leave or fix it.
+- **F3.** RED docstring says r3.
+- **A2 (GREEN brief).** The phase-6 resume rule (`reviews/*.md` compared against `phase_6_reviewers_expected`) is rewritten to key on `reviews/role-composite.md`; no wording test pins it.
+- **A1.** `git log -S` output (run by the orchestrator on the rebased tree): see the PR body provenance table.

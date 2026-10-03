@@ -14,9 +14,9 @@ SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[
 [ -n "$SCRATCHPAD" ] && { [ -d "$SCRATCHPAD" ] || mkdir -p "$SCRATCHPAD"/{research,architecture,specs,tests,reviews}; }
 ```
 
-Deep review using specialized reviewer agents and Opus satisfaction scoring.
+Deep review using one composite reviewer and Opus satisfaction scoring.
 
-**LAUNCH RULE (applies to EVERY Agent / Task call in this phase — reviewer panel, first fix agent, subsequent fresh fix agent for remaining findings, COMPLEX 3-Opus evaluators, SIMPLE/FEATURE single Opus satisfaction):** Pass `run_in_background: true`. No exceptions, including sequential launches. Orchestrator never pauses on "end-your-response" from a bg agent — it continues with next non-overlapping work (state update, scratchpad write, next-agent spawn). Gate hard-blocks still stop the pipeline; anti-pause only forbids wrongful waits.
+**LAUNCH RULE (applies to EVERY Agent / Task call in this phase — the reviewer, first fix agent, subsequent fresh fix agent for remaining findings, COMPLEX 3-Opus evaluators, SIMPLE/FEATURE single Opus satisfaction):** Pass `run_in_background: true`. No exceptions, including sequential launches. Orchestrator never pauses on "end-your-response" from a bg agent — it continues with next non-overlapping work (state update, scratchpad write, next-agent spawn). Gate hard-blocks still stop the pipeline; anti-pause only forbids wrongful waits.
 
 **WORKER AGENT CONSTRAINTS (include in every fix-agent prompt):**
 - You are a fix worker inside /build pipeline. Use Edit/Write/Bash directly.
@@ -30,13 +30,13 @@ Deep review using specialized reviewer agents and Opus satisfaction scoring.
 - NEVER edit code files. You review and report — fixes are handled by fix workers.
 - **VERDICT protocol** — structure EVERY check using one of two modes:
   ```
-  RUNTIME (code-reviewer, silent-failure-hunter, pr-test-analyzer, security-reviewer):
+  RUNTIME (behavior checks, tests, security):
   ### Check: [what you're verifying]
   **Command run:** [exact bash/test command executed]
   **Output observed:** [relevant output excerpt]
   **Result: PASS/FAIL**
 
-  STATIC (comment-analyzer, type-design-analyzer, code-simplifier):
+  STATIC (comments, types, simplification):
   ### Check: [what you're verifying]
   **Tool used:** [Read/Grep tool call with file:line]
   **Output observed:** [relevant excerpt]
@@ -50,14 +50,7 @@ Deep review using specialized reviewer agents and Opus satisfaction scoring.
   - 0 = false positive, 25 = maybe, 50 = real but minor, 75 = verified important, 100 = certain
   - Below 80 → do NOT report. This eliminates noise and ensures every finding matters.
 - **Scope: bugs and logic, NOT cosmetic cleanup.** Dead imports, stale comments, naming, formatting — these are Boy Scout Rule items handled by Phase 5 GREEN worker (free — context already loaded). Phase 6 reviewers focus on what workers CANNOT see from inside: cross-file logic errors, security vulnerabilities, coverage gaps, spec violations, silent failures. Do NOT report LOW/COSMETIC findings that a worker could have fixed inline.
-- **Purpose statement** (orchestrator adds one line per reviewer):
-  - code-reviewer: "This review will determine if code meets quality standards — focus on bugs, logic errors, and convention violations."
-  - silent-failure-hunter: "This review will catch swallowed errors — focus on catch blocks, fallbacks, and missing error propagation."
-  - pr-test-analyzer: "This review will verify test adequacy — focus on coverage gaps, missing edge cases, and assertion quality."
-  - comment-analyzer: "This review will catch stale comments — focus on accuracy vs actual code behavior."
-  - type-design-analyzer: "This review will validate type safety — focus on invariant enforcement and encapsulation."
-  - code-simplifier: "This review will find simplification opportunities — focus on unnecessary complexity and dead code."
-  - security-reviewer: "This review will catch exploitable vulnerabilities — focus on auth bypass, injection, and data exposure."
+- **Purpose statement** (orchestrator adds one line): "This review will determine if code meets quality standards — focus on bugs and logic errors, swallowed errors, test adequacy, type safety, needless complexity and stale comments; on HIGH security also exploitable vulnerabilities (auth bypass, injection, data exposure)."
 
 **Output Schema:** End your report with: `Scope:` / `Result:` / `Key files:` / `Files changed:` / `Issues:`, then end with `VERDICT: PASS/FAIL/PARTIAL` as the absolute final line. Do NOT emit text between tool calls — work silently, report once at the end.
 
@@ -75,22 +68,22 @@ If either is missing → STOP, Phase 5 is incomplete.
 
 ## Review Agent Policy by Complexity
 
-| Complexity | Review Agents | Satisfaction |
+| Complexity | Reviewer | Satisfaction |
 |-----------|---------------|-------------|
-| SIMPLE | 3: code-reviewer, silent-failure-hunter, pr-test-analyzer | 1x Opus, 3 dim, >=80% |
-| SIMPLE + HIGH security | 4: above + security-reviewer | 1x Opus, 3 dim, >=80% |
-| FEATURE | 6: all reviewer agents | 1x Opus, 5 dim, >=85% |
-| FEATURE + HIGH security | 7: above + security-reviewer | 1x Opus, 5 dim, >=85% |
-| COMPLEX | 6: all reviewer agents | 3x Opus voting, 5 dim, >=90% |
-| COMPLEX + HIGH security | 7: above + security-reviewer | 3x Opus voting, 5 dim, >=90% |
+| SIMPLE | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 3 dim, >=80% |
+| SIMPLE + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 3 dim, >=80% |
+| FEATURE | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=85% |
+| FEATURE + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=85% |
+| COMPLEX | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
+| COMPLEX + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
 
-Reviewer counts and thresholds are configurable via `bytedigger.json`.
+Thresholds are configurable via `bytedigger.json`.
 
 ## Re-Anchoring (reviewers self-read)
 
-**Do NOT inject file contents into reviewer prompts.** Pass only file paths. Every review agent MUST self-re-anchor:
+**Do NOT inject file contents into reviewer prompts.** Pass only file paths. The reviewer MUST self-re-anchor:
 
-Orchestrator includes this block in every review agent prompt:
+Orchestrator includes this block in the reviewer prompt:
 ```
 BEFORE reviewing, read these files yourself:
 1. Read `build-state.yaml` — get files_modified list and build context
@@ -104,7 +97,7 @@ Only then begin your review. Compare implementation against spec.
 
 ## Post-Review Gate (MANDATORY)
 
-After ALL reviewers complete, verify in `build-state.yaml` that `phase_6_findings_skipped == 0`. Any skipped findings → **PIPELINE STOPS**.
+After the reviewer completes, verify in `build-state.yaml` that `phase_6_findings_skipped == 0`. Any skipped findings → **PIPELINE STOPS**.
 
 Write `post_review_gate: pass` + `semantic_skip_check: pass` to `build-state.yaml` after verification.
 
@@ -112,16 +105,16 @@ Write `post_review_gate: pass` + `semantic_skip_check: pass` to `build-state.yam
 
 ## Scratchpad Persistence (MANDATORY)
 
-**Every reviewer agent MUST write its findings to `{scratchpad_dir}/reviews/{agent-name}.md` before returning.**
+**The reviewer MUST write its findings to `{scratchpad_dir}/reviews/role-composite.md` before returning.**
 
 File format:
-- Filename: `reviews/{agent-name}.md` (e.g., `reviews/code-reviewer.md`, `reviews/silent-failure-hunter.md`, `reviews/pr-test-analyzer.md`)
+- Filename: `reviews/role-composite.md`
 - Content: VERDICT protocol format — each check with command evidence, then final verdict
 - Only findings with confidence >=80 included
 
-Example — RUNTIME reviewer (code-reviewer):
+Example — RUNTIME check:
 ```
-# Code Reviewer
+# Composite Reviewer
 
 ### Check: Input validation on auth token
 **Command run:** grep -n "jwt\|token" src/auth.ts
@@ -138,10 +131,8 @@ Confidence: 100 | Severity: CRITICAL — Must load from env
 VERDICT: FAIL
 ```
 
-Example — STATIC reviewer (comment-analyzer):
+Example — STATIC check:
 ```
-# Comment Analyzer
-
 ### Check: JSDoc accuracy on parseToken()
 **Tool used:** Read src/auth.ts:38-45
 **Output observed:** JSDoc says "returns null on failure" but function throws TokenError
@@ -157,59 +148,22 @@ VERDICT: PARTIAL
 - Final line MUST be exactly `VERDICT: PASS`, `VERDICT: FAIL`, or `VERDICT: PARTIAL`
 - PASS = zero MEDIUM+ findings. PARTIAL = MEDIUM findings only (no CRITICAL/HIGH). FAIL = any CRITICAL or HIGH finding. Note: LOW/COSMETIC are not reported by Phase 6 reviewers.
 
-**On pipeline resume** (`/build continue` / Phase 6 restart), orchestrator:
-1. Reads all existing `reviews/*.md` files from scratchpad
-2. Compares against `phase_6_reviewers_expected`
-3. Only re-launches reviewers with missing scratchpad files
-4. Skips reviewers with existing findings (no duplication)
+**On pipeline resume** (`/build continue` / Phase 6 restart), if `reviews/role-composite.md` exists, do not re-run the reviewer. Old-format scratchpads that hold several other `reviews/*.md` files are ignored, not an error.
 
-**Why:** Without scratchpad persistence, all findings are lost on pipeline resume. Reviewers must re-run from scratch, wasting compute and losing context.
+**Why:** Without scratchpad persistence, all findings are lost on pipeline resume. The reviewer must re-run from scratch, wasting compute and losing context.
 
 ## Reviewer Agent Limits
 
-All review agents MUST include **maxTurns: 30** to prevent infinite loops.
+The reviewer MUST include **maxTurns: 30** to prevent infinite loops.
 
-## Step 1: Determine Reviewer Count (MANDATORY)
+## Step 1: Run the reviewer (MANDATORY)
 
-**Read `complexity` from `build-state.yaml`** — do NOT guess or assume. Then launch the EXACT agents listed:
-
-### SIMPLE → 3 agents (ALL mandatory):
-1. **code-reviewer** — quality, conventions, Boy Scout Rule compliance
-2. **silent-failure-hunter** — error handling, swallowed exceptions
-3. **pr-test-analyzer** — test coverage quality, missing edge cases
-
-### FEATURE / COMPLEX → 6 agents (ALL mandatory):
-1. **code-reviewer** — quality, conventions, Boy Scout Rule compliance
-2. **silent-failure-hunter** — error handling, swallowed exceptions
-3. **pr-test-analyzer** — test coverage quality, missing edge cases
-4. **comment-analyzer** — comment accuracy, staleness
-5. **type-design-analyzer** — type invariants, encapsulation
-6. **code-simplifier** — simplification opportunities
-
-### Security Reviewer (conditional, if `security_classification: HIGH`):
-7. **security-reviewer** — OWASP Top 10 compliance, injection vectors, auth bypass paths, secret exposure, security best practices
-
-**Launch ALL agents for your tier in parallel** (`run_in_background: true`). If `security_classification: HIGH` in `build-state.yaml`, also launch security-reviewer.
-
-**ENFORCEMENT**: After all agents return, COUNT them. Calculate expected count:
-- SIMPLE: 3 base agents
-- SIMPLE + HIGH security: 4 (3 base + security-reviewer)
-- FEATURE: 6 agents
-- FEATURE + HIGH security: 7 (6 base + security-reviewer)
-- COMPLEX: 6 agents
-- COMPLEX + HIGH security: 7 (6 base + security-reviewer)
+Run one composite reviewer (`run_in_background: true`). It covers correctness, silent failures, test adequacy, types, simplification and comments; if `security_classification: HIGH` in `build-state.yaml`, it also does the security pass. There is no tier count and no parallel launch.
 
 Log in `build-state.yaml`:
 ```yaml
-phase_6_reviewers_launched: <N>
-phase_6_reviewers_expected: <3|4|6|7>
 security_review_enabled: <true|false>
 ```
-If launched != expected → STOP and fix before proceeding to Step 2.
-
-**No excuses to skip agents within your tier. No partial reviews.**
-
-**Fallback**: If specialized review agents unavailable, use 2 Haiku Task agents.
 
 ## Step 2: Fix ALL Findings (ZERO EXCEPTIONS — GATE ENFORCED)
 
@@ -238,7 +192,7 @@ You fix **everything you find**, not just what you changed:
 
 ### Process:
 
-1. Collect ALL issues from ALL review agents — create a single list. Reviewers only report MEDIUM+ findings (LOW/COSMETIC handled by Phase 5 Boy Scout). Every finding that made it through the confidence >=80 filter is real and MUST be fixed.
+1. Collect ALL issues from the reviewer — create a single list. Reviewers only report MEDIUM+ findings (LOW/COSMETIC handled by Phase 5 Boy Scout). Every finding that made it through the confidence >=80 filter is real and MUST be fixed.
 2. Launch Task agent to fix **EVERY** finding on the list (CRITICAL + HIGH + MEDIUM). Agent prompt MUST include:
    - **"Fix ALL findings. Every finding passed confidence >=80 and severity >=MEDIUM filters — they are all real issues. Report each fix with file:line."**
    - **TEST INTEGRITY: If fixing a finding causes tests to fail, fix the CODE — never adjust test assertions to match broken behavior. Tests verify spec behavior. The only valid reason to change a test is if the SPEC changed."**
@@ -246,12 +200,12 @@ You fix **everything you find**, not just what you changed:
    - Prompt MUST include the actual remaining findings:
    ```
    You are a fix agent in Phase 6 Review. [N] of [M] findings were fixed. [M-N] remain.
-   REMAINING FINDINGS (from review agents):
+   REMAINING FINDINGS (from the reviewer):
    [paste the specific unfixed findings with file:line and description]
    FIX ALL of them. Every finding passed confidence >=80 and is MEDIUM+ severity. Report each fix as file:line: what you did.
    ```
    **KEY:** The orchestrator MUST paste the actual remaining findings. A generic "fix remaining" without listing WHAT to fix causes agent to lose track.
-3. Re-run affected review agents to verify fixes
+3. Re-run the reviewer to verify fixes
 4. Max fix-review cycles: **2**
 5. Still issues after 2 cycles: SUPERVISED → ask user. AUTONOMOUS → proceed with warnings logged.
 6. Log in `build-state.yaml`:
@@ -334,6 +288,6 @@ Severity 5+ = BLOCKED until fixed.
 
 - [ ] No CRITICAL/HIGH unresolved issues
 - [ ] Satisfaction >= tiered threshold
-- [ ] All review agents completed
+- [ ] Reviewer completed
 - [ ] Boy Scout Rule verified
 - [ ] `build-state.yaml` updated with phase_6 + review_complete

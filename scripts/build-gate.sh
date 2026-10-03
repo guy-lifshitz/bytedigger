@@ -35,9 +35,6 @@ load_config() {
   # Defaults
   GATES_ENABLED=true
   TDD_MANDATORY=true
-  SIMPLE_REVIEWERS=3
-  FEATURE_REVIEWERS=6
-  COMPLEX_REVIEWERS=6
 
   if [ ! -f "$config_file" ]; then
     # Missing config → use defaults (gates ON)
@@ -53,14 +50,8 @@ try:
         c = json.load(f)
     gates = str(c.get('gates_enabled', True)).lower()
     tdd   = str(c.get('tdd_mandatory', True)).lower()
-    sr    = str(c.get('simple_reviewers', 3))
-    fr    = str(c.get('feature_reviewers', 6))
-    cr    = str(c.get('complex_reviewers', 6))
     print(f"GATES_ENABLED_RAW={gates}")
     print(f"TDD_MANDATORY_RAW={tdd}")
-    print(f"SIMPLE_REVIEWERS={sr}")
-    print(f"FEATURE_REVIEWERS={fr}")
-    print(f"COMPLEX_REVIEWERS={cr}")
 except Exception as e:
     pass
 PYEOF
@@ -70,16 +61,9 @@ PYEOF
     local ge tdd_raw
     ge=$(echo "$config_values" | grep "^GATES_ENABLED_RAW=" | cut -d= -f2)
     tdd_raw=$(echo "$config_values" | grep "^TDD_MANDATORY_RAW=" | cut -d= -f2)
-    local sr fr cr
-    sr=$(echo "$config_values" | grep "^SIMPLE_REVIEWERS=" | cut -d= -f2)
-    fr=$(echo "$config_values" | grep "^FEATURE_REVIEWERS=" | cut -d= -f2)
-    cr=$(echo "$config_values" | grep "^COMPLEX_REVIEWERS=" | cut -d= -f2)
 
     [ "$ge" = "false" ] && GATES_ENABLED=false
     [ "$tdd_raw" = "false" ] && TDD_MANDATORY=false
-    [ -n "$sr" ] && SIMPLE_REVIEWERS="$sr"
-    [ -n "$fr" ] && FEATURE_REVIEWERS="$fr"
-    [ -n "$cr" ] && COMPLEX_REVIEWERS="$cr"
   else
     # Fallback: grep-based parsing
     local ge_grep

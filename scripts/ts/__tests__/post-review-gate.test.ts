@@ -521,6 +521,26 @@ describe("F10 — Reviewers Config: parseReviewerMode + loadConfig", () => {
       cleanup();
     }
   });
+
+  test("P6-F10-08 — config carrying legacy *_reviewers keys loads, mode default kept, no *_reviewers fields on the result", () => {
+    const cleanup = writeConfig({
+      simple_reviewers: 3,
+      feature_reviewers: 6,
+      complex_reviewers: 6,
+    });
+    try {
+      let cfg: ReturnType<typeof loadConfig> | undefined;
+      expect(() => {
+        cfg = loadConfig();
+      }).not.toThrow();
+      expect(cfg).toBeDefined();
+      expect(cfg!.reviewers.mode).toBe("auto");
+      const legacy = Object.keys(cfg!).filter((k) => k.endsWith("_reviewers"));
+      expect(legacy).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

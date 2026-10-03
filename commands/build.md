@@ -102,9 +102,8 @@ Sonnet writes `build-spec.md`: User Stories (min 2, BDD) | Files (CREATE/MODIFY)
 
 **Entry Gate:** `phase_5_implement: complete` + `opus_validation: pass` exist
 
-**6.1 Reviewer Count (EXACT agents mandatory):**
-**→ See `templates/dynamic-context.md`** for Review Agent Roster (agent config loaded as attachment, not cached).
-If launched ≠ expected → STOP
+**6.1 Reviewer (one composite reviewer, every tier):**
+**→ See `phases/phase-6-review.md`** for the reviewer step, persistence and resume rule.
 
 **6.2 Fix ALL Findings (ZERO EXCEPTIONS):**
 
@@ -176,7 +175,7 @@ Models are configurable via `bytedigger.json`.
 
 ## Common Mistakes (Avoid)
 
-Skip test framework setup | Tests pass in RED (tests wrong — fix first) | Missing `plan_review: pass` before Phase 5 (every tier) | Missing `opus_validation: pass` before GREEN | Boy Scout violations | Reviewer count mismatch (SIMPLE=3, FEATURE/COMPLEX=6) | Skipping findings ("acceptable"/"pre-existing") | Post-review gate failure → STOP (no workarounds)
+Skip test framework setup | Tests pass in RED (tests wrong — fix first) | Missing `plan_review: pass` before Phase 5 (every tier) | Missing `opus_validation: pass` before GREEN | Boy Scout violations | Skipping findings ("acceptable"/"pre-existing") | Post-review gate failure → STOP (no workarounds)
 
 ## Worker Output Schema
 

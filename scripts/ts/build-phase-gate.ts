@@ -118,9 +118,6 @@ export interface ReviewersConfig {
 export interface ByteDiggerConfig {
   readonly gates_enabled: boolean;
   readonly tdd_mandatory: boolean;
-  readonly simple_reviewers: number;
-  readonly feature_reviewers: number;
-  readonly complex_reviewers: number;
   /**
    * disablePhase7 — when true, skips the bash-parity `review_complete`
    * skips the bash-parity review_complete soft-block in checkPhase7(). Reserved for projects
@@ -150,11 +147,6 @@ function parseBool(val: unknown, defaultVal: boolean): boolean {
   return defaultVal;
 }
 
-function parseReviewerCount(val: unknown, defaultVal: number): number {
-  const n = Number(val);
-  return Number.isFinite(n) ? n : defaultVal;
-}
-
 export function parseReviewerMode(val: unknown, defaultVal: ReviewerMode): ReviewerMode {
   if (val === "toolkit" || val === "generic" || val === "auto") return val;
   return defaultVal;
@@ -164,9 +156,6 @@ export function loadConfig(): ByteDiggerConfig {
   const defaults: ByteDiggerConfig = {
     gates_enabled: true,
     tdd_mandatory: true,
-    simple_reviewers: 3,
-    feature_reviewers: 6,
-    complex_reviewers: 6,
     disablePhase7: false,
     omitProjectContext: false,
     observability: { enabled: true },
@@ -187,9 +176,6 @@ export function loadConfig(): ByteDiggerConfig {
     return {
       gates_enabled: parsed.gates_enabled !== false && parsed.gates_enabled !== "false",
       tdd_mandatory: parsed.tdd_mandatory !== false && parsed.tdd_mandatory !== "false",
-      simple_reviewers: parseReviewerCount(parsed.simple_reviewers ?? 3, 3),
-      feature_reviewers: parseReviewerCount(parsed.feature_reviewers ?? 6, 6),
-      complex_reviewers: parseReviewerCount(parsed.complex_reviewers ?? 6, 6),
       disablePhase7: parsed.disablePhase7 === true,
       omitProjectContext: parseBool(parsed.omitProjectContext, false),
       observability: {
