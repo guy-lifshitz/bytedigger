@@ -139,6 +139,16 @@ def _seed_logs(scratchpad: Path):
     return red_log, green_log
 
 
+# S4/M10: a header-less reviewer response must still carry a real finding (a
+# structured block with a recognised severity) so it is NOT findingless; the
+# findingless fallback check is mode- and date-independent for these tests.
+_STRUCTURED_MEDIUM_BLOCK = (
+    "\n## Findings (structured)\n```json\n"
+    '[{"id": "F1", "severity": "MEDIUM", "path": "src/x.py:1", "description": "d"}]\n'
+    "```\n"
+)
+
+
 def _prev_nonconformant(tmp_path: Path, raw_response: str | None = None) -> tuple[StepResult, Path]:
     """Build a non-conformant prev StepResult (no aggregated_content, no doc_path file).
 
@@ -154,7 +164,7 @@ def _prev_nonconformant(tmp_path: Path, raw_response: str | None = None) -> tupl
     red_log, green_log = _seed_logs(scratchpad)
 
     if raw_response is None:
-        raw_response = "summary only, no header\nVERDICT: PASS"
+        raw_response = "summary only, no header\nVERDICT: PASS" + _STRUCTURED_MEDIUM_BLOCK
 
     prev = StepResult(
         status="ok",
@@ -483,7 +493,7 @@ def test_ac2a_every_backend_normalizes_deterministically(tmp_path, monkeypatch):
         sentinel = f"SENTINEL-AC2A-{backend}"
         prev, doc_path = _prev_nonconformant(
             tmp_path / backend,
-            raw_response=f"{sentinel}\nsummary only, no header\nVERDICT: PASS",
+            raw_response=f"{sentinel}\nsummary only, no header\nVERDICT: PASS" + _STRUCTURED_MEDIUM_BLOCK,
         )
         ctx = _make_ctx(tmp_path / backend / "scratch")
         mock_invoke = _mock_invoke_ok_raw("## Aggregated Findings\n\nVERDICT: PASS\n")
@@ -717,7 +727,7 @@ def test_ac9_review_artifact_persisted_with_header_and_body_agent_sdk(tmp_path, 
     monkeypatch.setattr(p6, "_resolve_backend", lambda *a, **kw: ("agent-sdk", "default"))
 
     sentinel = "SENTINEL-GH1399-BODY-VERBATIM"
-    prev, doc_path = _prev_nonconformant(tmp_path, raw_response=f"{sentinel}\nno header on first attempt")
+    prev, doc_path = _prev_nonconformant(tmp_path, raw_response=f"{sentinel}\nno header on first attempt" + _STRUCTURED_MEDIUM_BLOCK)
     ctx = _make_ctx(tmp_path / "scratch")
     still_bad = f"{sentinel}\nstill no header on retry"
     mock_invoke = _mock_invoke_ok_raw(still_bad)
@@ -770,7 +780,7 @@ def test_ac3_body_preserved_verbatim_through_normalization(tmp_path, monkeypatch
     monkeypatch.setattr(p6, "_emit_safe", lambda *a, **kw: None)
     monkeypatch.setattr(p6, "_resolve_backend", lambda *a, **kw: ("claude-in-session", "test"))
 
-    prev, doc_path = _prev_nonconformant(tmp_path, raw_response=f"{sentinel}\nno header")
+    prev, doc_path = _prev_nonconformant(tmp_path, raw_response=f"{sentinel}\nno header" + _STRUCTURED_MEDIUM_BLOCK)
     ctx = _make_ctx(tmp_path / "scratch")
     mock_invoke = _mock_invoke_ok_raw("unused — must not be called on this lane")
 
@@ -1138,6 +1148,14 @@ _CLASS_REGISTRY: dict[str, dict[str, str]] = {
         "remedy": "terminal",
         "missing": "nothing from the model — filesystem",
         "why": "OSError on persist. Neither normalization nor re-ask applies.",
+    },
+    "E_REVIEW_EMPTY_FALLBACK": {
+        "remedy": "terminal",
+        "missing": "semantics: any parsed finding from the stdout-fallback review",
+        "why": "The review result is cached per run, so a same-run retry replays "
+               "the same bytes; normalization cannot invent findings. Operator "
+               "recovery: read build-review.rejected.md, re-run phase 6 in a "
+               "fresh run (S4/M10).",
     },
 }
 

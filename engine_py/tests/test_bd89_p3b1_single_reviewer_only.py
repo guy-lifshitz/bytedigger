@@ -590,8 +590,15 @@ def test_ac9b_guard_no_role_files_falls_back_to_suspect_doc(tmp_path):
     agg = p6._aggregate_review_findings(ctx, _agg_prev(scratch))
     assert agg.status == "ok" and agg.error_code is None
     assert agg.data["aggregated_content"] is None
+    # S4/M10: the stdout fallback must carry a real finding block (not findingless), so the
+    # SUSPECT verdict (no JSON block, no marker) stays an ok step in shadow AND enforce mode.
+    fb_data = dict(agg.data)
+    fb_data["raw_response"] = (
+        "## Aggregated Findings\n\n### SEVERITY: HIGH - Missing null check in handler\n"
+        "> src/x.py:1: def handler(x):\nDescription: x may be None.\n"
+    )
     written = p6._write_review_artifact(
-        ctx, StepResult(status="ok", data=agg.data, duration_ms=0, step_name="aggregate_review_findings"))
+        ctx, StepResult(status="ok", data=fb_data, duration_ms=0, step_name="aggregate_review_findings"))
     assert written.status == "ok", f"{written.error_code}: {written.error}"
     doc = scratch / p6.REVIEW_DOC_RELPATH
     assert doc.is_file(), "the review doc must be written to disk by the stdout fallback"

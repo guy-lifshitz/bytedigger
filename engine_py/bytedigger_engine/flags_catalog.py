@@ -672,6 +672,12 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/_baseline_delta.py",
         "description": "GH1338 warn-only rollout: =1 makes a corpus-parity BLOCKED verdict a recoverable E_CORPUS_PARITY gate failure in phase_5. flip-by:2026-08-13 Refs #1338.",
     },
+    "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE": {
+        "kind": "flag",
+        "default": "0",
+        "module": "workflows/phase_6_review.py",
+        "description": "S4/M10 shadow-by-default rollout (owner s4-bytedigger (MGR)): =1 makes a findingless stdout-fallback review a terminal E_REVIEW_EMPTY_FALLBACK error in phase_6; unset = shadow (event + rejected copy only), and enforce after expiry. flip-by:2026-10-17.",
+    },
     "HAL_CORPUS_ALLOW_REMOVED": {
         "kind": "flag",
         "default": None,

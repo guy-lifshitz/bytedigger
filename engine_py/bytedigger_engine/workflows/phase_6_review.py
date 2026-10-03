@@ -100,6 +100,7 @@ Outputs:
 from __future__ import annotations
 
 import concurrent.futures
+import datetime
 import functools
 import json
 import logging
@@ -157,6 +158,9 @@ except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted te
 # the phase_6 projection locally — no duplicate regex needed.
 from bytedigger_engine.lib.plugins.checklist_convergence import (  # noqa: E402
     extract_structured_findings_raw as _extract_structured_findings_raw,
+)
+from bytedigger_engine.lib.plugins.checklist_convergence.findings_extractor import (  # noqa: E402  S4/M10: in-memory non-empty-list probe
+    _STRUCTURED_SECTION_RE,
 )
 from bytedigger_engine.lib.plugins.disk_truth import git_diff_files, resolve_pre_phase_sha, run_test_command, parse_structured_block, enforce, SatisfactionVerdict, FixVerdict, SchemaViolation  # noqa: E402
 from bytedigger_engine.lib.plugins.review_schema import (  # noqa: E402  812D2503 Ship B: canonical schema source
@@ -483,6 +487,20 @@ def _parse_review_verdict(raw: str) -> str:
     )
 
 
+def _structured_list_nonempty(content: str) -> bool:
+    """True iff the structured block's JSON root is a non-empty list (in-memory
+    parse of ``content``, no disk read). S4/M10: the extractor filters non-object
+    entries, so ``["CRITICAL: x"]`` projects to ``[]`` and must not read as clean."""
+    m = _STRUCTURED_SECTION_RE.search(content or "")
+    if not m:
+        return False
+    try:
+        data = json.loads(m.group(1).strip())
+    except (ValueError, TypeError):
+        return False
+    return isinstance(data, list) and len(data) > 0
+
+
 def _derive_fallback_verdict(content: str) -> str:
     """stdout-fallback-path verdict: derive from the ## Findings (structured)
     block (mirrors _aggregate_review_findings); never auto-PASS when the block
@@ -498,7 +516,11 @@ def _derive_fallback_verdict(content: str) -> str:
             return VERDICT_FAIL
         if counts["MEDIUM"] > 0 or counts["LOW"] > 0:
             return VERDICT_PARTIAL
-        return VERDICT_PASS
+        # S4/M10: a structured block that is genuinely empty ([]) is PASS; one
+        # with entries but no recognised severity (or only non-object entries)
+        # is not clean: fall through (explicit marker wins, else SUSPECT).
+        if not findings and not _structured_list_nonempty(content):
+            return VERDICT_PASS
     mv = _parse_review_verdict(content)
     if mv == VERDICT_PASS:
         return VERDICT_SUSPECT
@@ -2084,6 +2106,59 @@ def _persist_fix_feed(
     return fix_path
 
 
+_EMPTY_FALLBACK_FLAG = "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE"
+_EMPTY_FALLBACK_FLAG_OWNER = "s4-bytedigger (MGR)"
+_EMPTY_FALLBACK_FLAG_EXPIRES = "2026-10-17"
+_REJECTED_REVIEW_NAME = "build-review.rejected.md"
+
+
+def _utc_today() -> "datetime.date":
+    """UTC calendar date (single seam for the shadow-window expiry check)."""
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def _empty_fallback_reason(
+    pre_text: str, content: str, verified: list, suspect: list, verdict: str,
+) -> "str | None":
+    """S4/M10: reason a stdout-fallback review is findingless, else None.
+
+    Findingless iff the verdict is SUSPECT (no recognised structured severity and
+    no PARTIAL/FAIL marker) AND the fix-feed parse of the same bytes yields no
+    blocks. Pure function of in-memory text: no disk read."""
+    if verified or suspect or verdict != VERDICT_SUSPECT:
+        return None
+    blocks = _parse_finding_blocks(_doc_section_body(content, "## Aggregated Findings"))
+    blocks = blocks + _parse_finding_blocks(_doc_section_body(content, SUSPECT_FINDINGS_SECTION_HEADER))
+    if blocks:
+        return None
+    if not pre_text.strip():
+        return "body_empty"
+    if extract_structured_findings(content):
+        return "unrecognised_severity"
+    return "no_findings_parsed"
+
+
+def _preserve_empty_fallback_evidence(
+    doc_path: Path, pre_text: str, *, enforce: bool, move_doc: bool,
+) -> "str | None":
+    """Keep the diagnosis bytes at build-review.rejected.md (never overwrite an
+    existing one). In enforce mode doc_path and a stale fix doc are removed so
+    phase 7 sees the review as MISSING. Returns an error string on OSError."""
+    rejected = doc_path.parent / _REJECTED_REVIEW_NAME
+    try:
+        if not rejected.exists():
+            if enforce and move_doc and doc_path.is_file():
+                os.replace(doc_path, rejected)
+            else:
+                rejected.write_bytes(pre_text.encode("utf-8"))
+        if enforce:
+            doc_path.unlink(missing_ok=True)
+            (doc_path.parent / Path(REVIEW_FIX_DOC_RELPATH).name).unlink(missing_ok=True)
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
 def _write_review_artifact(ctx, prev) -> StepResult:
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -2182,6 +2257,7 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         if (doc_path.is_file() and doc_path.read_text(encoding="utf-8") == content and content != raw)
         else "stdout"
     )
+    _pre_text = content  # S4/M10: pre-normalisation text (diagnosis bytes)
     if not _is_review_conformant(content):
         # GH1399: the rescue is selected by the RESPONSE's own property — its
         # non-conformance — and never by the identity of the backend that
@@ -2196,6 +2272,55 @@ def _write_review_artifact(ctx, prev) -> StepResult:
                     "bytes": len(content.encode("utf-8"))})
     # ─────────────────────────────────────────────────────────────────────────
 
+    # S4/M10: findingless fallback check (after normalisation, before the doc_path
+    # write). Shadow by default; enforce when the flag is on or the shadow window
+    # has expired.
+    verdict = _derive_fallback_verdict(content)
+    _empty_reason = _empty_fallback_reason(
+        _pre_text, content,
+        prev.data.get("verified_findings") or [], prev.data.get("suspect_findings") or [],
+        verdict,
+    )
+    if _empty_reason is not None:
+        _expired = _utc_today().isoformat() > _EMPTY_FALLBACK_FLAG_EXPIRES
+        _enforce = get_config().flag(_EMPTY_FALLBACK_FLAG) or _expired
+        _evidence_err = _preserve_empty_fallback_evidence(
+            doc_path, _pre_text, enforce=_enforce, move_doc=(_src == "doc_file"),
+        )
+        _ev_payload: dict = {
+            "phase": 6,
+            "reason": _empty_reason,
+            "bytes": len(_pre_text.encode("utf-8")),
+            "mode": "enforce" if _enforce else "shadow",
+            "flag": {
+                "name": _EMPTY_FALLBACK_FLAG,
+                "owner": _EMPTY_FALLBACK_FLAG_OWNER,
+                "expires": _EMPTY_FALLBACK_FLAG_EXPIRES,
+                "expired": _expired,
+            },
+        }
+        if _evidence_err is not None:
+            _ev_payload["evidence_error"] = _evidence_err
+        _emit_safe("review_empty_fallback", _ev_payload)
+        if _enforce:
+            if _evidence_err is not None:
+                return StepResult(
+                    status="error", data=None, duration_ms=0,
+                    step_name="write_review_artifact",
+                    error=_evidence_err,
+                    error_code="E_REVIEW_WRITE_FAILED",
+                )
+            return StepResult(
+                status="error", data=None, duration_ms=0,
+                step_name="write_review_artifact",
+                error=(
+                    f"fallback review has no parsed findings ({_empty_reason}); diagnosis kept at "
+                    f"{doc_path.parent / _REJECTED_REVIEW_NAME}; re-run phase 6 in a fresh run"
+                ),
+                error_code="E_REVIEW_EMPTY_FALLBACK",
+                recoverable=False,
+            )
+
     # Persist canonical content; skip rewrite if disk already holds it.
     if not (doc_path.is_file() and doc_path.read_text(encoding="utf-8") == content):
         try:
@@ -2208,7 +2333,6 @@ def _write_review_artifact(ctx, prev) -> StepResult:
                 error_code="E_REVIEW_WRITE_FAILED",
             )
 
-    verdict = _derive_fallback_verdict(content)
     _emit_safe("review_stdout_fallback_verdict", {
         "phase": 6,
         "verdict": verdict,

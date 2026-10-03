@@ -154,7 +154,13 @@ def test_ac1_stale_review_doc_is_gone_and_fresh_stdout_is_written(tmp_path, monk
         # the reviewer writes neither the composite nor the doc; stdout only
         return StepResult(
             status="ok",
-            data={**kwargs["extra_data"], "raw_response": "FRESH_BD92_STDOUT_REVIEW\nVERDICT: PASS\n"},
+            data={**kwargs["extra_data"], "raw_response": (
+                "FRESH_BD92_STDOUT_REVIEW\nVERDICT: PASS\n"
+                # S4/M10: a real structured finding keeps the fallback non-findingless
+                "## Findings (structured)\n```json\n"
+                '[{"id": "F1", "severity": "MEDIUM", "path": "src/x.py:1", "description": "d"}]\n'
+                "```\n"
+            )},
             duration_ms=0, step_name="invoke_review_llm",
         )
 

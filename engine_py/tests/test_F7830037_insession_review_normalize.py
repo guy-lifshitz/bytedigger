@@ -106,7 +106,14 @@ def _prev_nonconformant(tmp_path: Path, raw_response: str | None = None) -> tupl
     red_log, green_log = _seed_logs(scratchpad)
 
     if raw_response is None:
-        raw_response = "summary only, no header\nVERDICT: PASS"
+        # S4/M10: carry a real structured finding so the fallback is not findingless
+        # (mode- and date-independent); header stays absent so normalisation is exercised.
+        raw_response = (
+            "summary only, no header\nVERDICT: PASS\n"
+            "## Findings (structured)\n```json\n"
+            '[{"id": "F1", "severity": "MEDIUM", "path": "src/x.py:1", "description": "d"}]\n'
+            "```\n"
+        )
 
     prev = StepResult(
         status="ok",
@@ -230,7 +237,15 @@ def test_ac2_insession_body_preserved(tmp_path, monkeypatch):
     )
 
     sentinel = "SENTINEL-FINDING-F7830037"
-    prev, doc_path = _prev_nonconformant(tmp_path, raw_response=f"{sentinel}\nVERDICT: PASS")
+    prev, doc_path = _prev_nonconformant(
+        tmp_path,
+        raw_response=(
+            f"{sentinel}\nVERDICT: PASS\n"
+            "## Findings (structured)\n```json\n"
+            '[{"id": "F1", "severity": "MEDIUM", "path": "src/x.py:1", "description": "d"}]\n'
+            "```\n"
+        ),
+    )
     ctx = _make_ctx(tmp_path / "scratch")
     mock_invoke = _mock_invoke_ok_raw("## Aggregated Findings\n\nVERDICT: PASS\n")
 

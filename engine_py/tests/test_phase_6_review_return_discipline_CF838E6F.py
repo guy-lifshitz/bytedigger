@@ -321,8 +321,13 @@ def test_ac6_fallback_disk_conformant_emits_doc_file_source(tmp_path, monkeypatc
     doc_path = reviews_dir / "build-review.md"
 
     # Pre-stage: conformant on-disk content (disk-first wins in _resolve_review_content)
+    # S4/M10: carries a real finding block so the fallback is not findingless
+    # (mode- and date-independent); still conformant.
     conformant_disk_content = (
-        "# Composite Review\n\n## Aggregated Findings\n\nVERDICT: PASS\n"
+        "# Composite Review\n\n## Aggregated Findings\n\n"
+        "### SEVERITY: HIGH - Missing null check in handler\n"
+        "> src/x.py:1: def handler(x):\n"
+        "Description: x may be None.\n\nVERDICT: PASS\n"
     )
     doc_path.write_text(conformant_disk_content, encoding="utf-8")
 
@@ -493,8 +498,13 @@ def test_ac9_disk_first_summary_no_retry_disk_intact(tmp_path, monkeypatch):
     reviews_dir.mkdir(parents=True, exist_ok=True)
     doc_path = reviews_dir / "build-review.md"
 
+    # S4/M10: carries a real finding block so the fallback is not findingless
+    # (mode- and date-independent); still conformant.
     conformant_disk = (
-        "# Composite Review\n\n## Aggregated Findings\n\n## Summary\nVERDICT: PASS\n"
+        "# Composite Review\n\n## Aggregated Findings\n\n"
+        "### SEVERITY: HIGH - Missing null check in handler\n"
+        "> src/x.py:1: def handler(x):\n"
+        "Description: x may be None.\n\n## Summary\nVERDICT: PASS\n"
     )
     doc_path.write_text(conformant_disk, encoding="utf-8")
 
