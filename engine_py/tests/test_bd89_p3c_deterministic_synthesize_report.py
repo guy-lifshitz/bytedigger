@@ -40,6 +40,11 @@ AC mapping:
     test_ac21_learning_store_extract_stores_derived_entries    -> AC21 (r2)
     test_ac22_learnings_write_failure_degrades                 -> AC22 (r2)
     test_ac22b_learnings_render_failure_degrades               -> AC22 (r2)
+    test_ac22c_report_write_failure_does_not_skip_learnings    -> AC22c (r2.1, op9 independence)
+    test_ac23a_refuted_section_skipped_and_unverified_token_kept -> AC23a (r2.1)
+    test_ac23b_latest_review_findings_audit_event_wins         -> AC23b (r2.1)
+    test_ac23c_missing_review_doc_still_yields_event_derived_entries -> AC23c (r2.1)
+    test_ac12c_phase_7_sections_do_not_mention_haiku           -> AC12 (r2.1 F8)
     test_ac14_guard_extract_without_raw_degrades_to_zero       -> AC14 (GUARD, both backends)
     test_ac15_guard_class_i_lint_compileall_config_parses      -> AC15 (GUARD)
     test_ac15_guard_tree_scan_lint_real_tree_clean             -> AC15 (GUARD)
@@ -398,6 +403,11 @@ def test_ac8_no_scratchpad_degrades_to_skipped_event(tmp_path, monkeypatch):
     skipped = _events(log, "post_deploy_report_skipped")
     assert len(skipped) == 1
     assert skipped[0]["payload"]["reason"] == "no_scratchpad"
+    # r2.1 F1: op9 does not run without a scratchpad; the keys are present on every branch.
+    assert result.data["learnings_written"] is False
+    assert result.data["learnings_entries"] == 0
+    assert result.data["learnings_raw_path"] is None
+    assert [e for e in log.read_all() if e["event_type"].startswith("learnings_raw")] == []
 
 
 def test_ac8b_write_failure_degrades_to_skipped_event(tmp_path, monkeypatch):
@@ -518,6 +528,24 @@ def test_ac12_synthesizer_agent_removed_extraction_step_kept():
         for token in ("agents/synthesizer.md", "Launch Haiku"):
             assert token not in body, f"{token!r} still in {rel}"
         assert "learning-store.sh extract" in body, f"extraction step missing from {rel}"
+
+
+def _phase_7_text(rel: str) -> str:
+    body = (REPO_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "phases/phase-7-synthesize.md":
+        return body  # the whole file is the phase 7 flow
+    start = body.index("## PHASE 7: SYNTHESIZE")
+    end = body.index("## PHASE 8: POST-DEPLOY")
+    assert start < end
+    return body[start:end]
+
+
+@pytest.mark.parametrize("rel", ["phases/phase-7-synthesize.md", "commands/build.md"])
+def test_ac12c_phase_7_sections_do_not_mention_haiku(rel):
+    # r2.1 F8: the engine writes the report deterministically (no model).
+    section = _phase_7_text(rel)
+    assert "learning-store.sh extract" in section, f"phase 7 section of {rel} lost the extraction step"
+    assert "Haiku" not in section, f"'Haiku' still in the phase 7 section of {rel}"
 
 
 def test_ac12b_guard_phase_7_md_keeps_cleanup_and_ship():
@@ -714,6 +742,7 @@ def test_ac18_review_finding_entries_capped_at_ten_in_file_order(tmp_path, monke
     _write(scratch, REVIEW_REL, _review_doc(headers))
     result = _run_step(_ctx(scratch), log)
 
+    assert (scratch / RAW_REL).is_file()
     entries, errors = _parse_raw(scratch / RAW_REL)
     assert errors == 0
     assert _by_cat(entries, "review-finding") == [
@@ -751,6 +780,7 @@ def test_ac20_fix_process_and_acceptance_entries(tmp_path, monkeypatch):
     _write(scratch, SAT_REL, "SATISFACTION: NOT_ASSESSED\n")
     _run_step(_ctx(scratch), log)
 
+    assert (scratch / RAW_REL).is_file()
     entries, errors = _parse_raw(scratch / RAW_REL)
     assert errors == 0
     fix = _by_cat(entries, "fix-process")
@@ -829,6 +859,96 @@ def test_ac22b_learnings_render_failure_degrades(tmp_path, monkeypatch):
     assert len(skipped) == 1
     assert skipped[0]["payload"]["reason"] == "render_failed"
     assert not (scratch / RAW_REL).exists()
+
+
+def test_ac22c_report_write_failure_does_not_skip_learnings(tmp_path, monkeypatch):
+    # r2.1 F1: op9 is independent of the report outcome when the scratchpad resolves.
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "post-deploy").write_text("i am a file, not a directory", encoding="utf-8")
+    result = _run_step(_ctx(scratch), log)
+
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert result.data["report_written"] is False
+    report_skipped = _events(log, "post_deploy_report_skipped")
+    assert len(report_skipped) == 1
+    assert report_skipped[0]["payload"]["reason"] == "write_failed"
+    raw = scratch / RAW_REL
+    assert raw.is_file()
+    assert "# not derived" in raw.read_text(encoding="utf-8")
+    assert result.data["learnings_written"] is True
+    assert result.data["learnings_raw_path"] == str(raw)
+    assert _events(log, "learnings_raw_skipped") == []
+    assert len(_events(log, "learnings_raw_written")) == 1
+
+
+# --- AC23 (r2.1): refuted / unverified findings, several audits, missing review doc ---
+
+def test_ac23a_refuted_section_skipped_and_unverified_token_kept(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    _write(scratch, REVIEW_REL, (
+        "Composite review.\n\n"
+        f"### SEVERITY: HIGH {_EMDASH} Real finding\n- File: a.py:1\n\n"
+        f"### SEVERITY: [UNVERIFIED] MEDIUM {_EMDASH} Unchecked claim\n- File: b.py:2\n\n"
+        "## Refuted (Semantic)\n\n"
+        f"### SEVERITY: HIGH {_EMDASH} Refuted claim\n- File: c.py:3\n\n"
+        "## Notes\n\n"
+        f"### SEVERITY: LOW {_EMDASH} After refuted section\n- File: d.py:4\n\n"
+        "VERDICT: FAIL\n"))
+    _run_step(_ctx(scratch), log)
+
+    raw = scratch / RAW_REL
+    assert raw.is_file()
+    entries, errors = _parse_raw(raw)
+    assert errors == 0
+    findings = _by_cat(entries, "review-finding")
+    assert findings == [
+        "HIGH finding: Real finding",
+        "UNVERIFIED MEDIUM finding: Unchecked claim",
+        "LOW finding: After refuted section",
+    ]
+    assert not any("Refuted claim" in lesson for _c, lesson in entries)
+
+
+def test_ac23b_latest_review_findings_audit_event_wins(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    log.append("review_findings_audit", {"lost_to_prose": 5}, "r-audit-1")
+    log.append("review_findings_audit", {"lost_to_prose": 3}, "r-audit-2")
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    _run_step(_ctx(scratch), log)
+
+    raw = scratch / RAW_REL
+    assert raw.is_file()
+    entries, errors = _parse_raw(raw)
+    assert errors == 0
+    audit = _by_cat(entries, "review-audit")
+    assert len(audit) == 1, audit
+    assert re.search(r"\b3\b", audit[0]) and not re.search(r"\b5\b", audit[0]), audit
+
+
+def test_ac23c_missing_review_doc_still_yields_event_derived_entries(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    log.append("review_findings_audit", {"lost_to_prose": 2}, "r-audit")
+    log.append("fix_watchdog_no_progress", {"round": 1}, "r-w1")
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+    (scratch / REVIEW_REL).unlink()
+    result = _run_step(_ctx(scratch), log)
+
+    raw = scratch / RAW_REL
+    assert raw.is_file()
+    entries, errors = _parse_raw(raw)
+    assert errors == 0
+    assert _by_cat(entries, "review-finding") == []
+    assert len(_by_cat(entries, "review-audit")) == 1
+    assert len(_by_cat(entries, "fix-process")) >= 1
+    assert result.data["learnings_written"] is True
+    assert result.data["learnings_entries"] == len(entries) >= 2
 
 
 # --- AC16 (GUARD) --------------------------------------------------------------
