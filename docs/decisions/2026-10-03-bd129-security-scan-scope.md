@@ -9,7 +9,7 @@ paths:
 
 # bd#129: security scan classifies almost every repo as HIGH
 
-**Status: DRAFT r3 (gate r2 REJECTED the r2 delta, 3 MAJOR: `-gate-r2.md`; §5.9 folds them; MGR authorized exactly one gate round r3, REJECTED = stop). Was DRAFT r2 (delta §5 after MGR pre-merge review of PR #245; gate r1 APPROVED the r1 contract, r2 gates the delta only)** · **Tier:** 2 · **Class:** deterministic shell check (no model call)
+**Status: DRAFT r3 (gate r2 REJECTED the r2 delta, 3 MAJOR: `-gate-r2.md`; §5.9 folds them; maintainer authorized exactly one gate round r3, REJECTED = stop). Was DRAFT r2 (delta §5 after maintainer pre-merge review of PR #245; gate r1 APPROVED the r1 contract, r2 gates the delta only)** · **Tier:** 2 · **Class:** deterministic shell check (no model call)
 **Chokepoint:** `scripts/security-scan.sh` (the only writer of `security_classification` / `security_patterns_found`) and the two phase docs that call it.
 
 ## 0. Verified premises (live, base 43d3b49)
@@ -32,7 +32,7 @@ paths:
    - Dropped as bare terms: `session`, `hash`, `sign`, `token`, `key.*gen`, `api.key` with a free separator. DATA and INFRA patterns are unchanged.
 3. **Classification.** Unchanged: any of AUTH/CRYPTO/SECRETS -> HIGH; else DATA -> MEDIUM; else LOW. Fail-closed MEDIUM `unanalyzed` only when there is neither `--files` nor `--task`. Task text only (no files), no hit -> LOW with `security_patterns_found: task_only` (records that no file was scanned).
 4. **Provenance.** One new line `security_triggers: [AUTH=src/a.ts:3, SECRETS=task]` (flow list, first trigger per category: `<file>:<line>` for content, `<file>` for a path hit, `task` for task text; `[]` when none). It is printed to stdout and written to `--state-file`, with the same remove-then-append replacement as the two existing keys (a second run never duplicates it).
-5. **Kill switch.** Env `BD_SECURITY_SCAN_LEGACY` exactly `1` restores the old behaviour byte-for-byte for classification: old substring patterns, `--task` ignored, path strings not scanned. Any other value (`0`, `true`, empty, `yes`) is default mode. `security_triggers` is still written in legacy mode. Owner: bytedigger (MGR); remove once default mode has shipped one release without complaints.
+5. **Kill switch.** Env `BD_SECURITY_SCAN_LEGACY` exactly `1` restores the old behaviour byte-for-byte for classification: old substring patterns, `--task` ignored, path strings not scanned. Any other value (`0`, `true`, empty, `yes`) is default mode. `security_triggers` is still written in legacy mode. Owner: bytedigger (maintainer); remove once default mode has shipped one release without complaints.
 6. **Phase docs.**
    - `phase-05-inject.md` 0.5.2: no diff -> do NOT fall back to `git ls-files`; run the scan with `--task "$TASK"` (and the diff files when there are any). The `git ls-files` fallback survives only under `BD_SECURITY_SCAN_LEGACY=1`.
    - `phase-45-spec.md`: after the spec exists, re-run the scan with `--task` plus `--files` from the spec's `Files` list (CREATE and MODIFY paths) and the same `--state-file`, so the classification is re-derived from what the task will touch before Phase 5/6 read it.
@@ -58,7 +58,7 @@ Phase 4/6 reviewer wiring, engine code, `commands/build.md`, the DATA/INFRA patt
 
 Keyword matching stays heuristic: a task phrased without any auth vocabulary that edits an auth file under a neutral path is caught only by the file content at the Phase 4.5 re-scan. A repo whose spec `Files` list names real auth code is HIGH, as intended.
 
-## 5. Delta r2: fail-open fixes (MGR review of PR #245)
+## 5. Delta r2: fail-open fixes (maintainer review of PR #245)
 
 Applies to default mode only; legacy mode (`BD_SECURITY_SCAN_LEGACY=1`) is unchanged. Everything in sections 1-4 stays, except where this section widens a pattern.
 
@@ -84,4 +84,4 @@ Applies to default mode only; legacy mode (`BD_SECURITY_SCAN_LEGACY=1`) is uncha
    - AC20 (gate r2 M3 shield): a file whose line 1 is the invalid UTF-8 byte `\xff` and line 2 is `password` -> HIGH, trigger `AUTH=<file>:2`, exit 0, with the shell locale forced to a UTF-8 one (`LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`). Default mode pins `LC_ALL=C` for both the split step and the grep.
    - AC21 trigger label: a planned path `src/authService.ts` -> trigger `AUTH=src/authService.ts` exactly; file content `getApiKey()` on line 3 of `c.ts` -> `SECRETS=<path>:3` with the original path.
 8. **Out of scope:** running `.bats` in CI (separate issue; noted in the PR report), DATA/INFRA patterns, a general tokenizer for other naming styles (kebab-case already splits on `-`).
-9. **Gate r2 fold-in (r3).** M1 -> §5.1 (raw plus split, narrowed split), AC14 cells `enable 2FA`/`require MFA` replace `add 2FA / MFA`, AC19. M2 -> AC16 exact line plus two task values. M3 -> `LC_ALL=C` for split and grep, AC20. Minors folded: portable `hijack` term, trigger-label cell AC21, AC18 uses `getApiKey()`, phase-45 block at column 0, newline check ordering. Accepted limits (PR body): extra HIGHs from TS/Java member names like `private key:`, `user tokens` meaning LLM tokens, `idToken` in lexers, and random-word hits inside base64, minified or lockfile text; bare `tokens` stays LOW (MGR accepted).
+9. **Gate r2 fold-in (r3).** M1 -> §5.1 (raw plus split, narrowed split), AC14 cells `enable 2FA`/`require MFA` replace `add 2FA / MFA`, AC19. M2 -> AC16 exact line plus two task values. M3 -> `LC_ALL=C` for split and grep, AC20. Minors folded: portable `hijack` term, trigger-label cell AC21, AC18 uses `getApiKey()`, phase-45 block at column 0, newline check ordering. Accepted limits (PR body): extra HIGHs from TS/Java member names like `private key:`, `user tokens` meaning LLM tokens, `idToken` in lexers, and random-word hits inside base64, minified or lockfile text; bare `tokens` stays LOW (maintainer accepted).
