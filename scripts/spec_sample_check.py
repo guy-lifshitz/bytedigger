@@ -231,6 +231,32 @@ def _split_paths(seg):
     return out
 
 
+def _is_path_token(tok):
+    return bool(tok) and not re.search(r"[\s<>=]", tok)
+
+
+def _sample_segment(seg):
+    """Return (cited paths, consumed length) for the text after `sample:`."""
+    m = re.match(r"[\s`]*([^\s,;]+)", seg)
+    if not m:
+        return [], 0
+    first = m.group(1).strip("`'\";")
+    if not _is_path_token(first):
+        return [], 0
+    paths = [first]
+    pos = m.end()
+    while True:
+        c = re.compile(r"\s*,\s*([^,;]*)").match(seg, pos)
+        if not c:
+            break
+        item = c.group(1).strip(" \t`'\";")
+        if not _is_path_token(item):
+            break
+        paths.append(item)
+        pos = c.end()
+    return paths, pos
+
+
 def _parse_measured(seg):
     m = RE_MEASURED.match(seg)
     if not m:
@@ -248,16 +274,24 @@ def _analyze(lines):
         if not hits:
             kept.append(line)
             continue
-        kept.append(line[: hits[0].start()])
+        spans = []
         for i, hit in enumerate(hits):
-            end = hits[i + 1].start() if i + 1 < len(hits) else len(line)
-            seg = line[hit.end():end]
+            limit = hits[i + 1].start() if i + 1 < len(hits) else len(line)
+            seg = line[hit.end():limit]
             if hit.group(1).lower() == "sample":
-                for p in _split_paths(seg):
+                paths, used = _sample_segment(seg)
+                for p in paths:
                     if p not in samples:
                         samples.append(p)
             else:
                 measured.extend(_parse_measured(seg))
+                m = RE_MEASURED.match(seg)
+                used = m.end() if m else 0
+            spans.append((hit.start(), hit.end() + used))
+        out = line
+        for s, e in reversed(spans):
+            out = out[:s] + " " + out[e:]
+        kept.append(out)
     text = "\n".join(kept)
 
     raw_comps = []
