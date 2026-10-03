@@ -700,7 +700,7 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_6_review.py",
         "description": "S4/M10 shadow-by-default rollout (owner s4-bytedigger (MGR)): =1 makes a findingless stdout-fallback review a terminal E_REVIEW_EMPTY_FALLBACK error in phase_6; unset = shadow (event + rejected copy only), and enforce after expiry. flip-by:2026-10-17.",
         "owner": "guy-lifshitz",
-        "provenance": "introduced: no provenance found in this repo",
+        "provenance": "introduced: bd PR #236 (S4/M10) - findingless stdout-fallback review accepted as a real review (fail-closed empty review fallback, SHADOW) - stays default-OFF shadow until the enforce decision; the description cites no issue token, so no provenance found in this repo beyond that PR",
     },
     "HAL_CORPUS_ALLOW_REMOVED": {
         "kind": "flag",
