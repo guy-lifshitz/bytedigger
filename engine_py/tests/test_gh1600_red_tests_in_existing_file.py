@@ -668,7 +668,7 @@ def test_ac8a_real_over_threshold_deletion_ghpragma_exempted_no_refusal(
     ac8c, and must refuse) — this fixture must land a genuine violation so
     `_mdl_exempted` is non-empty, exactly like `_setup_mass_deletion_repo`
     with pragma=True. Enforcement is set explicitly, same as ac8b, since
-    HAL_RED_MASS_DELETION_ENFORCE is warn-only by default (:2020-2022)."""
+    HAL_RED_MASS_DELETION_ENFORCE is a default-ON kill-switch gate."""
     repo, scratchpad, frozen_sha, spec_path = _setup_mass_deletion_repo(
         tmp_path, "ac8a", pragma=True
     )
@@ -737,11 +737,14 @@ def test_ac8c_plain_append_with_pragma_no_deletion_still_refuses(tmp_path: Path)
     assert _head_sha(repo) == frozen_sha, "no RED commit may land from a refused run"
 
 
-def test_ac8d_real_deletion_no_pragma_enforce_off_default_still_refuses(tmp_path: Path) -> None:
+def test_ac8d_real_deletion_no_pragma_enforce_off_default_still_refuses(
+    tmp_path: Path, monkeypatch,
+) -> None:
     """AC8d (gate round 4 — kills the `G = _mdl_all` naive GREEN): a
     pre-existing path with a REAL over-threshold deletion, NO pragma, and
-    `HAL_RED_MASS_DELETION_ENFORCE` left at its shipped DEFAULT (OFF — not
-    monkeypatched here) must still refuse with `E_RED_TESTS_IN_EXISTING_FILE`.
+    `HAL_RED_MASS_DELETION_ENFORCE=0` (kill-switch, set explicitly below —
+    the shipped default is ON since the bd flip 2026-10-03) must still
+    refuse with `E_RED_TESTS_IN_EXISTING_FILE`.
 
     This is the discriminator ac8a/ac8b/ac8c cannot provide: ac8a's path IS
     in `_mdl_all` (real deletion) so a `G = _mdl_all` GREEN would wrongly
@@ -755,9 +758,9 @@ def test_ac8d_real_deletion_no_pragma_enforce_off_default_still_refuses(tmp_path
     repo, scratchpad, frozen_sha, spec_path = _setup_mass_deletion_repo(
         tmp_path, "ac8d", pragma=False
     )
-    # Deliberately NOT setting HAL_RED_MASS_DELETION_ENFORCE — shipped default
-    # (warn-only, OFF) applies, so GH282's own gate never blocks here and D1
-    # is the only thing that can refuse this path.
+    # ENFORCE=0 (kill-switch, warn-only) so GH282's own gate never blocks
+    # here and D1 is the only thing that can refuse this path.
+    monkeypatch.setenv("HAL_RED_MASS_DELETION_ENFORCE", "0")
 
     ctx = _make_ctx(scratchpad, str(repo))
     prev = _make_prev(cycle=1, spec_path=str(spec_path))
@@ -785,13 +788,13 @@ def test_ac8b_mass_deletion_without_pragma_yields_mass_deletion_not_existing_fil
     precedence because the mass-deletion gate runs first (:2018), before
     D1's check.
 
-    This test sets `HAL_RED_MASS_DELETION_ENFORCE` EXPLICITLY because that
-    flag is warn-only by DEFAULT (:2020-2022) — GH282 only keeps precedence
-    when its own enforcement is turned on. With the shipped default (enforce
-    OFF), this same non-pragma'd mass deletion on a pre-existing file would
-    terminate as `E_RED_TESTS_IN_EXISTING_FILE` instead (still actionable,
-    just a different code) — D1 does not defer to a gate deliberately held
-    in warn mode; this AC only pins the enforce-on case."""
+    This test sets `HAL_RED_MASS_DELETION_ENFORCE=1` EXPLICITLY (same as the
+    default since the bd flip 2026-10-03) — GH282 only keeps precedence when
+    its own enforcement is on. With the kill-switch (`=0`, warn-only), this
+    same non-pragma'd mass deletion on a pre-existing file would terminate
+    as `E_RED_TESTS_IN_EXISTING_FILE` instead (still actionable, just a
+    different code) — D1 does not defer to a gate deliberately held in warn
+    mode; this AC only pins the enforce-on case."""
     repo, scratchpad, frozen_sha, spec_path = _setup_mass_deletion_repo(
         tmp_path, "ac8b", pragma=False
     )
@@ -906,11 +909,11 @@ def test_ac9b_recovery_no_persisted_ref_path_dirty_still_refuses(tmp_path: Path)
 
 
 def test_ac10_mass_deletion_branch_error_names_deletion_and_gh282_not_new_file(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch,
 ) -> None:
     """AC10: when the offending path is in `_mdl_all` (GH282 classified a
     real over-threshold deletion) but D1 still refuses it (same shape as
-    AC8d — no pragma, enforce at its default OFF, so GH282 itself never
+    AC8d — no pragma, ENFORCE=0 set explicitly, so GH282 itself never
     blocks and D1's refusal is what fires), `error[:120]` must name the
     DELETION as the problem and GH282 as its owner — "write a new test
     file" (AC2's remedy) is the WRONG remedy for an operator who just
@@ -918,9 +921,9 @@ def test_ac10_mass_deletion_branch_error_names_deletion_and_gh282_not_new_file(
     repo, scratchpad, frozen_sha, spec_path = _setup_mass_deletion_repo(
         tmp_path, "ac10", pragma=False
     )
-    # Deliberately NOT setting HAL_RED_MASS_DELETION_ENFORCE — default OFF,
-    # so GH282 itself does not block and D1's own refusal message is what
-    # this AC inspects (same fixture shape as AC8d).
+    # ENFORCE=0 (kill-switch) so GH282 itself does not block and D1's own
+    # refusal message is what this AC inspects (same fixture shape as AC8d).
+    monkeypatch.setenv("HAL_RED_MASS_DELETION_ENFORCE", "0")
 
     ctx = _make_ctx(scratchpad, str(repo))
     prev = _make_prev(cycle=1, spec_path=str(spec_path))
