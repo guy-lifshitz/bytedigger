@@ -155,7 +155,7 @@ write the log refuses with `E_GREEN_GATE_UNREADABLE` (a bypass that cannot be re
 | AC24 | added decoys `-inventory.md`, `-acceptance.md`, `-close-gate.md`, `-gate-verdict-r1.md`, and a doc with `Gate-exempt: reason` | none is treated as a spec; exemption logged as `gate_exempt` |
 | AC25 | spec `git mv`-ed (rename) on the branch | counted as added -> checked |
 | AC26 | `docs/x/`, `tests/`, `__tests__/` directory paths with non-test file names staged on a REJECTED lot | `[]` |
-| AC27 | kill switch on with a reason, docs-only commit | `[]` and one `kill_switch` line; kill switch on, no reason, docs-only | `E_GREEN_GATE_BYPASS_NO_REASON` |
+| AC27 | kill switch on with a reason, docs-only commit | `[]` and one `kill_switch` line; with the switch on and no reason, the same docs-only commit gets `E_GREEN_GATE_BYPASS_NO_REASON` |
 | AC28 | only binary/unclassified source staged (`nothing_to_lint` true) on a REJECTED lot, via the real hook | refused |
 | AC29 | `ESCALATION:` line followed by text only on the NEXT line | not a marker |
 | AC30 | bd66 sibling suite `test_bd66_precommit_enforcement.py` and `test_bd94_engine_owned_paths.py` | stay green |
