@@ -191,6 +191,28 @@ class TestBd89P3dFlagOwnerLint:
             assert isinstance(prov, str) and prov.strip(), (
                 f"{name}: provenance missing/blank/non-str: {prov!r}"
             )
+            # Same rule as the lint (errata r6 F1): prefix + non-blank text.
+            stripped = prov.strip()
+            assert stripped.startswith("introduced:") and stripped[len("introduced:"):].strip(), (
+                f"{name}: provenance must start with 'introduced:' and have text: {prov!r}"
+            )
+        # Errata r6 F1: content derived from the entry's own description, only
+        # for the migration set. A reference token in the description must
+        # appear in the provenance; no token -> the fallback phrase.
+        for name in sorted(ROLLOUT_NAMES):
+            desc = flags[name].get("description")
+            desc = desc if isinstance(desc, str) else ""
+            prov = flags[name]["provenance"]
+            refs = [m.group(1) for m in re.finditer(r"(?:GH|#)(\d{2,})", desc)]
+            refs += re.findall(r"\b([0-9A-F]{8})\b", desc)
+            if refs:
+                assert any(r in prov for r in refs), (
+                    f"{name}: provenance {prov!r} cites none of the description refs {refs}"
+                )
+            else:
+                assert "no provenance found in this repo" in prov, (
+                    f"{name}: description has no ref; provenance must say so: {prov!r}"
+                )
 
     def test_ac4_sibling_audit_gate_stays_default_on_gate_with_fields(self):
         """AC4: HAL_SIBLING_AUDIT_GATE keeps kind gate and default "1" and
@@ -234,6 +256,8 @@ class TestBd89P3dFlagOwnerLint:
             "HAL_BLANK_OWNER_ENFORCE": _flag(owner="   "),
             "HAL_NO_PROV_ENFORCE": _flag(provenance=None),
             "HAL_BLANK_PROV_ENFORCE": _flag(provenance="  "),
+            "HAL_TBD_PROV_ENFORCE": _flag(provenance="TBD"),
+            "HAL_EMPTY_INTRO_ENFORCE": _flag(provenance="introduced:   "),
             "HAL_GOOD_ENFORCE": _flag(),
         })
         r = _run(tmp_path, "--catalog", str(cat))
@@ -241,6 +265,7 @@ class TestBd89P3dFlagOwnerLint:
         for name in (
             "HAL_NO_OWNER_ENFORCE", "HAL_BLANK_OWNER_ENFORCE",
             "HAL_NO_PROV_ENFORCE", "HAL_BLANK_PROV_ENFORCE",
+            "HAL_TBD_PROV_ENFORCE", "HAL_EMPTY_INTRO_ENFORCE",
         ):
             assert _named(r, name), f"{name} not reported: {r.stderr!r}"
         assert not _named(r, "HAL_GOOD_ENFORCE"), r.stderr
@@ -283,6 +308,19 @@ class TestBd89P3dFlagOwnerLint:
             assert _named(r, name), f"{name} not reported: {r.stderr!r}"
         assert not _named(r, "HAL_CONTROL_ENFORCE"), r.stderr
 
+        # Errata r6 F5: malformed fields inside a dict entry (no _ENFORCE) must
+        # not crash; a non-str / absent description counts as no dated token.
+        odd = _write_catalog(tmp_path, {
+            "HAL_NODESC_NOSUFFIX": {"kind": "flag", "default": "0", "module": "x.py"},
+            "HAL_NONEDESC_NOSUFFIX": {
+                "kind": "flag", "default": "0", "module": "x.py", "description": None,
+            },
+            "HAL_CONTROL_ENFORCE": _flag(),
+        }, "odd.py")
+        r2 = _run(tmp_path, "--catalog", str(odd))
+        assert r2.returncode in (0, 1), f"rc={r2.returncode} stderr={r2.stderr!r}"
+        assert "Traceback" not in r2.stderr and "Traceback" not in r2.stdout
+
     def test_ac10_no_false_positives_and_dated_description_enters_rollout(self, tmp_path):
         """AC10: a non-rollout path entry without fields is not reported; a
         kind=flag entry whose description has flip-by: (or kill-by:) but no
@@ -300,6 +338,16 @@ class TestBd89P3dFlagOwnerLint:
         r_plain = _run(tmp_path, "--catalog", str(plain))
         assert r_plain.returncode == 0, f"rc={r_plain.returncode} stderr={r_plain.stderr!r}"
         assert not _named(r_plain, "HAL_PLAIN_PATH"), r_plain.stderr
+
+        # Errata r6 F2: an entry with no suffix and no dated token is in the
+        # rollout set when it carries only `owner` (e.g. after a flip removed
+        # the token), so its missing provenance is reported by name.
+        owner_only = _write_catalog(tmp_path, {
+            "HAL_OWNER_ONLY": _flag(provenance=None),
+        }, "owner_only.py")
+        r_own = _run(tmp_path, "--catalog", str(owner_only))
+        assert r_own.returncode == 1, f"rc={r_own.returncode} stderr={r_own.stderr!r}"
+        assert _named(r_own, "HAL_OWNER_ONLY"), r_own.stderr
 
         for token in ("flip-by:2026-12-01", "kill-by:2026-12-01"):
             cat = _write_catalog(tmp_path, {
