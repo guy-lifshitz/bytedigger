@@ -16,7 +16,7 @@ authorized, (c) skip/xfail markers added to existing tests, (d) no aggregate cou
 
 1. New `lib/test_integrity.py`, pure + git read only (via `git_port.git_read`):
    `compute_test_integrity(base_sha, git_cwd, *, is_authorized, has_pragma) -> dict` with keys
-   `deleted_files: list[str]`, `removed_tests: list[{path, names}]`, `added_skips: list[{path, n}]`, `exempted: list[{path, kind}]`, `skip_reason: str|None`. Returned lists are always the raw findings (telemetry keeps counts); thresholds are applied by the caller.
+   `deleted_files: list[str]`, `removed_tests: list[{path, names}]`, `added_skips: list[{path, n}]`, `exempted: list[{path, kind}]`, `skipped_files: list[{path, reason}]`, `skip_reason: str|None`. Returned lists are always the raw findings (telemetry keeps counts); thresholds are applied by the caller.
    Enumeration is its own: `git diff --name-status --no-renames <base>` (base vs worktree, so staged and unstaged
    edits count), kept when `_is_test_path(path)` and not `_is_fixture_only_path(path)` (conftest.py / __init__.py are not tests). Untracked new files are not deletions and are ignored for D/M, but
    count as destination of a moved test (see 3).
@@ -31,7 +31,7 @@ authorized, (c) skip/xfail markers added to existing tests, (d) no aggregate cou
    (net per file, documented limit: adding one skip and removing another in the same file cancels).
 4. Exemptions: a deleted file is exempt iff `is_authorized(path)` (spec `authorized-test-edits:`; a deleted file
    cannot carry a pragma). A modified file's `removed_tests` and `added_skips` are exempt iff `has_pragma(path)`
-   (the existing `# red-mass-deletion: allow` token) **and only if that token already exists in the file at `base_sha`**; a pragma the RED itself adds in this cycle exempts nothing here (fail-closed read; GH282's own pragma behaviour is unchanged and out of scope). Exempt entries are listed in
+   (the existing `# red-mass-deletion: allow` token) **and only if that token already exists in the file at `base_sha`**. The base check lives in the CALLER (`_commit_red_tests` builds `has_pragma` as: token at `base_sha` AND still present post-RED); the module trusts the callback; a pragma the RED itself adds in this cycle exempts nothing here (fail-closed read; GH282's own pragma behaviour is unchanged and out of scope). Exempt entries are listed in
    telemetry as `exempted`, never counted.
 5. Thresholds (aggregate over non-exempt entries; violation iff ANY is exceeded): `HAL_RED_TEST_INTEGRITY_MAX_DELETED_FILES`=0,
    `HAL_RED_TEST_INTEGRITY_MAX_REMOVED_TESTS`=0, `HAL_RED_TEST_INTEGRITY_MAX_ADDED_SKIPS`=0 (kind `int`).
@@ -40,11 +40,11 @@ authorized, (c) skip/xfail markers added to existing tests, (d) no aggregate cou
    `flip-by|kill-by|retire-by` token and no ledger line is added (default ON from day one: the evidence for ON is
    the incident, and a shadow period would recreate the stale-ENFORCE problem the audit found).
 7. `_commit_red_tests`: after the GH282 block and before GH1600 D1, call the module, emit `red_test_integrity_check`
-   (`violations`, `violations_n`, `exempted`, `thresholds`, `enforced`, `skip_reason`); when violations and enforced,
+   (`violations`, `violations_n`, `exempted`, `skipped_files`, `thresholds`, `enforced`, `skip_reason`); when violations and enforced,
    emit `red_test_integrity_blocked` (severity error) and return `StepResult(status="error",
    error_code="E_RED_TEST_INTEGRITY", recoverable=False)` with an error text naming each path and counts, and the
    remedy ("add the path under `authorized-test-edits:` (deleted file) or the `# red-mass-deletion: allow` pragma
-   (modified file)"). Fail-open is global ONLY when listing the changed files fails (`skip_reason` set). A file that cannot be read or decoded (binary, bad UTF-8) is skipped and recorded in `skipped_files`; it never drops the findings of other files. An exception in an exemption callback counts the file as NOT exempt (fail-closed).
+   (modified file)"). Fail-open is global ONLY when listing the changed files fails (`skip_reason` set). A file that cannot be read or decoded (binary, bad UTF-8) is skipped and recorded in `skipped_files`, except that a DELETED file whose base content cannot be decoded still counts as a deletion (a move needs readable names); it never drops the findings of other files. An exception in an exemption callback counts the file as NOT exempt (fail-closed).
 8. `E_RED_TEST_INTEGRITY` registered in `error_codes.py` and both `ERROR_CODES.md` copies.
 9. Host RED prompt line (the existing "MASS-DELETION (GH282, terminal)" bullet) gets one sentence: deleting
    test files, removing tests or adding skip/xfail to existing tests is blocked the same way.
@@ -87,4 +87,4 @@ follow-up reusing `compute_test_integrity`), the host repo, the other `*_ENFORCE
 
 ## §5 Baseline (§1b) and known limits
 
-Thresholds are structural zeros, not measured rates, so no live baseline applies; the GH282 events measure a different check. Known limits, accepted: a same-name stub in another changed file can hide a removed test (names are matched across files); net-per-file skip count; a type change to a symlink is not seen; uncommitted operator changes made before RED are attributed to RED (same as GH282); test files outside recognized test paths are not seen. Enforcement is ON from day one; `=0` kill-switches exist.
+Thresholds are structural zeros, not measured rates, so no live baseline applies; the GH282 events measure a different check. Known limits, accepted: a moved test file is reported in `exempted` as `kind: "moved"`, and a RED can delete a test file and redefine the same names as stubs in a new file (a move by the name rule; same-name-stub limit); a `git mv` still needs `authorized-test-edits:` for GH1600 D1; a same-name stub in another changed file can hide a removed test (names are matched across files); net-per-file skip count; a type change to a symlink is not seen; uncommitted operator changes made before RED are attributed to RED (same as GH282); test files outside recognized test paths are not seen. Enforcement is ON from day one; `=0` kill-switches exist.
