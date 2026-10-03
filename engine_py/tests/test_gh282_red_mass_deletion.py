@@ -259,10 +259,12 @@ class TestCommitRedTestsMassDeletionGate:
     def test_warn_only_mass_deletion_commits_and_emits_check_event(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """AC6: enforce unset (warn-only default) -> status ok, commit created,
+        """AC6: HAL_RED_MASS_DELETION_ENFORCE=0 (kill-switch; the default is
+        now ON, bd flip 2026-10-03) -> warn-only,
         red_mass_deletion_check event violations_n=1 enforced=False."""
         from bytedigger_engine.workflows import phase_5_implement
 
+        monkeypatch.setenv("HAL_RED_MASS_DELETION_ENFORCE", "0")
         repo, spec_file = self._setup_mass_deletion_repo(tmp_path)
         pre_head = _head_sha(repo)
 
@@ -426,12 +428,12 @@ class TestCommitRedTestsMassDeletionGate:
 class TestFlagsCatalogRegistration:
     def test_all_three_flags_registered_with_correct_kind(self) -> None:
         """AC11: flags_catalog.FLAGS has all 3 HAL_RED_MASS_DELETION_* tokens
-        with kind gate/flag/int respectively."""
+        with kind gate/gate/int respectively (ENFORCE flipped flag->gate)."""
         from bytedigger_engine import flags_catalog
 
         expected = {
             "HAL_RED_MASS_DELETION_GATE": "gate",
-            "HAL_RED_MASS_DELETION_ENFORCE": "flag",
+            "HAL_RED_MASS_DELETION_ENFORCE": "gate",
             "HAL_RED_MASS_DELETION_MAX_LINES": "int",
         }
         for token, kind in expected.items():

@@ -2398,9 +2398,9 @@ def _commit_red_tests(ctx, prev) -> StepResult:
     _mdl_all: "list[dict[str, Any]]" = []
     if get_config().gate_enabled("HAL_RED_MASS_DELETION_GATE"):        # kill-switch, default ON
         _mdl_max = int_value("HAL_RED_MASS_DELETION_MAX_LINES", 120)
-        _mdl_enforce = get_config().flag("HAL_RED_MASS_DELETION_ENFORCE")
-        # warn-only rollout: HAL_RED_MASS_DELETION_ENFORCE default OFF —
-        # flip-by:2026-07-24 Refs #282 (rollout-completion-check token)
+        _mdl_enforce = get_config().gate_enabled("HAL_RED_MASS_DELETION_ENFORCE")
+        # default ON since 2026-10-03 (Refs #282);
+        # HAL_RED_MASS_DELETION_ENFORCE=0 is the warn-only kill-switch
         _mdl_base = _resolve_frozen_pre_red_sha(scratchpad, _git_cwd_early)
         _mdl_all, _mdl_skip = _red_mass_deletion_violations(
             red_test_paths, _mdl_base, _git_cwd_early, _mdl_max)
