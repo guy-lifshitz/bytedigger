@@ -287,8 +287,8 @@ class TestS3SpecSampleCheck:
             ("count < 10.5", "10.5", True),
             ("share == 0.5", "0.6", True),
             ("share == 0.5", "0.5000000001", False),
-            ("share ≥ 0.25", "0.1", True),
-            ("share ≤ 0.25", "0.1", False),
+            ("share \u2265 0.25", "0.1", True),
+            ("share \u2264 0.25", "0.1", False),
         ],
     )
     def test_ac1_comparison_operators_against_measured(self, tmp_path, text, measured, contradicts):
@@ -317,7 +317,7 @@ class TestS3SpecSampleCheck:
         [
             "rows >= 10",
             "latency <= 12.5",
-            "share ≥ 0.25",
+            "share \u2265 0.25",
             "count == 100",
             "at least 20 files",
             "at most 15 lines",
@@ -1123,12 +1123,62 @@ class TestS3SpecSampleCheck:
         assert _codes(_verdict(_run(tmp_path, swapped))) == ["MEASURED_CONTRADICTS"]
 
     @pytest.mark.parametrize("measured", ["90", "90, 240, 5"])
-    def test_ac14_count_mismatch_is_unverified_ambiguous_pairing_no_finding(self, tmp_path, measured):
+    def test_ac14_count_mismatch_is_blocking_ambiguous_pairing_finding(self, tmp_path, measured):
         root = _lot(tmp_path, _spec(_ac(1, "p50 < 100 and p95 < 250", "samples/plain.txt", measured)))
         v = _verdict(_run(tmp_path, root))
-        assert v["findings"] == [] and v["status"] == "clean", v
-        assert [e["ac"] for e in v["unverified"]] == ["AC1"], v
-        assert "ambiguous_pairing" in json.dumps(v["unverified"][0])
+        assert v["status"] == "flagged" and v["would_block"] is True, v
+        assert _codes(v) == ["AMBIGUOUS_PAIRING"], v
+        assert v["findings"][0]["ac"] == "AC1"
+        assert v["verified"] == [] and v["unverified"] == []
+        # blocking: ENFORCE exits 1
+        r = _run(tmp_path, root, env_extra={FLAG_NAME: "1"})
+        assert r.returncode == 1, (r.returncode, r.stdout)
+        assert _codes(_verdict(r)) == ["AMBIGUOUS_PAIRING"]
+
+    def test_ac14_regression_prose_share_over_12_real_stubs_is_never_clean(self, tmp_path):
+        # comparisons: `< 0.25` and `> 12` (from "over 12"); one measured value
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "prose share < 0.25 over 12 real stubs", "samples/plain.txt", "0.31")),
+        )
+        r = _run(tmp_path, root, env_extra={FLAG_NAME: "1"})
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "flagged" and v["status"] != "clean"
+        assert "AMBIGUOUS_PAIRING" in _codes(v), v
+        shadow = _verdict(_run(tmp_path, root))
+        assert shadow["status"] == "flagged" and shadow["would_block"] is True
+
+    @pytest.mark.parametrize("asserted", ["0.31", "12"])
+    def test_ac14_ambiguous_pairing_ac_calibrates_nothing(self, tmp_path, asserted):
+        # the AC's threshold 0.25/12 and measured 0.31 must not enter the ok-set
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "prose share < 0.25 over 12 real stubs", "samples/plain.txt", "0.31")),
+            red=_red_eq(asserted),
+            lot={"fixtures/x.json": '{"v": %s}\n' % asserted},
+        )
+        v = _verdict(_run(tmp_path, root))
+        assert _codes(v) == ["AMBIGUOUS_PAIRING", "RED_EXPECTED_FROM_LOT_FIXTURE"], (asserted, v)
+
+    @pytest.mark.parametrize(
+        "text,measured,contradicts",
+        [
+            ("share no more than 0.4", "0.5", True),
+            ("share no more than 0.4", "0.3", False),
+            ("share not more than 0.4", "0.5", True),
+            ("share not less than 0.25", "0.1", True),
+            ("share not less than 0.25", "0.3", False),
+        ],
+    )
+    def test_ac14_leftmost_longest_phrase_precedence(self, tmp_path, text, measured, contradicts):
+        # `no more than` must not be read as `more than` (>), `not less than` not as `less than` (<)
+        root = _lot(tmp_path, _spec(_ac(1, text, "samples/plain.txt", measured)))
+        v = _verdict(_run(tmp_path, root))
+        if contradicts:
+            assert _codes(v) == ["MEASURED_CONTRADICTS"], (text, measured, v)
+        else:
+            assert v["findings"] == [], (text, measured, v)
 
     # ------------------------------------------------------------ AC15 ---
     def _commit_lot(self, tmp_path, root):
