@@ -1,6 +1,7 @@
 # S4/M10: fail-closed check that the review stdout-fallback path produced findings
 
-**Status: DRAFT r1 (pre-gate; RED written, 11 fail / 7 guard-green)** · **Tier:** 2 (engine self-mod, one function + one error code, no flag) · **Class:** COVERAGE (review verdict integrity)
+**Status: DRAFT r2 (gate r1 REJECT 4 MAJOR: `-gate-r1.md`)** · **Tier:** 2 (engine self-mod, one function + one error code, no flag) · **Class:** COVERAGE (review verdict integrity)
+**Note:** SUSPECT on the fallback path means "no JSON structured block and no PARTIAL/FAIL marker"; it also covers real `### SEVERITY:` blocks (the prompt's own format), which `_persist_fix_feed` parses and feeds to the fix worker. So SUSPECT alone is NOT "empty" (gate r1 M4); the rule below keys on findings actually parsed.
 **Chokepoint:** `phase_6_review._write_review_artifact`, stdout-fallback branch (after `_derive_fallback_verdict`): the only place a fallback review becomes `status=ok`.
 **Provenance:** audit hal#2320 §6 row M10 (P3b1b-ii 56fbbfa folded aggregation into `write_review_artifact`; absent composite = event `role_report_missing`, status ok, fallback to stdout/disk). Plan approved by Guy 2026-10-03 (audit repair step 4).
 
@@ -15,38 +16,47 @@ Premise of the audit row ("zero findings read as clean") is not literally true a
 | satisfaction gate (L3453) | verdict-agnostic: `_decide_satisfaction_passed` + `_review_all_findings_suspect`, which can only RELAX a FAIL, never block |
 | `write_decorr_artifact` (L5615) | blocks on its OWN SUSPECT only under `decorrelated_verify_enforce` (default off); a different verdict |
 | `error_codes.py` | no code for an empty review |
+| `phase_7_synthesize` (L458) | marks the review PRESENT iff the review doc exists, and phase 7 runs after a phase-6 abort: a kept doc would be reported as a review that happened (gate r1 M1) |
+| `verify_findings` (helper.py ~421), `semantic_verifier` (~380), `_write_satisfaction_doc` (~2697) | read the verdict/doc downstream of the point where the check sits; none blocks on SUSPECT |
 
 Conclusion: an empty or unstructured fallback review proceeds with `status=ok` and the build can ship with no review having happened. Fix = deterministic fail-closed check.
 
 ## 1. Contract
 
-In the fallback branch, after the doc is persisted (kept for diagnosis) and `verdict = _derive_fallback_verdict(content)`:
+Definition. Fallback content is **findingless** iff ALL hold: (a) `extract_structured_findings(content)` is None, or a list whose entries yield zero finding objects with a recognised severity (see 2); (b) the fix-feed parse of the SAME bytes, `_parse_finding_blocks(_doc_section_body(content, "## Aggregated Findings"))` plus the suspect section, yields zero blocks (the identical call `_persist_fix_feed` makes); (c) `_derive_fallback_verdict(content)` is SUSPECT (so an explicit `VERDICT: PARTIAL/FAIL` marker, or a structured PASS/PARTIAL/FAIL, is never findingless).
 
-- If `verdict == VERDICT_SUSPECT` -> emit `review_empty_fallback` `{phase: 6, reason, bytes}` and return `StepResult(status="error", error_code="E_REVIEW_EMPTY_FALLBACK", recoverable=False, step_name="write_review_artifact")`; `_persist_fix_feed` is NOT called.
-- `reason` in {`body_empty` (content blank/whitespace), `no_structured_block` (structured extraction returned None), `unrecognised_severity` (see 2)}.
-- Not blocked (unchanged): verdict `PASS` (explicit structured empty block), `PARTIAL`, `FAIL`.
-- New code `E_REVIEW_EMPTY_FALLBACK` added to `error_codes.py` with description; no flag, no `flags_catalog` entry.
+In the fallback branch, BEFORE anything is written to `doc_path` by the engine and before `_persist_fix_feed`:
 
-## 2. Adjacent hole closed in the same function
+- If findingless -> emit `review_empty_fallback` `{phase: 6, reason, bytes}` where `bytes` = len of the pre-normalisation text (`_resolve_review_content` result) UTF-8; `reason` first match of: `body_empty` (pre-normalisation text blank after strip; normalisation would turn it into "(no findings)", so the check runs on the pre-normalisation text), `unrecognised_severity` (structured block with >= 1 entry but none with a recognised severity), `no_findings_parsed` (everything else).
+- Evidence preservation (gate r1 M1): the diagnosis bytes (pre-normalisation text; if the reviewer already wrote `doc_path` on disk, that file's bytes) are written to `<scratchpad>/reviews/build-review.rejected.md` (os.replace of an existing doc_path, else write_text of the content) so that `doc_path` (`reviews/build-review.md`) does NOT exist after the failure and phase 7 reports `review: MISSING`. A stale `build-review-fix.md` from a previous cycle is removed (`unlink(missing_ok=True)`). No new `read_text`/disk read in `_write_review_artifact` (class_i_inventory pin): `os.replace`/`write_text`/`unlink` only.
+- Return `StepResult(status="error", error_code="E_REVIEW_EMPTY_FALLBACK", recoverable=False, step_name="write_review_artifact", error=<names the rejected file and the reason>)`.
+- Remedy class (GH1399 registry): **terminal**. Why not re-ask: the review result is cached per run (`invoke_review_llm` sentinel replays on restart and the fallback re-reads the same bytes), so a same-run retry cannot obtain a different review; a bounded paid re-ask is out of scope (§1c cancellation of GH1399 retries). Operator recovery: read `reviews/build-review.rejected.md`, then re-run phase 6 in a fresh run. `_CLASS_REGISTRY` in `test_GH1399_advisory_format_terminal.py` gets `E_REVIEW_EMPTY_FALLBACK: {remedy: "terminal", why, missing}` and the code is added to `error_codes.py` (+ both `ERROR_CODES.md`).
+- Not blocked (unchanged): any content with a structured block with a recognised severity, any `### SEVERITY:` block parsed by the fix-feed parser, any explicit `VERDICT: PARTIAL/FAIL` marker.
+- Accepted gap (named): a bare `VERDICT: PARTIAL/FAIL` with no findings anywhere stays ok (explicit reviewer claim); structured entries that are not JSON objects are filtered out by the extractor and count as zero.
 
-`_derive_fallback_verdict`: a structured block with >= 1 finding but zero findings carrying a recognised severity (CRITICAL/HIGH/MEDIUM/LOW, case-insensitive, stripped) currently counts as all-zero -> `PASS`. Fail-closed: such a block yields `SUSPECT` (reason `unrecognised_severity`). An empty list `[]` stays `PASS`. A block mixing recognised and unrecognised severities keeps its recognised-severity verdict.
+## 2. Adjacent hole in the same function
+
+`_derive_fallback_verdict`: a structured block with >= 1 finding object but none with a recognised severity (CRITICAL/HIGH/MEDIUM/LOW, case-insensitive, stripped) currently counts as all-zero -> `PASS`. Fail-closed: it yields `SUSPECT`; the findingless rule then rejects it with reason `unrecognised_severity` unless (b)/(c) say otherwise (an explicit `VERDICT: FAIL` marker alongside such a block: marker wins -> FAIL, not an error). Empty list `[]` stays `PASS`. Mixed recognised/unrecognised keeps the recognised-severity verdict.
 
 ## 3. Out of scope
 
-Aggregator path (`aggregated_content` present): a SUSPECT there carries the fail-open suspect section by design (CA50885D) and must keep flowing. Empty 0-byte composite file goes through the aggregator parse path and is a separate watch item. No change to `_normalize_to_aggregated_findings`, to the satisfaction gate, to decorr, to docs beyond this file.
+Aggregator path (`aggregated_content` present): a SUSPECT there carries the fail-open suspect section by design (CA50885D) and keeps flowing. 0-byte composite file goes through the aggregator parse path (separate watch item). Aggregator errors that fall through to the fallback are reported under this code with the rejected file naming the bytes (accepted). No change to `_normalize_to_aggregated_findings`, satisfaction, decorr.
 
 ## 4. Acceptance criteria (RED `engine_py/tests/test_s4_m10_review_fallback_nonempty.py`)
 
-Drive `_write_review_artifact` with `prev.data = {raw_response, doc_path, spec_path, red_log_path, green_log_path}` and no `aggregated_content`.
+Drive `_write_review_artifact` with `prev.data = {raw_response, doc_path, spec_path, red_log_path, green_log_path}`, no `aggregated_content`.
 
-- AC1: raw in {"", "   \n", "Looks good to me.", "VERDICT: PASS", "## Findings\n[]", fenced json `[]` without the structured fence} -> `status=error`, `error_code=E_REVIEW_EMPTY_FALLBACK`, event `review_empty_fallback` with the right `reason`, no fix doc written, review doc persisted.
-- AC2: valid structured block with one MEDIUM -> ok, `PARTIAL`; one CRITICAL -> ok, `FAIL`; marker `VERDICT: FAIL` with prose findings and no block -> ok, `FAIL`. Unchanged.
-- AC3: valid structured empty block (real PASS shape) -> ok, `PASS`, no event.
-- AC4: structured block with one finding severity `INFO` (or missing/non-string) -> error `E_REVIEW_EMPTY_FALLBACK`, reason `unrecognised_severity`; block with `[INFO, LOW]` -> ok `PARTIAL`; lowercase ` high ` counts as HIGH -> `FAIL`.
-- AC5: aggregator path with `aggregated_content` that yields SUSPECT and a suspect finding list -> still `status=ok` (non-regression, CA50885D).
-- AC6: `E_REVIEW_EMPTY_FALLBACK` present in the error-code registry with a non-empty description; the existing registry/docs consistency tests stay green.
-- AC7 (static): no new import, no LLM call, no flag read in the new branch; the check is a pure function of `content`.
+- AC1: raw in {"", "   \n", "Looks good to me.", "VERDICT: PASS", "## Findings\n[]" and similar no-fence JSON}: `status=error`, `error_code=E_REVIEW_EMPTY_FALLBACK`, `recoverable=False`, `step_name=write_review_artifact`, event with the right `reason` and int `bytes`, no fix doc, **`build-review.md` absent, `build-review.rejected.md` present holding the raw bytes**, and a phase-7 style check (`<reviews>/build-review.md` missing) reads MISSING.
+- AC1b: reviewer already wrote `doc_path` on disk (real-LLM disk-first shape) with findingless text: after the failure `build-review.md` is gone and `build-review.rejected.md` holds those bytes; a pre-existing stale `build-review-fix.md` is gone.
+- AC2: structured block with one MEDIUM -> ok `PARTIAL`; CRITICAL -> ok `FAIL`; `VERDICT: FAIL` + prose, no block -> ok `FAIL`; `VERDICT: PARTIAL` + prose -> ok `PARTIAL` (accepted gap pinned). Unchanged.
+- AC2b (gate r1 M4): content with real `### HIGH: ...` / `### SEVERITY:` finding blocks as the prompt requires, no JSON block, no marker -> `status=ok`, fix doc contains those findings (same as today), no event.
+- AC3: valid structured empty block -> ok `PASS`, no event.
+- AC4: block with one finding severity `INFO` / missing / non-string -> error, reason `unrecognised_severity`, recoverable False, step_name set; `[INFO, LOW]` -> ok `PARTIAL`; ` high ` -> `FAIL`; block with only `INFO` plus `VERDICT: FAIL` marker -> ok `FAIL`.
+- AC4b: non-object entries only (`["CRITICAL: x"]`) in a structured fence -> error `no_findings_parsed`; malformed JSON / dict-root inside a structured fence -> error `no_findings_parsed`; reviewer echoing the prompt's JSON template with no recognised severities -> error.
+- AC5: aggregator path with SUSPECT and a suspect list -> still ok (non-regression).
+- AC6: code registered in `ERROR_CODES` with a description; `_CLASS_REGISTRY` entry exists with remedy `terminal`.
+- AC7: behavioural purity (no LLM subprocess, no disk read beyond existing; the class_i_inventory read_text pin test stays green).
 
-## 5. Known conflicts with existing tests (GREEN updates them; spec change, not test gaming)
+## 5. Existing tests that GREEN must update (spec change, not test gaming)
 
-Existing tests assert `status=ok` for a fallback whose verdict is SUSPECT (prose or `VERDICT: PASS` without a structured block). Under this spec those inputs fail closed, so GREEN rewrites each to use a structured block (keeps its intent) or to expect `E_REVIEW_EMPTY_FALLBACK` where the input IS the unstructured case: `test_bd89_p3b1_single_reviewer_only.py` ac9b (~595-600); `test_F7830037_insession_review_normalize.py` (~193, ~240); `test_GH1399_advisory_format_terminal.py` (~440, ~499, ~780); re-check `test_phase_6_review_return_discipline_CF838E6F.py`, `test_phase_6_stdout_fallback_verdict_4E0BAC38.py`. Policy note: GH1399 made normalization total to avoid paid retries on format drift; it did not promise that an unstructured review proceeds. Regenerate both `ERROR_CODES.md` files (guards `test_ac7_guard_error_codes_md_identical`, `error_codes --check`). `body_empty` must test the PRE-normalisation text (normalisation turns blank into "(no findings)").
+Each asserts `ok` on findingless fallback input; rewrite with a structured block (intent kept) or expect the new error where the input IS findingless: `test_bd89_p3b1_single_reviewer_only.py` ac9b (~595-600); `test_F7830037_insession_review_normalize.py` (~193, ~240); `test_GH1399_advisory_format_terminal.py` (~440, ~499, ~780) and its `_CLASS_REGISTRY` (add the code); `test_bd92_per_cycle_artifacts.py` (~154-170); `test_bd89_p3b1b_ii_aggregation_helper.py::test_ac5_missing_composite_emits_event_and_uses_stdout`; `test_phase_6_review_return_discipline_CF838E6F.py` ac6 (~307), ac9 (~479). Re-check `test_phase_6_stdout_fallback_verdict_4E0BAC38.py` (a block with all-unrecognised severities expecting PASS). Regenerate both `ERROR_CODES.md` (guards `test_ac7_guard_error_codes_md_identical`, `error_codes --check`).
