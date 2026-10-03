@@ -3,7 +3,6 @@
     "primary": "sonnet",
     "fallback": "haiku",
     "critical": "opus",
-    "spec_writer": "opus",
-    "decorrelated_verifier": "fable"
+    "spec_writer": "opus"
   }
 }

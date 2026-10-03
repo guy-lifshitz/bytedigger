@@ -48,7 +48,7 @@ AC12  test_ac12_no_dropped_phase_residue_in_md_and_gate_scripts
 AC13  test_ac13_no_stale_test_references_ast
 AC14  test_ac14_bd44_expected_workflows_is_10                 (GUARD, green by construction)
       test_ac14_frozen_registry_sets_are_the_same_10          (GUARD, green by construction)
-      test_ac14_bd141_pins_are_11_drivers_and_13_dispatches   (GUARD, green by construction)
+      test_ac14_bd141_pins_are_10_drivers_and_12_dispatches   (GUARD, green by construction)
       test_ac14_no_other_registry_count_of_14                 (GUARD, green by construction)
 AC16  test_ac16_guard_stale_phases_csv_resume_is_refused_loudly   (RED today: stage still registered)
 AC15  test_ac15_guard_probe_triggers_fire_on_the_feature_request   (GUARD, green now)
@@ -911,10 +911,11 @@ def _compare_constants(path: Path, left_src: str) -> list[int]:
     return vals
 
 
-def test_ac14_bd141_pins_are_11_drivers_and_13_dispatches():
+def test_ac14_bd141_pins_are_10_drivers_and_12_dispatches():
+    # bd#89 P3b2: decorrelated-verifier removed -> P3c+P3b2: 12->10 drivers, 14->12 dispatches.
     path = TESTS_DIR / "test_bd141_p4d_role_template_injections.py"
-    assert _compare_constants(path, "len(_DRIVERS)") == [11]
-    assert _compare_constants(path, "len(rows)") == [13]
+    assert _compare_constants(path, "len(_DRIVERS)") == [10]
+    assert _compare_constants(path, "len(rows)") == [12]
 
 
 def test_ac14_no_other_registry_count_of_14():

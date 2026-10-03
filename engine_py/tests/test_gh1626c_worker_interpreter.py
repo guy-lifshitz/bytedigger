@@ -1080,7 +1080,7 @@ def test_ac27_both_consumers_resolve_identically_for_venvless_worktree(
 # worker which checkout it owns.  A worker that owns a checkout is a worker that
 # can invoke that project's test command; a reviewer/auditor prompt that never
 # hands over a worktree (`_build_validation_prompt`, `_build_satisfaction_prompt`,
-# `_build_decorr_prompt`, `_build_fix_integrity_prompt`) cannot.  So the
+# `_build_fix_integrity_prompt`) cannot.  So the
 # population is DISCOVERED from the AST of `workflows/*.py`, not typed out, and a
 # FIFTH builder that gains the boundary block — or an existing one that loses its
 # interpreter block — fails this test without anyone remembering to edit a list.

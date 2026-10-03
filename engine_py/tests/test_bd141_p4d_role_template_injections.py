@@ -16,12 +16,11 @@ AC1  test_ac1_role_template_record
 AC2  test_ac2_builders_use_attributable_reader (Call nodes only, incl. alias /
        getattr / globals()[...]; imports and re-exports allowed; helper kept
        in common and equals `_role_template(ctx).content or ""`)
-AC3  test_ac3_every_builder_records_role_template_verbatim[<15 producers>]
+AC3  test_ac3_every_builder_records_role_template_verbatim[<11 producers>]
        (the builders; the two `str` builders through their step wrappers)
 AC4  test_ac4_prompt_bytes_unchanged[<15 producers>]           (guard: green today)
 AC4b test_ac4b_restricted_writer_does_not_inherit_role_template (guard: green today)
      test_ac4b_cycle2_reviewer_inherits_role_template_like_cycle1 (bd#89 P3a)
-     test_ac4b_decorr_does_not_inherit_stale_record            (red today: `{**prev.data}`)
 AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_call_count_is_pinned                    (guard: green today)
      test_ac5_dispatch_hidden_behind_executor_submit_declares  (the COMPLEX
@@ -374,10 +373,6 @@ def _d_satisfaction(env):
                          fix_doc_path=env.path("fix.md")))
 
 
-def _d_decorr(env):
-    return _mod("phase_6_review")._build_decorr_prompt(env.ctx(), _prev())
-
-
 def _d_fix_integrity(env):
     fix_sha = env.commit_a_txt()
     return _mod("phase_6_fix_integrity")._build_fix_integrity_prompt(
@@ -394,10 +389,9 @@ _DRIVERS = {
     "phase_6_review": _d_review,
     "phase_6_fix": _d_fix,
     "phase_6_satisfaction": _d_satisfaction,
-    "phase_6_decorr": _d_decorr,
     "phase_6_fix_integrity": _d_fix_integrity,
 }
-assert len(_DRIVERS) == 11
+assert len(_DRIVERS) == 10
 
 
 def _drive(name: str, root: Path, role_path: "Path | None") -> StepResult:
@@ -580,9 +574,10 @@ def test_ac5_dispatch_call_count_is_pinned() -> None:
     """Guard: 15 after bd#89 P2a (phases 1-4 dropped: 4 sites removed, + the dropped phase_2_explore).
     bd#91: −1 (phase_45_spec spec-review re-poll removed).
     bd#89 P3c: −1 (phase_7_synthesize synthesizer dispatch removed).
+    bd#89 P3b2: −1 (the decorrelated-verifier dispatch removed).
     A new call site is a visible change."""
     rows = _scan_dispatches()
-    assert len(rows) == 13, f"direct dispatch count changed: {len(rows)} (expected 13): {rows}"
+    assert len(rows) == 12, f"direct dispatch count changed: {len(rows)} (expected 12): {rows}"
 
 
 def test_ac5_dispatch_hidden_behind_executor_submit_declares() -> None:
@@ -665,18 +660,6 @@ def test_ac4b_cycle2_reviewer_inherits_role_template_like_cycle1(tmp_path, monke
         assert injections and injections[0].source_id == source_id
 
 
-def test_ac4b_decorr_does_not_inherit_stale_record(tmp_path) -> None:
-    """`_build_decorr_prompt` returns `{**prev.data, "prompt": ...}`: with no
-    role_template_path configured, a stale record in prev.data must not survive,
-    and the key must be set explicitly (spec 2.2)."""
-    env = _Env(tmp_path / "run", None)
-    stale = {"source_id": "/stale", "content": "STALE"}
-    res = _mod("phase_6_review")._build_decorr_prompt(env.ctx(), _prev(role_template=stale))
-    assert res.status == "ok" and res.data.get("prompt"), "fixture precondition"
-    assert "role_template" in res.data, "role_template must be set explicitly on this branch"
-    assert res.data.get("role_template") is None
-
-
 # ---------------------------------------------------------------------------
 # AC5b - behavioural dispatch matrix: producer output -> real invoke step -> spy
 # ---------------------------------------------------------------------------
@@ -749,7 +732,6 @@ _MATRIX = {
     "phase_6_review:2550": (_d_fix, "phase_6_review", "_invoke_fix_llm", {}, "x", 1, False, ()),
     "phase_6_review:3249": (_d_satisfaction, "phase_6_review", "_invoke_satisfaction_llm", {}, "x", 1, False, (_F1,)),
     "phase_6_review:3044-pool": (_d_satisfaction_complex, "phase_6_review", "_invoke_satisfaction_llm", {"complexity": "COMPLEX"}, "x", 3, False, (_F1,)),
-    "phase_6_review:5514": (_d_decorr, "phase_6_review", "_invoke_decorr_llm", {}, "x", 1, False, ()),
     "phase_6_fix_integrity:600": (_d_fix_integrity, "phase_6_fix_integrity", "_invoke_fix_integrity_llm", {}, "x", 1, False, (_F1,)),
 }
 

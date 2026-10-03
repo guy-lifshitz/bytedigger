@@ -1333,20 +1333,20 @@ class TestC2SuspectRateForce:
 
 def test_ac10_verify_fix_typecheck_step_order_unchanged():
     """verify_fix_typecheck stays immediately after run_pytest_post_fix and
-    before build_decorr_prompt. Must PASS TODAY — no reordering in this lot.
+    before build_satisfaction_prompt. Must PASS TODAY — no reordering in this lot.
     """
     workflow = p6.phase_6_review_workflow()
     step_names = [s.name for s in workflow.steps]
 
     idx_pytest = step_names.index("run_pytest_post_fix")
     idx_typecheck = step_names.index("verify_fix_typecheck")
-    idx_decorr = step_names.index("build_decorr_prompt")
+    idx_satisfaction = step_names.index("build_satisfaction_prompt")
 
     assert idx_typecheck == idx_pytest + 1, (
         f"AC10: verify_fix_typecheck must be immediately after run_pytest_post_fix; "
         f"steps={step_names!r}"
     )
-    assert idx_typecheck == idx_decorr - 1, (
-        f"AC10: verify_fix_typecheck must be immediately before build_decorr_prompt; "
+    assert idx_typecheck == idx_satisfaction - 1, (
+        f"AC10: verify_fix_typecheck must be immediately before build_satisfaction_prompt; "
         f"steps={step_names!r}"
     )

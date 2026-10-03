@@ -804,7 +804,6 @@ C_ROWS = (
     ("p6-review", "phase_6_review", "_build_review_prompt", "build_review_prompt"),
     ("p6-fix", "phase_6_review", "_build_fix_prompt", "build_fix_prompt"),
     ("p6-satisfaction", "phase_6_review", "_build_satisfaction_prompt", "build_satisfaction_prompt"),
-    ("p6-decorr", "phase_6_review", "_build_decorr_prompt", "build_decorr_prompt"),
 )
 C_ROW_IDS = [r[0] for r in C_ROWS]
 
@@ -1039,7 +1038,6 @@ _MODS = {
     "phase_5_integrity": p5i, "phase_6_fix_integrity": p6fi,
     "phase_5_implement": p5, "phase_6_review": p6,
 }
-_DECORR_ANCHOR = "ROLE: You are the DECORRELATED VERIFIER"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -1152,15 +1150,10 @@ def _row_setup(row: str, tmp_path: Path, monkeypatch, role_value: str, **org_ext
         monkeypatch.setattr(p5, "_resolve_worktree_root", lambda ctx, sp: tmp_path)
         monkeypatch.setattr(p5, "_worktree_edit_boundary_block", lambda _root: "")
         monkeypatch.setattr(p5, "_red_baseline_precheck", lambda *a, **kw: None)
-    elif row in ("p6-review", "p6-decorr"):
+    elif row == "p6-review":
         monkeypatch.setattr(p6, "_emit_safe", lambda *a, **kw: None)
         monkeypatch.setattr(p6, "_inline_inscope_test_files", lambda ctx, s: ("", 0, 0))
-        stub = _stub_anchor(monkeypatch, p6, row)
-        if row == "p6-review":
-            anchor = stub
-        else:
-            prev = _ok_prev("write_fix_artifact", {})
-            anchor = _DECORR_ANCHOR
+        anchor = _stub_anchor(monkeypatch, p6, row)
     elif row == "p6-fix":
         monkeypatch.setattr(p6, "_emit_safe", lambda *a, **kw: None)
         monkeypatch.setattr(p6, "_inline_inscope_test_files", lambda ctx, s: ("", 0, 0))

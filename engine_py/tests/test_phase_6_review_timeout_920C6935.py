@@ -223,8 +223,9 @@ def test_ac12_call_site_wiring_in_phase_6_review() -> None:
     # Both call-sites must carry the new helper (with trailing comma)
     new_pattern = '_resolve_review_timeout_sec(cfg),'
     count = source.count(new_pattern)
-    assert count >= 2, (
-        f"Expected '_resolve_review_timeout_sec(cfg),' to appear at least 2 times "
+    # bd#89 P3b2: the decorrelated-verifier call site was removed; 1 remains.
+    assert count >= 1, (
+        f"Expected '_resolve_review_timeout_sec(cfg),' to appear at least 1 time "
         f"in phase_6_review.py, found {count} occurrence(s). "
         "GREEN has not wired both call-sites yet."
     )
