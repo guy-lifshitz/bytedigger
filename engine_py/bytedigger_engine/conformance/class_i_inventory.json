@@ -3,6 +3,11 @@
   "sites": {
     "lib/authored_boundary.py::classify_red_hash_mismatches::git_read#0": {"class": "not-prompt", "note": "git show of a frozen RED blob; hashed and compared in the engine, never rendered"},
     "lib/authored_boundary.py::compute_red_test_hashes::read_bytes#0": {"class": "not-prompt", "note": "RED test bytes are sha256-hashed for the freeze manifest; bytes are not kept"},
+    "lib/test_integrity.py::compute_test_integrity::git_read#0": {"class": "not-prompt", "note": "git diff name-status of the RED change; paths only, drives a gate verdict"},
+    "lib/test_integrity.py::compute_test_integrity::git_read#1": {"class": "not-prompt", "note": "git ls-files of untracked test files; paths only, drives a gate verdict"},
+    "lib/test_integrity.py::compute_test_integrity.<locals>._base::git_read#0": {"class": "not-prompt", "note": "git show of a base test file; scanned for test names and skip markers by regex, never rendered"},
+    "lib/test_integrity.py::compute_test_integrity.<locals>._post::read_bytes#0": {"class": "not-prompt", "note": "post-RED test file bytes; scanned for test names and skip markers by regex, never rendered"},
+    "workflows/phase_5_implement.py::_commit_red_tests.<locals>._ti_has_pragma::git_read#0": {"class": "not-prompt", "note": "git show of a base test file; only the pragma token is searched, never rendered"},
     "lib/authored_boundary.py::scan_boundary::git_read#0": {"class": "not-prompt", "note": "git probe for the authored-boundary scan; result drives a gate verdict only"},
     "lib/authored_boundary.py::scan_boundary::git_read#1": {"class": "not-prompt", "note": "git diff scanned for forbidden tokens; only a pass/fail verdict leaves"},
     "lib/authored_boundary.py::scan_boundary::git_read#2": {"class": "not-prompt", "note": "git show of pre-image scanned for forbidden tokens; verdict only"},

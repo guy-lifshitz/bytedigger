@@ -396,6 +396,36 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_5_implement.py",
         "description": "Absolute deleted-lines floor for the RED mass-deletion gate (ANDed with >=50% base-file ratio, GH282).",
     },
+    "HAL_RED_TEST_INTEGRITY_GATE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Kill-switch: HAL_RED_TEST_INTEGRITY_GATE=0 disables the RED test-integrity detection+telemetry entirely (deleted test files, removed tests, added skip/xfail; bd#226).",
+    },
+    "HAL_RED_TEST_INTEGRITY_ENFORCE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Kill-switch: =0 returns RED test-integrity to warn-only; default ON hard-blocks (E_RED_TEST_INTEGRITY, recoverable=False) (bd#226).",
+    },
+    "HAL_RED_TEST_INTEGRITY_MAX_DELETED_FILES": {
+        "kind": "int",
+        "default": 0,
+        "module": "workflows/phase_5_implement.py",
+        "description": "Max unauthorized deleted pre-existing test files tolerated by the RED test-integrity gate (bd#226).",
+    },
+    "HAL_RED_TEST_INTEGRITY_MAX_REMOVED_TESTS": {
+        "kind": "int",
+        "default": 0,
+        "module": "workflows/phase_5_implement.py",
+        "description": "Max removed (non-pragma'd) test definitions tolerated by the RED test-integrity gate (bd#226).",
+    },
+    "HAL_RED_TEST_INTEGRITY_MAX_ADDED_SKIPS": {
+        "kind": "int",
+        "default": 0,
+        "module": "workflows/phase_5_implement.py",
+        "description": "Max added skip/xfail markers on existing tests tolerated by the RED test-integrity gate (bd#226).",
+    },
     "HAL_RED_WRITE_BOUNDARY_GATE": {
         "kind": "gate",
         "default": "1",

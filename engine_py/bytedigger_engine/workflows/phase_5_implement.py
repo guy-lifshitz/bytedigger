@@ -1394,6 +1394,7 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
                     "    use conftest-import-time singleton + swap-pin instead.\n"
                     "  - MASS-DELETION (GH282, terminal): do not delete existing test lines beyond the spec's\n"
                     "    authorized-test-edits block; large deletions inside allowlisted paths block the build.\n"
+                    "    Deleting test files, removing tests or adding skip/xfail to existing tests is blocked the same way.\n"
                     "  - SUITE-SAFETY (585E30E3, terminal): no sys.path.insert / os.chdir / global-state mutation\n"
                     "    at module top level in test files — suite-unsafe patterns block the build.\n"
                 )
@@ -2435,6 +2436,87 @@ def _commit_red_tests(ctx, prev) -> StepResult:
                 error_code="E_RED_MASS_DELETION", recoverable=False,
             )
     # ── end GH282 gate ──
+    # ── bd#226 — RED test-integrity gate (deleted files / removed tests / added skips) ──
+    if get_config().gate_enabled("HAL_RED_TEST_INTEGRITY_GATE"):       # kill-switch, default ON
+        from bytedigger_engine.lib import test_integrity as _test_integrity
+        _ti_enforce = get_config().gate_enabled("HAL_RED_TEST_INTEGRITY_ENFORCE")
+        _ti_thr = {
+            "max_deleted_files": int_value("HAL_RED_TEST_INTEGRITY_MAX_DELETED_FILES", 0),
+            "max_removed_tests": int_value("HAL_RED_TEST_INTEGRITY_MAX_REMOVED_TESTS", 0),
+            "max_added_skips": int_value("HAL_RED_TEST_INTEGRITY_MAX_ADDED_SKIPS", 0),
+        }
+        _ti_auth = (
+            _parse_authorized_test_edits(_spec_path_raw)
+            if isinstance(_spec_path_raw, str) and _spec_path_raw
+            else []
+        )
+        _ti_base = _resolve_frozen_pre_red_sha(scratchpad, _git_cwd_early)
+
+        def _ti_has_pragma(_p: str) -> bool:
+            # bd#226 r2: the pragma exempts only if the token existed at
+            # base_sha (operator-authored) AND is still present post-RED.
+            # Fail-closed on any read/decode error.
+            try:
+                _shown = git_port.git_read(
+                    ["show", f"{_ti_base}:{_p}"], cwd=_git_cwd_early, timeout=30,
+                )
+                if _shown.returncode != 0 or _MASS_DELETION_ALLOW_PRAGMA not in _shown.stdout:
+                    return False
+            except Exception:
+                return False
+            return _has_mass_deletion_allow_pragma(str(Path(_git_cwd_early) / _p))
+
+        _ti_res = _test_integrity.compute_test_integrity(
+            _ti_base,
+            _git_cwd_early,
+            is_authorized=lambda _p: _path_matches_allowlist(_p, _ti_auth),
+            has_pragma=_ti_has_pragma,
+        )
+        _ti_deleted = list(_ti_res["deleted_files"])
+        _ti_removed = list(_ti_res["removed_tests"])
+        _ti_skips = list(_ti_res["added_skips"])
+        _ti_removed_n = sum(len(e["names"]) for e in _ti_removed)
+        _ti_skips_n = sum(int(e["n"]) for e in _ti_skips)
+        _ti_over = (
+            len(_ti_deleted) > _ti_thr["max_deleted_files"]
+            or _ti_removed_n > _ti_thr["max_removed_tests"]
+            or _ti_skips_n > _ti_thr["max_added_skips"]
+        )
+        _ti_viol = (
+            {"deleted_files": _ti_deleted, "removed_tests": _ti_removed, "added_skips": _ti_skips}
+            if _ti_over else {"deleted_files": [], "removed_tests": [], "added_skips": []}
+        )
+        _ti_viol_n = (len(_ti_deleted) + _ti_removed_n + _ti_skips_n) if _ti_over else 0
+        _emit_safe("red_test_integrity_check", {
+            "phase": 5, "step": "commit_red_tests",
+            "violations": _ti_viol, "violations_n": _ti_viol_n,
+            "exempted": _ti_res.get("exempted", []),
+            "skipped_files": _ti_res.get("skipped_files", []),
+            "observed": {
+                "deleted_files": _ti_deleted, "removed_tests": _ti_removed,
+                "added_skips": _ti_skips,
+            },
+            "thresholds": _ti_thr, "enforced": _ti_enforce,
+            "skip_reason": _ti_res.get("skip_reason"),
+        })
+        if _ti_over and _ti_enforce:
+            _emit_safe("red_test_integrity_blocked", {
+                "phase": 5, "step": "commit_red_tests",
+                "violations": _ti_viol,
+            }, severity="error")
+            _ti_parts = (
+                [f"{p} (deleted test file)" for p in _ti_deleted]
+                + [f"{e['path']} (removed tests: {', '.join(e['names'])})" for e in _ti_removed]
+                + [f"{e['path']} (+{e['n']} skip/xfail marker(s))" for e in _ti_skips]
+            )
+            return StepResult(
+                status="error", data=None, duration_ms=0, step_name="commit_red_tests",
+                error=("RED test-integrity blocked: " + "; ".join(_ti_parts) +
+                       ". Remedy: add the path under `authorized-test-edits:` (deleted file) "
+                       "or the `# red-mass-deletion: allow` pragma (modified file)."),
+                error_code="E_RED_TEST_INTEGRITY", recoverable=False,
+            )
+    # ── end bd#226 gate ──
     cfg = ctx.org_config or {}
     scratchpad = _resolve_scratchpad(ctx)
     # ── GH1600 D1 — refuse RED tests written into a pre-existing test file ──
