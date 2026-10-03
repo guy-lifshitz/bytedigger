@@ -1,6 +1,6 @@
 """bd#218 step 1 RED -- preflight receipt rung in front of the validation gate + shadow reject-log evidence.
 
-Spec: docs/decisions/2026-10-03-bd218-s1-preflight-rung.md (ACs AC1-AC9c).
+Spec: docs/decisions/2026-10-03-bd218-s1-preflight-rung.md (ACs AC1-AC17, spec r4).
 
 New symbols (imported lazily so each test fails at assert/attribute time, not collection):
   preflight.receipt_rung, reject_stats.ladder_table, reject_log.record_validation_reject(preflight=...),
@@ -11,7 +11,9 @@ AC2 uses a REAL run_preflight writing a REAL receipt in a tmp git repo (no mocki
 verify_receipt). The phase-5 tests (AC3/AC7/AC8) also use real receipts; only the LLM call and the
 event sink are replaced (never the unit under test). No singleton resource is contended
 (workflows.md 1i): every state is pre-staged deterministically in its own tmp repo.
-AC9 (bd141 / bd164 siblings pass unchanged) is verified by running those files, not by a test here.
+AC10 (bd141 incl. L16 / bd164 / other siblings pass unchanged; L16's harness has no git_cwd so it is
+ambient-skipped, see AC14) is verified by running those files, not by a test here.
+receipt_rung is patched via the `preflight.receipt_rung` module attribute (spec op2 binding).
 """
 from __future__ import annotations
 
@@ -282,16 +284,16 @@ def test_AC3_default_config_emits_one_preflight_receipt_before_gate(
 def test_AC4_receipt_rung_raising_emits_error_and_gate_still_runs(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC4: receipt_rung raising -> event status 'error', gate called once, result unchanged."""
-    pf, p5 = _pf(), _p5()
+    pf = _pf()
 
     def boom(*_a: Any, **_k: Any) -> dict:
         raise RuntimeError("rung exploded")
 
     monkeypatch.setattr(pf, "receipt_rung", boom)             # absent today -> AttributeError
-    monkeypatch.setattr(p5, "receipt_rung", boom, raising=False)  # in case phase 5 binds the name directly
     result, calls, events, _order = _drive(monkeypatch, tmp_path, git_cwd=str(tmp_path))
     evs = _rung_events(events)
     assert len(evs) == 1 and evs[0]["status"] == "error"
+    assert calls[0]["extra_data"]["preflight"] == {"status": "error", "red_step": None}
     assert len(calls) == 1
     _assert_passthrough(result, calls[0])
 
@@ -302,7 +304,7 @@ def test_AC4_receipt_rung_raising_emits_error_and_gate_still_runs(
 
 def test_AC5_mode_off_is_todays_behaviour(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC5: {"mode":"off"} -> no event, receipt_rung not called, extra_data has no preflight key."""
-    pf, p5 = _pf(), _p5()
+    pf = _pf()
     seen: list[tuple] = []
 
     def spy(*a: Any, **k: Any) -> dict:
@@ -310,7 +312,6 @@ def test_AC5_mode_off_is_todays_behaviour(tmp_path: Path, monkeypatch: pytest.Mo
         return {"status": "fresh", "phase": "red", "red_step": None}
 
     monkeypatch.setattr(pf, "receipt_rung", spy)              # absent today -> AttributeError
-    monkeypatch.setattr(p5, "receipt_rung", spy, raising=False)
     result, calls, events, _o = _drive(monkeypatch, tmp_path, git_cwd=str(tmp_path),
                                        preflight_rung={"mode": "off"})
     assert not _rung_events(events) and not seen
@@ -504,7 +505,8 @@ def test_AC9c_ladder_table_groups_counts_and_caps_heads() -> None:
         ("fresh", None, 5), ("red", "cite", 4), ("stale", None, 3), ("missing", None, 2), ("none", None, 1),
     ]
     for g in table:
-        assert set(g) == {"status", "red_step", "rejects", "findings_heads"}
+        assert set(g) == {"status", "red_step", "rejects", "informative", "findings_heads"}
+        assert g["informative"] is (g["status"] in ("fresh", "red"))
         assert len(g["findings_heads"]) <= 3
     heads = {(g["status"], g["red_step"]): g["findings_heads"] for g in table}
     assert len(heads[("fresh", None)]) == 3 and set(heads[("fresh", None)]) <= {f"h{i}" for i in range(1, 6)}
@@ -607,7 +609,7 @@ def test_AC13_verify_empty_and_none_behave_as_default(
 
 def test_AC14_ambient_cwd_skips_receipt_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC14: no git_cwd / current_worktree_path / scratchpad repo -> ambient-skip, receipt_rung never called."""
-    pf, p5 = _pf(), _p5()
+    pf = _pf()
     seen: list[tuple] = []
 
     def spy(*a: Any, **k: Any) -> dict:
@@ -615,14 +617,34 @@ def test_AC14_ambient_cwd_skips_receipt_read(tmp_path: Path, monkeypatch: pytest
         return {"status": "fresh", "phase": "red", "red_step": None}
 
     monkeypatch.setattr(pf, "receipt_rung", spy)                  # absent today -> AttributeError
-    monkeypatch.setattr(p5, "receipt_rung", spy, raising=False)
     result, calls, events, _o = _drive(monkeypatch, tmp_path)     # no git_cwd: ambient process cwd
     evs = _rung_events(events)
     assert len(evs) == 1 and evs[0]["status"] == "ambient-skip"
-    assert evs[0]["phase"] == 5 and evs[0]["gate"] == "validation"
+    assert evs[0]["phase"] == 5 and evs[0]["gate"] == "validation" and evs[0]["cycle"] == 1
     assert not seen, "an ambient repo's receipt must not be read"
     assert len(calls) == 1
     assert "preflight" not in calls[0]["extra_data"]
+    _assert_passthrough(result, calls[0])
+
+
+def test_AC14_relative_explicit_git_cwd_is_ambient_too(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC14: a RELATIVE explicit git_cwd counts as ambient -> ambient-skip, rung not read, no record, gate once."""
+    pf = _pf()
+    repo = _staged_repo(tmp_path, "fresh")  # a real fresh receipt exists; it must still not be read
+    seen: list[tuple] = []
+
+    def spy(*a: Any, **k: Any) -> dict:
+        seen.append((a, k))
+        return {"status": "fresh", "phase": "red", "red_step": None}
+
+    monkeypatch.setattr(pf, "receipt_rung", spy)                  # absent today -> AttributeError
+    monkeypatch.chdir(repo.parent)
+    result, calls, events, _o = _drive(monkeypatch, tmp_path, git_cwd=repo.name)
+    evs = _rung_events(events)
+    assert len(evs) == 1 and evs[0]["status"] == "ambient-skip" and evs[0]["cycle"] == 1
+    assert not seen
+    assert len(calls) == 1 and "preflight" not in calls[0]["extra_data"]
     _assert_passthrough(result, calls[0])
 
 
@@ -659,6 +681,8 @@ def test_AC15_ladder_table_legacy_rows_malformed_preflight_and_tie_order() -> No
         ("fresh", None, 2), ("missing", None, 2), ("red", None, 2), ("red", "cite", 2), ("red", "lint", 2),
     ]
     assert rs.ladder_table(list(reversed(rows))) == tied, "deterministic regardless of input order"
+    assert [g["informative"] for g in tied] == [True, False, True, True, True]
+    assert table[0]["informative"] is False  # "none" carries no evidence
 
 
 # --------------------------------------------------------------------------
@@ -673,3 +697,83 @@ def test_AC16_stale_but_was_red_keeps_first_red_step(tmp_path: Path) -> None:
     assert pf.receipt_rung("red", str(repo))["status"] == "red"
     (repo / "calc.py").write_text(CALC + "# edit\n", encoding="utf-8")
     assert pf.receipt_rung("red", str(repo)) == {"status": "stale", "phase": "red", "red_step": "cite"}
+
+
+# --------------------------------------------------------------------------
+# AC17 silences (gate r2 MINOR-3)
+# --------------------------------------------------------------------------
+
+def test_AC17_error_path_record_and_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC17: rung raising -> event status 'error' AND extra_data["preflight"] == {"status":"error","red_step":None}."""
+    pf = _pf()
+
+    def boom(*_a: Any, **_k: Any) -> dict:
+        raise RuntimeError("rung exploded")
+
+    monkeypatch.setattr(pf, "receipt_rung", boom)             # absent today -> AttributeError
+    _r, calls, events, _o = _drive(monkeypatch, tmp_path, git_cwd=str(tmp_path))
+    (ev,) = _rung_events(events)
+    assert ev["status"] == "error" and ev["cycle"] == 1 and ev["phase"] == 5
+    assert len(calls) == 1
+    assert calls[0]["extra_data"]["preflight"] == {"status": "error", "red_step": None}
+
+
+@pytest.mark.parametrize("cfg", [{"mode": "bogus"}, "x", 5], ids=["unknown-str", "str", "int"])
+def test_AC17_config_error_event_without_record(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cfg: Any) -> None:
+    """AC17: config-error -> event emitted, no extra_data["preflight"], rung not read, gate once."""
+    pf = _pf()
+    seen: list[int] = []
+
+    def spy(*_a: Any, **_k: Any) -> dict:
+        seen.append(1)
+        return {"status": "fresh", "phase": "red", "red_step": None}
+
+    monkeypatch.setattr(pf, "receipt_rung", spy)              # absent today -> AttributeError
+    _r, calls, events, _o = _drive(monkeypatch, tmp_path, git_cwd=str(tmp_path), preflight_rung=cfg)
+    (ev,) = _rung_events(events)
+    assert ev["status"] == "config-error" and ev["cycle"] == 1
+    assert len(calls) == 1 and "preflight" not in calls[0]["extra_data"]
+    assert not seen
+
+
+def test_AC17_ladder_table_informative_flag() -> None:
+    """AC17: informative is True only for fresh/red groups."""
+    rs = importlib.import_module("bytedigger_engine.reject_stats")
+    recs = [{"status": "fresh", "red_step": None}, {"status": "red", "red_step": "cite"},
+            {"status": "stale", "red_step": None}, {"status": "missing", "red_step": None},
+            {"status": "error", "red_step": None}, {"status": "config-error", "red_step": None},
+            {"status": "ambient-skip", "red_step": None}, None]
+    table = rs.ladder_table([_row("VALIDATION_FAILED", r) for r in recs])
+    got = {g["status"]: g["informative"] for g in table}
+    assert got == {"fresh": True, "red": True, "stale": False, "missing": False, "error": False,
+                   "config-error": False, "ambient-skip": False, "none": False}
+    assert all(g["informative"] is True or g["informative"] is False for g in table)
+
+
+def test_AC17_findings_heads_flatten_dedup_first_three() -> None:
+    """AC17: findings_heads = rows' findings_head lists flattened in input order, de-duplicated, first 3."""
+    rs = importlib.import_module("bytedigger_engine.reject_stats")
+    fresh = {"status": "fresh", "red_step": None}
+    lists = [["a", "b"], ["b", "c"], ["d", "a"], []]
+    rows = []
+    for lst in lists:
+        row = _row("VALIDATION_FAILED", fresh)
+        row["detail"]["findings_head"] = lst
+        rows.append(row)
+    (g,) = rs.ladder_table(rows)
+    assert g["rejects"] == 4
+    assert g["findings_heads"] == ["a", "b", "c"]
+
+
+def test_AC17_subdirectory_git_cwd_reads_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC17: a sub-directory of a repo holding a real fresh receipt reads 'fresh', directly and via phase 5."""
+    pf = _pf()
+    repo = _staged_repo(tmp_path, "fresh")
+    sub = repo / "tests"
+    assert sub.is_dir()
+    assert pf.receipt_rung("red", str(sub)) == {"status": "fresh", "phase": "red", "red_step": None}
+    _r, calls, events, _o = _drive(monkeypatch, tmp_path, git_cwd=str(sub))
+    (ev,) = _rung_events(events)
+    assert ev["status"] == "fresh"
+    assert calls[0]["extra_data"]["preflight"] == {"status": "fresh", "red_step": None}
