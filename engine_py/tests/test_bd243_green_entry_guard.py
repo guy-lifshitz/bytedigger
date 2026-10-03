@@ -1,0 +1,690 @@
+"""RED tests for bd#243 - GREEN cannot start without an approving gate verdict on
+the current spec revision.
+
+Spec: docs/decisions/2026-10-03-bd243-green-entry-guard.md (AC1-AC17).
+
+Unit under test (ABSENT pre-GREEN):
+  - engine_py/bytedigger_engine/green_entry_guard.py
+      check(root: str, staged: list[str], env: Mapping[str, str]) -> list[str]
+  - engine_py/bytedigger_engine/precommit_enforce.py::main calls it (AC15).
+  - error_codes.py / both ERROR_CODES.md / flags_catalog.py (AC17).
+
+Fixtures are REAL temp git repos (base branch `main`, lot branch, spec and gate
+docs committed on the lot branch, a non-test source file staged). The anchor is
+the sha256 of the spec bytes on disk, written as the verdict-anchor block that
+`verdict_verify.ANCHOR_RE` already defines.
+
+Pre-GREEN every test FAILS at assert time: the module is imported INSIDE each
+test (after an explicit existence assertion), never at collection. AC17 fails
+because the five codes / two flags are not yet catalogued.
+
+Hermetic: GIT_CONFIG_GLOBAL/SYSTEM neutralised; everything under tmp_path.
+No sys.path mutation, no `from conftest import`. No timing or contended
+resource anywhere (workflows.md section 1i): every state is pre-staged on disk.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from bytedigger_engine import error_codes, precommit_lints
+
+PACKAGE_DIR = Path(precommit_lints.__file__).resolve().parent
+ENGINE_ROOT = PACKAGE_DIR.parent
+REPO_ROOT = ENGINE_ROOT.parent
+
+GUARD_MODULE = PACKAGE_DIR / "green_entry_guard.py"
+INSTALLER = REPO_ROOT / "scripts" / "install_git_hooks.py"
+GITHOOKS_DIR = REPO_ROOT / "githooks"
+FLAG_OWNER_LINT = REPO_ROOT / "scripts" / "flag_owner_lint.py"
+FLAGS_CATALOG = PACKAGE_DIR / "flags_catalog.py"
+ERROR_CODES_MD = (ENGINE_ROOT / "ERROR_CODES.md", PACKAGE_DIR / "ERROR_CODES.md")
+
+C_MISSING = "E_GREEN_GATE_MISSING"
+C_REJECTED = "E_GREEN_GATE_REJECTED"
+C_STALE = "E_GREEN_GATE_STALE"
+C_UNREADABLE = "E_GREEN_GATE_UNREADABLE"
+C_NO_REASON = "E_GREEN_GATE_BYPASS_NO_REASON"
+ALL_CODES = (C_MISSING, C_REJECTED, C_STALE, C_UNREADABLE, C_NO_REASON)
+
+SRC = "src/app.py"
+STEM = "2026-10-03-widget"
+KILL = "HAL_GREEN_GATE_GUARD"
+REASON = "HAL_GREEN_GATE_BYPASS_REASON"
+
+_GIT_ENV_KEYS = ("HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM")
+
+
+# --- fixture helpers ---------------------------------------------------------
+
+
+def _hermetic_git_env(tmp_path: Path) -> dict:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(exist_ok=True)
+    empty_global = fake_home / ".gitconfig"
+    empty_global.write_text("")
+    env = dict(os.environ)
+    for key in ("PYTHONPATH", "BD66_LINT_DIR", KILL, REASON):
+        env.pop(key, None)
+    env["HOME"] = str(fake_home)
+    env["GIT_CONFIG_GLOBAL"] = str(empty_global)
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _git(args, cwd, env):
+    return subprocess.run(
+        ["git", *args], cwd=str(cwd), env=env, capture_output=True, text=True
+    )
+
+
+def _git_ok(args, cwd, env):
+    r = _git(args, cwd, env)
+    assert r.returncode == 0, f"git {args} failed: {r.stdout!r} {r.stderr!r}"
+    return r
+
+
+def _new_repo(tmp_path: Path, name: str = "repo", main_files: dict | None = None):
+    """Repo with one commit on `main` (optionally carrying main_files), then a
+    lot branch checked out. Returns (repo, env)."""
+    env = _hermetic_git_env(tmp_path)
+    repo = (tmp_path / name).resolve()
+    repo.mkdir(parents=True)
+    _git_ok(["init", "-q", "-b", "main"], repo, env)
+    for key, value in (
+        ("user.email", "bd243@example.com"),
+        ("user.name", "bd243 tester"),
+        ("commit.gpgsign", "false"),
+    ):
+        _git_ok(["config", key, value], repo, env)
+    (repo / "README.md").write_text("base\n")
+    for rel, data in (main_files or {}).items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    _git_ok(["add", "-A"], repo, env)
+    _git_ok(["commit", "-q", "-m", "base"], repo, env)
+    _git_ok(["checkout", "-q", "-b", "lot-243"], repo, env)
+    return repo, env
+
+
+def _spec_rel(stem: str) -> str:
+    return f"docs/decisions/{stem}.md"
+
+
+def _write_spec(repo: Path, stem: str, text: str) -> bytes:
+    path = repo / _spec_rel(stem)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = text.encode()
+    path.write_bytes(data)
+    return data
+
+
+def _anchor(stem: str, spec_bytes: bytes) -> str:
+    digest = hashlib.sha256(spec_bytes).hexdigest()
+    return f"<!-- verdict-anchor\nspec: {_spec_rel(stem)} sha256:{digest}\n-->\n"
+
+
+def _write_gate(
+    repo: Path,
+    stem: str,
+    n: int,
+    verdict: str | None,
+    anchor_for: bytes | None = None,
+    eol: str = "\n",
+    trailing_newline: bool = True,
+) -> Path:
+    """Gate doc; the verdict (if any) is the LAST line."""
+    body = f"# gate r{n} for {stem}\n\nReview prose. Mentions spec r{n}.\n\n"
+    if anchor_for is not None:
+        body += _anchor(stem, anchor_for) + "\n"
+    if verdict is not None:
+        body += f"VERDICT: {verdict}" + (eol if trailing_newline else "")
+    path = repo / "docs" / "decisions" / f"{stem}-gate-r{n}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body.encode())
+    return path
+
+
+def _commit_docs(repo: Path, env: dict, msg: str = "docs") -> None:
+    _git_ok(["add", "-A", "docs"], repo, env)
+    _git_ok(["commit", "-q", "-m", msg], repo, env)
+
+
+def _stage_source(repo: Path, env: dict, rel: str = SRC) -> None:
+    target = repo / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("VALUE = 1\n")
+    _git_ok(["add", rel], repo, env)
+
+
+def _import_guard():
+    assert GUARD_MODULE.is_file(), (
+        f"bd#243: {GUARD_MODULE} must exist (spec section 2). Pre-GREEN it does "
+        f"not - FAIL expected here, as an assertion and not an import accident."
+    )
+    from bytedigger_engine import green_entry_guard  # noqa: PLC0415
+
+    return green_entry_guard
+
+
+def _check(repo, env, monkeypatch, staged=None, extra=None):
+    guard = _import_guard()
+    for key in _GIT_ENV_KEYS:
+        monkeypatch.setenv(key, env[key])
+    monkeypatch.delenv(KILL, raising=False)
+    monkeypatch.delenv(REASON, raising=False)
+    monkeypatch.chdir(repo)
+    mapping = {k: env[k] for k in _GIT_ENV_KEYS}
+    mapping.update(extra or {})
+    result = guard.check(str(repo), list(staged) if staged is not None else [SRC], mapping)
+    assert isinstance(result, list) and all(isinstance(x, str) for x in result), (
+        f"bd#243: check() must return list[str], got {result!r}"
+    )
+    return result
+
+
+def _code(line: str) -> str:
+    return line.split(":", 1)[0].strip()
+
+
+def _assert_single(lines, code, spec_stem=STEM, gate_name=None):
+    assert len(lines) == 1, f"expected exactly one refusal line, got {lines!r}"
+    line = lines[0]
+    assert _code(line) == code, f"expected {code}, got {line!r}"
+    assert f"spec={_spec_rel(spec_stem)}" in line or _spec_rel(spec_stem) in line, (
+        f"refusal must name the spec {_spec_rel(spec_stem)}: {line!r}"
+    )
+    if gate_name is not None:
+        assert gate_name in line, f"refusal must name gate doc {gate_name}: {line!r}"
+
+
+def _bypass_lines(repo: Path, env: dict) -> list[dict]:
+    common = _git_ok(["rev-parse", "--git-common-dir"], repo, env).stdout.strip()
+    common_path = Path(common)
+    if not common_path.is_absolute():
+        common_path = repo / common_path
+    log = common_path / "bytedigger" / "bypass.log"
+    if not log.is_file():
+        return []
+    return [json.loads(ln) for ln in log.read_text().splitlines() if ln.strip()]
+
+
+def _rejected_lot(tmp_path, name="rej"):
+    """Lot with a spec and a single REJECTED gate carrying a current anchor."""
+    repo, env = _new_repo(tmp_path, name)
+    spec = _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
+    _write_gate(repo, STEM, 1, "REJECTED", anchor_for=spec)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    return repo, env, spec
+
+
+def _approved_lot(tmp_path, name="ok", verdict="APPROVED"):
+    repo, env = _new_repo(tmp_path, name)
+    spec = _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
+    _write_gate(repo, STEM, 1, verdict, anchor_for=spec)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    return repo, env, spec
+
+
+# --- AC1 ---------------------------------------------------------------------
+
+
+def test_ac1_newest_rejected_gate_refuses_after_spec_edit(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    v1 = _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
+    _write_gate(repo, STEM, 1, "REJECTED", anchor_for=v1)
+    _write_gate(repo, STEM, 2, "REJECTED", anchor_for=v1)
+    _commit_docs(repo, env, "spec v1 + gates")
+    _write_spec(repo, STEM, "# widget spec\n\nbody v2 (edited after reject)\n")
+    _commit_docs(repo, env, "spec v2")
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    _assert_single(lines, C_REJECTED, gate_name=f"{STEM}-gate-r2.md")
+    assert f"{STEM}-gate-r1.md" not in lines[0], (
+        f"newest gate is r2, the line must not name r1: {lines[0]!r}"
+    )
+
+
+# --- AC2 ---------------------------------------------------------------------
+
+
+def test_ac2_approved_with_current_anchor_is_allowed(tmp_path, monkeypatch):
+    repo, env, _ = _approved_lot(tmp_path)
+
+    assert _check(repo, env, monkeypatch) == []
+
+    # Positive control: the guard is live on this very fixture - changing the
+    # spec bytes (anchor now stale) turns the allow into a refusal.
+    _write_spec(repo, STEM, "# widget spec\n\nbody v1 EDITED\n")
+    _commit_docs(repo, env, "edit")
+    lines = _check(repo, env, monkeypatch)
+    _assert_single(lines, C_STALE)
+
+
+# --- AC3 ---------------------------------------------------------------------
+
+
+def test_ac3_approved_but_anchor_of_old_spec_is_stale(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    old = _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
+    _write_gate(repo, STEM, 1, "APPROVED", anchor_for=old)
+    _commit_docs(repo, env)
+    _write_spec(repo, STEM, "# widget spec\n\nbody v2\n")
+    _commit_docs(repo, env, "edit spec")
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    _assert_single(lines, C_STALE, gate_name=f"{STEM}-gate-r1.md")
+
+
+# --- AC4 ---------------------------------------------------------------------
+
+
+def test_ac4_approved_without_anchor_is_stale(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
+    _write_gate(repo, STEM, 1, "APPROVED", anchor_for=None)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    _assert_single(lines, C_STALE)
+
+
+# --- AC5 ---------------------------------------------------------------------
+
+
+def test_ac5_escalation_marker_passes_and_is_logged(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    v1 = _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
+    _write_gate(repo, STEM, 1, "REJECTED", anchor_for=v1)
+    _write_gate(repo, STEM, 2, "REJECTED", anchor_for=v1)
+    _commit_docs(repo, env)
+    _write_spec(repo, STEM, "# widget spec\n\nbody v3 after reject\n")
+    _commit_docs(repo, env, "edit")
+    _stage_source(repo, env)
+
+    # Control (same fixture, no marker yet): refused, nothing logged.
+    before = _check(repo, env, monkeypatch)
+    _assert_single(before, C_REJECTED)
+    assert _bypass_lines(repo, env) == []
+
+    (repo / "docs" / "decisions" / f"{STEM}-escalation.md").write_text(
+        "# escalation\n\nESCALATION: owner accepted risk\n"
+    )
+    _commit_docs(repo, env, "escalation")
+
+    assert _check(repo, env, monkeypatch) == []
+
+    entries = _bypass_lines(repo, env)
+    assert len(entries) == 1, f"exactly one bypass log line expected: {entries!r}"
+    entry = entries[0]
+    assert entry["kind"] == "escalation"
+    assert STEM in str(entry["spec"])
+    assert "owner accepted risk" in entry["reason"]
+    assert isinstance(entry["ts"], str) and entry["ts"]
+
+
+# --- AC6 ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("marker_line", ["ESCALATION:", "ESCALATION:   "])
+def test_ac6_blank_escalation_marker_falls_through_to_gate_rules(
+    tmp_path, monkeypatch, marker_line
+):
+    # Newest gate REJECTED -> REJECTED.
+    repo, env, _ = _rejected_lot(tmp_path, "rej")
+    (repo / "docs" / "decisions" / f"{STEM}-escalation.md").write_text(
+        f"# escalation\n\n{marker_line}\n"
+    )
+    _commit_docs(repo, env, "blank escalation")
+    _assert_single(_check(repo, env, monkeypatch), C_REJECTED)
+    assert _bypass_lines(repo, env) == []
+
+    # No gate doc at all -> MISSING.
+    repo2, env2 = _new_repo(tmp_path, "missing")
+    _write_spec(repo2, STEM, "# widget spec\n")
+    (repo2 / "docs" / "decisions" / f"{STEM}-escalation.md").write_text(
+        f"{marker_line}\n"
+    )
+    _commit_docs(repo2, env2)
+    _stage_source(repo2, env2)
+    _assert_single(_check(repo2, env2, monkeypatch), C_MISSING)
+    assert _bypass_lines(repo2, env2) == []
+
+
+# --- AC7 ---------------------------------------------------------------------
+
+
+def test_ac7_spec_without_any_gate_doc_is_missing(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    _write_spec(repo, STEM, "# widget spec\n")
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    _assert_single(lines, C_MISSING)
+    assert "gate=-" in lines[0], f"no gate doc exists, expected 'gate=-': {lines[0]!r}"
+
+
+# --- AC8 ---------------------------------------------------------------------
+
+
+def test_ac8_r10_is_newer_than_r9_numeric_order(tmp_path, monkeypatch):
+    # r2 APPROVED+current, r10 REJECTED: r10 is newest -> REJECTED.
+    repo, env = _new_repo(tmp_path, "a")
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, 2, "APPROVED", anchor_for=spec)
+    _write_gate(repo, STEM, 10, "REJECTED", anchor_for=spec)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+    _assert_single(
+        _check(repo, env, monkeypatch), C_REJECTED, gate_name=f"{STEM}-gate-r10.md"
+    )
+
+    # Mirror: r9 REJECTED, r10 APPROVED+current: lexical order would pick r9.
+    repo2, env2 = _new_repo(tmp_path, "b")
+    spec2 = _write_spec(repo2, STEM, "# widget spec\n")
+    _write_gate(repo2, STEM, 9, "REJECTED", anchor_for=spec2)
+    _write_gate(repo2, STEM, 10, "APPROVED", anchor_for=spec2)
+    _commit_docs(repo2, env2)
+    _stage_source(repo2, env2)
+    assert _check(repo2, env2, monkeypatch) == []
+
+
+# --- AC9 ---------------------------------------------------------------------
+
+
+def test_ac9_newest_gate_without_verdict_line_is_unreadable(tmp_path, monkeypatch):
+    repo, env = _new_repo(tmp_path)
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    _write_gate(repo, STEM, 1, "APPROVED", anchor_for=spec)
+    _write_gate(repo, STEM, 2, None, anchor_for=spec)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+
+    _assert_single(
+        _check(repo, env, monkeypatch), C_UNREADABLE, gate_name=f"{STEM}-gate-r2.md"
+    )
+
+    # Positive control: giving r2 a verdict line makes the same lot pass.
+    _write_gate(repo, STEM, 2, "APPROVED", anchor_for=spec)
+    _commit_docs(repo, env, "r2 verdict")
+    assert _check(repo, env, monkeypatch) == []
+
+
+# --- AC10 --------------------------------------------------------------------
+
+
+def test_ac10_only_tests_and_docs_staged_is_not_green_entry(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+    # Drop the staged source; stage only tests and docs.
+    _git_ok(["reset", "-q", "HEAD", "--", SRC], repo, env)
+    non_source = {
+        "tests/test_widget.py": "def test_x():\n    assert True\n",
+        "pkg/test_other.py": "def test_y():\n    assert True\n",
+        "web/__tests__/a.test.ts": "test('a', () => {});\n",
+        "docs/notes.md": "# notes\n",
+        "README2.md": "# readme\n",
+    }
+    for rel, text in non_source.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+        _git_ok(["add", rel], repo, env)
+
+    assert _check(repo, env, monkeypatch, staged=list(non_source)) == []
+
+    # Positive control: same lot, a source path added to the staged set refuses.
+    lines = _check(repo, env, monkeypatch, staged=[*non_source, SRC])
+    _assert_single(lines, C_REJECTED)
+
+
+# --- AC11 --------------------------------------------------------------------
+
+
+def test_ac11_edit_of_preexisting_spec_is_not_a_lot_spec(tmp_path, monkeypatch):
+    old_stem = "2026-01-01-oldthing"
+    repo, env = _new_repo(
+        tmp_path,
+        main_files={_spec_rel(old_stem): b"# old spec\n"},
+    )
+    old = _write_spec(repo, old_stem, "# old spec\n\nedited on the lot branch\n")
+    _write_gate(repo, old_stem, 1, "REJECTED", anchor_for=old)
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+
+    assert _check(repo, env, monkeypatch) == []
+
+    # Positive control: a spec ADDED on this lot is enforced, and only it.
+    _write_spec(repo, STEM, "# new spec\n")
+    _commit_docs(repo, env, "new spec")
+    lines = _check(repo, env, monkeypatch)
+    _assert_single(lines, C_MISSING, spec_stem=STEM)
+    assert old_stem not in lines[0]
+
+
+# --- AC12 --------------------------------------------------------------------
+
+
+def test_ac12_kill_switch_with_reason_allows_and_logs(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+
+    # Control: no kill switch -> refused.
+    _assert_single(_check(repo, env, monkeypatch), C_REJECTED)
+    assert _bypass_lines(repo, env) == []
+
+    extra = {KILL: "0", REASON: "hotfix approved by owner"}
+    assert _check(repo, env, monkeypatch, extra=extra) == []
+
+    entries = _bypass_lines(repo, env)
+    assert len(entries) == 1, f"exactly one bypass log line expected: {entries!r}"
+    assert entries[0]["kind"] == "kill_switch"
+    assert entries[0]["spec"] is None
+    assert "hotfix approved by owner" in entries[0]["reason"]
+    assert isinstance(entries[0]["ts"], str) and entries[0]["ts"]
+
+
+# --- AC13 --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("reason", [None, "", "   \t"])
+def test_ac13_kill_switch_without_reason_is_refused(tmp_path, monkeypatch, reason):
+    repo, env, _ = _rejected_lot(tmp_path)
+    extra = {KILL: "0"}
+    if reason is not None:
+        extra[REASON] = reason
+
+    lines = _check(repo, env, monkeypatch, extra=extra)
+
+    assert len(lines) == 1 and _code(lines[0]) == C_NO_REASON, (
+        f"expected exactly one {C_NO_REASON} line (checks must not run), got {lines!r}"
+    )
+    assert _bypass_lines(repo, env) == [], "a refused bypass must not be logged"
+
+
+def test_ac13_control_guard_unset_with_reason_still_checks(tmp_path, monkeypatch):
+    repo, env, _ = _rejected_lot(tmp_path)
+
+    lines = _check(repo, env, monkeypatch, extra={REASON: "irrelevant"})
+
+    _assert_single(lines, C_REJECTED)
+    assert _bypass_lines(repo, env) == []
+
+
+# --- AC14 --------------------------------------------------------------------
+
+
+def test_ac14_two_specs_one_approved_one_stale_reports_only_the_stale(
+    tmp_path, monkeypatch
+):
+    good_stem = "2026-10-03-good"
+    stale_stem = "2026-10-03-stale"
+    repo, env = _new_repo(tmp_path)
+    good = _write_spec(repo, good_stem, "# good spec\n")
+    _write_gate(repo, good_stem, 1, "APPROVED", anchor_for=good)
+    stale_v1 = _write_spec(repo, stale_stem, "# stale spec v1\n")
+    _write_gate(repo, stale_stem, 1, "APPROVED", anchor_for=stale_v1)
+    _commit_docs(repo, env)
+    _write_spec(repo, stale_stem, "# stale spec v2\n")
+    _commit_docs(repo, env, "edit stale")
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    _assert_single(lines, C_STALE, spec_stem=stale_stem)
+    assert good_stem not in lines[0]
+
+
+def test_ac14_every_failing_spec_is_reported_without_early_exit(tmp_path, monkeypatch):
+    a, b = "2026-10-03-aaa", "2026-10-03-bbb"
+    repo, env = _new_repo(tmp_path)
+    _write_spec(repo, a, "# a\n")  # no gate -> MISSING
+    sb = _write_spec(repo, b, "# b\n")
+    _write_gate(repo, b, 1, "REJECTED", anchor_for=sb)  # -> REJECTED
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+
+    lines = _check(repo, env, monkeypatch)
+
+    assert len(lines) == 2, f"one line per failing spec expected: {lines!r}"
+    by_code = {_code(ln): ln for ln in lines}
+    assert set(by_code) == {C_MISSING, C_REJECTED}
+    assert a in by_code[C_MISSING] and b in by_code[C_REJECTED]
+
+
+# --- AC15: end to end through the installed hook -----------------------------
+
+
+def _hooked_lot(tmp_path, name, verdict):
+    repo, env = _new_repo(tmp_path, name)
+    spec = _write_spec(repo, STEM, "# widget spec\n\nbody v1\n")
+    _write_gate(repo, STEM, 1, verdict, anchor_for=spec)
+    _commit_docs(repo, env)
+    # Expose the REAL production layer at the paths the hook execs.
+    (repo / "engine_py").mkdir()
+    os.symlink(PACKAGE_DIR, repo / "engine_py" / "bytedigger_engine", target_is_directory=True)
+    os.symlink(GITHOOKS_DIR, repo / "githooks", target_is_directory=True)
+    os.symlink(REPO_ROOT / "scripts", repo / "scripts", target_is_directory=True)
+    drivers = tmp_path / f"drivers-{name}"
+    drivers.mkdir()
+    env["BD66_LINT_DIR"] = str(drivers)
+    install = subprocess.run(
+        [sys.executable, str(INSTALLER), "--install", "--root", str(repo)],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert install.returncode == 0, (
+        f"arrange: installer failed rc={install.returncode} {install.stderr!r}"
+    )
+    _stage_source(repo, env)
+    return repo, env
+
+
+def test_ac15_real_commit_refused_on_rejected_lot(tmp_path):
+    repo, env = _hooked_lot(tmp_path, "rej", "REJECTED")
+    head_before = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+
+    result = _git(["commit", "-m", "green start"], repo, env)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0, f"commit must be refused: {output!r}"
+    head_after = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+    assert head_after == head_before, "no new commit may exist after a refusal"
+    assert C_REJECTED in output, f"expected {C_REJECTED} in hook output: {output!r}"
+
+
+def test_ac15_real_commit_succeeds_on_approved_lot(tmp_path):
+    repo, env = _hooked_lot(tmp_path, "ok", "APPROVED")
+    head_before = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+
+    result = _git(["commit", "-m", "green start"], repo, env)
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0, f"commit must succeed: {output!r}"
+    head_after = _git_ok(["rev-parse", "HEAD"], repo, env).stdout.strip()
+    assert head_after != head_before, "exactly one new commit expected"
+    count = _git_ok(["rev-list", "--count", f"{head_before}..HEAD"], repo, env)
+    assert count.stdout.strip() == "1"
+    # The guard must actually exist for this to be more than a no-op pass.
+    assert GUARD_MODULE.is_file()
+
+
+# --- AC16 --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("trailing_newline", [True, False])
+def test_ac16_crlf_verdict_line_is_tolerated(tmp_path, monkeypatch, trailing_newline):
+    repo, env = _new_repo(tmp_path)
+    spec = _write_spec(repo, STEM, "# widget spec\n")
+    gate = _write_gate(
+        repo, STEM, 1, "APPROVE", anchor_for=spec, eol="\r\n",
+        trailing_newline=trailing_newline,
+    )
+    raw = gate.read_bytes()
+    assert raw.rstrip(b"\n").endswith(b"VERDICT: APPROVE") or raw.endswith(b"APPROVE\r\n")
+    _commit_docs(repo, env)
+    _stage_source(repo, env)
+
+    assert _check(repo, env, monkeypatch) == []
+
+    # Positive control: a CRLF REJECT verdict on the same shape is refused.
+    _write_gate(repo, STEM, 1, "REJECT", anchor_for=spec, eol="\r\n")
+    _commit_docs(repo, env, "reject")
+    _assert_single(_check(repo, env, monkeypatch), C_REJECTED)
+
+
+# --- AC17: catalog / doc parity ----------------------------------------------
+
+
+def test_ac17_error_codes_registered_in_error_codes_py():
+    for code in ALL_CODES:
+        assert code in error_codes.ERROR_CODES, f"{code} missing from error_codes.ERROR_CODES"
+        assert error_codes.ERROR_CODES[code].strip(), f"{code} needs a description"
+
+
+@pytest.mark.parametrize("md_path", ERROR_CODES_MD, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_ac17_error_codes_documented_in_both_error_codes_md(md_path):
+    text = md_path.read_text()
+    for code in ALL_CODES:
+        assert re.search(rf"^- `{code}` ", text, re.MULTILINE), (
+            f"{code} missing from {md_path} (format: - `CODE` - description)"
+        )
+
+
+def test_ac17_flags_catalogued_and_flag_owner_lint_passes():
+    from bytedigger_engine import flags_catalog  # noqa: PLC0415
+
+    flags = flags_catalog.FLAGS
+    assert KILL in flags and REASON in flags, "both kill-switch vars must be catalogued"
+    guard = flags[KILL]
+    assert guard.get("kind") in ("flag", "gate"), "must be a rollout kind so the lint covers it"
+    assert isinstance(guard.get("owner"), str) and guard["owner"].strip()
+    assert str(guard.get("provenance", "")).startswith("introduced: bd#243")
+    assert str(flags[REASON].get("description", "")).strip()
+
+    result = subprocess.run(
+        [sys.executable, str(FLAG_OWNER_LINT)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, (
+        f"flag_owner_lint rc={result.returncode} {result.stdout!r} {result.stderr!r}"
+    )
