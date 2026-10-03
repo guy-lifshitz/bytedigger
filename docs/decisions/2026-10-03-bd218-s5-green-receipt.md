@@ -1,6 +1,6 @@
 # bd#218 step 5 — the engine writes the phase-green receipt before the integrity gate (SHADOW, add-only, no LLM)
 
-**Status: r1** · **Tier:** 3 (two production files, Option D) · **Class:** SYSTEMATIC ·
+**Status: r2 (amended after gate r1: diff-path contract, minors)** · **Tier:** 3 (two production files, Option D) · **Class:** SYSTEMATIC ·
 **Chokepoint:** `preflight.run_engine_preflight` — the one function that runs the cheap deterministic steps on explicit
 fields and writes the receipt; s5 only adds a `phase` argument to it. **Source:** bd#218, `2026-10-03-bd-ladder-map.md` (rollout step 5,
 choice A by MGR 2026-10-03); follows s1 (#228) and s2 (#230, `2026-10-03-bd218-s2-receipt-producer.md`).
@@ -18,15 +18,22 @@ choice A by MGR 2026-10-03); follows s1 (#228) and s2 (#230, `2026-10-03-bd218-s
 **The integrity gate runs exactly once, whatever the producer or the rung says. Nothing is skipped, removed or reordered. No LLM, no classifier, no test run.**
 
 ### op1 `run_engine_preflight(top, red_tests, spec_text, *, base=None, phase="red")`
-- `phase` is `"red"` (default, s2 behaviour byte-for-byte) or `"green"`; any other value → failure result (`_CODE_SPEC_FIELDS`), no receipt, old receipt removed.
-- With `"green"` the same steps run (`syntax`, `stub`, `facts`): `syntax` covers every changed file against the merge base (so the GREEN production files), `stub` re-lints the test files named in `red_tests`, `facts` renders the green facts pack. The receipt carries `phase: "green"`, `producer: "engine"`, the same `not_run` list.
+- `phase` is `"red"` (default, s2 behaviour byte-for-byte) or `"green"`; any other value → failure result (`_CODE_USAGE`, as `run_preflight` for a bad `--phase`), no receipt, old receipt removed.
+- With `"green"` the same steps run (`syntax`, `stub`, `facts`): `syntax` covers every changed file against the merge base (so the GREEN production files), `stub` re-lints the test files named in `red_tests`, `facts` renders the green facts pack. The receipt carries `phase: "green"`, `producer: "engine"`, `not_run == ["cite","tier","scoped","siblings","prescreen"]`.
 - The receipt file is the single `receipt_path(top)`: a green receipt replaces the red one; a re-entered pre-GREEN gate writes red again (s2 deletes and rewrites). Readers already compare `phase`, so a red reader sees `missing` after a green write, not a wrong `fresh`.
 
 ### op2 call in `_invoke_integrity_llm`
 After the NO_CHANGES short-circuit and before `invoke_llm_subprocess`: a fail-open block (same shape as the s1/s2 block):
 - Config `org_config["preflight_rung"]` as in s1/s2: `{"mode": "off"}` does nothing; unknown mode or non-bool `produce` → event status `config-error`; `{"produce": false}` reads only.
 - Tree: `lib.git_cwd.resolve_git_cwd_with_source(cfg, prev.data)`; ambient source → no producer, status `ambient-skip`.
-- Test paths for the producer: the `b/<path>` side of every `diff --git` header in the diff file the step just built (`prev.data["diff_path"]`), kept only if the path is an existing file under the tree (deleted test files drop out). Empty list → the producer fails (empty scope), the rung reads `missing`.
+- Test paths for the producer (helper `_green_test_paths(tree, diff_path)`; a named helper, one `read_text` of the diff file):
+  - Root: `top = git rev-parse --show-toplevel` of `tree` (via `git_port.git_read`); `tree` itself may be a subdirectory. Diff headers are toplevel-relative, so every path is resolved against `top` and handed to the producer as an **absolute** path; the producer is called with `tree` as before.
+  - Parse rule: only a header whose remainder is exactly `a/<P> b/<P>` (same `<P>` both sides, unquoted) yields `<P>`. Any other header — C-quoted (`core.quotePath`, non-ASCII, tab, `"`), a rename (`a/X b/Y`), `--no-prefix`/`--relative` output, a path with `..` — is **unparseable and makes the whole scope empty** (producer fails on the empty list, rung reads `missing`); it is never dropped while other paths stay, so a mocking file next to a clean one cannot produce `fresh`.
+  - Keep a parsed path only if `realpath(top/<P>)` is an existing file under `realpath(top)`; a deleted/absent file drops out (a deletion is not a mock risk); a symlink or path that resolves outside `top` makes the scope empty.
+  - `diff_path` absent or unreadable → scope empty → `missing`. `top` unresolvable → status `error`.
+  - Empty list → the producer fails (empty scope), the rung reads `missing`.
+- Bindings: the producer is called as `preflight.run_engine_preflight(...)` (module attribute, as `phase_5_implement`), and `_emit_safe` is a module-global of `phase_5_integrity`. The producer call has its own swallow (as s2), so a raising producer leaves the rung to read `missing`; any other exception in the block → status `error`.
+- Producer `spec_text` is `""` (the integrity step reads no spec text; `facts` only quotes it).
 - Then `preflight.receipt_rung("green", tree)`; emit `_emit_safe("preflight_receipt", {"status", "red_step", "phase": 5, "cycle": 1, "gate": "integrity"})` (`cycle` = `prev.data.get("cycle", 1)`); add `extra_data["preflight"] = {"status", "red_step"}` to the LLM call.
 - Fail-open: any exception → status `error`, gate runs once. The `reroll_until_verdict` attempt is the same closure; the block runs once per step call, not per re-roll.
 - Resume replays the cached step result: neither producer nor rung re-runs (as s1/s2).
@@ -52,13 +59,16 @@ A `fresh` green receipt means syntax, stub and facts passed on the tree the inte
 - **AC11** NO_CHANGES short-circuit (`verdict_override`): no producer, no rung, no event, LLM not called (as today).
 - **AC12** Diff naming only deleted/missing test files → status `missing`, never `fresh`; LLM once.
 - **AC13** `reroll_until_verdict` with two attempts: the producer runs once, the event is emitted once, the LLM called twice (the re-roll is unchanged).
+- **AC15** Subdirectory `git_cwd`: repo with the mocking test file under `sub/`, `git_cwd = repo/sub`, the diff built with toplevel-relative headers → event `red`, `red_step == "stub"` (not `missing`); a clean file → `fresh`.
+- **AC16** A diff with a C-quoted header (non-ASCII filename) for a mocking test file plus a clean unquoted test file → status `missing`, never `fresh`. Same for a rename header and a header whose path resolves outside the toplevel (symlink).
+- **AC17** Absent/unreadable `diff_path` → `missing`, no exception, LLM once.
 - **AC14** Sibling tests pass without edits: `test_phase_5_integrity.py`, `test_GH781_integrity_verdict_forcing.py`, `test_GH786_integrity_completeness_gate.py`, `test_090ED35B_integrity_verdict_trailing.py`, `test_bd_red_test_integrity.py`, `test_phase_5_integrity_schema_smoke.py`, plus `test_bd218_s1_preflight_rung.py`, `test_bd218_s2_receipt_producer.py`, `test_bd164_preflight.py`, and the six inventory-lint tests (s3 list) after the class-I entry below.
 
 ## §4 Files
 
 In scope: `engine_py/bytedigger_engine/preflight.py` (the `phase` argument only), `engine_py/bytedigger_engine/workflows/phase_5_integrity.py` (one helper plus the call in `_invoke_integrity_llm`), `engine_py/bytedigger_engine/conformance/class_i_inventory.json` (entries for any new `read_text`/`git_read` in the helper, class `not-prompt`), new `engine_py/tests/test_bd218_s5_green_receipt.py`, `CHANGELOG.md`.
 NOT in scope: `check_ladder.py`, `reject_log.py`, `reject_stats.py`, `workflows/engine.py`, `phase_5_implement.py`, `phase_6_fix_integrity.py`, the `StepContract` list.
-Sibling-test audit (§1a): the AC14 list plus `grep -l "_invoke_integrity_llm\|run_engine_preflight" engine_py/tests`; any sibling that drives `_invoke_integrity_llm` on a real non-ambient repo now sees a producer run — audit for pre-staged receipts (the producer deletes the old one first).
+Sibling-test audit (§1a): the AC14 list plus `test_bd141_p4d_role_template_injections.py` (real non-ambient repo, producer now runs), `test_llm_subprocess_hard_gate.py`, `test_llm_subprocess_allowed_tools.py` (nonexistent diff path), `test_gh705_callsite_stable_prefix.py` (text-scans `stable_prefix=prev.data.get("stable_prefix"` in the body; must stay verbatim), `test_GH1399_advisory_format_terminal.py`, plus `grep -l "_invoke_integrity_llm\|run_engine_preflight" engine_py/tests`; any sibling that drives `_invoke_integrity_llm` on a real non-ambient repo now sees a producer run — audit for pre-staged receipts (the producer deletes the old one first).
 
 ## §5 Provenance (Guy 2026-10-03)
 
