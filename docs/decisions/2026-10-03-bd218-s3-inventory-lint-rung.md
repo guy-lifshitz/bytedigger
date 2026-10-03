@@ -40,7 +40,7 @@ All in a tmp git repo with `engine_py/bytedigger_engine/` and `engine_py/tests/`
 ## §4 Files
 In scope: `engine_py/bytedigger_engine/preflight.py`, new `engine_py/tests/test_bd218_s3_inventory_lint_rung.py`, `CHANGELOG.md`.
 NOT in scope: everything else, notably `conformance/*`, the four lint tests, `check_ladder.py`, `workflows/`.
-Sibling audit (§1a): `test_bd164_preflight.py`, `test_bd141_check_ladder.py`, `test_bd218_s1_preflight_rung.py`, `test_bd218_s2_receipt_producer.py`, plus `grep -l "step_siblings\|sibling_tests" engine_py/tests`, plus the four inventory-lint files themselves (preflight.py is scanned by them: the new code must not add an unkeyed `read_text`/`subprocess`/git call — reuse `_git`/`_git_text`/`_run_tests`; if an inventory entry is needed, that is a spec defect before freeze).
+Sibling audit (§1a): `test_bd164_preflight.py`, `test_bd141_check_ladder.py`, `test_bd218_s1_preflight_rung.py`, `test_bd218_s2_receipt_producer.py`, plus the grep hits `test_bd90_postfix_test_scope.py` and `test_phase_5_C844CC77_root_sibling_discovery.py`, plus the four inventory-lint files themselves (preflight.py is scanned by them: the new code must not add an unkeyed `read_text`/`subprocess`/git call — reuse `_git`/`_git_text`/`_run_tests`; if an inventory entry is needed, that is a spec defect before freeze).
 
 ## §5 Provenance
 Removes nothing. Introduced because: bd#218 ladder (cheap script before LLM/CI); protects against: CI-only red on inventory lint after a new engine call site; no removal planned.
