@@ -77,7 +77,7 @@ def test_ac4_three_enforcement_states_are_distinguishable():
     report = bd_l2.check_bd_l2([])
 
     enforced = report.labels["enforcement:R2.2"]
-    declared_off = report.labels["enforcement:R2.1"]
+    declared_off = report.labels["enforcement:R2.6"]  # R2.1 is on by default since the 2026-10-03 flip
     absent = report.labels["enforcement:R2.5"]
 
     assert len({enforced, declared_off, absent}) == 3, (
@@ -91,8 +91,8 @@ def test_ac5_a_disabled_consequence_never_reads_as_enforced():
     bd_l2 = _bd_l2()
     report = bd_l2.check_bd_l2([])
 
-    assert report.labels["enforcement:R2.1"] != report.labels["enforcement:R2.2"], (
-        "R2.1 is enforced only under a flag with default=0, R2.2 by default; "
+    assert report.labels["enforcement:R2.6"] != report.labels["enforcement:R2.2"], (
+        "R2.6 is enforced only under a flag with default=0, R2.2 by default; "
         "an identical label erases the difference"
     )
 

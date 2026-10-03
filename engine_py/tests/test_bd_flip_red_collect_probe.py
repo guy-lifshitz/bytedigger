@@ -12,6 +12,9 @@ The ENFORCE env var is never set to "1" here: the default is under test.
 §1i: no singleton/timing resource; fixture files and env are pre-staged
 deterministically before invoking the unit under test.
 
+Regression shields (PASS at RED by design, still discriminate after GREEN):
+AC3, AC5, AC6 alias test, AC10 ordinary-error test, AC11 warn-only variants.
+
 Do NOT implement the contract here — RED-only file.
 """
 from __future__ import annotations
@@ -226,6 +229,95 @@ def test_ac6_bd_alias_enforce_zero_restores_warn_only(tmp_path: Path, monkeypatc
 
     result, captured = _run(tmp_path, _NON_COLLECTABLE)
 
+    assert result.error_code != "E_RED_COLLECT_PROBE"
+    events = _probe_events(captured)
+    assert len(events) == 1
+    assert events[0]["enforced"] is False
+    assert events[0]["violations_n"] >= 1
+
+
+# ═══ AC10 — pytest-unavailable probe is a skip, not a violation (gate r1 F3) ═
+
+class _FakeProc:
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _probe_with(proc: _FakeProc, tmp_path: Path):
+    from bytedigger_engine.workflows import phase_5_implement as p5
+
+    relpath = _write_test_file(tmp_path, "tests/test_flip_probe_fixture.py", _COLLECTABLE)
+    with patch.object(p5, "bounded_run", return_value=proc):
+        return p5._red_collect_probe([str(tmp_path / relpath)], str(tmp_path))
+
+
+def test_ac10_no_module_named_pytest_is_skip_not_violation(tmp_path: Path) -> None:
+    proc = _FakeProc(1, stderr="/usr/bin/python3: No module named pytest")
+
+    assert _probe_with(proc, tmp_path) == ([], "pytest_unavailable")
+
+
+def test_ac10_ordinary_collection_error_still_a_violation(tmp_path: Path) -> None:
+    # Regression shield: passes at RED, pins that the skip is not over-broad.
+    proc = _FakeProc(2, stdout="ImportError: cannot import name 'missing'")
+
+    violations, skip_reason = _probe_with(proc, tmp_path)
+
+    assert len(violations) == 1
+    assert skip_reason == ""
+
+
+# ═══ AC11 — legacy path honours the same kill-switch contract (gate r1 F7) ═══
+# Regression shields (pass at RED, still discriminate post-GREEN): AC3, AC5,
+# AC6 alias, and the AC11 warn-only variants below. "false" enforcing fails at RED.
+
+
+def test_ac11_legacy_enforce_zero_warn_only(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HAL_RED_LINT_PREFLIGHT_BATCH", "0")
+    monkeypatch.setenv(FLAG, "0")
+
+    result, captured = _run(tmp_path, _NON_COLLECTABLE)
+
+    assert any(
+        n == "gate_disabled" and p.get("gate") == "HAL_RED_LINT_PREFLIGHT_BATCH"
+        for (n, p) in captured
+    ), "legacy path must actually have been taken"
+    assert result.error_code != "E_RED_COLLECT_PROBE"
+    events = _probe_events(captured)
+    assert len(events) == 1
+    assert events[0]["enforced"] is False
+    assert events[0]["violations_n"] >= 1
+
+
+def test_ac11_legacy_enforce_false_string_still_enforces(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HAL_RED_LINT_PREFLIGHT_BATCH", "0")
+    monkeypatch.setenv(FLAG, "false")
+
+    result, captured = _run(tmp_path, _NON_COLLECTABLE)
+
+    assert any(
+        n == "gate_disabled" and p.get("gate") == "HAL_RED_LINT_PREFLIGHT_BATCH"
+        for (n, p) in captured
+    ), "legacy path must actually have been taken"
+    assert result.status == "error"
+    assert result.error_code == "E_RED_COLLECT_PROBE"
+    events = _probe_events(captured)
+    assert len(events) == 1
+    assert events[0]["enforced"] is True
+
+
+def test_ac11_legacy_bd_alias_enforce_zero_warn_only(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HAL_RED_LINT_PREFLIGHT_BATCH", "0")
+    monkeypatch.setenv("BD_RED_COLLECT_PROBE_ENFORCE", "0")
+
+    result, captured = _run(tmp_path, _NON_COLLECTABLE)
+
+    assert any(
+        n == "gate_disabled" and p.get("gate") == "HAL_RED_LINT_PREFLIGHT_BATCH"
+        for (n, p) in captured
+    ), "legacy path must actually have been taken"
     assert result.error_code != "E_RED_COLLECT_PROBE"
     events = _probe_events(captured)
     assert len(events) == 1

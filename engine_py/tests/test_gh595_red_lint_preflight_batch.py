@@ -142,6 +142,8 @@ def test_ac1_batched_terminal_result_has_both_codes_and_and_semantics(
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     # GH602: delta-retry pinned off — this test asserts the terminal AND-semantics path
     monkeypatch.setenv("HAL_RED_PREFLIGHT_DELTA_RETRY", "0")
+    # bd flip 2026-10-03: fixture is not collectable; keep collect-probe warn-only
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
     ctx = _make_ctx(tmp_path)
     prev = _make_prev([relpath])
@@ -207,6 +209,8 @@ def test_ac3_clean_fixture_happy_path_preserves_prev_data(tmp_path, monkeypatch)
     from bytedigger_engine.workflows.phase_5_implement import _verify_red_lint_rules
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
+    # bd flip 2026-10-03: fixture is not collectable; keep collect-probe warn-only
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
     relpath = _write_test_file(tmp_path, "tests/test_clean.py", _CLEAN_CONTENT)
     ctx = _make_ctx(tmp_path)
     prev = _make_prev([relpath])
@@ -260,6 +264,8 @@ def test_ac5_per_lint_kill_switch_inside_batch(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
     monkeypatch.setenv("HAL_STUB_PASSABILITY_GATE", "0")
+    # bd flip 2026-10-03: fixture is not collectable; keep collect-probe warn-only
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
     ctx = _make_ctx(tmp_path)
     prev = _make_prev([relpath])
@@ -307,6 +313,8 @@ def test_ac7_semgrep_infra_priority_batch_over_missing(tmp_path, monkeypatch) ->
     from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
+    # bd flip 2026-10-03: fixtures are not collectable; keep collect-probe warn-only
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
 
     # Half 1: non-empty batch — semgrep-missing must be demoted to a data flag.
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
@@ -346,6 +354,8 @@ def test_ac8_batch_summary_event_emitted_with_canonical_codes(tmp_path, monkeypa
     from bytedigger_engine.workflows import phase_5_implement as p5
 
     monkeypatch.setenv("HAL_DIRECTED_REPAIR", "0")
+    # bd flip 2026-10-03: fixture is not collectable; keep collect-probe warn-only
+    monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
     relpath = _write_test_file(tmp_path, "tests/test_double.py", _DOUBLE_VIOLATION_CONTENT)
     ctx = _make_ctx(tmp_path)
     prev = _make_prev([relpath])
