@@ -40,7 +40,7 @@ Bare C0 passes 8/8 at $14.5, so bd must not be slower or dearer in substance: C0
 
 0. Evidence per LLM stage, from existing logs only (`reject_log.py`, `reject_stats.py`, event logs; no new runs): for each gate and review, how many of its rejects/findings a script or the test suite would have caught anyway. Output: a table that decides, per stage, keep / move to script / remove.
 1. Pre-GREEN gate: run `preflight.verify_receipt` first (script, $0). Where step 0 shows the gate adds nothing over preflight, skip the gate when the receipt is fresh and green. The optional classifier sits between, shadow only until recall is measured.
-2. Spec/plan-review: same, with `spec_cite`/`tier_gate` findings as the script rung.
+2. Spec/plan-review: same, with structural findings only (`tier_gate`, `spec_coverage`) as the script rung. Wording checks (citation format, negation regex, prose markers) are out of scope.
 3. Review and satisfaction gates, and retries: script rung from `baseline_delta_gate`/`sibling_coupling`; stages that step 0 shows redundant are dropped.
 4. CI-red rerun-once: rerun the same head once; green means flake.
 5. Integrity / fix-integrity gates.
