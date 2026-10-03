@@ -69,6 +69,16 @@ def _git(tmp_path: Path, root: Path, *args: str) -> None:
     )
 
 
+# root path (str) -> sha of the base commit holding the real samples. --base is
+# REQUIRED by the contract (r2), so _run looks the sha up here by default.
+_BASES: dict = {}
+_AUTO = object()  # sentinel: "use the recorded base sha"; None means "omit --base"
+
+
+def _base_of(root) -> str:
+    return _BASES.get(str(root), "HEAD")
+
+
 def _lot(
     tmp_path: Path,
     spec: str,
@@ -77,9 +87,11 @@ def _lot(
     lot: dict | None = None,
     red_name: str = "tests/test_red.py",
     name: str = "repo",
+    symlinks: dict | None = None,
 ) -> Path:
     """Real git repo: base commit with real sample files, then the lot's
-    changes (spec, RED, fixtures, edits) written but NOT committed."""
+    changes (spec, RED, fixtures, edits) written but NOT committed. The base
+    sha is recorded in _BASES (passed as --base by _run)."""
     root = tmp_path / name
     root.mkdir(parents=True, exist_ok=True)
     base_files = {
@@ -91,12 +103,23 @@ def _lot(
     base_files.update(base or {})
     for rel, content in base_files.items():
         _write(root, rel, content)
+    for rel, target in (symlinks or {}).items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(target, root / rel)
     _git(tmp_path, root, "init", "-q")
     _git(tmp_path, root, "config", "user.name", "Test User")
     _git(tmp_path, root, "config", "user.email", "test@example.com")
     _git(tmp_path, root, "config", "commit.gpgsign", "false")
     _git(tmp_path, root, "add", "-A")
     _git(tmp_path, root, "commit", "-q", "-m", "base")
+    _BASES[str(root)] = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_git_env(tmp_path),
+    ).stdout.strip()
     lot_files = {"docs/spec.md": spec, red_name: red}
     lot_files.update(lot or {})
     for rel, content in lot_files.items():
@@ -125,7 +148,9 @@ def _cmd(root, spec, red, today, base, extra) -> list:
     cmd = [sys.executable, str(SCRIPT), "--root", str(root), "--spec", str(spec), "--red", str(red)]
     if today:
         cmd += ["--today", today]
-    if base:
+    if base is _AUTO:
+        base = _base_of(root)
+    if base is not None:  # None = omit --base (usage-error tests)
         cmd += ["--base", base]
     return cmd + [str(x) for x in extra]
 
@@ -155,7 +180,7 @@ def _run(
     spec="docs/spec.md",
     red="tests/test_red.py",
     today=DEFAULT_TODAY,
-    base=None,
+    base=_AUTO,
     extra=(),
     env_extra=None,
 ):
@@ -233,6 +258,7 @@ class TestS3SpecSampleCheck:
         assert _codes(v) == ["MEASURED_CONTRADICTS"], v
         f = v["findings"][0]
         assert f["ac"] == "AC1" and isinstance(f["detail"], str)
+        assert "0.31" in f["detail"], f["detail"]  # detail carries the offending number
         assert r.returncode == 0  # SHADOW by default
 
     def test_ac1_measured_satisfies_threshold_is_clean_and_unverified(self, tmp_path):
@@ -284,6 +310,7 @@ class TestS3SpecSampleCheck:
         v = _verdict(_run(tmp_path, root))
         assert _codes(v) == ["NO_SAMPLE"], v
         assert v["findings"][0]["ac"] == "AC2"
+        assert "0.25" in v["findings"][0]["detail"], v["findings"][0]["detail"]
 
     @pytest.mark.parametrize(
         "text",
@@ -346,6 +373,8 @@ class TestS3SpecSampleCheck:
         v = _verdict(_run(tmp_path, root))
         assert "SAMPLE_NOT_REAL" in _codes(v), (path, v)
         assert [f["ac"] for f in v["findings"] if f["code"] == "SAMPLE_NOT_REAL"] == ["AC1"]
+        detail = [f["detail"] for f in v["findings"] if f["code"] == "SAMPLE_NOT_REAL"][0]
+        assert path in detail, detail  # sample findings name the path
 
     def test_ac3_base_tracked_unmodified_sample_is_real(self, tmp_path):
         root = _lot(tmp_path, _spec(_ac(1, "share < 0.25", "samples/plain.txt", "0.1")))
@@ -527,6 +556,7 @@ class TestS3SpecSampleCheck:
         root = _lot(tmp_path, _spec(_ac(1, "output is valid")), red=red)
         v = _verdict(_run(tmp_path, root))
         assert _codes(v) == ["RED_EXPECTED_FROM_INLINE_FIXTURE"], v
+        assert "0.31" in v["findings"][0]["detail"]
 
     def test_ac6_short_string_literal_under_8_chars_is_ignored(self, tmp_path):
         red = 'def test_x():\n    data = "x 0.31"\n    assert score(data) == 0.31\n'
@@ -827,29 +857,41 @@ class TestS3SpecSampleCheck:
             elif isinstance(node, ast.ImportFrom):
                 assert not (node.module or "").startswith("bytedigger_engine"), node.module
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                s = node.value
-                assert s not in {"claude", "bun"}, f"forbidden argv literal {s!r}"
-                assert not s.endswith(".ts"), f"forbidden .ts literal {s!r}"
-                if s.startswith("HAL_"):
-                    assert s == FLAG_NAME, f"only {FLAG_NAME} may be read, found {s!r}"
+                if node.value.startswith("HAL_"):
+                    assert node.value == FLAG_NAME, f"only {FLAG_NAME} may be read, found {node.value!r}"
 
-        # every os.environ / getenv read names only the one flag
+        # the claude/bun/.ts ban applies to subprocess argv only
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Call):
+                fn = n.func
+                fname = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+                if fname in {"run", "Popen", "check_output", "check_call", "call"} and n.args:
+                    argv = n.args[0]
+                    if isinstance(argv, (ast.List, ast.Tuple)):
+                        for el in ast.walk(argv):
+                            if isinstance(el, ast.Constant) and isinstance(el.value, str):
+                                assert el.value not in {"claude", "bun"}, f"forbidden argv {el.value!r}"
+                                assert not el.value.endswith(".ts"), f"forbidden .ts argv {el.value!r}"
+
+        # every os.environ / getenv read names only the one flag (literal or module constant)
+        def _resolve(a):
+            if isinstance(a, ast.Constant):
+                return a.value
+            if isinstance(a, ast.Name):
+                return consts.get(a.id)
+            return None
+
         read_names = set()
         for n in ast.walk(tree):
-            if isinstance(n, ast.Call) and n.args and isinstance(n.args[0], ast.Constant):
+            if isinstance(n, ast.Call) and n.args:
                 fn = n.func
                 if isinstance(fn, ast.Attribute) and (
                     fn.attr == "getenv"
                     or (fn.attr == "get" and isinstance(fn.value, ast.Attribute) and fn.value.attr == "environ")
                 ):
-                    read_names.add(n.args[0].value)
-            if (
-                isinstance(n, ast.Subscript)
-                and isinstance(n.value, ast.Attribute)
-                and n.value.attr == "environ"
-                and isinstance(n.slice, ast.Constant)
-            ):
-                read_names.add(n.slice.value)
+                    read_names.add(_resolve(n.args[0]))
+            if isinstance(n, ast.Subscript) and isinstance(n.value, ast.Attribute) and n.value.attr == "environ":
+                read_names.add(_resolve(n.slice))
         assert read_names == {FLAG_NAME}, read_names
 
         mains = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"]
@@ -952,7 +994,267 @@ class TestS3SpecSampleCheck:
         after.pop(str(log.relative_to(root)))
         assert after == before, "script wrote something other than --shadow-log"
 
+    # --------------------------------------------- r2: --base required ---
+    def test_r2_missing_base_is_bad_usage(self, tmp_path):
+        root = _clean_case(tmp_path)
+        r = _run(tmp_path, root, base=None)
+        assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "unavailable" and v["reason"] == "bad_usage"
+
+    def test_r2_missing_spec_or_red_option_is_bad_usage(self, tmp_path):
+        root = _clean_case(tmp_path)
+        base = _base_of(root)
+        for args in (
+            ["--root", str(root), "--red", "tests/test_red.py", "--base", base],
+            ["--root", str(root), "--spec", "docs/spec.md", "--base", base],
+        ):
+            r = _run_raw(tmp_path, *args)
+            assert r.returncode == 2, (args, r.returncode, r.stdout, r.stderr)
+            assert _verdict(r)["reason"] == "bad_usage", args
+
+    def test_r2_explicit_base_sha_produces_the_normal_verdict(self, tmp_path):
+        root = _flagged_case(tmp_path)
+        v = _verdict(_run(tmp_path, root, base=_base_of(root)))
+        assert _codes(v) == ["MEASURED_CONTRADICTS"]
+
+    # ------------------------------------------------------------ AC13 ---
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "share below 0.25",
+            "share less than 0.25",
+            "0.25 > share",
+            "не более 0.25",
+            "up to 200",
+            "exceeds 40",
+            "share under 0.25",
+            "share fewer than 40",
+            "share no more than 0.4",
+            "share more than 0.9",
+            "share greater than 15.5",
+            "share above 0.9",
+            "share max 0.25",
+            "share min 0.25",
+            "share over 0.9",
+            "меньше 0.25",
+            "больше 0.25",
+            "не менее 12",
+        ],
+    )
+    def test_ac13_phrase_and_reversed_forms_are_numeric_acs(self, tmp_path, text):
+        root = _lot(tmp_path, _spec(_ac(1, text)))
+        v = _verdict(_run(tmp_path, root))
+        assert [(f["code"], f["ac"]) for f in v["findings"]] == [("NO_SAMPLE", "AC1")], (text, v)
+
+    @pytest.mark.parametrize(
+        "text,measured,contradicts",
+        [
+            ("share below 0.25", "0.31", True),
+            ("share below 0.25", "0.1", False),
+            ("0.25 > share", "0.31", True),
+            ("0.25 > share", "0.1", False),
+            ("less than 0.25", "0.31", True),
+            ("exceeds 40", "30", True),
+            ("exceeds 40", "50", False),
+            ("up to 200", "300", True),
+            ("up to 200", "200", False),
+            ("more than 0.9", "0.5", True),
+            ("не более 0.25", "0.31", True),
+            ("не более 0.25", "0.1", False),
+            ("не менее 12", "5", True),
+        ],
+    )
+    def test_ac13_phrase_forms_contradiction_with_measured(self, tmp_path, text, measured, contradicts):
+        root = _lot(tmp_path, _spec(_ac(1, text, "samples/plain.txt", measured)))
+        v = _verdict(_run(tmp_path, root))
+        if contradicts:
+            assert _codes(v) == ["MEASURED_CONTRADICTS"], (text, measured, v)
+        else:
+            assert v["findings"] == [], (text, measured, v)
+
+    @pytest.mark.parametrize("text", ["task 1668 shows the stub intro", "12 samples were read", "10 sessions ran", "bd#231 says so"])
+    def test_ac13_number_followed_by_word_is_not_a_unit_number(self, tmp_path, text):
+        root = _lot(tmp_path, _spec(_ac(1, text), _ac(2, "latency within 200 ms")))
+        v = _verdict(_run(tmp_path, root))
+        assert [(f["code"], f["ac"]) for f in v["findings"]] == [("NO_SAMPLE", "AC2")], (text, v)
+
+    def test_ac13_unit_number_at_end_of_line_is_numeric(self, tmp_path):
+        root = _lot(tmp_path, _spec(_ac(1, "latency stays within 200 ms")))
+        assert _codes(_verdict(_run(tmp_path, root))) == ["NO_SAMPLE"]
+
+    def test_ac13_acme_line_is_not_an_ac(self, tmp_path):
+        spec = "# Spec\n\nACME: 12 apples within 40 ms\n\n- AC2: width > 15.5\n"
+        root = _lot(tmp_path, spec)
+        v = _verdict(_run(tmp_path, root))
+        assert [(f["code"], f["ac"]) for f in v["findings"]] == [("NO_SAMPLE", "AC2")], v
+
+    def test_ac13_ac_like_line_inside_fenced_code_is_not_an_ac(self, tmp_path):
+        spec = "# Spec\n\nExample of a bad spec:\n\n```\n- AC9: share < 0.25\n```\n"
+        root = _lot(tmp_path, spec)
+        v = _verdict(_run(tmp_path, root))
+        assert v["findings"] == [], v
+
+    def test_ac13_hash_line_in_fence_does_not_end_the_ac_block(self, tmp_path):
+        spec = "# Spec\n\n- AC2: latency is bounded\n```\n# python comment\n```\n  and must be within 200 ms\n"
+        root = _lot(tmp_path, spec)
+        v = _verdict(_run(tmp_path, root))
+        assert [(f["code"], f["ac"]) for f in v["findings"]] == [("NO_SAMPLE", "AC2")], v
+
+    # ------------------------------------------------------------ AC14 ---
+    def test_ac14_trivial_comparison_is_ignored_for_contradiction(self, tmp_path):
+        root = _lot(tmp_path, _spec(_ac(1, "count >= 1 and p95 < 200", "samples/plain.txt", "300")))
+        v = _verdict(_run(tmp_path, root))
+        assert _codes(v) == ["MEASURED_CONTRADICTS"], v
+        assert "300" in v["findings"][0]["detail"]
+
+    def test_ac14_trivial_comparison_is_not_used_to_contradict(self, tmp_path):
+        # 150 != 0 would contradict `== 0` if the trivial comparison were used
+        root = _lot(tmp_path, _spec(_ac(1, "errors == 0 and p95 < 200", "samples/plain.txt", "150")))
+        assert _verdict(_run(tmp_path, root))["findings"] == []
+
+    def test_ac14_two_comparisons_two_measured_pair_in_order(self, tmp_path):
+        ok = _lot(tmp_path, _spec(_ac(1, "p50 < 100 and p95 < 250", "samples/plain.txt", "90, 240")), name="ok")
+        assert _verdict(_run(tmp_path, ok))["findings"] == []
+        bad = _lot(tmp_path, _spec(_ac(1, "p50 < 100 and p95 < 250", "samples/plain.txt", "90, 260")), name="bad")
+        assert _codes(_verdict(_run(tmp_path, bad))) == ["MEASURED_CONTRADICTS"]
+        # order matters: 240 against `< 100` contradicts
+        swapped = _lot(tmp_path, _spec(_ac(1, "p50 < 100 and p95 < 250", "samples/plain.txt", "240, 90")), name="sw")
+        assert _codes(_verdict(_run(tmp_path, swapped))) == ["MEASURED_CONTRADICTS"]
+
+    @pytest.mark.parametrize("measured", ["90", "90, 240, 5"])
+    def test_ac14_count_mismatch_is_unverified_ambiguous_pairing_no_finding(self, tmp_path, measured):
+        root = _lot(tmp_path, _spec(_ac(1, "p50 < 100 and p95 < 250", "samples/plain.txt", measured)))
+        v = _verdict(_run(tmp_path, root))
+        assert v["findings"] == [] and v["status"] == "clean", v
+        assert [e["ac"] for e in v["unverified"]] == ["AC1"], v
+        assert "ambiguous_pairing" in json.dumps(v["unverified"][0])
+
+    # ------------------------------------------------------------ AC15 ---
+    def _commit_lot(self, tmp_path, root):
+        _git(tmp_path, root, "add", "-A")
+        _git(tmp_path, root, "commit", "-q", "-m", "lot")
+
+    def test_ac15_lot_committed_on_top_of_base_fixtures_are_not_real(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "output is valid")),
+            red=_red_eq("0.31"),
+            lot={"fixtures/x.json": '{"share": 0.31}\n'},
+        )
+        base = _base_of(root)
+        self._commit_lot(tmp_path, root)
+        v = _verdict(_run(tmp_path, root, base=base))
+        assert _codes(v) == ["RED_EXPECTED_FROM_LOT_FIXTURE"], v
+
+    def test_ac15_lot_committed_sample_added_by_lot_is_not_real(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "share < 0.25", "samples/lot_made.txt", "0.1")),
+            lot={"samples/lot_made.txt": "made by the lot 0.1\n"},
+        )
+        base = _base_of(root)
+        self._commit_lot(tmp_path, root)
+        v = _verdict(_run(tmp_path, root, base=base))
+        assert "SAMPLE_NOT_REAL" in _codes(v), v
+
+    def test_ac15_spec_tracked_at_base_is_base_contains_lot(self, tmp_path):
+        root = _lot(tmp_path, CLEAN_SPEC)
+        self._commit_lot(tmp_path, root)
+        r = _run(tmp_path, root, base="HEAD")
+        assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "unavailable" and v["reason"] == "base_contains_lot"
+
+    def test_ac15_git_mv_plus_edit_fixture_is_lot_authored(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "output is valid")),
+            red=_red_eq("0.31"),
+            base={"fixtures/old.json": '{"share": 1, "pad": 2, "more": 3}\n'},
+        )
+        _git(tmp_path, root, "mv", "fixtures/old.json", "fixtures/new.json")
+        _write(root, "fixtures/new.json", '{"share": 0.31, "pad": 2, "more": 3}\n')
+        v = _verdict(_run(tmp_path, root))
+        assert _codes(v) == ["RED_EXPECTED_FROM_LOT_FIXTURE"], v
+
+    def test_ac15_root_a_subdirectory_of_the_work_tree_is_bad_input(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            CLEAN_SPEC,
+            lot={"sub/spec.md": CLEAN_SPEC, "sub/red.py": "def test_x():\n    assert 1 == 1\n"},
+        )
+        r = _run(tmp_path, root / "sub", spec="spec.md", red="red.py", base=_base_of(root))
+        assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert v["status"] == "unavailable" and v["reason"] == "bad_input"
+
+    def test_ac15_symlinked_sample_is_not_real(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "share < 0.25", "samples/link.txt", "0.1")),
+            symlinks={"samples/link.txt": "plain.txt"},
+        )
+        v = _verdict(_run(tmp_path, root))
+        assert "SAMPLE_NOT_REAL" in _codes(v), v
+
+    # ------------------------------------------- r2: encoding / ordering ---
+    def test_r2_non_utf8_real_sample_is_read_with_replacement_and_still_real(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "share < 0.25", "samples/latin.txt", "0.1")),
+            base={"samples/latin.txt": b"prose share 0.1 caf\xe9 \xff\n"},
+        )
+        v = _verdict(_run(tmp_path, root))
+        assert v["status"] == "clean" and v["findings"] == [], v
+        assert [e["ac"] for e in v["verified"]] == ["AC1"], v
+
+    def test_r2_non_utf8_lot_data_file_still_checked(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "output is valid")),
+            red=_red_eq("0.31"),
+            lot={"fixtures/x.json": b'{"share": 0.31, "name": "caf\xe9\xff"}\n'},
+        )
+        assert _codes(_verdict(_run(tmp_path, root))) == ["RED_EXPECTED_FROM_LOT_FIXTURE"]
+
+    def test_r2_non_utf8_red_file_is_bad_input(self, tmp_path):
+        root = _lot(tmp_path, CLEAN_SPEC, red=b"# caf\xe9 \xff\ndef test_x():\n    assert 1 == 1\n")
+        r = _run(tmp_path, root)
+        assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+        assert _verdict(r)["reason"] == "bad_input"
+
+    def test_r2_unavailable_beats_flag_expired(self, tmp_path):
+        root = _clean_case(tmp_path)
+        r = _run(tmp_path, root, base="no-such-ref-xyz", today="2026-10-18")
+        assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+        assert _verdict(r)["status"] == "unavailable"
+
+    def test_r2_shadow_log_is_appended_in_enforce_mode_too(self, tmp_path):
+        root = _flagged_case(tmp_path)
+        log = tmp_path / "enforce.jsonl"
+        r = _run(tmp_path, root, extra=["--shadow-log", log], env_extra={FLAG_NAME: "1"})
+        assert r.returncode == 1
+        _verdict(r)
+        lines = log.read_text().splitlines()
+        assert len(lines) == 1, lines
+        rec = json.loads(lines[0])
+        assert str(rec["mode"]).lower() == "enforce" and rec["codes"] == ["MEASURED_CONTRADICTS"]
+
     # ------------------------------------------------------------ AC12 ---
+    def test_ac12_literal_1668_shape_without_any_sample_blocks_in_enforce(self, tmp_path):
+        root = _lot(
+            tmp_path,
+            _spec(_ac(1, "prose share < 0.25")),
+            red="def test_synthetic():\n    assert share() == 0.2\n",
+            lot={"fixtures/synthetic_stub.json": '{"prose_share": 0.2}\n'},
+        )
+        r = _run(tmp_path, root, env_extra={FLAG_NAME: "1"})
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        v = _verdict(r)
+        assert "NO_SAMPLE" in _codes(v), v
+        assert v["status"] == "flagged" and v["would_block"] is True
+
     def test_ac12_1668_end_to_end_circular_spec_blocks_corrected_spec_passes(self, tmp_path):
         real_sample = "samples/real_stub.md"
         real_text = "real stub intro\nprose share 0.1\nintro chars 190\n"
