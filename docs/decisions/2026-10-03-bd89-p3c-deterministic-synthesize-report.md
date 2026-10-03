@@ -236,3 +236,6 @@ Audit source: `DOCS/decisions/2026-10-03_build_bd_assumptions_audit.md` (HAL rep
 - op9 must not depend on `_collect_completed_phases` / `_telemetry_digest`, and a failure of the report render (`render_failed`) never skips op9. AC8d additionally asserts the learnings file is written, `learnings_written is True`, `learnings_raw_path` set, one `learnings_raw_written` event. If an artifact-state read raises, op9 still runs with the satisfaction state unknown (no `acceptance` entry).
 - A finding title is everything after the first separator that follows the level token (a title may contain ` - `); AC23a gains such a header.
 - Counts in lessons are matched as standalone numbers (`(?<!\d)<n>(?!\d)`), wording of the count is free. AC12c locates the phase-7 section with `find` and asserts it exists.
+
+## §13 Errata r2.3 (gate r6 APPROVED; bookkeeping F2/F4/F5)
+- §1w map: AC8d also belongs to op9-independence. §9 rows 6-7 and the §10 disk-truth row "OPEN for Guy" are superseded by §11 (disk-truth: kept out, Follow-up). §5 "no Cyrillic in any tracked file" means files touched by this slice and commit subjects.
