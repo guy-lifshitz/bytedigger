@@ -71,3 +71,56 @@ def aggregate(rows: list[dict], window_days: int | None = None) -> list[dict]:
 
     result.sort(key=lambda r: (-r["count"], r["reason_code"], r["phase"]))
     return result
+
+
+_INFORMATIVE_PREFLIGHT = ("fresh", "red")
+_LADDER_HEADS_MAX = 3
+
+
+def ladder_table(rows: list) -> list[dict]:
+    """bd#218 s1: phase-5 validation rejects grouped by detail.preflight (status, red_step).
+
+    Only fresh and red groups are informative; every other status (and 'none' for rows
+    without the key) is no evidence either way. Malformed rows are skipped; never raises.
+    """
+    groups: dict[tuple[str, str | None], dict] = {}
+    for row in rows:
+        try:
+            if not isinstance(row, dict) or row.get("phase") != "phase_5_implement":
+                continue
+            reason = row.get("reason_code")
+            if not isinstance(reason, str) or not reason.startswith("VALIDATION_"):
+                continue
+            detail = row.get("detail")
+            if not isinstance(detail, dict):
+                continue
+            pf = detail.get("preflight")
+            if pf is None:
+                status: str = "none"
+                red_step: str | None = None
+            elif isinstance(pf, dict) and isinstance(pf.get("status"), str):
+                status = pf["status"]
+                step = pf.get("red_step")
+                red_step = step if isinstance(step, str) else None
+            else:
+                continue
+            heads = detail.get("findings_head")
+            group = groups.setdefault((status, red_step), {"rejects": 0, "heads": []})
+            group["rejects"] += 1
+            if isinstance(heads, list):
+                for head in heads:
+                    if isinstance(head, str) and head not in group["heads"]:
+                        group["heads"].append(head)
+        except Exception:  # noqa: BLE001 -- malformed row: skipped
+            continue
+    ordered = sorted(groups.items(), key=lambda kv: (-kv[1]["rejects"], kv[0][0], kv[0][1] or ""))
+    return [
+        {
+            "status": status,
+            "red_step": red_step,
+            "rejects": g["rejects"],
+            "informative": status in _INFORMATIVE_PREFLIGHT,
+            "findings_heads": g["heads"][:_LADDER_HEADS_MAX],
+        }
+        for (status, red_step), g in ordered
+    ]

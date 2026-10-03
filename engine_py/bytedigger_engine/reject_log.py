@@ -208,6 +208,7 @@ def record_validation_reject(
     validation_doc_path: str | None = None,
     reject_reason: str | None = None,
     verdict_category: str | None = None,
+    preflight: dict | None = None,
     path: Path | None = None,
 ) -> None:
     """Record a phase_5 validation-gate rejection (bd#139 op2).
@@ -231,6 +232,7 @@ def record_validation_reject(
             "findings_head": head,
             "verdict_category": verdict_category,
             "validation_doc_path": validation_doc_path,
+            "preflight": preflight,  # bd#218 s1: rung record {status, red_step} or null
         },
         path=path,
     )
