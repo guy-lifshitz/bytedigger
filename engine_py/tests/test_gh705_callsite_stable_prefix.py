@@ -157,43 +157,8 @@ def test_AC3v_validation_retry_idempotent(tmp_path):
     assert sp1 == sp2, "AC3v: validation stable_prefix must be identical across cycle 1 vs cycle 2 (retry)"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Site 2 — synthesizer (phase_7_synthesize.py)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def _build_synthesizer(tmp_path: Path, *, question: str):
-    from bytedigger_engine.workflows.phase_7_synthesize import _build_synthesizer_prompt  # noqa: PLC0415
-
-    scratchpad = tmp_path / "scratch"
-    _seed_injection(scratchpad)
-    ctx = _make_ctx(scratchpad, question=question)
-    return _build_synthesizer_prompt(ctx, None)
-
-
-def test_AC1s_synthesizer_stable_prefix_call_invariant_long_and_unique_substring(tmp_path):
-    r1 = _build_synthesizer(tmp_path / "a", question="Add foo to bar")
-    r2 = _build_synthesizer(tmp_path / "b", question="A totally different feature request")
-    sp1 = _get_sp(r1)
-    sp2 = _get_sp(r2)
-    assert sp1 == sp2, "AC1s: synthesizer stable_prefix must be byte-identical across builds"
-    assert len(sp1) > 500, f"AC1s: stable_prefix must be substantial (len>500); got {len(sp1)}"
-    assert r1.data["prompt"].count(sp1) == 1, (
-        f"AC1s: stable_prefix must occur exactly once in prev.data['prompt']; "
-        f"got count={r1.data['prompt'].count(sp1)}"
-    )
-
-
-def test_AC2s_synthesizer_prompt_stays_full_and_callsite_wired(tmp_path):
-    r = _build_synthesizer(tmp_path, question="Add foo to bar")
-    sp = _get_sp(r)
-    assert sp in r.data["prompt"], "AC2s: builder must not subtract stable_prefix from prompt"
-    from bytedigger_engine.workflows import phase_7_synthesize as _p7  # noqa: PLC0415
-    body = _isolate_fn_body(_p7, "_invoke_synthesizer_llm")
-    assert 'stable_prefix=prev.data.get("stable_prefix"' in body, (
-        "AC2s: _invoke_synthesizer_llm must pass "
-        'stable_prefix=prev.data.get("stable_prefix", ...) to invoke_llm_subprocess'
-    )
+# Site 2 (synthesizer, phase_7_synthesize.py) retired by bd#89 P3c: phase 7 has no
+# prompt and no model call any more.
 
 
 # ═══════════════════════════════════════════════════════════════════════════

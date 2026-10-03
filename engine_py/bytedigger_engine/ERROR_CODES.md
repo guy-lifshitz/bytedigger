@@ -425,12 +425,6 @@
 
 - `E_SUPPRESSION_UNBOUNDED` — conformance/bd_l2: a tolerated known failure lacks an owner reference or a live expiry date (bd#9 R2.5 / ADV-6)
 
-## E_SYNTHESIZER
-
-- `E_SYNTHESIZER_BLOCKED` — phase_7_synthesize: synthesizer subagent returned BLOCKED verdict
-- `E_SYNTHESIZER_NEEDS_CONTEXT` — phase_7_synthesize: synthesizer subagent requested more context
-- `E_SYNTHESIZER_NO_MARKER` — phase_7_synthesize: synthesizer output missing required completion marker
-
 ## E_TASK
 
 - `E_TASK_CAP_REACHED` — task_resume: the task reached its run or cost cap; the driver must not start another run (bd#85)

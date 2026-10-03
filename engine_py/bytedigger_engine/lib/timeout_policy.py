@@ -63,7 +63,6 @@ DEFAULT_POLICY: dict[str, dict] = {
         "base": 600,
         "override_key": "fix_integrity_llm_timeout_sec",
     },
-    "synthesize.llm": {"base": 600, "override_key": "synthesizer_llm_timeout_sec"},
 }
 
 

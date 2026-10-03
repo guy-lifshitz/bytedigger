@@ -260,7 +260,8 @@
     "workflows/phase_6_review.py::_write_satisfaction_doc::read_text#1": {"class": "not-prompt", "note": "spec read for the AC checklist gate; verdict only"},
     "workflows/phase_6_review.py::_write_satisfaction_doc_multi::read_text#0": {"class": "not-prompt", "note": "spec read for the AC checklist gate; verdict only"},
 
-    "workflows/phase_7_synthesize.py::_satisfaction_state::read_text#0": {"class": "E", "note": "satisfaction doc reduced to a state token rendered into the synthesizer prompt (class-E field)"},
+    "workflows/phase_7_synthesize.py::_satisfaction_state::read_text#0": {"class": "E", "note": "satisfaction doc reduced to a state token rendered into the report (class-E field)"},
+    "workflows/phase_7_synthesize.py::_write_learnings_raw::read_text#0": {"class": "E", "note": "review doc reduced to severity level and a title cut at 200 chars per finding header, written to learnings-raw.md (class-E fields)"},
 
     "workflows/phase_8_post_deploy.py::_cleanup_gone_branches::_git_read#0": {"class": "not-prompt", "note": "git branch -vv listing parsed to delete gone branches"},
     "workflows/phase_8_post_deploy.py::_cleanup_worktrees::_git_read#0": {"class": "not-prompt", "note": "git worktree list parsed to clean worktrees"},

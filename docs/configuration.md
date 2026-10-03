@@ -155,9 +155,9 @@ org_config["<step>_model"]  >  org_config["model"]  >  built-in role default
 Per-step override keys read by the workflows: `spec_model`, `red_model`,
 `green_model`, `validation_model`, `review_model` (plus
 `review_model_retry`), `fix_model`, `integrity_model`, `fix_integrity_model`,
-`satisfaction_model`, `synthesizer_model`. The former `architect_model`,
-`clarify_model`, `discovery_model` and `explore_model` keys are accepted but
-ignored, since those phases were removed.
+`satisfaction_model`. The former `architect_model`,
+`clarify_model`, `discovery_model`, `explore_model` and `synthesizer_model` keys are accepted but
+ignored, since those phases or steps were removed.
 
 Example `org_config` fragment — pin validation to opus, everything else to
 sonnet:
@@ -269,7 +269,7 @@ text.
 
 Steps that read the template: phase 4.5 spec and review, phase 5 red, validation,
 green and integrity, phase 6 review, fix, fix-integrity, satisfaction and
-decorrelated verifier, and phase 7 synthesizer. Delta-retry prompts and the
+decorrelated verifier. Delta-retry prompts and the
 restricted spec writer carry no template and do not read the file.
 In phase 6 a template error runs the abort handler, which writes the
 `NOT_ASSESSED` satisfaction stub.

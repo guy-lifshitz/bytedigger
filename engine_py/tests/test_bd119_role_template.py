@@ -57,7 +57,6 @@ from bytedigger_engine.workflows import phase_5_implement as p5
 from bytedigger_engine.workflows import phase_5_integrity as p5i
 from bytedigger_engine.workflows import phase_6_fix_integrity as p6fi
 from bytedigger_engine.workflows import phase_6_review as p6
-from bytedigger_engine.workflows import phase_7_synthesize as p7
 
 ENGINE_PY = Path(__file__).resolve().parent.parent
 PKG = ENGINE_PY / "bytedigger_engine"
@@ -799,7 +798,6 @@ C_ROWS = (
     ("p45-review", "phase_45_spec", "_build_review_prompt", "build_review_prompt"),
     ("p5-integrity", "phase_5_integrity", "_build_integrity_prompt", "build_integrity_prompt"),
     ("p6-fix-integrity", "phase_6_fix_integrity", "_build_fix_integrity_prompt", "build_fix_integrity_prompt"),
-    ("p7", "phase_7_synthesize", "_build_synthesizer_prompt", "build_synthesizer_prompt"),
     ("p5-red", "phase_5_implement", "_build_red_prompt", "build_red_prompt"),
     ("p5-validation", "phase_5_implement", "_build_validation_prompt", "build_validation_prompt"),
     ("p5-green", "phase_5_implement", "_build_green_prompt", "build_green_prompt"),
@@ -1033,12 +1031,12 @@ def test_engine_has_no_bare_execute_outside_execute_step():
 
 
 # ---------------------------------------------------------------------------
-# C. Per call-site (16 build rows through the engine)
+# C. Per call-site (11 build rows through the engine; bd#89 P3c dropped the phase-7 row)
 # ---------------------------------------------------------------------------
 
 _MODS = {
     "phase_45_spec": p45,
-    "phase_5_integrity": p5i, "phase_6_fix_integrity": p6fi, "phase_7_synthesize": p7,
+    "phase_5_integrity": p5i, "phase_6_fix_integrity": p6fi,
     "phase_5_implement": p5, "phase_6_review": p6,
 }
 _DECORR_ANCHOR = "ROLE: You are the DECORRELATED VERIFIER"
@@ -1126,8 +1124,6 @@ def _row_setup(row: str, tmp_path: Path, monkeypatch, role_value: str, **org_ext
         pre = _commit(repo, "tests/test_foo.py", "def test_foo():\n    assert foo() == 1\n", "build: red cycle")
         fix = _commit(repo, "tests/test_foo.py", "def test_foo():\n    assert foo() == 2\n", "fix")
         org.update(git_cwd=str(repo), pre_fix_sha=pre, fix_commit_sha=fix)
-        anchor = _real_anchor(mod, scratchpad)
-    elif row == "p7":
         anchor = _real_anchor(mod, scratchpad)
     elif row in ("p5-red", "p5-validation"):
         prev = {"cycle": 1}

@@ -11,8 +11,8 @@ What is under test:
     point ``lib.phase_sentinel.execute_native_workflow``, never a mocked UUT).
   - AC4/AC5 — the EXECUTOR wiring of the dead hook: it fires, it fires on both
     execution paths (§1u), and it may enrich but never rescue.
-  - AC6/AC7/AC8 — phase 7 tells the truth in three states and names the
-    artifact in ``E_SYNTHESIZER_NEEDS_CONTEXT`` without losing its refusal.
+  - AC6 — phase 7 tells the truth in three states. (AC7/AC8, the
+    ``E_SYNTHESIZER_NEEDS_CONTEXT`` cases, were retired by bd#89 P3c.)
 
 Round 2 (gate round 1 REJECTED, two MAJOR findings — the hook is now
 SIDE-EFFECT-ONLY: return value discarded, exceptions contained):
@@ -26,7 +26,7 @@ SIDE-EFFECT-ONLY: return value discarded, exceptions contained):
   - AC12 — a STALE stub from a previous abort is refreshed; refresh keys on the
     ``SATISFACTION: NOT_ASSESSED`` marker THIS lot emits (round 3, MAJOR-4),
     never on a guess about what someone else wrote.
-  - AC13 — the phase-7 PROMPT says NOT_ASSESSED is not acceptance evidence.
+  - AC13 — the phase-7 REPORT lists a NOT_ASSESSED satisfaction doc as a gap.
 
 Round 3 (gate round 2 REJECTED, two MAJOR findings):
   - AC14 (MAJOR-3, aliasing) — ``StepResult`` is an UNFROZEN dataclass
@@ -183,14 +183,6 @@ class _FixCompleteBackend:
         else:
             raw = "# Composite Review\n\n## Aggregated Findings\n\nSeverity: HIGH\nVERDICT: FAIL\n"
         return _ok(raw, kw)
-
-
-class _EchoBackend:
-    def __init__(self, payload: str):
-        self._payload = payload
-
-    def __call__(self, **kw) -> StepResult:
-        return _ok(self._payload, kw)
 
 
 class _PassthroughBackend:
@@ -692,17 +684,6 @@ _NOT_ASSESSED_DOC = (
     "Acceptance was never evaluated: the phase ended before step 20.\n"
 )
 
-_NEEDS_CONTEXT_STRUCTURED = (
-    "# Post-Deploy Report\n\n"
-    "STATUS: NEEDS_CONTEXT\n\n"
-    "## synthesizer-output (structured)\n"
-    "```json\n"
-    '{"synthesized": false, "needs_context": true, "concerns": []}\n'
-    "```\n"
-)
-
-_NEEDS_CONTEXT_LEGACY = "# Post-Deploy Report\n\nSTATUS: NEEDS_CONTEXT\n"
-
 
 def test_ac6_phase_7_renders_satisfaction_in_three_states_gh1626b(tmp_path, monkeypatch):
     """AC6: phase_7_synthesize.py:441 renders THREE states, not two.
@@ -710,11 +691,9 @@ def test_ac6_phase_7_renders_satisfaction_in_three_states_gh1626b(tmp_path, monk
       - an absent doc       → `satisfaction: MISSING`   (unchanged)
       - a real doc          → `satisfaction: PRESENT`   (unchanged)
 
-    The passthrough backend makes the prompt the report file, so the rendered
-    line is asserted on the artifact on disk.
-
-    RED today: `sat_doc.is_file()` (:430) is a boolean — a NOT_ASSESSED stub is
-    a file, so it renders PRESENT and phase 7 implies acceptance was assessed.
+    The rendered line is asserted on the report artifact on disk (bd#89 P3c:
+    the deterministic report; the passthrough backend only guarantees that an
+    engine run can never reach a real model).
     """
     _register(_PassthroughBackend(), monkeypatch)
 
@@ -750,80 +729,10 @@ def test_ac6_phase_7_renders_satisfaction_in_three_states_gh1626b(tmp_path, monk
     )
 
 
-def test_ac7_needs_context_error_names_the_satisfaction_artifact_gh1626b(tmp_path, monkeypatch):
-    """AC7: E_SYNTHESIZER_NEEDS_CONTEXT carries the ABSOLUTE path of the
-    satisfaction doc when it is MISSING or NOT_ASSESSED — at BOTH raise sites,
-    the structured one (phase_7_synthesize.py:685) and the legacy marker one
-    (:710). Today the message only says "caller must expand context"; the path
-    appears solely inside the LLM prompt (:435), never in what the operator sees.
-
-    RED today: neither message contains the path.
-    """
-    # Leg A — structured raise site (:685), satisfaction MISSING.
-    register_backend(
-        _BACKEND_NAME, _EchoBackend(_NEEDS_CONTEXT_STRUCTURED),
-        manifest_source="harness_tool_record", overwrite=True,
-    )
-    monkeypatch.setenv("HAL_RUNNER_BACKEND", _BACKEND_NAME)
-
-    missing = Path(realpath(str(tmp_path))) / "s-missing"
-    result = _run_phase_7(missing)
-    sat_path = str(missing / SATISFACTION_DOC_RELPATH)
-    assert result.error_code == "E_SYNTHESIZER_NEEDS_CONTEXT", (
-        f"AC7 fixture (structured, :685): expected E_SYNTHESIZER_NEEDS_CONTEXT; got "
-        f"{result.error_code!r} (error={result.error!r})"
-    )
-    assert sat_path in (result.error or ""), (
-        f"AC7 (structured, :685): the error must name the MISSING artifact by absolute "
-        f"path; expected {sat_path!r} in the message, seen {result.error!r}"
-    )
-
-    # Leg B — legacy marker raise site (:710), satisfaction NOT_ASSESSED.
-    register_backend(
-        _BACKEND_NAME, _EchoBackend(_NEEDS_CONTEXT_LEGACY),
-        manifest_source="harness_tool_record", overwrite=True,
-    )
-    not_assessed = Path(realpath(str(tmp_path))) / "s-not-assessed"
-    _seed_sat(not_assessed, _NOT_ASSESSED_DOC)
-    result = _run_phase_7(not_assessed)
-    sat_path = str(not_assessed / SATISFACTION_DOC_RELPATH)
-    assert result.error_code == "E_SYNTHESIZER_NEEDS_CONTEXT", (
-        f"AC7 fixture (legacy, :710): expected E_SYNTHESIZER_NEEDS_CONTEXT; got "
-        f"{result.error_code!r} (error={result.error!r})"
-    )
-    assert sat_path in (result.error or ""), (
-        f"AC7 (legacy, :710): the error must name the NOT_ASSESSED artifact by absolute "
-        f"path; expected {sat_path!r} in the message, seen {result.error!r}"
-    )
-
-
-def test_ac8_not_assessed_doc_does_not_rescue_the_synthesizer_verdict_gh1626b(tmp_path, monkeypatch):
-    """AC8: with a NOT_ASSESSED doc PRESENT on disk, a synthesizer that reports
-    needs-context still yields E_SYNTHESIZER_NEEDS_CONTEXT. Making the artifact
-    exist must not make the refusal disappear — that would be forging acceptance,
-    which is the thing the issue warns against.
-
-    Invariant guard: expected to hold before AND after GREEN.
-    """
-    register_backend(
-        _BACKEND_NAME, _EchoBackend(_NEEDS_CONTEXT_STRUCTURED),
-        manifest_source="harness_tool_record", overwrite=True,
-    )
-    monkeypatch.setenv("HAL_RUNNER_BACKEND", _BACKEND_NAME)
-
-    scratchpad = Path(realpath(str(tmp_path))) / "scratch"
-    sat = _seed_sat(scratchpad, _NOT_ASSESSED_DOC)
-
-    result = _run_phase_7(scratchpad)
-
-    assert result.status == "error", (
-        f"AC8: the synthesizer's refusal must survive a NOT_ASSESSED artifact; expected "
-        f"status='error', seen {result.status!r}"
-    )
-    assert result.error_code == "E_SYNTHESIZER_NEEDS_CONTEXT", (
-        f"AC8: expected E_SYNTHESIZER_NEEDS_CONTEXT to still be raised with the stub doc "
-        f"present at {sat}; got {result.error_code!r}"
-    )
+# bd#89 P3c: AC7 and AC8 (E_SYNTHESIZER_NEEDS_CONTEXT names the artifact; the refusal
+# survives a NOT_ASSESSED stub) are retired with the synthesizer LLM step and its
+# error codes. The not-assessed signal now lives in the report (AC6, AC13 here, and
+# tests/test_bd89_p3c_deterministic_synthesize_report.py AC4).
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1261,50 +1170,33 @@ def test_ac12_stale_stub_is_refreshed_but_real_assessment_is_not_gh1626b(tmp_pat
 # ═══ AC13 — the phase-7 PROMPT states NOT_ASSESSED is not acceptance evidence ═
 
 
-_NOT_EVIDENCE_PHRASINGS = (
-    "not acceptance evidence",
-    "is not evidence of acceptance",
-    "does not constitute acceptance evidence",
-)
+def test_ac13_phase_7_report_lists_not_assessed_satisfaction_as_a_gap_gh1626b(tmp_path, monkeypatch):
+    """AC13 (bd#89 P3c re-point): the phase-7 prompt is gone, so the "NOT_ASSESSED
+    is not acceptance evidence" wording is now carried by the deterministic
+    report: a NOT_ASSESSED satisfaction doc on disk must show up as a named
+    "not assessed" gap in the report, never as a silent PRESENT.
 
-
-def test_ac13_phase_7_prompt_states_not_assessed_is_not_acceptance_evidence_gh1626b(tmp_path, monkeypatch):
-    """AC13 (makes AC8 forcing): AC8 alone bites on a synthesizer that was
-    already refusing, so it cannot distinguish "the guard holds" from "the stub
-    backend happens to say NEEDS_CONTEXT". The forcing assertion is on the
-    PROMPT the engine builds: with a NOT_ASSESSED doc on disk, the prompt must
-    state explicitly that NOT_ASSESSED is NOT acceptance evidence.
-
-    Without that sentence a real synthesizer sees a satisfaction artifact
-    present on disk and may reasonably read it as evidence — which is exactly
-    the forged acceptance the issue warns against, arriving through the door
-    this lot opens.
-
-    The passthrough backend makes the prompt the report file, so the assertion
-    lands on the real rendered prompt, not on a source-text grep.
-
-    RED today: phase_7_synthesize.py:427-441 knows only PRESENT/MISSING; the
-    token NOT_ASSESSED does not exist in the prompt at all.
+    The passthrough backend stays registered so that an engine run can never
+    reach a real model, whatever the phase-7 shape.
     """
     _register(_PassthroughBackend(), monkeypatch)
 
     scratchpad = Path(realpath(str(tmp_path))) / "s-not-assessed"
     _seed_sat(scratchpad, _NOT_ASSESSED_DOC)
     _run_phase_7(scratchpad)
-    prompt = (scratchpad / REPORT_DOC_RELPATH).read_text()
-    low = prompt.lower()
+    report = (scratchpad / REPORT_DOC_RELPATH).read_text()
+    low = report.lower()
 
-    assert "not_assessed" in low, (
-        "AC13: the prompt must carry the NOT_ASSESSED state at all; the satisfaction doc on "
-        f"disk is a NOT_ASSESSED stub but the prompt never names it. Prompt lines mentioning "
-        f"satisfaction: {[ln for ln in prompt.splitlines() if 'satisfaction' in ln.lower()]!r}"
+    assert "satisfaction: not_assessed" in low, (
+        "AC13: the report must carry the NOT_ASSESSED state. Report lines mentioning "
+        f"satisfaction: {[ln for ln in report.splitlines() if 'satisfaction' in ln.lower()]!r}"
     )
-    assert any(p in low for p in _NOT_EVIDENCE_PHRASINGS), (
-        "AC13: the prompt must state EXPLICITLY that NOT_ASSESSED is not acceptance evidence "
-        "(canonical wording: 'NOT_ASSESSED is not acceptance evidence'); none of "
-        f"{list(_NOT_EVIDENCE_PHRASINGS)!r} appears. Prompt lines mentioning satisfaction: "
-        f"{[ln for ln in prompt.splitlines() if 'satisfaction' in ln.lower()]!r}"
+    assert "not assessed" in low, (
+        "AC13: the report must say, in words, that the satisfaction doc was not assessed. "
+        f"Report lines mentioning satisfaction: "
+        f"{[ln for ln in report.splitlines() if 'satisfaction' in ln.lower()]!r}"
     )
+    assert "satisfaction: PRESENT" not in report
 
 
 # ═════════════════════════════════════════════════════════════════════════════

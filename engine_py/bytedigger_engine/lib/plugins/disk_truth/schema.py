@@ -5,7 +5,6 @@ Public API:
     ValidationVerdict   — dataclass with approve: bool, reject_reason: str | None
     SatisfactionVerdict — dataclass with satisfied: bool, fixes_required: list[dict]
     FixVerdict          — dataclass with fix_complete: bool, remaining: list[dict]
-    SynthesizerVerdict  — dataclass with synthesized: bool, needs_context: bool, concerns: list[dict]
     SchemaViolation     — Exception raised on validation failure
     enforce(payload, schema_class) -> instance
 """
@@ -52,13 +51,6 @@ class SatisfactionVerdict:
 class FixVerdict:
     fix_complete: bool
     remaining: List[dict]
-
-
-@dataclass
-class SynthesizerVerdict:
-    synthesized: bool
-    needs_context: bool
-    concerns: List[dict]
 
 
 def _is_optional(annotation: Any) -> tuple[bool, Any]:

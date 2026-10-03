@@ -160,7 +160,7 @@ The article describes the shape. This is the inventory, for anyone deciding whet
 
 **Learning and injection:**
 
-- the phase 7 synthesizer extracts categorized learnings from every build into a pluggable store. The default backend is plain markdown files under `.bytedigger/learnings/`; a reference SQLite shell backend, with its schema and tests, ships as the worked example of plugging in your own
+- the phase 7 post-deploy report and the learnings file are derived deterministically from the build record (no model), and learnings are still extracted into the store; the learning store stays pluggable. The default backend is plain markdown files under `.bytedigger/learnings/`; a reference SQLite shell backend, with its schema and tests, ships as the worked example of plugging in your own
 - the injection step (`workflows/phase_05_inject.py`) defines the injection contract -- a folder assembled before implementation: matched learnings from the configured store, a project constitution discovered by precedence, quality-gate and security rules, active-work context. Bring your own memory backend; the contract is what's fixed
 
 **Security:**
