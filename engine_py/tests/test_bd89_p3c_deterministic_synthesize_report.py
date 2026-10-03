@@ -1,4 +1,4 @@
-"""bd#89 P3c RED (spec FROZEN r1).
+"""bd#89 P3c RED (spec FROZEN r1.2).
 
 Spec: docs/decisions/2026-10-03-bd89-p3c-deterministic-synthesize-report.md (section 3, AC1-AC16).
 
@@ -18,9 +18,13 @@ AC mapping:
     test_ac6b_telemetry_section_only_when_opted_in             -> AC6
     test_ac7_report_feeds_phase8_summary_contract              -> AC7
     test_ac7b_empty_request_has_no_done_line                   -> AC7
+    test_ac7c_none_request_has_no_done_line                    -> AC7
     test_ac8_no_scratchpad_degrades_to_skipped_event           -> AC8
     test_ac8b_write_failure_degrades_to_skipped_event          -> AC8
+    test_ac8c_lone_surrogate_request_still_writes_report       -> AC8
+    test_ac8d_render_failure_degrades_to_render_failed_event   -> AC8 (r1.2 F6)
     test_ac9_retired_org_keys_are_ignored_with_one_event       -> AC9
+    test_ac9b_ignored_keys_event_also_fires_without_scratchpad -> AC9
     test_ac10_retired_error_codes_are_gone                     -> AC10
     test_ac11_retired_timeout_key_and_schema_are_gone          -> AC11
     test_ac11b_phase_7_module_has_no_retired_symbols           -> AC11
@@ -29,6 +33,7 @@ AC mapping:
     test_ac13_tsv_row_removed_and_bash_gate_passes_without_raw -> AC13
     test_ac14_guard_extract_without_raw_degrades_to_zero       -> AC14 (GUARD, both backends)
     test_ac15_guard_class_i_lint_compileall_config_parses      -> AC15 (GUARD)
+    test_ac15_guard_tree_scan_lint_real_tree_clean             -> AC15 (GUARD)
     test_ac15b_anti_hallucination_config_drops_phase_7         -> AC15 (config key part, red)
     test_ac16_guard_gh1124_pr_title_suite_present              -> AC16 (GUARD)
 
@@ -398,6 +403,26 @@ def test_ac8b_write_failure_degrades_to_skipped_event(tmp_path, monkeypatch):
     skipped = _events(log, "post_deploy_report_skipped")
     assert len(skipped) == 1
     assert skipped[0]["payload"]["reason"] == "write_failed"
+
+
+def test_ac8d_render_failure_degrades_to_render_failed_event(tmp_path, monkeypatch):
+    log = _make_log(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    _seed_all(scratch)
+
+    def _raise(*a, **kw):
+        raise RuntimeError("injected collaborator fault")
+
+    # Collaborator fault injection (not a mock of the unit under test).
+    monkeypatch.setattr(p7, "_collect_completed_phases", _raise)
+    result = _run_step(_ctx(scratch), log)
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert result.data["report_written"] is False
+    assert not (scratch / REPORT_REL).exists()
+    skipped = _events(log, "post_deploy_report_skipped")
+    assert len(skipped) == 1
+    assert skipped[0]["payload"]["reason"] == "render_failed"
 
 
 # --- AC9 -----------------------------------------------------------------------
