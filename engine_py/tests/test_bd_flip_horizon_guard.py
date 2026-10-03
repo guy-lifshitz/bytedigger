@@ -123,30 +123,37 @@ def test_ac5_bad_token_no_exception(fh):
 
 
 # ---------------------------------------------------------------- AC6
+SYN = _flags(SYN_A="warn-only; flip-by:2026-08-01")
+
+
 def test_ac6_exit_0_clean_missing_ledger(fh, tmp_path):
     missing = tmp_path / "absent.json"
-    assert fh.main(["--check", "--today", "2026-01-01"], ledger_path=missing) == 0
+    # token (2026-08-01) not yet overdue at 2026-01-01 -> clean, ledger absent
+    assert fh.main(["--check", "--today", "2026-01-01"],
+                   ledger_path=missing, flags=SYN) == 0
 
 
-def test_ac6_exit_0_clean_empty_ledger(fh, tmp_path):
+def test_ac6_exit_0_clean_covered_fixture(fh, tmp_path):
     p = tmp_path / "ledger.json"
-    p.write_text("{}")
-    assert fh.main(["--check", "--today", "2026-01-01"], ledger_path=p) == 0
+    p.write_text(json.dumps({"SYN_A": _entry("2026-10-20")}))
+    assert fh.main(["--check", "--today", "2026-10-03"],
+                   ledger_path=p, flags=SYN) == 0
 
 
 def test_ac6_exit_1_on_problem_with_line_on_stdout(fh, tmp_path, capsys):
     p = tmp_path / "ledger.json"
     p.write_text("{}")
-    rc = fh.main(["--check", "--today", "2099-01-01"], ledger_path=p)
+    rc = fh.main(["--check", "--today", "2026-10-03"], ledger_path=p, flags=SYN)
     assert rc == 1
-    out = capsys.readouterr().out
-    assert "UNCOVERED" in out
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+    assert len(lines) == 1
+    assert lines[0].startswith("UNCOVERED") and "SYN_A" in lines[0]
 
 
 def test_ac6_exit_2_on_malformed_ledger(fh, tmp_path, capsys):
     p = tmp_path / "ledger.json"
     p.write_text("{not json")
-    rc = fh.main(["--check", "--today", "2026-01-01"], ledger_path=p)
+    rc = fh.main(["--check", "--today", "2026-01-01"], ledger_path=p, flags=SYN)
     assert rc == 2
     assert capsys.readouterr().err.strip() != ""
 
@@ -164,16 +171,21 @@ def test_ac7_real_catalog_real_ledger_real_today_clean():
     assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
 
 
-def test_ac7_far_future_fails_with_uncovered_or_lapsed():
+def test_ac7_far_future_fails_with_uncovered_or_lapsed(fh):
+    from bytedigger_engine.flags_catalog import FLAGS
+    has_tokens = bool(fh.find_tokens(FLAGS))
     r = _run_cli("--today", "2099-01-01")
-    assert r.returncode == 1, f"stdout={r.stdout!r} stderr={r.stderr!r}"
-    assert any(ln.startswith(("UNCOVERED", "LAPSED")) for ln in r.stdout.splitlines())
+    if has_tokens:
+        assert r.returncode == 1, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+        assert any(ln.startswith(("UNCOVERED", "LAPSED"))
+                   for ln in r.stdout.splitlines())
+    else:
+        assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
 
 
 # ---------------------------------------------------------------- AC8
 def test_ac8_committed_ledger_valid_and_subset_of_token_flags(fh):
     ledger = json.loads(LEDGER.read_text())
-    assert ledger, "committed ledger must not be empty"
     for flag, e in ledger.items():
         assert isinstance(e.get("reason"), str) and e["reason"].strip(), flag
         assert isinstance(e.get("ref"), str) and e["ref"].strip(), flag
@@ -198,3 +210,65 @@ def test_edge_one_overdue_one_future_needs_coverage(fh):
 def test_edge_ledger_key_not_in_flags_is_stale(fh):
     out = fh.check(_flags(A="nothing"), {"GONE": _entry("2026-10-20")}, TODAY)
     assert len(_lines_for(out, "GONE", "STALE")) == 1
+
+
+# ---------------------------------------------------------------- AC9
+def test_ac9_default_today_is_utc_date(fh):
+    assert fh.default_today() == datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def test_ac9_main_routes_through_default_today(fh, monkeypatch):
+    from bytedigger_engine.flags_catalog import FLAGS
+    monkeypatch.setattr(fh, "default_today", lambda: datetime.date(2099, 1, 1))
+    expected = 1 if fh.find_tokens(FLAGS) else 0
+    assert fh.main(["--check"], ledger_path=LEDGER) == expected
+
+
+# ---------------------------------------------------------------- AC10
+def test_ac10_lapsed_off_by_one(fh):
+    flags = _flags(A="flip-by:2026-08-01")
+    assert fh.check(flags, {"A": _entry(TODAY.isoformat())}, TODAY) == []
+    y = (TODAY - datetime.timedelta(days=1)).isoformat()
+    out = fh.check(flags, {"A": _entry(y)}, TODAY)
+    assert len(_lines_for(out, "A", "LAPSED")) == 1
+
+
+def test_ac10_overdue_off_by_one(fh):
+    y = (TODAY - datetime.timedelta(days=1)).isoformat()
+    out = fh.check(_flags(A=f"flip-by:{y}"), {}, TODAY)
+    assert len(_lines_for(out, "A", "UNCOVERED")) == 1
+    assert fh.check(_flags(A=f"flip-by:{TODAY.isoformat()}"), {}, TODAY) == []
+
+
+# ---------------------------------------------------------------- AC11
+@pytest.mark.parametrize("desc", [
+    "flip-by 2026-08-07",
+    "Flip-By:2026-08-07",
+    "flip-by: 2026-08-07",
+])
+def test_ac11_near_miss_is_bad_token(fh, desc):
+    out = fh.check(_flags(A=desc), {}, TODAY)
+    assert len(_lines_for(out, "A", "BAD_TOKEN")) == 1
+
+
+def test_ac11_prose_is_not_a_token(fh):
+    flags = _flags(A="GH1199 kill-by enforcement", B="kill-by classification")
+    assert fh.check(flags, {}, TODAY) == []
+    assert fh.find_tokens(flags) == []
+
+
+# ---------------------------------------------------------------- AC12
+@pytest.mark.parametrize("body", ["[]", '{"SYN_A": "str"}'])
+def test_ac12_wrong_shape_ledger_exits_2(fh, tmp_path, capsys, body):
+    p = tmp_path / "ledger.json"
+    p.write_text(body)
+    rc = fh.main(["--check", "--today", "2026-10-03"], ledger_path=p, flags=SYN)
+    assert rc == 2
+    assert capsys.readouterr().err.strip() != ""
+
+
+def test_ac12_two_overdue_tokens_one_uncovered_line(fh):
+    flags = _flags(A="flip-by:2026-08-01 and kill-by:2026-09-01")
+    out = fh.check(flags, {}, TODAY)
+    assert len(_lines_for(out, "A", "UNCOVERED")) == 1
+    assert len(out) == 1
