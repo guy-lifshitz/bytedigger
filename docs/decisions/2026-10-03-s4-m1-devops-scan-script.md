@@ -1,6 +1,6 @@
 # S4/M1: deterministic devops scan script (trivy + hadolint, fail-closed)
 
-**Status: DRAFT r3 (gate r1 REJECT 7 MAJOR; gate r2 REJECT 6 MAJOR: `2026-10-03-s4-m1-gate-r1.md`, `-gate-r2.md`)** · **Tier:** 2 (new standalone `scripts/*.py`, no engine registry, no flag) · **Class:** SECURITY (IaC/Dockerfile severity gate)
+**Status: FROZEN r3 (gate r3 PASS, non-blocking minors in `-gate-r3.md`)** · was DRAFT r3 (gate r1 REJECT 7 MAJOR; gate r2 REJECT 6 MAJOR: `2026-10-03-s4-m1-gate-r1.md`, `-gate-r2.md`)** · **Tier:** 2 (new standalone `scripts/*.py`, no engine registry, no flag) · **Class:** SECURITY (IaC/Dockerfile severity gate)
 **Chokepoint:** `scripts/devops_scan.py` main(): the only place a scan verdict is produced; exit code is the verdict.
 **Provenance:** HAL GH#342 A+B (PR #360, PM GH342B 2026-07-05): the severity gate was fail-open (findings and scanner malfunction both swallowed as ok), fixed to fail-closed. bd#176 (892bb0f, bd#89 P1) deleted the engine stage `phase_5_devops_scan`; the audit hal#2320 §6 row M1 found the class (CRITICAL/HIGH in Dockerfile/IaC) left with no layer, verdict "в скрипт". Plan approved by Guy 2026-10-03 (audit repair step 4).
 **Principles:** script first, no LLM reviewer, provider-agnostic (no `claude`, no API key, no HAL path, no bun), RED first, nothing added to the engine registry or `flags_catalog`.
@@ -44,6 +44,8 @@ Findings rc: hadolint rc 0/1 and trivy rc 0 are "ran" (stdout JSON is the truth,
 **Inline suppression pragmas (gate r2 M2):** trivy has no flag to ignore `#trivy:ignore:` / `#tfsec:ignore:` comments, so the script itself greps each scanned file for `trivy:ignore`, `tfsec:ignore` and `hadolint ignore=` (case-insensitive, any comment prefix) and reports every hit as a gating finding `{scanner: "pragma", id: "inline_ignore_pragma", severity: HIGH}`; only the allowlist can waive it.
 
 **Scanner-native suppression is disabled** (gate r1 M7): both scanners run with cwd and HOME set to a fresh empty temp dir outside `--root`; hadolint gets `--disable-ignore-pragma` and `--no-color`; trivy gets `--ignorefile <empty temp file>` (no `trivy.yaml`/`.trivyignore` is read because cwd is the temp dir and the config path is not passed); only the `--allowlist` (agreement + kill-by) can waive. Files are passed by absolute path.
+
+**Gate r3 clarification (minor 1):** any unexpected exception, including an unreadable candidate file, is caught by the top-level handler and yields exit 2 with reason `internal_error` (never exit 1, never a bare traceback). De-dup key includes severity (on a collision the most severe copy is kept).
 
 ## 3. Severity and waivers
 
