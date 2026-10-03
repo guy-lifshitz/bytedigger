@@ -105,7 +105,8 @@ def test_ac6_measured_defaults_are_pinned():
     bd_l2 = _bd_l2()
 
     assert bd_l2.ENFORCEMENT["R2.2"]["enforced_by_default"] is True
-    assert bd_l2.ENFORCEMENT["R2.1"]["enforced_by_default"] is False
+    # R2.1 flipped by bd flip 2026-10-03 (HAL_RED_COLLECT_PROBE_ENFORCE default ON)
+    assert bd_l2.ENFORCEMENT["R2.1"]["enforced_by_default"] is True
     assert bd_l2.ENFORCEMENT["R2.6"]["enforced_by_default"] is False
 
 

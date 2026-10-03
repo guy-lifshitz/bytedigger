@@ -1,6 +1,6 @@
 # bd: HAL_RED_COLLECT_PROBE_ENFORCE defaults ON (kill-switch kept)
 
-**Status:** r1 spec (frozen before RED) · **Class:** SYSTEMATIC · **Chokepoint:** the two read sites of the
+**Status:** r1 spec (frozen before RED; AC7(c) wording corrected after RED) · **Class:** SYSTEMATIC · **Chokepoint:** the two read sites of the
 flag in `workflows/phase_5_implement.py` (`_collect_red_lint_findings`, `_verify_red_lint_rules_legacy`),
 the one catalog entry and the one enforcement-map row (`conformance/bd_l2.py` R2.1).
 **Enforcement layer (Principle C):** deterministic gate in the engine (`E_RED_COLLECT_PROBE`,
@@ -46,8 +46,9 @@ becomes a kill-switch (`=0` restores warn-only).
 - **AC6** `HAL_RED_COLLECT_PROBE_ENFORCE="false"` still enforces; alias `BD_RED_COLLECT_PROBE_ENFORCE=0`
   restores warn-only.
 - **AC7** `flip_horizon.check(FLAGS, ledger, date(2026,10,3))` reports no problem naming
-  `HAL_RED_COLLECT_PROBE_ENFORCE`; the key is absent from the ledger JSON; the source of
-  `_verify_red_lint_rules_legacy` contains no `flip-by` (that function holds only this flag's token).
+  `HAL_RED_COLLECT_PROBE_ENFORCE`; the key is absent from the ledger JSON; the source slice of
+  `_verify_red_lint_rules_legacy` from the first `HAL_RED_COLLECT_PROBE_GATE` line to the `E_RED_COLLECT_PROBE` return
+  contains no `flip-by` (the same function holds an unrelated GH535 token elsewhere, out of scope).
 - **AC8 (sibling migration)** `test_gh542_collect_probe.py` AC5 sets `=0`; `test_bd59_enforcement_map.py` AC6
   expects R2.1 `enforced_by_default is True`; every other assertion unchanged.
 - **AC9** `bd_l2.ENFORCEMENT["R2.1"]["enforced_by_default"] is True` and agrees with the catalog
