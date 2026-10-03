@@ -96,11 +96,7 @@ from typing import Any
 
 from bytedigger_engine import preflight  # noqa: E402  bd#218 s5 — module import so the producer is patchable
 from bytedigger_engine.lib import git_port  # noqa: E402
-from bytedigger_engine.lib.git_cwd import (  # noqa: E402  GH381  bd#218 s5
-    is_ambient_git_cwd,
-    resolve_git_cwd,
-    resolve_git_cwd_with_source,
-)
+from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381  bd#218 s5
 from bytedigger_engine.lib.schema_smoke import run_schema_smoke  # noqa: E402  GH892
 from bytedigger_engine.contracts import StepContract, StepResult, WorkflowContext, WorkflowDefinition
 from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
