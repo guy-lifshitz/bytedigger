@@ -69,3 +69,11 @@ Removes or simplifies nothing, so no "introduced:" line is owed. The gate itself
 
 Scoped: `pytest engine_py/tests/test_bd218_s1_preflight_rung.py` + the §4 siblings; `mypy --strict preflight.py`; full suite on CI (delta, §1r).
 Baseline for the cost claim: none made — this step adds an event, no $ change is claimed.
+
+## §7 LLM stages in this step (Guy 2026-10-03: remove LLM wherever a script/test/Jev can do it)
+
+This step adds no LLM call. The one LLM stage it touches is the pre-GREEN validation gate; it is **kept for now**, not because a
+script is shown unable to do its job, but because replacing it is a removal and removals wait for the lot-assume audit verdict
+(keep / to-script / remove, with provenance) and Guy's yes. Justification owed in the PR that does replace it: which findings of
+the gate (from the reject logs) a script or test already catches, and what stays. This rung is the measuring point: the
+`preflight_receipt` event next to the gate's verdict gives, per run, whether the cheap checks were green when the gate ran.
