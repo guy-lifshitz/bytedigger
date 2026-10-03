@@ -42,7 +42,7 @@ After the NO_CHANGES short-circuit and before `invoke_llm_subprocess`: a fail-op
 Running tests, `cite`, `tier`, a classifier; any LLM call; skipping or replacing the gate; fix-integrity gate (`phase_6_fix_integrity`, a later step); changing reject rows or `reject_stats`; the `StepContract` list.
 
 ### Limit stated
-A `fresh` green receipt means syntax, stub and facts passed on the tree the integrity gate judged; it does not mean tests ran. An integrity REJECT on `fresh` shows the gate caught something these three steps did not, not something no script could.
+A `fresh` green receipt means syntax, stub and facts passed on the tree the integrity gate judged; it does not mean tests ran. `missing` also covers an empty scope (no parseable test path, unparseable header, absent diff), and a `red` can be a false red from a non-test file matching `*test*`/`*spec*` (a deliberately broken fixture). An integrity REJECT on `fresh` shows the gate caught something these three steps did not, not something no script could.
 
 ## §3 Acceptance criteria
 
