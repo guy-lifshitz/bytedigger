@@ -1,6 +1,6 @@
 # bd#243 — GREEN cannot start without an approving gate verdict on the current spec revision
 
-**Status: r3 DRAFT (gate r1 and r2 REJECTED; findings folded; see `...-gate-r1.md`, `...-gate-r2.md`)** · **Tier:** 2 (engine prod `.py`: one new module + one call site; Option D: RED, Opus gate, GREEN) ·
+**Status: r4 DRAFT (gate r1-r3 REJECTED; findings folded; see `...-gate-r1.md` .. `-gate-r3.md`)** · **Tier:** 2 (engine prod `.py`: one new module + one call site; Option D: RED, Opus gate, GREEN) ·
 **Class:** process-order enforcement (SYSTEMATIC) ·
 **Chokepoint:** the pre-commit enforcement layer (`precommit_enforce.main`), the one place every
 commit of a lot passes through, before a non-test source file can enter history.
@@ -50,7 +50,8 @@ return, so a commit staging only binary/unclassified source still reaches it.
 **Lot spec** = a path `docs/decisions/<name>.md` reported as status `A` by
 `git diff --cached --name-status --diff-filter=A --no-renames <merge-base>` (`--no-renames`, so a
 `git mv`-ed spec still counts as added), minus excluded names. **Excluded** (not a spec):
-`*-gate-r<N>.md`, `*-gate-verdict-r<N>.md`, `*-escalation.md`, `*-acceptance.md`, `*-inventory.md`,
+any name matching `*-gate-r<digit>*.md` (integer revision or not, e.g. `-gate-r3.1.md`,
+`-gate-r7-delta.md`; only plain positive-integer ones are gate docs, 2.2), `*-gate-verdict-r<N>.md`, `*-escalation.md`, `*-acceptance.md`, `*-inventory.md`,
 `*-close-gate.md`, `*-post-mortem.md`, and any doc whose first 20 lines contain a line
 `Gate-exempt: <non-blank reason>` (the exemption is appended to the bypass log as kind
 `gate_exempt`). Paths are matched on the index content for the exemption line.
@@ -65,7 +66,7 @@ For each lot spec `S` (stem `<stem>`), in order:
    has at least four segments (`2026-10-03-bd218-s1-preflight-rung` -> prefixes
    `2026-10-03-bd218-s1-preflight`, `2026-10-03-bd218-s1`, `2026-10-03-bd218`; the corpus names gate
    docs `<date>-bdN-gate-rN.md` and `<date>-bdN-sK-gate-rN.md`). `N` is a positive integer; the newest is the highest `N` across
-   the union (numeric, not lexical: r10 > r9; on equal `N` the stem form wins). None -> refusal
+   the union (numeric, not lexical: r10 > r9; on equal `N` the LONGEST prefix wins, the stem form being the longest). None -> refusal
    `E_GREEN_GATE_MISSING`. A stem of fewer than four segments uses the stem form only. A revision that is not a plain positive
    integer (e.g. `r3.1`) is not a gate doc. Only the FIRST verdict-anchor block of a gate doc is read.
    When the refusal is MISSING/STALE/REJECTED because a base ref is `origin/main`, the line's detail
@@ -179,6 +180,14 @@ write the log (for any of the three kinds) refuses with `E_GREEN_GATE_UNREADABLE
 | AC37 | first commit on a new lot branch staging spec and source together | MISSING (spec is added, no gate doc) |
 
 ## 4. Out of scope
+
+- Commit paths that do not run `pre-commit` (`--no-verify`, clean merges, cherry-pick, rebase) are
+  not covered; this is a commit-time chokepoint, not a server-side one. A merge-conflict commit
+  against a fresh `origin/main` may list other lots' landed specs as added and refuse them; accepted,
+  the escape is the escalation marker or the kill switch (both logged). A shallow clone without a
+  merge-base is refused as UNREADABLE (fail closed).
+- A gate doc whose first anchor block lists several `spec:` lines: the line naming the spec being
+  checked is used; a block with none naming it is STALE.
 
 - Writing the anchor block automatically in the gate agent prompts (host side); until they emit it, a
   lot must paste the block into the gate doc or record an escalation marker.
