@@ -38,8 +38,8 @@ Bare C0 passes 8/8 at $14.5, so bd must not be slower or dearer in substance: C0
 
 ## Rollout (one PR each, usual bd process)
 
-0. Evidence per LLM stage, from existing logs only (`reject_log.py`, `reject_stats.py`, event logs; no new runs): for each gate and review, how many of its rejects/findings a script or the test suite would have caught anyway. Output: a table that decides, per stage, keep / move to script / remove.
-1. Pre-GREEN gate: run `preflight.verify_receipt` first (script, $0). Where step 0 shows the gate adds nothing over preflight, skip the gate when the receipt is fresh and green. The optional classifier sits between, shadow only until recall is measured.
+0. (Superseded by the lot-assume audit: keep / to-script / remove per layer, with provenance. No layer is removed or simplified before it lands.) Evidence per LLM stage, from existing logs only (`reject_log.py`, `reject_stats.py`, event logs; no new runs): for each gate and review, how many of its rejects/findings a script or the test suite would have caught anyway. Output: a table that decides, per stage, keep / move to script / remove.
+1. Pre-GREEN gate: run `preflight.verify_receipt` first (script, $0). ADD-ONLY for now: the receipt verdict is run and recorded as a cheap rung and the gate still always runs. The variant that skips the gate on a fresh green receipt is PAUSED until the lot-assume audit lands. The optional classifier sits between, shadow only until recall is measured.
 2. Spec/plan-review: same, with structural findings only (`tier_gate`, `spec_coverage`) as the script rung. Wording checks (citation format, negation regex, prose markers) are out of scope.
 3. Review and satisfaction gates, and retries: script rung from `baseline_delta_gate`/`sibling_coupling`; stages that step 0 shows redundant are dropped.
 4. CI-red rerun-once: rerun the same head once; green means flake.
@@ -51,6 +51,6 @@ Before removing or simplifying any layer, gate, check or flag, find why it was i
 
 Step 0 outputs this line per stage. So far: nothing removed or simplified by this lot. The validation gate was ported from HAL (`never_skip_opus_validation_gate`, HAL `workflows.md` step 3); bd git history shows it only from the engine extraction (da4d41e, 2026-07-16), so incident provenance for it is still to be found in the HAL post-mortems before step 1 may skip it.
 
-Order is provisional until step 0 and the r3 stage breakdown (doc-PR #2208) are in.
+Fix per the audit first, measure after. Order is provisional until step 0 and the r3 stage breakdown (doc-PR #2208) are in.
 
 Rules for every step: classifier optional (no key or unreachable skips the rung, no failure), provider-agnostic (subscription and API), only a gate approves, shadow before enforce.
