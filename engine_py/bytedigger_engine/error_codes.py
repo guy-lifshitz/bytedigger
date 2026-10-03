@@ -284,6 +284,11 @@ ERROR_CODES: dict[str, str] = {
     "E_PARTIAL_CHANNELS_GATE": "sibling_coupling: --require-clean was combined with a partial channel set",
     "E_SIBLING_AUDIT_INTERNAL": "sibling_coupling: the audit raised an unexpected internal exception; exit 2, never aliased to exit 1 (MISSING present)",
     "E_WORKTREE_HEAD_MOVED":"phase_5_implement: worktree HEAD moved during phase_5 (external merge/reset) — frozen pre-red SHA no longer reachable or not an ancestor of HEAD (agreement 6604CC4B)",
+    "E_GREEN_GATE_MISSING": "green_entry_guard: a lot spec added on this branch has no gate doc docs/decisions/<stem>-gate-rN.md (bd#243)",
+    "E_GREEN_GATE_REJECTED": "green_entry_guard: the newest gate doc of a lot spec carries a REJECT verdict (bd#243)",
+    "E_GREEN_GATE_STALE": "green_entry_guard: the newest gate doc approves, but its verdict-anchor is missing or does not match the current spec sha256 (bd#243)",
+    "E_GREEN_GATE_UNREADABLE": "green_entry_guard: a spec, gate or escalation file, a git listing, or the bypass log could not be read or written; fail closed (bd#243)",
+    "E_GREEN_GATE_BYPASS_NO_REASON": "green_entry_guard: HAL_GREEN_GATE_GUARD=0 was set without a non-blank HAL_GREEN_GATE_BYPASS_REASON (bd#243)",
 }
 
 

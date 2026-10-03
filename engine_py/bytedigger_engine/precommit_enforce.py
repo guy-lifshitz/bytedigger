@@ -28,7 +28,7 @@ import os
 import subprocess
 import sys
 
-from bytedigger_engine import precommit_lints
+from bytedigger_engine import green_entry_guard, precommit_lints
 
 REFUSE_VIOLATION = "BD66-REFUSE-VIOLATION"
 REFUSE_MISSING_DRIVER = "BD66-REFUSE-MISSING-DRIVER"
@@ -224,7 +224,17 @@ def main(argv=None) -> int:
     if root is None:
         return 0
 
-    classified = precommit_lints.classify_staged(staged_paths(root))
+    staged = staged_paths(root)
+
+    # bd#243: GREEN-entry guard. After the registry pre-pass and repo_root(),
+    # BEFORE nothing_to_lint, so a commit staging only binary/unclassified
+    # source still reaches it.
+    refusals = green_entry_guard.check(root, staged, os.environ)
+    if refusals:
+        _report(refusals)
+        return 1
+
+    classified = precommit_lints.classify_staged(staged)
     if precommit_lints.nothing_to_lint(classified):
         return 0
 
