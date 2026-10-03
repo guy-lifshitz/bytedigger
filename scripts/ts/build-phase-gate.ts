@@ -681,7 +681,7 @@ function checkPhase7(cwd: string): GateVerdict {
   const complexity = getComplexity(cwd);
   if (complexity === "TRIVIAL") return pass("7");
 
-  // The review result and the bd#127 synthesizer deliverable come from the table.
+  // The review result comes from the table.
   return checkDeliverables(cwd, "7");
 }
 

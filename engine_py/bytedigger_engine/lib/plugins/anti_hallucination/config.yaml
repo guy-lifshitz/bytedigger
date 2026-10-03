@@ -21,7 +21,5 @@ applied_phases:
     enabled: true
   phase_45_spec:
     enabled: true
-  phase_7_synthesize:
-    enabled: true
   phase_5_implement:  # RED + GREEN workers (producer fragment)
     enabled: true

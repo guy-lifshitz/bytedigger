@@ -43,25 +43,16 @@ Document results and summarize the build.
 
 ## Actions
 
-1. Launch Haiku synthesizer agent (use agent definition: `agents/synthesizer.md`) with: original request, path to `build-state.yaml`, path to architecture spec. Agent reads files itself — do NOT inline review verdicts or scores in the prompt.
-   - Pass the resolved path `{scratchpad_dir}/reviews/learnings-raw.md`; the synthesizer writes it itself (lines formatted `- [category] --- lesson`) and returns a short summary + the path.
-   - Orchestrator verifies the file is on disk and non-empty; on a miss, re-prompt or respawn the synthesizer — the orchestrator does NOT write the file on the agent's behalf. (The gate check is a best-effort nudge; this verification is the guarantee.)
+1. The engine writes `post-deploy/post-deploy-report.md` from the event log. There is no agent to launch and no deliverable to verify.
 
 **Orchestrator flow:**
 1. Read `mode` from build-state.yaml — strip surrounding quotes before comparing (`grep '^mode:' build-state.yaml | sed "s/^mode:[[:space:]]*//;s/^['\"]//;s/['\"]$//"`)
-2. If mode == "AUTONOMOUS": log Haiku summary output to scratchpad, proceed immediately to learning extraction (step 2) — do NOT pause to present to user
-3. If mode == "SUPERVISED": present summary to user (What was built + learnings bullets), wait for acknowledgement, then proceed to step 2
+2. If mode == "AUTONOMOUS": log the report to scratchpad, proceed immediately to the next step — do NOT pause to present to user
+3. If mode == "SUPERVISED": present summary to user (What was built + concerns), wait for acknowledgement, then proceed to the next step
 
 2. Present summary (SUPERVISED only — see flow above):
    - What was built (3-5 bullets)
    - Key decisions and trade-offs
-
-3. **After synthesizer returns, extract learnings** (before any cleanup):
-   ```bash
-   SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[[:space:]]*//; s/^"//; s/"$//')
-   bash scripts/learning-store.sh extract "$SCRATCHPAD" || true
-   ```
-   This persists `{scratchpad_dir}/reviews/learnings-raw.md` entries to `.bytedigger/learnings/`.
 
 4. **Update documentation** (recommended):
 

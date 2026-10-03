@@ -354,20 +354,7 @@ gate_phase_6() {
 gate_phase_7() {
   [ "$COMPLEXITY" = "TRIVIAL" ] && return 0
 
-  # Soft learning validation: when backend != none, warn if learnings_extracted is missing.
-  # This never hard-blocks — learning failures must never stop the pipeline.
-  local backend
-  backend=$(yaml_get "learning_backend")
-  if [ -n "$backend" ] && [ "$backend" != "none" ]; then
-    local extracted
-    extracted=$(yaml_get "learnings_extracted")
-    if [ -z "$extracted" ]; then
-      # Warn only — do not add to MISSING_FIELDS (soft, never blocks)
-      echo "WARN: learnings_extracted not set in build-state.yaml (backend=$backend)" >&2
-    fi
-  fi
-
-  # Review result + bd#127 synthesizer deliverable come from the table (soft).
+  # The review result comes from the table.
   check_deliverables "7"
 }
 

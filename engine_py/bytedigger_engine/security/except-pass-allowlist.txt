@@ -17,7 +17,6 @@ SYSTEM/cli/build/engine_py/workflows/phase_05_inject.py 1  # kill-by:2026-09-30 
 SYSTEM/cli/build/engine_py/workflows/phase_45_spec.py 6  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_5_implement.py 3  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_6_review.py 7  # kill-by:2026-09-30 GH825
-SYSTEM/cli/build/engine_py/workflows/phase_7_synthesize.py 1  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_8_post_deploy.py 2  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/engine_py/workflows/phase_workflows_common.py 1  # kill-by:2026-09-30 GH825
 SYSTEM/cli/build/security-lint.py 1  # kill-by:2026-09-30 GH825

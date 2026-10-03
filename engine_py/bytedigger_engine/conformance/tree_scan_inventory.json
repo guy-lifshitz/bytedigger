@@ -38,7 +38,6 @@
     "workflows/phase_6_review.py::_post_fix_test_scope::git-ls-files#0": {"class": "not-a-gate", "note": "Lists TRACKED files only to pick sibling tests for the post-fix pytest scope (bd#90); the engine state dir is untracked or ignored in a normal checkout, and only existing test .py paths under the git cwd are used."},
     "workflows/phase_6_review.py::_commit_fix_code::git_diff_files#0": {"class": "filters", "note": "Fallback manifest is wrapped by _filter_gitignored_paths, which drops engine-owned paths first (bd#94 row 5)."},
     "workflows/phase_6_review.py::_verify_fix_typecheck::git_diff_files#0": {"class": "not-a-gate", "note": "Typecheck path set of the fix phase. Not wired by bd#94 (the spec rows cover the phase 5 typecheck only); follow-up."},
-    "workflows/phase_7_synthesize.py::_emit_synthesize_disk_truth_telemetry::git_diff_files#0": {"class": "not-a-gate", "note": "Disk-truth comparison for a telemetry event only."},
     "lib/plugins/disk_truth/git_diff.py::git_diff_files::diff_files#0": {"class": "not-a-gate", "note": "Thin delegator to the git-diff port; the callers of git_diff_files own the filtering."},
     "lib/plugins/disk_truth/git_diff.py::git_status_porcelain::status_porcelain#0": {"class": "not-a-gate", "note": "Thin delegator to the git-diff port; the callers own the filtering."},
 
