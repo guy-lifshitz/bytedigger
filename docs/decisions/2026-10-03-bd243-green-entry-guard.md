@@ -172,7 +172,7 @@ write the log (for any of the three kinds) refuses with `E_GREEN_GATE_UNREADABLE
 
 | AC31 | corrupt `<git-dir>/index` (garbage bytes) after a base resolves, source staged by a prior add | one `E_GREEN_GATE_UNREADABLE` line |
 | AC32 | orphan lot branch (unrelated history) while `main` exists | `E_GREEN_GATE_UNREADABLE` |
-| AC33 | sub-lot naming: spec `<date>-bd218-s1-preflight-rung.md`, gate `<date>-bd218-s1-gate-r1.md` APPROVED+anchor -> `[]`; REJECTED -> refused; gate `<date>-bd218-s2-gate-r1.md` (sibling sub-lot) never binds |
+| AC33 | sub-lot naming (spec `<date>-bd218-s1-preflight-rung.md`) | gate `<date>-bd218-s1-gate-r1.md` APPROVED+anchor -> `[]`; REJECTED -> refused; gate `<date>-bd218-s2-gate-r1.md` (sibling sub-lot) never binds |
 | AC34 | gate doc `<stem>-gate-r3.1.md` APPROVED next to REJECTED `r2` | `r3.1` ignored -> REJECTED |
 | AC35 | `HAL_GREEN_GATE_GUARD` set to `false`, `00`, ` 0` on a REJECTED lot | guard stays on -> REJECTED |
 | AC36 | a gate doc with two anchor blocks, first for a stale hash, second matching | STALE (first block only) |
