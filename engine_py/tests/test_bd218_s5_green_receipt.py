@@ -106,6 +106,7 @@ def test_AC1_green_receipt_fresh_red_rung_missing(tmp_path: Path) -> None:
     assert [s["name"] for s in doc["steps"]] == ["syntax", "stub", "facts"]
     assert pf.receipt_rung("green", str(repo)) == {"status": "fresh", "phase": "green", "red_step": None}
     assert pf.receipt_rung("red", str(repo))["status"] == "missing"
+    assert doc["not_run"] == ["cite", "tier", "scoped", "siblings", "prescreen"]
 
 
 def test_AC2_default_call_is_red_and_replaces_green_receipt(tmp_path: Path) -> None:
@@ -373,3 +374,110 @@ def test_AC13_reroll_runs_producer_and_event_once_llm_twice(
     assert len(calls) == 2 and result.status == "ok"
     assert calls[0]["extra_data"]["preflight"]["status"] == "fresh"
     assert calls[1]["extra_data"]["preflight"]["status"] == "fresh"
+
+
+# ---------------------------------------------------------------- AC15-AC17 (spec r2)
+
+def _mk_sub(tmp_path: Path, name: str, test_src: str) -> Path:
+    """Repo whose test file lives under sub/; origin/main = init, then a commit changes it."""
+    repo = tmp_path / name / "repo"
+    (repo / "sub").mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _write(repo / "sub" / "calc.py", CALC)
+    _write(repo / "sub" / TEST_REL, "# old\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _write(repo / "sub" / TEST_REL, test_src)
+    _write(repo / "sub" / "calc.py", CALC_GREEN)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "green")
+    return repo.resolve()
+
+
+def _real_diff(repo: Path, tmp_path: Path) -> str:
+    out = tmp_path / "real.patch"
+    out.write_text(_git(repo, "diff", "origin/main", "HEAD") + "\n", encoding="utf-8")
+    return str(out)
+
+
+@pytest.mark.parametrize("test_src,status", [(STUB_SRC, "red"), (RED_SRC, "fresh")])
+def test_AC15_subdirectory_git_cwd_resolves_against_toplevel(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_src: str, status: str) -> None:
+    repo = _mk_sub(tmp_path, "ac15", test_src)
+    diff = _real_diff(repo, tmp_path)
+    assert f"diff --git a/sub/{TEST_REL} b/sub/{TEST_REL}" in Path(diff).read_text(encoding="utf-8")
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo / "sub"),
+                               prev_extra={"diff_path": diff})
+    (ev,) = _rung(events)
+    assert ev["status"] == status and len(calls) == 1
+    if status == "red":
+        assert ev["red_step"] == "stub"
+    assert calls[0]["extra_data"]["preflight"]["status"] == status
+
+
+def _hand_diff(tmp_path: Path, headers: list[str]) -> str:
+    body = "".join(f"{h}\n--- x\n+++ y\n@@ -1 +1 @@\n-x\n+y\n" for h in headers)
+    out = tmp_path / "hand.patch"
+    out.write_text(body, encoding="utf-8")
+    return str(out)
+
+
+def _clean_hdr(p: str = TEST_REL) -> str:
+    return f"diff --git a/{p} b/{p}"
+
+
+def _assert_missing(events: list, calls: list) -> None:
+    (ev,) = _rung(events)
+    assert ev["status"] == "missing", ev
+    assert len(calls) == 1 and calls[0]["extra_data"]["preflight"]["status"] == "missing"
+
+
+def test_AC16_c_quoted_header_empties_scope_never_fresh(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _mk(tmp_path, "ac16a")
+    _write(repo / "tests" / "tä.py", STUB_SRC)
+    diff = _hand_diff(tmp_path, [
+        'diff --git "a/tests/t\\303\\244.py" "b/tests/t\\303\\244.py"', _clean_hdr()])
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo), prev_extra={"diff_path": diff})
+    _assert_missing(events, calls)
+
+
+def test_AC16_rename_header_empties_scope_never_fresh(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _mk(tmp_path, "ac16b")
+    _write(repo / "tests" / "test_new.py", STUB_SRC)
+    diff = _hand_diff(tmp_path, [
+        "diff --git a/tests/test_old.py b/tests/test_new.py", _clean_hdr()])
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo), prev_extra={"diff_path": diff})
+    _assert_missing(events, calls)
+
+
+def test_AC16_symlink_resolving_outside_toplevel_empties_scope(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _mk(tmp_path, "ac16c")
+    outside = tmp_path / "outside_mock.py"
+    outside.write_text(STUB_SRC, encoding="utf-8")
+    (repo / "tests" / "test_link.py").symlink_to(outside)
+    diff = _hand_diff(tmp_path, [_clean_hdr("tests/test_link.py"), _clean_hdr()])
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo), prev_extra={"diff_path": diff})
+    _assert_missing(events, calls)
+
+
+def test_AC17_absent_and_unreadable_diff_path_is_missing(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _mk(tmp_path, "ac17")
+    seen = _spy(monkeypatch)
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo))
+    assert len(seen) == 1 and _rung(events)[0]["status"] == "fresh", "forcing: valid diff reaches the producer"
+    _pf().receipt_path(repo).unlink()
+
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo),
+                               prev_extra={"diff_path": str(tmp_path / "nope.patch")})
+    _assert_missing(events, calls)
+
+    unreadable = tmp_path / "dir.patch"
+    unreadable.mkdir()                      # read_text on a directory raises deterministically
+    _r, calls, events = _drive(monkeypatch, tmp_path, git_cwd=str(repo),
+                               prev_extra={"diff_path": str(unreadable)})
+    _assert_missing(events, calls)
