@@ -1180,6 +1180,37 @@ class TestS3SpecSampleCheck:
         else:
             assert v["findings"] == [], (text, measured, v)
 
+    # --------------------- post-review: only sample:/measured: segments go ---
+    def _segment_root(self, tmp_path, ac_line, name="repo"):
+        spec = "# Spec\n\n## Acceptance criteria\n\n" + ac_line + "\n"
+        return _lot(tmp_path, spec, base={"data/real.json": '{"note": "real stub data"}\n'}, name=name)
+
+    def test_ac13_citations_inside_parentheses_before_threshold_still_contradict(self, tmp_path):
+        root = self._segment_root(
+            tmp_path, "AC1 (sample: data/real.json measured: 0.31): share < 0.25"
+        )
+        v = _verdict(_run(tmp_path, root))
+        assert _codes(v) == ["MEASURED_CONTRADICTS"], v
+        assert v["findings"][0]["ac"] == "AC1"
+
+    def test_ac13_comma_separated_prose_after_sample_is_not_a_cited_path(self, tmp_path):
+        root = self._segment_root(
+            tmp_path, "AC1: sample: data/real.json, share < 0.25, measured: 0.31"
+        )
+        v = _verdict(_run(tmp_path, root))
+        # the only cited sample is data/real.json: `share < 0.25` is not a path
+        assert _codes(v) == ["MEASURED_CONTRADICTS"], v
+        assert not any(f["code"] in {"SAMPLE_NOT_REAL", "NO_SAMPLE"} for f in v["findings"]), v
+        assert "share < 0.25" not in json.dumps(v["findings"])
+
+    def test_ac13_threshold_before_citations_on_one_line_is_clean_control(self, tmp_path):
+        root = self._segment_root(
+            tmp_path, "AC1: share < 0.25 sample: data/real.json measured: 0.1"
+        )
+        v = _verdict(_run(tmp_path, root))
+        assert v["status"] == "clean" and v["findings"] == [], v
+        assert [e["ac"] for e in v["unverified"]] == ["AC1"], v
+
     # ------------------------------------------------------------ AC15 ---
     def _commit_lot(self, tmp_path, root):
         _git(tmp_path, root, "add", "-A")
