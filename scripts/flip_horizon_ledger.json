@@ -1,0 +1,18 @@
+{
+  "HAL_ORPHAN_CALLSITE_ENFORCE": {"until": "2026-11-03", "ref": "hal#564", "reason": "catalog-only entry: the reader (orphan-callsite-lint.py) lives in the host repo, bd has no consumer; decide host adoption; no removal before the lot-assume audit"},
+  "HAL_RED_COLLECT_PROBE_ENFORCE": {"until": "2026-10-17", "ref": "hal#542", "reason": "flip to ON in the follow-up PR (shadow data: 229 runs, 1 true positive, 0 false positives)"},
+  "HAL_SPEC_PREFLIGHT_BATCH": {"until": "2026-11-03", "ref": "hal#747", "reason": "opt-in batching of spec lints, not an enforce flag; spec-text lints are out of the 2026-10-03 lot; decide separately"},
+  "HAL_RED_MASS_DELETION_ENFORCE": {"until": "2026-10-17", "ref": "hal#282", "reason": "flip to ON in the follow-up PR (shadow data: 232 runs, 0 violations, 0 false positives)"},
+  "HAL_SPEC_REENTRY_ENFORCE": {"until": "2026-11-03", "ref": "hal#823", "reason": "spec-text lint: dropped from the enforce lot 2026-10-03 (wording/format checks are not a cheap check); no removal before the lot-assume audit (keep / to-script / drop verdict with provenance)"},
+  "HAL_SPEC_HELPER_EXTRACTION_ENFORCE": {"until": "2026-11-03", "ref": "hal#863", "reason": "spec-text lint: dropped from the enforce lot 2026-10-03; no removal before the lot-assume audit (keep / to-script / drop verdict with provenance)"},
+  "HAL_SPEC_LINT_BATCH_ENFORCE": {"until": "2026-11-03", "ref": "hal#559", "reason": "spec-text lint batch: dropped from the enforce lot 2026-10-03; no removal before the lot-assume audit (keep / to-script / drop verdict with provenance)"},
+  "HAL_SPEC_CITE_PRELINT_ENFORCE": {"until": "2026-11-03", "ref": "hal#681", "reason": "citation-format pre-lint with a writer re-prompt (extra LLM call): dropped from the enforce lot 2026-10-03; no removal before the lot-assume audit (keep / to-script / drop verdict with provenance)"},
+  "HAL_VERDICT_GATE_LINT_ENFORCE": {"until": "2026-11-03", "ref": "agreement 34E0B77B", "reason": "no shadow data: the warn path emits no event (0 of 805 runs); add the emit before judging a flip"},
+  "HAL_FLAG_UNREGISTERED_ENFORCE": {"until": "2026-11-03", "ref": "hal#529", "reason": "no shadow data; a scan of bd's own tree finds 2 unregistered tokens (HAL_SECURITY_RULES_PATH, HAL_STATUS_PROBE_URL): register them, then flip"},
+  "HAL_BASELINE_DELTA_ENFORCE": {"until": "2026-11-03", "ref": "hal#561", "reason": "258 of 258 shadow events are driver_error: the gate has never produced a verdict; fix the driver first"},
+  "HAL_CORPUS_PARITY_ENFORCE": {"until": "2026-11-03", "ref": "hal#1338", "reason": "shares the baseline-delta driver (never ran); 0 events"},
+  "HAL_KNOWN_REDS_KILL_BY_ENFORCE": {"until": "2026-11-03", "ref": "agreement CD666B9B", "reason": "bd has no known-reds.md; ledger code is host-side; 0 events; needs host adoption"},
+  "HAL_KNOWN_REDS_SCOPE_ENFORCE": {"until": "2026-11-03", "ref": "agreement 92237C8D", "reason": "bd has no known-reds.md; 0 events; needs host adoption"},
+  "HAL_KNOWN_REDS_OWNER_ENFORCE": {"until": "2026-11-03", "ref": "agreement C4B6B16C", "reason": "bd has no known-reds.md; 0 events; needs host adoption"},
+  "HAL_KNOWN_REDS_RED_SHAPE_ENFORCE": {"until": "2026-11-03", "ref": "agreement CB74189B", "reason": "bd has no known-reds.md; 0 events; needs host adoption"}
+}
