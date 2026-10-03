@@ -6,7 +6,8 @@ Class: a duplicate guard. The exposure measurement (mandated by the issue BEFORE
 showed that a production refusal ALREADY exists for all three observable requirements:
 R2.2 — `E_RED_STUB_PASSABLE` (recoverable=False, 6 sites, the gate is on by
 default); R2.1 — `E_RED_COLLECT_PROBE` (recoverable=True, the enforcement flag
-defaults to 0); R2.6 — blocking of `_baseline_delta` (flag default=0).
+is on by default since the flip; `=0` is the kill-switch); R2.6 — blocking of
+`_baseline_delta` (flag default=0, the off-by-default example).
 
 ⇒ Wiring the L2 verdicts into the phases would mean placing a SECOND guard on an already
 guarded condition. The price is known by name from bd#29 §5a: the later guard

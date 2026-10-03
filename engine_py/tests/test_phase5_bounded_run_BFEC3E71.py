@@ -468,6 +468,8 @@ class TestBehaviorBFEC3E71:
         """AC5 Bucket B (site 1816): when bounded_run returns rc=124 for semgrep,
         _verify_red_lint_rules returns error_code='E_RED_LINT_TIMEOUT'."""
         import shutil as _shutil
+        # bounded_run rc124 also hits the collect-probe (default-ON since the flip); keep this test on the semgrep path
+        monkeypatch.setenv("HAL_RED_COLLECT_PROBE_ENFORCE", "0")
         # Patch shutil.which so semgrep appears present (bypass E_RED_LINT_SEMGREP_MISSING)
         monkeypatch.setattr(_p5.shutil, "which", lambda name: "/usr/local/bin/semgrep" if name == "semgrep" else _shutil.which(name))
         # Create a dummy rules.yml so the rules_path.is_file() check passes

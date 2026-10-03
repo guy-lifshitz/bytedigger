@@ -1,6 +1,7 @@
 """RED tests for bd flip — HAL_RED_COLLECT_PROBE_ENFORCE defaults ON.
 
-Spec: docs/decisions/2026-10-03-bd-flip-red-collect-probe.md (AC1..AC7, AC9;
+Spec: docs/decisions/2026-10-03-bd-flip-red-collect-probe.md (AC1..AC7, AC9,
+AC10, AC10b, AC11;
 AC8 is the sibling migration in test_gh542_collect_probe.py and
 test_bd59_enforcement_map.py).
 
@@ -262,6 +263,17 @@ def test_ac10_no_module_named_pytest_is_skip_not_violation(tmp_path: Path) -> No
 def test_ac10_ordinary_collection_error_still_a_violation(tmp_path: Path) -> None:
     # Regression shield: passes at RED, pins that the skip is not over-broad.
     proc = _FakeProc(2, stdout="ImportError: cannot import name 'missing'")
+
+    violations, skip_reason = _probe_with(proc, tmp_path)
+
+    assert len(violations) == 1
+    assert skip_reason == ""
+
+
+def test_ac10b_no_module_named_pytest_mock_is_still_a_violation(tmp_path: Path) -> None:
+    # Regression shield: only a missing `pytest` itself is a skip; a missing
+    # plugin/module such as pytest_mock is an ordinary collection error.
+    proc = _FakeProc(1, stderr="No module named 'pytest_mock'")
 
     violations, skip_reason = _probe_with(proc, tmp_path)
 
