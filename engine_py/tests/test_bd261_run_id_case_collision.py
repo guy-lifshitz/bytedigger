@@ -193,6 +193,7 @@ def test_ac3_no_false_positives_sim(tmp_path, sim):
 
 def test_ac3_listing_without_match_returns_path_sim(tmp_path, sim):
     _guard_is_live(sim, tmp_path)
+    sim.listdir_calls.clear()
     root = sim.add(tmp_path / "raced", ["Other"])
     sim.force_exists.add(root / "R1")
     assert event_log.run_scoped_log_path("R1", root) == root / "R1" / "events.jsonl"
