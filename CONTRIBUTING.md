@@ -28,12 +28,13 @@ bun test scripts/ts/__tests__
 
 ## What CI checks
 
-Every PR runs four jobs, and all must pass:
+Every PR runs five jobs, and all must pass:
 
 - **engine** -- packaging sanity: `pip install -e ".[test]"` works, every shipped module compiles and imports with no `dbos` extra installed, the packaged module list matches `core_manifest.json`, and `run.py --help` runs.
 - **pytest** -- builds a wheel, installs it, and runs the full engine test suite against the installed wheel (not the source tree).
 - **manifests** -- version parity: every version declaration in the repo matches the canonical one, and the parity script's own tests pass.
 - **language** -- the tree is English-only: no Cyrillic in any tracked file outside the declared allowlist, and no Cyrillic in the subject of any commit the PR adds.
+- **bats** -- runs the security-scan bats suites (`tests/security-scan.bats` and `tests/security-scan-scope.bats`) and fails on a non-zero exit, a suite with no passing cell, any failing cell, or any skipped cell.
 
 The "imports clean without dbos" check matters most: the core is meant to run on a bare Python install, and CI is what keeps it that way. If your change needs a new dependency, put it behind an optional extra and bring it up in the PR.
 

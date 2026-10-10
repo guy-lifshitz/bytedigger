@@ -1,6 +1,6 @@
 # bd#256 gate r1: ci bats security-scan (spec + RED audit)
 <!-- verdict-anchor
-spec: docs/decisions/2026-10-10-bd256-ci-bats-security-scan.md sha256:<NOT-COMPUTED: auditor has no shell; to be stamped by the caller>
+spec: docs/decisions/2026-10-10-bd256-ci-bats-security-scan.md sha256:2c951d3cd5a6fde2580a04dfabf0814f102e85e2dea3e354448d10faccfe0589
 -->
 
 Audited: spec draft r1, `tests/test_bd256_ci_bats_step.py`, `.github/workflows/ci.yml`, `tests/security-scan.bats` (8 cells), `tests/security-scan-scope.bats` (72 cells), `scripts/security-scan.sh`. Base `0777ae9`. RED reported 0 pass / 5 fail on base.
