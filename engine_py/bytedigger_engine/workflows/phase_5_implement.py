@@ -1258,6 +1258,42 @@ def _verdict_content_digest(paths: list[str]) -> str:
     return h.hexdigest()
 
 
+def _declared_tail_chunks(raw: Any, prompt: str, step: str) -> list[dict]:
+    """bd#192: the carried test-output chunks that can be declared for this prompt.
+
+    A chunk is kept when it is a mapping with a non-empty str source_id and a non-empty str
+    content that occurs in the final prompt. Every other chunk is dropped with a
+    tail_chunk_not_declared event (malformed is checked before absent_from_prompt), so the
+    dispatch chokepoint never sees it. With HAL_TAIL_SOURCE_ID=0 nothing is declared."""
+    if not raw or not get_config().gate_enabled("HAL_TAIL_SOURCE_ID"):
+        return []
+    if not isinstance(raw, (list, tuple)):
+        raw = [raw]
+    kept: list[dict] = []
+    for chunk in raw:
+        sid = chunk.get("source_id") if isinstance(chunk, dict) else None
+        content = chunk.get("content") if isinstance(chunk, dict) else None
+        if not (isinstance(sid, str) and sid and isinstance(content, str) and content):
+            reason = "malformed"
+        elif content not in prompt:
+            reason = "absent_from_prompt"
+        else:
+            kept.append({"source_id": sid, "content": content})
+            continue
+        _emit_safe("tail_chunk_not_declared", {
+            "phase": 5, "step": step, "source_id": sid, "reason": reason,
+        })
+    return kept
+
+
+def _tail_chunks_from_prev(prev: Any, key: str) -> Any:
+    if isinstance(prev, dict):
+        return prev.get(key)
+    if isinstance(prev, StepResult) and isinstance(prev.data, dict):
+        return prev.data.get(key)
+    return None
+
+
 def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
     """Build the RED-worker prompt.
 
@@ -1305,6 +1341,8 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         _content_digest = _verdict_content_digest(
             [str(spec_path), str(scratchpad / VALIDATION_DOC_RELPATH)]
         )
+        _delta_tail = _declared_tail_chunks(
+            _tail_chunks_from_prev(_prev, "findings_chunks"), prompt, "build_red_prompt")
         return StepResult(
             status="ok",
             data={
@@ -1316,7 +1354,8 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
                 "cycle": cycle,
                 "delta_retry": True,
                 "role_template": None,  # bd#141 4(d): delta prompt carries no role
-                "injected_blocks": None,  # bd#150: delta prompt inlines no declared file
+                # bd#150: the delta prompt inlines no declared file; bd#192: only the tail
+                "injected_blocks": _injected_blocks_record(prompt, _delta_tail),
                 "sentinel_input": prompt + "\0" + _content_digest,
             },
             duration_ms=0,
@@ -1454,6 +1493,9 @@ def _build_red_prompt(ctx, _prev, findings: str | None = None) -> StepResult:
         _declared_blocks.append({"source_id": _PRODUCER_PROMPT_FRAGMENT_SOURCE_ID, "content": _f2_text})
     if _f3_block["content"]:
         _declared_blocks.append(_f3_block)
+    if findings:
+        _declared_blocks.extend(_declared_tail_chunks(
+            _tail_chunks_from_prev(_prev, "findings_chunks"), prompt, "build_red_prompt"))
     return StepResult(
         status="ok",
         data={
@@ -3650,10 +3692,13 @@ def _sibling_audit_warn(
 # ─── Step 4.6: red_lint semgrep gate (C76F6F3C) ─────────────────────────────
 
 
-def _red_collect_probe(resolved_paths: list[str], git_cwd: str) -> tuple[list[str], str]:
+def _red_collect_probe(
+    resolved_paths: list[str], git_cwd: str, tail_sink: list | None = None,
+) -> tuple[list[str], str]:
     """GH542/§1q: pytest --co -q probe over .py RED files.
     Returns (violations, skip_reason). violations = ["<path>: <last-lines-of-output>"] on
-    collection failure/timeout; skip_reason non-empty when probe not applicable."""
+    collection failure/timeout; skip_reason non-empty when probe not applicable.
+    When tail_sink is given, the raw output tail is appended to it (bd#192)."""
     py_paths = [p for p in resolved_paths if p.endswith(".py")]
     if not py_paths:
         return ([], "no_python_red_files")
@@ -3675,6 +3720,8 @@ def _red_collect_probe(resolved_paths: list[str], git_cwd: str) -> tuple[list[st
     if re.search(r"No module named '?pytest'?(?![\w.])", combined):
         return ([], "pytest_unavailable")
     tail = combined[-400:]
+    if tail_sink is not None:
+        tail_sink.append(tail)
     return ([f"{', '.join(py_paths)}: {tail}"], "")
 
 
@@ -3892,7 +3939,8 @@ def _collect_red_lint_findings(
 
     # ── 4. collect-probe (findings enter batch ONLY under enforce, N6) ──
     if get_config().gate_enabled("HAL_RED_COLLECT_PROBE_GATE"):
-        _cp_violations, _cp_skip = _red_collect_probe(resolved_paths, git_cwd)
+        _cp_tails: list[str] = []
+        _cp_violations, _cp_skip = _red_collect_probe(resolved_paths, git_cwd, _cp_tails)
         _cp_enforce = get_config().gate_enabled("HAL_RED_COLLECT_PROBE_ENFORCE")
         _emit_safe("red_collect_probe_check", {
             "phase": 5, "step": step, "red_paths_n": len(resolved_paths),
@@ -3900,12 +3948,18 @@ def _collect_red_lint_findings(
             "enforced": _cp_enforce, "skip_reason": _cp_skip,
         })
         if _cp_violations and _cp_enforce:
+            _cp_tail_on = get_config().gate_enabled("HAL_TAIL_SOURCE_ID")
+            _cp_py = [p for p in resolved_paths if p.endswith(".py")]
             for v in _cp_violations:
-                batch.append({
+                _cp_finding = {
                     "path": resolved_paths[0] if resolved_paths else "",
                     "line": None, "rule": "collect-probe", "evidence": v,
                     "error_code": "E_RED_COLLECT_PROBE", "recoverable": True,
-                })
+                }
+                if _cp_tail_on and _cp_tails and _cp_tails[0]:
+                    _cp_finding["source_id"] = "collect-probe:" + ", ".join(_cp_py)
+                    _cp_finding["source_chunk"] = _cp_tails[0]
+                batch.append(_cp_finding)
     else:
         _emit_safe("gate_disabled", {
             "gate": "HAL_RED_COLLECT_PROBE_GATE", "step": step, "reason": "env_kill_switch",
@@ -4483,6 +4537,14 @@ def _verify_red_lint_rules(ctx, prev) -> StepResult:
     if delta_gate_on and _preflight_retry_eligible(batch):
         cycle = int(prev.data.get("cycle", 1)) if isinstance(prev.data, dict) else 1
         findings_str = "; ".join(error_parts)
+        _retry_data = {**data, "findings": findings_str}
+        if get_config().gate_enabled("HAL_TAIL_SOURCE_ID"):
+            _chunks = [
+                {"source_id": f["source_id"], "content": f["source_chunk"]}
+                for f in batch if f.get("source_id") and f.get("source_chunk")
+            ]
+            if _chunks:
+                _retry_data["findings_chunks"] = _chunks
         build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
         return RecoverableGateMixin.gated_step_result(
             build_class=build_class,
@@ -4492,7 +4554,7 @@ def _verify_red_lint_rules(ctx, prev) -> StepResult:
             error_code=codes[0],
             error_msg="red-lint preflight (recoverable retry): " + "; ".join(error_parts),
             step_name=step,
-            forwarded_data={**data, "findings": findings_str},
+            forwarded_data=_retry_data,
             terminal_error_code="E_RED_LINT_FAIL_CAP2",
             terminal_error_msg="red-lint preflight cap exhausted: " + "; ".join(error_parts),
         )
@@ -5228,6 +5290,30 @@ def _terminal_green_result(step: str, data: Any, error: str, git_cwd: str,
 # ─── Step 4.8: verify_green_passing — mechanical test-runner gate (95D3E5F6) ──
 
 
+def _green_tail_chunks(entries: list[dict], cap: int) -> list[dict]:
+    """bd#192: the part of each failing group's tail that reaches the prompt.
+
+    entries are the failing_group_tails records. The joined string (parts separated by one
+    space) is left-truncated to cap and rstripped; a part's chunk is its longest suffix that
+    survived, cut at the rstripped end. A part with no source_id, cut away entirely, or left
+    with no non-whitespace character is not declared."""
+    tails = [str(e.get("tail", "")) for e in entries]
+    full = " ".join(tails)
+    cut = max(0, len(full) - cap)
+    end_all = len(full.rstrip())
+    chunks: list[dict] = []
+    pos = 0
+    for entry, tail in zip(entries, tails):
+        start, end = pos, pos + len(tail)
+        pos = end + 1
+        lo, hi = max(start, cut), min(end, end_all)
+        piece = full[lo:hi] if hi > lo else ""
+        sid = entry.get("source_id")
+        if sid and piece.strip():
+            chunks.append({"source_id": sid, "content": piece})
+    return chunks
+
+
 def _verify_green_passing(ctx, prev) -> StepResult:
     step = "verify_green_passing"
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
@@ -5303,6 +5389,7 @@ def _verify_green_passing(ctx, prev) -> StepResult:
 
     failing_groups: list[str] = []
     failing_group_tails: list[dict] = []  # AEC7E800: capture stdout tails for feedback
+    tail_ids_on = get_config().gate_enabled("HAL_TAIL_SOURCE_ID")  # bd#192
     current_failed_total: int = 0  # failure count across groups (telemetry: current_failed)
     red_current_ids: set[str] = set()  # bd#88: failing RED test ids (py groups)
     baseline_delta_blocks: list = []  # GH561 §1r lane-2 warn-only baseline-delta gate
@@ -5349,7 +5436,11 @@ def _verify_green_passing(ctx, prev) -> StepResult:
             current_failed_total += dt_result.n_failed
             # AEC7E800: capture stdout tail for test-failure feedback loop
             group_stdout_tail = _read_text_or_empty(getattr(dt_result, "stdout_path", None))
-            failing_group_tails.append({"group": kind, "tail": group_stdout_tail})
+            _tail_entry = {"group": kind, "tail": group_stdout_tail}
+            _stdout_path = getattr(dt_result, "stdout_path", None)
+            if tail_ids_on and _stdout_path:
+                _tail_entry["source_id"] = str(_stdout_path)  # bd#192
+            failing_group_tails.append(_tail_entry)
             if kind == "py":
                 red_current_ids |= parse_pytest_fail_ids(group_stdout_tail)
             # GH561 §1r lane-2: warn-only baseline-delta gate (ledger-aware verdict)
@@ -5481,6 +5572,9 @@ def _verify_green_passing(ctx, prev) -> StepResult:
             _joined = _joined[-FINDINGS_MAX_CHARS:]  # tail-truncate from LEFT
         # Store as single-element list so the AC4 payload measure equals len(_joined).
         green_test_findings: list = [_joined]
+        _chunk_data: dict = {}
+        if tail_ids_on:  # bd#192
+            _chunk_data["green_test_chunks"] = _green_tail_chunks(failing_group_tails, FINDINGS_MAX_CHARS)
         cycle_count = int(prev.data.get("cycle_count", 1)) if isinstance(prev.data, dict) else 1
         if cycle_count < GREEN_TEST_CYCLE_CAP:
             return StepResult(
@@ -5488,6 +5582,7 @@ def _verify_green_passing(ctx, prev) -> StepResult:
                 data={
                     **(prev.data if isinstance(prev.data, dict) else {}),
                     "green_test_findings": green_test_findings,
+                    **_chunk_data,
                     "cycle_count": cycle_count,
                     "retry_from_step": 1,
                 },
@@ -5503,6 +5598,7 @@ def _verify_green_passing(ctx, prev) -> StepResult:
             {
                 **(prev.data if isinstance(prev.data, dict) else {}),
                 "green_test_findings": green_test_findings,
+                **_chunk_data,
             },
             f"GREEN tests in groups [{kinds}] still failing (cycle {cycle_count}/{GREEN_TEST_CYCLE_CAP} — terminal)",
             git_cwd, checkpoint_scratchpad, cycle_count, "cycle_cap",
@@ -8115,6 +8211,9 @@ def _build_green_prompt(ctx, prev) -> StepResult:
         _declared_blocks.append({"source_id": _PRODUCER_PROMPT_FRAGMENT_SOURCE_ID, "content": _f2_text})
     if _f3_block["content"]:
         _declared_blocks.append(_f3_block)
+    if cycle >= 2 and test_findings:  # bd#192: only where the TEST FAILURES block is rendered
+        _declared_blocks.extend(_declared_tail_chunks(
+            _tail_chunks_from_prev(prev, "green_test_chunks"), prompt, "build_green_prompt"))
     return StepResult(
         status="ok",
         data={

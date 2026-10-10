@@ -57,18 +57,11 @@ from bytedigger_engine.conformance.attest import InjectedBlock  # noqa: E402  bd
 from bytedigger_engine.lib.findings_provenance import review_source_id  # noqa: E402  bd#206 M3
 from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_fallback  # type: ignore[import]  # noqa: E402
 from bytedigger_engine import config_provider  # noqa: E402  bd#102: stop-on-fatal kill switch
-from bytedigger_engine.lib.env_limit import PAUSE_LANE_ERROR_CODES  # noqa: E402  bd#102
-
-# bd#102: chokepoint codes on which every further verifier call is doomed or unsafe
-# (pause-lane spend limit, a write-tool escape, unusable backend / run id). The
-# step stops and returns the chokepoint result instead of tagging UNVERIFIED.
-_STOP_ERROR_CODES = PAUSE_LANE_ERROR_CODES | {
-    "E_CAPABILITY_ESCAPE", "E_LLM_BACKEND_UNKNOWN", "E_LLM_RUN_ID_MISSING",
-}
+from bytedigger_engine.contracts import StepResult  # noqa: E402  bd#247: stop result for a classified OSError
 
 
 class _VerifierStop(Exception):
-    """bd#102: raised by _invoke_verifier_agent on a stop code; ``result`` is the chokepoint StepResult."""
+    """bd#102: raised by _invoke_verifier_agent on a fatal code (llm_subprocess.FATAL_ERROR_CODES); ``result`` is the StepResult to return."""
 
     def __init__(self, result: Any) -> None:
         super().__init__(getattr(result, "error_code", None))
@@ -222,15 +215,23 @@ def _invoke_verifier_agent(finding: dict, model_tier: str = "haiku") -> str:
     except OSError as exc:
         logger.warning("semantic_verify: verifier call raised for %s:%s",
                        finding.get("file"), finding.get("line"), exc_info=True)
-        return f"UNVERIFIED:\nreason: agent_error {_sanitise_for_unverified_block(str(exc))}\n"
+        os_code = llm_subprocess.classify_os_error(exc)
+        detail = _sanitise_for_unverified_block(str(exc))
+        if os_code is not None:
+            if config_provider.get_config().gate_enabled("HAL_SEMANTIC_VERIFY_STOP_ON_FATAL"):
+                raise _VerifierStop(StepResult(
+                    status="error", error_code=os_code, error=str(exc), recoverable=False,
+                    step_name="verify_findings_semantic", data={}, duration_ms=0,
+                )) from exc
+            # Kill switch off: keep tag-and-continue, keyed by the code in the tally.
+            detail = f"{os_code} {detail}"
+        return f"UNVERIFIED:\nreason: agent_error {detail}\n"
     if result.status != "ok":
-        log = logger.error if result.error_code == "E_CAPABILITY_ESCAPE" else logger.warning
+        fatal = llm_subprocess.is_fatal_error_code(result.error_code)
+        log = logger.error if fatal else logger.warning
         log("semantic_verify: finding %s:%s -> %s %s", finding.get("file"), finding.get("line"),
             result.error_code, result.error)
-        if (
-            result.error_code in _STOP_ERROR_CODES
-            and config_provider.get_config().gate_enabled("HAL_SEMANTIC_VERIFY_STOP_ON_FATAL")
-        ):
+        if fatal and config_provider.get_config().gate_enabled("HAL_SEMANTIC_VERIFY_STOP_ON_FATAL"):
             raise _VerifierStop(result)
         if result.error_code in ("E_LLM_TIMEOUT", "E_LLM_API_TIMEOUT"):
             return "UNVERIFIED:\nreason: agent_timeout\n"

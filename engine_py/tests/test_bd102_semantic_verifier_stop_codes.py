@@ -4,7 +4,7 @@ Spec: docs/decisions/2026-10-03-bd102-semantic-verifier-stop-codes.md (AC1-AC14,
 
 Unit under test: `verify_findings_semantic` / `_invoke_verifier_agent` in
 lib/plugins/anti_hallucination/semantic_verifier.py. New names (ABSENT pre-GREEN):
-`_VerifierStop`, `_STOP_ERROR_CODES`, flag `HAL_SEMANTIC_VERIFY_STOP_ON_FATAL`,
+`_VerifierStop` (the stop-code list moved to `llm_subprocess.FATAL_ERROR_CODES` in bd#247), flag `HAL_SEMANTIC_VERIFY_STOP_ON_FATAL`,
 result key `semantic_unverified_reasons`, event `phase_6_semantic_verify_stopped`.
 
 The model seam is the chokepoint backend (`register_backend("claude-subprocess")`)
@@ -278,10 +278,13 @@ def test_ac10_invoke_raises_on_stop_codes_only(monkeypatch):
 # ---------------------------------------------------------------- AC11
 
 def test_ac11_stop_code_set():
-    assert hasattr(sv, "_STOP_ERROR_CODES"), "_STOP_ERROR_CODES must exist"
-    assert set(sv._STOP_ERROR_CODES) == {
-        "E_LLM_SPEND_LIMIT", "E_CAPABILITY_ESCAPE", "E_LLM_BACKEND_UNKNOWN", "E_LLM_RUN_ID_MISSING"}
-    assert set(env_limit.PAUSE_LANE_ERROR_CODES) <= set(sv._STOP_ERROR_CODES)
+    # bd#247: the list moved to the chokepoint; the verifier keeps no copy.
+    assert not hasattr(sv, "_STOP_ERROR_CODES"), "bd#247: sv._STOP_ERROR_CODES must be gone"
+    assert hasattr(llm_subprocess, "FATAL_ERROR_CODES"), "llm_subprocess.FATAL_ERROR_CODES must exist"
+    fatal = set(llm_subprocess.FATAL_ERROR_CODES)
+    assert set(env_limit.PAUSE_LANE_ERROR_CODES) <= fatal
+    assert {"E_LLM_SPEND_LIMIT", "E_CAPABILITY_ESCAPE", "E_LLM_BACKEND_UNKNOWN",
+            "E_LLM_RUN_ID_MISSING"} <= fatal
 
 
 # ---------------------------------------------------------------- AC12
@@ -307,7 +310,7 @@ def test_ac12_flag_catalogued_and_owner_lint_passes():
 def test_ac13_fail_skip_and_no_section_paths_have_no_tally_key(tmp_path, log):
     from bytedigger_engine import flags_catalog  # noqa: PLC0415
 
-    assert hasattr(sv, "_STOP_ERROR_CODES"), "bd#102 surface must exist"
+    assert hasattr(sv, "_VerifierStop"), "bd#102 surface must exist"
     assert KILL in flags_catalog.FLAGS, "bd#102 kill switch must be catalogued"
     calls = _backend([])
     medium = _doc(tmp_path, 2, severity="MEDIUM")

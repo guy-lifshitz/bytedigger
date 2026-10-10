@@ -24,6 +24,7 @@ Five event types represent the full build lifecycle:
 | `gate-result` | Gate verdict (pass/block) | After phase-specific checks complete |
 | `build-complete` | Build finished (success/failure/fatal) | mainCLI exit (all phases done or error caught) |
 | `post_fix_empty_scope` | Post-fix pytest scope was empty `{phase, step, mode: shadow, enforce or exempt, n_red, n_manifest, n_sibling, n_total, n_manifest_files, n_manifest_py}` (bd#249); `enforce` fails the step with `E_POST_FIX_EMPTY_SCOPE`, `exempt` is a docs-only manifest, `shadow` keeps the skip | Phase 6 `_run_pytest_post_fix`, empty-scope branch after `post_fix_pytest_scope`; flag `HAL_POST_FIX_EMPTY_SCOPE_ENFORCE` |
+| `tail_chunk_not_declared` | A carried test-output tail chunk was not declared `{phase, step, source_id, reason}` (bd#192); `reason` is `malformed` (not a mapping, empty or non-string `source_id`, empty or non-string `content`) or `absent_from_prompt`; the chunk is dropped and the dispatch proceeds | Phase 5 `_build_green_prompt` and `_build_red_prompt`, tail chunk filter; flag `HAL_TAIL_SOURCE_ID` |
 | `post_fix_pytest_scope` | Post-fix pytest scope counts `{n_red, n_manifest, n_sibling, n_total}` (bd#90); sits with the other `post_fix_pytest_*` events (`_skipped`, `_pass`, `_fail_with_regressions`, `_infra_error`) | Phase 6 `_run_pytest_post_fix`, after scope resolution and before pytest is invoked (not emitted when the step skips earlier) |
 
 ## Common Payload Schema
