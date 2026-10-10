@@ -50,6 +50,12 @@ bytedigger-engine = "bytedigger_engine.run:main"
 # (hal_config_provider, model_flip_lint) remain deliberately unpackaged.
 include = ["bytedigger_engine*"]
 
+[tool.pytest.ini_options]
+markers = [
+    "live_ollama: calls a real local Ollama server; deselected by default",
+]
+addopts = "-m \"not live_ollama\""
+
 [tool.setuptools.package-data]
 "bytedigger_engine.lib.plugins.anti_hallucination" = ["*.yaml", "*.md"]
 "bytedigger_engine.security" = ["*.yml", "*.md", "*.toml", "*.txt"]

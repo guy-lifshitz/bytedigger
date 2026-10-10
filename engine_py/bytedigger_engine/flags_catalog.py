@@ -144,6 +144,18 @@ FLAGS: dict[str, dict] = {
         "module": "llm_subprocess.py",
         "description": "bd#82: backend for worker calls; overrides HAL_RUNNER_BACKEND for that role.",
     },
+    "HAL_OPENAI_BASE_URL": {
+        "kind": "str",
+        "default": None,
+        "module": "lib/reference_backends/openai_compat.py",
+        "description": "bd#83: base URL (http or https) of an OpenAI-compatible server; the openai-compat backend registers only when it is set.",
+    },
+    "HAL_OPENAI_API_KEY": {
+        "kind": "str",
+        "default": None,
+        "module": "lib/reference_backends/openai_compat.py",
+        "description": "bd#83: optional bearer key for the openai-compat backend; when non-blank the call is sent with Authorization and billed as metered.",
+    },
     "HAL_RED_PREFLIGHT_DELTA_RETRY": {
         "kind": "gate",
         "default": "1",

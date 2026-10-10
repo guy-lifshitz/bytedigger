@@ -106,6 +106,8 @@ ERROR_CODES: dict[str, str] = {
     "E_LLM_API_TIMEOUT": "pydantic_openai backend: agent run exceeded wall-clock timeout",
     "E_LLM_BACKEND_NO_MANIFEST": "llm_subprocess: backend produced no manifest file for the run",
     "E_LLM_BACKEND_UNKNOWN": "llm_subprocess: requested LLM backend name not registered",
+    "E_LLM_BASE_URL_INVALID": "openai_compat backend: HAL_OPENAI_BASE_URL is set but is not an http or https URL with a host and a valid port (bd#83)",
+    "E_LLM_BASE_URL_MISSING": "openai_compat backend: HAL_OPENAI_BASE_URL is unset or blank at call time (bd#83)",
     "E_LLM_CMD_MISSING": "llm_subprocess/dbos_setup: LLM CLI command binary not found or ctx malformed",
     "E_LLM_EXIT": "llm_subprocess/dbos_setup: LLM subprocess exited with non-zero status",
     "E_LLM_MANIFEST_INVALID_SOURCE": "llm_subprocess: manifest source field references an invalid/unknown source",

@@ -26,7 +26,7 @@ work runs, rather than failing at commit time.
 
 ## Reference backends
 
-Four reference implementations live in `engine_py/lib/reference_backends/`.
+Five reference implementations live in `engine_py/lib/reference_backends/`.
 `run.py` auto-registers each one at import time when its dependencies are
 present, and silently skips it when they are not -- so a core-only install
 works, and `bytedigger-engine --list` always reflects what is actually usable.
@@ -34,6 +34,7 @@ works, and `bytedigger-engine --list` always reflects what is actually usable.
 | Name | Kind | Extra deps | Auth |
 |---|---|---|---|
 | `anthropic-api` | text | none (stdlib) | `ANTHROPIC_API_KEY` |
+| `openai-compat` | text | none (stdlib) | `HAL_OPENAI_BASE_URL` (+ optional `HAL_OPENAI_API_KEY`) |
 | `pydantic-openai` | agentic | `[agentic-pydantic]` | `AZURE_OPENAI_KEY` + `AZURE_OPENAI_ENDPOINT` |
 | `pydantic-anthropic` | agentic | `[agentic-pydantic]` + `anthropic` | Claude subscription OAuth |
 | `agent-sdk` | agentic | `claude-agent-sdk` | Claude Code login |
@@ -55,6 +56,48 @@ Environment:
   alias resolves to, e.g. `HAL_ANTHROPIC_MODEL_HAIKU=claude-haiku-4-5-20251001`.
   Unknown aliases fall back to the built-in alias map, then pass through
   verbatim.
+
+### openai-compat (text)
+
+Chat completions against any OpenAI-compatible server (Ollama, LM Studio, vLLM,
+mlx, a hosted gateway) over stdlib `urllib`. No third-party dependencies.
+Opt-in: nothing is registered unless `HAL_OPENAI_BASE_URL` is set.
+
+Environment (read at call time):
+
+- `HAL_OPENAI_BASE_URL` (required) -- an `http` or `https` URL with a host,
+  e.g. `http://localhost:11434/v1`. The request goes to
+  `<base>/chat/completions` (a trailing slash is stripped). A blank value gives
+  `E_LLM_BASE_URL_MISSING`; a value that is not a valid http(s) URL gives
+  `E_LLM_BASE_URL_INVALID`. Both are checked before any connection is made.
+- `HAL_OPENAI_API_KEY` (optional) -- when non-blank it is sent as
+  `Authorization: Bearer <key>`, the backend declares `billing:metered` and the
+  call is recorded as metered. Without it no `Authorization` header is sent and
+  no `billing_mode` is recorded (a local server).
+- `HAL_OPENAI_MODEL_<ALIAS>` (optional prefix) -- remaps a requested model; the
+  alias is the model name uppercased, e.g. `HAL_OPENAI_MODEL_SONNET=gemma4:26b`.
+  A model with no override is sent verbatim. The remapped model is what the
+  hard-gate floor and attestation see.
+
+Behavior:
+
+- Redirects are never followed, so the key is not sent to a second host. A 3xx
+  answer is a non-recoverable `E_LLM_API_HTTP`.
+- HTTP 408, 429 and 5xx are recoverable; other statuses (401, 403, 404, 3xx)
+  are not. Connection failures are `E_LLM_API_NETWORK`, a timeout is
+  `E_LLM_TIMEOUT`, and an unreadable, empty, malformed or larger-than-16-MiB
+  body is `E_LLM_API_BAD_RESPONSE`. Nothing is raised.
+- The timeout applies per socket operation, not as a total deadline.
+- The backend uses urllib's default proxy handling; set `NO_PROXY` for local
+  URLs.
+- Token counts (`prompt_tokens` / `completion_tokens`) and the wall time of the
+  call are recorded in the `llm_cost_observed` event when the server reports them.
+- Text-only: it cannot satisfy a hard gate that requires tools. When it is the
+  judge backend, the phase 6 review asks for the review as the reply instead of
+  a written file, and the reviewer sees file paths only (it cannot read them).
+
+A live check against a local Ollama server is behind the `live_ollama` pytest
+marker and is deselected by default: `pytest -m live_ollama`.
 
 ### pydantic-openai (agentic)
 

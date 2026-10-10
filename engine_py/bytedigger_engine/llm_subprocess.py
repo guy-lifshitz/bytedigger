@@ -1531,6 +1531,9 @@ def _cost_events(
     payload["cost_usd"] = derived if derived is not None else reported
     payload["cost_source"] = "derived" if derived is not None else ("reported" if reported is not None else None)
     payload.update(phase=run_ctx.phase, step_name=run_ctx.step_name or step_name, cycle=run_ctx.cycle)
+    wall_ms = data.get("wall_ms") if data else None
+    if isinstance(wall_ms, int) and not isinstance(wall_ms, bool) and wall_ms >= 0:
+        payload["wall_ms"] = wall_ms
     events: "list[tuple[str, dict]]" = [(_COST_OBSERVED_EVENT, payload)]
     div = llm_cost.divergence(derived, reported, _divergence_threshold_pct())
     if div is not None:

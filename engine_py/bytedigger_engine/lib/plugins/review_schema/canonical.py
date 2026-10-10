@@ -48,6 +48,21 @@ SINGLE_REVIEW_FRAMING_TEMPLATE: str = (
     "{dispatch_table}"
 )
 
+# ── NO_TOOLS_REVIEW_FRAMING_TEMPLATE (bd#83) ─────────────────────────────────
+# The same single review for a judge backend that has no file tools: the review
+# is the reply itself, nothing is written to disk. Chosen only when the judge
+# backend is text-only; SINGLE_REVIEW_FRAMING_TEMPLATE above stays untouched.
+NO_TOOLS_REVIEW_FRAMING_TEMPLATE: str = (
+    "SINGLE REVIEW — you review the work yourself, covering every dimension of the "
+    "checklist below in one pass. SPEC, RED, and GREEN files are named by path.\n"
+    "\n"
+    "Reply with the complete aggregated review as your final answer; do not write files.\n"
+    "Schema:\n"
+    "{per_role_schema}\n\n"
+    "Review checklist (dimensions):\n"
+    "{dispatch_table}"
+)
+
 # ── STRUCTURED_FINDINGS_JSON_TEMPLATE ────────────────────────────────────────
 # Verbatim move from workflows/phase_6_review.py lines 992-1002 (pre-Ship-B).
 # Do NOT compress — content must be byte-equivalent to what was inline.

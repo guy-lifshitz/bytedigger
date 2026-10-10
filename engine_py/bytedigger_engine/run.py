@@ -67,6 +67,11 @@ try:
 except Exception as _agent_sdk_reg_err:
     import logging  # noqa: PLC0415 — local import, module-level import order untouched
     logging.getLogger(__name__).debug("agent-sdk reference backend unavailable: %s", _agent_sdk_reg_err)  # optional battery; no-claude-agent-sdk installs omit it
+try:
+    from bytedigger_engine.lib.reference_backends import openai_compat as _openai_compat_backend_mod  # noqa: F401  — bd#83 opt-in reference backend
+    _openai_compat_backend_mod.register()  # registers only when HAL_OPENAI_BASE_URL is set; returns False otherwise
+except Exception:
+    pass  # reference battery optional
 
 
 def make_engine(event_log_path: str | None = None) -> WorkflowEngine:

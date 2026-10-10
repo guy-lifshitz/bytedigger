@@ -113,7 +113,7 @@ from bytedigger_engine import readiness as _readiness  # bd#141 item 6: review g
 from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin
 from bytedigger_engine.facts_pack import spec_facts_block  # noqa: E402  bd#86
 from bytedigger_engine.contracts import RetryPolicy, StepContract, StepResult, WorkflowDefinition, step
-from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason, _resolve_backend
+from bytedigger_engine.llm_subprocess import invoke_llm_subprocess, manifest_from_result, _ManifestMissingError, _ManifestError, prev_data_corruption_reason, _resolve_backend, _backend_capabilities
 
 from bytedigger_engine.lib.bounded_spawn import bounded_run  # noqa: E402
 from bytedigger_engine.lib import git_write_port  # noqa: E402  5F06E98D — injectable git write-op seam
@@ -167,7 +167,7 @@ from bytedigger_engine.lib.plugins.review_schema import (  # noqa: E402  812D250
     lint_role_report,  # GH970 D2: malformed-header lint
     canonicalize_severity_headers,  # bd#84
 )
-from bytedigger_engine.lib.plugins.review_schema.canonical import SINGLE_REVIEW_FRAMING_TEMPLATE  # noqa: E402  bd#139
+from bytedigger_engine.lib.plugins.review_schema.canonical import SINGLE_REVIEW_FRAMING_TEMPLATE, NO_TOOLS_REVIEW_FRAMING_TEMPLATE  # noqa: E402  bd#139, bd#83
 from bytedigger_engine.io_utils import atomic_write  # noqa: E402  DD34EEBF: scratchpad ref persistence
 from bytedigger_engine.lib import findings_provenance  # noqa: E402  bd#206: review-invocation provenance
 from bytedigger_engine.reject_log import record_satisfaction_reject  # noqa: E402  EECA708D
@@ -742,11 +742,28 @@ def _readiness_review_gate(ctx, prev) -> "StepResult | None":
     )
 
 
+_NO_WRITE_REVIEW_SENTENCE = (
+    "Reply with the complete aggregated review as your final answer; do not write files."
+)
+
+
+def _judge_can_write(ctx) -> bool:
+    """bd#83: False exactly when the resolved judge backend is text-only (declares
+    ``no_tools`` and not ``tool_allowlist``). True for every other case, including an
+    unknown backend, so the default path is untouched."""
+    backend = _resolve_backend(None, config_provider.env_mapping(), role="judge")[0]
+    caps = _backend_capabilities(backend)
+    return not ("no_tools" in caps and "tool_allowlist" not in caps)
+
+
 def _build_review_prompt(ctx, _prev) -> StepResult:
     refusal = _readiness_review_gate(ctx, _prev)  # bd#141 item 6: before any prompt or reviewer
     if refusal is not None:
         return refusal
     scratchpad = _resolve_scratchpad(ctx)
+    _can_write = _judge_can_write(ctx)
+    if not _can_write:
+        logger.info("review judge backend has no file tools: reviewing from file paths only, reply carries the review")
     # C834481A: load prior findings for orchestrator-driven re-attempt injection.
     _prior_findings_data: dict | None = None
     _last_findings_path = scratchpad / "reviews" / "last_findings.json"
@@ -772,6 +789,11 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         f"to {str(scratchpad / 'reviews')}/role-composite.md, then write the aggregated review into "
         f"{scratchpad / REVIEW_DOC_RELPATH}. VERIFICATION-ONLY — do NOT edit code or test files."
     )
+    if not _can_write:
+        _role_line = (
+            "ROLE: You are the sole reviewer. Review the work yourself. "
+            f"{_NO_WRITE_REVIEW_SENTENCE} VERIFICATION-ONLY — do NOT edit code or test files."
+        )
     _security_addendum = (
         "\nSECURITY ADDENDUM (security_classification=HIGH): include an inline "
         "security review covering OWASP Top 10 — injection vectors, auth bypass "
@@ -866,7 +888,7 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
         )
     parts.append("")
     parts.append(
-        SINGLE_REVIEW_FRAMING_TEMPLATE.format(
+        (SINGLE_REVIEW_FRAMING_TEMPLATE if _can_write else NO_TOOLS_REVIEW_FRAMING_TEMPLATE).format(
             reviewer_count=reviewer_count,
             abs_reviews_dir=abs_reviews_dir,
             per_role_schema=PER_ROLE_SCHEMA_TEMPLATE,
@@ -1012,12 +1034,19 @@ def _build_review_prompt(ctx, _prev) -> StepResult:
     parts.append("")
     parts.append(_REVIEW_STABLE_PREFIX)
     parts.append(_get_behavioral_rubric())
-    parts.append(
-        "OUTPUT — Use the Write tool to write the full aggregated review to the review file named above. "
-        "Your final response is a status summary under 200 tokens, ending with one line: "
-        "VERDICT: <PASS|PARTIAL|FAIL>. Do NOT echo the review body — it is already on disk. "
-        "Your status summary MUST begin with a line exactly `## Aggregated Findings`."
-    )
+    if _can_write:
+        parts.append(
+            "OUTPUT — Use the Write tool to write the full aggregated review to the review file named above. "
+            "Your final response is a status summary under 200 tokens, ending with one line: "
+            "VERDICT: <PASS|PARTIAL|FAIL>. Do NOT echo the review body — it is already on disk. "
+            "Your status summary MUST begin with a line exactly `## Aggregated Findings`."
+        )
+    else:
+        parts.append(
+            f"OUTPUT — {_NO_WRITE_REVIEW_SENTENCE} "
+            "Your final response begins with a line exactly `## Aggregated Findings` "
+            "and ends with one line: VERDICT: <PASS|PARTIAL|FAIL>."
+        )
 
     prompt = "\n".join(parts) + "\n\n" + _get_out_of_role_block()
     try:
