@@ -2,9 +2,12 @@
 red_tests:
   - engine_py/tests/test_bd197_adapter_vacuity_lint.py
 sibling_tests:
+  - engine_py/tests/test_bd197_adapter_vacuity_lint_pins.py
   - engine_py/tests/test_bd195_harness_adapter_seam.py
   - engine_py/tests/test_bd58_adversary_harness.py
   - engine_py/tests/test_bd63_r35_enforcement_falsifiable.py
+red_pins:
+  - engine_py/tests/test_bd197_adapter_vacuity_lint_pins.py
 paths:
   - engine_py/bytedigger_engine/conformance/harness.py
   - CHANGELOG.md
