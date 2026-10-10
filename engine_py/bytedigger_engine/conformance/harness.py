@@ -53,15 +53,23 @@ None or "gate_raises"). Each returns a mapping with "status", one of
 reports; the harness judges. ADV-4 is defended iff the fault step is recorded
 as load_failure, ADV-5 iff it is recorded as failed; any other well-formed
 status is undefended.
+bd#269 adds ADV-6 -> `admit_ledger_row(row, as_of) -> Mapping`, called with three
+rows (owner and live expiry; no owner; expired) and the fixed date "2026-01-01".
+It returns a mapping with "accepted", a bool: the host's own verdict on the row.
+The control must be accepted; accepting the no-owner row or the expired row is
+undefended, refusing both is defended. The harness reads no clock.
 Rules for every optional operation:
   1. Absent or None attribute: `not_executed`, the adapter is not called.
   2. Guarded like `freeze`: daemon worker plus `timeout_s`; a raise, timeout,
      non-callable or malformed answer (non-bool for ADV-3; for ADV-4/5 not a
-     mapping with a vocabulary `status`) is `indeterminate`; KeyboardInterrupt
+     mapping with a vocabulary `status`; for ADV-6 not a mapping with a
+     "accepted" value of exactly bool) is `indeterminate`; KeyboardInterrupt
      and SystemExit propagate.
   3. A control is asked first. ADV-3: a yes there is `undefended`. ADV-4/5: the
      control (fault None) must be recorded as passed, otherwise `indeterminate`
-     and the fault call is not made.
+     and the fault call is not made. ADV-6: the control row must be accepted,
+     otherwise `indeterminate` and the other rows are not asked. For ADV-4, ADV-5
+     and ADV-6 a control answered wrongly is therefore `indeterminate`.
   4. Shadow: the outcome is reported as `shadow:<outcome>` and never counts
      toward a level.
   5. `adapter_ops="shadow" | "off"` (default "shadow"); "off" records every
@@ -467,12 +475,60 @@ def _probe_lint_vacuity(method, timeout_s: float) -> str:
         return OUTCOME_DEFENDED if flagged else OUTCOME_UNDEFENDED
 
 
+#: The date handed to a host's ledger check. Time is an argument, never read.
+_LEDGER_AS_OF = "2026-01-01"
+
+
+def _accepted_of(answer):
+    """Return the `accepted` bool of a ledger answer, or None when malformed."""
+    if not isinstance(answer, _Mapping):
+        return None
+    if "accepted" not in answer:
+        return None
+    accepted = answer.get("accepted")
+    if type(accepted) is not bool:
+        return None
+    return accepted
+
+
+def _probe_ledger_rows(method, timeout_s: float) -> str:
+    """ADV-6 through the host's ledger: control, no owner, then expired."""
+    control = _guarded_value_call(
+        lambda row: method(row, _LEDGER_AS_OF),
+        {"issue": "#1", "kill_by": "2099-01-01"},
+        timeout_s,
+        _accepted_of,
+    )
+    if control is _INDETERMINATE_CALL or control is not True:
+        return OUTCOME_INDETERMINATE
+    no_owner = _guarded_value_call(
+        lambda row: method(row, _LEDGER_AS_OF),
+        {"issue": "", "kill_by": "2099-01-01"},
+        timeout_s,
+        _accepted_of,
+    )
+    if no_owner is _INDETERMINATE_CALL or no_owner is None:
+        return OUTCOME_INDETERMINATE
+    if no_owner:
+        return OUTCOME_UNDEFENDED
+    expired = _guarded_value_call(
+        lambda row: method(row, _LEDGER_AS_OF),
+        {"issue": "#1", "kill_by": "2020-01-01"},
+        timeout_s,
+        _accepted_of,
+    )
+    if expired is _INDETERMINATE_CALL or expired is None:
+        return OUTCOME_INDETERMINATE
+    return OUTCOME_UNDEFENDED if expired else OUTCOME_DEFENDED
+
+
 #: Optional adapter operations: adversary name -> (method name, probe function).
 _ADAPTER_OPS = {
     "ADV-3": ("lint_vacuity", _probe_lint_vacuity),
     "ADV-4": ("record_oracle_step",
               _step_probe("oracle_load_failure", "load_failure")),
     "ADV-5": ("record_gate_step", _step_probe("gate_raises", "failed")),
+    "ADV-6": ("admit_ledger_row", _probe_ledger_rows),
 }
 
 _ADAPTER_OPS_MODES = ("shadow", "off")
