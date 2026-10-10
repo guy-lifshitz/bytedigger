@@ -1041,28 +1041,35 @@ def test_ac12_inventory_classifies_declared_sites() -> None:
             assert val.get("class") == "I-declared", f"{label}: {key} must be I-declared, got {val.get('class')!r}"
 
 
-def test_ac12_inventory_classifies_deferred_sites() -> None:
-    """AC12: the exact T1/T2 keys of spec 2.5 are I-deferred with issue '192', and '192' sits only there."""
+def test_ac12_inventory_classifies_tail_sites_declared() -> None:
+    """AC12 (bd#192): the exact T1/T2 keys are I-declared with no issue, and no entry defers to '192'."""
     t1 = "workflows/phase_5_implement.py::_verify_green_passing::_read_text_or_empty#0"
     t2 = "workflows/phase_5_implement.py::_red_collect_probe::bounded_run#0"
     sites = _sites()
     for key in (t1, t2):
         assert key in sites, f"{key} missing from the inventory"
-        assert sites[key].get("class") == "I-deferred" and sites[key].get("issue") == "192", sites[key]
+        assert sites[key].get("class") == "I-declared" and "issue" not in sites[key], sites[key]
     with_192 = sorted(k for k, v in sites.items() if v.get("issue") == "192")
-    assert with_192 == sorted([t1, t2]), f"issue 192 must be referenced only on T1/T2; got {with_192}"
+    assert with_192 == [], f"no inventory entry may defer to issue 192 any more; got {with_192}"
 
 
 # ---------------------------------------------------------------------------
 # AC14 - inventory <-> AUTHORSHIP_SPEC section 4 tie
 # ---------------------------------------------------------------------------
 
-def _not_yet_declared_issues() -> set:
-    import re
+def _not_yet_declared_section() -> str:
+    """The 'Not yet declared' list of section 4, or '' once no class-I deferral remains and the list is gone."""
     text = _authorship_text()
+    if "**Not yet declared:**" not in text:
+        return ""
     start = text.index("**Not yet declared:**")
     end = text.index("Any class-I segment", start)
-    return {a or b for a, b in re.findall(r"bd#(\d+)|\(#(\d+)\)", text[start:end])}
+    return text[start:end]
+
+
+def _not_yet_declared_issues() -> set:
+    import re
+    return {a or b for a, b in re.findall(r"bd#(\d+)|\(#(\d+)\)", _not_yet_declared_section())}
 
 
 def _authorship_text() -> str:
@@ -1071,24 +1078,23 @@ def _authorship_text() -> str:
 
 def test_ac14_deferred_issues_match_authorship_spec_section4() -> None:
     """AC14: every I-deferred issue number appears as bd#<N> in the 'not yet declared' list, and every
-    bd#<N> there has at least one I-deferred entry."""
+    bd#<N> there has at least one I-deferred entry. bd#192 is declared, so it sits on neither side."""
     listed = _not_yet_declared_issues()
     deferred = {v.get("issue") for v in _sites().values() if v.get("class") == "I-deferred"}
-    assert deferred and "192" in deferred, f"inventory must defer T1/T2 to 192; got {deferred}"
+    assert "192" not in deferred, f"T1/T2 are declared; no entry may still defer to 192; got {deferred}"
+    assert "192" not in listed, f"bd#192 must not appear in the 'not yet declared' list; got {sorted(listed)}"
     assert deferred == listed, f"I-deferred issues {sorted(deferred)} != bd# list in AUTHORSHIP_SPEC s4 {sorted(listed)}"
 
 
 def test_ac14b_standards_context_151_removed() -> None:
     """AC14b (spec 2.7): the 'not yet declared' list names no 151 (bd#151 or (#151)), and the R3.2 table
-    row no longer names the standards context (#151). Coupled to the lint pairing (AC14): the list must
-    still be anchored and carry the 192 deferral."""
+    row no longer names the standards context (#151). Coupled to the lint pairing (AC14): with bd#192
+    declared the list no longer carries it."""
     import re
     text = _authorship_text()
-    start = text.index("**Not yet declared:**")
-    end = text.index("Any class-I segment", start)
-    section = text[start:end]
+    section = _not_yet_declared_section()
     assert "151" not in _not_yet_declared_issues() and not re.search(r"(bd#|\(#)151", section), section
-    assert "192" in _not_yet_declared_issues(), "list must carry the bd#192 deferral"
+    assert "192" not in _not_yet_declared_issues(), "bd#192 is declared; the list must not carry it"
     rows = [ln for ln in text.splitlines() if ln.lstrip().startswith("|") and "`R3.2`" in ln]
     assert rows, "R3.2 table row not found"
     for row in rows:
