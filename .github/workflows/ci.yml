@@ -287,3 +287,56 @@ jobs:
           install -m 0755 "$RUNNER_TEMP/bun-linux-x64/bun" "$RUNNER_TEMP/bun-bin/bun"
           export PATH="$RUNNER_TEMP/bun-bin:$PATH"
           python -m pytest tests/test_bd136_gate_counter_table_parser.py -q
+
+  # bd#256: the security-scan bats suites were only ever run by hand, so a
+  # regression in scripts/security-scan.sh could merge unnoticed. This job runs
+  # both suites and reads the TAP output itself: a suite that exits non-zero,
+  # has no passing cell, has any failing cell, or skips a cell fails the job.
+  bats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install bats
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+          bats --version
+
+      - name: receipt — both security-scan bats suites run, pass and skip nothing
+        run: |
+          out_dir=$(mktemp -d)
+          failed=0
+          for suite in tests/security-scan.bats tests/security-scan-scope.bats; do
+            out="$out_dir/$(basename "$suite").tap"
+            rc=0
+            bats --tap "$suite" > "$out" || rc=$?
+            echo "=== $suite (bats exit $rc) ==="
+            cat "$out"
+            if [ "$rc" -ne 0 ]; then
+              echo "FAIL: $suite exited $rc" >&2
+              failed=1
+            fi
+            if ! grep -q '^ok ' "$out"; then
+              echo "FAIL: $suite reported no passing cell" >&2
+              failed=1
+            fi
+            if grep -q '^not ok' "$out"; then
+              echo "FAIL: $suite has a failing cell" >&2
+              failed=1
+            fi
+            if grep -q '# skip' "$out"; then
+              echo "FAIL: $suite skipped a cell" >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: bats receipt unit tests (bd#256)
+        env:
+          BD_REQUIRE_BATS: "1"
+        run: |
+          python3 -m venv "$RUNNER_TEMP/bats-venv"
+          echo "$RUNNER_TEMP/bats-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bats-venv/bin/pip" install --quiet pytest pyyaml
+          "$RUNNER_TEMP/bats-venv/bin/python" -m pytest tests/test_bd256_ci_bats_step.py -q -p no:cacheprovider
