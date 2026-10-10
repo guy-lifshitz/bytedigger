@@ -8,12 +8,12 @@ paths:
 # bd#248: `sessionToken` / `session_token` stay LOW in the security scan
 
 **Status: DRAFT r1** · **Tier:** 2 · **Class:** deterministic shell check (no model call, no provider, so there is nothing to degrade and the same result on a subscription or an API key)
-**Chokepoint:** `scripts/security-scan.sh`, the only writer of `security_classification` / `security_patterns_found` / `security_triggers`. One rule is added in the default-mode term lists; the identifier split stays the single normalisation step and gets no per-identifier cases.
+**Chokepoint:** `scripts/security-scan.sh`, the only writer of `security_classification` / `security_patterns_found` / `security_triggers`. One rule is added in default mode as its own case-sensitive raw-text pass (the existing loops match with `-i` on raw and split text, so the term cannot simply be merged into `PAT_SECRETS`); the identifier split stays the single normalisation step and gets no per-identifier cases.
 
 ## 0. Verified premises (live, base 0777ae9)
 
-- `--task "rotate the sessionToken"` prints `security_classification: LOW`; `--task "rotate the session_token"` too; `--task "rotate the authToken"` prints HIGH (`auth[_ -]?tokens?` in `PAT_SECRETS`, `scripts/security-scan.sh:51`). Confirmed by running the script.
-- Why the split cannot be used: `split_ids` (`:60-64`) turns `sessionToken` into `session Token`, which is the same text as the prose `session token`. The prose phrase must stay not-HIGH (cells `AC1` and `AC15_GUARD_reference_session_token_hash_sign_not_high` in `tests/security-scan-scope.bats`, unchanged by this lot). So the new rule has to look at the raw text, where the identifier form is still visible.
+- `--task "rotate the sessionToken"` prints `security_classification: LOW`; `--task "rotate the session_token"` too; `--task "rotate the authToken"` prints HIGH (`auth[_ -]?tokens?` in `PAT_SECRETS`, `scripts/security-scan.sh:48`). Confirmed by running the script.
+- Why the split cannot be used: `split_ids` (`:53-56`) turns `sessionToken` into `session Token`, which is the same text as the prose `session token`. The prose phrase must stay not-HIGH (cells `AC1` and `AC15_GUARD_reference_session_token_hash_sign_not_high` in `tests/security-scan-scope.bats`, unchanged by this lot). So the new rule has to look at the raw text, where the identifier form is still visible.
 - The reference text in the issue ("rotate the sessionToken on login failure") is already HIGH through the word `login`; the miss shows on text without another auth word. The cells below use text without one.
 
 ## 1. Contract
@@ -48,4 +48,4 @@ CI for `.bats` (bd#256), the existing cells and phrases, other compound identifi
 
 ## 4. Known limits (go into the PR body)
 
-The rule is a raw-text identifier form for this one pair. Dot access (`session.token`), kebab (`session-token`) and a mixed form such as `sessionToken` split by the author across a line break are not caught. A flat all-lower `sessiontoken` is caught (no space, identifier form).
+The rule is a raw-text identifier form for this one pair. Dot access (`session.token`), kebab (`session-token`) and a mixed form such as `sessionToken` split by the author across a line break are not caught. A prefixed camelCase identifier such as `getSessionToken` or `mySessionToken` is not caught (the left edge must be a non-alphanumeric character). `src/sessionToken/index.ts` (as a directory name) is HIGH, as a path hit. A flat all-lower `sessiontoken` is caught (no space, identifier form).
