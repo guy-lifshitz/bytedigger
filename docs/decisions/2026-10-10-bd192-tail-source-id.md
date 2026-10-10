@@ -1,8 +1,12 @@
 ---
 red_tests:
   - engine_py/tests/test_bd192_tail_source_id.py
+red_pins:
+  - engine_py/tests/test_bd192_tail_source_id_pins.py
   - engine_py/tests/test_bd150_class_i_inventory.py
 sibling_tests:
+  - engine_py/tests/test_bd192_tail_source_id_pins.py
+  - engine_py/tests/test_bd150_class_i_inventory.py
   - engine_py/tests/test_green_test_feedback_AEC7E800.py
   - engine_py/tests/test_gh542_collect_probe.py
   - engine_py/tests/test_bd_flip_red_collect_probe.py

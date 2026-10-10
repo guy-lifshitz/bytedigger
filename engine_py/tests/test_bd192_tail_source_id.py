@@ -13,20 +13,29 @@ AC -> test map
 --------------
 AC1  test_ac1_t1_record_retry / test_ac1_t1_record_terminal
 AC2  test_ac2_chunk_rule[<matrix>]
-AC3  test_ac3_switch_off_t1_no_new_key / test_ac3_switch_matrix_t1[<env>] /
+AC3  test_ac3_switch_matrix_t1[unset|1|yes|HAL_1_beats_alias_0] /
      test_ac3_on_and_off_share_the_findings_text
 AC4  test_ac4_green_prompt_declares_chunks_through_chokepoint
 AC5  test_ac5_green_bad_chunks_dropped_with_event_and_dispatch_ok /
-     test_ac5_red_bad_chunks_dropped_with_event_and_dispatch_ok[delta|full] /
-     test_ac5_switch_off_declares_nothing_and_emits_nothing[green|red_delta|red_full]
-AC6  test_ac6_t2_record_and_carry / test_ac6_probe_timeout_finding_carries_nothing
+     test_ac5_red_bad_chunks_dropped_with_event_and_dispatch_ok[delta|full]
+AC6  test_ac6_t2_record_and_carry
 AC7  test_ac7_red_prompt_declares_chunk_through_chokepoint[delta|full] /
      test_ac7_chunk_absent_from_prompt_is_dropped_and_dispatch_ok[delta|full]
-AC8  test_ac8_switch_off_t2_no_new_key / test_ac8_on_and_off_share_the_findings_text
+AC8  test_ac8_on_and_off_share_the_findings_text
 AC9  test_ac9_auth_modes_give_identical_declarations
-AC10 test_ac10_* (inventory entries, lint, AUTHORSHIP_SPEC section 4)
-AC11 test_ac11_flag_registered / test_ac11_flag_owner_lint_clean / test_ac11_events_doc_has_row
+AC10 test_ac10_* (inventory entries, AUTHORSHIP_SPEC section 4)
+AC11 test_ac11_flag_registered / test_ac11_events_doc_has_row
 (AC12 = the sibling suites, run separately.)
+
+The tests that pass before the change (switch-off pins, the probe-timeout pin and the two lint
+pins) are in test_bd192_tail_source_id_pins.py, so every test in this file fails until the
+change is made:
+AC3  test_ac3_switch_off_t1_no_new_key / test_ac3_switch_matrix_t1_off[<env>]
+AC5  test_ac5_switch_off_declares_nothing_and_emits_nothing[green|red_delta|red_full]
+AC6  test_ac6_probe_timeout_finding_carries_nothing
+AC8  test_ac8_switch_off_t2_no_new_key
+AC10 test_ac10_real_tree_passes_lint
+AC11 test_ac11_flag_owner_lint_clean
 
 Harness. The real functions are driven: `_verify_green_passing`, `_red_collect_probe` (through
 `_verify_red_lint_rules`), `_build_green_prompt`, `_build_red_prompt`, `_declared_injections`
@@ -49,9 +58,6 @@ from __future__ import annotations
 import importlib
 import re
 import shutil
-import subprocess
-import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -481,36 +487,22 @@ def _independent_findings(tails: list) -> list:
     return [" ".join(text for _, text in tails)[-_CAP:]]
 
 
-def test_ac3_switch_off_t1_no_new_key(tmp_path, monkeypatch) -> None:
-    """Pin: with the switch off no chunk record is produced and the text is the pre-lot text."""
-    monkeypatch.setenv(FLAG, "0")
-    tails = [("py", _blob("P", 30000) + "\n"), ("ts", _blob("T", 5000) + "\n")]
-    result, _ = _run_green(tmp_path, monkeypatch, tails)
-    data = result.data or {}
-    assert "green_test_chunks" not in data
-    assert data.get("green_test_findings") == _independent_findings(tails)
-
-
-@pytest.mark.parametrize("env,expect_on", [
-    ({}, True),
-    ({FLAG: "1"}, True),
-    ({FLAG: "yes"}, True),
-    ({FLAG: "0"}, False),
-    ({"BD_TAIL_SOURCE_ID": "0"}, False),
-    ({"BYTEDIGGER_TAIL_SOURCE_ID": "0"}, False),
-    ({FLAG: "1", "BD_TAIL_SOURCE_ID": "0"}, True),
-    ({FLAG: "0", "BD_TAIL_SOURCE_ID": "1"}, False),
-], ids=["unset", "1", "yes", "0", "BD_alias_0", "BYTEDIGGER_alias_0", "HAL_1_beats_alias_0", "HAL_0_beats_alias_1"])
-def test_ac3_switch_matrix_t1(env, expect_on, tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("env", [
+    {},
+    {FLAG: "1"},
+    {FLAG: "yes"},
+    {FLAG: "1", "BD_TAIL_SOURCE_ID": "0"},
+], ids=["unset", "1", "yes", "HAL_1_beats_alias_0"])
+def test_ac3_switch_matrix_t1(env, tmp_path, monkeypatch) -> None:
+    """On-cases. The off-cases are pinned in test_bd192_tail_source_id_pins.py."""
     for name, value in env.items():
         monkeypatch.setenv(name, value)
     tails = [("py", _blob("P", 30000) + "\n"), ("ts", _blob("T", 5000) + "\n")]
     result, out = _run_green(tmp_path, monkeypatch, tails)
     data = result.data or {}
-    assert ("green_test_chunks" in data) is expect_on, f"env={env!r}: chunks present={'green_test_chunks' in data}"
+    assert "green_test_chunks" in data, f"env={env!r}: chunks missing"
     assert data.get("green_test_findings") == _independent_findings(tails)
-    if expect_on:
-        assert data["green_test_chunks"] == _expected_chunks(_entries(tails, out), _CAP)
+    assert data["green_test_chunks"] == _expected_chunks(_entries(tails, out), _CAP)
 
 
 def test_ac3_on_and_off_share_the_findings_text(tmp_path, monkeypatch) -> None:
@@ -578,22 +570,6 @@ def test_ac5_red_bad_chunks_dropped_with_event_and_dispatch_ok(branch, tmp_path,
     assert injections[-1:] == _as_attested([valid])
 
 
-@pytest.mark.parametrize("where", ["green", "red_delta", "red_full"])
-def test_ac5_switch_off_declares_nothing_and_emits_nothing(where, tmp_path, monkeypatch, p5_events) -> None:
-    monkeypatch.setenv(FLAG, "0")
-    if where == "green":
-        chunks = [*_VALID_GREEN, _ABSENT, *_MALFORMED]
-        built = _build_green(tmp_path, {**_manual_green_data(), "green_test_chunks": chunks})
-    else:
-        valid = {"source_id": "collect-probe:/w/tests/test_x.py", "content": "boom tail text"}
-        chunks = [valid, _ABSENT, *_MALFORMED]
-        data = {"findings": "E_RED_COLLECT_PROBE at /w/x.py:None 'boom tail text'", "findings_chunks": chunks}
-        built = _build_red(tmp_path, data, monkeypatch, "delta" if where == "red_delta" else "full")
-    assert not (_declared_sids(built) & {c["source_id"] for c in chunks}), "switch off: nothing is declared from tail records"
-    assert _drop_events(p5_events) == [], "switch off: no tail_chunk_not_declared event"
-    _dispatch(built)
-
-
 # ---------------------------------------------------------------------------
 # AC6 - T2 record and carry
 # ---------------------------------------------------------------------------
@@ -610,15 +586,6 @@ def test_ac6_t2_record_and_carry(tmp_path, monkeypatch) -> None:
     data = result.data
     assert data.get("findings_chunks") == [{"source_id": sid, "content": tail}], f"data keys={sorted(data)}"
     assert tail in data["findings"]
-
-
-def test_ac6_probe_timeout_finding_carries_nothing(tmp_path, monkeypatch) -> None:
-    spy = _install_probe_spy(monkeypatch)
-    spy.fake = types.SimpleNamespace(returncode=124, stdout="", stderr="")
-    result, finding = _run_probe(tmp_path, monkeypatch)
-    assert finding["evidence"] == "collect-probe timeout"
-    assert "source_id" not in finding and "source_chunk" not in finding
-    assert not (result.data or {}).get("findings_chunks")
 
 
 # ---------------------------------------------------------------------------
@@ -659,18 +626,6 @@ def test_ac7_chunk_absent_from_prompt_is_dropped_and_dispatch_ok(branch, tmp_pat
 # ---------------------------------------------------------------------------
 # AC8 - switch, T2
 # ---------------------------------------------------------------------------
-
-def test_ac8_switch_off_t2_no_new_key(tmp_path, monkeypatch) -> None:
-    """Pin: with the switch off the finding and the retry data carry no tail record, and the
-    delta prompt declares nothing."""
-    monkeypatch.setenv(FLAG, "0")
-    _install_probe_spy(monkeypatch)
-    result, finding = _run_probe(tmp_path / "probe", monkeypatch)
-    assert "source_id" not in finding and "source_chunk" not in finding
-    assert "findings_chunks" not in result.data
-    built = _build_red(tmp_path / "build", result.data, monkeypatch, "delta")
-    assert built.data["injected_blocks"] is None
-
 
 def test_ac8_on_and_off_share_the_findings_text(tmp_path, monkeypatch) -> None:
     spy = _install_probe_spy(monkeypatch)
@@ -756,12 +711,6 @@ def test_ac10_no_entry_defers_to_192() -> None:
     assert sorted(k for k, v in sites.items() if v.get("issue") == "192") == []
 
 
-def test_ac10_real_tree_passes_lint() -> None:
-    """Pin: every site is still keyed and no key is stale after the change."""
-    lint = _lint()
-    assert lint.check(_engine_root(), lint.load_inventory()) == []
-
-
 def test_ac10_authorship_spec_names_both_sites_as_declared() -> None:
     text = _authorship_text()
     start = text.index("**Declared:**")
@@ -797,12 +746,6 @@ def test_ac11_flag_registered() -> None:
     assert entry.get("module") == "workflows/phase_5_implement.py", entry
     assert str(entry.get("owner", "")).strip(), entry
     assert str(entry.get("provenance", "")).strip().startswith("introduced:"), entry
-
-
-def test_ac11_flag_owner_lint_clean() -> None:
-    proc = subprocess.run([sys.executable, "scripts/flag_owner_lint.py"], cwd=str(REPO_ROOT),
-                          capture_output=True, text=True)
-    assert proc.returncode == 0, f"flag_owner_lint rc={proc.returncode} {proc.stdout!r} {proc.stderr!r}"
 
 
 def test_ac11_events_doc_has_row() -> None:
