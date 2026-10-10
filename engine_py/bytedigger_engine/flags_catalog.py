@@ -120,6 +120,14 @@ FLAGS: dict[str, dict] = {
         "module": "config_provider.py",
         "description": "bd#93: root under which each run keeps its own <run_id>/events.jsonl (and governor/sentinel state). Default <home>/.bytedigger/runs; BD_/BYTEDIGGER_ aliases honoured.",
     },
+    "HAL_RUN_LOG_RETENTION_DAYS": {
+        "kind": "int",
+        "default": "90",
+        "module": "event_log.py",
+        "description": "bd#260: age in days after which a run directory under the run log root is reported as removable. First release is a dry-run: it lists and reports, nothing is deleted (flip-by:2026-11-10, when the dry-run becomes real deletion). 0 disables the routine; BD_/BYTEDIGGER_ aliases honoured.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#260 - run directories were never removed - dry-run first release (0 disables), deletion arrives in a follow-up",
+    },
     "HAL_IN_SESSION_ENFORCES_TOOLS": {
         "kind": "flag",
         "default": None,

@@ -311,6 +311,7 @@ Commonly used variables (spell any of them `BD_*` if you prefer):
 | `BD_DBOS_DB_PATH` (`HAL_DBOS_DB_PATH`) | Durable-state sqlite path override |
 | `BD_ENGINE_DURABLE_BACKEND` (`HAL_ENGINE_DURABLE_BACKEND`) | `native` (default) or `dbos` |
 | `BD_RUN_LOG_ROOT` (`HAL_RUN_LOG_ROOT`) | Root of the run-scoped event logs: each run writes `<root>/<run_id>/events.jsonl` (default `~/.bytedigger/runs`; must be absolute) |
+| `BD_RUN_LOG_RETENTION_DAYS` (`HAL_RUN_LOG_RETENTION_DAYS`) | Age in days after which a run directory under the run log root is reported as removable (default `90`; `0` disables). This release is a dry-run: a run start prints the list to stderr and deletes nothing; deletion follows in a later release |
 
 Engine artifacts for a foreign project land under **`.bytedigger/`** in the
 project cwd (`config_provider.foreign_state_dirname()`): `events.jsonl`

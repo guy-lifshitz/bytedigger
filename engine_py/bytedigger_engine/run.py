@@ -34,7 +34,7 @@ else:
 from bytedigger_engine.contracts import StepResult, WorkflowContext  # noqa: E402
 from bytedigger_engine.derive_state import replay  # noqa: E402
 from bytedigger_engine.engine import WorkflowEngine  # noqa: E402
-from bytedigger_engine.event_log import EventLog, run_scoped_log_path  # noqa: E402
+from bytedigger_engine.event_log import EventLog, run_retention_dry_run, run_scoped_log_path  # noqa: E402
 from bytedigger_engine.event_sink import get_event_sink  # noqa: E402
 from bytedigger_engine.lib.dbos_setup import init_dbos, execute_durable_workflow, teardown_dbos, hard_exit  # noqa: E402
 from bytedigger_engine.lib.dbos_list_runs import list_runs  # noqa: E402
@@ -333,6 +333,8 @@ def main() -> int:
     # for an invocation that executes a workflow. a: explicit --event-log; b: host
     # override (GH1309); c: run-scoped <root>/<run_id>/events.jsonl. Degrade, never fail.
     _resolved_run_id = args.run_id or _uuid_mod.uuid4().hex[:12]
+    if args.workflow and not args.list:
+        run_retention_dry_run(run_id=_resolved_run_id)  # bd#260: report-only, never raises
     args._log_implicit = False
     if args.workflow and not args.list and not args.event_log:
         try:
