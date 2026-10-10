@@ -213,8 +213,8 @@ def _run_green(tmp_path: Path, monkeypatch, tails: list, cycle_count: int = 1):
     stdout_path is a real file holding the text. Returns (result, {kind: stdout path})."""
     runs = tmp_path / "runs"
     work = tmp_path / "work"
-    runs.mkdir(exist_ok=True)
-    work.mkdir(exist_ok=True)
+    runs.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
     (runs / "empty.err").write_text("", encoding="utf-8")
     out: dict = {}
     for kind, text in tails:
