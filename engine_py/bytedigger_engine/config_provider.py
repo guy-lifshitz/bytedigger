@@ -163,6 +163,16 @@ class _DefaultConfigProvider:
         """
         return self.path("HAL_RUN_LOG_ROOT", self.home_root() / self.foreign_state_dirname() / "runs")
 
+    def run_log_retention_days(self) -> int:
+        """Age in days after which a run directory is a retention candidate (bd#260).
+
+        Env-overridable (HAL_RUN_LOG_RETENTION_DAYS, BD_/BYTEDIGGER_ aliases via
+        int_value()); default 90, 0 disables the routine. A non-integer raises
+        ValueError, which the retention routine reports and survives. Off-Protocol,
+        mirrors run_log_root().
+        """
+        return self.int_value("HAL_RUN_LOG_RETENTION_DAYS", 90)
+
     def reject_log_relpath(self) -> str:
         """Neutral reject-log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/reject-reasons.jsonl"
@@ -301,6 +311,13 @@ def run_log_root() -> Path:
     if fn is not None:
         return Path(fn())
     return cfg.path("HAL_RUN_LOG_ROOT", Path.home().resolve() / ".bytedigger" / "runs")
+
+def run_log_retention_days() -> int:
+    """Retention age in days for run directories (bd#260, single source, §1g). A
+    provider without run_log_retention_days() (minimal Protocol) gets the same
+    default of 90."""
+    fn = getattr(get_config(), "run_log_retention_days", None)
+    return int(fn()) if fn is not None else 90
 
 def reject_log_relpath() -> str:
     """Host-relative path of the reject-reasons log (single source, §1g)."""

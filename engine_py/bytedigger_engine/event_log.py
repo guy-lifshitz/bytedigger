@@ -21,7 +21,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,7 @@ from bytedigger_engine.config_provider import event_log_relpath, resolve_event_l
 from bytedigger_engine.config_provider import event_log_path_override as _event_log_path_override_fn  # noqa: E402
 from bytedigger_engine.config_provider import foreign_state_dirname as _foreign_state_dirname_fn  # noqa: E402
 from bytedigger_engine.config_provider import run_log_root as _run_log_root_fn  # noqa: E402
+from bytedigger_engine.config_provider import run_log_retention_days as _run_log_retention_days_fn  # noqa: E402
 
 # structural: engine_py → build → cli → SYSTEM → host install root
 def _resolve_hal_dir(file_path: Path) -> Path:
@@ -93,6 +96,81 @@ def run_scoped_log_path(run_id: str, root: Path | None = None) -> Path:
     if not base.is_absolute():
         raise ValueError(f"run log root must be absolute: {str(base)!r}")
     return base / run_id / "events.jsonl"
+
+
+_RETENTION_REPORT_CAP = 20
+
+
+def _newest_mtime(directory: Path) -> float:
+    """Newest modification time of `directory` and its direct children, symlinks not followed."""
+    newest = os.lstat(directory).st_mtime
+    for child in directory.iterdir():
+        try:
+            newest = max(newest, os.lstat(child).st_mtime)
+        except OSError:
+            continue  # vanished or unreadable child: ignored
+    return newest
+
+
+def run_retention_dry_run(
+    run_id: str | None = None,
+    root: Path | None = None,
+    now: float | None = None,
+) -> list[Path]:
+    """bd#260: find run directories older than the retention age; report, never act.
+
+    Candidates are real directories directly under `root` with a valid run id, other
+    than `run_id` (the run that is starting), whose newest modification time (the
+    directory and its direct children) is strictly older than the threshold. Writes
+    a capped summary to stderr when there are any. This release deletes nothing.
+    A retention age of 0 disables it. Never raises: a failure of the whole routine
+    is one `run retention skipped` line and `[]`; a bad entry is skipped alone.
+    """
+    try:
+        days = _run_log_retention_days_fn()
+        if days < 0:
+            raise ValueError(f"retention days must not be negative: {days}")
+        if days == 0:
+            return []
+        base = Path(root if root is not None else _run_log_root_fn()).expanduser()
+        if not base.is_absolute():
+            raise ValueError(f"run log root must be absolute: {str(base)!r}")
+        try:
+            base_mode = base.stat().st_mode
+        except FileNotFoundError:
+            return []
+        if not stat.S_ISDIR(base_mode):
+            raise ValueError(f"run log root is not a directory: {str(base)!r}")
+        real_base = base.resolve()
+        current = float(now) if now is not None else time.time()
+        threshold = days * 86400.0
+        found: list[Path] = []
+        for entry in sorted(base.iterdir(), key=lambda p: p.name):
+            try:
+                name = entry.name
+                if name == run_id or not _RUN_ID_RE.fullmatch(name) or ".." in name:
+                    continue
+                if not stat.S_ISDIR(os.lstat(entry).st_mode):
+                    continue  # symlinks and regular files are never candidates
+                if entry.resolve().parent != real_base:
+                    continue
+                if current - _newest_mtime(entry) > threshold:
+                    found.append(entry)
+            except OSError:
+                continue
+    except Exception as e:  # noqa: BLE001 - the routine must never stop a run
+        sys.stderr.write(f"run retention skipped: {e}\n")
+        return []
+    if found:
+        lines = [
+            f"run retention (dry-run): {len(found)} run directories older than {days} days "
+            "would be removed; nothing deleted"
+        ]
+        lines.extend(p.name for p in found[:_RETENTION_REPORT_CAP])
+        if len(found) > _RETENTION_REPORT_CAP:
+            lines.append(f"... and {len(found) - _RETENTION_REPORT_CAP} more")
+        sys.stderr.write("\n".join(lines) + "\n")
+    return found
 
 
 def __getattr__(name: str) -> Any:
