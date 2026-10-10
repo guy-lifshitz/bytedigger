@@ -34,6 +34,7 @@ from bytedigger_engine.config_provider import event_log_path_override as _event_
 from bytedigger_engine.config_provider import foreign_state_dirname as _foreign_state_dirname_fn  # noqa: E402
 from bytedigger_engine.config_provider import run_log_root as _run_log_root_fn  # noqa: E402
 from bytedigger_engine.config_provider import run_log_retention_days as _run_log_retention_days_fn  # noqa: E402
+from bytedigger_engine.config_provider import run_id_case_guard_enabled as _run_id_case_guard_enabled_fn  # noqa: E402
 
 # structural: engine_py → build → cli → SYSTEM → host install root
 def _resolve_hal_dir(file_path: Path) -> Path:
@@ -83,18 +84,59 @@ def default_log_path() -> Path:
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
+class RunIdCaseCollision(ValueError):
+    """bd#261: the run id differs only by case from an existing run directory."""
+
+    def __init__(self, run_id: str, existing: str, base: Path) -> None:
+        self.code = "E_RUN_ID_CASE_COLLISION"
+        self.run_id = run_id
+        self.existing = existing
+        super().__init__(
+            f"{self.code}: run id {run_id!r} differs only by case from existing run "
+            f"directory {existing!r} under {str(base)}; use the original spelling or a "
+            "different id (set HAL_RUN_ID_CASE_GUARD=0 to disable this check)"
+        )
+
+
+def _on_disk_spelling(base: Path, run_id: str) -> str | None:
+    """bd#261: the colliding on-disk spelling of `run_id` under `base`, else None.
+
+    None when an entry equals `run_id` exactly (the run's own directory) or when no
+    entry matches ignoring case. Read-only; an OSError from the listing propagates.
+    """
+    names = os.listdir(base)
+    if run_id in names:
+        return None
+    wanted = run_id.lower()
+    for name in names:
+        if name.lower() == wanted:
+            return name
+    return None
+
+
 def run_scoped_log_path(run_id: str, root: Path | None = None) -> Path:
     """bd#93: `<root>/<run_id>/events.jsonl` — the run's own home, independent of cwd.
 
-    `root` defaults to the provider's run_log_root(). Pure path math, no filesystem
-    I/O. ValueError on an unsafe run id (no separators/leading dot/`..`, <=128
+    `root` defaults to the provider's run_log_root(). Read-only: creates nothing.
+    ValueError on an unsafe run id (no separators/leading dot/`..`, <=128
     chars) or a root that is not absolute after expanduser (never cwd-dependent).
+    bd#261: RunIdCaseCollision (a ValueError) when the directory for this id already
+    exists under a different case spelling (one directory on case-folding filesystems).
     """
     if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id) or ".." in run_id:
         raise ValueError(f"unsafe run id for a run-scoped event log: {run_id!r}")
     base = Path(root if root is not None else _run_log_root_fn()).expanduser()
     if not base.is_absolute():
         raise ValueError(f"run log root must be absolute: {str(base)!r}")
+    if _run_id_case_guard_enabled_fn():
+        existing: str | None = None
+        try:
+            os.lstat(base / run_id)
+            existing = _on_disk_spelling(base, run_id)
+        except OSError:
+            existing = None  # not found or unreadable: fail-open, old behaviour
+        if existing is not None:
+            raise RunIdCaseCollision(run_id, existing, base)
     return base / run_id / "events.jsonl"
 
 

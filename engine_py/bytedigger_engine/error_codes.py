@@ -292,6 +292,7 @@ ERROR_CODES: dict[str, str] = {
     "E_GREEN_GATE_STALE": "green_entry_guard: the newest gate doc approves, but its verdict-anchor is missing or does not match the current spec sha256 (bd#243)",
     "E_GREEN_GATE_UNREADABLE": "green_entry_guard: a spec, gate or escalation file, a git listing, or the bypass log could not be read or written; fail closed (bd#243)",
     "E_GREEN_GATE_BYPASS_NO_REASON": "green_entry_guard: HAL_GREEN_GATE_GUARD=0 was set without a non-blank HAL_GREEN_GATE_BYPASS_REASON (bd#243)",
+    "E_RUN_ID_CASE_COLLISION": "event_log: a run id differs only by case from an existing run directory, so on a case-insensitive filesystem both would share one directory; the id is refused (bd#261)",
 }
 
 

@@ -128,6 +128,14 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#260 - run directories were never removed - dry-run first release (0 disables), deletion arrives in a follow-up",
     },
+    "HAL_RUN_ID_CASE_GUARD": {
+        "kind": "gate",
+        "default": "1",
+        "module": "event_log.py",
+        "description": "bd#261: refuse a run id that differs only by case from an existing run directory (one directory on case-insensitive filesystems). On unless exactly '0'; the switch is for one release (retire-by:2026-11-10). BD_/BYTEDIGGER_ aliases honoured.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#261 - run ids differing only by case shared one run directory on case-insensitive filesystems - guard on by default, =0 restores the old behaviour",
+    },
     "HAL_IN_SESSION_ENFORCES_TOOLS": {
         "kind": "flag",
         "default": None,

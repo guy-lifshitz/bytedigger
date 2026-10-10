@@ -312,6 +312,7 @@ Commonly used variables (spell any of them `BD_*` if you prefer):
 | `BD_ENGINE_DURABLE_BACKEND` (`HAL_ENGINE_DURABLE_BACKEND`) | `native` (default) or `dbos` |
 | `BD_RUN_LOG_ROOT` (`HAL_RUN_LOG_ROOT`) | Root of the run-scoped event logs: each run writes `<root>/<run_id>/events.jsonl` (default `~/.bytedigger/runs`; must be absolute) |
 | `BD_RUN_LOG_RETENTION_DAYS` (`HAL_RUN_LOG_RETENTION_DAYS`) | Age in days after which a run directory under the run log root is reported as removable (default `90`; `0` disables). This release is a dry-run: a run start prints the list to stderr and deletes nothing; deletion follows in a later release |
+| `BD_RUN_ID_CASE_GUARD` (`HAL_RUN_ID_CASE_GUARD`) | Refuse a run id that differs only by case from an existing run directory under the run log root (`E_RUN_ID_CASE_COLLISION`; on a case-insensitive filesystem both spellings are one directory). On unless exactly `0`; `0` restores the old behaviour and lists nothing. Temporary switch, retire-by 2026-11-10 |
 
 Engine artifacts for a foreign project land under **`.bytedigger/`** in the
 project cwd (`config_provider.foreign_state_dirname()`): `events.jsonl`

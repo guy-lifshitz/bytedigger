@@ -173,6 +173,14 @@ class _DefaultConfigProvider:
         """
         return self.int_value("HAL_RUN_LOG_RETENTION_DAYS", 90)
 
+    def run_id_case_guard_enabled(self) -> bool:
+        """Whether run ids differing only by case are refused (bd#261).
+
+        On unless HAL_RUN_ID_CASE_GUARD is exactly `0` (BD_/BYTEDIGGER_ aliases via
+        gate_enabled()). Off-Protocol, mirrors run_log_retention_days().
+        """
+        return self.gate_enabled("HAL_RUN_ID_CASE_GUARD")
+
     def reject_log_relpath(self) -> str:
         """Neutral reject-log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/reject-reasons.jsonl"
@@ -318,6 +326,12 @@ def run_log_retention_days() -> int:
     default of 90."""
     fn = getattr(get_config(), "run_log_retention_days", None)
     return int(fn()) if fn is not None else 90
+
+def run_id_case_guard_enabled() -> bool:
+    """Run-id case-collision guard switch (bd#261, single source, §1g). A provider
+    without run_id_case_guard_enabled() (minimal Protocol) gets the neutral default: on."""
+    fn = getattr(get_config(), "run_id_case_guard_enabled", None)
+    return bool(fn()) if fn is not None else True
 
 def reject_log_relpath() -> str:
     """Host-relative path of the reject-reasons log (single source, §1g)."""
