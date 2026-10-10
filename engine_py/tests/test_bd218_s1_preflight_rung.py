@@ -349,21 +349,18 @@ def test_AC6_bad_config_emits_config_error_gate_runs(
 # --------------------------------------------------------------------------
 
 def test_AC7_rung_starts_no_llm_and_no_classifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC7: classifier_cmd unset -> the only LLM call is the gate's; prescreen never invoked."""
-    cl = importlib.import_module("bytedigger_engine.check_ladder")
-    invoked: list[int] = []
+    """AC7: classifier_cmd unset -> the only LLM call is the gate's; no classifier process is started.
 
-    def no_prescreen(*_a: Any, **_k: Any) -> Any:
-        invoked.append(1)
-        raise AssertionError("classifier must not run")
-
-    monkeypatch.setattr(cl, "prescreen", no_prescreen)
+    bd#218 s7: the script rung may now emit one prescreen_verdict with no classifier; its classifier status
+    must be "off" (nothing spawned).
+    """
     repo = _staged_repo(tmp_path, "fresh")
     _r, calls, events, _o = _drive(monkeypatch, tmp_path, git_cwd=str(repo))
     assert len(_rung_events(events)) == 1, "rung must run (forcing)"
     assert len(calls) == 1 and calls[0]["gate_label"] == "validation"
-    assert not invoked
-    assert not [t for (t, _p) in events if t == "prescreen_verdict"]
+    verdicts = [p for (t, p) in events if t == "prescreen_verdict"]
+    assert len(verdicts) <= 1
+    assert all(v["classifier_status"] == "off" for v in verdicts)
 
 
 # --------------------------------------------------------------------------
