@@ -81,6 +81,7 @@ class _SimOs:
         self.listdir_calls: list[Path] = []
         self.listdir_exc: Exception | None = None
         self.lstat_exc: Exception | None = None
+        self.force_exists: set[Path] = set()
 
     def add(self, root: Path, entries: list[str]) -> Path:
         self.fs[Path(root)] = list(entries)
@@ -100,6 +101,8 @@ class _SimOs:
 
     def lstat(self, path, *args, **kwargs):
         p = Path(path)
+        if p in self.force_exists:
+            return os.lstat(os.getcwd())
         if p.parent in self.fs:
             if self.lstat_exc is not None:
                 raise self.lstat_exc
@@ -182,6 +185,18 @@ def test_ac3_no_false_positives_sim(tmp_path, sim):
     for rid in ("R10", "R"):
         assert event_log.run_scoped_log_path(rid, present) == present / rid / "events.jsonl"
     assert not any(p.exists() for p in (empty, only_r2, missing, present))
+    sim.listdir_calls.clear()
+    for root in (empty, only_r2, missing):
+        event_log.run_scoped_log_path("R1", root)
+    assert sim.listdir_calls == []
+
+
+def test_ac3_listing_without_match_returns_path_sim(tmp_path, sim):
+    _guard_is_live(sim, tmp_path)
+    root = sim.add(tmp_path / "raced", ["Other"])
+    sim.force_exists.add(root / "R1")
+    assert event_log.run_scoped_log_path("R1", root) == root / "R1" / "events.jsonl"
+    assert sim.listdir_calls == [root]
 
 
 def test_ac3_no_false_positives_real(tmp_path, folding_fs, sim, monkeypatch):
@@ -427,7 +442,7 @@ def test_ac11_changelog_added_block_mentions_variable():
 
 # ---------------------------------------------------------------- AC12 (guard)
 
-KEY = "event_log.py::_on_disk_spelling::listdir#0"
+KEY = "event_log.py::_on_disk_spelling::os.listdir#0"
 
 
 def test_ac12_tree_scan_inventory_classifies_listdir_site():
