@@ -46,12 +46,22 @@ OPTIONAL ADAPTER OPERATIONS (bd#197, `docs/decisions/2026-10-10-bd197-adapter-va
 The adapter interface is two required operations (`freeze`, `evaluate`) plus
 optional operations, one per adversary group. ADV-3 -> `lint_vacuity(path) -> bool`
 (True iff the host's lint flags the RED test file at `path` as vacuous).
+bd#267 adds ADV-4 -> `record_oracle_step(fault) -> Mapping` (fault None or
+"oracle_load_failure") and ADV-5 -> `record_gate_step(fault) -> Mapping` (fault
+None or "gate_raises"). Each returns a mapping with "status", one of
+`_STEP_STATUSES`: passed, failed, rejected, load_failure, absent. The host
+reports; the harness judges. ADV-4 is defended iff the fault step is recorded
+as load_failure, ADV-5 iff it is recorded as failed; any other well-formed
+status is undefended.
 Rules for every optional operation:
   1. Absent or None attribute: `not_executed`, the adapter is not called.
   2. Guarded like `freeze`: daemon worker plus `timeout_s`; a raise, timeout,
-     non-callable or non-bool answer is `indeterminate`; KeyboardInterrupt and
-     SystemExit propagate.
-  3. A control file is asked first; a yes there is `undefended`.
+     non-callable or malformed answer (non-bool for ADV-3; for ADV-4/5 not a
+     mapping with a vocabulary `status`) is `indeterminate`; KeyboardInterrupt
+     and SystemExit propagate.
+  3. A control is asked first. ADV-3: a yes there is `undefended`. ADV-4/5: the
+     control (fault None) must be recorded as passed, otherwise `indeterminate`
+     and the fault call is not made.
   4. Shadow: the outcome is reported as `shadow:<outcome>` and never counts
      toward a level.
   5. `adapter_ops="shadow" | "off"` (default "shadow"); "off" records every
@@ -362,17 +372,23 @@ def test_thing():
         assert compute_digest("a") == compute_digest("a")
 '''
 
-def _guarded_bool_call(fn, arg, timeout_s):
-    """Call `fn(arg)` on a daemon worker; return a bool, or None if indeterminate.
+#: Returned by `_guarded_value_call` when the call is indeterminate.
+_INDETERMINATE_CALL = object()
 
-    KeyboardInterrupt and SystemExit are re-raised; a timeout, any other
-    Exception, or a non-bool result yields None.
+
+def _guarded_value_call(fn, arg, timeout_s, extract=None):
+    """Call `fn(arg)` on a daemon worker; return the raw value (after the
+    optional `extract`, which also runs on the worker), or the module sentinel
+    `_INDETERMINATE_CALL` on a timeout or any Exception.
+
+    KeyboardInterrupt and SystemExit are re-raised.
     """
     box: "dict[str, object]" = {}
 
     def _run() -> None:
         try:
-            box["value"] = fn(arg)
+            value = fn(arg)
+            box["value"] = extract(value) if extract is not None else value
         except BaseException as exc:  # noqa: BLE001 — triaged below, in the caller
             box["exc"] = exc
 
@@ -382,16 +398,54 @@ def _guarded_bool_call(fn, arg, timeout_s):
     worker.start()
     worker.join(timeout_s)
     if worker.is_alive():
-        return None
+        return _INDETERMINATE_CALL
     if "exc" in box:
         exc = box["exc"]
         if not isinstance(exc, Exception):
             raise exc  # type: ignore[misc]
-        return None
-    value = box.get("value")
+        return _INDETERMINATE_CALL
+    return box.get("value")
+
+
+def _guarded_bool_call(fn, arg, timeout_s):
+    """Call `fn(arg)` on a daemon worker; return a bool, or None if indeterminate.
+
+    KeyboardInterrupt and SystemExit are re-raised; a timeout, any other
+    Exception, or a non-bool result yields None.
+    """
+    value = _guarded_value_call(fn, arg, timeout_s)
     if not isinstance(value, bool):
         return None
     return value
+
+
+#: The closed vocabulary of step statuses a host may report (bd#267).
+_STEP_STATUSES = ("passed", "failed", "rejected", "load_failure", "absent")
+
+
+def _status_of(answer):
+    """Return the status string of a step record, or None when malformed."""
+    if not isinstance(answer, _Mapping):
+        return None
+    status = answer.get("status")
+    if type(status) is not str or status not in _STEP_STATUSES:
+        return None
+    return status
+
+
+def _step_probe(fault, defended_status):
+    """Build the probe for a step-recording operation: control, then fault."""
+
+    def _probe(method, timeout_s: float) -> str:
+        control = _guarded_value_call(method, None, timeout_s, _status_of)
+        if control is _INDETERMINATE_CALL or control != "passed":
+            return OUTCOME_INDETERMINATE
+        status = _guarded_value_call(method, fault, timeout_s, _status_of)
+        if status is _INDETERMINATE_CALL or status is None:
+            return OUTCOME_INDETERMINATE
+        return OUTCOME_DEFENDED if status == defended_status else OUTCOME_UNDEFENDED
+
+    return _probe
 
 
 def _probe_lint_vacuity(method, timeout_s: float) -> str:
@@ -416,6 +470,9 @@ def _probe_lint_vacuity(method, timeout_s: float) -> str:
 #: Optional adapter operations: adversary name -> (method name, probe function).
 _ADAPTER_OPS = {
     "ADV-3": ("lint_vacuity", _probe_lint_vacuity),
+    "ADV-4": ("record_oracle_step",
+              _step_probe("oracle_load_failure", "load_failure")),
+    "ADV-5": ("record_gate_step", _step_probe("gate_raises", "failed")),
 }
 
 _ADAPTER_OPS_MODES = ("shadow", "off")
