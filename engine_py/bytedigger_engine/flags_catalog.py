@@ -378,6 +378,14 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#165 - sibling-coupling (section 1a) warn pass - stays as a default-ON warn-only kill-switch",
     },
+    "HAL_TAIL_SOURCE_ID": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_5_implement.py",
+        "description": "Default-ON gate: the GREEN test-output tail and the RED collect-probe tail are declared as class-I blocks with a source id (bd#192). =0 produces no tail record and declares nothing; the prompt text is unchanged either way.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #192 - undeclared test-output tails in the GREEN and RED retry prompts - stays as a default-ON kill-switch (=0 restores the undeclared state)",
+    },
     "HAL_SEMANTIC_VERIFY_STOP_ON_FATAL": {
         "kind": "gate",
         "default": "1",

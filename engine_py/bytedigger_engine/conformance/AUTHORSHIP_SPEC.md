@@ -481,10 +481,8 @@ The rule is structural. It asks what unit of read bytes is inlined, not whether 
   - **Declared:** the role template; the `phase_45_spec` decision doc; the fix worker's inlined
     in-scope test files; the directed-repair artifact; the anti-fabrication, producer and security
     fragments; the `spec.md` and prior-ship base inlined by the spec prompts; the post-fix pytest
-    report in the review prompt.
-  - **Not yet declared:**
-    - the GREEN test-run stdout tail and the RED collect-probe tail, bd#192 (inventory keys
-      `_verify_green_passing::_read_text_or_empty#0` and `_red_collect_probe::bounded_run#0`).
+    report in the review prompt; the GREEN test-run stdout tail and the RED collect-probe tail
+    (bd#192, behind `HAL_TAIL_SOURCE_ID`).
   - Any class-I segment the survey did not reach falls under the inventory in
     `conformance/class_i_inventory.json`, enforced by `conformance/class_i_lint.py`. No class-I
     segment is exempt.
@@ -533,6 +531,24 @@ one source share its `source_id` and are declared in prompt order, so a truncate
 head then tail. An empty chunk is not declared. `source_id` is the identifier the site already shows
 the model: the resolved decision-doc path, the worktree-relative test-file path, or `artifact_path`.
 
+The two test-output tails (bd#192) follow the same rule with these specifics.
+- GREEN test-run tail. The tails of the failing test groups are joined with one space and
+  left-truncated. A part's chunk is the longest suffix of that part's text that survived the
+  truncation, taken from the rstripped joined string, so the last part is also rstripped and the
+  chunk is exactly the text of the part that reaches the prompt. The separator belongs to no block.
+  A part cut away entirely, or whose surviving text has no non-whitespace character, is not
+  declared. The `source_id` is the path of the capture file the part was read from, not an
+  identifier shown to the model.
+- RED collect-probe tail. One chunk: the raw last 400 characters of the probe output, with no
+  rstrip, because the findings string quotes it whole. A probe timeout has no output and declares
+  nothing.
+- The tail filter runs before the record is built: a chunk that is malformed or does not occur in
+  the final prompt is dropped with a `tail_chunk_not_declared` event, so a bound record still never
+  holds a dropped element and the chokepoint never refuses a tail chunk.
+- Limits. (a) The T2 slice is the last 400 characters of stdout followed by stderr, a contiguous
+  slice of their concatenation. (b) Containment, not position, is verified, as for every other
+  class-I block.
+
 **Binding.** A builder that declares class-I blocks other than the role template stores them as
 `data["injected_blocks"] = {"prompt_sha256", "blocks"}`. `_declared_injections` returns them only
 while `data["prompt"]` still hashes to the recorded `prompt_sha256`. A record forwarded with a
@@ -544,11 +560,6 @@ while `data["prompt"]` still hashes to the recorded `prompt_sha256`. A record fo
   never dropped.
 - **Invariant:** every dispatch that declares `_declared_injections(d)` sends exactly `d["prompt"]`.
   A site that alters the prompt after its builder must re-bind or declare nothing extra.
-
-**Deferred class-I segments:**
-- **The two test-run output tails (bd#192).** The GREEN test-run stdout tail and the RED
-  collect-probe tail are the only inventoried class-I sites still undeclared. They have the same
-  status the role template had before bd#141 4(d): covered only by R3.1.
 
 - **AC-I1** `assemble(prompt, blocks)` returns `prompt` followed by each block's `content` in list
   order, each separated by exactly `"\n\n"`. Pinned rather than described, because an unpinned
