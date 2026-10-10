@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "spec_sample_check.py"
 FLAGS_CATALOG = REPO_ROOT / "engine_py" / "bytedigger_engine" / "flags_catalog.py"
 
-VERDICT_KEYS = {"status", "mode", "would_block", "findings", "verified", "unverified", "flag", "reason"}
+VERDICT_KEYS = {"status", "mode", "would_block", "findings", "waived", "verified", "unverified", "flag", "reason"}
 FLAG_KEYS = {"name", "owner", "expires", "expired"}
 FLAG_NAME = "HAL_SPEC_SAMPLE_ENFORCE"
 DEFAULT_TODAY = "2026-10-01"
@@ -668,7 +668,7 @@ class TestS3SpecSampleCheck:
         lines = log.read_text().splitlines()
         assert len(lines) == 1, lines
         rec = json.loads(lines[0])
-        assert set(rec) == {"ts", "spec", "mode", "would_block", "codes"}, rec
+        assert set(rec) == {"ts", "spec", "mode", "would_block", "codes", "waived"}, rec
         assert rec["codes"] == ["MEASURED_CONTRADICTS"]
         assert rec["would_block"] is True and str(rec["mode"]).lower() == "shadow"
         assert isinstance(rec["ts"], str) and rec["ts"] and "spec.md" in str(rec["spec"])
