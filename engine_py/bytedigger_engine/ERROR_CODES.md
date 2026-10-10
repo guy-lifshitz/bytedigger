@@ -230,6 +230,7 @@
 
 ## E_POST
 
+- `E_POST_FIX_EMPTY_SCOPE` — phase_6_review: post-fix test scope is empty although the fix touched code, so no test covers the change (bd#249, enforce mode)
 - `E_POST_FIX_PYTEST_FAILED` — phase_6_review: post-fix pytest run reported real test failures
 - `E_POST_FIX_PYTEST_INFRA` — phase_6_review: post-fix pytest run failed for infra reasons, not test content
 - `E_POST_FIX_TYPECHECK_NO_BOUNDARY` — phase_6_review: post-fix typecheck boundary is degenerate (== HEAD) and could not be recovered via <fix_commit_sha>~1

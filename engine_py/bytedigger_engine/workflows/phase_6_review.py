@@ -5883,6 +5883,29 @@ def _run_pytest_post_fix(ctx, prev) -> StepResult:
     _emit_safe("post_fix_pytest_scope", {**scope_counts, "phase": 6, "step": "run_pytest_post_fix"})
 
     if not py_test_paths:
+        # bd#249: an empty scope is only a failure when there was code to cover.
+        # Docs-only manifest (non-empty, no .py) is exempt in every flag state.
+        n_manifest_py = sum(1 for m in manifest if str(m).endswith(".py"))
+        if manifest and n_manifest_py == 0:
+            _mode = "exempt"
+        elif get_config().flag("HAL_POST_FIX_EMPTY_SCOPE_ENFORCE"):
+            _mode = "enforce"
+        else:
+            _mode = "shadow"
+        _emit_safe("post_fix_empty_scope", {
+            **scope_counts, "phase": 6, "step": "run_pytest_post_fix", "mode": _mode,
+            "n_manifest_files": len(manifest), "n_manifest_py": n_manifest_py,
+        })
+        if _mode == "enforce":
+            return StepResult(
+                status="error",
+                data=None,
+                duration_ms=0,
+                step_name="run_pytest_post_fix",
+                error="post-fix test scope is empty: the fix touched code but no RED, manifest or sibling test covers it",
+                error_code="E_POST_FIX_EMPTY_SCOPE",
+                recoverable=False,
+            )
         _emit_safe("post_fix_pytest_skipped", {"reason": "no_test_scope", "phase": 6, "step": "run_pytest_post_fix"})
         return StepResult(
             status="ok",

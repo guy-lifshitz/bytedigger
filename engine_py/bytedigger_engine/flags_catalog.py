@@ -394,6 +394,14 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#90 - review citation fallback by file read - stays as a default-ON kill-switch (=0 restores the old behaviour)",
     },
+    "HAL_POST_FIX_EMPTY_SCOPE_ENFORCE": {
+        "kind": "flag",
+        "default": "0",
+        "module": "workflows/phase_6_review.py",
+        "description": "Default-OFF flag: when the post-fix test scope is empty and the manifest touched a .py file (or is empty), =1 fails the step with E_POST_FIX_EMPTY_SCOPE instead of skipping; unset/0 keeps the skip and only records a post_fix_empty_scope event (bd#249). Docs-only manifests are exempt.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: #249 - empty post-fix test scope is an error, shadow first - flip the default from shadow data once events show no false positives",
+    },
     "HAL_GREEN_GATE_GUARD": {
         "kind": "gate",
         "default": "1",
