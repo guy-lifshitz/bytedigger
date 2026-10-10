@@ -374,6 +374,14 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#102 - semantic verifier stop on pause-lane and fatal codes - stays as a default-ON kill-switch (=0 restores tag-and-continue)",
     },
+    "HAL_REVIEW_CITATION_FALLBACK": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_6_review.py",
+        "description": "Default-ON gate: review aggregation resolves a finding whose citation is not a `> path:line:` quote by reading the cited file (worktree root, then scratchpad), appends a real evidence line and rates it verified; unresolved no-quote findings are not rated and always reach the fix feed (bd#90). =0 restores the old rate-and-withhold behaviour.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#90 - review citation fallback by file read - stays as a default-ON kill-switch (=0 restores the old behaviour)",
+    },
     "HAL_GREEN_GATE_GUARD": {
         "kind": "gate",
         "default": "1",
