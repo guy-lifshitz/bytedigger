@@ -48,8 +48,11 @@ logger = logging.getLogger(__name__)
 
 try:
     from bytedigger_engine.event_log import EventLog  # type: ignore[import]
+    from bytedigger_engine.event_log import default_log_path, run_scoped_log_path  # type: ignore[import]
 except ImportError:  # pragma: no cover — engine_py layout always provides it
     EventLog = None  # type: ignore[assignment,misc]
+    default_log_path = None  # type: ignore[assignment]
+    run_scoped_log_path = None  # type: ignore[assignment]
 
 from bytedigger_engine.lib.verdict_parse import find_last_standalone_marker  # type: ignore[import]  # noqa: E402
 from bytedigger_engine import llm_subprocess, telemetry_ctx  # noqa: E402  bd#82: the one model-call chokepoint
@@ -58,6 +61,28 @@ from bytedigger_engine.lib.findings_provenance import review_source_id  # noqa: 
 from bytedigger_engine.lib.model_config import get_claude_critical, get_claude_fallback  # type: ignore[import]  # noqa: E402
 from bytedigger_engine import config_provider  # noqa: E402  bd#102: stop-on-fatal kill switch
 from bytedigger_engine.contracts import StepResult  # noqa: E402  bd#247: stop result for a classified OSError
+
+
+def _run_event_log(ctx: Any) -> Any:
+    """bd#203: the event log a verifier event is appended to (run-scoped, not cwd-derived).
+
+    Ladder: kill switch HAL_SEMANTIC_VERIFY_RUN_LOG=0 -> default log; the active run's
+    own sink; a run-scoped log for the session / invocation run id; else the default log.
+    """
+    default = default_log_path() if default_log_path is not None else None
+    if not config_provider.get_config().gate_enabled("HAL_SEMANTIC_VERIFY_RUN_LOG"):
+        return EventLog(default)
+    run = telemetry_ctx.get_current_run()
+    sink = getattr(run, "event_log", None) if run is not None else None
+    if sink is not None:
+        return sink
+    run_id = getattr(ctx, "session_id", None) or telemetry_ctx.get_invocation_run_id()
+    if run_id and run_scoped_log_path is not None:
+        try:
+            return EventLog(run_scoped_log_path(run_id))
+        except ValueError as exc:
+            logger.warning("semantic_verify: run-scoped log unavailable for %r: %s", run_id, exc)
+    return EventLog(default)
 
 
 class _VerifierStop(Exception):
@@ -410,7 +435,7 @@ def verify_findings_semantic(ctx, prev) -> object:
             skip_duration_ms = int(time.monotonic() * 1000) - started_ms
             if EventLog is not None:
                 try:
-                    EventLog().append(
+                    _run_event_log(ctx).append(
                         "phase_6_semantic_verify_skipped",
                         {
                             "step_name": "verify_findings_semantic",
@@ -526,7 +551,7 @@ def verify_findings_semantic(ctx, prev) -> object:
             stop_duration_ms = int(time.monotonic() * 1000) - started_ms
             if EventLog is not None:
                 try:
-                    EventLog().append(
+                    _run_event_log(ctx).append(
                         "phase_6_semantic_verify_stopped",
                         {
                             "step_name": "verify_findings_semantic",
@@ -644,7 +669,7 @@ def verify_findings_semantic(ctx, prev) -> object:
 
     if EventLog is not None:
         try:
-            EventLog().append(
+            _run_event_log(ctx).append(
                 "phase_6_semantic_verify_complete",
                 {
                     "step_name": "verify_findings_semantic",

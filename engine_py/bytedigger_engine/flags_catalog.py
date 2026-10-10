@@ -394,6 +394,14 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#102 - semantic verifier stop on pause-lane and fatal codes - stays as a default-ON kill-switch (=0 restores tag-and-continue)",
     },
+    "HAL_SEMANTIC_VERIFY_RUN_LOG": {
+        "kind": "gate",
+        "default": "1",
+        "module": "lib/plugins/anti_hallucination/semantic_verifier.py",
+        "description": "Default-ON gate: the semantic verifier's skipped / stopped / complete events are appended to the run's own event log (the active run's sink, else the run-scoped log for the session or invocation run id) instead of the cwd-derived default log (bd#203). =0 restores the default-log append.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#203 - semantic verifier events landed in the cwd-derived default log, not the run's log - stays as a default-ON kill-switch (=0 restores the default-log append)",
+    },
     "HAL_REVIEW_CITATION_FALLBACK": {
         "kind": "gate",
         "default": "1",
