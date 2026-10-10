@@ -5,7 +5,7 @@ paths: [engine_py/bytedigger_engine/event_log.py, engine_py/bytedigger_engine/co
 ---
 # bd#261: run ids that differ only by case must not share a run directory
 
-**Status: DRAFT r1** · **Tier:** 2 (engine `.py`: spec, RED, gate, GREEN) · **Class:** BUG (split out of #203, from the #93 review)
+**Status: FROZEN (gate r3)** · **Tier:** 2 (engine `.py`: spec, RED, gate, GREEN) · **Class:** BUG (split out of #203, from the #93 review)
 **Base:** `origin/main` `d78089c`.
 **Chokepoint:** one check inside `run_scoped_log_path` in `engine_py/bytedigger_engine/event_log.py`, the only place a run id becomes a path (callers: `run.py`, the bd#203 helper in `semantic_verifier.py`; neither gets its own check). The switch is read in one place, `config_provider.run_id_case_guard_enabled()`.
 
