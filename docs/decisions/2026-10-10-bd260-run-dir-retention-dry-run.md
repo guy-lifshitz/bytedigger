@@ -1,11 +1,11 @@
 ---
 red_tests: [engine_py/tests/test_bd260_run_retention_dry_run.py]
-sibling_tests: [engine_py/tests/test_bd93_run_scoped_event_log.py, engine_py/tests/test_bd203_semantic_verifier_run_log.py]
-paths: [engine_py/bytedigger_engine/event_log.py, engine_py/bytedigger_engine/config_provider.py, engine_py/bytedigger_engine/run.py, engine_py/bytedigger_engine/flags_catalog.py, docs/configuration.md, CHANGELOG.md]
+sibling_tests: [engine_py/tests/test_bd93_run_scoped_event_log.py, engine_py/tests/test_bd203_semantic_verifier_run_log.py, engine_py/tests/test_bd94_engine_owned_paths.py, engine_py/tests/test_bd89_p3c_deterministic_synthesize_report.py, engine_py/tests/test_bd243_green_entry_guard.py]
+paths: [engine_py/bytedigger_engine/event_log.py, engine_py/bytedigger_engine/config_provider.py, engine_py/bytedigger_engine/run.py, engine_py/bytedigger_engine/flags_catalog.py, docs/configuration.md, CHANGELOG.md, engine_py/bytedigger_engine/conformance/tree_scan_inventory.json]
 ---
 # bd#260: run directory retention, first release is a dry-run
 
-**Status: DRAFT r2** · **Tier:** 2 (engine `.py`: spec, RED, gate, GREEN) · **Class:** BUG (follow-up of bd#93 / #203)
+**Status: DRAFT r3** · **Tier:** 2 (engine `.py`: spec, RED, gate, GREEN) · **Class:** BUG (follow-up of bd#93 / #203)
 **Base:** `origin/main` `48dd7de`.
 **Chokepoint:** one function `run_retention_dry_run(...)` in `engine_py/bytedigger_engine/event_log.py`, next to `run_scoped_log_path`, called from the one place in `run.py` that resolves the run id for an executing invocation. The age is read in one place, `config_provider.run_log_retention_days()`.
 
@@ -64,3 +64,7 @@ op1: AC5, AC6, AC12 · op2: AC1-AC4, AC10, AC11 · op3: AC5-AC7, AC9 · op4: AC8
 4. A bad setting or an unreadable root must not stop a run (AC4 dangling child, AC6, AC9).
 5. The routine in this release must be unable to delete: guarded on the whole module source, not on one function (AC11).
 6. Many directories must not flood the terminal: output is capped (AC7).
+
+## 7. Amendment after r2
+
+CI caught the tree-scan lint (bd#94): the two directory listings in `event_log.py` (`_newest_mtime`, `run_retention_dry_run`) were not classified in `engine_py/bytedigger_engine/conformance/tree_scan_inventory.json`. The sibling audit had missed the bd#94, bd#89 and bd#243 suites. Change: two inventory entries, class `not-a-gate` (the scan only lists candidates for the dry-run report; it deletes and decides nothing), each noting that the class must be revisited when real deletion lands; the three suites join `sibling_tests`. No RED test changes.
