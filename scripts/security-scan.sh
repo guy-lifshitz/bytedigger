@@ -46,6 +46,9 @@ else
   PAT_AUTH="$(bound 'auth|authenticat[[:alnum:]_]*|authoriz[[:alnum:]_]*|authz|authn|login|jwt|oauth2?|saml|rbac|passw(or)?ds?|credentials?|ldap|csrf|xsrf|2fa|mfa|totp|user[_ -]?tokens?|(user|login|web|http)[_ -]?sessions?|session[_ -]?(id|ids|cookie|secret|store|middleware|manager|fixation|hijack[[:alnum:]_]*)')"
   PAT_CRYPTO="$(bound 'encrypt[[:alnum:]_]*|decrypt[[:alnum:]_]*|crypto[[:alnum:]_]*|cipher|hmac|bcrypt|argon2|pbkdf2|(private|public)[_ -]?keys?|certificates?|sign(s|ed|ing)?[_ -]?(webhook|payload|request|jwt|token|cookie|message)s?')"
   PAT_SECRETS="$(bound 'api[_ -]?keys?|secrets?|(refresh|access|auth|bearer|csrf|id|api)[_ -]?tokens?|token[_ -]?(store|vault|secret)|id[_-]?(rsa|ed25519|ecdsa)|ssh[_ -]?keys?|keychain|vault')|(^|[[:space:]\"'/(=])\\.env([^[:alnum:]]|\$)"
+  # Identifier form of the session token. Matched case-sensitively on raw text
+  # only: split_ids would turn sessionToken into the prose "session token".
+  PAT_SECRETS_ID='(^|[^[:alnum:]])([Ss]ession_?[Tt]oken|SESSION_?TOKEN)(s?)([^[:lower:]]|$)'
 fi
 
 # Default mode: put a space at identifier word boundaries (authService ->
@@ -105,6 +108,10 @@ scan_file() {
       fi
     fi
   done
+  if [[ $LEGACY -eq 0 ]]; then
+    out="$(LC_ALL=C grep -m1 -n -a -E -e "$PAT_SECRETS_ID" -- "$file" 2>/dev/null || true)"
+    [[ -n "$out" ]] && note_hit SECRETS "$file:${out%%:*}"
+  fi
   return 0
 }
 
@@ -118,6 +125,10 @@ scan_text() {
     spl="$(printf '%s\n' "$text" | split_ids 2>/dev/null | LC_ALL=C grep -m1 -a -iE -e "$pat" 2>/dev/null || true)"
     [[ -n "$out" || -n "$spl" ]] && note_hit "$cat" "$label"
   done
+  if [[ $LEGACY -eq 0 ]]; then
+    out="$(printf '%s\n' "$text" | LC_ALL=C grep -m1 -a -E -e "$PAT_SECRETS_ID" 2>/dev/null || true)"
+    [[ -n "$out" ]] && note_hit SECRETS "$label"
+  fi
   return 0
 }
 
