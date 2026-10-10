@@ -382,7 +382,7 @@ FLAGS: dict[str, dict] = {
         "kind": "gate",
         "default": "1",
         "module": "lib/plugins/anti_hallucination/semantic_verifier.py",
-        "description": "Default-ON gate: the phase_6 semantic verifier stops and returns the chokepoint error on a pause-lane or fatal code (E_LLM_SPEND_LIMIT, E_CAPABILITY_ESCAPE, E_LLM_BACKEND_UNKNOWN, E_LLM_RUN_ID_MISSING) instead of tagging the finding UNVERIFIED (bd#102). =0 restores tag-and-continue.",
+        "description": "Default-ON gate: the phase_6 semantic verifier stops and returns the chokepoint error on any code in llm_subprocess.FATAL_ERROR_CODES (pause-lane spend limit, write-tool escape, unusable backend, missing binary, unmet model or tool contract, unattributed injection), and on a FileNotFoundError or PermissionError out of the call, instead of tagging the finding UNVERIFIED (bd#102, bd#247). Transient codes still tag and continue. =0 restores tag-and-continue for all of them.",
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#102 - semantic verifier stop on pause-lane and fatal codes - stays as a default-ON kill-switch (=0 restores tag-and-continue)",
     },
