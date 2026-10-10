@@ -60,7 +60,39 @@ from bytedigger_engine.conformance.attest import (  # bd#10: the attestation sea
 )
 from bytedigger_engine.lib import model_config as _model_config
 from bytedigger_engine.lib import llm_cost  # bd#167: pure cost/billing helpers (called via the module attribute)
-from bytedigger_engine.lib.env_limit import detect_env_limit
+from bytedigger_engine.lib.env_limit import PAUSE_LANE_ERROR_CODES, detect_env_limit
+
+# bd#247: error codes on which every further call of the same step is doomed or
+# unsafe (spend limit, a write-tool escape, an unusable or unconfigured backend, a
+# missing binary, a model or tool contract the backend cannot honour, an
+# unattributed injection). Any other code, including one not seen before, is transient.
+FATAL_ERROR_CODES: frozenset[str] = PAUSE_LANE_ERROR_CODES | {
+    "E_CAPABILITY_ESCAPE",
+    "E_LLM_BACKEND_UNKNOWN",
+    "E_LLM_RUN_ID_MISSING",
+    "E_LLM_CMD_MISSING",
+    "E_LLM_BACKEND_NO_MANIFEST",
+    "E_MODEL_PIN_MISMATCH",
+    "E_INJECT_UNATTRIBUTED",
+    "E_TOOL_RESTRICTION_UNSUPPORTED",
+}
+
+
+def is_fatal_error_code(code: str | None) -> bool:
+    """True when ``code`` is in FATAL_ERROR_CODES; ``None``, ``""`` and unknown codes are transient."""
+    return code in FATAL_ERROR_CODES
+
+
+def classify_os_error(exc: BaseException) -> str | None:
+    """Map an OSError raised out of a model call to a fatal code, or None when it is transient.
+
+    A missing binary or no right to run it is fixed by a human, not by the next call.
+    Every other OSError (timeout, connection, broken pipe, resource exhaustion) can pass.
+    """
+    if isinstance(exc, (FileNotFoundError, PermissionError)):
+        return "E_LLM_CMD_MISSING"
+    return None
+
 
 try:
     from bytedigger_engine.lib.observability.emit_resolver import emit_resolver_resolved
