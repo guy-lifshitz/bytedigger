@@ -66,6 +66,14 @@ model is of a different family than the requested one (the family is the
 lowercased leading run of ASCII letters of the id); ADV-10 is defended iff
 `attest.capability_escapes(observed, declared)` is non-empty. The same family,
 or no escape, is undefended; an id with no family is indeterminate.
+bd#273 adds ADV-8 -> `attribute_block(content) -> Mapping`, called three times
+with fixed contents (two controls that differ, then a probe content with a
+non-ASCII character and a line break). The mapping carries "source_id" (the
+identifier the host gave the injected block) and "digest" (the host's digest of
+the content). ADV-8 is defended iff the source id is exactly a str, non-empty
+after `str.strip()`, and the digest equals `attest.hash_text(content)` exactly
+(the "sha256:" prefix and lowercase hex; no stripping, no case folding);
+anything else well formed is undefended.
 Rules for every optional operation:
   1. Absent or None attribute: `not_executed`, the adapter is not called.
   2. Guarded like `freeze`: daemon worker plus `timeout_s`; a raise, timeout,
@@ -74,7 +82,8 @@ Rules for every optional operation:
      "accepted" value of exactly bool; for ADV-7 not a mapping with
      "model_requested" and "model_observed" each exactly a non-empty str; for
      ADV-10 not a mapping with "tools_declared" and "tools_observed" each a list
-     or tuple whose items are all exactly str) is `indeterminate`;
+     or tuple whose items are all exactly str; for ADV-8 not a mapping with a
+     "digest" of exactly str) is `indeterminate`;
      KeyboardInterrupt and SystemExit propagate.
   3. A control is asked first. ADV-3: a yes there is `undefended`. ADV-4/5: the
      control (fault None) must be recorded as passed, otherwise `indeterminate`
@@ -83,6 +92,9 @@ Rules for every optional operation:
      the control (fault None) must show no family mismatch / no tool escape,
      otherwise `indeterminate` and the fault call is not made. For ADV-4 to
      ADV-7 and ADV-10 a control answered wrongly is therefore `indeterminate`.
+     ADV-8: two control contents are asked first and their digests must differ,
+     otherwise `indeterminate` and the probe call is not made; the controls
+     judge digests only.
   4. Shadow: the outcome is reported as `shadow:<outcome>` and never counts
      toward a level.
   5. `adapter_ops="shadow" | "off"` (default "shadow"); "off" records every
@@ -616,6 +628,52 @@ def _probe_tool_set(method, timeout_s: float) -> str:
     return OUTCOME_UNDEFENDED
 
 
+#: Fixed contents handed to a host's attribution operation (bd#273): two
+#: control contents that differ, and a probe content with a non-ASCII character
+#: and a line break, so the encoding and the exact bytes are judged.
+_ATTRIBUTION_CONTROL_A = "attribution control alpha"
+_ATTRIBUTION_CONTROL_B = "attribution control beta"
+_ATTRIBUTION_PROBE = "attribution probe café\nsecond line"
+
+
+def _attribution_of(answer):
+    """Return (has_source_id, digest) of an attribution answer, or None."""
+    if not isinstance(answer, _Mapping):
+        return None
+    if "digest" not in answer:
+        return None
+    digest = answer.get("digest")
+    if type(digest) is not str:
+        return None
+    source_id = answer.get("source_id")
+    has_source_id = type(source_id) is str and bool(source_id.strip())
+    return (has_source_id, digest)
+
+
+def _probe_attribution(method, timeout_s: float) -> str:
+    """ADV-8 through the host's attribution: two controls, then the probe."""
+    first = _guarded_value_call(
+        method, _ATTRIBUTION_CONTROL_A, timeout_s, _attribution_of
+    )
+    if first is _INDETERMINATE_CALL or first is None:
+        return OUTCOME_INDETERMINATE
+    second = _guarded_value_call(
+        method, _ATTRIBUTION_CONTROL_B, timeout_s, _attribution_of
+    )
+    if second is _INDETERMINATE_CALL or second is None:
+        return OUTCOME_INDETERMINATE
+    if first[1] == second[1]:
+        return OUTCOME_INDETERMINATE
+    answer = _guarded_value_call(
+        method, _ATTRIBUTION_PROBE, timeout_s, _attribution_of
+    )
+    if answer is _INDETERMINATE_CALL or answer is None:
+        return OUTCOME_INDETERMINATE
+    if answer[0] and answer[1] == _attest.hash_text(_ATTRIBUTION_PROBE):
+        return OUTCOME_DEFENDED
+    return OUTCOME_UNDEFENDED
+
+
 #: Optional adapter operations: adversary name -> (method name, probe function).
 _ADAPTER_OPS = {
     "ADV-3": ("lint_vacuity", _probe_lint_vacuity),
@@ -624,6 +682,7 @@ _ADAPTER_OPS = {
     "ADV-5": ("record_gate_step", _step_probe("gate_raises", "failed")),
     "ADV-6": ("admit_ledger_row", _probe_ledger_rows),
     "ADV-7": ("attest_step", _probe_model_family),
+    "ADV-8": ("attribute_block", _probe_attribution),
     "ADV-10": ("attest_step", _probe_tool_set),
 }
 
