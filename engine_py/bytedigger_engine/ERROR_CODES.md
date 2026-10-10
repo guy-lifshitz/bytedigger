@@ -326,6 +326,10 @@
 
 - `E_ROLE_TEMPLATE_INVALID` — role_template: configured org_config.role_template_path is missing, not a regular file, unreadable, oversized, not UTF-8, NUL-bearing, empty or not a string (bd#119)
 
+## E_RUN
+
+- `E_RUN_ID_CASE_COLLISION` — event_log: a run id differs only by case from an existing run directory, so on a case-insensitive filesystem both would share one directory; the id is refused (bd#261)
+
 ## E_RUNNER
 
 - `E_RUNNER` — run.py: the phase runner itself raised an unhandled error
