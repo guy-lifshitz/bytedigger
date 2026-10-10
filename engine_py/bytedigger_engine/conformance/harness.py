@@ -37,10 +37,27 @@ HOST-ADAPTER SEAM (bd#195, `docs/decisions/2026-10-02-bd195-harness-adapter-seam
 `run_adversaries(adapter=...)` runs ADV-1 and ADV-2 through the caller's adapter
 (freeze, control, mutate, attack) instead of the engine's own probes. Every other
 adversary is `not_executed` under an adapter, so an adapter attestation tops out
-at BD-L1 (ADV-3..ADV-10 stay unexecuted until bd#197). An adapter that fails,
+at BD-L1 unless an optional operation is offered. An adapter that fails,
 hangs or answers badly yields `indeterminate`, which sinks the level like
 `errored`. `adapter_identity` reads the identity from the adapter itself, and
 the CLI (`--adapter module:factory`) publishes the attestation.
+
+OPTIONAL ADAPTER OPERATIONS (bd#197, `docs/decisions/2026-10-10-bd197-adapter-vacuity-lint-op.md`).
+The adapter interface is two required operations (`freeze`, `evaluate`) plus
+optional operations, one per adversary group. ADV-3 -> `lint_vacuity(path) -> bool`
+(True iff the host's lint flags the RED test file at `path` as vacuous).
+Rules for every optional operation:
+  1. Absent or None attribute: `not_executed`, the adapter is not called.
+  2. Guarded like `freeze`: daemon worker plus `timeout_s`; a raise, timeout,
+     non-callable or non-bool answer is `indeterminate`; KeyboardInterrupt and
+     SystemExit propagate.
+  3. A control file is asked first; a yes there is `undefended`.
+  4. Shadow: the outcome is reported as `shadow:<outcome>` and never counts
+     toward a level.
+  5. `adapter_ops="shadow" | "off"` (default "shadow"); "off" records every
+     optional operation as `not_executed` and never calls it. Anything else
+     raises ValueError. CLI: `--adapter-ops {shadow,off}`.
+  6. `adapter=None` is untouched.
 """
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
@@ -335,6 +352,95 @@ def _adapter_adversary(adapter, name: str, timeout_s: float) -> str:
         return OUTCOME_INDETERMINATE
 
 
+_CONTROL_RED = '''\
+from unittest.mock import patch
+from mypkg.subject import compute_digest
+
+def test_thing():
+    with patch("mypkg.subject.read_clock") as m:
+        m.return_value = 0
+        assert compute_digest("a") == compute_digest("a")
+'''
+
+def _guarded_bool_call(fn, arg, timeout_s):
+    """Call `fn(arg)` on a daemon worker; return a bool, or None if indeterminate.
+
+    KeyboardInterrupt and SystemExit are re-raised; a timeout, any other
+    Exception, or a non-bool result yields None.
+    """
+    box: "dict[str, object]" = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = fn(arg)
+        except BaseException as exc:  # noqa: BLE001 — triaged below, in the caller
+            box["exc"] = exc
+
+    worker = _threading.Thread(
+        target=_run, name="conformance-op-guard", daemon=True
+    )
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        return None
+    if "exc" in box:
+        exc = box["exc"]
+        if not isinstance(exc, Exception):
+            raise exc  # type: ignore[misc]
+        return None
+    value = box.get("value")
+    if not isinstance(value, bool):
+        return None
+    return value
+
+
+def _probe_lint_vacuity(method, timeout_s: float) -> str:
+    """ADV-3 through the host's lint: control first, then the vacuous file."""
+    with _tempfile.TemporaryDirectory() as tmp:
+        root = _Path(tmp)
+        control = root / "test_control.py"
+        vacuous = root / "test_vacuous.py"
+        control.write_text(_CONTROL_RED, encoding="utf-8")
+        vacuous.write_text(_VACUOUS_RED, encoding="utf-8")
+        flagged_control = _guarded_bool_call(method, control, timeout_s)
+        if flagged_control is None:
+            return OUTCOME_INDETERMINATE
+        if flagged_control:
+            return OUTCOME_UNDEFENDED
+        flagged = _guarded_bool_call(method, vacuous, timeout_s)
+        if flagged is None:
+            return OUTCOME_INDETERMINATE
+        return OUTCOME_DEFENDED if flagged else OUTCOME_UNDEFENDED
+
+
+#: Optional adapter operations: adversary name -> (method name, probe function).
+_ADAPTER_OPS = {
+    "ADV-3": ("lint_vacuity", _probe_lint_vacuity),
+}
+
+_ADAPTER_OPS_MODES = ("shadow", "off")
+
+
+def _optional_op(adapter, name: str, adapter_ops: str, timeout_s: float) -> str:
+    """Apply rules 1-5 for the optional operation of adversary `name`."""
+    if adapter_ops == "off":
+        return _tokens.ADVERSARY_NOT_EXECUTED
+    method_name, probe = _ADAPTER_OPS[name]
+    try:
+        method = getattr(adapter, method_name, None)
+    except Exception:  # noqa: BLE001 — a failing attribute read is indeterminate
+        return "shadow:" + OUTCOME_INDETERMINATE
+    if method is None:
+        return _tokens.ADVERSARY_NOT_EXECUTED
+    if not callable(method):
+        return "shadow:" + OUTCOME_INDETERMINATE
+    try:
+        outcome = probe(method, timeout_s)
+    except Exception:  # noqa: BLE001 — under an adapter a failure is indeterminate
+        outcome = OUTCOME_INDETERMINATE
+    return "shadow:" + outcome
+
+
 def adapter_identity(adapter) -> "dict[str, str]":
     """Return exactly `{"backend", "source"}` read from `adapter.identity`.
 
@@ -365,6 +471,7 @@ def run_adversaries(
     *,
     adapter: "object | None" = None,
     timeout_s: float = 30.0,
+    adapter_ops: str = "shadow",
 ) -> "dict[str, str]":
     """Execute the adversaries against this host; return name -> outcome.
 
@@ -373,14 +480,24 @@ def run_adversaries(
     absence of checking.
 
     With `adapter`, only ADV-1 and ADV-2 run (through the adapter); every other
-    name is `not_executed` and the adapter is not called for it.
+    name is `not_executed` and the adapter is not called for it, except the
+    optional operations (`_ADAPTER_OPS`), reported as `shadow:<outcome>`
+    unless `adapter_ops="off"`. `adapter_ops` must be "shadow" or "off".
     """
+    if not isinstance(adapter_ops, str) or adapter_ops not in _ADAPTER_OPS_MODES:
+        raise ValueError(
+            f"adapter_ops must be one of {_ADAPTER_OPS_MODES}, got {adapter_ops!r}"
+        )
     names = tuple(only) if only is not None else ADVERSARIES
     outcomes: "dict[str, str]" = {}
     for name in names:
         if adapter is not None:
             if name in _ADAPTER_ADVERSARIES:
                 outcomes[name] = _adapter_adversary(adapter, name, timeout_s)
+            elif name in _ADAPTER_OPS:
+                outcomes[name] = _optional_op(
+                    adapter, name, adapter_ops, timeout_s
+                )
             else:
                 outcomes[name] = _tokens.ADVERSARY_NOT_EXECUTED
             continue
@@ -503,6 +620,8 @@ def _main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--host-identity", required=True)
     parser.add_argument("--timestamp", default=None)
     parser.add_argument("--timeout-s", type=float, default=30.0)
+    parser.add_argument("--adapter-ops", choices=_ADAPTER_OPS_MODES,
+                        default="shadow")
     parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)  # usage errors exit 2, nothing on stdout
 
@@ -524,7 +643,9 @@ def _main(argv: "list[str] | None" = None) -> int:
     timestamp = args.timestamp or (
         datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
-    outcomes = run_adversaries(adapter=adapter, timeout_s=args.timeout_s)
+    outcomes = run_adversaries(
+        adapter=adapter, timeout_s=args.timeout_s, adapter_ops=args.adapter_ops
+    )
     att = build_attestation(
         outcomes,
         level_claimed=args.level_claimed,
