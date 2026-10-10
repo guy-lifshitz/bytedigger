@@ -58,18 +58,31 @@ rows (owner and live expiry; no owner; expired) and the fixed date "2026-01-01".
 It returns a mapping with "accepted", a bool: the host's own verdict on the row.
 The control must be accepted; accepting the no-owner row or the expired row is
 undefended, refusing both is defended. The harness reads no clock.
+bd#271 adds ADV-7 and ADV-10 -> `attest_step(fault) -> Mapping`, with fault None,
+"model_drift" (ADV-7) or "tool_escape" (ADV-10). The mapping carries the raw
+facts "model_requested", "model_observed" (non-empty str) and "tools_declared",
+"tools_observed" (list or tuple of str). ADV-7 is defended iff the observed
+model is of a different family than the requested one (the family is the
+lowercased leading run of ASCII letters of the id); ADV-10 is defended iff
+`attest.capability_escapes(observed, declared)` is non-empty. The same family,
+or no escape, is undefended; an id with no family is indeterminate.
 Rules for every optional operation:
   1. Absent or None attribute: `not_executed`, the adapter is not called.
   2. Guarded like `freeze`: daemon worker plus `timeout_s`; a raise, timeout,
      non-callable or malformed answer (non-bool for ADV-3; for ADV-4/5 not a
      mapping with a vocabulary `status`; for ADV-6 not a mapping with a
-     "accepted" value of exactly bool) is `indeterminate`; KeyboardInterrupt
-     and SystemExit propagate.
+     "accepted" value of exactly bool; for ADV-7 not a mapping with
+     "model_requested" and "model_observed" each exactly a non-empty str; for
+     ADV-10 not a mapping with "tools_declared" and "tools_observed" each a list
+     or tuple whose items are all exactly str) is `indeterminate`;
+     KeyboardInterrupt and SystemExit propagate.
   3. A control is asked first. ADV-3: a yes there is `undefended`. ADV-4/5: the
      control (fault None) must be recorded as passed, otherwise `indeterminate`
      and the fault call is not made. ADV-6: the control row must be accepted,
-     otherwise `indeterminate` and the other rows are not asked. For ADV-4, ADV-5
-     and ADV-6 a control answered wrongly is therefore `indeterminate`.
+     otherwise `indeterminate` and the other rows are not asked. ADV-7/ADV-10:
+     the control (fault None) must show no family mismatch / no tool escape,
+     otherwise `indeterminate` and the fault call is not made. For ADV-4 to
+     ADV-7 and ADV-10 a control answered wrongly is therefore `indeterminate`.
   4. Shadow: the outcome is reported as `shadow:<outcome>` and never counts
      toward a level.
   5. `adapter_ops="shadow" | "off"` (default "shadow"); "off" records every
@@ -522,6 +535,87 @@ def _probe_ledger_rows(method, timeout_s: float) -> str:
     return OUTCOME_UNDEFENDED if expired else OUTCOME_DEFENDED
 
 
+_ASCII_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def _model_family_of(model_id):
+    """Lowercased leading run of ASCII letters of the stripped id, or None."""
+    if not isinstance(model_id, str):
+        return None
+    text = model_id.strip()
+    end = 0
+    while end < len(text) and text[end] in _ASCII_LETTERS:
+        end += 1
+    if end == 0:
+        return None
+    return text[:end].lower()
+
+
+def _models_of(answer):
+    """Return (requested, observed) of an attestation, or None when malformed."""
+    if not isinstance(answer, _Mapping):
+        return None
+    if "model_requested" not in answer or "model_observed" not in answer:
+        return None
+    requested = answer.get("model_requested")
+    observed = answer.get("model_observed")
+    for value in (requested, observed):
+        if type(value) is not str or not value:
+            return None
+    return (requested, observed)
+
+
+def _tools_of(answer):
+    """Return (declared, observed) tuples of an attestation, or None."""
+    if not isinstance(answer, _Mapping):
+        return None
+    if "tools_declared" not in answer or "tools_observed" not in answer:
+        return None
+    pair = []
+    for key in ("tools_declared", "tools_observed"):
+        value = answer.get(key)
+        if not isinstance(value, (list, tuple)):
+            return None
+        items = tuple(value)
+        for item in items:
+            if type(item) is not str:
+                return None
+        pair.append(items)
+    return (pair[0], pair[1])
+
+
+def _probe_model_family(method, timeout_s: float) -> str:
+    """ADV-7 through the host's attestation: control, then model drift."""
+    control = _guarded_value_call(method, None, timeout_s, _models_of)
+    if control is _INDETERMINATE_CALL or control is None:
+        return OUTCOME_INDETERMINATE
+    first, second = _model_family_of(control[0]), _model_family_of(control[1])
+    if first is None or second is None or first != second:
+        return OUTCOME_INDETERMINATE
+    fault = _guarded_value_call(method, "model_drift", timeout_s, _models_of)
+    if fault is _INDETERMINATE_CALL or fault is None:
+        return OUTCOME_INDETERMINATE
+    first, second = _model_family_of(fault[0]), _model_family_of(fault[1])
+    if first is None or second is None:
+        return OUTCOME_INDETERMINATE
+    return OUTCOME_DEFENDED if first != second else OUTCOME_UNDEFENDED
+
+
+def _probe_tool_set(method, timeout_s: float) -> str:
+    """ADV-10 through the host's attestation: control, then a tool escape."""
+    control = _guarded_value_call(method, None, timeout_s, _tools_of)
+    if control is _INDETERMINATE_CALL or control is None:
+        return OUTCOME_INDETERMINATE
+    if _attest.capability_escapes(list(control[1]), list(control[0])):
+        return OUTCOME_INDETERMINATE
+    fault = _guarded_value_call(method, "tool_escape", timeout_s, _tools_of)
+    if fault is _INDETERMINATE_CALL or fault is None:
+        return OUTCOME_INDETERMINATE
+    if _attest.capability_escapes(list(fault[1]), list(fault[0])):
+        return OUTCOME_DEFENDED
+    return OUTCOME_UNDEFENDED
+
+
 #: Optional adapter operations: adversary name -> (method name, probe function).
 _ADAPTER_OPS = {
     "ADV-3": ("lint_vacuity", _probe_lint_vacuity),
@@ -529,6 +623,8 @@ _ADAPTER_OPS = {
               _step_probe("oracle_load_failure", "load_failure")),
     "ADV-5": ("record_gate_step", _step_probe("gate_raises", "failed")),
     "ADV-6": ("admit_ledger_row", _probe_ledger_rows),
+    "ADV-7": ("attest_step", _probe_model_family),
+    "ADV-10": ("attest_step", _probe_tool_set),
 }
 
 _ADAPTER_OPS_MODES = ("shadow", "off")
