@@ -78,6 +78,7 @@
     "lib/red_write_boundary.py::_status_paths::git_read#0": {"class": "not-prompt", "note": "git status path set compared before and after RED"},
     "lib/red_write_boundary.py::resolve_main_repo_root::git_read#0": {"class": "not-prompt", "note": "git common-dir probe used as a path"},
     "lib/reference_backends/anthropic_oauth.py::get_access_token::read_text#0": {"class": "not-prompt", "note": "credentials file read for a bearer token; the token goes in an HTTP header"},
+    "lib/reference_backends/openai_compat.py::_post_chat_completions::.open#0": {"class": "not-prompt", "note": "HTTP response of the model call, bounded to 16 MiB and returned as raw_response; consumers carry it as class M"},
     "lib/reference_backends/pydantic_openai.py::_run_shell::subprocess.Popen#0": {"class": "not-prompt", "note": "agentic backend shell tool; output goes back to the model as a tool result inside the backend loop, outside the engine prompt chokepoint"},
     "lib/reference_backends/pydantic_openai.py::_run_shell::subprocess.Popen#1": {"class": "not-prompt", "note": "agentic backend shell tool (bounded variant); output goes back to the model as a tool result inside the backend loop, outside the engine prompt chokepoint"},
     "lib/reference_backends/pydantic_openai.py::_tool_edit_file::read_text#0": {"class": "not-prompt", "note": "file read to apply a search/replace edit; the file is rewritten, not returned"},
