@@ -1572,6 +1572,65 @@ def _verify_finding_quote(
     return "suspect-no-match", "FABRICATED-CANDIDATE"
 
 
+# bd#90: citation fallback — a finding with no `> path:line:` quote line is
+# resolved by reading the cited file; at most this many candidates are tried.
+_CITATION_FALLBACK_MAX_CANDIDATES = 5
+_CITATION_TOKEN_SPLIT_RE = re.compile(r"[\s`'\"()\[\]*,]+")
+_CITATION_TOKEN_RE = re.compile(r"^([^:]*\.[A-Za-z0-9]+):(\d+)(?:-\d+)?$")
+
+
+def _resolve_unquoted_citation(
+    block: str,
+    file_cache: dict[str, list[str] | None],
+    base_dir: Path,
+    fallback_dir: Path | None,
+) -> tuple[str, str, str, int] | None:
+    """bd#90: resolve a no-quote finding by reading the file it cites.
+
+    Scans ``block`` for up to ``_CITATION_FALLBACK_MAX_CANDIDATES`` relative
+    ``path.ext:line`` (or ``path.ext:line-line``, first line used) tokens, in
+    order of appearance. A candidate resolves when the file exists under
+    ``base_dir`` (first) or ``fallback_dir``, stays inside that root, is a
+    regular file within ``_QUOTE_FILE_MAX_BYTES`` and the line exists and is not
+    blank. Returns ``(verify_status, reason, path, line)`` for the first
+    resolving candidate, else None. Local file reads only; no model call.
+    """
+    tried = 0
+    for token in _CITATION_TOKEN_SPLIT_RE.split(block):
+        token = token.rstrip(".:")
+        m = _CITATION_TOKEN_RE.match(token)
+        if not m or "://" in token:
+            continue
+        rel, lineno = m.group(1), int(m.group(2))
+        if rel.startswith(("/", "\\")) or re.fullmatch(r"[0-9.]+", rel):
+            continue
+        tried += 1
+        if tried > _CITATION_FALLBACK_MAX_CANDIDATES:
+            break
+        try:
+            root_dir = base_dir
+            path = base_dir / rel
+            if not path.exists() and fallback_dir is not None:
+                root_dir, path = fallback_dir, fallback_dir / rel
+            if not path.resolve().is_relative_to(root_dir.resolve()):
+                continue
+            if not path.is_file() or path.stat().st_size > _QUOTE_FILE_MAX_BYTES:
+                continue
+            cache_key = str(path)
+            if cache_key not in file_cache:
+                try:
+                    file_cache[cache_key] = path.read_text(encoding="utf-8").splitlines()
+                except (OSError, UnicodeDecodeError):
+                    file_cache[cache_key] = None
+        except OSError:
+            continue
+        lines = file_cache[cache_key]
+        if lines is None or lineno < 1 or lineno > len(lines) or not lines[lineno - 1].strip():
+            continue
+        return "verified-resolved", "OK-RESOLVED-BY-READ", rel, lineno
+    return None
+
+
 def _aggregate_review_findings(ctx, prev) -> StepResult:
     """Deterministic aggregation of the composite review file.
 
@@ -1677,6 +1736,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
     filtered_findings: list[dict] = []  # 1F39FB1A: always empty (no drops); retained for audit compat
     match_kinds: dict[str, int] = {}
     target_root = _resolve_worktree_root(ctx, scratchpad)
+    citation_fallback = get_config().gate_enabled("HAL_REVIEW_CITATION_FALLBACK")  # bd#90
     for f in all_findings:
         # 3F5599A6 A2: fallback_dir=scratchpad — pipeline artifacts (reviews/*.md,
         # spec.md, role files) live in the scratchpad, not the worktree; consulted
@@ -1684,9 +1744,32 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         verify_status, reason = _verify_finding_quote(
             f["block"], file_cache, base_dir=target_root, fallback_dir=scratchpad
         )
+        if verify_status == "suspect-no-quote" and citation_fallback:
+            # bd#90: read the cited file instead of judging the citation by its
+            # shape; an unresolved one is not rated and is always fed.
+            hit = _resolve_unquoted_citation(f["block"], file_cache, target_root, scratchpad)
+            if hit is None:
+                f["keep_in_feed"] = True
+            else:
+                verify_status, reason, hit_path, hit_line = hit
+                hit_file = target_root / hit_path
+                if not hit_file.exists():
+                    hit_file = scratchpad / hit_path
+                evidence = (file_cache.get(str(hit_file)) or [""])[hit_line - 1]
+                f["block"] = f["block"].rstrip("\n") + f"\n> {hit_path}:{hit_line}: {evidence}\n"
+                _emit_safe("review_citation_resolved", {
+                    "phase": "phase_6_review",
+                    "role": f.get("role"),
+                    "severity": f.get("severity"),
+                    "title": f.get("title"),
+                    "reason": reason,
+                    "path": hit_path,
+                    "line": hit_line,
+                })
         f["verify_status"] = verify_status
         f["verify_reason"] = reason
-        match_kinds[verify_status] = match_kinds.get(verify_status, 0) + 1
+        if not f.get("keep_in_feed"):
+            match_kinds[verify_status] = match_kinds.get(verify_status, 0) + 1
     # all_findings NOT replaced — every finding kept.
 
     # 1F39FB1A: emit composite_finding_quote_verified for ALL findings (replaces
@@ -1744,6 +1827,7 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
                     }
                     for _f in all_findings
                     if str(_f.get("verify_status", "")).startswith("suspect")
+                    and not _f.get("keep_in_feed")  # bd#90: unrated
                 ],
             })
 
@@ -1768,6 +1852,9 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
             continue
         kept = seen[key]
         if kept.get("verify_status", "").startswith("suspect") and f.get("verify_status", "").startswith("verified"):
+            seen[key], f = f, kept
+        elif f.get("keep_in_feed") and not kept.get("keep_in_feed") and kept.get("verify_status", "").startswith("suspect"):
+            # bd#90: a rated suspect must not hide an unrated (always-fed) duplicate
             seen[key], f = f, kept
         overlaps.setdefault(key, []).append(f["role"])
 
@@ -1918,11 +2005,12 @@ def _aggregate_review_findings(ctx, prev) -> StepResult:
         # artifact a human and the satisfaction evaluator actually read —
         # stable marker line. rate/threshold are pre-dedup (matches the
         # reviewer_suspect_rate event's source); withheld is POST-dedup
-        # (len(suspect_findings)) — what actually gets left out of the fix
-        # feed, matching fix_feed_suspect_withheld.withheld_count.
+        # (suspects not marked keep_in_feed, bd#90) — what actually gets left
+        # out of the fix feed, matching fix_feed_suspect_withheld.withheld_count.
         out.append(
             f"SUSPECT FINDINGS WITHHELD FROM FIX WORKER: rate={suspect_rate} "
-            f"threshold={_REVIEWER_SUSPECT_RATE_THRESHOLD} withheld={len(suspect_findings)}"
+            f"threshold={_REVIEWER_SUSPECT_RATE_THRESHOLD} "
+            f"withheld={sum(1 for f in suspect_findings if not f.get('keep_in_feed'))}"
         )
     out.append("")
     _emit_safe("review_findings_audit", findings_audit)
@@ -2076,10 +2164,13 @@ def _persist_fix_feed(
         # This derivation path is already observable via the existing
         # 'stdout_fallback_used' event emitted on the same branch upstream —
         # no new event is introduced here (GH402 orphan-emit gate).
-    withheld_count = len(suspect) if suspect_withhold else 0
-    content = _render_fix_doc(verified, verdict, None if suspect_withhold else suspect)
+    # bd#90: a suspect the aggregator marked keep_in_feed (unrated, citation not
+    # judgeable) is rendered even when the rated suspects are withheld.
+    kept = [s for s in suspect if isinstance(s, dict) and s.get("keep_in_feed")] if suspect_withhold else []
+    withheld_count = len(suspect) - len(kept) if suspect_withhold else 0
+    content = _render_fix_doc(verified, verdict, (kept or None) if suspect_withhold else suspect)
     if withheld_count:
-        _total = len(verified) + len(suspect)
+        _total = len(verified) + len(suspect) - len(kept)
         _rate = (withheld_count / _total) if _total else 0.0
         content += (
             "\n## Suspect Findings Withheld\n\n"
