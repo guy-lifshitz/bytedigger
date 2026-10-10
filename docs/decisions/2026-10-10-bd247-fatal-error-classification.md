@@ -1,3 +1,14 @@
+---
+red_tests:
+  - engine_py/tests/test_bd247_fatal_error_classification.py
+paths:
+  - engine_py/bytedigger_engine/llm_subprocess.py
+  - engine_py/bytedigger_engine/lib/plugins/anti_hallucination/semantic_verifier.py
+  - engine_py/bytedigger_engine/flags_catalog.py
+  - CHANGELOG.md
+  - engine_py/tests/test_bd102_semantic_verifier_stop_codes.py
+---
+
 # bd#247: one fatal/transient classification of chokepoint error codes, read by the semantic verifier
 
 **Status: DRAFT r1** · **Class:** BUG (follow-up of bd#102 / #246)
