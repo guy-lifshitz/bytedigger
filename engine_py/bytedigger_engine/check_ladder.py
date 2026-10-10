@@ -40,6 +40,7 @@ __all__ = [
     "DEFAULT_TIMEOUT_S",
     "run_classifier",
     "prescreen",
+    "script_findings",
     "main",
 ]
 
@@ -161,6 +162,25 @@ def _validate(findings: Any, classifier_cmd: Any, mode: Any, threshold: Any, tim
             raise ValueError("finding rule and detail must be strings")
         if f.get("severity") not in _SEVERITIES:
             raise ValueError("finding severity must be MAJOR or MINOR")
+
+
+def script_findings(rung: Any) -> List[Finding]:
+    """Findings for a preflight rung record (bd#218 s7): only status "red" yields one; never raises."""
+    try:
+        if not isinstance(rung, dict):
+            return []
+        rec = cast(Dict[str, Any], rung)
+        if rec.get("status") != "red":
+            return []
+        step: Any = rec.get("red_step")
+        name = step.strip() if isinstance(step, str) and step.strip() else "unknown"
+        return [{
+            "rule": f"preflight:{name}",
+            "severity": "MAJOR",
+            "detail": f"preflight step {name} is red on the tree the gate judges",
+        }]
+    except Exception:  # noqa: BLE001 -- pure mapping, never raises
+        return []
 
 
 def prescreen(findings: List[Finding], gate_input: str,

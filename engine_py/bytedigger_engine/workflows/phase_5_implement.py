@@ -6829,50 +6829,11 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
         # 4C0056FA: carry red_commit_sha through to write_validation_doc.
         "red_commit_sha": prev.data.get("red_commit_sha"),
     }
-    # bd#141 item 3: shadow pre-screen. The verdict outcome is ignored; the gate always runs.
-    _ps_cfg = cfg.get("prescreen") if isinstance(cfg, dict) else None
-    if isinstance(_ps_cfg, dict) and _ps_cfg.get("classifier_cmd") is not None:
-        _ps_cycle = prev.data.get("cycle", 1)
-        try:
-            _ps_verdict = check_ladder.prescreen(
-                findings=[],
-                gate_input=prev.data["prompt"],
-                classifier_cmd=_ps_cfg["classifier_cmd"],
-                mode="shadow",
-                timeout_s=_ps_cfg.get("timeout_s", check_ladder.DEFAULT_TIMEOUT_S),
-            )
-            _ps_clf = _ps_verdict["classifier"]
-            _ps_event = {
-                "outcome": _ps_verdict["outcome"],
-                "rung": _ps_verdict["rung"],
-                "mode": _ps_verdict["mode"],
-                "classifier_status": _ps_clf["status"],
-                "classifier_label": _ps_clf["label"],
-                "classifier_confidence": _ps_clf["confidence"],
-                "classifier_ms": _ps_clf["ms"],
-                "cost_usd": _ps_clf["cost_usd"],
-                "cycle": _ps_cycle,
-                "phase": 5,
-            }
-            _ps_extra = {
-                **_ps_verdict,
-                "classifier": {k: v for k, v in _ps_clf.items() if k != "reasons"},
-            }
-        except Exception:  # noqa: BLE001 -- shadow path must never block the gate
-            _ps_extra = None
-            _ps_event = {
-                "outcome": "escalate", "rung": None, "mode": "shadow",
-                "classifier_status": "config-error", "classifier_label": None,
-                "classifier_confidence": None, "classifier_ms": None, "cost_usd": None,
-                "cycle": _ps_cycle, "phase": 5,
-            }
-        _emit_safe("prescreen_verdict", _ps_event)
-        if _ps_extra is not None:
-            extra_data["prescreen"] = _ps_extra
     # bd#218 s1: preflight receipt rung. Read-only record of whether the cheap deterministic
     # checks were green on this tree; the gate below always runs once whatever it says.
     _pr_cfg = cfg.get("preflight_rung") if isinstance(cfg, dict) else None
     _pr_off = isinstance(_pr_cfg, dict) and _pr_cfg.get("mode") == "off"
+    _rung_rec: dict[str, Any] | None = None
     if not _pr_off:
         _pr_event: dict[str, Any] = {
             "status": "error", "red_step": None, "phase": 5,
@@ -6905,6 +6866,7 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
                         except Exception:  # noqa: BLE001 -- producer failure is swallowed
                             pass
                     _pr_rec = preflight.receipt_rung("red", _pr_tree)
+                    _rung_rec = _pr_rec
                     _pr_event["status"] = _pr_rec["status"]
                     _pr_event["red_step"] = _pr_rec["red_step"]
                     extra_data["preflight"] = {
@@ -6915,6 +6877,55 @@ def _invoke_validation_llm(ctx, prev) -> StepResult:
             _pr_event["red_step"] = None
             extra_data["preflight"] = {"status": "error", "red_step": None}
         _emit_safe("preflight_receipt", _pr_event)
+    # bd#141 item 3: shadow pre-screen. The verdict outcome is ignored; the gate always runs.
+    # bd#218 s7: the script rung feeds it the preflight receipt's red step, also with no classifier.
+    _ps_cfg = cfg.get("prescreen") if isinstance(cfg, dict) else None
+    _ps_clf_cmd = _ps_cfg.get("classifier_cmd") if isinstance(_ps_cfg, dict) else None
+    _ps_sr = _ps_cfg.get("script_rung") if isinstance(_ps_cfg, dict) else None
+    _ps_sr_bad = _ps_sr is not None and _ps_sr not in ("shadow", "off")
+    _ps_sr_on = _ps_sr is None or _ps_sr == "shadow"
+    _ps_evidence = _ps_sr_on and isinstance(_rung_rec, dict) and _rung_rec.get("status") in ("fresh", "red")
+    if _ps_sr_bad or _ps_clf_cmd is not None or _ps_evidence:
+        _ps_cycle = prev.data.get("cycle", 1)
+        try:
+            if _ps_sr_bad:
+                raise ValueError("prescreen.script_rung must be shadow or off")
+            _ps_verdict = check_ladder.prescreen(
+                findings=check_ladder.script_findings(_rung_rec) if _ps_sr_on else [],
+                gate_input=prev.data["prompt"],
+                classifier_cmd=_ps_clf_cmd,
+                mode="shadow",
+                timeout_s=(_ps_cfg.get("timeout_s", check_ladder.DEFAULT_TIMEOUT_S)
+                           if isinstance(_ps_cfg, dict) else check_ladder.DEFAULT_TIMEOUT_S),
+            )
+            _ps_clf = _ps_verdict["classifier"]
+            _ps_event = {
+                "outcome": _ps_verdict["outcome"],
+                "rung": _ps_verdict["rung"],
+                "mode": _ps_verdict["mode"],
+                "classifier_status": _ps_clf["status"],
+                "classifier_label": _ps_clf["label"],
+                "classifier_confidence": _ps_clf["confidence"],
+                "classifier_ms": _ps_clf["ms"],
+                "cost_usd": _ps_clf["cost_usd"],
+                "cycle": _ps_cycle,
+                "phase": 5,
+            }
+            _ps_extra = {
+                **_ps_verdict,
+                "classifier": {k: v for k, v in _ps_clf.items() if k != "reasons"},
+            } if _ps_clf_cmd is not None else None
+        except Exception:  # noqa: BLE001 -- shadow path must never block the gate
+            _ps_extra = None
+            _ps_event = {
+                "outcome": "escalate", "rung": None, "mode": "shadow",
+                "classifier_status": "config-error", "classifier_label": None,
+                "classifier_confidence": None, "classifier_ms": None, "cost_usd": None,
+                "cycle": _ps_cycle, "phase": 5,
+            }
+        _emit_safe("prescreen_verdict", _ps_event)
+        if _ps_extra is not None:
+            extra_data["prescreen"] = _ps_extra
     result = invoke_llm_subprocess(
         prompt=prev.data["prompt"],
         model=model,
