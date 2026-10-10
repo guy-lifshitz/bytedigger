@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Provenance: bd#231 (lot S3), audit hal#2320 finding 2, class 1668.
+"""Provenance: bd#231 (lot S3), audit hal#2320 finding 2, class 1668; bd#234.
 
 Deterministic spec sample check: numeric/threshold acceptance criteria must be
 backed by real samples, and RED tests must not take their expected numbers from
 fixtures the lot wrote itself. Standalone, stdlib only, SHADOW by default.
-Spec: docs/decisions/2026-10-03-s3-spec-sample-check.md.
+Spec: docs/decisions/2026-10-03-s3-spec-sample-check.md; known limits and the
+per-AC waiver: docs/decisions/2026-10-10-bd234-spec-sample-known-limits.md.
 
 Exit code plus one JSON object on stdout is the verdict: 0 clean or flagged in
 SHADOW, 1 flagged in ENFORCE, 2 unavailable (fail-closed), 3 flag expired.
@@ -42,11 +43,13 @@ WORD_OPS = {
           "\u043c\u0435\u043d\u044c\u0448\u0435",
           "\u043d\u0438\u0436\u0435"],
     "<=": ["at most", "no more than", "not more than", "up to", "max",
+           "less than or equal to",
            "\u043d\u0435 \u0431\u043e\u043b\u0435\u0435"],
     ">": ["more than", "greater than", "above", "over", "exceeds",
           "\u0431\u043e\u043b\u044c\u0448\u0435",
           "\u0432\u044b\u0448\u0435"],
     ">=": ["at least", "not less than", "min",
+           "greater than or equal to",
            "\u043d\u0435 \u043c\u0435\u043d\u0435\u0435"],
 }
 SYMBOL_OPS = {"\u2264": "<=", "\u2265": ">="}
@@ -54,7 +57,18 @@ FLIP = {"<": ">", ">": "<", "<=": ">=", ">=": "<=", "==": "=="}
 UNITS = ["%", "ms", "seconds", "sec", "s", "KB", "MB", "chars", "characters",
          "tokens", "lines", "rows", "files"]
 
-NUM = r"-?\d+(?:\.\d+)?"
+# A number: thousands-grouped (1,000), plain, or leading-dot (.25). The dot form
+# must not follow a word character or another dot (v1.25, x.25 are not numbers).
+NUM = (r"-?(?:(?<!\d)\d{1,3}(?:,\d{3})+(?!\d)(?:\.\d+)?"
+       r"|\d+(?:\.\d+)?|(?<![\w.])\.\d+)")
+NUM_PLAIN = r"-?(?:\d+(?:\.\d+)?|\.\d+)"
+SKIP_COMPONENTS = frozenset((
+    "node_modules", "__pycache__", ".venv", "venv", ".tox", ".pytest_cache",
+    ".mypy_cache", ".ruff_cache",
+))
+WAIVABLE = ("NO_SAMPLE", "SAMPLE_NOT_REAL", "NO_MEASURED", "MEASURED_CONTRADICTS",
+            "AMBIGUOUS_PAIRING")
+MIN_REASON_LEN = 8
 SYM_ALT = "<=|>=|==|\u2264|\u2265|<|>"
 
 PHRASE_OP = {}
@@ -70,21 +84,28 @@ def _phrase_re(phrase):
 _WORD_ALT = "|".join(_phrase_re(p) for p in sorted(PHRASE_OP, key=len, reverse=True))
 _UNIT_ALT = "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
 
-RE_SYM_FWD = re.compile(r"(?<![-=<>!])(" + SYM_ALT + r")\s*(" + NUM + r")%?")
+RE_SYM_FWD = re.compile(r"(?<![-=<>!])(" + SYM_ALT + r")\s*(" + NUM + r")(%?)")
 RE_SYM_REV = re.compile(
-    r"(?<![\w.])(" + NUM + r")%?\s*(" + SYM_ALT + r")\s*([A-Za-z_]\w*)"
+    r"(?<![\w.])(" + NUM + r")(%?)\s*(" + SYM_ALT + r")\s*([A-Za-z_]\w*)"
 )
 RE_WORD = re.compile(
-    r"(?<!\w)(" + _WORD_ALT + r")(?!\w)\s+(" + NUM + r")%?", re.IGNORECASE
+    r"(?<!\w)(" + _WORD_ALT + r")(?!\w)\s+(" + NUM + r")(%?)", re.IGNORECASE
 )
+# Bare `=` is a comparison only after whitespace or at the start of the text.
+RE_EQ_FWD = re.compile(r"(?<![^\s])=(?![=>])\s*(" + NUM + r")(%?)")
+RE_EQ_REV = re.compile(r"(?<![\w.])(" + NUM + r")(%?)\s+=(?![=>])\s*[A-Za-z_]\w*")
+RE_NUM_PCT = re.compile(r"(" + NUM + r")(%?)")
 RE_UNIT = re.compile(r"(?<![\w.])(" + NUM + r")\s*(?:" + _UNIT_ALT + r")(?!\w)", re.IGNORECASE)
+RE_FENCE_OPEN = re.compile(r"`{3,}|~{3,}")
+RE_WAIVE = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])\s+)?\**waive\s*:(.*)$", re.IGNORECASE)
+RE_REASON = re.compile(r"[\s;,]*(?<!\w)reason\s*:", re.IGNORECASE)
 RE_AC_LINE = re.compile(
     r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?\**(AC[-_]?\d[0-9A-Za-z_-]*)\**\s*[:.)(" + "\u2014" + r"-]"
 )
 RE_HEADING = re.compile(r"^\s{0,3}#{1,6}(?:\s|$)")
 RE_KEYWORD = re.compile(r"(?<!\w)(sample|measured)\s*:", re.IGNORECASE)
 RE_MEASURED = re.compile(r"[\s`]*(" + NUM + r"%?(?:\s*,\s*" + NUM + r"%?)*)")
-RE_TOKEN_NUM = re.compile(r"(?<![\w.])" + NUM + r"(?!\w|\.\d)")
+RE_TOKEN_NUM = re.compile(r"(?<![\w.])" + NUM_PLAIN + r"(?!\w|\.\d)")
 RE_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
@@ -125,7 +146,13 @@ def _nontrivial(value):
     return (not float(value).is_integer()) or abs(value) >= 10
 
 
-def _satisfies(measured, op, threshold):
+def _satisfies(measured, mpct, op, threshold, tpct):
+    # A percent on exactly one side: a plain value of magnitude <= 1 is a
+    # fraction, so the percent side is divided by 100; otherwise compare raw.
+    if tpct and not mpct and abs(measured) <= 1:
+        threshold = threshold / 100
+    elif mpct and not tpct and abs(threshold) <= 1:
+        measured = measured / 100
     if op == "<":
         return measured < threshold
     if op == "<=":
@@ -137,8 +164,26 @@ def _satisfies(measured, op, threshold):
     return abs(measured - threshold) <= TOLERANCE
 
 
+def _forms(text):
+    """Written forms of one canonical number: as given, with or without the
+    leading zero of a decimal, and thousands-grouped."""
+    sign = "-" if text.startswith("-") else ""
+    body = text[len(sign):]
+    bodies = [body]
+    if body.startswith("0."):
+        bodies.append(body[1:])
+    elif body.startswith("."):
+        bodies.append("0" + body)
+    for b in list(bodies):
+        whole, dot, frac = b.partition(".")
+        if whole.isdigit() and len(whole) > 3 and not whole.startswith("0"):
+            bodies.append("{:,}".format(int(whole)) + dot + frac)
+    return [sign + b for b in bodies]
+
+
 def _has_token(text, number_text):
-    pat = r"(?<![\w.])" + re.escape(number_text) + r"(?!\w|\.\d)"
+    tail = r"(?!\w|\.\d|,\d)" if "," in number_text else r"(?!\w|\.\d)"
+    pat = r"(?<![\w.])" + re.escape(number_text) + tail
     return re.search(pat, text) is not None
 
 
@@ -160,6 +205,23 @@ def _git_ok(root, *args):
     if rc != 0:
         raise _Fail("git_failed", "git " + " ".join(args) + " failed")
     return out
+
+
+def _tracked_at(root, base, rel):
+    """True if rel is a regular blob at base, False if absent; any git failure
+    is fail-closed (a bare nonzero status cannot tell absent from broken)."""
+    rc, out = _git(root, "--literal-pathspecs", "ls-tree", "-z", base, "--", rel)
+    if rc != 0:
+        raise _Fail("git_failed", "git ls-tree failed")
+    found = False
+    for entry in _split_z(out):
+        head, tab, path = entry.partition("\t")
+        fields = head.split(" ")
+        if not tab or len(fields) != 3:
+            raise _Fail("git_failed", "git ls-tree output unparseable")
+        if path == rel and fields[1] == "blob" and fields[0].startswith("100"):
+            found = True
+    return found
 
 
 def _split_z(raw):
@@ -201,22 +263,37 @@ def _read_lenient(path):
 def _parse_blocks(text):
     blocks = []
     cur = None
-    fence = False
+    fence = None  # (fence char, opener length) while inside a fence
     for line in text.splitlines():
-        if line.lstrip().startswith("```"):
-            fence = not fence
-            if cur is not None:
-                cur["lines"].append(line)
-            continue
-        if not fence:
+        stripped = line.lstrip()
+        if fence is None:
+            opener = RE_FENCE_OPEN.match(stripped)
+            if opener:
+                fence = (opener.group(0)[0], len(opener.group(0)))
+                if cur is not None:
+                    cur["lines"].append(line)
+                continue
+        else:
+            body = stripped.rstrip()
+            if len(body) >= fence[1] and body == fence[0] * len(body):
+                fence = None
+                if cur is not None:
+                    cur["lines"].append(line)
+                continue
+        if fence is None:
             if RE_HEADING.match(line):
                 cur = None
                 continue
             m = RE_AC_LINE.match(line)
             if m:
-                cur = {"id": m.group(1), "lines": [line[m.end():]]}
+                cur = {"id": m.group(1), "lines": [line[m.end():]], "waivers": []}
                 blocks.append(cur)
                 continue
+            if cur is not None:
+                wm = RE_WAIVE.match(line)
+                if wm:
+                    cur["waivers"].append(wm.group(1))
+                    continue
         if cur is not None:
             cur["lines"].append(line)
     return blocks
@@ -261,8 +338,11 @@ def _parse_measured(seg):
     m = RE_MEASURED.match(seg)
     if not m:
         return []
-    texts = re.findall(NUM, m.group(1))
-    return [(t, float(t)) for t in texts]
+    out = []
+    for g in RE_NUM_PCT.finditer(m.group(1)):
+        canon = g.group(1).replace(",", "")
+        out.append((canon, float(canon), bool(g.group(2))))
+    return out
 
 
 def _analyze(lines):
@@ -296,23 +376,33 @@ def _analyze(lines):
 
     raw_comps = []
     for m in RE_SYM_FWD.finditer(text):
-        raw_comps.append((m.start(), SYMBOL_OPS.get(m.group(1), m.group(1)), m.group(2)))
+        raw_comps.append((m.start(), SYMBOL_OPS.get(m.group(1), m.group(1)),
+                          m.group(2), bool(m.group(3))))
     for m in RE_SYM_REV.finditer(text):
-        op = SYMBOL_OPS.get(m.group(2), m.group(2))
-        raw_comps.append((m.start(1), FLIP[op], m.group(1)))
+        op = SYMBOL_OPS.get(m.group(3), m.group(3))
+        raw_comps.append((m.start(1), FLIP[op], m.group(1), bool(m.group(2))))
     for m in RE_WORD.finditer(text):
         phrase = re.sub(r"\s+", " ", m.group(1).lower())
-        raw_comps.append((m.start(), PHRASE_OP[phrase], m.group(2)))
+        raw_comps.append((m.start(), PHRASE_OP[phrase], m.group(2), bool(m.group(3))))
+    for m in RE_EQ_FWD.finditer(text):
+        raw_comps.append((m.start(), "==", m.group(1), bool(m.group(2))))
+    for m in RE_EQ_REV.finditer(text):
+        raw_comps.append((m.start(1), "==", m.group(1), bool(m.group(2))))
     raw_comps.sort(key=lambda c: c[0])
-    comps = [(op, nt, float(nt)) for _pos, op, nt in raw_comps if _nontrivial(float(nt))]
+    comps = []
+    for _pos, op, nt, pct in raw_comps:
+        canon = nt.replace(",", "")
+        if _nontrivial(float(canon)):
+            comps.append((op, canon, float(canon), pct))
 
     nums = []
-    for _op, nt, _val in comps:
+    for _op, nt, _val, _pct in comps:
         if nt not in nums:
             nums.append(nt)
     for m in RE_UNIT.finditer(text):
-        if _nontrivial(float(m.group(1))) and m.group(1) not in nums:
-            nums.append(m.group(1))
+        canon = m.group(1).replace(",", "")
+        if _nontrivial(float(canon)) and canon not in nums:
+            nums.append(canon)
     return {
         "numeric": bool(nums),
         "comps": comps,
@@ -361,8 +451,7 @@ def _judge_sample(raw, ctx):
         rel = rel.replace(os.sep, "/")
         if rel in ctx["lot"]:
             return False, "lot-authored"
-        rc, _out = _git(root, "cat-file", "-e", ctx["base"] + ":" + rel)
-        if rc != 0:
+        if not _tracked_at(root, ctx["base"], rel):
             return False, "untracked at base"
     text = _read_lenient(full)
     if text is None:
@@ -370,17 +459,54 @@ def _judge_sample(raw, ctx):
     return True, text
 
 
+def _parse_waiver(rest):
+    """Parse the text after `waive:`; return (codes, reason, problem) with
+    problem "" (valid), "invalid" or "no_reason"."""
+    m = RE_REASON.search(rest)
+    head = rest if m is None else rest[:m.start()]
+    reason = "" if m is None else rest[m.end():].strip()
+    codes = [c.strip() for c in head.split(",")]
+    if not head.strip() or any(c not in WAIVABLE for c in codes):
+        return [], reason, "invalid"
+    if len(reason) < MIN_REASON_LEN:
+        return codes, reason, "no_reason"
+    return codes, reason, ""
+
+
+def _read_waivers(rests, ac):
+    """Return ({code: reason}, WAIVER_* findings) for one AC block."""
+    wmap = {}
+    bad = []
+    for rest in rests:
+        codes, reason, problem = _parse_waiver(rest)
+        if problem == "invalid":
+            bad.append(_finding(
+                "WAIVER_INVALID", ac,
+                "waive line rejected: codes must be a comma list of " + ", ".join(WAIVABLE)))
+        elif problem == "no_reason":
+            bad.append(_finding(
+                "WAIVER_NO_REASON", ac,
+                "waive line needs a reason of at least %d characters" % MIN_REASON_LEN))
+        else:
+            for code in codes:
+                wmap.setdefault(code, reason)
+    return wmap, bad
+
+
 def _check_acs(blocks, ctx):
     findings = []
+    waived = []
     verified = []
     unverified = []
     ok_vals = []
     sample_texts = []
     for blk in blocks:
+        ac = blk["id"]
+        wmap, wbad = _read_waivers(blk["waivers"], ac)
+        findings.extend(wbad)
         info = _analyze(blk["lines"])
         if not info["numeric"]:
             continue
-        ac = blk["id"]
         own = []
         if not info["samples"]:
             own.append(_finding("NO_SAMPLE", ac,
@@ -407,40 +533,88 @@ def _check_acs(blocks, ctx):
                 own.append(_finding(
                     "AMBIGUOUS_PAIRING", ac,
                     "%d comparisons but %d measured values" % (len(comps), len(measured))))
-            for (op, ntext, nval), (mtext, mval) in pairs:
-                if not _satisfies(mval, op, nval):
+            for (op, ntext, nval, tpct), (mtext, mval, mpct) in pairs:
+                if not _satisfies(mval, mpct, op, nval, tpct):
                     own.append(_finding(
                         "MEASURED_CONTRADICTS", ac,
                         "measured %s does not satisfy %s %s" % (mtext, op, ntext)))
-        findings.extend(own)
+        for f in own:
+            if f["code"] in wmap:
+                waived.append({"code": f["code"], "ac": ac, "detail": f["detail"],
+                               "reason": wmap[f["code"]]})
+            else:
+                findings.append(f)
         if own:
             continue
-        for _op, _nt, nval in comps:
+        for _op, _nt, nval, npct in comps:
             ok_vals.append(nval)
+            if npct:
+                ok_vals.append(nval / 100)
         for nt in info["nums"]:
             ok_vals.append(float(nt))
-        for _mt, mval in measured:
+        for _mt, mval, mpct in measured:
             ok_vals.append(mval)
+            if mpct:
+                ok_vals.append(mval / 100)
         joined = "\n".join(valid_texts)
         entry = {
             "ac": ac,
             "sample": list(info["samples"]),
-            "measured": [mt for mt, _mv in measured],
+            "measured": [mt for mt, _mv, _mp in measured],
         }
-        if all(_has_token(joined, mt) for mt, _mv in measured):
+        if all(any(_has_token(joined, f) for f in _forms(mt)) for mt, _mv, _mp in measured):
             verified.append(entry)
         else:
             unverified.append(entry)
-    return findings, verified, unverified, ok_vals, sample_texts
+    return findings, waived, verified, unverified, ok_vals, sample_texts
 
 
 # --------------------------------------------------------------- RED check --
 
 
 def _variants(value):
-    out = [repr(value)]
+    out = _forms(repr(value))
     if isinstance(value, float) and value.is_integer():
-        out.append(str(int(value)))
+        out.extend(f for f in _forms(str(int(value))) if f not in out)
+    return out
+
+
+def _inline_literals(tree):
+    """Inline fixtures in a RED module: (text, kind) for string, bytes and
+    f-string literals of at least MIN_INLINE_LEN characters."""
+    inner = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            for part in node.values:
+                if isinstance(part, ast.Constant):
+                    inner.add(id(part))
+                elif isinstance(part, ast.FormattedValue) and part.format_spec is not None:
+                    inner.add(id(part.format_spec))
+                    for sub in ast.walk(part.format_spec):
+                        inner.add(id(sub))
+    out = []
+    for node in ast.walk(tree):
+        if id(node) in inner:
+            continue
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                text, kind = node.value, "inline string literal"
+            elif isinstance(node.value, bytes):
+                text = node.value.decode("utf-8", errors="replace")
+                kind = "inline bytes literal"
+            else:
+                continue
+        elif isinstance(node, ast.JoinedStr):
+            text = "".join(
+                part.value if isinstance(part, ast.Constant) and isinstance(part.value, str)
+                else "\x00"
+                for part in node.values
+            )
+            kind = "inline f-string literal"
+        else:
+            continue
+        if len(text) >= MIN_INLINE_LEN:
+            out.append((text, kind))
     return out
 
 
@@ -487,7 +661,9 @@ def _text_numbers(text):
             if not _nontrivial(val) or tok in seen:
                 continue
             seen.add(tok)
-            found.append((tok, [tok, tok.lstrip("-")], val))
+            variants = _forms(tok)
+            variants.extend(f for f in _forms(tok.lstrip("-")) if f not in variants)
+            found.append((tok, variants, val))
     return found
 
 
@@ -506,12 +682,7 @@ def _check_red(reds, ctx, ok_vals, sample_texts):
     for rel, text, tree in reds:
         if tree is not None:
             numbers = _py_numbers(tree)
-            literals = [
-                sub.value
-                for sub in ast.walk(tree)
-                if isinstance(sub, ast.Constant) and isinstance(sub.value, str)
-                and len(sub.value) >= MIN_INLINE_LEN
-            ]
+            literals = _inline_literals(tree)
         else:
             numbers = _text_numbers(text)
             literals = []
@@ -530,10 +701,15 @@ def _check_red(reds, ctx, ok_vals, sample_texts):
                     "RED_EXPECTED_FROM_LOT_FIXTURE", "",
                     "%s: asserted %s also appears in lot-authored fixture %s" % (rel, display, hit)))
                 continue
-            if any(_has_token(lit, v) for lit in literals for v in variants):
+            kind = None
+            for lit, lit_kind in literals:
+                if any(_has_token(lit, v) for v in variants):
+                    kind = lit_kind
+                    break
+            if kind is not None:
                 findings.append(_finding(
                     "RED_EXPECTED_FROM_INLINE_FIXTURE", "",
-                    "%s: asserted %s also appears in an inline string literal" % (rel, display)))
+                    "%s: asserted %s also appears in an %s" % (rel, display, kind)))
     return findings
 
 
@@ -557,6 +733,7 @@ def _unavailable(reason, today):
         "mode": _mode(),
         "would_block": False,
         "findings": [],
+        "waived": [],
         "verified": [],
         "unverified": [],
         "flag": _flag_obj(today),
@@ -602,8 +779,7 @@ def _scan_inner(argv, state):
         red_rels.append(rel)
         reds.append((rel, text))
 
-    rc, _out = _git(root, "cat-file", "-e", base + ":" + spec_rel)
-    if rc == 0:
+    if _tracked_at(root, base, spec_rel):
         raise _Fail("base_contains_lot", "spec is tracked at base")
 
     red_items = []
@@ -619,11 +795,15 @@ def _scan_inner(argv, state):
     lot = set(_split_z(_git_ok(
         root, "diff", "--no-renames", "--name-only", "--diff-filter=ACMRT", "-z", base, "--")))
     lot.update(_split_z(_git_ok(root, "ls-files", "--others", "--exclude-standard", "-z")))
+    for path in _split_z(_git_ok(
+            root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")):
+        if not SKIP_COMPONENTS.intersection(path.split("/")):
+            lot.add(path)
     lot.add(spec_rel)
     lot.update(red_rels)
     ctx = {"root": root, "base": base, "lot": lot, "skip": set(red_rels) | {spec_rel}}
 
-    findings, verified, unverified, ok_vals, sample_texts = _check_acs(
+    findings, waived, verified, unverified, ok_vals, sample_texts = _check_acs(
         _parse_blocks(spec_text), ctx)
     findings.extend(_check_red(red_items, ctx, ok_vals, sample_texts))
 
@@ -642,6 +822,7 @@ def _scan_inner(argv, state):
         "mode": mode,
         "would_block": bool(findings),
         "findings": findings,
+        "waived": waived,
         "verified": verified,
         "unverified": unverified,
         "flag": flag,
@@ -654,6 +835,7 @@ def _scan_inner(argv, state):
             "mode": mode,
             "would_block": bool(findings),
             "codes": [f["code"] for f in findings],
+            "waived": [w["code"] for w in waived],
         }
         try:
             with open(os.path.abspath(args.shadow_log), "a", encoding="utf-8") as fh:
