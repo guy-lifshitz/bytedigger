@@ -134,7 +134,7 @@ entry gate; `phases/phase-0-classify.md` COMPLEX line; `skills/bytedigger/SKILL.
 - AC14 (M4): unknown policy value → unknown-value row first (this row still soft-blocks), then legacy plan_review verdict: `pass` → no further row; `pass_with_concerns` → `plan_review=pass (got: pass_with_concerns)`; AUTONOMOUS COMPLEX `pass` without override → no further row. ` legacy` and `Legacy` are unknown values.
 - AC15 (§2.3): parse table-driven: `none` ok; `[P1, P3]`, `[P1,P1]` ok; `[ ]`/`[]`/empty → no value; `none # x`, `[none]`, `none, P1`, `[P1,]` → malformed; `P01`, `P11` → unknown id; `[p1]`, bare `P1` → malformed; `"none"` (quoted) ok; `""` and block sequence → no value.
 - AC16 (§2.1 b/c/order): concerns `[ ]`, `[""]`, `[[]]` → (b); opus row present with value `fail` or commented out, or both rows dropped → exactly one (c) row; simultaneous a+b+d failures → rows in order a, b, d; missing `mode` → `(got mode: <missing>)`.
-- AC18 (N5): after any soft block, `build-state.yaml` is byte-identical to before the gate ran (the gate never writes state; resumability is the unchanged file).
+- AC18 (N5): after any soft block, every state field the gate reads or the resume depends on (`plan_review`, `plan_review_concerns`, `autonomous_pauses`, `mode`, `complexity`, `mode_override`, `current_phase`) is unchanged. The only permitted writes are the pre-existing `gate_block_counter` / `gate_block_phase` keys (build-gate.sh soft-block counter); removing those two keys, the files are byte-identical. (Rev 2.2: Rev 2.1 said fully byte-identical, which contradicted the existing counter.)
 - AC17 doc-pin is defined in §3 (listed here for completeness).
 
 ## §5 Kill switch
