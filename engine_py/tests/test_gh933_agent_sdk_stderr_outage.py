@@ -523,7 +523,7 @@ def test_ac14_stderr_tail_multibyte_cap_and_bytes_stderr_fallback(monkeypatch):
 
     from collections import deque  # noqa: PLC0415
 
-    cyrillic_lines = ["привет-мир-строка-" + str(i) * 20 for i in range(500)]
+    cyrillic_lines = ["привет-мир-строка-" + str(i) * 20 for i in range(500)]  # undercover-lang-ok: deliberate non-ASCII fixture exercising stderr-tail decoding
     buf = deque(cyrillic_lines)
     tail = helper(buf, None)
     assert isinstance(tail, str), "AC14: tail must be a decoded str, no decode exception"
