@@ -7,8 +7,8 @@ are driven through subprocess in tmp_path fixtures. Nothing is imported from the
 repo, no sys.path manipulation, no mocks. If `bun` is not on PATH the TS tests
 FAIL (they never skip). Nothing here races or depends on timing.
 
-Tests marked "GUARD" pass on current main and protect post-GREEN behavior.
-All other tests are expected RED today.
+Every test here is expected RED today. The GUARD tests (pass on current main)
+live in test_bd130_autonomous_cap_policy_guards.py.
 """
 from __future__ import annotations
 
@@ -167,6 +167,14 @@ FIXTURES = {
 }
 
 
+# Fixtures whose AC9 / AC10 checks already pass on main live in
+# test_bd130_autonomous_cap_policy_guards.py.
+GUARD_AC9 = {"ac5_feature_auto", "ac5_feature_sup", "ac6_complex_no_override",
+             "ac6_complex_override", "ac6_complex_sup", "ac6_complex_auto_at_45"}
+GUARD_AC10 = {"ac5_feature_auto", "ac5_feature_sup", "ac6_complex_override",
+              "ac6_complex_sup", "ac6_complex_auto_at_45"}
+
+
 def _run_fixture(backend: str, tmp_path: Path, tag: str, name: str,
                  mode: str | None = None, policy: str | None = None):
     phase, fx_mode, complexity, extra, _ = FIXTURES[name]
@@ -245,29 +253,10 @@ def test_ac4_missing_mandatory_opus_row_adds_row_c(tmp_path, backend, dropped_ph
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("name", ["ac5_feature_auto", "ac5_feature_sup"])
-def test_ac5_plan_review_pass_unchanged(tmp_path, backend, name):
-    """AC5 GUARD: plan_review pass on FEATURE or SUPERVISED -> pass, no new rows."""
-    _assert_pass(_run_fixture(backend, tmp_path, "t", name))
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
 def test_ac6_complex_autonomous_needs_override_at_phase_5(tmp_path, backend):
     """AC6: AUTONOMOUS + COMPLEX + pass, no mode_override -> section 2.2 row at phase 5."""
     _assert_block_has(_run_fixture(backend, tmp_path, "t", "ac6_complex_no_override"),
                       ROW_COMPLEX)
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_ac6_complex_override_is_not_enforced_at_phase_45(tmp_path, backend):
-    """AC6 GUARD: the COMPLEX check runs on phase 5 only, 4.5 still passes."""
-    _assert_pass(_run_fixture(backend, tmp_path, "t", "ac6_complex_auto_at_45"))
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_ac6_complex_with_override_and_pauses_passes(tmp_path, backend):
-    """AC6: mode_override auto_flag_complex + autonomous_pauses none -> pass."""
-    _assert_pass(_run_fixture(backend, tmp_path, "t", "ac6_complex_override"))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -280,24 +269,9 @@ def test_ac6_complex_override_without_pauses_blocks(tmp_path, backend):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-def test_ac6_supervised_complex_pass_unchanged(tmp_path, backend):
-    """AC6 GUARD: SUPERVISED + COMPLEX + pass -> pass (no check)."""
-    _assert_pass(_run_fixture(backend, tmp_path, "t", "ac6_complex_sup"))
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_ac7_legacy_rejects_pass_with_concerns(tmp_path, backend):
-    """AC7 GUARD: legacy policy -> pass_with_concerns gets the legacy row."""
-    proc = _run_fixture(backend, tmp_path, "t", "ac1", policy="legacy")
-    reason = _assert_block_has(proc, ROW_LEGACY_PWC)
-    assert ROW_A not in reason and ROW_B not in reason
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_ac7_legacy_complex_autonomous_pass_passes(tmp_path, backend):
-    """AC7 GUARD: legacy policy -> AUTONOMOUS COMPLEX pass has no COMPLEX check."""
-    _assert_pass(_run_fixture(backend, tmp_path, "t", "ac6_complex_no_override",
-                              policy="legacy"))
+def test_ac8_empty_policy_means_autonomous(tmp_path, backend):
+    """AC8: empty policy value is the default (autonomous): AC1 fixture passes."""
+    _assert_pass(_run_fixture(backend, tmp_path, "t", "ac1", policy=""))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -309,20 +283,15 @@ def test_ac8_unknown_policy_value_row(tmp_path, backend):
     assert ROW_A not in reason
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_ac8_empty_policy_means_autonomous(tmp_path, backend):
-    """AC8: empty policy value is the default (autonomous): AC1 fixture passes."""
-    _assert_pass(_run_fixture(backend, tmp_path, "t", "ac1", policy=""))
-
 
 # ---------------------------------------------------------------------------
 # AC9 / AC10
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("name", sorted(FIXTURES))
+@pytest.mark.parametrize("name", sorted(n for n in FIXTURES if n not in GUARD_AC9))
 def test_ac9_supervised_stdout_equals_legacy(tmp_path, backend, name):
-    """AC9 (GUARD where trivial): with mode SUPERVISED the default policy equals legacy.
+    """AC9: with mode SUPERVISED the default policy equals legacy (pwc fixtures only here).
 
     Fixtures whose plan_review is pass_with_concerns are exempt from byte
     equality: spec AC2 requires the extra (a) row there, so they only need the
@@ -342,7 +311,7 @@ def test_ac9_supervised_stdout_equals_legacy(tmp_path, backend, name):
         assert default.returncode == legacy.returncode
 
 
-@pytest.mark.parametrize("name", sorted(FIXTURES))
+@pytest.mark.parametrize("name", sorted(n for n in FIXTURES if n not in GUARD_AC10))
 def test_ac10_bash_and_ts_stdout_identical_and_correct(tmp_path, name):
     """AC10: bash and TS stdout/rc are byte-identical AND match the spec verdict."""
     bash = _run_fixture("bash", tmp_path, "t", name)
@@ -351,15 +320,6 @@ def test_ac10_bash_and_ts_stdout_identical_and_correct(tmp_path, name):
         f"bash: {_describe(bash)} ts: {_describe(ts)}"
     _assert_expected(bash, FIXTURES[name][4])
 
-
-@pytest.mark.parametrize("policy", ["legacy", "bogus"])
-@pytest.mark.parametrize("name", sorted(FIXTURES))
-def test_ac10_bash_and_ts_identical_under_other_policies(tmp_path, name, policy):
-    """AC10: parity also holds for legacy and unknown policy values."""
-    bash = _run_fixture("bash", tmp_path, "t", name, policy=policy)
-    ts = _run_fixture("ts", tmp_path, "t", name, policy=policy)
-    assert (bash.returncode, bash.stdout) == (ts.returncode, ts.stdout), \
-        f"bash: {_describe(bash)} ts: {_describe(ts)}"
 
 
 # ---------------------------------------------------------------------------

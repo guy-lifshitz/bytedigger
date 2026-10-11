@@ -1,3 +1,17 @@
+---
+red_tests:
+  - tests/test_bd130_autonomous_cap_policy.py
+sibling_tests:
+  - tests/test_bd130_autonomous_cap_policy_guards.py
+  - tests/test_bd136_gate_counter_table_parser.py
+  - tests/build-gate.bats
+paths:
+  - scripts/build-gate.sh
+  - scripts/ts/build-phase-gate.ts
+  - scripts/phase-deliverables.tsv
+  - scripts/autonomous-pauses.tsv
+  - commands/build.md
+---
 # bd#130 — AUTONOMOUS rules for machine caps and SUPERVISED pauses
 
 **Status: DRAFT Rev 1** · **Class:** SYSTEMATIC (undefined behaviour at caps/pauses) · **Tier:** TIER2
