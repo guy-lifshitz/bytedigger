@@ -31,7 +31,7 @@ paths:
 ## Principles
 
 1. **Deterministic first.** The decision is a pure function of the declared tool list and one config value.
-2. **Fail toward the old behaviour.** Unknown, empty, absent or malformed input keeps the snapshot.
+2. **Fail toward the old behaviour.** An unknown, empty, absent or non-list tool list, and a switch value other than absent or `false`, keep the snapshot. An absent key, or a missing or malformed models file, is the unconfigured default: skip.
 3. **Provider-agnostic.** Only `agent_sdk.py` changes; other backends and their manifest code are untouched. Subscription and API-token paths run the same code (the snapshot is local git, credentials are not involved).
 
 ## Design
