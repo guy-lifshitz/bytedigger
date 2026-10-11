@@ -708,14 +708,19 @@ def test_ac15_autonomous_pauses_parsing(tmp_path, backend, name):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("name", _names("ac18_"))
-def test_ac18_soft_block_leaves_build_state_byte_identical(tmp_path, backend, name):
-    """AC18: after a soft block the gate has not touched build-state.yaml (bytes equal),
-    and the block itself is the spec verdict (so this is RED until the rules exist)."""
+def test_ac18_soft_block_changes_only_gate_counter_keys(tmp_path, backend, name):
+    """AC18 (Rev 2.2): after a soft block only `gate_block_counter:` / `gate_block_phase:`
+    lines may differ in build-state.yaml; everything else is byte-identical. Also checks
+    the spec verdict rows (so this is RED until the rules exist)."""
+    def strip(b: bytes) -> bytes:
+        return b"".join(l for l in b.splitlines(keepends=True)
+                        if not l.startswith((b"gate_block_counter:",
+                                             b"gate_block_phase:")))
     snap: dict = {}
     proc, root = _run_sc(backend, tmp_path, name, snap=snap)
     _check_sc(proc, name, root)
-    assert snap["path"].read_bytes() == snap["before"], \
-        f"build-state.yaml changed by the gate in {name}"
+    assert strip(snap["path"].read_bytes()) == strip(snap["before"]), \
+        f"build-state.yaml changed beyond the gate counter keys in {name}"
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

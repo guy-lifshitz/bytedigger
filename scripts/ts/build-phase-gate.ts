@@ -427,16 +427,19 @@ function validateAutonomousPauses(statePath: string, out: string[]): void {
   }
 }
 
-// bd#130: `plan_review_entry <field>` table kind (spec §2.1/§2.2); mirrors
-// expand_plan_review_entry in build-gate.sh.
-function expandPlanReviewEntry(
+// bd#130: `<review>_entry <field> <backstop>` table kind (spec §2.1/§2.2); mirrors
+// expand_entry_row in build-gate.sh. pass52/pass5: fields with a live field_eq
+// row expecting `pass` at phase 5.2 / 5.
+function expandEntryRow(
   statePath: string,
   phase: string,
   field: string,
-  has52: boolean,
-  has5: boolean,
+  backstop: string,
+  pass52: ReadonlySet<string>,
+  pass5: ReadonlySet<string>,
   out: string[],
 ): void {
+  const hasBackstop = pass52.has(backstop) && pass5.has(backstop);
   const policy = process.env.BD_AUTONOMOUS_CAP_POLICY ?? "";
   let auto = true;
   if (policy === "" || policy === "autonomous") {
@@ -458,19 +461,17 @@ function expandPlanReviewEntry(
   let cxRow = "";
   if (v === "pass_with_concerns") {
     if (mode !== "AUTONOMOUS") {
-      out.push(`plan_review=pass_with_concerns needs mode AUTONOMOUS (got mode: ${mode || "<missing>"})`);
+      out.push(`${field}=pass_with_concerns needs mode AUTONOMOUS (got mode: ${mode || "<missing>"})`);
     }
-    const concerns = (readStateField(statePath, "plan_review_concerns") ?? "").replace(
+    const concerns = (readStateField(statePath, `${field}_concerns`) ?? "").replace(
       /[ \t\v\f\r\n"']/g,
       "",
     );
     if (concerns === "" || concerns === "[]" || concerns === "[[]]") {
-      out.push("plan_review_concerns has no value");
+      out.push(`${field}_concerns has no value`);
     }
-    if (!has52 || !has5) {
-      out.push(
-        "plan_review=pass_with_concerns needs the mandatory opus_validation rows in the deliverable table",
-      );
+    if (!hasBackstop) {
+      out.push(`${field}=pass_with_concerns needs the mandatory ${backstop} rows in the deliverable table`);
     }
     needPauses = true;
   } else if (v !== "pass") {
@@ -504,9 +505,9 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
   }
 
   const validation: string[] = [];
-  const rows: (string | { readonly pre: string })[] = [];
-  let has52 = false;
-  let has5 = false;
+  const rows: (string | { readonly field: string; readonly backstop: string })[] = [];
+  const pass52 = new Set<string>();
+  const pass5 = new Set<string>();
   const lines = content.split("\n");
   for (let idx = 0; idx < lines.length; idx++) {
     const n = idx + 1;
@@ -525,12 +526,8 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
     const kind = f[1]!;
     let want: number;
     if (kind === "field_eq") want = 4;
-    else if (
-      kind === "field_set" ||
-      kind === "log_red" ||
-      kind === "scratch_file" ||
-      kind === "plan_review_entry"
-    ) want = 3;
+    else if (kind === "field_set" || kind === "log_red" || kind === "scratch_file") want = 3;
+    else if (kind.endsWith("_entry")) want = 4;
     else {
       validation.push(`deliverable table: unknown kind '${kind}' (line ${n})`);
       continue;
@@ -540,16 +537,16 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
       validation.push(`deliverable table: malformed row (line ${n})`);
       continue;
     }
-    // bd#130 (c): the mandatory opus_validation rows must be live in the loaded table
-    if (kind === "field_eq" && f[2] === "opus_validation" && f[3] === "pass") {
-      if (f[0] === "5.2") has52 = true;
-      if (f[0] === "5") has5 = true;
+    // bd#130 (c): remember which fields have a live field_eq pass row at phases 5.2 and 5
+    if (kind === "field_eq" && f[3] === "pass") {
+      if (f[0] === "5.2") pass52.add(f[2]!);
+      if (f[0] === "5") pass5.add(f[2]!);
     }
     if (f[0] !== phase) continue;
 
     const arg = f[2]!;
-    if (kind === "plan_review_entry") {
-      rows.push({ pre: arg });
+    if (kind.endsWith("_entry")) {
+      rows.push({ field: arg, backstop: f[3]! });
     } else if (kind === "field_eq") {
       const expected = f[3]!;
       const v = (readStateField(statePath, arg) ?? "").trim();
@@ -581,7 +578,7 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
   const expanded: string[] = [];
   for (const r of rows) {
     if (typeof r === "string") expanded.push(r);
-    else expandPlanReviewEntry(statePath, phase, r.pre, has52, has5, expanded);
+    else expandEntryRow(statePath, phase, r.field, r.backstop, pass52, pass5, expanded);
   }
   const entries = [...validation, ...expanded];
   if (entries.length > 0) return softBlock(joinMissing(entries), phase);

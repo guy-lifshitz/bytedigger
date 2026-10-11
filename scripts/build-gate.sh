@@ -245,10 +245,16 @@ validate_autonomous_pauses() {
   return 0
 }
 
-# bd#130: `plan_review_entry <field>` table kind (spec §2.1/§2.2). Appends rows to MISSING_FIELDS.
-# args: phase field opus52_present opus5_present
-expand_plan_review_entry() {
-  local phase="$1" field="$2" has52="$3" has5="$4"
+# bd#130: `<review>_entry <field> <backstop>` table kind (spec §2.1/§2.2; the table row carries
+# the review field and the mandatory backstop field). Appends rows to MISSING_FIELDS.
+# args: phase field backstop pass52 pass5 (pass52/pass5: space-padded lists of the fields whose
+# field_eq row at phase 5.2 / 5 is live with expected value pass)
+expand_entry_row() {
+  local phase="$1" field="$2" backstop="$3" pass52="$4" pass5="$5"
+  local has_backstop=0
+  case "$pass52" in *" $backstop "*)
+    case "$pass5" in *" $backstop "*) has_backstop=1 ;; esac ;;
+  esac
   local policy="${BD_AUTONOMOUS_CAP_POLICY:-}" auto=1 v
   case "$policy" in
     ""|autonomous) ;;
@@ -271,17 +277,17 @@ expand_plan_review_entry() {
   if [ "$v" = "pass_with_concerns" ]; then
     local concerns
     if [ "$mode" != "AUTONOMOUS" ]; then
-      MISSING_FIELDS+=("plan_review=pass_with_concerns needs mode AUTONOMOUS (got mode: ${mode:-<missing>})")
+      MISSING_FIELDS+=("$field=pass_with_concerns needs mode AUTONOMOUS (got mode: ${mode:-<missing>})")
     fi
-    concerns=$(yaml_get "plan_review_concerns")
+    concerns=$(yaml_get "${field}_concerns")
     concerns="${concerns//[[:space:]]/}"
     concerns="${concerns//\"/}"
     concerns="${concerns//\'/}"
     if [ -z "$concerns" ] || [ "$concerns" = "[]" ] || [ "$concerns" = "[[]]" ]; then
-      MISSING_FIELDS+=("plan_review_concerns has no value")
+      MISSING_FIELDS+=("${field}_concerns has no value")
     fi
-    if [ "$has52" -ne 1 ] || [ "$has5" -ne 1 ]; then
-      MISSING_FIELDS+=("plan_review=pass_with_concerns needs the mandatory opus_validation rows in the deliverable table")
+    if [ "$has_backstop" -ne 1 ]; then
+      MISSING_FIELDS+=("$field=pass_with_concerns needs the mandatory $backstop rows in the deliverable table")
     fi
     need_pauses=1
   elif [ "$v" != "pass" ]; then
@@ -321,7 +327,7 @@ check_deliverables() {
   fi
 
   local line t rest kind want val nf i bad e
-  local n=0 has52=0 has5=0
+  local n=0 pass52=" " pass5=" "
   local ws=$' \t\v\f\r'
   local tab=$'\t' cr=$'\r'
   local phase_re='^[0-9]+(\.[0-9]+)?$'
@@ -371,7 +377,8 @@ check_deliverables() {
     kind="${fields[1]}"
     case "$kind" in
       field_eq) want=4 ;;
-      field_set|log_red|scratch_file|plan_review_entry) want=3 ;;
+      field_set|log_red|scratch_file) want=3 ;;
+      *_entry) want=4 ;;
       *)
         MISSING_FIELDS+=("deliverable table: unknown kind '$kind' (line $n)")
         continue
@@ -384,17 +391,17 @@ check_deliverables() {
       continue
     fi
 
-    # bd#130 (c): the mandatory opus_validation rows must be live in the loaded table
-    if [ "$kind" = "field_eq" ] && [ "${fields[2]}" = "opus_validation" ] && [ "${fields[3]}" = "pass" ]; then
-      if [ "${fields[0]}" = "5.2" ]; then has52=1; fi
-      if [ "${fields[0]}" = "5" ]; then has5=1; fi
+    # bd#130 (c): remember which fields have a live field_eq pass row at phases 5.2 and 5
+    if [ "$kind" = "field_eq" ] && [ "${fields[3]}" = "pass" ]; then
+      if [ "${fields[0]}" = "5.2" ]; then pass52="${pass52}${fields[2]} "; fi
+      if [ "${fields[0]}" = "5" ]; then pass5="${pass5}${fields[2]} "; fi
     fi
 
     [ "${fields[0]}" = "$phase" ] || continue
 
     case "$kind" in
-      plan_review_entry)
-        row_list+=("@@PRE@@${fields[2]}")
+      *_entry)
+        row_list+=("@@PRE@@${fields[2]}${tab}${fields[3]}")
         ;;
       field_eq)
         val=$(yaml_get "${fields[2]}")
@@ -426,7 +433,10 @@ check_deliverables() {
 
   for e in "${row_list[@]+"${row_list[@]}"}"; do
     case "$e" in
-      "@@PRE@@"*) expand_plan_review_entry "$phase" "${e#@@PRE@@}" "$has52" "$has5" ;;
+      "@@PRE@@"*)
+        rest="${e#@@PRE@@}"
+        expand_entry_row "$phase" "${rest%%$tab*}" "${rest#*$tab}" "$pass52" "$pass5"
+        ;;
       *) MISSING_FIELDS+=("$e") ;;
     esac
   done

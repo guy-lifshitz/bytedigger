@@ -1,0 +1,15 @@
+# autonomous-pauses.tsv -- bd#130 pause table, read by build-gate.sh and build-phase-gate.ts.
+# Columns are TAB-separated: id, phase, supervised, autonomous, state_field.
+# autonomous = proceed (continue, state_field records the concern) | stop (halt with resumable state, blocked_reason set).
+# commands/build.md carries the same table; a test pins that ids and rules match.
+P0	0	COMPLEX forced to SUPERVISED	proceed	mode_override
+P1	3	clarifying questions answered by user	proceed	phase3_assumptions
+P2	4	build-architecture.md approval	proceed	architecture_choice
+P3	4.5	spec shown to user for approval	proceed	plan_review
+P4	4.5	Plan-Review cap: cycle 2 still REVISE	proceed	plan_review_concerns
+P5	5	DONE_WITH_CONCERNS shown to user	proceed	agent_concerns
+P6	5	test-fix cap (3) reached	stop	blocked_reason
+P7	5	NEEDS_CONTEXT cap (2 retries) reached	stop	blocked_reason
+P8	5	BLOCKED agent status	stop	blocked_reason
+P9	6	review cap (2 cycles) still has issues	proceed	review_warnings
+P10	7	summary shown, user acknowledges	proceed	post_deploy_report
