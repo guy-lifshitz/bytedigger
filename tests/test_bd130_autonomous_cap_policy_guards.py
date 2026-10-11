@@ -210,6 +210,69 @@ def test_ac10_bash_and_ts_stdout_identical_and_correct(tmp_path, name):
     _assert_pass(bash)
 
 
+def _scripts_copy(tmp_path: Path, name: str) -> Path:
+    root = (tmp_path / name).resolve()
+    shutil.copytree(REPO_ROOT / "scripts", root / "scripts",
+                    ignore=shutil.ignore_patterns("__tests__", "node_modules",
+                                                  "__pycache__"))
+    return root
+
+
+def _set_table(root: Path, state: str) -> None:
+    table = root / "scripts" / "autonomous-pauses.tsv"
+    if state == "missing":
+        table.unlink(missing_ok=True)
+    elif state == "empty":
+        table.write_text("", encoding="utf-8")
+    else:  # bad_row: wrong field count and bad id
+        table.write_text("X\tonly-two\n", encoding="utf-8")
+
+
+TABLE_STATES = ["missing", "empty", "bad_row"]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("state", TABLE_STATES)
+@pytest.mark.parametrize("name", ["ac5_feature_auto", "ac5_feature_sup",
+                                  "ac6_complex_sup"])
+def test_ac12_plain_pass_never_reads_pause_table(tmp_path, backend, state, name):
+    """AC12 GUARD: plan_review pass outside AUTONOMOUS COMPLEX -> pass, table not read."""
+    root = _scripts_copy(tmp_path, "plugin")
+    _set_table(root, state)
+    phase, mode, cx, extra, _ = FIXTURES[name]
+    wd = _make_workdir(tmp_path, "w", phase, extra, complexity=cx, mode=mode)
+    _assert_pass(_run(backend, wd, root=root))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("state", TABLE_STATES)
+def test_ac12_legacy_never_reads_pause_table(tmp_path, backend, state):
+    """AC12 GUARD: under legacy a missing/malformed table never surfaces a table row."""
+    root = _scripts_copy(tmp_path, "plugin")
+    _set_table(root, state)
+    for name in ("ac1", "ac6_complex_no_override"):
+        phase, mode, cx, extra, _ = FIXTURES[name]
+        wd = _make_workdir(tmp_path, f"w-{name}", phase, extra, complexity=cx,
+                           mode=mode)
+        proc = _run(backend, wd, root=root, policy="legacy")
+        if name == "ac1":
+            reason = _assert_block_has(proc, ROW_LEGACY_PWC)
+            assert "autonomous pause table" not in reason, reason
+        else:
+            _assert_pass(proc)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("value", ["approved", "fail", "", "PASS"])
+def test_plan_review_other_values_keep_legacy_row(tmp_path, backend, value):
+    """GUARD (2.1): any other plan_review value -> exactly the legacy row text."""
+    extra = P5_BASE + (f"plan_review: {value}\n" if value else "")
+    wd = _make_workdir(tmp_path, "w", "5", extra)
+    reason = _assert_block_has(
+        _run(backend, wd), f"plan_review=pass (got: {value or '<missing>'})")
+    assert ROW_A not in reason and ROW_B not in reason
+
+
 @pytest.mark.parametrize("policy", ["legacy", "bogus"])
 @pytest.mark.parametrize("name", sorted(FIXTURES))
 def test_ac10_bash_and_ts_identical_under_other_policies(tmp_path, name, policy):

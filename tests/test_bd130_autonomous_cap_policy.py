@@ -1,14 +1,21 @@
 """RED tests for bd#130 -- AUTONOMOUS rules for machine caps and SUPERVISED pauses.
 
-Spec: docs/decisions/2026-10-11-bd130-autonomous-cap-policy.md (section 4, AC1-AC12).
+Spec: docs/decisions/2026-10-11-bd130-autonomous-cap-policy.md (Rev 2, section 4, AC1-AC17).
 
 Both gate backends (scripts/build-gate.sh and `bun run scripts/ts/build-phase-gate.ts`)
 are driven through subprocess in tmp_path fixtures. Nothing is imported from the
 repo, no sys.path manipulation, no mocks. If `bun` is not on PATH the TS tests
 FAIL (they never skip). Nothing here races or depends on timing.
 
-Every test here is expected RED today. The GUARD tests (pass on current main)
-live in test_bd130_autonomous_cap_policy_guards.py.
+Every test here is expected RED today. The GUARD tests (pass on current main,
+including AC9 which after Rev 2 only covers `plan_review: pass` states) live in
+test_bd130_autonomous_cap_policy_guards.py.
+
+Scenario registry (SC) drives AC4/AC6x/AC12-AC16 and the AC10 byte-compare:
+each scenario is a state fixture plus optional scripts-copy edit, policy value
+and the expected rows (None = gate passes with empty stdout). Interpolated
+values (<v>, <path>, <id>) vary across scenarios so a hard-coded row string
+cannot satisfy them.
 """
 from __future__ import annotations
 
@@ -40,6 +47,27 @@ ROW_COMPLEX = ("COMPLEX in AUTONOMOUS needs mode_override: auto_flag_complex "
 ROW_LEGACY_PWC = "plan_review=pass (got: pass_with_concerns)"
 
 
+def _row_a(mode: str) -> str:
+    return f"plan_review=pass_with_concerns needs mode AUTONOMOUS (got mode: {mode})"
+
+
+def _row_complex(v: str) -> str:
+    return ("COMPLEX in AUTONOMOUS needs mode_override: auto_flag_complex "
+            f"(got: {v})")
+
+
+def _row_unknown_policy(v: str) -> str:
+    return f"{POLICY}: unknown value '{v}' (use autonomous|legacy)"
+
+
+def _row_pause_malformed(v: str) -> str:
+    return f"autonomous_pauses: malformed value '{v}'"
+
+
+def _row_pause_unknown(i: str) -> str:
+    return f"autonomous_pauses: unknown pause id '{i}'"
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -53,17 +81,20 @@ def _env(**extra: str) -> dict[str, str]:
 
 
 def _make_workdir(base: Path, name: str, phase: str, extra_state: str = "",
-                  complexity: str = "FEATURE", mode: str = "AUTONOMOUS") -> Path:
+                  complexity: str = "FEATURE",
+                  mode: str | None = "AUTONOMOUS") -> Path:
+    """mode=None omits the `mode:` line (missing mode)."""
     wd = base / name
     wd.mkdir(parents=True, exist_ok=True)
     (wd / "bytedigger.json").write_text(
         json.dumps({"gates_enabled": True, "tdd_mandatory": True}))
     (wd / "build-metadata.json").write_text(json.dumps({"complexity": complexity}))
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    mode_line = f"mode: {mode}\n" if mode is not None else ""
     (wd / "build-state.yaml").write_text(
         'task: "t"\n'
         f"complexity: {complexity}\n"
-        f"mode: {mode}\n"
+        f"{mode_line}"
         f'current_phase: "{phase}"\n'
         f'last_updated: "{now}"\n'
         f"{extra_state}"
@@ -129,6 +160,49 @@ def _drop_table_row(root: Path, phase: str, kind: str, field: str) -> None:
     table.write_text("".join(kept), encoding="utf-8")
 
 
+def _rewrite_opus_row(root: Path, phase: str, how: str) -> None:
+    """how: 'fail' (value -> fail) or 'comment' (row commented out)."""
+    table = root / "scripts" / "phase-deliverables.tsv"
+    out, hit = [], 0
+    for l in table.read_text(encoding="utf-8").splitlines(keepends=True):
+        cells = l.rstrip("\n").split("\t")
+        if cells[:3] == [phase, "field_eq", "opus_validation"]:
+            hit += 1
+            l = ("\t".join(cells[:3] + ["fail"]) + "\n") if how == "fail" else "# " + l
+        out.append(l)
+    assert hit == 1, f"row {phase} field_eq opus_validation not found"
+    table.write_text("".join(out), encoding="utf-8")
+
+
+def _table_path(root: Path) -> Path:
+    return root / "scripts" / "autonomous-pauses.tsv"
+
+
+# -- scripts-copy edits (callables root -> None) ----------------------------
+
+def _drop(phase):
+    return lambda root: _drop_table_row(root, phase, "field_eq", "opus_validation")
+
+
+def _opus(phase, how):
+    return lambda root: _rewrite_opus_row(root, phase, how)
+
+
+def _rm_pauses(root: Path) -> None:
+    _table_path(root).unlink(missing_ok=True)
+
+
+def _write_pauses(content: str):
+    return lambda root: _table_path(root).write_text(content, encoding="utf-8")
+
+
+def _edits(*fns):
+    def run(root):
+        for f in fns:
+            f(root)
+    return run
+
+
 # fixtures: name -> (phase, mode, complexity, extra_state, expected)
 # expected: None = gate passes (rc 0, empty stdout); tuple = soft block with
 # every listed row present in the reason.
@@ -149,7 +223,7 @@ FIXTURES = {
                       (ROW_PAUSES_MISSING,)),
     "ac3_unknown_pause": ("5", "AUTONOMOUS", "FEATURE",
                           _PWC_OK + "autonomous_pauses: [P1, P99]\n",
-                          ("autonomous_pauses: unknown pause id 'P99'",)),
+                          (_row_pause_unknown("P99"),)),
     "ac5_feature_auto": ("5", "AUTONOMOUS", "FEATURE",
                          P5_BASE + "plan_review: pass\n", None),
     "ac5_feature_sup": ("5", "SUPERVISED", "FEATURE",
@@ -166,11 +240,7 @@ FIXTURES = {
                                "plan_review: pass\n", None),
 }
 
-
-# Fixtures whose AC9 / AC10 checks already pass on main live in
-# test_bd130_autonomous_cap_policy_guards.py.
-GUARD_AC9 = {"ac5_feature_auto", "ac5_feature_sup", "ac6_complex_no_override",
-             "ac6_complex_override", "ac6_complex_sup", "ac6_complex_auto_at_45"}
+# Fixtures whose AC10 check already passes on main live in the guards file.
 GUARD_AC10 = {"ac5_feature_auto", "ac5_feature_sup", "ac6_complex_override",
               "ac6_complex_sup", "ac6_complex_auto_at_45"}
 
@@ -188,6 +258,209 @@ def _assert_expected(proc, expected):
         _assert_pass(proc)
     else:
         _assert_block_has(proc, *expected)
+
+
+# ---------------------------------------------------------------------------
+# scenario registry (AC4, AC6x, AC12-AC16)
+# ---------------------------------------------------------------------------
+
+SC: dict[str, dict] = {}
+
+
+def _sc(name, phase, extra, *, mode="AUTONOMOUS", cx="FEATURE", edit=None,
+        policy=None, rows=None, absent=()):
+    assert name not in SC, name
+    SC[name] = dict(phase=phase, extra=extra, mode=mode, cx=cx, edit=edit,
+                    policy=policy, rows=rows, absent=tuple(absent))
+
+
+def _names(prefix: str) -> list[str]:
+    return [n for n in SC if n.startswith(prefix)]
+
+
+def _run_sc(backend: str, tmp_path: Path, name: str):
+    sc = SC[name]
+    root = REPO_ROOT
+    if sc["edit"] is not None:
+        # one shared edited copy per scenario so both backends see the same path
+        root = (tmp_path / f"plugin-{name}").resolve()
+        if not root.exists():
+            _scripts_copy(tmp_path, f"plugin-{name}")
+            sc["edit"](root)
+    wd = _make_workdir(tmp_path, f"w-{name}-{backend}", sc["phase"], sc["extra"],
+                       complexity=sc["cx"], mode=sc["mode"])
+    return _run(backend, wd, root=root, policy=sc["policy"]), root
+
+
+def _check_sc(proc, name: str, root: Path):
+    sc = SC[name]
+    if sc["rows"] is None:
+        _assert_pass(proc)
+        return
+    table = str(_table_path(root))
+    rows = [r.replace("<TABLE>", table) for r in sc["rows"]]
+    reason = _assert_block_has(proc, *rows)
+    pos = [reason.index(r) for r in rows]
+    assert pos == sorted(pos), f"rows out of order: {rows} in {reason!r}"
+    for r in rows:
+        assert reason.count(r) == 1, f"{r!r} not exactly once in {reason!r}"
+    for a in sc["absent"]:
+        assert a.replace("<TABLE>", table) not in reason, f"{a!r} in {reason!r}"
+
+
+OK_PAUSES = _PWC_OK + "autonomous_pauses: none\n"
+_NO_PAUSE_ROWS = ("autonomous_pauses has no value", "malformed value",
+                  "unknown pause id")
+
+# AC4 / AC16(c): mandatory opus rows in the (copied) deliverable table
+_C_ABSENT = (ROW_A, ROW_B, ROW_PAUSES_MISSING, ROW_LEGACY_PWC)
+_sc("ac4_drop_52", "5", OK_PAUSES, edit=_drop("5.2"), rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac4_drop_5", "5", OK_PAUSES, edit=_drop("5"), rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac16_c_52_fail", "5", OK_PAUSES, edit=_opus("5.2", "fail"),
+    rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac16_c_5_fail", "5", OK_PAUSES, edit=_opus("5", "fail"),
+    rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac16_c_52_commented", "5", OK_PAUSES, edit=_opus("5.2", "comment"),
+    rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac16_c_5_commented", "5", OK_PAUSES, edit=_opus("5", "comment"),
+    rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac16_c_both_dropped", "5", OK_PAUSES, edit=_edits(_drop("5.2"), _drop("5")),
+    rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac16_c_both_commented", "5", OK_PAUSES,
+    edit=_edits(_opus("5.2", "comment"), _opus("5", "comment")),
+    rows=(ROW_C,), absent=_C_ABSENT)
+_sc("ac16_c_both_mixed", "5", OK_PAUSES,
+    edit=_edits(_drop("5.2"), _opus("5", "comment")),
+    rows=(ROW_C,), absent=_C_ABSENT)
+
+# AC16(b): "no value" after removing whitespace and quotes; valid values pass
+for _tag, _raw in [("space", "[ ]"), ("quotes", '[""]'), ("nested", "[[]]"),
+                   ("single_quotes", "[ '' ]")]:
+    _sc(f"ac16_b_{_tag}", "5",
+        P5_BASE + "plan_review: pass_with_concerns\n"
+        f"plan_review_concerns: {_raw}\nautonomous_pauses: none\n",
+        rows=(ROW_B,), absent=(ROW_A, ROW_PAUSES_MISSING, ROW_C))
+for _tag, _raw in [("ok_quoted", '["risk: foo"]'), ("ok_two", "[a, b]")]:
+    _sc(f"ac16_b_{_tag}", "5",
+        P5_BASE + "plan_review: pass_with_concerns\n"
+        f"plan_review_concerns: {_raw}\nautonomous_pauses: none\n")
+
+# AC16 order a, b, d (c intact) and missing mode (phase 4.5 too: identical rule)
+_sc("ac16_o_abd", "5", P5_BASE + "plan_review: pass_with_concerns\n",
+    mode="SUPERVISED", rows=(ROW_A, ROW_B, ROW_PAUSES_MISSING),
+    absent=(ROW_LEGACY_PWC, ROW_C))
+_sc("ac16_o_abd_at_45", "4.5", "plan_review: pass_with_concerns\n",
+    mode="SUPERVISED", rows=(ROW_A, ROW_B, ROW_PAUSES_MISSING),
+    absent=(ROW_LEGACY_PWC, ROW_C))
+_sc("ac16_o_mode_missing", "5", OK_PAUSES, mode=None,
+    rows=(_row_a("<missing>"),), absent=(ROW_LEGACY_PWC, ROW_B, ROW_C))
+_sc("ac16_o_mode_other", "5", OK_PAUSES, mode="Autonomous",
+    rows=(_row_a("Autonomous"),), absent=(ROW_LEGACY_PWC, ROW_B, ROW_C))
+
+# AC13 (M2): AUTONOMOUS + COMPLEX + pass_with_concerns
+_sc("ac13_no_override", "5", OK_PAUSES, cx="COMPLEX",
+    rows=(ROW_COMPLEX,), absent=(ROW_LEGACY_PWC, ROW_A, ROW_B, ROW_PAUSES_MISSING))
+_sc("ac13_other_override", "5", OK_PAUSES + "mode_override: manual\n", cx="COMPLEX",
+    rows=(_row_complex("manual"),), absent=(ROW_LEGACY_PWC, ROW_A))
+_sc("ac13_override", "5", OK_PAUSES + "mode_override: auto_flag_complex\n",
+    cx="COMPLEX")
+_sc("ac13_at_45_no_complex_row", "4.5",
+    "plan_review: pass_with_concerns\nplan_review_concerns: [x]\n"
+    "autonomous_pauses: none\n", cx="COMPLEX")
+_sc("ac13_at_45_pauses_missing_no_complex_row", "4.5",
+    "plan_review: pass_with_concerns\nplan_review_concerns: [x]\n", cx="COMPLEX",
+    rows=(ROW_PAUSES_MISSING,), absent=("COMPLEX in AUTONOMOUS",))
+_sc("ac13_row_order_b_d_complex", "5",
+    P5_BASE + "plan_review: pass_with_concerns\n", cx="COMPLEX",
+    rows=(ROW_B, ROW_PAUSES_MISSING, _row_complex("<missing>")),
+    absent=(ROW_A, ROW_LEGACY_PWC))
+
+# AC6 extension: the <v> in the COMPLEX row is the real override value
+_sc("ac6x_pass_other_override", "5",
+    P5_BASE + "plan_review: pass\nmode_override: unattended\n"
+    "autonomous_pauses: none\n", cx="COMPLEX",
+    rows=(_row_complex("unattended"),))
+
+# AC14 (M4): unknown policy values -> unknown row first, then legacy verdict
+_UNKNOWN_POLICIES = [("bogus", "bogus"), ("upper", "AUTO"), ("lead_sp", " legacy"),
+                     ("cap_l", "Legacy"), ("trail_sp", "legacy ")]
+for _tag, _val in _UNKNOWN_POLICIES:
+    _u = _row_unknown_policy(_val)
+    _sc(f"ac14_{_tag}_pass", "5", P5_BASE + "plan_review: pass\n", policy=_val,
+        rows=(_u,), absent=("plan_review=pass (got", "COMPLEX in AUTONOMOUS"))
+    _sc(f"ac14_{_tag}_pwc", "5", OK_PAUSES, policy=_val,
+        rows=(_u, ROW_LEGACY_PWC),
+        absent=(ROW_A, ROW_B, ROW_C, ROW_PAUSES_MISSING))
+    _sc(f"ac14_{_tag}_complex_pass", "5", P5_BASE + "plan_review: pass\n",
+        cx="COMPLEX", policy=_val, rows=(_u,),
+        absent=("COMPLEX in AUTONOMOUS", ROW_PAUSES_MISSING))
+    # the pause table is never read under an unknown policy
+    _sc(f"ac14_{_tag}_table_not_read", "5", OK_PAUSES, policy=_val,
+        edit=_rm_pauses, rows=(_u, ROW_LEGACY_PWC),
+        absent=("autonomous pause table",))
+
+# AC12 (M3): pause table failure modes
+_GOOD_TBL = ("# header\n\nP1\t3\tclarify\tproceed\tphase3_assumptions\n\n"
+             "P7\t5\tcap\tstop\tblocked_reason\n")
+_UNREADABLE = "autonomous pause table unreadable: <TABLE>"
+_MALFORMED = "autonomous pause table malformed: <TABLE>"
+_sc("ac12_missing", "5", OK_PAUSES, edit=_rm_pauses, rows=(_UNREADABLE,),
+    absent=("autonomous pause table malformed",))
+_sc("ac12_empty", "5", OK_PAUSES, edit=_write_pauses(""), rows=(_MALFORMED,),
+    absent=("autonomous pause table unreadable",))
+_sc("ac12_comments_only", "5", OK_PAUSES,
+    edit=_write_pauses("# only a comment\n\n# another\n"), rows=(_MALFORMED,),
+    absent=("autonomous pause table unreadable",))
+_sc("ac12_bad_field_count", "5", OK_PAUSES,
+    edit=_write_pauses(_GOOD_TBL + "P2\t4\tarch\tproceed\n"), rows=(_MALFORMED,),
+    absent=("autonomous pause table unreadable",))
+_sc("ac12_bad_id", "5", OK_PAUSES,
+    edit=_write_pauses(_GOOD_TBL + "X9\t4\tarch\tproceed\tarchitecture_choice\n"),
+    rows=(_MALFORMED,), absent=("autonomous pause table unreadable",))
+_sc("ac12_bad_id_lowercase", "5", OK_PAUSES,
+    edit=_write_pauses(_GOOD_TBL + "p2\t4\tarch\tproceed\tarchitecture_choice\n"),
+    rows=(_MALFORMED,), absent=("autonomous pause table unreadable",))
+_sc("ac12_complex_missing", "5",
+    P5_BASE + "plan_review: pass\nmode_override: auto_flag_complex\n"
+    "autonomous_pauses: none\n", cx="COMPLEX", edit=_rm_pauses,
+    rows=(_UNREADABLE,))
+_sc("ac12_complex_malformed", "5",
+    P5_BASE + "plan_review: pass\nmode_override: auto_flag_complex\n"
+    "autonomous_pauses: none\n", cx="COMPLEX", edit=_write_pauses(""),
+    rows=(_MALFORMED,))
+# the id set really comes from the file: a custom table accepts only its own ids
+_sc("ac12_custom_ok", "5", _PWC_OK + "autonomous_pauses: [P1, P7]\n",
+    edit=_write_pauses(_GOOD_TBL))
+_sc("ac12_custom_unknown", "5", _PWC_OK + "autonomous_pauses: [P7, P3]\n",
+    edit=_write_pauses(_GOOD_TBL), rows=(_row_pause_unknown("P3"),))
+_sc("ac12_custom_unknown_repo_id", "5", _PWC_OK + "autonomous_pauses: [P1, P4, P7]\n",
+    edit=_write_pauses(_GOOD_TBL), rows=(_row_pause_unknown("P4"),))
+
+# AC15 (2.3): table-driven autonomous_pauses parsing
+_PAUSE_CASES = [
+    ("none", "ok", None), ("[P1, P3]", "ok", None), ("[P1,P1]", "ok", None),
+    ("[ P2 , P10 ]", "ok", None), ("[P0]", "ok", None),
+    ("[ ]", "novalue", None), ("[]", "novalue", None), ("", "novalue", None),
+    ("none # x", "malformed", None), ("[none]", "malformed", None),
+    ("none, P1", "malformed", None), ("[P1,]", "malformed", None),
+    ("None", "malformed", None), ("[P1 P2]", "malformed", None),
+    ("P1", "malformed", None),
+    ("[P01]", "unknown", "P01"), ("[P11]", "unknown", "P11"),
+    ("[P1, P11, P12]", "unknown", "P11"), ("[P3, P01]", "unknown", "P01"),
+]
+for _i, (_raw, _kind, _id) in enumerate(_PAUSE_CASES):
+    _extra = _PWC_OK + (f"autonomous_pauses: {_raw}".rstrip() + "\n")
+    if _kind == "ok":
+        _sc(f"ac15_{_i:02d}", "5", _extra)
+    elif _kind == "novalue":
+        _sc(f"ac15_{_i:02d}", "5", _extra, rows=(ROW_PAUSES_MISSING,),
+            absent=("malformed value", "unknown pause id"))
+    elif _kind == "malformed":
+        _sc(f"ac15_{_i:02d}", "5", _extra, rows=(_row_pause_malformed(_raw),),
+            absent=(ROW_PAUSES_MISSING, "unknown pause id"))
+    else:
+        _sc(f"ac15_{_i:02d}", "5", _extra, rows=(_row_pause_unknown(_id),),
+            absent=(ROW_PAUSES_MISSING, "malformed value"))
 
 
 # ---------------------------------------------------------------------------
@@ -215,8 +488,9 @@ def test_ac1_same_stdout_in_both_backends(tmp_path):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_ac2_supervised_pass_with_concerns_soft_blocks(tmp_path, backend):
-    """AC2: SUPERVISED never accepts pass_with_concerns -> row (a)."""
-    _assert_block_has(_run_fixture(backend, tmp_path, "t", "ac2"), ROW_A)
+    """AC2: SUPERVISED never accepts pass_with_concerns -> row (a) replaces the legacy row."""
+    reason = _assert_block_has(_run_fixture(backend, tmp_path, "t", "ac2"), ROW_A)
+    assert ROW_LEGACY_PWC not in reason, reason
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -233,19 +507,16 @@ def test_ac3_only_first_unknown_pause_id_reported(tmp_path, backend):
     """AC3: unknown-id row names the first unknown id only."""
     wd = _make_workdir(tmp_path, "w", "5",
                        _PWC_OK + "autonomous_pauses: [P1, P98, P99]\n")
-    reason = _assert_block_has(_run(backend, wd),
-                               "autonomous_pauses: unknown pause id 'P98'")
+    reason = _assert_block_has(_run(backend, wd), _row_pause_unknown("P98"))
     assert "'P99'" not in reason
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("dropped_phase", ["5.2", "5"])
-def test_ac4_missing_mandatory_opus_row_adds_row_c(tmp_path, backend, dropped_phase):
-    """AC4: a table copy lacking an opus_validation pass row -> (c) row."""
-    root = _scripts_copy(tmp_path)
-    _drop_table_row(root, dropped_phase, "field_eq", "opus_validation")
-    wd = _make_workdir(tmp_path, "w", "5", _PWC_OK + "autonomous_pauses: none\n")
-    _assert_block_has(_run(backend, wd, root=root), ROW_C)
+@pytest.mark.parametrize("name", _names("ac4_"))
+def test_ac4_missing_mandatory_opus_row_adds_row_c(tmp_path, backend, name):
+    """AC4: a table copy lacking an opus_validation pass row -> exactly one (c) row."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +540,14 @@ def test_ac6_complex_override_without_pauses_blocks(tmp_path, backend):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", _names("ac6x_"))
+def test_ac6_complex_row_reports_actual_override_value(tmp_path, backend, name):
+    """AC6: a wrong mode_override value is echoed in the 2.2 row (got: <v>)."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_ac8_empty_policy_means_autonomous(tmp_path, backend):
     """AC8: empty policy value is the default (autonomous): AC1 fixture passes."""
     _assert_pass(_run_fixture(backend, tmp_path, "t", "ac1", policy=""))
@@ -278,38 +557,13 @@ def test_ac8_empty_policy_means_autonomous(tmp_path, backend):
 def test_ac8_unknown_policy_value_row(tmp_path, backend):
     """AC8: unknown policy value -> the unknown-value row and no other new rule."""
     proc = _run_fixture(backend, tmp_path, "t", "ac2", policy="bogus")
-    reason = _assert_block_has(
-        proc, "BD_AUTONOMOUS_CAP_POLICY: unknown value 'bogus' (use autonomous|legacy)")
+    reason = _assert_block_has(proc, _row_unknown_policy("bogus"))
     assert ROW_A not in reason
 
 
-
 # ---------------------------------------------------------------------------
-# AC9 / AC10
+# AC10 -- bash vs TS byte-compare
 # ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("name", sorted(n for n in FIXTURES if n not in GUARD_AC9))
-def test_ac9_supervised_stdout_equals_legacy(tmp_path, backend, name):
-    """AC9: with mode SUPERVISED the default policy equals legacy (pwc fixtures only here).
-
-    Fixtures whose plan_review is pass_with_concerns are exempt from byte
-    equality: spec AC2 requires the extra (a) row there, so they only need the
-    same verdict (rc 2) and must carry the legacy row too.
-    """
-    default = _run_fixture(backend, tmp_path, "d", name, mode="SUPERVISED")
-    legacy = _run_fixture(backend, tmp_path, "l", name, mode="SUPERVISED",
-                          policy="legacy")
-    if "pass_with_concerns" in FIXTURES[name][3]:
-        assert default.returncode == legacy.returncode == 2, \
-            f"default: {_describe(default)} legacy: {_describe(legacy)}"
-        _assert_block_has(default, ROW_A)
-        assert ROW_LEGACY_PWC in _reason(legacy)
-    else:
-        assert default.stdout == legacy.stdout, \
-            f"default={default.stdout!r} legacy={legacy.stdout!r}"
-        assert default.returncode == legacy.returncode
-
 
 @pytest.mark.parametrize("name", sorted(n for n in FIXTURES if n not in GUARD_AC10))
 def test_ac10_bash_and_ts_stdout_identical_and_correct(tmp_path, name):
@@ -320,6 +574,15 @@ def test_ac10_bash_and_ts_stdout_identical_and_correct(tmp_path, name):
         f"bash: {_describe(bash)} ts: {_describe(ts)}"
     _assert_expected(bash, FIXTURES[name][4])
 
+
+@pytest.mark.parametrize("name", sorted(SC))
+def test_ac10_scenarios_bash_and_ts_identical_and_correct(tmp_path, name):
+    """AC10: AC4/AC12/AC13-AC16 scenarios: bash == TS byte for byte AND spec verdict."""
+    bash, root = _run_sc("bash", tmp_path, name)
+    ts, _ = _run_sc("ts", tmp_path, name)
+    assert (bash.returncode, bash.stdout) == (ts.returncode, ts.stdout), \
+        f"bash: {_describe(bash)} ts: {_describe(ts)}"
+    _check_sc(bash, name, root)
 
 
 # ---------------------------------------------------------------------------
@@ -377,16 +640,104 @@ def test_ac11_build_md_table_matches_pauses_tsv():
 
 
 # ---------------------------------------------------------------------------
-# AC12 -- missing pause table
+# AC12 -- pause table failure modes
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("backend", BACKENDS)
-def test_ac12_missing_pause_table_row(tmp_path, backend):
-    """AC12: the gate reads the pause table only for id validation; missing -> row."""
-    root = _scripts_copy(tmp_path)
-    table = root / "scripts" / "autonomous-pauses.tsv"
-    if table.exists():
-        table.unlink()
-    wd = _make_workdir(tmp_path, "w", "5", _PWC_OK + "autonomous_pauses: none\n")
-    _assert_block_has(_run(backend, wd, root=root),
-                      f"autonomous pause table unreadable: {table}")
+@pytest.mark.parametrize("name", _names("ac12_"))
+def test_ac12_pause_table_failure_modes(tmp_path, backend, name):
+    """AC12: missing -> unreadable row; empty / bad field count / bad id -> malformed row;
+    a custom table defines the accepted ids."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_ac12_malformed_table_row_names_the_table_path(tmp_path, backend):
+    """AC12: the <path> in the row is the table the gate actually read (a copy here)."""
+    name = "ac12_empty"
+    proc, root = _run_sc(backend, tmp_path, name)
+    assert str(_table_path(root)) != str(PAUSES_TSV)
+    _assert_block_has(proc, f"autonomous pause table malformed: {_table_path(root)}")
+
+
+# ---------------------------------------------------------------------------
+# AC13 / AC14 / AC15 / AC16
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", _names("ac13_"))
+def test_ac13_complex_autonomous_pass_with_concerns(tmp_path, backend, name):
+    """AC13: AUTONOMOUS+COMPLEX+pass_with_concerns: 2.2 row at phase 5 only, override passes."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", _names("ac14_"))
+def test_ac14_unknown_policy_row_first_then_legacy_verdict(tmp_path, backend, name):
+    """AC14: unknown policy (incl. ' legacy', 'Legacy') -> unknown row first, then legacy."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", _names("ac15_"))
+def test_ac15_autonomous_pauses_parsing(tmp_path, backend, name):
+    """AC15: table-driven autonomous_pauses shapes -> ok / no value / malformed / unknown id."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_ac15_wrong_case_id_is_a_pause_row(tmp_path, backend):
+    """AC15: `[p1]` is not an accepted form (regex is case-sensitive); it must yield a
+    pause row (malformed value or unknown id), never pass and never the legacy row."""
+    wd = _make_workdir(tmp_path, "w", "5", _PWC_OK + "autonomous_pauses: [p1]\n")
+    reason = _assert_block_has(_run(backend, wd))
+    assert (_row_pause_malformed("[p1]") in reason
+            or _row_pause_unknown("p1") in reason), reason
+    assert ROW_LEGACY_PWC not in reason
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", _names("ac16_b_"))
+def test_ac16_concerns_no_value_shapes(tmp_path, backend, name):
+    """AC16(b): concerns `[ ]`, `[""]`, `[[]]` -> row (b); real values pass."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", _names("ac16_c_"))
+def test_ac16_opus_rows_invalid_give_exactly_one_row_c(tmp_path, backend, name):
+    """AC16(c): opus row value fail / commented out / both dropped -> exactly one (c) row."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", _names("ac16_o_"))
+def test_ac16_row_order_and_missing_mode(tmp_path, backend, name):
+    """AC16: a+b+d rows in that order; missing mode -> `(got mode: <missing>)`."""
+    proc, root = _run_sc(backend, tmp_path, name)
+    _check_sc(proc, name, root)
+
+
+# ---------------------------------------------------------------------------
+# AC17 -- docs mention the new rule set
+# ---------------------------------------------------------------------------
+
+DOCS_AC17 = ["commands/build.md", "phases/phase-45-spec.md",
+             "phases/phase-5-implement.md", "phases/phase-0-classify.md",
+             "skills/bytedigger/SKILL.md", "CHANGELOG.md"]
+
+
+@pytest.mark.parametrize("doc", DOCS_AC17)
+def test_ac17_doc_mentions_autonomous_pauses_or_pass_with_concerns(doc):
+    """AC17: each listed doc contains `autonomous-pauses` or `pass_with_concerns`."""
+    path = REPO_ROOT / doc
+    assert path.is_file(), f"{path} missing"
+    text = path.read_text(encoding="utf-8")
+    assert "autonomous-pauses" in text or "pass_with_concerns" in text, \
+        f"{doc} mentions neither autonomous-pauses nor pass_with_concerns"
