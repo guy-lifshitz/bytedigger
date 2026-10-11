@@ -178,6 +178,19 @@ skipped. The hard validation gate additionally enforces a model floor:
 `HAL_GATE_MODEL_FLOOR` env > `models.json` `claude.gate_floor` > provider
 default (`engine_py/llm_subprocess.py::_resolve_gate_floor`).
 
+`restricted_roles.setting_sources` in `models.json` (bd#105) is `inherit` (the
+default; an unset key or any other value also runs as `inherit`, and another
+value gives one `setting_sources_config_error` event) or `isolated`. It applies
+only to a call whose tool list has a patterned entry such as `Bash(x:*)`: with
+`isolated`, the backend loads no user, project or local settings and no MCP
+configuration, so the declared tool list stays the upper bound. A backend
+without the `setting_sources_isolation` capability, or a call whose settings
+files carry auth (`apiKeyHelper`, auth variables in `env`, cloud credential
+commands, or a settings file that cannot be read), is not isolated and emits one
+`setting_sources_isolation_skipped` event with the reason and the key names
+(never values); an isolated call emits `setting_sources_isolated`. This is a
+temporary switch, to be retired by 2026-11-10.
+
 ## Verification skills (engine)
 
 Phase 5 step `verify_registered_skills` runs every skill whose `SKILL.md`

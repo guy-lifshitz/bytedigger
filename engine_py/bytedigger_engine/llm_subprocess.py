@@ -186,7 +186,7 @@ _ALLOWED_MANIFEST_SOURCES: frozenset[str] = frozenset(_BACKEND_MANIFEST_SOURCE.v
 # it, so the attestation records "not-enforced" rather than an overclaim.
 _BACKEND_CAPABILITIES: dict[str, frozenset[str]] = {
     # bd#167: reports_cost - the result event's total_cost_usd is the runtime's own figure.
-    "claude-subprocess": frozenset({"manifest", "progress_since", "abort", "tool_allowlist", "effort", "reports_cost"}),
+    "claude-subprocess": frozenset({"manifest", "progress_since", "abort", "tool_allowlist", "effort", "reports_cost", "setting_sources_isolation"}),
     "claude-in-session": frozenset({"manifest"}),
 }
 
@@ -1611,6 +1611,111 @@ def _warm_resume_allowed(step_name: str) -> bool:
     return family in _WARM_RESUME_STEPS or family.startswith(_WARM_RESUME_STEP_PREFIXES)
 
 
+# bd#105: auth that lives only in a settings file is lost when the setting sources
+# are isolated, so a call whose settings carry any of these is not isolated.
+_SETTINGS_AUTH_TOP_KEYS = ("apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh")
+_SETTINGS_AUTH_ENV_KEYS = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK", "AWS_PROFILE",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+)
+_SETTING_SOURCES_VALUES = ("inherit", "isolated")
+_SETTING_SOURCES_UNSET = object()
+
+
+def _settings_files(root: "str | os.PathLike[str]") -> "list[tuple[str, str]]":
+    """bd#105: (source, path) of the three settings files, in precedence-free probe order."""
+    user_dir = config_provider.env_opt("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")  # core-boundary: allow the CLI's own user settings dir, probed read-only
+    project_dir = os.path.join(str(root), ".claude")  # core-boundary: allow the CLI's own project settings dir, probed read-only
+    return [
+        ("user", os.path.join(user_dir, "settings.json")),
+        ("project", os.path.join(project_dir, "settings.json")),
+        ("local", os.path.join(project_dir, "settings.local.json")),
+    ]
+
+
+def _auth_keys_in_file(source: str, path: str) -> "list[str]":
+    """bd#105: names (never values) of the auth keys one settings file carries."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return []
+    except Exception:  # noqa: BLE001 - fail-safe: an unreadable file counts as found
+        return [f"{source}:<unreadable>"]
+    if not isinstance(data, dict):
+        return [f"{source}:<unreadable>"]
+    keys = [k for k in _SETTINGS_AUTH_TOP_KEYS if k in data]
+    env = data.get("env")
+    if isinstance(env, dict):
+        keys += [k for k in _SETTINGS_AUTH_ENV_KEYS if k in env]
+    return [f"{source}:{k}" for k in keys]
+
+
+def _settings_auth_keys(root: "str | os.PathLike[str]") -> "list[str]":
+    """bd#105: presence-only probe; `"<source>:<key>"` names, empty = clean."""
+    found: list[str] = []
+    for source, path in _settings_files(root):
+        found += _auth_keys_in_file(source, path)
+    return found
+
+
+def _read_setting_sources_value() -> typing.Any:
+    """bd#105: `restricted_roles.setting_sources` from the models config, best-effort;
+    anything unreadable or absent is `_SETTING_SOURCES_UNSET`."""
+    try:
+        with open(config_provider.models_config_path(), encoding="utf-8") as fh:
+            raw = json.load(fh)
+        return raw["restricted_roles"]["setting_sources"]
+    except Exception:  # noqa: BLE001 - best-effort, like the other keys of this file
+        return _SETTING_SOURCES_UNSET
+
+
+def _emit_setting_sources(run_ctx: "_RunCtx | None", name: str, payload: "dict[str, typing.Any]") -> None:
+    if run_ctx is not None and run_ctx.event_log is not None:
+        _emit_safe(run_ctx.event_log, name, payload, run_ctx.run_id)
+
+
+def _setting_sources_isolation(
+    resolved_backend: str,
+    *,
+    allowed_tools: "list[str] | None",
+    step_name: str,
+    extra_data: "dict[str, object] | None",
+    run_ctx: "_RunCtx | None",
+) -> bool:
+    """bd#105: whether this dispatch runs with its setting sources isolated.
+    Only a patterned tool list is eligible; the first applicable step decides."""
+    if not allowed_tools or not any("(" in entry for entry in allowed_tools):
+        return False
+    value = _read_setting_sources_value()
+    if value is _SETTING_SOURCES_UNSET or value == "inherit":
+        return False
+    if value != "isolated" or not isinstance(value, str):
+        _emit_setting_sources(run_ctx, "setting_sources_config_error", {
+            "step_name": step_name, "value": repr(value)[:40],
+            "expected": list(_SETTING_SOURCES_VALUES),
+        })
+        return False
+    skipped = {"backend": resolved_backend, "step_name": step_name}
+    if "setting_sources_isolation" not in _backend_capabilities(resolved_backend):
+        _emit_setting_sources(run_ctx, "setting_sources_isolation_skipped", {
+            **skipped, "reason": "backend_unsupported", "keys": [],
+        })
+        return False
+    root = (extra_data or {}).get("workspace_root") or os.getcwd()
+    keys = _settings_auth_keys(str(root))
+    if keys:
+        _emit_setting_sources(run_ctx, "setting_sources_isolation_skipped", {
+            **skipped, "reason": "auth_in_settings", "keys": keys,
+        })
+        return False
+    _emit_setting_sources(run_ctx, "setting_sources_isolated", skipped)
+    return True
+
+
 def _dispatch_backend(
     resolved_backend: str,
     *,
@@ -1752,7 +1857,13 @@ def _dispatch_backend(
     # GH334 §2.2: optional kwargs go only to backends that can take them —
     # `stable_prefix` when non-empty, `fresh_session` (bd#82) to `warm_resume`
     # backends — so strict-signature backends and test doubles stay compatible.
+    isolate = _setting_sources_isolation(
+        resolved_backend, allowed_tools=allowed_tools, step_name=step_name,
+        extra_data=extra_data, run_ctx=run_ctx,
+    )
     optional: dict[str, typing.Any] = {}
+    if isolate:  # bd#105: only when isolating; the backend declares the capability
+        optional["isolate_setting_sources"] = True
     if stable_prefix:
         optional["stable_prefix"] = stable_prefix
     if takes_effort:  # None included: the handler must not re-resolve it
@@ -2166,6 +2277,7 @@ def _invoke_subprocess(
     idle_timeout_sec: "int | float | None" = None,
     stable_prefix: str = "",
     effort: "str | None | object" = _EFFORT_UNSET,
+    isolate_setting_sources: bool = False,
 ) -> StepResult:
     """Claude-subprocess backend handler (68E964FB: extracted from inline tail).
 
@@ -2210,6 +2322,8 @@ def _invoke_subprocess(
             "--allowed-tools", " ".join(allowed_tools),
             "--tools", ",".join(available_tools(allowed_tools)),
         ]
+    if isolate_setting_sources:  # bd#105: right after the tool pair
+        effective_command = effective_command + ["--setting-sources", "", "--strict-mcp-config"]
     # 32ED59E2: auto-inject reasoning-effort from config for non-gate delegations.
     # hard_gate: no longer a blanket exemption — the Opus correctness-validation
     # spawn keeps CLI-default effort UNLESS an explicit per-model pin (GH439,
