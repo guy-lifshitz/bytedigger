@@ -159,6 +159,25 @@ def test_ac1_seam_serializes_unsafe_injected_sink():
     assert sorted(e["seq"] for e in sink.events) == list(range(TOTAL))
 
 
+def test_ac1b_fresh_wrapper_per_emit_over_one_singleton_sink():
+    built = _UnsafeSink()
+    event_sink.set_default_event_sink_factory(lambda path=None: built)
+
+    class _PerEmit:
+        def append(self, event_type, payload, run_id=None):
+            return event_sink.get_event_sink().append(event_type, payload, run_id=run_id)
+
+    _drive(_PerEmit())
+    assert built.max_inside == 1
+    assert built.count == TOTAL
+    assert len(built.events) == TOTAL
+    sent = {(t, i) for t in range(THREADS) for i in range(PER_THREAD)}
+    seen = [(e["payload"]["thread"], e["payload"]["i"]) for e in built.events]
+    assert len(seen) == TOTAL and set(seen) == sent
+    assert all(e["event_type"] == "e" for e in built.events)
+    assert sorted(e["seq"] for e in built.events) == list(range(TOTAL))
+
+
 # ---------------------------------------------------------------- AC2
 
 @pytest.mark.parametrize("name", [VAR, "BD_EVENT_SINK_SERIALIZE"])
@@ -265,6 +284,35 @@ def test_ac4_already_wrapped_sink_is_not_wrapped_twice():
     got = event_sink.get_event_sink()
     assert got is pre
     assert got._inner is inner
+
+
+def test_ac4b_reentrant_nested_wrappers_on_same_thread_complete():
+    inner_b = _Inner()
+    wrapper_b = event_sink.SerializedEventSink(inner_b)
+    received_a: list = []
+    received_b: list = []
+    orig_b = inner_b.append
+
+    def b_append(event_type, payload, run_id=None):
+        received_b.append((event_type, payload))
+        return orig_b(event_type, payload, run_id)
+
+    inner_b.append = b_append
+
+    class _InnerA:
+        def append(self, event_type, payload, run_id=None):
+            received_a.append((event_type, payload))
+            return wrapper_b.append(event_type, payload, run_id=run_id)
+
+    wrapper_a = event_sink.SerializedEventSink(_InnerA())
+    out: list = []
+    th = threading.Thread(target=lambda: out.append(wrapper_a.append("t", {"n": 1})), daemon=True)
+    th.start()
+    th.join(10)
+    assert not th.is_alive(), "nested append deadlocked: lock must be re-entrant"
+    assert received_a == [("t", {"n": 1})]
+    assert received_b == [("t", {"n": 1})]
+    assert out == [{"echo": ("t", {"n": 1}, None)}]
 
 
 # ---------------------------------------------------------------- AC5
