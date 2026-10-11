@@ -66,6 +66,7 @@ from bytedigger_engine.lib import git_port  # noqa: E402
 from bytedigger_engine.lib.util.engine_owned import drop_engine_owned_porcelain  # noqa: E402  bd#94 — engine-owned paths
 from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381
 from bytedigger_engine import preflight  # noqa: E402  bd#219 s6
+from bytedigger_engine import check_ladder  # noqa: E402  bd#218 s9
 from bytedigger_engine.workflows.phase_5_integrity import _green_test_paths  # noqa: E402  bd#219 s6
 from bytedigger_engine.lib.plugins.anti_hallucination.helper import (  # noqa: E402
     get_prompt_fragment as _get_anti_fab_prompt,
@@ -621,6 +622,7 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
     # Fail-open, add-only: write the phase-green receipt (no LLM, no test run), read the rung,
     # record it. Computed once per step call; the gate below always runs.
     _pr_extra: dict[str, Any] = {}
+    _rung_rec = None
     _pr_cfg = cfg.get("preflight_rung") if isinstance(cfg, dict) else None
     if not (isinstance(_pr_cfg, dict) and _pr_cfg.get("mode") == "off"):
         _pr_event: dict[str, Any] = {
@@ -647,6 +649,7 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
                         except Exception:  # noqa: BLE001 -- producer failure is swallowed
                             pass
                     _pr_rec = preflight.receipt_rung("green", _pr_tree)
+                    _rung_rec = _pr_rec
                     _pr_event["status"] = _pr_rec["status"]
                     _pr_event["red_step"] = _pr_rec["red_step"]
                     _pr_extra["preflight"] = {
@@ -657,6 +660,49 @@ def _invoke_fix_integrity_llm(ctx, prev) -> StepResult:
             _pr_event["red_step"] = None
             _pr_extra["preflight"] = {"status": "error", "red_step": None}
         _emit_safe("preflight_receipt", _pr_event)
+
+    # bd#218 s9 shadow rung owner:bd-ladder expires:2026-10-25
+    # Shadow pre-screen: the script rung maps the receipt to findings; the verdict is recorded
+    # and never read back. No classifier. Once per step call; the gate below always runs.
+    _ps_cfg = cfg.get("prescreen") if isinstance(cfg, dict) else None
+    _ps_sr = _ps_cfg.get("script_rung") if isinstance(_ps_cfg, dict) else None
+    _ps_sr_bad = _ps_sr is not None and _ps_sr not in ("shadow", "off")
+    _ps_sr_on = _ps_sr is None or _ps_sr == "shadow"
+    _ps_evidence = _ps_sr_on and isinstance(_rung_rec, dict) and _rung_rec.get("status") in ("fresh", "red")
+    if _ps_sr_bad or _ps_evidence:
+        _ps_cycle = cfg.get("cycle", 1)
+        try:
+            if _ps_sr_bad:
+                raise ValueError("prescreen.script_rung must be shadow or off")
+            _ps_verdict = check_ladder.prescreen(
+                findings=check_ladder.script_findings(_rung_rec),
+                gate_input=prev.data["prompt"],
+                classifier_cmd=None,
+                mode="shadow",
+                timeout_s=check_ladder.DEFAULT_TIMEOUT_S,
+            )
+            _ps_clf = _ps_verdict["classifier"]
+            _ps_event: dict[str, Any] = {
+                "outcome": _ps_verdict["outcome"],
+                "rung": _ps_verdict["rung"],
+                "mode": _ps_verdict["mode"],
+                "classifier_status": _ps_clf["status"],
+                "classifier_label": _ps_clf["label"],
+                "classifier_confidence": _ps_clf["confidence"],
+                "classifier_ms": _ps_clf["ms"],
+                "cost_usd": _ps_clf["cost_usd"],
+                "cycle": _ps_cycle,
+                "phase": 6,
+                "gate": "fix_integrity",
+            }
+        except Exception:  # noqa: BLE001 -- shadow path must never block the gate
+            _ps_event = {
+                "outcome": "escalate", "rung": None, "mode": "shadow",
+                "classifier_status": "config-error", "classifier_label": None,
+                "classifier_confidence": None, "classifier_ms": None, "cost_usd": None,
+                "cycle": _ps_cycle, "phase": 6, "gate": "fix_integrity",
+            }
+        _emit_safe("prescreen_verdict", _ps_event)
 
     def _attempt() -> StepResult:
         return invoke_llm_subprocess(
