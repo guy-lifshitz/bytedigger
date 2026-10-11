@@ -52,7 +52,7 @@ Under `autonomous`, for `plan_review` value `v` (quotes stripped, as `yaml_get`)
   b. `plan_review_concerns` is set and not `[]` (single-line value; a block sequence reads as empty and fails);
   c. the RED Opus validation backstop is still mandatory: the deliverable table itself still holds
      `5.2 field_eq opus_validation pass` and `5 field_eq opus_validation pass` (checked in code on the loaded table);
-  d. `autonomous_pauses` is set and valid (§2.3).
+  d. `autonomous_pauses` is set and valid (§2.3; row texts quoted there).
   Rows are emitted in order a, b, c, d (then the §2.2 row, if any). Condition (b) "no value" means: after removing
   whitespace and quote characters the value is empty, `[]` or `[[]]` (so `[ ]`, `[""]` fail). Condition (c): the rows
   count as present only when uncommented and with value `pass`; a row with another value or a commented row is absent;
@@ -70,7 +70,7 @@ reason is fixed. Row text for (a): `plan_review=pass_with_concerns needs mode AU
 
 SUPERVISED COMPLEX is unchanged (no check). When `mode` is `AUTONOMOUS` and `complexity` is `COMPLEX`
 (reachable only via explicit `--auto`), Phase 5 entry requires `mode_override: auto_flag_complex`, else row
-`COMPLEX in AUTONOMOUS needs mode_override: auto_flag_complex (got: <v|<missing>>)`. It also requires §2.3. §2.2 is evaluated for both `pass` and `pass_with_concerns` (rows after a–d).
+`COMPLEX in AUTONOMOUS needs mode_override: auto_flag_complex (got: <v|<missing>>)`. It also requires §2.3 (the pause row is emitted at most once, even if both §2.1d and §2.2 require it). §2.2 is evaluated for both `pass` and `pass_with_concerns` (rows after a–d).
 This check runs inside `plan_review_entry` on phase `5` only (not 4.5) and only under `autonomous`.
 
 ### §2.3 Pause log `autonomous_pauses`
@@ -78,9 +78,9 @@ This check runs inside `plan_review_entry` on phase `5` only (not 4.5) and only 
 Read via `yaml_get` (raw single-line value, one layer of quotes and surrounding whitespace stripped; NO comment
 stripping, NO block sequences). Accepted forms, case-sensitive: exactly `none`, or `[` ids `]` matching
 `^\[\s*P[0-9]+(\s*,\s*P[0-9]+)*\s*\]$` (duplicates accepted). Required (§2.1d, §2.2).
-- missing, empty or `[]` → row `autonomous_pauses has no value`;
-- any other shape (`none # x`, `[none]`, `none, P1`, `[P1,]`, block sequence) → row `autonomous_pauses: malformed value '<v>'`;
-- well-formed but an id not in the table (`P01`, `p1`, `P11`) → row `autonomous_pauses: unknown pause id '<id>'` (first unknown only).
+- missing, empty (`""`), `[]` or a block sequence (reads as empty) → row `autonomous_pauses has no value`; a quoted `"none"` is accepted (one quote layer stripped);
+- any other shape (`none # x`, `[none]`, `none, P1`, `[P1,]`, `[p1]`, bare `P1`) → row `autonomous_pauses: malformed value '<v>'`;
+- well-formed but an id not in the table (`P01`, `P11`) → row `autonomous_pauses: unknown pause id '<id>'` (first unknown only).
 The table is read only when §2.1d or §2.2 requires validating `autonomous_pauses`; never on a plain
 `plan_review: pass` outside AUTONOMOUS COMPLEX, and never under `legacy` or an unknown policy value.
 
@@ -131,9 +131,11 @@ entry gate; `phases/phase-0-classify.md` COMPLEX line; `skills/bytedigger/SKILL.
 - AC11: `scripts/autonomous-pauses.tsv` ids/rules equal the table in `commands/build.md`; every id P0..P10 present; `autonomous` ∈ {proceed, stop}.
 - AC12: pause table failure modes (when validation is required, §2.3): missing file → `autonomous pause table unreadable: <path>`; empty file, or a row with ≠5 fields or bad id → `autonomous pause table malformed: <path>`. With `plan_review: pass`, SUPERVISED/FEATURE, a missing/malformed table → pass (table not read). Under `legacy` or unknown policy the table is never read.
 - AC13 (M2): AUTONOMOUS + COMPLEX + `pass_with_concerns` (concerns set, pauses `none`) at phase 5 without `mode_override: auto_flag_complex` → the §2.2 row; with it → pass. At phase 4.5 → no §2.2 row.
-- AC14 (M4): unknown policy value → unknown-value row first, then legacy plan_review verdict: `pass` → nothing further; `pass_with_concerns` → `plan_review=pass (got: pass_with_concerns)`; AUTONOMOUS COMPLEX `pass` without override → pass. ` legacy` and `Legacy` are unknown values.
-- AC15 (§2.3): parse table-driven: `none` ok; `[P1, P3]`, `[P1,P1]` ok; `[ ]`/`[]`/empty → no value; `none # x`, `[none]`, `none, P1`, `[P1,]` → malformed; `P01`, `p1`, `P11` → unknown id.
+- AC14 (M4): unknown policy value → unknown-value row first (this row still soft-blocks), then legacy plan_review verdict: `pass` → no further row; `pass_with_concerns` → `plan_review=pass (got: pass_with_concerns)`; AUTONOMOUS COMPLEX `pass` without override → no further row. ` legacy` and `Legacy` are unknown values.
+- AC15 (§2.3): parse table-driven: `none` ok; `[P1, P3]`, `[P1,P1]` ok; `[ ]`/`[]`/empty → no value; `none # x`, `[none]`, `none, P1`, `[P1,]` → malformed; `P01`, `P11` → unknown id; `[p1]`, bare `P1` → malformed; `"none"` (quoted) ok; `""` and block sequence → no value.
 - AC16 (§2.1 b/c/order): concerns `[ ]`, `[""]`, `[[]]` → (b); opus row present with value `fail` or commented out, or both rows dropped → exactly one (c) row; simultaneous a+b+d failures → rows in order a, b, d; missing `mode` → `(got mode: <missing>)`.
+- AC18 (N5): after any soft block, `build-state.yaml` is byte-identical to before the gate ran (the gate never writes state; resumability is the unchanged file).
+- AC17 doc-pin is defined in §3 (listed here for completeness).
 
 ## §5 Kill switch
 
