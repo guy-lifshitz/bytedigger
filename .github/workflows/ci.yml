@@ -88,12 +88,18 @@ jobs:
 
   pytest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # bd#285: 20 min was under the suite (1178 s reference run, 38156738352),
+    # so every PR was cancelled with zero failed tests. 30 min = 1.53x. The
+    # last step warns above 70% of this number (read from this file).
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: engine_py
     steps:
       - uses: actions/checkout@v4
+
+      - name: record job start time (headroom check reads it)
+        run: echo "PYTEST_JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: "python venv (stock runner python3 - no setup-python)"
         run: |
@@ -165,6 +171,13 @@ jobs:
 
       - name: pytest — engine test suite (hermetic, no dbos, no network)
         run: python -m pytest tests/ -q -p no:cacheprovider --timeout=120
+
+      - name: pytest headroom (warn above 70% of the job ceiling)
+        continue-on-error: true
+        env:
+          # Kill switch: set "0" to disable the warning (bd#285).
+          BD_CI_PYTEST_HEADROOM_WARN: "1"
+        run: python3 ../scripts/ci_pytest_headroom.py --duration-sec "$(( $(date +%s) - ${PYTEST_JOB_T0:-$(date +%s)} ))"
 
   # bd#79: the tree is English-only. The git hook that refuses a Cyrillic
   # commit subject is inert until someone installs it, so CI is the only
