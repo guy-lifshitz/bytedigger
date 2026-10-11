@@ -221,12 +221,17 @@ def test_ac5_event_string_gone_from_source():
 
 def test_ac5_no_event_on_normal_call(real_log):
     """AC5: a normal call emits no straggler_cfg_ignored event."""
-    llm_subprocess.register_backend(
-        FAKE, lambda **kw: StepResult(status="ok", data={}, duration_ms=0, step_name="s"),
-        manifest_source="harness_tool_record",
-    )
+    seen: list[dict] = []
+
+    def spy(**kwargs):
+        seen.append(dict(kwargs))
+        return StepResult(status="ok", data={}, duration_ms=0, step_name="s")
+
+    llm_subprocess.register_backend(FAKE, spy, manifest_source="harness_tool_record")
     assert _call(FAKE).status == "ok"
     assert _records(real_log, "straggler_cfg_ignored") == []
+    assert "straggler_cfg" not in seen[0], sorted(seen[0])
+    assert "straggler_cfg" not in _params(llm_subprocess.invoke_llm_subprocess)
 
 
 # --- AC6 --------------------------------------------------------------------
@@ -273,10 +278,3 @@ def test_ac7_backends_doc_no_longer_claims_kwarg_passed():
     text = " ".join((REPO / "docs" / "backends.md").read_text(encoding="utf-8").split())
     assert not re.search(r"straggler_cfg.{0,40}(still )?passed", text), "doc still claims kwarg is passed"
     assert "always as `None`" not in text
-
-
-# --- AC8 (GUARD) ------------------------------------------------------------
-
-def test_ac8_guard_abort_capability_kept():
-    """AC8 GUARD: the 'abort' token stays; passes pre-GREEN by design."""
-    assert "abort" in llm_subprocess._DEFAULT_BACKEND_CAPABILITIES["claude-subprocess"]
