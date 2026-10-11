@@ -278,7 +278,8 @@ def _names(prefix: str) -> list[str]:
     return [n for n in SC if n.startswith(prefix)]
 
 
-def _run_sc(backend: str, tmp_path: Path, name: str):
+def _run_sc(backend: str, tmp_path: Path, name: str, snap: dict | None = None):
+    """snap (optional dict) receives 'before': build-state.yaml bytes pre-run."""
     sc = SC[name]
     root = REPO_ROOT
     if sc["edit"] is not None:
@@ -289,6 +290,9 @@ def _run_sc(backend: str, tmp_path: Path, name: str):
             sc["edit"](root)
     wd = _make_workdir(tmp_path, f"w-{name}-{backend}", sc["phase"], sc["extra"],
                        complexity=sc["cx"], mode=sc["mode"])
+    if snap is not None:
+        snap["before"] = (wd / "build-state.yaml").read_bytes()
+        snap["path"] = wd / "build-state.yaml"
     return _run(backend, wd, root=root, policy=sc["policy"]), root
 
 
@@ -444,7 +448,8 @@ _PAUSE_CASES = [
     ("none # x", "malformed", None), ("[none]", "malformed", None),
     ("none, P1", "malformed", None), ("[P1,]", "malformed", None),
     ("None", "malformed", None), ("[P1 P2]", "malformed", None),
-    ("P1", "malformed", None),
+    ("P1", "malformed", None), ("[p1]", "malformed", None),
+    ('"none"', "ok", None), ('""', "novalue", None),
     ("[P01]", "unknown", "P01"), ("[P11]", "unknown", "P11"),
     ("[P1, P11, P12]", "unknown", "P11"), ("[P3, P01]", "unknown", "P01"),
 ]
@@ -461,6 +466,18 @@ for _i, (_raw, _kind, _id) in enumerate(_PAUSE_CASES):
     else:
         _sc(f"ac15_{_i:02d}", "5", _extra, rows=(_row_pause_unknown(_id),),
             absent=(ROW_PAUSES_MISSING, "malformed value"))
+
+# a block-sequence autonomous_pauses reads as empty -> "no value"
+_sc("ac15_block_sequence", "5", _PWC_OK + "autonomous_pauses:\n  - P1\n  - P3\n",
+    rows=(ROW_PAUSES_MISSING,), absent=("malformed value", "unknown pause id"))
+
+# AC18 (N5): soft-block scenarios whose build-state.yaml must stay byte-identical
+_sc("ac18_pwc_supervised", "5", OK_PAUSES, mode="SUPERVISED", rows=(ROW_A,),
+    absent=(ROW_LEGACY_PWC,))
+_sc("ac18_bad_pauses", "5", _PWC_OK + "autonomous_pauses: [P1,]\n",
+    rows=(_row_pause_malformed("[P1,]"),), absent=(ROW_PAUSES_MISSING,))
+_sc("ac18_malformed_table", "5", OK_PAUSES, edit=_write_pauses(""),
+    rows=(_MALFORMED,))
 
 
 # ---------------------------------------------------------------------------
@@ -690,14 +707,15 @@ def test_ac15_autonomous_pauses_parsing(tmp_path, backend, name):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-def test_ac15_wrong_case_id_is_a_pause_row(tmp_path, backend):
-    """AC15: `[p1]` is not an accepted form (regex is case-sensitive); it must yield a
-    pause row (malformed value or unknown id), never pass and never the legacy row."""
-    wd = _make_workdir(tmp_path, "w", "5", _PWC_OK + "autonomous_pauses: [p1]\n")
-    reason = _assert_block_has(_run(backend, wd))
-    assert (_row_pause_malformed("[p1]") in reason
-            or _row_pause_unknown("p1") in reason), reason
-    assert ROW_LEGACY_PWC not in reason
+@pytest.mark.parametrize("name", _names("ac18_"))
+def test_ac18_soft_block_leaves_build_state_byte_identical(tmp_path, backend, name):
+    """AC18: after a soft block the gate has not touched build-state.yaml (bytes equal),
+    and the block itself is the spec verdict (so this is RED until the rules exist)."""
+    snap: dict = {}
+    proc, root = _run_sc(backend, tmp_path, name, snap=snap)
+    _check_sc(proc, name, root)
+    assert snap["path"].read_bytes() == snap["before"], \
+        f"build-state.yaml changed by the gate in {name}"
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
