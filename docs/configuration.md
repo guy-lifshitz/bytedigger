@@ -191,6 +191,13 @@ commands, or a settings file that cannot be read), is not isolated and emits one
 (never values); an isolated call emits `setting_sources_isolated`. This is a
 temporary switch, to be retired by 2026-11-10.
 
+`restricted_roles.skip_read_only_snapshot` in `models.json` (bd#106) is on by
+default: an agent-sdk call whose tool list has none of `Write`, `Edit`,
+`MultiEdit`, `NotebookEdit` or `Bash` takes no git snapshot and reports
+`worker_written_paths: []`. Set it to `false` to restore the unconditional
+snapshot; any value other than absent or `true` also snapshots. A call with no
+tool list (unrestricted), an empty list, or any write tool is unaffected.
+
 ## Verification skills (engine)
 
 Phase 5 step `verify_registered_skills` runs every skill whose `SKILL.md`

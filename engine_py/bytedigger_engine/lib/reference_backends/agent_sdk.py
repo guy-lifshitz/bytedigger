@@ -43,6 +43,7 @@ import urllib.request
 from collections import deque
 from typing import Any
 
+from bytedigger_engine import config_provider
 from bytedigger_engine.contracts import StepResult
 from bytedigger_engine.llm_subprocess import available_tools, register_backend, _emit_safe
 from bytedigger_engine.telemetry_ctx import _RunCtx
@@ -345,6 +346,35 @@ def _tool_options(allowed_tools: "list[str] | None") -> dict[str, Any]:
     }
 
 
+_WRITE_TOOLS = frozenset({"Write", "Edit", "Bash", "MultiEdit", "NotebookEdit"})
+_SKIP_UNSET = object()
+
+
+def _call_can_write(allowed_tools: Any) -> bool:
+    """bd#106: False only for a non-empty tool list with none of the write tools.
+    Unknown, empty or non-list input keeps the snapshot (fail toward old behaviour)."""
+    if not isinstance(allowed_tools, list) or not allowed_tools:
+        return True
+    if any(not isinstance(t, str) for t in allowed_tools):
+        return True
+    return bool(set(available_tools(allowed_tools)) & _WRITE_TOOLS)
+
+
+def _snapshot_skip_allowed() -> bool:
+    """bd#106: `restricted_roles.skip_read_only_snapshot` from the models config,
+    best-effort. Absent/unreadable -> True (skip); exactly True -> True; any other
+    present value (False, null, "yes") -> False (snapshot as before)."""
+    try:
+        with open(config_provider.models_config_path(), encoding="utf-8") as fh:
+            raw = json.load(fh)
+        value = raw["restricted_roles"].get("skip_read_only_snapshot", _SKIP_UNSET)
+    except Exception:  # noqa: BLE001 - best-effort, like the sibling keys
+        return True
+    if value is _SKIP_UNSET:
+        return True
+    return value is True
+
+
 def agent_sdk_backend(
     *,
     prompt: str,
@@ -400,7 +430,9 @@ def agent_sdk_backend(
     resume_sid = _should_resume(key) if key is not None else None
     tool_options = _tool_options(allowed_tools)
 
-    pre = _snapshot_pre_state(root)
+    # bd#106: a call that cannot write has no manifest to build; skip the snapshot.
+    skip_snapshot = _snapshot_skip_allowed() and not _call_can_write(allowed_tools)
+    pre = None if skip_snapshot else _snapshot_pre_state(root)
     t0 = time.monotonic()
 
     stderr_buf: "deque[str]" = deque(maxlen=_stderr_tail_lines())
@@ -572,7 +604,7 @@ def agent_sdk_backend(
         if key is not None:
             _invalidate(key)
         try:
-            manifest = _manifest_since(root, pre)
+            manifest = [] if pre is None else _manifest_since(root, pre)  # bd#106
         except RuntimeError as e:
             return StepResult(
                 status="error",
@@ -664,7 +696,7 @@ def agent_sdk_backend(
         )
 
     try:
-        manifest = _manifest_since(root, pre)
+        manifest = [] if pre is None else _manifest_since(root, pre)  # bd#106
     except RuntimeError as e:
         return StepResult(
             status="error",
