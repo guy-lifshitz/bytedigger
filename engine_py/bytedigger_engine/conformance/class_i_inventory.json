@@ -77,6 +77,8 @@
     "lib/red_skeleton.py::snapshot_dirty_paths::git_read#0": {"class": "not-prompt", "note": "git status snapshot of dirty paths for the boundary check"},
     "lib/red_write_boundary.py::_status_paths::git_read#0": {"class": "not-prompt", "note": "git status path set compared before and after RED"},
     "lib/red_write_boundary.py::resolve_main_repo_root::git_read#0": {"class": "not-prompt", "note": "git common-dir probe used as a path"},
+    "lib/reference_backends/agent_sdk.py::_snapshot_skip_allowed::json.load#0": {"class": "not-prompt", "note": "bd#106 kill-switch read of restricted_roles.skip_read_only_snapshot from the models config; only a boolean is read, nothing reaches a prompt"},
+    "lib/reference_backends/agent_sdk.py::_snapshot_skip_allowed::open#0": {"class": "not-prompt", "note": "bd#106 kill-switch read of restricted_roles.skip_read_only_snapshot from the models config; only a boolean is read, nothing reaches a prompt"},
     "lib/reference_backends/anthropic_oauth.py::get_access_token::read_text#0": {"class": "not-prompt", "note": "credentials file read for a bearer token; the token goes in an HTTP header"},
     "lib/reference_backends/openai_compat.py::_post_chat_completions::.open#0": {"class": "not-prompt", "note": "HTTP response of the model call, bounded to 16 MiB and returned as raw_response; consumers carry it as class M"},
     "lib/reference_backends/pydantic_openai.py::_run_shell::subprocess.Popen#0": {"class": "not-prompt", "note": "agentic backend shell tool; output goes back to the model as a tool result inside the backend loop, outside the engine prompt chokepoint"},
