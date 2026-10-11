@@ -211,12 +211,27 @@ def test_ac4_api_token_path_anthropic_api_never_sees_kwarg(monkeypatch):
 
 # --- AC5 --------------------------------------------------------------------
 
-def test_ac5_event_string_gone_from_source():
-    """AC5: no 'straggler_cfg_ignored' in llm_subprocess.py.
+def test_ac5_straggler_cfg_gone_from_source():
+    """AC5: no 'straggler_cfg' (incl. 'straggler_cfg_ignored') anywhere in llm_subprocess.py.
 
-    Pre-GREEN fail: the emit block still exists.
+    Pre-GREEN fail: the emit block, params and docstrings still exist.
     """
-    assert "straggler_cfg_ignored" not in LLM_SRC.read_text(encoding="utf-8")
+    assert "straggler_cfg" not in LLM_SRC.read_text(encoding="utf-8")
+
+
+def test_ac1_no_positional_slot_for_straggler_cfg():
+    """AC1: the entry is keyword-only, so no positional slot can carry the old argument.
+
+    Positional passing raises TypeError on the keyword-only signature; the slot check is
+    derived via inspect (the old slot no longer exists).
+    Pre-GREEN fail: the old straggler_cfg parameter is still in the signature.
+    """
+    params = _params(llm_subprocess.invoke_llm_subprocess)
+    assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in params.values())
+    assert "straggler_cfg" not in params
+    n = len(params)
+    with pytest.raises(TypeError):
+        llm_subprocess.invoke_llm_subprocess(*([None] * (n + 1)))
 
 
 def test_ac5_no_event_on_normal_call(real_log):
@@ -260,14 +275,12 @@ def test_ac7_changelog_top_section_breaking():
 
     Pre-GREEN fail: the top section does not describe the removal.
     """
-    from helpers.changelog import entry_sections  # noqa: PLC0415
+    from helpers.changelog import parse_sections, is_release, is_unreleased  # noqa: PLC0415
 
     text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    hits = [
-        s for s in entry_sections(text, "straggler_cfg")
-        if "BREAKING" in s.body and "#202" in s.body
-    ]
-    assert hits, "no CHANGELOG section mentions straggler_cfg with BREAKING and #202"
+    first = next(s for s in parse_sections(text) if is_unreleased(s) or is_release(s))
+    for needle in ("straggler_cfg", "BREAKING", "#202"):
+        assert needle in first.body, f"first release section {first.title!r} lacks {needle!r}"
 
 
 def test_ac7_backends_doc_no_longer_claims_kwarg_passed():

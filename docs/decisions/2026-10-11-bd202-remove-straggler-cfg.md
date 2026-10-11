@@ -46,7 +46,7 @@ paths:
 
 # bd#202: remove the deprecated `straggler_cfg` kwarg
 
-**Status: FROZEN r1** · **Tier:** 2 (engine prod `.py`, public backend seam; breaking) · **Class:** PROCESS (dead-argument removal, closes the #89 P3b1b-i deprecation window early; kill-by 2027-01-31 was the old deadline).
+**Status: FROZEN r2 (gate r1 RETURN: AC8 relocated)** · **Tier:** 2 (engine prod `.py`, public backend seam; breaking) · **Class:** PROCESS (dead-argument removal, closes the #89 P3b1b-i deprecation window early; kill-by 2027-01-31 was the old deadline).
 **Chokepoint:** `invoke_llm_subprocess` (`engine_py/bytedigger_engine/llm_subprocess.py:1990`), the single public entry. It forwards the kwarg to `_resolve_backend_and_invoke`, which passes `straggler_cfg=None` to every backend through the `LLMBackend` protocol (`llm_subprocess.py:2863`). Removing it at the entry, the dispatcher and the protocol removes it everywhere.
 **Side of the seam:** engine, `examples/library/custom_backend.py`, CHANGELOG, `docs/backends.md`, tests. No orchestrator md, no TS, no data/prompt/config.
 
@@ -76,7 +76,7 @@ paths:
 - AC5: no `straggler_cfg_ignored` string in `llm_subprocess.py`; no event emitted on a normal call.
 - AC6: `examples/library/custom_backend.py` has no `straggler_cfg` and its backend is callable by the dispatcher.
 - AC7: CHANGELOG top section mentions `straggler_cfg` with "BREAKING" and `#202`; `docs/backends.md` no longer claims the keyword is passed.
-- AC8 (GUARD): the `abort` token stays in `_DEFAULT_BACKEND_CAPABILITIES["claude-subprocess"]`.
+- AC8 (GUARD, lives in the rewritten `test_bd89_p3b1b_i_straggler_removed.py`, not in the RED file because the preflight needs every RED test failing pre-GREEN): the `abort` token stays in `_DEFAULT_BACKEND_CAPABILITIES["claude-subprocess"]`. The RED file also covers positional passing (AC1) and the whole-source absence of `straggler_cfg` in `llm_subprocess.py` (AC5).
 
 ## §4 Non-goals
 
