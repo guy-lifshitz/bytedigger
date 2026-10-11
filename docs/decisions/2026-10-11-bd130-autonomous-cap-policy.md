@@ -97,7 +97,7 @@ malformed if it has no data rows or any data row lacks 5 fields or has an id not
 |----|-------|------------------|-----------|-------------|
 | P0 | 0 | COMPLEX forced to SUPERVISED | proceed (only with explicit `--auto`) | `mode_override` |
 | P1 | 3 | clarifying questions answered by user | proceed with stated assumptions | `phase3_assumptions` |
-| P2 | 4 | `build-architecture.md` approval | proceed with the recommended option | `architecture_choice` |
+| P2 | 4 | architecture approval | proceed with the recommended option | `architecture_choice` |
 | P3 | 4.5 | spec shown to user for approval | proceed (Plan-Review is the check) | `plan_review` |
 | P4 | 4.5 | Plan-Review cap: cycle 2 still REVISE | proceed as `pass_with_concerns` iff §2.1 holds, else stop | `plan_review_concerns` |
 | P5 | 5 | `DONE_WITH_CONCERNS` shown to user | proceed, concerns logged | `agent_concerns` |
