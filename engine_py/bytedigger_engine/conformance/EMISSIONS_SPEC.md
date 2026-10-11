@@ -187,6 +187,7 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   itself twice. v1 specified only non-emptiness, so
   `source: "x"` satisfied both spec and test — the truthiness-where-a-value-is-specified defect §0.5 bans, which
   v1 avoided for `backend` and then committed for its sibling field one clause later.
+  The optional per-role `roles` key added by bd#109 is specified in AC-E2e; it does not change this entry.
 - **AC-E2c** **`engine_version` provenance survives packaging, and has no placeholder.** Resolution order:
   `importlib.metadata.version("bytedigger-engine")` **first** (installed-wheel path), then a read of
   `engine_py/pyproject.toml` `[project].version` (source-checkout path).
@@ -226,6 +227,11 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   run 1 only. Asserted with **two `execute()` calls on one engine** under **different** `run_id`s: **each** call's
   `workflow_started` MUST be followed by its own `run_identity`, with correct payloads in both — non-uniform via
   a third call whose seam is changed, so a cached-first-value implementation fails.
+- **AC-E2e** `adapter_identity` MAY carry a `roles` key (bd#109): a mapping from role name to
+  `{backend, source}`, emitted by this engine for every role in `llm_subprocess._ROLES` (today `judge` and
+  `worker`), each resolved by `llm_subprocess._resolve_backend(None, env, role=<role>)` over the same environment
+  snapshot as the top-level pair. The source set for a role entry is `{"env-role", "env", "default"}`
+  (`"kwarg"` cannot occur, the engine passes none). The top-level pair is AC-E2b's and does not change.
 
 ## 5. Emission 3 — `phase_artifacts`
 

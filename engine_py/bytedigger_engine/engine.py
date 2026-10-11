@@ -1454,13 +1454,34 @@ def _resolve_engine_version() -> str:
         return ""
 
 
-def _resolve_adapter_identity() -> dict[str, str]:
+def _resolve_adapter_identity() -> dict[str, Any]:
     """bd#18 AC-E2b: {"backend": ..., "source": ...} via the engine's one
     existing backend-selection seam, llm_subprocess._resolve_backend, with
     no kwarg (this call site has none) — so source is always "env" or
-    "default", read live through config_provider.env_mapping()."""
-    backend, source = llm_subprocess._resolve_backend(None, _config_env_mapping())
-    return {"backend": backend, "source": source}
+    "default", read live through config_provider.env_mapping().
+
+    bd#109: also carries "roles", a mapping role -> {"backend", "source"} for
+    every role in llm_subprocess._ROLES (read at call time), each resolved by
+    the same seam with role=<role> over the same environment snapshot. A role
+    whose resolution raises is omitted and logged; "roles" is always present.
+    The top-level pair is unchanged and unguarded."""
+    env = _config_env_mapping()
+    backend, source = llm_subprocess._resolve_backend(None, env)
+    roles: dict[str, dict[str, str]] = {}
+    for role in llm_subprocess._ROLES:
+        try:
+            role_backend, role_source = llm_subprocess._resolve_backend(
+                None, env, role=role
+            )
+        except Exception as exc:
+            logger.warning(
+                "adapter identity: role %r omitted, resolution raised %s",
+                role,
+                type(exc).__name__,
+            )
+            continue
+        roles[role] = {"backend": role_backend, "source": role_source}
+    return {"backend": backend, "source": source, "roles": roles}
 
 
 # ── bd#18: phase_artifacts truncation helpers ─────────────────────────────
