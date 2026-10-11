@@ -115,7 +115,6 @@ def test_allowed_tools_single_tool_injects_flag():
             step_name="test_ac1",
             allowed_tools=["Read"],
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1, f"expected 1 Popen call, got {len(captured)}"
@@ -146,7 +145,6 @@ def test_allowed_tools_multiple_tools_space_separated():
             step_name="test_ac2",
             allowed_tools=["Read", "Write", "Bash"],
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -180,7 +178,6 @@ def test_allowed_tools_none_omits_flag():
                 step_name="test_ac3",
                 allowed_tools=None,
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     except TypeError as e:
         pytest.fail(
@@ -215,7 +212,6 @@ def test_allowed_tools_empty_list_injects_empty_string():
             step_name="test_ac4",
             allowed_tools=[],
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -256,7 +252,6 @@ def test_allowed_tools_kwarg_value_injected():
             step_name="test_ac5",
             allowed_tools=["Read"],
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -296,7 +291,6 @@ def test_allowed_tools_multiple_kwarg_injected():
             step_name="test_ac6",
             allowed_tools=["Bash", "Grep"],
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -335,7 +329,6 @@ def test_allowed_tools_none_default_no_flag():
             step_name="test_ac7",
             allowed_tools=None,  # default — no injection
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert result is not None, "Expected a StepResult, got None"

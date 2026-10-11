@@ -846,4 +846,4 @@ def test_ac15_guard_no_other_workflow_arms_straggler():
 def test_ac15_guard_invoke_llm_subprocess_keeps_straggler_param():
     from bytedigger_engine.llm_subprocess import invoke_llm_subprocess
 
-    assert "straggler_cfg" in inspect.signature(invoke_llm_subprocess).parameters
+    assert "straggler_cfg" not in inspect.signature(invoke_llm_subprocess).parameters

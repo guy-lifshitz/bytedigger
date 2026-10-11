@@ -111,7 +111,6 @@ def test_ac1_spawned_event_has_cmd_tail_not_cmd():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -164,7 +163,6 @@ def test_ac2_spawned_event_has_output_format_json_when_auto_injected():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -207,7 +205,6 @@ def test_ac3_exited_event_has_flat_tokens_in_tokens_out():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -256,7 +253,6 @@ def test_ac4_exited_event_cost_usd_present_and_matches_parse():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()

@@ -113,9 +113,7 @@ def _invoke_kwargs(**overrides):
     """Return minimal keyword args for invoke_llm_subprocess.
 
     idle_timeout_sec=0 skips the watchdog probe (spec §6: dispatch is reached
-    for the spy without triggering E_LLM_WATCHDOG_UNSUPPORTED).
-    straggler_cfg=None likewise skips straggler watchdog.
-    command uses a shell no-op so no real subprocess is launched.
+    for the spy without triggering E_LLM_WATCHDOG_UNSUPPORTED).    command uses a shell no-op so no real subprocess is launched.
     """
     base = dict(
         prompt="p",
@@ -123,7 +121,6 @@ def _invoke_kwargs(**overrides):
         timeout_sec=1,
         step_name="s",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     base.update(overrides)
     return base

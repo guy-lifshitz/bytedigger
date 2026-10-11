@@ -161,7 +161,7 @@ def test_r7_non_gate_judges_declare_the_judge_role():
 
 def test_r8_phase6_straggler_check_resolves_the_reviewers_backend(monkeypatch, tmp_path):
     """The reviewer is a judge: with judges in-session the review call carries no
-    straggler_cfg (bd#89 P3b1: phase 6 never arms one)."""
+    watchdog arg (bd#89 P3b1: phase 6 never arms one)."""
     from bytedigger_engine.workflows import phase_6_review as p6  # noqa: PLC0415
 
     monkeypatch.setenv("HAL_RUNNER_BACKEND_JUDGE", "claude-in-session")
@@ -181,7 +181,7 @@ def test_r8_phase6_straggler_check_resolves_the_reviewers_backend(monkeypatch, t
     assert seen and "straggler_cfg" not in seen[0]
 
 
-# r8b (subprocess judge keeps straggler_cfg) retired by bd#89 P3b1: phase 6 never arms it.
+# r8b (subprocess judge keeps the watchdog arg) retired by bd#89 P3b1: phase 6 never arms it.
 
 
 def test_r1b_gate_with_worker_role_routes_as_a_worker(routed):

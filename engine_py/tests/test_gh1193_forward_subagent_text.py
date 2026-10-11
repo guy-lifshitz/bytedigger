@@ -307,7 +307,6 @@ def test_ac3_flag_present_by_default_after_stream_flags(monkeypatch):
             timeout_sec=10,
             step_name="test_ac3",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -339,7 +338,6 @@ def test_ac4_literal_zero_disables_flag(monkeypatch):
             timeout_sec=10,
             step_name="test_ac4",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -367,7 +365,6 @@ def test_ac4_narrowed_false_and_no_do_not_disable(monkeypatch, non_disable_value
             timeout_sec=10,
             step_name="test_ac4_narrowed",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -400,7 +397,6 @@ def test_ac4a_explicit_truthy_value_keeps_flag_present(monkeypatch, truthy_value
             timeout_sec=10,
             step_name="test_ac4a",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert len(captured) == 1
@@ -800,7 +796,6 @@ def test_ac12_sink_disabled_by_toggle_produces_no_sidecar_file(monkeypatch):
             timeout_sec=10,
             step_name="test_ac12",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert not os.listdir(sink_dir), (
@@ -837,7 +832,6 @@ def test_ac12_pair_full_invoke_writes_sidecar_with_depth2_record(monkeypatch):
             timeout_sec=10,
             step_name="test_ac12_pair",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert result.status == "ok", (
@@ -896,7 +890,6 @@ def test_ac12_inert_sink_dir_unset_writes_nothing_step_still_ok(monkeypatch):
             timeout_sec=10,
             step_name="test_ac12_inert",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert result.status == "ok", (
@@ -948,7 +941,6 @@ def test_ac13_unwritable_sink_path_does_not_change_step_result_status(monkeypatc
                 timeout_sec=10,
                 step_name="test_ac13",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
 
         assert result.status == "ok", (
@@ -1025,7 +1017,6 @@ def test_ac14_idle_abort_branch_sidecar_has_prekill_subagent_records(monkeypatch
             timeout_sec=60,
             step_name="test_ac14",
             idle_timeout_sec=2,
-            straggler_cfg=None,
         )
 
     assert result.error_code == "E_LLM_NO_PROGRESS", (
@@ -1100,7 +1091,6 @@ def test_ac15_timeout_branch_sidecar_has_prekill_subagent_records(monkeypatch, r
             timeout_sec=2,
             step_name="test_ac15",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
 
     assert result.error_code == "E_LLM_TIMEOUT", (
@@ -1146,7 +1136,6 @@ def test_ac16_flag_not_in_cmd_tail_redacted(monkeypatch):
                 timeout_sec=10,
                 step_name="test_ac16",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
                 allowed_tools=["Bash"],
             )
     finally:

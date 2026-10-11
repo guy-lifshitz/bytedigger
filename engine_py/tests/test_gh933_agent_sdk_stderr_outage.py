@@ -145,7 +145,6 @@ def _common_kwargs(root, run_id="run-x"):
         run_ctx=types.SimpleNamespace(run_id=run_id),
         hard_gate=False,
         gate_label=None,
-        straggler_cfg=None,
         idle_timeout_sec=None,
     )
 

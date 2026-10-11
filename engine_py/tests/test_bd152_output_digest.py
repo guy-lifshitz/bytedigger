@@ -141,7 +141,6 @@ def invoke(**overrides) -> StepResult:
         timeout_sec=1,
         step_name="invoke_bd152_llm",
         idle_timeout_sec=0,
-        straggler_cfg=None,
         backend="bd152-rec",
     )
     kwargs.update(overrides)

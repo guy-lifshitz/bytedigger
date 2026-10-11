@@ -79,7 +79,6 @@ def _invoke(**overrides) -> object:
         step_name="step",
         backend="claude-subprocess",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     kwargs.update(overrides)
     return invoke_llm_subprocess(**kwargs)

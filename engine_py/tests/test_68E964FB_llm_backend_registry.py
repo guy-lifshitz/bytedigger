@@ -79,7 +79,6 @@ def _minimal_invoke_subprocess_kwargs(**overrides):
         run_ctx=None,
         hard_gate=False,
         gate_label=None,
-        straggler_cfg=None,
         idle_timeout_sec=None,
     )
     base.update(overrides)
@@ -301,7 +300,7 @@ def test_ac6_invoke_subprocess_exists_and_is_callable():
 
 def test_ac6_invoke_subprocess_signature_has_superset_params():
     """AC6b: _invoke_subprocess signature contains all §2.1 superset params
-    (8-param in-session base PLUS gate_label, straggler_cfg, idle_timeout_sec).
+    (8-param in-session base PLUS gate_label, idle_timeout_sec).
     Fails today: _invoke_subprocess absent.
     """
     fn = getattr(llm_subprocess, "_invoke_subprocess", None)
@@ -311,7 +310,7 @@ def test_ac6_invoke_subprocess_signature_has_superset_params():
     required = {
         "prompt", "model", "timeout_sec", "step_name",
         "extra_data", "allowed_tools", "run_ctx", "hard_gate",
-        "gate_label", "straggler_cfg", "idle_timeout_sec",
+        "gate_label", "idle_timeout_sec",
     }
     missing = required - params
     assert not missing, (
@@ -330,7 +329,7 @@ def test_ac7_invoke_llm_subprocess_signature_unchanged():
     required = {
         "prompt", "model", "timeout_sec", "step_name",
         "extra_data", "hard_gate", "gate_label",
-        "idle_timeout_sec", "allowed_tools", "straggler_cfg", "backend",
+        "idle_timeout_sec", "allowed_tools", "backend",
     }
     missing = required - params
     assert not missing, (

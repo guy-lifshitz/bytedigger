@@ -104,7 +104,7 @@ def _run_agent_sdk(tmp_path, allowed_tools):
         prompt="p", model="opus", timeout_sec=10, step_name="bd82",
         extra_data={"workspace_root": str(_repo(tmp_path))},
         allowed_tools=allowed_tools, run_ctx=None, hard_gate=False, gate_label=None,
-        straggler_cfg=None, idle_timeout_sec=None,
+        idle_timeout_sec=None,
     )
 
 

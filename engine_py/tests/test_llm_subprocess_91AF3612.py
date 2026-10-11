@@ -97,7 +97,6 @@ def test_ac1_popen_argv_gets_output_format_injected():
             timeout_sec=10,
             step_name="s",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
     spawned = mock_popen.call_args.args[0]
     assert "--output-format" in spawned, (
@@ -127,7 +126,6 @@ def test_ac1_step_result_command_uses_augmented_argv():
             timeout_sec=10,
             step_name="s",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
     data_cmd = result.data["command"]
     assert "--output-format" in data_cmd, (
@@ -159,7 +157,6 @@ def test_ac1_spawned_event_cmd_uses_augmented_argv():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()

@@ -150,7 +150,6 @@ def _common_kwargs(root, run_ctx=None):
         run_ctx=run_ctx,
         hard_gate=False,
         gate_label=None,
-        straggler_cfg=None,
         idle_timeout_sec=None,
     )
 
