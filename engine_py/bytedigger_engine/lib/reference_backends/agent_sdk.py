@@ -31,6 +31,7 @@ GH1169 — per-attempt IDLE-GAP watchdog (opt-in, disabled by default):
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import importlib.util
 import json
 import os
@@ -362,6 +363,7 @@ def agent_sdk_backend(
     # the keyword, so it degrades to a cold session instead of resuming.
     fresh_session: bool = True,
     effort: str | None = None,
+    isolate_setting_sources: bool = False,
 ) -> StepResult:
     """Warm-session agentic backend via `claude-agent-sdk` (resume semantics)."""
     if not _deps_importable():
@@ -461,6 +463,9 @@ def agent_sdk_backend(
             }
             if effort:  # bd#82: the chokepoint's resolved effort, native SDK field
                 option_kwargs["effort"] = effort
+            if isolate_setting_sources:  # bd#105: no user/project/local settings, no MCP config
+                option_kwargs["setting_sources"] = []
+                option_kwargs["strict_mcp_config"] = True
             try:
                 options = claude_agent_sdk.ClaudeAgentOptions(**option_kwargs)
             except TypeError as exc:
@@ -769,6 +774,16 @@ def agent_sdk_backend(
 # Registration
 # ---------------------------------------------------------------------------
 
+def _sdk_can_isolate_setting_sources() -> bool:
+    """bd#105: the installed options class carries both isolation fields."""
+    try:
+        import claude_agent_sdk  # noqa: PLC0415
+        names = {f.name for f in dataclasses.fields(claude_agent_sdk.ClaudeAgentOptions)}
+    except Exception:  # noqa: BLE001 - non-dataclass / missing: unsupported
+        return False
+    return {"setting_sources", "strict_mcp_config"} <= names
+
+
 def register() -> None:
     """Register 'agent-sdk' backend with llm_subprocess.
 
@@ -777,12 +792,15 @@ def register() -> None:
     """
     if not _deps_importable():
         raise ImportError(_PIP_EXTRA_HINT)
+    capabilities = {"tool_allowlist", "warm_resume", "effort", "reports_cost"}
+    if _sdk_can_isolate_setting_sources():
+        capabilities.add("setting_sources_isolation")
     register_backend(
         "agent-sdk",
         agent_sdk_backend,
         manifest_source="git_diff",
         # bd#167: reports_cost - ResultMessage.total_cost_usd is the runtime's own figure.
-        capabilities=frozenset({"tool_allowlist", "warm_resume", "effort", "reports_cost"}),
+        capabilities=frozenset(capabilities),
         overwrite=True,
     )
 
