@@ -136,6 +136,14 @@ FLAGS: dict[str, dict] = {
         "owner": "guy-lifshitz",
         "provenance": "introduced: bd#261 - run ids differing only by case shared one run directory on case-insensitive filesystems - guard on by default, =0 restores the old behaviour",
     },
+    "HAL_EVENT_SINK_SERIALIZE": {
+        "kind": "gate",
+        "default": "1",
+        "module": "event_sink.py",
+        "description": "bd#108: the event-sink seam takes one lock around every append of an injected sink, so pool threads cannot interleave inside it. On unless exactly '0'; the switch is for one release (retire-by:2026-11-10). BD_/BYTEDIGGER_ aliases honoured.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#108 - an injected sink was called from several pool threads with no thread-safety promise - serialization on by default, =0 restores the direct emit",
+    },
     "HAL_IN_SESSION_ENFORCES_TOOLS": {
         "kind": "flag",
         "default": None,
