@@ -172,9 +172,8 @@ unpriced (`cost_usd` null), never guessed. `HAL_COST_DIVERGENCE_PCT` (default
 
 `register_backend` is the public seam. Register a callable matching the
 `LLMBackend` protocol and the entire pipeline routes through it -- your API
-client, a replay cache, a spy for tests. The `straggler_cfg` keyword is still
-passed to your backend, always as `None`; it is deprecated and will be removed
-(#202):
+client, a replay cache, a spy for tests. The `straggler_cfg` keyword no longer
+exists (#202); a backend must not declare it:
 
 ```python
 from llm_subprocess import register_backend, invoke_llm_subprocess

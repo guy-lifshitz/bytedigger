@@ -13,6 +13,10 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING: the deprecated `straggler_cfg` keyword is removed (#202).** `invoke_llm_subprocess(..., straggler_cfg=...)` now raises `TypeError`, and the `straggler_cfg_ignored` event is gone. The dispatcher no longer passes `straggler_cfg` to any backend, so an out-of-tree backend that declares it as a required keyword must drop it. The five reference backends and `examples/library/custom_backend.py` no longer declare it. The `abort` capability token is unchanged.
+
 ### Added
 
 - **A restricted call with a patterned approve entry can run with its setting sources isolated (bd#105).** A new `restricted_roles.setting_sources` key in the models config takes `inherit` (the default, nothing changes) or `isolated`. When it is `isolated` and the call's tool list has a patterned entry such as `Bash(x:*)`, the dispatcher asks the backend to load no user, project or local settings and no MCP configuration (`--setting-sources ""` and `--strict-mcp-config` for the subprocess backend, `setting_sources=[]` and `strict_mcp_config=True` for the SDK backend), so the declared tool list stays the upper bound. Only backends declaring the new `setting_sources_isolation` capability receive the request; a backend without it, or a call whose settings files carry auth (`apiKeyHelper`, auth variables in `env`, cloud credential commands; an unreadable file counts as carrying auth), runs as `inherit` with one `setting_sources_isolation_skipped` event naming the reason and the key names, never a value. An isolated call emits one `setting_sources_isolated` event; any other config value gives one `setting_sources_config_error` event and runs as `inherit`. This is a temporary switch, to be retired by 2026-11-10.
