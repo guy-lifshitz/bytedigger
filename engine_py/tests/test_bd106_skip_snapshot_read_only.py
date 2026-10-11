@@ -9,17 +9,15 @@ Real side effects, not argument echoes:
     (`pydantic_openai._REAL_POPEN`); the wrapper records argv and DELEGATES to
     the real Popen, so the real tree is really queried. The snapshot functions
     themselves are not mocked.
-  - only `claude_agent_sdk.query` is replaced (a fake that really writes a file
-    in the tree when asked to).
+  - only `claude_agent_sdk.query` is replaced.
   - the switch lives in a REAL models config file.
 Every call goes through `invoke_llm_subprocess(backend="agent-sdk")`, except the
 timeout case (AC1b), which calls `agent_sdk_backend` directly so the timeout
 result is observable without the chokepoint's retry / fallback.
 
-Expected state before the change (snapshot unconditional):
-  FAIL today: AC1, AC1b, AC3b (absent key, malformed file), AC5.
-  PASS today (pin behaviour that must stay unchanged): AC2, AC2b, AC3, AC3b
-  ("yes"), AC4.
+Every test here FAILS today (snapshot is unconditional): AC1, AC1b, AC3b
+(absent key, malformed file), AC5. The unchanged-behaviour guards live in
+`test_bd106_snapshot_kept_guards.py`.
 """
 from __future__ import annotations
 
@@ -36,8 +34,6 @@ from bytedigger_engine.lib.reference_backends import agent_sdk, pydantic_openai
 _STEP = "bd106"
 _READ_ONLY = ["Read", "Grep", "Glob"]
 _GUARD = "rev-parse:--is-inside-work-tree"
-_SNAPSHOT_KINDS = {"diff", "status", "ls-files", "hash-object", "rev-parse:HEAD"}
-_WRITTEN = "written_by_worker.txt"
 
 
 @pytest.fixture(autouse=True)
@@ -80,11 +76,9 @@ def _repo(tmp_path):
     return root
 
 
-def _models(monkeypatch, tmp_path, kind, value=None):
+def _models(monkeypatch, tmp_path, kind):
     path = tmp_path / "models.json"
-    if kind == "switch":
-        path.write_text(json.dumps({"restricted_roles": {"skip_read_only_snapshot": value}}))
-    elif kind == "absent":
+    if kind == "absent":
         path.write_text(json.dumps({"claude": {}, "restricted_roles": {}}))
     elif kind == "malformed":
         path.write_text("{not json")
@@ -116,14 +110,12 @@ def _kinds(launches):
     return out
 
 
-def _fake_query(monkeypatch, root, *, write=False, hang=False):
+def _fake_query(monkeypatch, *, hang=False):
     import claude_agent_sdk  # noqa: PLC0415
 
     async def _query(*, prompt, options):
         if hang:
             await asyncio.sleep(60)
-        if write:
-            (root / _WRITTEN).write_text("by the worker\n")
         yield claude_agent_sdk.ResultMessage(
             subtype="success", duration_ms=1, duration_api_ms=1, is_error=False,
             num_turns=1, session_id="sess-1", result="ok",
@@ -132,9 +124,9 @@ def _fake_query(monkeypatch, root, *, write=False, hang=False):
     monkeypatch.setattr(claude_agent_sdk, "query", _query)
 
 
-def _call(monkeypatch, root, tools, *, write=False):
+def _call(monkeypatch, root, tools):
     agent_sdk.register()
-    _fake_query(monkeypatch, root, write=write)
+    _fake_query(monkeypatch)
     launches = _count_git(monkeypatch)
     res = invoke_llm_subprocess(
         prompt="p", model="opus", timeout_sec=10, step_name=_STEP,
@@ -143,11 +135,6 @@ def _call(monkeypatch, root, tools, *, write=False):
     )
     assert res.status == "ok", res.error
     return res, _kinds(launches)
-
-
-def _assert_snapshotted(kinds):
-    assert _SNAPSHOT_KINDS & set(kinds), kinds
-    assert "diff" in kinds and "hash-object" in kinds, kinds
 
 
 def _assert_skipped(res, kinds):
@@ -167,7 +154,7 @@ def test_ac1_read_only_call_takes_no_snapshot(monkeypatch, tmp_path):
 
 def test_ac1b_read_only_call_timeout_takes_no_snapshot(monkeypatch, tmp_path):
     root = _repo(tmp_path)
-    _fake_query(monkeypatch, root, hang=True)
+    _fake_query(monkeypatch, hang=True)
     launches = _count_git(monkeypatch)
     res = agent_sdk.agent_sdk_backend(
         prompt="p", model="opus", timeout_sec=1, step_name=_STEP,
@@ -181,31 +168,7 @@ def test_ac1b_read_only_call_timeout_takes_no_snapshot(monkeypatch, tmp_path):
     assert res.data["timed_out"] is True
 
 
-# --- AC2 / AC2b --------------------------------------------------------------
-
-
-def test_ac2_write_tool_lists_exactly_the_written_file(monkeypatch, tmp_path):
-    root = _repo(tmp_path)
-    res, kinds = _call(monkeypatch, root, ["Read", "Write"], write=True)
-    assert res.data["worker_written_paths"] == [_WRITTEN]
-    _assert_snapshotted(kinds)
-
-
-@pytest.mark.parametrize("tools", [["Read", "Bash(git:*)"], ["Edit"]])
-def test_ac2b_patterned_bash_and_edit_count_as_can_write(monkeypatch, tmp_path, tools):
-    root = _repo(tmp_path)
-    res, kinds = _call(monkeypatch, root, tools)
-    _assert_snapshotted(kinds)
-
-
-# --- AC3 / AC3b --------------------------------------------------------------
-
-
-def test_ac3_switch_false_restores_the_snapshot(monkeypatch, tmp_path):
-    root = _repo(tmp_path)
-    _models(monkeypatch, tmp_path, "switch", False)
-    res, kinds = _call(monkeypatch, root, _READ_ONLY)
-    _assert_snapshotted(kinds)
+# --- AC3b --------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("kind", ["absent", "malformed"])
@@ -214,23 +177,6 @@ def test_ac3b_absent_key_or_malformed_file_skips(monkeypatch, tmp_path, kind):
     _models(monkeypatch, tmp_path, kind)
     res, kinds = _call(monkeypatch, root, _READ_ONLY)
     _assert_skipped(res, kinds)
-
-
-def test_ac3b_non_boolean_switch_value_keeps_the_snapshot(monkeypatch, tmp_path):
-    root = _repo(tmp_path)
-    _models(monkeypatch, tmp_path, "switch", "yes")
-    res, kinds = _call(monkeypatch, root, _READ_ONLY)
-    _assert_snapshotted(kinds)
-
-
-# --- AC4 ---------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("tools", [None, []])
-def test_ac4_unrestricted_or_empty_tools_keep_the_snapshot(monkeypatch, tmp_path, tools):
-    root = _repo(tmp_path)
-    res, kinds = _call(monkeypatch, root, tools)
-    _assert_snapshotted(kinds)
 
 
 # --- AC5 ---------------------------------------------------------------------

@@ -1,7 +1,10 @@
 ---
 red_tests:
   - engine_py/tests/test_bd106_skip_snapshot_read_only.py
+red_pins:
+  - engine_py/tests/test_bd106_snapshot_kept_guards.py
 sibling_tests:
+  - engine_py/tests/test_bd106_snapshot_kept_guards.py
   - engine_py/tests/test_bd71_agent_sdk_observations.py
   - engine_py/tests/test_gh1169_agent_sdk_hang_recovery.py
   - engine_py/tests/test_gh933_agent_sdk_stderr_outage.py
@@ -41,6 +44,13 @@ paths:
 `_snapshot_enabled()`: reads `restricted_roles.skip_read_only_snapshot` from the models config (`config_provider.models_config_path()`, best-effort like the sibling keys). Unset, missing or unreadable file: **skip enabled** (the new default). Literal `false`: **disabled**, the unconditional snapshot is restored. Any other value: disabled (fail toward the old behaviour).
 
 Skipping applies when `not _call_can_write(allowed_tools)` and the switch is enabled. A skipped call takes no `pre` snapshot and builds no manifest: `worker_written_paths` is `[]`, `manifest_source` stays `"git_diff"` (the closed enum is not widened), on both the success and the timeout path. A call that can write is byte-for-byte as before. The `_is_git_repo` guard before the snapshot is not part of the snapshot and stays.
+
+## Citations
+
+- `engine_py/bytedigger_engine/lib/reference_backends/agent_sdk.py` `agent_sdk_backend` takes the snapshot and builds the manifest on both result paths.
+- `engine_py/bytedigger_engine/lib/reference_backends/agent_sdk.py` adds `_call_can_write` and `_snapshot_enabled` (new, introduced by this lot).
+- `engine_py/bytedigger_engine/lib/reference_backends/pydantic_openai.py` `_snapshot_pre_state`, `_manifest_since` and `_is_git_repo` are unchanged.
+- `engine_py/bytedigger_engine/llm_subprocess.py` `available_tools` gives the base name of each entry.
 
 ## Acceptance criteria
 
