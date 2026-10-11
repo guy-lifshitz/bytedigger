@@ -76,11 +76,11 @@ bash scripts/learning-store.sh inject "$KEYWORDS" > "${SCRATCHPAD}/research/prio
 ```
 If `learning.backend` is `none`, this exits immediately and writes no files. Later agents will find `research/prior-learnings.md` if learnings exist.
 
-**Arm orchestrator guard** (tool enforcement — blocks orchestrator from editing code files):
+**Create the protected state marker:**
 ```bash
 touch .bytedigger-orchestrator-pid
 ```
-This file arms the orchestrator guard hook. Agent detection uses env vars (`CLAUDE_AGENT_ID`, `SIDECHAIN`, etc.) — agents are allowed, orchestrator is blocked. Cleanup: Phase 7 deletes this file alongside build-state.yaml.
+This file arms nothing. It is one of the protected state files: `hooks/build-state-guard.sh` rejects a Bash `rm` or `unlink` of it (and of `build-state.yaml`) while the build is mid-run, and `hooks/worker-write-guard.sh` stops subagents, identified by a non-empty `agent_id` in the hook's stdin JSON, from writing it. Neither hook blocks the orchestrator from editing code or from writing these files; that rule is in the prompt only. Cleanup: Phase 7 deletes this file alongside build-state.yaml.
 
 Workers write findings to scratchpad files instead of returning only in chat. This enables:
 - Phase 4.5 → Phase 5: implementer reads `specs/build-spec.md`
@@ -243,7 +243,7 @@ If `--worktree` flag is set OR complexity is COMPLEX with `--pr` flag:
    mkdir -p "$NEW_SCRATCH"/{research,architecture,specs,tests,reviews}
    python3 -c "import re,pathlib;import os;p=pathlib.Path('$WT/build-state.yaml');tmp=pathlib.Path('$WT/build-state.yaml.tmp');t=p.read_text();t=re.sub(r'scratchpad_dir:.*', f'scratchpad_dir: \"$NEW_SCRATCH\"', t);tmp.write_text(t);os.replace(tmp,p)"
    ```
-4. **Re-arm tool guard after CWD switch** — the `.bytedigger-orchestrator-pid` from the main checkout is unreachable from the worktree. Touch it inside the worktree so the PreToolUse hook stays armed:
+4. **Recreate the protected state marker after the CWD switch** — the `.bytedigger-orchestrator-pid` from the main checkout is unreachable from the worktree. Touch it inside the worktree so the state-file protections described above cover it there too:
    ```bash
    touch "$WT/.bytedigger-orchestrator-pid"
    ```
