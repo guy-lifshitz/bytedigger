@@ -652,7 +652,9 @@ _PHASE5_KEPT = "phase_5_implement: complete\nopus_validation: pass\n"
 @pytest.mark.parametrize("tier", TIERS)
 @pytest.mark.parametrize("gate", GATES)
 def test_ac10_phase5_entry_with_plan_review_and_no_phase4_state_is_allowed(gate, tier, tmp_path):
-    _gate_project(tmp_path, "5", tier, "plan_review: pass\n" + _PHASE5_KEPT)
+    # bd#130 §2.2: AUTONOMOUS COMPLEX (reachable only via --auto) also needs the override and the pause log.
+    complex_extra = "mode_override: auto_flag_complex\nautonomous_pauses: none\n" if tier == "COMPLEX" else ""
+    _gate_project(tmp_path, "5", tier, "plan_review: pass\n" + _PHASE5_KEPT + complex_extra)
     assert not (tmp_path / "scratch" / "architecture").exists(), "fixture: no phase-4 artifacts"
     proc = _run_gate(gate, tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr

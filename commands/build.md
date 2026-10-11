@@ -38,6 +38,22 @@ Create `build-state.yaml`: `task | complexity (PENDING) | mode | current_phase: 
 
 **AUTONOMOUS MODE ENFORCEMENT:** When mode = AUTONOMOUS, proceed through ALL phases without stopping. Do NOT pause between phases, do NOT ask for user confirmation, do NOT present intermediate results for approval. The only valid stops are: (1) a gate HARD BLOCK (exit non-zero), (2) pipeline completion, (3) unrecoverable error. **SUPERVISED mode:** pause after each phase for user review.
 
+**AUTONOMOUS pause table (bd#130):** every pause or machine cap has an id; the rule for AUTONOMOUS is `proceed` (continue, the state field records the concern) or `stop` (halt with resumable state, `blocked_reason` set). The same table is in `scripts/autonomous-pauses.tsv` (`autonomous-pauses`); a test pins that the ids and rules match. The gate enforces P3/P4/P0 at Phase 5 entry; the others are rules the phase docs reference by id. Log the ids used in `autonomous_pauses: none` or `autonomous_pauses: [P1, P4]` (single line). Kill switch: `BD_AUTONOMOUS_CAP_POLICY=legacy`.
+
+| id | phase | SUPERVISED pause | AUTONOMOUS | state field |
+|----|-------|------------------|-----------|-------------|
+| P0 | 0 | COMPLEX forced to SUPERVISED | proceed (only with explicit `--auto`) | `mode_override` |
+| P1 | 3 | clarifying questions answered by user | proceed with stated assumptions | `phase3_assumptions` |
+| P2 | 4 | architecture approval | proceed with the recommended option | `architecture_choice` |
+| P3 | 4.5 | spec shown to user for approval | proceed (Plan-Review is the check) | `plan_review` |
+| P4 | 4.5 | Plan-Review cap: cycle 2 still REVISE | proceed as `pass_with_concerns` iff §2.1 holds, else stop | `plan_review_concerns` |
+| P5 | 5 | `DONE_WITH_CONCERNS` shown to user | proceed, concerns logged | `agent_concerns` |
+| P6 | 5 | test-fix cap (3) reached | stop | `blocked_reason` |
+| P7 | 5 | `NEEDS_CONTEXT` cap (2 retries) reached | stop | `blocked_reason` |
+| P8 | 5 | `BLOCKED` agent status | stop | `blocked_reason` |
+| P9 | 6 | review cap (2 cycles) still has issues | proceed, warnings logged | `review_warnings` |
+| P10 | 7 | summary shown, user acknowledges | proceed, report path logged | `post_deploy_report` |
+
 > **PAUSE-POINT HARD RULE:** Every pause/wait/approval point in this document is wrapped in an explicit mode check below. If you add a new pause point anywhere in the pipeline, you MUST wrap it in `if mode == AUTONOMOUS / SUPERVISED`. There are NO implicit pauses. **One named exception:** the readiness start gate (Phase 0 / 4.5) STOPs at `awaiting_approval` in every mode, AUTONOMOUS included, keyed on `readiness.required` — not on mode. When reading `mode` from build-state.yaml, strip surrounding quotes before comparing (see `yaml_parser_quote_strip` pattern: `sed "s/^['\"]//;s/['\"]$//"` or equivalent).
 
 ---
@@ -60,9 +76,9 @@ There are no discovery, exploration, clarification or architecture phases. The s
 
 Sonnet writes `build-spec.md`: User Stories (min 2, BDD) | Files (CREATE/MODIFY) | Interfaces | Data Model | Behavior | Tests
 
-**Plan-Review Gate (MANDATORY, every tier):** Separate Opus reviewer → SHIP or REVISE (max 2 cycles) → Write `plan_review: pass` to build-state.yaml
+**Plan-Review Gate (MANDATORY, every tier):** Separate Opus reviewer → SHIP or REVISE (max 2 cycles) → Write `plan_review: pass` to build-state.yaml. AUTONOMOUS only: if cycle 2 is still REVISE (P4), write `plan_review: pass_with_concerns` plus a single-line `plan_review_concerns: [..]` and `autonomous_pauses`; SUPERVISED never accepts it.
 
-**Phase 5 entry blocks** on missing `plan_review: pass`
+**Phase 5 entry blocks** on missing `plan_review: pass` (or `pass_with_concerns` in AUTONOMOUS, per P4; AUTONOMOUS COMPLEX also needs `mode_override: auto_flag_complex` and `autonomous_pauses`)
 
 **Orchestrator flow:**
 1. Read `mode` from build-state.yaml (strip quotes — `sed "s/^['\"]//;s/['\"]$//"`)

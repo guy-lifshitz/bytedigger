@@ -160,7 +160,7 @@ This is the most cost-effective gate — design errors caught here save entire i
    
    The reviewer MUST write `build-plan-review.md` in CWD containing verdict, key concerns checked, and gaps found.
 
-3. On REVISE: fix issues in spec, re-run reviewer (max 2 cycles)
+3. On REVISE: fix issues in spec, re-run reviewer (max 2 cycles). **Cap reached (cycle 2 still REVISE), pause P4 in `scripts/autonomous-pauses.tsv` (autonomous-pauses):** AUTONOMOUS writes `plan_review: pass_with_concerns`, a single-line `plan_review_concerns: [..]` and `autonomous_pauses: [P4]` (the mandatory opus_validation rows stay in force); SUPERVISED stops and asks the user. If the gate rejects `pass_with_concerns`, stop with the state file unchanged and use `/build continue` after fixing the reason.
 4. Write result to `build-state.yaml`:
    ```yaml
    plan_review: pass

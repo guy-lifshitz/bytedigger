@@ -16,7 +16,7 @@ metadata:
 - `/build "add X feature"` — full pipeline, mode auto-detected
 - `/build "fix bug Y"` — classifies as SIMPLE, same flow with lighter knobs (3 review agents, fewer Gherkin scenarios)
 - `/build "task" --supervised` — always show checkpoints
-- `/build "task" --auto` — skip all human gates
+- `/build "task" --auto` — skip all human gates; each skipped gate and machine cap has a defined rule in the pause table `scripts/autonomous-pauses.tsv` (see `commands/build.md`)
 - `/build "task" --pr` — SHIP Protocol after implementation (branch → stage → commit → push → PR)
 - `/build --init` — create project constitution
 - `/build "task" --dry-run` — classify and show execution plan without running pipeline

@@ -374,6 +374,126 @@ export function canonPhase(phase: string): string {
 
 const TABLE_PHASE_RE = /^[0-9]+(\.[0-9]+)?$/;
 
+// bd#130: pause log validation against scripts/autonomous-pauses.tsv (spec §2.3/§2.4).
+// Returns at most one row; byte-identical to validate_autonomous_pauses in build-gate.sh.
+const PAUSE_VALUE_RE = /^\[[ \t\v\f\r\n]*P[0-9]+([ \t\v\f\r\n]*,[ \t\v\f\r\n]*P[0-9]+)*[ \t\v\f\r\n]*\]$/;
+
+function validateAutonomousPauses(statePath: string, out: string[]): void {
+  const ptable = fileURLToPath(new URL("../autonomous-pauses.tsv", import.meta.url));
+  let pcontent: string;
+  try {
+    pcontent = readFileSync(ptable, "utf8");
+  } catch {
+    out.push(`autonomous pause table unreadable: ${ptable}`);
+    return;
+  }
+  const ids = new Set<string>();
+  let nrows = 0;
+  let bad = false;
+  for (const raw of pcontent.split("\n")) {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    const trimmed = line.replace(/^[ \t\v\f\r]+/, "");
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+    const pf = line.split("\t");
+    nrows++;
+    if (pf.length !== 5 || !/^P[0-9]+$/.test(pf[0]!)) {
+      bad = true;
+      continue;
+    }
+    ids.add(pf[0]!);
+  }
+  if (nrows === 0 || bad) {
+    out.push(`autonomous pause table malformed: ${ptable}`);
+    return;
+  }
+
+  const raw = (readStateField(statePath, "autonomous_pauses") ?? "").trim();
+  const compact = raw.replace(/[ \t\v\f\r\n]/g, "");
+  if (compact === "" || compact === "[]") {
+    out.push("autonomous_pauses has no value");
+    return;
+  }
+  if (raw === "none") return;
+  if (!PAUSE_VALUE_RE.test(raw)) {
+    out.push(`autonomous_pauses: malformed value '${raw}'`);
+    return;
+  }
+  const inner = compact.slice(1, -1);
+  for (const id of inner.split(",")) {
+    if (id !== "" && !ids.has(id)) {
+      out.push(`autonomous_pauses: unknown pause id '${id}'`);
+      return;
+    }
+  }
+}
+
+// bd#130: `<review>_entry <field> <backstop>` table kind (spec §2.1/§2.2); mirrors
+// expand_entry_row in build-gate.sh. pass52/pass5: fields with a live field_eq
+// row expecting `pass` at phase 5.2 / 5.
+function expandEntryRow(
+  statePath: string,
+  phase: string,
+  field: string,
+  backstop: string,
+  pass52: ReadonlySet<string>,
+  pass5: ReadonlySet<string>,
+  out: string[],
+): void {
+  const hasBackstop = pass52.has(backstop) && pass5.has(backstop);
+  const policy = process.env.BD_AUTONOMOUS_CAP_POLICY ?? "";
+  let auto = true;
+  if (policy === "" || policy === "autonomous") {
+    // default
+  } else if (policy === "legacy") {
+    auto = false;
+  } else {
+    out.push(`BD_AUTONOMOUS_CAP_POLICY: unknown value '${policy}' (use autonomous|legacy)`);
+    auto = false;
+  }
+  const v = (readStateField(statePath, field) ?? "").trim();
+  if (!auto) {
+    if (v !== "pass") out.push(`${field}=pass (got: ${v || "<missing>"})`);
+    return;
+  }
+
+  const mode = (readStateField(statePath, "mode") ?? "").trim();
+  let needPauses = false;
+  let cxRow = "";
+  if (v === "pass_with_concerns") {
+    if (mode !== "AUTONOMOUS") {
+      out.push(`${field}=pass_with_concerns needs mode AUTONOMOUS (got mode: ${mode || "<missing>"})`);
+    }
+    const concerns = (readStateField(statePath, `${field}_concerns`) ?? "").replace(
+      /[ \t\v\f\r\n"']/g,
+      "",
+    );
+    if (concerns === "" || concerns === "[]" || concerns === "[[]]") {
+      out.push(`${field}_concerns has no value`);
+    }
+    if (!hasBackstop) {
+      out.push(`${field}=pass_with_concerns needs the mandatory ${backstop} rows in the deliverable table`);
+    }
+    needPauses = true;
+  } else if (v !== "pass") {
+    out.push(`${field}=pass (got: ${v || "<missing>"})`);
+    return;
+  }
+
+  if (
+    phase === "5" &&
+    mode === "AUTONOMOUS" &&
+    (readStateField(statePath, "complexity") ?? "").trim() === "COMPLEX"
+  ) {
+    const mo = (readStateField(statePath, "mode_override") ?? "").trim();
+    if (mo !== "auto_flag_complex") {
+      cxRow = `COMPLEX in AUTONOMOUS needs mode_override: auto_flag_complex (got: ${mo || "<missing>"})`;
+    }
+    needPauses = true;
+  }
+  if (needPauses) validateAutonomousPauses(statePath, out);
+  if (cxRow) out.push(cxRow);
+}
+
 export function checkDeliverables(cwd: string, phase: string): GateVerdict {
   const statePath = join(cwd, "build-state.yaml");
   const tablePath = fileURLToPath(new URL("../phase-deliverables.tsv", import.meta.url));
@@ -385,7 +505,9 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
   }
 
   const validation: string[] = [];
-  const rows: string[] = [];
+  const rows: (string | { readonly field: string; readonly backstop: string })[] = [];
+  const pass52 = new Set<string>();
+  const pass5 = new Set<string>();
   const lines = content.split("\n");
   for (let idx = 0; idx < lines.length; idx++) {
     const n = idx + 1;
@@ -405,6 +527,7 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
     let want: number;
     if (kind === "field_eq") want = 4;
     else if (kind === "field_set" || kind === "log_red" || kind === "scratch_file") want = 3;
+    else if (kind.endsWith("_entry")) want = 4;
     else {
       validation.push(`deliverable table: unknown kind '${kind}' (line ${n})`);
       continue;
@@ -414,10 +537,17 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
       validation.push(`deliverable table: malformed row (line ${n})`);
       continue;
     }
+    // bd#130 (c): remember which fields have a live field_eq pass row at phases 5.2 and 5
+    if (kind === "field_eq" && f[3] === "pass") {
+      if (f[0] === "5.2") pass52.add(f[2]!);
+      if (f[0] === "5") pass5.add(f[2]!);
+    }
     if (f[0] !== phase) continue;
 
     const arg = f[2]!;
-    if (kind === "field_eq") {
+    if (kind.endsWith("_entry")) {
+      rows.push({ field: arg, backstop: f[3]! });
+    } else if (kind === "field_eq") {
       const expected = f[3]!;
       const v = (readStateField(statePath, arg) ?? "").trim();
       if (v !== expected) rows.push(`${arg}=${expected} (got: ${v || "<missing>"})`);
@@ -445,7 +575,12 @@ export function checkDeliverables(cwd: string, phase: string): GateVerdict {
     }
   }
 
-  const entries = [...validation, ...rows];
+  const expanded: string[] = [];
+  for (const r of rows) {
+    if (typeof r === "string") expanded.push(r);
+    else expandEntryRow(statePath, phase, r.field, r.backstop, pass52, pass5, expanded);
+  }
+  const entries = [...validation, ...expanded];
   if (entries.length > 0) return softBlock(joinMissing(entries), phase);
   return pass(phase);
 }

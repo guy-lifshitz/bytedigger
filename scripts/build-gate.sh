@@ -171,6 +171,147 @@ yaml_get() {
   printf '%s' "$val"
 }
 
+# bd#130: validate `autonomous_pauses` against scripts/autonomous-pauses.tsv (autonomous-pauses
+# table, spec §2.3/§2.4). Appends rows to MISSING_FIELDS (at most one). Table is read here only.
+validate_autonomous_pauses() {
+  local ptable pcontent line t rest nf n=0 nrows=0 bad=0 id
+  local tab=$'\t' cr=$'\r' ws=$' \t\v\f\r'
+  local pf ids=" "
+  ptable="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/autonomous-pauses.tsv"
+  if ! pcontent=$(cat "$ptable" 2>/dev/null); then
+    MISSING_FIELDS+=("autonomous pause table unreadable: $ptable")
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    line="${line%$cr}"
+    t="${line#"${line%%[!$ws]*}"}"
+    case "$t" in
+      ""|"#"*) continue ;;
+    esac
+    pf=()
+    rest="$line"
+    while :; do
+      case "$rest" in
+        *"$tab"*)
+          pf+=("${rest%%$tab*}")
+          rest="${rest#*$tab}"
+          ;;
+        *)
+          pf+=("$rest")
+          break
+          ;;
+      esac
+    done
+    nf="${#pf[@]}"
+    nrows=$((nrows + 1))
+    if [ "$nf" -ne 5 ] || ! [[ "${pf[0]}" =~ ^P[0-9]+$ ]]; then
+      bad=1
+      continue
+    fi
+    ids="${ids}${pf[0]} "
+  done <<< "$pcontent"
+  if [ "$nrows" -eq 0 ] || [ "$bad" -eq 1 ]; then
+    MISSING_FIELDS+=("autonomous pause table malformed: $ptable")
+    return 0
+  fi
+
+  local raw compact inner
+  raw=$(yaml_get "autonomous_pauses")
+  compact="${raw//[[:space:]]/}"
+  if [ -z "$compact" ] || [ "$compact" = "[]" ]; then
+    MISSING_FIELDS+=("autonomous_pauses has no value")
+    return 0
+  fi
+  if [ "$raw" = "none" ]; then
+    return 0
+  fi
+  local pause_re='^\[[[:space:]]*P[0-9]+([[:space:]]*,[[:space:]]*P[0-9]+)*[[:space:]]*\]$'
+  if ! [[ "$raw" =~ $pause_re ]]; then
+    MISSING_FIELDS+=("autonomous_pauses: malformed value '$raw'")
+    return 0
+  fi
+  inner="${compact#\[}"
+  inner="${inner%\]}"
+  for id in ${inner//,/ }; do
+    case "$ids" in
+      *" $id "*) ;;
+      *)
+        MISSING_FIELDS+=("autonomous_pauses: unknown pause id '$id'")
+        return 0
+        ;;
+    esac
+  done
+  return 0
+}
+
+# bd#130: `<review>_entry <field> <backstop>` table kind (spec §2.1/§2.2; the table row carries
+# the review field and the mandatory backstop field). Appends rows to MISSING_FIELDS.
+# args: phase field backstop pass52 pass5 (pass52/pass5: space-padded lists of the fields whose
+# field_eq row at phase 5.2 / 5 is live with expected value pass)
+expand_entry_row() {
+  local phase="$1" field="$2" backstop="$3" pass52="$4" pass5="$5"
+  local has_backstop=0
+  case "$pass52" in *" $backstop "*)
+    case "$pass5" in *" $backstop "*) has_backstop=1 ;; esac ;;
+  esac
+  local policy="${BD_AUTONOMOUS_CAP_POLICY:-}" auto=1 v
+  case "$policy" in
+    ""|autonomous) ;;
+    legacy) auto=0 ;;
+    *)
+      MISSING_FIELDS+=("BD_AUTONOMOUS_CAP_POLICY: unknown value '$policy' (use autonomous|legacy)")
+      auto=0
+      ;;
+  esac
+  v=$(yaml_get "$field")
+  if [ "$auto" -eq 0 ]; then
+    if [ "$v" != "pass" ]; then
+      MISSING_FIELDS+=("$field=pass (got: ${v:-<missing>})")
+    fi
+    return 0
+  fi
+
+  local mode need_pauses=0 cx_row=""
+  mode=$(yaml_get "mode")
+  if [ "$v" = "pass_with_concerns" ]; then
+    local concerns
+    if [ "$mode" != "AUTONOMOUS" ]; then
+      MISSING_FIELDS+=("$field=pass_with_concerns needs mode AUTONOMOUS (got mode: ${mode:-<missing>})")
+    fi
+    concerns=$(yaml_get "${field}_concerns")
+    concerns="${concerns//[[:space:]]/}"
+    concerns="${concerns//\"/}"
+    concerns="${concerns//\'/}"
+    if [ -z "$concerns" ] || [ "$concerns" = "[]" ] || [ "$concerns" = "[[]]" ]; then
+      MISSING_FIELDS+=("${field}_concerns has no value")
+    fi
+    if [ "$has_backstop" -ne 1 ]; then
+      MISSING_FIELDS+=("$field=pass_with_concerns needs the mandatory $backstop rows in the deliverable table")
+    fi
+    need_pauses=1
+  elif [ "$v" != "pass" ]; then
+    MISSING_FIELDS+=("$field=pass (got: ${v:-<missing>})")
+    return 0
+  fi
+
+  if [ "$phase" = "5" ] && [ "$mode" = "AUTONOMOUS" ] && [ "$(yaml_get complexity)" = "COMPLEX" ]; then
+    local mo
+    mo=$(yaml_get "mode_override")
+    if [ "$mo" != "auto_flag_complex" ]; then
+      cx_row="COMPLEX in AUTONOMOUS needs mode_override: auto_flag_complex (got: ${mo:-<missing>})"
+    fi
+    need_pauses=1
+  fi
+  if [ "$need_pauses" -eq 1 ]; then
+    validate_autonomous_pauses
+  fi
+  if [ -n "$cx_row" ]; then
+    MISSING_FIELDS+=("$cx_row")
+  fi
+  return 0
+}
+
 # check_deliverables <phase> — soft deliverable checks driven by phase-deliverables.tsv
 # (bd#136), which sits next to this script. The whole table is validated on every
 # load: validation entries first (physical line order), then the failing rows of
@@ -186,7 +327,7 @@ check_deliverables() {
   fi
 
   local line t rest kind want val nf i bad e
-  local n=0
+  local n=0 pass52=" " pass5=" "
   local ws=$' \t\v\f\r'
   local tab=$'\t' cr=$'\r'
   local phase_re='^[0-9]+(\.[0-9]+)?$'
@@ -237,6 +378,7 @@ check_deliverables() {
     case "$kind" in
       field_eq) want=4 ;;
       field_set|log_red|scratch_file) want=3 ;;
+      *_entry) want=4 ;;
       *)
         MISSING_FIELDS+=("deliverable table: unknown kind '$kind' (line $n)")
         continue
@@ -249,9 +391,18 @@ check_deliverables() {
       continue
     fi
 
+    # bd#130 (c): remember which fields have a live field_eq pass row at phases 5.2 and 5
+    if [ "$kind" = "field_eq" ] && [ "${fields[3]}" = "pass" ]; then
+      if [ "${fields[0]}" = "5.2" ]; then pass52="${pass52}${fields[2]} "; fi
+      if [ "${fields[0]}" = "5" ]; then pass5="${pass5}${fields[2]} "; fi
+    fi
+
     [ "${fields[0]}" = "$phase" ] || continue
 
     case "$kind" in
+      *_entry)
+        row_list+=("@@PRE@@${fields[2]}${tab}${fields[3]}")
+        ;;
       field_eq)
         val=$(yaml_get "${fields[2]}")
         if [ "$val" != "${fields[3]}" ]; then
@@ -281,7 +432,13 @@ check_deliverables() {
   done <<< "$content"
 
   for e in "${row_list[@]+"${row_list[@]}"}"; do
-    MISSING_FIELDS+=("$e")
+    case "$e" in
+      "@@PRE@@"*)
+        rest="${e#@@PRE@@}"
+        expand_entry_row "$phase" "${rest%%$tab*}" "${rest#*$tab}" "$pass52" "$pass5"
+        ;;
+      *) MISSING_FIELDS+=("$e") ;;
+    esac
   done
   return 0
 }

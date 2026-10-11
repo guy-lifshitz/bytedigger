@@ -29,7 +29,7 @@ Build the feature via Task agents. Never write code directly as orchestrator.
 ## Entry Gate (MANDATORY)
 
 Before starting Phase 5, orchestrator MUST read `build-state.yaml` and verify:
-- For ALL tiers: `plan_review: pass` exists. If missing → STOP, run Plan-Review Gate (end of Phase 4.5) first.
+- For ALL tiers: `plan_review: pass` exists. If missing → STOP, run Plan-Review Gate (end of Phase 4.5) first. In AUTONOMOUS mode `plan_review: pass_with_concerns` is also accepted (pause P4, `scripts/autonomous-pauses.tsv`) when `plan_review_concerns` and `autonomous_pauses` are set; AUTONOMOUS COMPLEX (explicit `--auto`) additionally needs `mode_override: auto_flag_complex`. Caps in this phase follow the autonomous-pauses table: P5 proceed (log `agent_concerns`), P6/P7/P8 stop with `blocked_reason`.
 - For ALL: `build-state.yaml` exists and has `complexity` field.
 
 ## TDD is MANDATORY — No Exceptions
