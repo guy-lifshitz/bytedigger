@@ -446,7 +446,7 @@ def _fake(name, capabilities, *, strict=False):
 
     if strict:
         def _impl(*, prompt, model, timeout_sec, step_name, extra_data, allowed_tools,
-                  run_ctx, hard_gate, gate_label, straggler_cfg, idle_timeout_sec):
+                  run_ctx, hard_gate, gate_label, idle_timeout_sec):
             calls.append({"step_name": step_name})
             return _result(step_name)
     else:

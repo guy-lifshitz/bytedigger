@@ -616,7 +616,6 @@ def test_ac12_dispatch_passes_model_kwarg_to_spy():
         step_name="test_ac12",
         backend="test-spy-25e75663",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
 
     assert len(spy.calls) == 1, (
@@ -669,7 +668,6 @@ def test_ac13_no_command_kwarg_in_dispatch_to_any_backend():
         timeout_sec=5,
         step_name="test_ac13",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
 
     assert len(spy.calls) >= 1, (

@@ -10,7 +10,7 @@ Ratified: 2026-05-24
   llm_subprocess.py:763       resolved_backend, resolved_source = _resolve_backend(backend, os.environ)
   phase_6_review.py:1059      def _invoke_review_llm(ctx, prev) -> StepResult:
   phase_6_review.py:1067      cfg = ctx.org_config or {}
-  phase_6_review.py:1085-1086 # CCBB65DC: straggler-abort watchdog ... / straggler_cfg = None
+  phase_6_review.py:1085-1086 # CCBB65DC: straggler-abort watchdog ... / (straggler arg = None)
   phase_6_review.py:227       def _emit_safe(event_type: str, payload: dict) -> None
 
 §1l forcing-function classification (pre-GREEN):
@@ -166,7 +166,7 @@ def test_ac2_env_override_back_to_subprocess(monkeypatch):
 
 # AC3 (in-session + straggler_abort warns and degrades) retired by bd#89 P3b1: phase 6 no
 # longer reads straggler_abort; test_bd89_p3b1_single_reviewer_only.py AC15 covers the
-# in-session case (straggler_cfg is None, no warning, no skipped-in-session event).
+# in-session case (no straggler arg, no warning, no skipped-in-session event).
 
 
 # ─── AC4 — E2E smoke (SKIPPED — canary-validated) ────────────────────────────

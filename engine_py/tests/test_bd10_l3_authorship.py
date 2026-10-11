@@ -355,7 +355,7 @@ def set_run(log, *, tier: "str | None" = None, step_name: str = "invoke_bd10_llm
 def invoke_kwargs(**overrides) -> dict:
     """Minimal kwargs that reach `_dispatch_backend`.
 
-    `idle_timeout_sec=0` + `straggler_cfg=None` short-circuit
+    `idle_timeout_sec=0` short-circuits
     `_assert_backend_supports_watchdog` (llm_subprocess.py:449), so the
     dispatch guard cannot be mistaken for the assertion under test
     (§0.1 subtype 2).
@@ -366,7 +366,6 @@ def invoke_kwargs(**overrides) -> dict:
         timeout_sec=1,
         step_name="invoke_bd10_llm",
         idle_timeout_sec=0,
-        straggler_cfg=None,
         backend="bd10-rec",
     )
     base.update(overrides)

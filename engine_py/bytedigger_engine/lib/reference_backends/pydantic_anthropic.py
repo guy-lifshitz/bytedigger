@@ -67,7 +67,6 @@ def pydantic_anthropic_backend(
     run_ctx: object = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
-    straggler_cfg: object = None,
     idle_timeout_sec: object = None,
     stable_prefix: str = "",
 ) -> StepResult:

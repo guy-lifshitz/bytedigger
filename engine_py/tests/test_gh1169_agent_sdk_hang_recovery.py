@@ -311,7 +311,6 @@ def _common_kwargs(root, run_ctx=None):
         run_ctx=run_ctx,
         hard_gate=False,
         gate_label=None,
-        straggler_cfg=None,
         idle_timeout_sec=None,
     )
 
@@ -1504,12 +1503,12 @@ def test_ac16_dispatch_backend_preserves_stable_prefix_two_branch_threading(monk
     captured_nonempty = {}
 
     def _strict_fake_empty(*, prompt, model, timeout_sec, step_name, extra_data, allowed_tools,
-                            run_ctx, hard_gate, gate_label, straggler_cfg, idle_timeout_sec):
+                            run_ctx, hard_gate, gate_label, idle_timeout_sec):
         captured_empty["called"] = True
         return _fake_success_result(step_name)
 
     def _fake_with_prefix(*, prompt, model, timeout_sec, step_name, extra_data, allowed_tools,
-                           run_ctx, hard_gate, gate_label, straggler_cfg, idle_timeout_sec,
+                           run_ctx, hard_gate, gate_label, idle_timeout_sec,
                            stable_prefix=""):
         captured_nonempty["stable_prefix"] = stable_prefix
         return _fake_success_result(step_name)
@@ -1520,7 +1519,7 @@ def test_ac16_dispatch_backend_preserves_stable_prefix_two_branch_threading(monk
     common = dict(
         prompt="p", model="sonnet", timeout_sec=10, step_name="s",
         extra_data=None, allowed_tools=None, run_ctx=None, hard_gate=False,
-        gate_label=None, straggler_cfg=None, idle_timeout_sec=None,
+        gate_label=None, idle_timeout_sec=None,
     )
 
     # Empty branch: strict-signature backend WITHOUT a stable_prefix param must

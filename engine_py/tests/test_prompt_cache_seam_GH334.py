@@ -163,7 +163,6 @@ def test_AC2_subprocess_stable_prefix_empty_is_byte_identical_to_today():
                 step_name="ac2",
                 stable_prefix="",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
         except TypeError as e:
             pytest.fail(
@@ -200,7 +199,6 @@ def test_AC3_subprocess_stable_prefix_nonempty_splits_argv_and_stdin():
                 step_name="ac3",
                 stable_prefix="TPL",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
         except TypeError as e:
             pytest.fail(
@@ -408,12 +406,12 @@ class _StrictSignatureBackend:
     def __call__(
         self, *, prompt, model, timeout_sec, step_name, extra_data=None,
         allowed_tools=None, run_ctx=None, hard_gate=False, gate_label=None,
-        straggler_cfg=None, idle_timeout_sec=None,
+        idle_timeout_sec=None,
     ) -> StepResult:
         self.calls.append(dict(
             prompt=prompt, model=model, timeout_sec=timeout_sec, step_name=step_name,
             extra_data=extra_data, allowed_tools=allowed_tools, run_ctx=run_ctx,
-            hard_gate=hard_gate, gate_label=gate_label, straggler_cfg=straggler_cfg,
+            hard_gate=hard_gate, gate_label=gate_label,
             idle_timeout_sec=idle_timeout_sec,
         ))
         return StepResult(status="ok", data={"raw_response": "OK"}, duration_ms=0, step_name=step_name)
@@ -472,7 +470,6 @@ def test_AC9b_subprocess_split_lossless(prompt, stable_prefix):
                 step_name="ac9b",
                 stable_prefix=stable_prefix,
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
         except TypeError as e:
             pytest.fail(
@@ -510,7 +507,6 @@ def test_AC13_subprocess_stable_prefix_not_substring_no_flag_full_stdin():
                 step_name="ac13",
                 stable_prefix=stable_prefix,
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
         except TypeError as e:
             pytest.fail(

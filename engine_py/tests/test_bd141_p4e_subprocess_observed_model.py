@@ -229,7 +229,6 @@ def _run(events, *, model="opus", extra_data=None):
             timeout_sec=10,
             step_name="bd141_p4e",
             idle_timeout_sec=0,
-            straggler_cfg=None,
             backend="claude-subprocess",
             extra_data=extra_data,
         )

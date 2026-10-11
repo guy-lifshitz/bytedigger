@@ -121,7 +121,6 @@ def test_no_current_run_no_telemetry():
             timeout_sec=10,
             step_name="step",
             idle_timeout_sec=0,
-            straggler_cfg=None,
         )
     assert r.status == "ok"
     assert log.events == []  # no telemetry without active run ctx
@@ -138,7 +137,6 @@ def test_subprocess_spawned_fires_with_pid_cmd_step_name():
                 timeout_sec=10,
                 step_name="my_step",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -172,7 +170,6 @@ def test_subprocess_exited_paired_with_spawn_pid_and_duration():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -201,7 +198,6 @@ def test_claude_p_cmd_kind_detected():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -253,7 +249,6 @@ def test_claude_json_output_populates_tokens_and_cost():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -280,7 +275,6 @@ def test_non_json_output_tokens_and_cost_null():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -320,7 +314,6 @@ def test_stdout_stderr_tail_capped_at_2kb():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -351,7 +344,6 @@ def test_telemetry_emits_even_on_nonzero_exit():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -380,7 +372,6 @@ def test_telemetry_failure_does_not_break_subprocess():
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -399,7 +390,6 @@ def test_subprocess_spawned_includes_parent_skill_from_env(monkeypatch):
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()
@@ -421,7 +411,6 @@ def test_subprocess_spawned_parent_skill_none_when_env_unset(monkeypatch):
                 timeout_sec=10,
                 step_name="s",
                 idle_timeout_sec=0,
-                straggler_cfg=None,
             )
     finally:
         telemetry_ctx.clear_current_run()

@@ -106,7 +106,6 @@ def test_success_returns_ok_with_response_bytes():
         step_name="step",
         backend="stub-echo-ok",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.status == "ok"
     assert r.data["raw_response"] == "HELLO\n"
@@ -124,7 +123,6 @@ def test_extra_data_merged_into_success():
         step_name="step",
         backend="stub-echo-ok2",
         idle_timeout_sec=0,
-        straggler_cfg=None,
         extra_data={"doc_path": "/tmp/foo.md", "complexity": "FEATURE"},
     )
     assert r.data["doc_path"] == "/tmp/foo.md"
@@ -142,7 +140,6 @@ def test_extra_data_caller_keys_can_override_defaults():
         step_name="step",
         backend="stub-echo-ok3",
         idle_timeout_sec=0,
-        straggler_cfg=None,
         extra_data={"raw_response": "OVERRIDDEN"},
     )
     assert r.data["raw_response"] == "OVERRIDDEN"
@@ -176,7 +173,6 @@ def test_prompt_reaches_subprocess_via_stdin():
         step_name="step",
         backend="stub-echo-prompt",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.status == "ok"
     assert r.data["raw_response"] == "STDIN_PAYLOAD"
@@ -198,7 +194,6 @@ def test_command_not_found_returns_error_recoverable_false():
         step_name="step",
         backend="stub-cmd-missing",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.status == "error"
     assert r.error_code == "E_LLM_CMD_MISSING"
@@ -226,7 +221,6 @@ def test_nonzero_exit_returns_error_with_stderr():
         step_name="step",
         backend="stub-exit-err",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.status == "error"
     assert r.error_code == "E_LLM_EXIT"
@@ -255,7 +249,6 @@ def test_timeout_returns_error_with_duration_ms():
         step_name="step",
         backend="stub-timeout",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.status == "error"
     assert r.error_code == "E_LLM_TIMEOUT"
@@ -271,7 +264,6 @@ def test_step_name_propagates_to_result():
         step_name="my_custom_step",
         backend="stub-step-name",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.step_name == "my_custom_step"
 
@@ -307,7 +299,6 @@ def test_nonzero_exit_captures_observability_fields_for_diagnosis():
         step_name="step",
         backend="stub-obs-exit",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.status == "error"
     assert r.error_code == "E_LLM_EXIT"
@@ -350,7 +341,6 @@ def test_timeout_captures_observability_fields_for_diagnosis():
         step_name="step",
         backend="stub-obs-timeout",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
     assert r.status == "error"
     assert r.error_code == "E_LLM_TIMEOUT"

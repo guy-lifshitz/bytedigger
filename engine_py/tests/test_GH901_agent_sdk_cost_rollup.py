@@ -128,7 +128,7 @@ def _common_kwargs(root, run_ctx):
         model="claude-sonnet", timeout_sec=10,
         extra_data={"workspace_root": str(root)},
         allowed_tools=None, run_ctx=run_ctx, hard_gate=False, gate_label=None,
-        straggler_cfg=None, idle_timeout_sec=None,
+        idle_timeout_sec=None,
     )
 
 
@@ -322,7 +322,7 @@ def test_ac7_run_ctx_none_no_exception(monkeypatch, tmp_path):
     result = mod.agent_sdk_backend(
         prompt="hello", model="claude-sonnet", timeout_sec=10, step_name="gate.step1",
         extra_data={"workspace_root": str(root)}, allowed_tools=None, run_ctx=None,
-        hard_gate=False, gate_label=None, straggler_cfg=None, idle_timeout_sec=None,
+        hard_gate=False, gate_label=None, idle_timeout_sec=None,
     )
     assert result.status == "ok", f"AC7: {result.status!r} {result.error!r}"
 
