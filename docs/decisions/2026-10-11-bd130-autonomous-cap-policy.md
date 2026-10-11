@@ -39,10 +39,10 @@ The env value is compared exactly: no trim, case-sensitive (` legacy`, `Legacy` 
 `legacy` restores the previous behaviour byte for byte: Phase 5 / 4.5 accept only `plan_review: pass`,
 no COMPLEX check, no pause-log check.
 
-### §2.1 New table kind `plan_review_entry` (arity 3: phase, kind, field)
+### §2.1 New table kind `plan_review_entry` (arity 4: phase, kind, field, backstop; Rev 2.3)
 
 `phase-deliverables.tsv` rows `4.5` and `5` change from `field_eq plan_review pass` to
-`plan_review_entry plan_review`. Under `legacy` the kind behaves exactly like `field_eq <field> pass`.
+`plan_review_entry plan_review opus_validation`. The 4th column names the backstop field (Rev 2.3: bd136 A8 forbids deliverable-name literals in gate sources, so the name lives in the table, not in code). A row with 3 or 5 fields is a malformed row. Kind matching is by suffix: any kind ending in `_entry` takes the arity-4 path (advisory, repo-controlled table). Under `legacy` the kind behaves exactly like `field_eq <field> pass`.
 Under `autonomous`, for `plan_review` value `v` (quotes stripped, as `yaml_get`):
 
 - `v == pass` → OK (unchanged). If `mode` is `AUTONOMOUS`, `complexity` is `COMPLEX`: see §2.2 (applies to `pass_with_concerns` too).
@@ -51,7 +51,7 @@ Under `autonomous`, for `plan_review` value `v` (quotes stripped, as `yaml_get`)
   a. `mode` is `AUTONOMOUS` (SUPERVISED never accepts it);
   b. `plan_review_concerns` is set and not `[]` (single-line value; a block sequence reads as empty and fails);
   c. the RED Opus validation backstop is still mandatory: the deliverable table itself still holds
-     `5.2 field_eq opus_validation pass` and `5 field_eq opus_validation pass` (checked in code on the loaded table);
+     `5.2 field_eq <backstop> pass` and `5 field_eq <backstop> pass`, where `<backstop>` is the 4th column of the `plan_review_entry` row (checked in code on the loaded table);
   d. `autonomous_pauses` is set and valid (§2.3; row texts quoted there).
   Rows are emitted in order a, b, c, d (then the §2.2 row, if any). Condition (b) "no value" means: after removing
   whitespace and quote characters the value is empty, `[]` or `[[]]` (so `[ ]`, `[""]` fail). Condition (c): the rows
