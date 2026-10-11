@@ -167,7 +167,7 @@ def test_g2_ac1a_in_session_idle_watchdog_fail_closed(
         )
 
 
-# (G2-AC1b retired by bd#89 P3b1b-i: straggler_cfg no longer reaches the probe.)
+# (G2-AC1b retired by bd#89 P3b1b-i: the straggler arg no longer reaches the probe.)
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +236,7 @@ def test_g2_ac1c_claude_subprocess_idle_watchdog_passes_probe(
 
 
 # ---------------------------------------------------------------------------
-# G2-AC1d — claude-in-session + idle_timeout_sec=0, straggler_cfg=None →
+# G2-AC1d — claude-in-session + idle_timeout_sec=0 →
 #            probe no-op, _invoke_in_session IS entered
 # ---------------------------------------------------------------------------
 
@@ -244,7 +244,7 @@ def test_g2_ac1d_in_session_no_watchdog_request_passes(
     tmp_path: Path, active_run_ctx: _FakeEventLog, monkeypatch
 ) -> None:
     """G2-AC1d: invoke_llm_subprocess(backend='claude-in-session',
-    idle_timeout_sec=0, straggler_cfg=None) — probe is no-op (returns None
+    idle_timeout_sec=0) — probe is no-op (returns None
     unconditionally when both disabled). _invoke_in_session IS entered.
 
     Evidence that _invoke_in_session was entered: it either
@@ -271,7 +271,6 @@ def test_g2_ac1d_in_session_no_watchdog_request_passes(
         step_name="test_step",
         backend="claude-in-session",
         idle_timeout_sec=0,
-        straggler_cfg=None,
     )
 
     # Must NOT be E_LLM_WATCHDOG_UNSUPPORTED — probe must not have fired

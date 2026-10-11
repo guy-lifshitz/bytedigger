@@ -164,56 +164,44 @@ def test_ac4_probe_failed_payload_has_no_straggler_key(real_log):
 
 # --- AC5 (side effect, real EventLog) ---------------------------------------
 
-def test_ac5_non_none_cfg_is_ignored_with_event(real_log, tmp_path, started_threads):
-    """AC5: non-None straggler_cfg -> spy result unchanged, one straggler_cfg_ignored,
-    spy gets straggler_cfg=None, no watchdog thread.
-
-    Pre-GREEN fail: the {"progress_since"} spy lacks 'abort', so the probe rejects the call.
+def test_ac5_non_none_cfg_is_rejected_no_event(real_log, tmp_path, started_threads):
+    """AC5 (bd#202): the removed kwarg is rejected with TypeError, no straggler_cfg_ignored
+    event is emitted, the backend is never called and no watchdog thread starts.
     """
     spy = _register(SPY, {"progress_since"})
-    result = _call(SPY, straggler_cfg={"reviews_dir": str(tmp_path), "expected_n": 2})
-    assert result.status == "ok", (result.status, result.error_code)
-    assert "straggler_aborted" not in (result.data or {})
-    recs = _records(real_log, "straggler_cfg_ignored")
-    assert len(recs) == 1, recs
-    assert recs[0]["payload"] == {"step_name": "p3b1bi-step"}
-    assert len(spy.calls) == 1
-    assert "straggler_cfg" in spy.calls[0] and spy.calls[0]["straggler_cfg"] is None
+    with pytest.raises(TypeError):
+        _call(SPY, straggler_cfg={"reviews_dir": str(tmp_path), "expected_n": 2})
+    assert _records(real_log, "straggler_cfg_ignored") == []
+    assert spy.calls == []
     assert WATCHDOG_THREAD not in started_threads
 
 
 # --- AC6 --------------------------------------------------------------------
 
-@pytest.mark.parametrize("passed", [True, False], ids=["explicit-none", "omitted"])
-def test_ac6_none_or_omitted_emits_nothing(real_log, passed):
-    """AC6: None / omitted kwarg -> no straggler_cfg_ignored, spy still gets straggler_cfg=None.
-
-    Guard leg: passes pre-GREEN (no such event exists today).
+def test_ac6_omitted_kwarg_backend_never_receives_it(real_log):
+    """AC6 (bd#202): a normal call emits no straggler_cfg_ignored and the backend never
+    receives a straggler_cfg kwarg.
     """
     spy = _register(SPY, {"progress_since"})
-    kw = {"straggler_cfg": None} if passed else {}
-    assert _call(SPY, **kw).status == "ok"
+    assert _call(SPY).status == "ok"
     assert _records(real_log, "straggler_cfg_ignored") == []
-    assert spy.calls[0].get("straggler_cfg", "MISSING") is None
+    assert len(spy.calls) == 1 and "straggler_cfg" not in spy.calls[0]
 
 
-def test_ac6_non_none_without_run_context_is_silent_ok(tmp_path):
-    """AC6: non-None cfg and no active run context -> ok, nothing raised.
-
-    Pre-GREEN fail: the probe rejects the {"progress_since"} spy for lack of 'abort'.
-    """
+def test_ac6_non_none_without_run_context_is_rejected(tmp_path):
+    """AC6 (bd#202): non-None cfg and no active run context -> still TypeError, backend untouched."""
     telemetry_ctx.clear_current_run()
-    _register(SPY, {"progress_since"})
-    result = _call(SPY, straggler_cfg={"reviews_dir": str(tmp_path), "expected_n": 2})
-    assert result.status == "ok", (result.status, result.error_code)
+    spy = _register(SPY, {"progress_since"})
+    with pytest.raises(TypeError):
+        _call(SPY, straggler_cfg={"reviews_dir": str(tmp_path), "expected_n": 2})
+    assert spy.calls == []
 
 
 # --- AC7 --------------------------------------------------------------------
 
 def test_ac7_claude_subprocess_never_arms_watchdog(tmp_path, started_threads):
-    """AC7: the real claude-subprocess handler ignores straggler_cfg.
-
-    Pre-GREEN fail: the handler starts a thread named llm-straggler-watchdog.
+    """AC7 (bd#202): the real claude-subprocess handler rejects straggler_cfg with TypeError
+    and, on a normal call, never starts a watchdog thread.
     """
     result_event = {
         "type": "result", "subtype": "success", "result": "ok",
@@ -233,10 +221,12 @@ def test_ac7_claude_subprocess_never_arms_watchdog(tmp_path, started_threads):
 
     with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", return_value=proc), \
          patch("bytedigger_engine.llm_subprocess._stream_read_events", side_effect=_ok_stream):
-        result = _call(
-            "claude-subprocess",
-            straggler_cfg={"reviews_dir": str(tmp_path), "expected_n": 2},
-        )
+        with pytest.raises(TypeError):
+            _call(
+                "claude-subprocess",
+                straggler_cfg={"reviews_dir": str(tmp_path), "expected_n": 2},
+            )
+        result = _call("claude-subprocess")
     assert result.status == "ok", (result.status, result.error_code)
     assert "straggler_aborted" not in (result.data or {})
     assert WATCHDOG_THREAD not in started_threads
@@ -271,30 +261,27 @@ def test_ac8_phase6_has_no_straggler_token():
 # --- AC9 (GUARD) ------------------------------------------------------------
 
 def test_ac9_guard_kept_public_seam():
-    """AC9 GUARD: kwarg, protocol parameter and 'abort' token are kept on purpose.
-
-    Passes pre-GREEN by design (premise guard); fails if GREEN over-deletes.
+    """AC9 GUARD (bd#202): the kwarg and protocol parameter are gone; the 'abort' capability
+    token is kept on purpose (fails if GREEN over-deletes it).
     """
-    p = inspect.signature(llm_subprocess.invoke_llm_subprocess).parameters["straggler_cfg"]
-    assert p.default is None
-    assert "straggler_cfg" in inspect.signature(llm_subprocess.LLMBackend.__call__).parameters
+    assert "straggler_cfg" not in inspect.signature(llm_subprocess.invoke_llm_subprocess).parameters
+    assert "straggler_cfg" not in inspect.signature(llm_subprocess.LLMBackend.__call__).parameters
     assert "abort" in llm_subprocess._DEFAULT_BACKEND_CAPABILITIES["claude-subprocess"]
 
 
 # --- AC10 -------------------------------------------------------------------
 
 def test_ac10_docs_text():
-    """AC10: CHANGELOG top section and docs/backends.md describe the deprecation.
-
-    Pre-GREEN fail: neither mentions the new behaviour.
+    """AC10 (bd#202): CHANGELOG top section carries the BREAKING removal entry and
+    docs/backends.md says the keyword no longer exists.
     """
     from helpers.changelog import require_entry
 
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    first = require_entry(changelog, "straggler_cfg_ignored").body
-    assert "#202" in first
+    first = require_entry(changelog, "straggler_cfg").body
+    assert "BREAKING" in first and "#202" in first and "TypeError" in first
     backends = (REPO / "docs" / "backends.md").read_text(encoding="utf-8")
-    assert "straggler_cfg" in backends and "deprecated" in backends
+    assert "straggler_cfg" in backends and "no longer" in backends and "#202" in backends
 
 
 # --- AC11 (GUARD) -----------------------------------------------------------

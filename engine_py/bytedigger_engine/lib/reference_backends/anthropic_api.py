@@ -146,15 +146,14 @@ def anthropic_api_backend(
     run_ctx: object = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
-    straggler_cfg: object = None,
     idle_timeout_sec: object = None,
     stable_prefix: str = "",
     effort: object = _EFFORT_UNSET,
 ) -> StepResult:
     """Anthropic Messages API backend handler.
 
-    Accepted-and-ignored kwargs: allowed_tools, run_ctx, hard_gate,
-    straggler_cfg — text-only, non-agentic, non-streaming.
+    Accepted-and-ignored kwargs: allowed_tools, run_ctx, hard_gate
+    — text-only, non-agentic, non-streaming.
     """
     # Step 1: API key check
     api_key = os.environ.get("ANTHROPIC_API_KEY")

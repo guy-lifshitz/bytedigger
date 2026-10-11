@@ -46,7 +46,6 @@ def stub_backend(
     run_ctx,
     hard_gate: bool,
     gate_label,
-    straggler_cfg,
     idle_timeout_sec,
     stable_prefix: str = "",
 ) -> StepResult:

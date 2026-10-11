@@ -254,7 +254,7 @@ def test_f7_backend_without_warm_resume_never_receives_the_kwarg():
     calls: list[str] = []
 
     def _strict(*, prompt, model, timeout_sec, step_name, extra_data, allowed_tools,
-                run_ctx, hard_gate, gate_label, straggler_cfg, idle_timeout_sec):
+                run_ctx, hard_gate, gate_label, idle_timeout_sec):
         calls.append(step_name)
         return StepResult(status="ok", data={"text": "ok"}, duration_ms=1, step_name=step_name)
 

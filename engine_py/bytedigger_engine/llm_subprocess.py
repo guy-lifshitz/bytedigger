@@ -796,7 +796,6 @@ def _invoke_in_session(
     run_ctx: "_RunCtx | None",
     hard_gate: bool = False,
     gate_label: "str | None" = None,
-    straggler_cfg: "dict | None" = None,
     idle_timeout_sec: "int | float | None" = None,
     stable_prefix: str = "",
     effort: "str | None" = None,
@@ -1728,7 +1727,6 @@ def _dispatch_backend(
     run_ctx: "_RunCtx | None",
     hard_gate: bool,
     gate_label: str | None,
-    straggler_cfg: "dict[str, object] | None",
     idle_timeout_sec: int | float | None,
     stable_prefix: str = "",
     injections: "Sequence[InjectedBlock] | None" = None,
@@ -1887,7 +1885,6 @@ def _dispatch_backend(
         run_ctx=run_ctx,
         hard_gate=hard_gate,
         gate_label=gate_label,
-        straggler_cfg=straggler_cfg,
         idle_timeout_sec=idle_timeout_sec,
         **optional,
     )
@@ -1998,7 +1995,6 @@ def invoke_llm_subprocess(
     gate_label: str | None = None,
     idle_timeout_sec: int | float | None = _DEFAULT_IDLE_TIMEOUT_SEC,
     allowed_tools: list[str] | None = None,
-    straggler_cfg: dict | None = None,
     backend: str | None = None,
     stable_prefix: str = "",
     injections: "Sequence[InjectedBlock] | None" = None,
@@ -2163,14 +2159,6 @@ def invoke_llm_subprocess(
         return capability_err
     # 4C03CCED Ship 1D G2-AC1: watchdog capability probe.
     idle_enabled = bool(idle_timeout_sec) and float(idle_timeout_sec) > 0  # type: ignore[arg-type]
-    # bd#89 P3b1b-i: straggler_cfg is deprecated (#202). A non-None value is
-    # ignored with one event, then dropped so no probe/backend ever sees it.
-    if straggler_cfg is not None:
-        if run_ctx is not None and run_ctx.event_log is not None:
-            _emit_safe(run_ctx.event_log, "straggler_cfg_ignored", {
-                "step_name": step_name,
-            }, run_ctx.run_id)
-        straggler_cfg = None
     watchdog_err = _assert_backend_supports_watchdog(
         resolved_backend,
         idle_enabled=idle_enabled,
@@ -2223,7 +2211,6 @@ def invoke_llm_subprocess(
         run_ctx=run_ctx,
         hard_gate=hard_gate,
         gate_label=gate_label,
-        straggler_cfg=straggler_cfg,
         idle_timeout_sec=idle_timeout_sec,
         stable_prefix=stable_prefix,
         injections=injections,
@@ -2252,7 +2239,6 @@ def invoke_llm_subprocess(
             run_ctx=run_ctx,
             hard_gate=hard_gate,
             gate_label=gate_label,
-            straggler_cfg=None,
             idle_timeout_sec=idle_timeout_sec,
             stable_prefix=stable_prefix,
             injections=injections,
@@ -2273,7 +2259,6 @@ def _invoke_subprocess(
     run_ctx: "_RunCtx | None",
     hard_gate: bool = False,
     gate_label: "str | None" = None,
-    straggler_cfg: "dict | None" = None,
     idle_timeout_sec: "int | float | None" = None,
     stable_prefix: str = "",
     effort: "str | None | object" = _EFFORT_UNSET,
@@ -2286,7 +2271,6 @@ def _invoke_subprocess(
     to the former inline tail of invoke_llm_subprocess (L936→L1425 pre-68E964FB).
     25e75663: command param replaced by model:str; argv built internally via
     _build_claude_argv(model).
-    ``straggler_cfg`` is deprecated and ignored (#202).
     """
     # Build the base argv from the model string (25e75663 §1.2 / §2.4).
     base_argv = _build_claude_argv(model)
@@ -2880,7 +2864,6 @@ class LLMBackend(typing.Protocol):
         run_ctx: "_RunCtx | None",
         hard_gate: bool,
         gate_label: "str | None",
-        straggler_cfg: "dict | None",
         idle_timeout_sec: "int | float | None",
         stable_prefix: str = "",
     ) -> StepResult:

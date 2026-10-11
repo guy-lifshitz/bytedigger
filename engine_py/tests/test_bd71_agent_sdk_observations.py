@@ -98,7 +98,7 @@ def _run(monkeypatch, tmp_path, *, scripts, model="claude-sonnet"):
         prompt="p", timeout_sec=10, step_name="s1",
         model=model, extra_data={"workspace_root": str(root)},
         allowed_tools=None, run_ctx=None, hard_gate=False, gate_label=None,
-        straggler_cfg=None, idle_timeout_sec=None,
+        idle_timeout_sec=None,
     )
 
 

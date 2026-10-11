@@ -382,7 +382,7 @@ def test_ac10_subprocess_success_keeps_producer_values():
     with patch("bytedigger_engine.llm_subprocess.subprocess.Popen", side_effect=_popen):
         result = llm_subprocess.invoke_llm_subprocess(
             prompt="hi", model="opus", timeout_sec=10, step_name="bd145",
-            idle_timeout_sec=0, straggler_cfg=None, backend="claude-subprocess",
+            idle_timeout_sec=0, backend="claude-subprocess",
             extra_data=_forged_all(),
         )
     assert result.status == "ok", (result.status, result.error_code)

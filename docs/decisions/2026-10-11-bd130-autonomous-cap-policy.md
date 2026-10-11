@@ -14,7 +14,7 @@ paths:
 ---
 # bd#130 — AUTONOMOUS rules for machine caps and SUPERVISED pauses
 
-**Status: DRAFT Rev 2** (gate r1 M1–M4 amended) · **Class:** SYSTEMATIC (undefined behaviour at caps/pauses) · **Tier:** TIER2
+**Status: DRAFT Rev 2.3** (gate r1 M1–M4 amended) · **Class:** SYSTEMATIC (undefined behaviour at caps/pauses) · **Tier:** TIER2
 **Builds on:** main `aef832c`. Deterministic only: the Phase 5 entry decision is code over `build-state.yaml`, no model call.
 
 ## §1 Problem (measured on `aef832c`)

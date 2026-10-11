@@ -356,7 +356,6 @@ def agent_sdk_backend(
     run_ctx: _RunCtx | None = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
-    straggler_cfg: object = None,
     idle_timeout_sec: object = None,
     stable_prefix: str = "",
     # bd#101: fresh by default; a registration without `warm_resume` is never forwarded

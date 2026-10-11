@@ -103,7 +103,6 @@ def openai_compat_backend(
     run_ctx: object = None,
     hard_gate: bool = False,
     gate_label: str | None = None,
-    straggler_cfg: object = None,
     idle_timeout_sec: object = None,
     stable_prefix: str = "",
     effort: object = None,
@@ -111,7 +110,7 @@ def openai_compat_backend(
     """OpenAI-compatible chat completions backend (text-only).
 
     Accepted-and-ignored kwargs: allowed_tools, run_ctx, hard_gate,
-    straggler_cfg, stable_prefix, effort.
+    stable_prefix, effort.
     """
     base_raw = _env_text(_ENV_BASE_URL)
     if not base_raw:

@@ -170,7 +170,8 @@ def test_ac4_set_default_event_sink_factory_injects_custom_sink(tmp_path):
 
     # get_event_sink() must return the injected instance
     resolved = get_event_sink()
-    assert resolved is rec, (
+    # bd#108: an injected sink comes back wrapped by the seam; the wrapper holds it
+    assert getattr(resolved, "_inner", resolved) is rec, (
         "get_event_sink() must return the recording sink after factory override"
     )
 
@@ -203,7 +204,7 @@ def test_ac5_reset_restores_eventlog_default(tmp_path):
     set_default_event_sink_factory(lambda path=None: rec)
 
     # Confirm override is in effect
-    assert get_event_sink() is rec
+    assert getattr(get_event_sink(), "_inner", None) is rec  # bd#108: seam wraps
 
     # Reset restores the original factory
     reset_default_event_sink_factory()
@@ -314,7 +315,7 @@ def test_ac7_make_engine_explicit_path_routes_through_seam(tmp_path):
 
     try:
         eng2 = make_engine(explicit_path)
-        assert eng2._event_log is sentinel, (
+        assert getattr(eng2._event_log, "_inner", eng2._event_log) is sentinel, (
             "After factory override, make_engine must return the injected sink "
             "(seam not wired: run.py still calls EventLog directly)"
         )
