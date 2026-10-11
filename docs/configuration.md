@@ -326,6 +326,7 @@ Commonly used variables (spell any of them `BD_*` if you prefer):
 | `BD_RUN_LOG_ROOT` (`HAL_RUN_LOG_ROOT`) | Root of the run-scoped event logs: each run writes `<root>/<run_id>/events.jsonl` (default `~/.bytedigger/runs`; must be absolute) |
 | `BD_RUN_LOG_RETENTION_DAYS` (`HAL_RUN_LOG_RETENTION_DAYS`) | Age in days after which a run directory under the run log root is reported as removable (default `90`; `0` disables). This release is a dry-run: a run start prints the list to stderr and deletes nothing; deletion follows in a later release |
 | `BD_RUN_ID_CASE_GUARD` (`HAL_RUN_ID_CASE_GUARD`) | Refuse a run id that differs only by case from an existing run directory under the run log root (`E_RUN_ID_CASE_COLLISION`; on a case-insensitive filesystem both spellings are one directory). On unless exactly `0`; `0` restores the old behaviour and lists nothing. Temporary switch, retire-by 2026-11-10 |
+| `BD_EVENT_SINK_SERIALIZE` (`HAL_EVENT_SINK_SERIALIZE`) | Serialize appends of an injected event sink (`set_default_event_sink_factory`): `get_event_sink` returns a wrapper that takes one lock around every `append`, so pool threads cannot interleave inside the sink. The stock `EventLog` is returned unwrapped. On unless exactly `0`; `0` returns exactly what the factory built (direct emit). Temporary switch, retire-by 2026-11-10 |
 
 Engine artifacts for a foreign project land under **`.bytedigger/`** in the
 project cwd (`config_provider.foreign_state_dirname()`): `events.jsonl`

@@ -181,6 +181,14 @@ class _DefaultConfigProvider:
         """
         return self.gate_enabled("HAL_RUN_ID_CASE_GUARD")
 
+    def event_sink_serialize_enabled(self) -> bool:
+        """Whether the event-sink seam serializes appends of an injected sink (bd#108).
+
+        On unless HAL_EVENT_SINK_SERIALIZE is exactly `0` (BD_/BYTEDIGGER_ aliases via
+        gate_enabled()). Off-Protocol, mirrors run_id_case_guard_enabled().
+        """
+        return self.gate_enabled("HAL_EVENT_SINK_SERIALIZE")
+
     def reject_log_relpath(self) -> str:
         """Neutral reject-log relpath — relative to cwd hal_root."""
         return f"{self.foreign_state_dirname()}/reject-reasons.jsonl"
@@ -331,6 +339,12 @@ def run_id_case_guard_enabled() -> bool:
     """Run-id case-collision guard switch (bd#261, single source, §1g). A provider
     without run_id_case_guard_enabled() (minimal Protocol) gets the neutral default: on."""
     fn = getattr(get_config(), "run_id_case_guard_enabled", None)
+    return bool(fn()) if fn is not None else True
+
+def event_sink_serialize_enabled() -> bool:
+    """Event-sink append serialization switch (bd#108, single source, §1g). A provider
+    without event_sink_serialize_enabled() (minimal Protocol) gets the neutral default: on."""
+    fn = getattr(get_config(), "event_sink_serialize_enabled", None)
     return bool(fn()) if fn is not None else True
 
 def reject_log_relpath() -> str:
