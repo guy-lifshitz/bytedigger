@@ -797,12 +797,12 @@ FLAGS: dict[str, dict] = {
         "provenance": "introduced: #1338 - corpus-parity BLOCKED verdicts (GH1338 warn-only rollout) - stays default-OFF; rollout not yet decided",
     },
     "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE": {
-        "kind": "flag",
-        "default": "0",
+        "kind": "gate",
+        "default": "1",
         "module": "workflows/phase_6_review.py",
-        "description": "S4/M10 shadow-by-default rollout (owner s4-bytedigger (MGR)): =1 makes a findingless stdout-fallback review a terminal E_REVIEW_EMPTY_FALLBACK error in phase_6; unset = shadow (event + rejected copy only), and enforce after expiry. flip-by:2026-10-17.",
+        "description": "Permanent kill switch (bd#294): a findingless stdout-fallback review is a terminal E_REVIEW_EMPTY_FALLBACK error in phase_6 by default; =0 switches the check to shadow (event + rejected copy only).",
         "owner": "guy-lifshitz",
-        "provenance": "introduced: bd PR #236 (S4/M10) - findingless stdout-fallback review accepted as a real review (fail-closed empty review fallback, SHADOW) - stays default-OFF shadow until the enforce decision; the description cites no issue token, so no provenance found in this repo beyond that PR",
+        "provenance": "introduced: bd PR #236 (S4/M10) - findingless stdout-fallback review accepted as a real review (fail-closed empty review fallback, SHADOW); bd#294 made the terminal behaviour the default and the variable a permanent off-switch",
     },
     "HAL_CORPUS_ALLOW_REMOVED": {
         "kind": "flag",

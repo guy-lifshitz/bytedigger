@@ -96,7 +96,6 @@ Outputs:
 from __future__ import annotations
 
 import concurrent.futures
-import datetime
 import functools
 import json
 import logging
@@ -2225,14 +2224,7 @@ def _persist_fix_feed(
 
 
 _EMPTY_FALLBACK_FLAG = "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE"
-_EMPTY_FALLBACK_FLAG_OWNER = "s4-bytedigger (MGR)"
-_EMPTY_FALLBACK_FLAG_EXPIRES = "2026-10-17"
 _REJECTED_REVIEW_NAME = "build-review.rejected.md"
-
-
-def _utc_today() -> "datetime.date":
-    """UTC calendar date (single seam for the shadow-window expiry check)."""
-    return datetime.datetime.now(datetime.timezone.utc).date()
 
 
 def _empty_fallback_reason(
@@ -2391,8 +2383,8 @@ def _write_review_artifact(ctx, prev) -> StepResult:
     # ─────────────────────────────────────────────────────────────────────────
 
     # S4/M10: findingless fallback check (after normalisation, before the doc_path
-    # write). Shadow by default; enforce when the flag is on or the shadow window
-    # has expired.
+    # write). Enforced by default (bd#294); HAL_REVIEW_EMPTY_FALLBACK_ENFORCE=0
+    # is the permanent off-switch (shadow: event + rejected copy only).
     verdict = _derive_fallback_verdict(content)
     _empty_reason = _empty_fallback_reason(
         _pre_text, content,
@@ -2400,8 +2392,7 @@ def _write_review_artifact(ctx, prev) -> StepResult:
         verdict,
     )
     if _empty_reason is not None:
-        _expired = _utc_today().isoformat() > _EMPTY_FALLBACK_FLAG_EXPIRES
-        _enforce = get_config().flag(_EMPTY_FALLBACK_FLAG) or _expired
+        _enforce = get_config().gate_enabled(_EMPTY_FALLBACK_FLAG)
         _evidence_err = _preserve_empty_fallback_evidence(
             doc_path, _pre_text, enforce=_enforce, move_doc=(_src == "doc_file"),
         )
@@ -2412,9 +2403,7 @@ def _write_review_artifact(ctx, prev) -> StepResult:
             "mode": "enforce" if _enforce else "shadow",
             "flag": {
                 "name": _EMPTY_FALLBACK_FLAG,
-                "owner": _EMPTY_FALLBACK_FLAG_OWNER,
-                "expires": _EMPTY_FALLBACK_FLAG_EXPIRES,
-                "expired": _expired,
+                "switched_off": not _enforce,
             },
         }
         if _evidence_err is not None:
