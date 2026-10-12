@@ -130,7 +130,7 @@ All Task agents in this phase MUST include `maxTurns` to prevent infinite loops:
 
 ## Step 1 — RED (tests first) — ENFORCED BY HOOK
 
-**Injection (MANDATORY):** When spawning the RED worker, prepend `$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK` + **purpose statement** before all phase instructions in the agent prompt.
+**Injection (MANDATORY):** When spawning the RED worker, prepend `$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK` (defined in `templates/injection-blocks.md`) + **purpose statement** before all phase instructions in the agent prompt.
 
 **Purpose statement for RED worker:**
 > "This worker writes failing tests that define the feature's behavior. These tests become the acceptance gate for the GREEN implementation phase — focus on covering every acceptance criterion and edge case from the spec."
@@ -184,7 +184,7 @@ Generate `./build-tests.md` — BDD scenarios in Gherkin format (holdout artifac
 
 **This agent is a WRITER only — no validation, no verdict.** Pass the spec and RED test output. Output Gherkin to `./build-tests.md` and stop.
 
-**Injection (MANDATORY):** Prepend `$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK` + **purpose statement** before Gherkin writer instructions in agent prompt.
+**Injection (MANDATORY):** Prepend `$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK` (defined in `templates/injection-blocks.md`) + **purpose statement** before Gherkin writer instructions in agent prompt.
 
 **Purpose statement for Gherkin writer:**
 > "This worker translates spec criteria into BDD scenarios. These scenarios become the holdout artifact for Opus validation — focus on one Gherkin scenario per acceptance criterion, with clear Given/When/Then structure."
@@ -199,7 +199,7 @@ phase_52a_gherkin: complete
 
 ### Step 2b — Opus Audit (ALL tiers, Opus)
 
-**Injection (MANDATORY):** Prepend `$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK` + **purpose statement** before Opus audit instructions in agent prompt.
+**Injection (MANDATORY):** Prepend `$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK` (defined in `templates/injection-blocks.md`) + **purpose statement** before Opus audit instructions in agent prompt.
 
 **Purpose statement for Opus validator:**
 > "This validation gates whether implementation can proceed. Your audit determines if tests adequately cover the spec — focus on forward/reverse mapping completeness and assertion quality, not style."
@@ -238,7 +238,7 @@ opus_validation: pass
 **GREEN SPAWN (deterministic):**
 1. Verify `opus_validation: pass` in build-state.yaml
 2. Verify `phase_51_red: complete` in build-state.yaml
-3. Both exist → Agent(name: "green-worker", prompt: "$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK + **purpose statement** + [GREEN phase instructions] + [spec + test files + RED output summary]") — NEVER SendMessage to tdd-worker
+3. Both exist → Agent(name: "green-worker", prompt: "$CONSTITUTION_BLOCK + $QUALITY_GATE_BLOCK + **purpose statement** + [GREEN phase instructions] + [spec + test files + RED output summary]") (blocks defined in `templates/injection-blocks.md`) — NEVER SendMessage to tdd-worker
 
 **Purpose statement for GREEN worker:**
 > "This worker implements the feature to make all RED tests pass. Your code will go through Phase 6 quality review — focus on making tests green by fixing code (never tests), and apply Boy Scout Rule to every file touched."
