@@ -221,7 +221,8 @@ def test_bd294_ac6_flip_horizon_does_not_name_flag(today):
         capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=120,
     )
     out = proc.stdout + proc.stderr
-    assert FLAG not in out, f"flip_horizon --today {today} still names {FLAG}"
+    names_flag = FLAG in out
+    assert not names_flag, f"flip_horizon --today {today} still names {FLAG}"
     # The ledger must not carry an entry for the flag either (folded in: bare ledger check alone passes today).
     assert FLAG not in FLIP_LEDGER.read_text(encoding="utf-8")
 
