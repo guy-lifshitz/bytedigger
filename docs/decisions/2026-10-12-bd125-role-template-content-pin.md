@@ -99,7 +99,7 @@ Real code paths; fixtures write real files in `tmp_path`; the plugin root is the
 | AC10 | in ONE test: run `r1` read, rewrite, `r1` read raises `pin_drift`; then the same file read with no current run | accepted, no raise (no pin without a run) |
 | AC11 | pinned, then rewritten to a content-invalid file | `pin_drift` (pin before content) |
 | AC12 | first read content-invalid (no pin), file fixed, same run | accepted |
-| AC13 | `RoleTemplate.sha256` | equals `hashlib.sha256(raw).hexdigest()` |
+| AC13 | `RoleTemplate.sha256` | equals `hashlib.sha256(raw).hexdigest()` | Sibling `engine_py/tests/test_bd141_p4d_role_template_injections.py::test_ac1_role_template_loads_through_real_loader` expects the digest too (amended by RED after CI, PR #289).
 | AC14 | `_role_template(ctx)` (common seam) with bad content and with drift | raises `RoleTemplateError` |
 | AC15 | `compute_ctx_hash` same path, bytes A vs B, `task_description` set | different hashes; same bytes -> same hash |
 | AC16 | key unset or `""` | hash equals the pre-bd#125 formula (`sha256(q \0 task \0 doc \0 ctx_cfg_sha8)[:12]`, computed in the test) |

@@ -237,7 +237,11 @@ def test_ac1_role_template_loads_through_real_loader(tmp_path) -> None:
     with_role = _Env(tmp_path / "with", role_path).ctx()
     without_role = _Env(tmp_path / "without", None).ctx()
     got = role_template(with_role)
-    assert got == RoleTemplate(source_id=source_id, content=ROLE_CONTENT)
+    assert got == RoleTemplate(
+        source_id=source_id,
+        content=ROLE_CONTENT,
+        sha256=hashlib.sha256(role_path.read_bytes()).hexdigest(),
+    )
     assert role_template(without_role) is None
 
 
