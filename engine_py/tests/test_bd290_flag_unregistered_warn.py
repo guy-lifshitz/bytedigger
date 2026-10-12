@@ -100,15 +100,28 @@ def harness(monkeypatch, tmp_path):
         for name in ("FLAG_UNREGISTERED_ENFORCE", "FLAG_UNREGISTERED_GATE"):
             monkeypatch.delenv(prefix + name, raising=False)
 
-    # green_lint rules file may be absent from the tree; the step returns early
-    # (rules_file_missing) without it, before the flag check is reached.
-    rules_dir = Path(p5.__file__).parent.parent / "scripts" / "green_lint"
-    rules_file = rules_dir / "rules.yml"
-    created_dir = not rules_dir.exists()
-    created_file = not rules_file.exists()
-    rules_dir.mkdir(parents=True, exist_ok=True)
-    if created_file:
-        rules_file.write_text(_NEVER_MATCHING_RULES, encoding="utf-8")
+    # Only the process boundary is stubbed (CI has no semgrep): which("semgrep") answers a
+    # path and bounded_run reports a clean scan. Flag logic, catalog, config, events stay real.
+    real_which = p5.shutil.which
+    monkeypatch.setattr(
+        p5.shutil, "which",
+        lambda name, *a, **kw: "/usr/bin/semgrep" if name == "semgrep" else real_which(name, *a, **kw),
+    )
+    monkeypatch.setattr(
+        p5, "bounded_run",
+        lambda *a, **kw: subprocess.CompletedProcess(args=[], returncode=0, stdout='{"results": []}', stderr=""),
+    )
+
+    # green_lint rules.yml may be absent from the tree (the step would return early,
+    # before the flag block). No file is written: the module's Path answers is_file()
+    # True for that one path only; semgrep is stubbed so the file is never read.
+    class _RulesPath(type(Path())):
+        def is_file(self):  # noqa: D401
+            if self.name == "rules.yml" and self.parent.name == "green_lint":
+                return True
+            return super().is_file()
+
+    monkeypatch.setattr(p5, "Path", _RulesPath)
 
     config_provider.reset_default_config_provider_factory()
     telemetry_ctx.clear_current_run()
@@ -136,13 +149,6 @@ def harness(monkeypatch, tmp_path):
     finally:
         telemetry_ctx.clear_current_run()
         config_provider.reset_default_config_provider_factory()
-        if created_file:
-            rules_file.unlink(missing_ok=True)
-        if created_dir:
-            try:
-                rules_dir.rmdir()
-            except OSError:
-                pass
 
 
 def _run_step(h: dict):
@@ -266,10 +272,12 @@ def test_ac7_flip_horizon_does_not_name_retired_flag() -> None:
         capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=60,
     )
     # Booleans only: never echo the script output into the failure text.
+    produced_output = bool((r.stdout + r.stderr).strip())
     flag_named = RETIRED_FLAG in (r.stdout + r.stderr)
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     flag_in_ledger = RETIRED_FLAG in ledger
-    assert flag_named is False, "flip_horizon output names the retired flag"
+    assert produced_output is True, "flip_horizon --check produced no output (did not run)"
+    assert flag_named is False,"flip_horizon output names the retired flag"
     assert flag_in_ledger is False, "ledger still has the retired flag key"
 
 
