@@ -15,14 +15,28 @@ AC -> test map
   AC7  test_bd294_ac7_no_date_seam_attributes[*]
   AC11 test_bd294_ac11_flag_one_enforces
 
-No clock is pinned (the date seam is deleted by the spec). Flag state is pinned per test via
+Gate r1 MAJOR-1 additions (AC7 behavioural clause: no date seam, boundary 2026-10-17)
+  AC7  test_bd294_ac7_switch_zero_stays_shadow_after_old_expiry[2026-10-18, 2026-11-04]
+       test_bd294_ac7_unset_enforces_after_old_expiry[2026-10-18, 2026-11-04]
+       test_bd294_ac7_source_has_no_dated_rollout_tokens[*]
+  AC1/AC2 (advisory hardening, only exact "0" disables)
+       test_bd294_only_exact_zero_disables[*]
+       test_bd294_alias_precedence_bd_one_beats_bytedigger_zero
+       test_bd294_empty_hal_value_wins_over_alias_zero
+       test_bd294_event_flag_key_set_is_name_and_switched_off
+       test_bd294_enforce_evidence_oserror_keeps_switched_off_false
+
+The after-expiry cells freeze the clock (datetime module as read by phase_6_review, plus the
+`_utc_today` seam when it still exists). Everywhere else flag state is pinned per test via
 monkeypatch env. No singleton/timing resources (workflows.md 1i).
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -233,3 +247,120 @@ def test_bd294_ac6_flip_horizon_does_not_name_flag(today):
 @pytest.mark.parametrize("attr", ["_utc_today", "_EMPTY_FALLBACK_FLAG_EXPIRES", "_EMPTY_FALLBACK_FLAG_OWNER"])
 def test_bd294_ac7_no_date_seam_attributes(attr):
     assert not hasattr(p6, attr), f"phase_6_review.{attr} must be removed (no dated rollout)"
+
+
+# --- AC7 behavioural: the result does not depend on the calendar ---------------
+
+_AFTER_OLD_EXPIRY = ["2026-10-18", "2026-11-04"]
+
+
+def _freeze_clock(monkeypatch, iso: str) -> None:
+    """Freeze every clock read the phase-6 module could use for a date decision."""
+    y, m, d = (int(x) for x in iso.split("-"))
+    fixed = _dt.datetime(y, m, d, 12, 0, 0, tzinfo=_dt.timezone.utc)
+
+    class _FrozenDT(_dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed if tz is not None else fixed.replace(tzinfo=None)
+
+        @classmethod
+        def utcnow(cls):
+            return fixed.replace(tzinfo=None)
+
+    fake_mod = types.SimpleNamespace(
+        **{k: getattr(_dt, k) for k in dir(_dt) if not k.startswith("__")}
+    )
+    fake_mod.datetime = _FrozenDT
+    monkeypatch.setattr(p6, "datetime", fake_mod, raising=False)
+    monkeypatch.setattr(p6, "_utc_today", lambda: fixed.date(), raising=False)
+
+
+@pytest.mark.parametrize("today", _AFTER_OLD_EXPIRY)
+def test_bd294_ac7_switch_zero_stays_shadow_after_old_expiry(tmp_path, sink, monkeypatch, today):
+    _freeze_clock(monkeypatch, today)
+    monkeypatch.setenv(FLAG, "0")
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
+    result = p6._write_review_artifact(None, prev)
+    ev = _assert_shadow(result, sink, doc_path, raw, "no_findings_parsed")
+    assert ev["flag"]["switched_off"] is True, "calendar must not override the kill switch"
+
+
+@pytest.mark.parametrize("today", _AFTER_OLD_EXPIRY)
+def test_bd294_ac7_unset_enforces_after_old_expiry(tmp_path, sink, today, monkeypatch):
+    _freeze_clock(monkeypatch, today)
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
+    result = p6._write_review_artifact(None, prev)
+    _assert_closed(result, sink, "no_findings_parsed")
+    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
+
+
+@pytest.mark.parametrize(
+    "token", ["2026-10-17", "_utc_today", "_EMPTY_FALLBACK_FLAG_EXPIRES", "_EMPTY_FALLBACK_FLAG_OWNER"]
+)
+def test_bd294_ac7_source_has_no_dated_rollout_tokens(token):
+    src = Path(p6.__file__).read_text(encoding="utf-8")
+    assert token not in src, f"phase_6_review.py still carries dated-rollout token {token!r}"
+
+
+# --- advisory hardening --------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", ["", "false", "off", " 0", "00"])
+def test_bd294_only_exact_zero_disables(tmp_path, sink, monkeypatch, value):
+    monkeypatch.setenv(FLAG, value)
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
+    result = p6._write_review_artifact(None, prev)
+    _assert_closed(result, sink, "no_findings_parsed")
+    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
+
+
+def test_bd294_alias_precedence_bd_one_beats_bytedigger_zero(tmp_path, sink, monkeypatch):
+    monkeypatch.setenv(ALIAS_NAMES[0], "1")
+    monkeypatch.setenv(ALIAS_NAMES[1], "0")
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
+    result = p6._write_review_artifact(None, prev)
+    _assert_closed(result, sink, "no_findings_parsed")
+    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
+
+
+def test_bd294_empty_hal_value_wins_over_alias_zero(tmp_path, sink, monkeypatch):
+    # provider: a SET HAL_ name (even "") wins; "" != "0" -> enabled -> enforce
+    monkeypatch.setenv(FLAG, "")
+    monkeypatch.setenv(ALIAS_NAMES[0], "0")
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
+    result = p6._write_review_artifact(None, prev)
+    _assert_closed(result, sink, "no_findings_parsed")
+    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
+
+
+@pytest.mark.parametrize("off", [False, True])
+def test_bd294_event_flag_key_set_is_name_and_switched_off(tmp_path, sink, monkeypatch, off):
+    if off:
+        monkeypatch.setenv(FLAG, "0")
+    prev, _ = _fallback_prev(tmp_path, "Looks good to me.")
+    p6._write_review_artifact(None, prev)
+    events = sink.named(NEW_EVENT)
+    assert len(events) == 1
+    assert set(events[0]["flag"].keys()) == {"name", "switched_off"}
+    assert events[0]["flag"]["switched_off"] is off
+
+
+def test_bd294_enforce_evidence_oserror_keeps_switched_off_false(tmp_path, sink):
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    _fix_doc(doc_path).mkdir()  # unlink() of a directory -> OSError inside evidence cleanup
+    result = p6._write_review_artifact(None, prev)
+    assert result.status == "error"
+    assert result.error_code == "E_REVIEW_WRITE_FAILED"
+    events = sink.named(NEW_EVENT)
+    assert len(events) == 1
+    assert events[0]["mode"] == "enforce"
+    assert events[0]["flag"] == {"name": FLAG, "switched_off": False}
+    assert events[0].get("evidence_error"), "evidence_error must be present in the event"
