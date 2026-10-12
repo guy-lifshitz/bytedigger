@@ -265,10 +265,12 @@ def test_ac7_flip_horizon_does_not_name_retired_flag() -> None:
         [sys.executable, str(script), "--check", "--today", "2026-11-04"],
         capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=60,
     )
-    assert RETIRED_FLAG not in r.stdout, r.stdout
-    assert RETIRED_FLAG not in r.stderr, r.stderr
+    # Booleans only: never echo the script output into the failure text.
+    flag_named = RETIRED_FLAG in (r.stdout + r.stderr)
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-    assert RETIRED_FLAG not in ledger
+    flag_in_ledger = RETIRED_FLAG in ledger
+    assert flag_named is False, "flip_horizon output names the retired flag"
+    assert flag_in_ledger is False, "ledger still has the retired flag key"
 
 
 # ---------------------------------------------------------------------------
