@@ -19,24 +19,33 @@ AC -> test map
        test_ac6_class_registry_entry_is_terminal                (RED)
   AC7  test_ac7_check_is_pure_function_of_content               (RED via outcome)
 
-  r4 additions (rollout flag HAL_REVIEW_EMPTY_FALLBACK_ENFORCE, spec 1a):
-  AC1/AC1b/AC4/AC4b/AC7/rejected-file cells run with the flag ON (`enforce` fixture).
-  AC2/AC2b/AC3/AC4-keep/AC4-marker/AC5 guards run with the flag OFF and ON (`any_mode`).
-  AC8  test_ac8_*  shadow (flag unset, date before expiry)       (RED)
-  AC9  test_ac9_*  expiry via the `_utc_today` seam               (RED)
-  AC10 test_ac10_* non-object list, GH1399 test_ac9 shape         (RED)
-  AC6b test_ac6b_flag_registered_in_catalog                        (RED)
+  bd#294 (spec docs/decisions/2026-10-13-bd294-empty-fallback-review-enforce-default.md):
+  the check is ON by default; HAL_REVIEW_EMPTY_FALLBACK_ENFORCE=0 is a permanent kill switch.
+  AC1/AC1b/AC4/AC4b/AC7/AC10/rejected-file cells run with NOTHING set (`enforce` = default).
+  AC2/AC2b/AC3/AC4-keep/AC4-marker/AC5 guards run in `any_mode`:
+  switched_off ("0"), default_on (unset), flag_one ("1").
+  AC8  test_ac8_*  shadow only when the variable is "0" (kill switch)    (RED)
+  AC10 test_ac10_* non-object list, GH1399 test_ac9 shape                (RED)
+  bd294 AC1  test_ac1_findingless_fallback_fails_closed[*] (nothing set), flag.switched_off False
+  bd294 AC2  test_ac8_shadow_*  (variable "0"): mode shadow, flag.switched_off True
+  bd294 AC3  guards in any_mode (ac2b / ac3 / ac4-keep / ac5)
+  bd294 AC4  test_bd294_ac4_*  BD_/BYTEDIGGER_ aliases; HAL_ name wins
+  bd294 AC5  test_ac6b_flag_registered_in_catalog (kind gate, default "1", no dated token)
+  bd294 AC6  test_bd294_ac6_flip_horizon_*  (subprocess, --today 2026-10-18 / 2026-11-04)
+  bd294 AC7  test_bd294_ac7_no_date_seam_attributes  (+ AC1 is clock-independent: no clock pinned)
+  bd294 AC11 test_bd294_ac11_flag_one_enforces
 
-Singleton/timing: none (workflows.md 1i: no lock/port/throttle; the only time
-dependence is the module helper `_utc_today`, pinned for EVERY test by an autouse
-fixture, so the suite is date-independent). Flag state is pinned per test via
-monkeypatch env (delenv / setenv "1"; `get_config().flag` is true iff env == "1").
+No clock is pinned anywhere: the date seam is deleted by the spec, so the suite is
+date-independent by construction. Singleton/timing: none (workflows.md 1i). Flag state
+is pinned per test via monkeypatch env (delenv / setenv "0" / "1").
 """
 from __future__ import annotations
 
 import ast
-import datetime as dt
 import json
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -51,31 +60,38 @@ NEW_CODE = "E_REVIEW_EMPTY_FALLBACK"
 NEW_EVENT = "review_empty_fallback"
 REJECTED_NAME = "build-review.rejected.md"
 FLAG = "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE"
-EXPIRES = "2026-10-17"
-PINNED_TODAY = dt.date(2026, 10, 3)  # inside the shadow window
-
-
-def _pin_today(monkeypatch, day: dt.date, *, raising: bool = False) -> None:
-    monkeypatch.setattr(p6, "_utc_today", lambda: day, raising=raising)
+ALIAS_NAMES = ("BD_REVIEW_EMPTY_FALLBACK_ENFORCE", "BYTEDIGGER_REVIEW_EMPTY_FALLBACK_ENFORCE")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FLIP_HORIZON = REPO_ROOT / "scripts" / "flip_horizon.py"
+FLIP_LEDGER = REPO_ROOT / "scripts" / "flip_horizon_ledger.json"
 
 
 @pytest.fixture(autouse=True)
-def _hermetic_flag_and_clock(monkeypatch):
-    """Default state for every test: flag UNSET, date inside the shadow window."""
+def _hermetic_flag(monkeypatch):
+    """Default state for every test: the flag and both aliases UNSET (= enforce). No clock."""
     monkeypatch.delenv(FLAG, raising=False)
-    # raising=False: the seam does not exist until GREEN; tests that need it use raising=True.
-    _pin_today(monkeypatch, PINNED_TODAY, raising=False)
+    for alias in ALIAS_NAMES:
+        monkeypatch.delenv(alias, raising=False)
 
 
 @pytest.fixture()
 def enforce(monkeypatch):
-    monkeypatch.setenv(FLAG, "1")
+    """Enforce is the default: nothing set (the autouse fixture already cleared it)."""
+    monkeypatch.delenv(FLAG, raising=False)
 
 
-@pytest.fixture(params=["flag_off", "flag_on"])
+@pytest.fixture()
+def shadow(monkeypatch):
+    """Kill switch: the variable is exactly "0"."""
+    monkeypatch.setenv(FLAG, "0")
+
+
+@pytest.fixture(params=["switched_off", "default_on", "flag_one"])
 def any_mode(request, monkeypatch):
-    """Guard cells must hold with the flag off (shadow) AND on (enforce)."""
-    if request.param == "flag_on":
+    """Guard cells must hold with the switch off ("0"), unset (default) AND "1"."""
+    if request.param == "switched_off":
+        monkeypatch.setenv(FLAG, "0")
+    elif request.param == "flag_one":
         monkeypatch.setenv(FLAG, "1")
     else:
         monkeypatch.delenv(FLAG, raising=False)
@@ -163,8 +179,7 @@ def _assert_closed(result: StepResult, sink: _Sink, reason: str) -> dict:
     assert events[0].get("mode") == "enforce", f"event must carry mode=enforce, got {events[0]!r}"
     flag = events[0].get("flag") or {}
     assert flag.get("name") == FLAG
-    assert str(flag.get("owner", "")).strip()
-    assert flag.get("expires") == EXPIRES
+    assert flag.get("switched_off") is False, f"enforcing run must not be marked switched_off: {flag!r}"
     return events[0]
 
 
@@ -181,9 +196,7 @@ def _assert_shadow(result: StepResult, sink: _Sink, doc_path: Path, raw: str, re
     assert ev.get("mode") == "shadow"
     flag = ev.get("flag") or {}
     assert flag.get("name") == FLAG
-    assert str(flag.get("owner", "")).strip(), "flag.owner must be non-empty"
-    assert flag.get("expires") == EXPIRES
-    assert flag.get("expired") is False
+    assert flag.get("switched_off") is True, f"kill-switch run must be marked switched_off: {flag!r}"
     assert doc_path.is_file(), "shadow: normalised build-review.md still persisted"
     assert _fix_doc(doc_path).is_file(), "shadow: fix feed still written"
     assert _rejected(doc_path).is_file(), "shadow: diagnosis copy written to build-review.rejected.md"
@@ -466,14 +479,17 @@ def test_ac7_check_is_pure_function_of_content(tmp_path, sink, enforce, monkeypa
 def test_ac6b_flag_registered_in_catalog():
     entry = flags_catalog.FLAGS.get(FLAG)
     assert isinstance(entry, dict), f"{FLAG} must be registered in flags_catalog.FLAGS"
-    assert entry.get("kind") == "flag"
-    assert entry.get("default") == "0"
+    assert entry.get("kind") == "gate"
+    assert entry.get("default") == "1"
     desc = str(entry.get("description", ""))
-    assert "s4-bytedigger" in desc, "description must name the owner"
-    assert EXPIRES in desc, "description must carry the flip-by date"
+    for token in ("flip-by:", "kill-by:", "retire-by:"):
+        assert token not in desc, f"permanent kill switch must carry no dated {token} token"
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", desc), "description must contain no ISO date"
+    assert str(entry.get("owner", "")).strip(), "owner must be kept"
+    assert str(entry.get("provenance", "")).startswith("introduced:")
 
 
-# --- AC8: shadow (flag unset, before expiry) ---------------------------------
+# --- AC8: shadow only when the variable is "0" (kill switch) -----------------
 
 _AC4_SHADOW_CELLS = [
     (_structured([_finding("INFO")]), "unrecognised_severity"),
@@ -486,7 +502,7 @@ _AC4_SHADOW_CELLS = [
     "raw,reason", _AC1_CELLS,
     ids=["empty", "whitespace", "prose", "verdict_pass_only", "findings_plain_list", "json_fence_no_structured_header"],
 )
-def test_ac8_shadow_ac1_cells_continue_with_event_and_rejected_copy(tmp_path, sink, raw, reason):
+def test_ac8_shadow_ac1_cells_continue_with_event_and_rejected_copy(tmp_path, sink, shadow, raw, reason):
     prev, doc_path = _fallback_prev(tmp_path, raw)
     result = p6._write_review_artifact(None, prev)
     assert result.data["verdict"] == p6.VERDICT_SUSPECT, "AC1 cells are SUSPECT today and stay so in shadow"
@@ -495,13 +511,13 @@ def test_ac8_shadow_ac1_cells_continue_with_event_and_rejected_copy(tmp_path, si
 
 @pytest.mark.parametrize("raw,reason", _AC4_SHADOW_CELLS + _AC4B_CELLS + [(STRUCTURED_FINDINGS_JSON_TEMPLATE, "unrecognised_severity")],
                          ids=["info", "missing", "non_string", "non_object_entries", "malformed_json", "dict_root", "template_echo"])
-def test_ac8_shadow_ac4_ac4b_cells_continue_with_event_and_rejected_copy(tmp_path, sink, raw, reason):
+def test_ac8_shadow_ac4_ac4b_cells_continue_with_event_and_rejected_copy(tmp_path, sink, shadow, raw, reason):
     prev, doc_path = _fallback_prev(tmp_path, raw)
     result = p6._write_review_artifact(None, prev)
     _assert_shadow(result, sink, doc_path, raw, reason)
 
 
-def test_ac8_shadow_does_not_overwrite_existing_rejected_file(tmp_path, sink):
+def test_ac8_shadow_does_not_overwrite_existing_rejected_file(tmp_path, sink, shadow):
     prev, doc_path = _fallback_prev(tmp_path, "Looks good to me.")
     doc_path.parent.mkdir(parents=True, exist_ok=True)
     _rejected(doc_path).write_text("OLDER EVIDENCE\n", encoding="utf-8")
@@ -512,42 +528,64 @@ def test_ac8_shadow_does_not_overwrite_existing_rejected_file(tmp_path, sink):
     assert _rejected(doc_path).read_text(encoding="utf-8") == "OLDER EVIDENCE\n"
 
 
-# --- AC9: expiry via the _utc_today seam -------------------------------------
+# --- bd#294 AC11: explicit "1" enforces --------------------------------------
 
 
-def test_ac9_on_expiry_day_flag_unset_is_still_shadow(tmp_path, sink, monkeypatch):
-    _pin_today(monkeypatch, dt.date(2026, 10, 17), raising=True)
-    raw = "Looks good to me."
-    prev, doc_path = _fallback_prev(tmp_path, raw)
-    result = p6._write_review_artifact(None, prev)
-    _assert_shadow(result, sink, doc_path, raw, "no_findings_parsed")  # also pins expired is False
-
-
-def test_ac9_after_expiry_flag_unset_enforces_and_marks_expired(tmp_path, sink, monkeypatch):
-    _pin_today(monkeypatch, dt.date(2026, 10, 18), raising=True)
-    raw = "Looks good to me."
-    prev, doc_path = _fallback_prev(tmp_path, raw)
-    result = p6._write_review_artifact(None, prev)
-    ev = _assert_closed(result, sink, "no_findings_parsed")
-    assert ev["flag"].get("expired") is True
-    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
-
-
-def test_ac9_after_expiry_flag_set_enforces(tmp_path, sink, monkeypatch):
-    _pin_today(monkeypatch, dt.date(2026, 10, 18), raising=True)
+def test_bd294_ac11_flag_one_enforces(tmp_path, sink, monkeypatch):
     monkeypatch.setenv(FLAG, "1")
-    raw = ""
+    raw = "Looks good to me."
     prev, doc_path = _fallback_prev(tmp_path, raw)
     result = p6._write_review_artifact(None, prev)
-    _assert_closed(result, sink, "body_empty")
+    _assert_closed(result, sink, "no_findings_parsed")
     _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
 
 
-def test_ac9_flag_set_before_expiry_enforces_not_expired(tmp_path, sink, enforce):
-    prev, doc_path = _fallback_prev(tmp_path, "Looks good to me.")
+# --- bd#294 AC4: BD_ / BYTEDIGGER_ aliases -----------------------------------
+
+
+@pytest.mark.parametrize("alias", ALIAS_NAMES)
+def test_bd294_ac4_alias_zero_switches_check_off(tmp_path, sink, monkeypatch, alias):
+    monkeypatch.setenv(alias, "0")  # HAL_ name stays unset
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
     result = p6._write_review_artifact(None, prev)
-    ev = _assert_closed(result, sink, "no_findings_parsed")
-    assert ev["flag"].get("expired") is False
+    _assert_shadow(result, sink, doc_path, raw, "no_findings_parsed")
+
+
+@pytest.mark.parametrize("alias", ALIAS_NAMES)
+def test_bd294_ac4_hal_name_wins_over_alias(tmp_path, sink, monkeypatch, alias):
+    monkeypatch.setenv(FLAG, "1")
+    monkeypatch.setenv(alias, "0")
+    raw = "Looks good to me."
+    prev, doc_path = _fallback_prev(tmp_path, raw)
+    result = p6._write_review_artifact(None, prev)
+    _assert_closed(result, sink, "no_findings_parsed")
+    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
+
+
+# --- bd#294 AC6: the dated horizon is gone (no flip_horizon finding) ---------
+
+
+@pytest.mark.parametrize("today", ["2026-10-18", "2026-11-04"])
+def test_bd294_ac6_flip_horizon_does_not_name_flag(today):
+    proc = subprocess.run(
+        [sys.executable, str(FLIP_HORIZON), "--check", "--today", today],
+        capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=120,
+    )
+    out = proc.stdout + proc.stderr
+    assert FLAG not in out, f"flip_horizon --today {today} still names {FLAG}:\n{out}"
+
+
+def test_bd294_ac6_ledger_has_no_entry_for_flag():
+    assert FLAG not in FLIP_LEDGER.read_text(encoding="utf-8")
+
+
+# --- bd#294 AC7: no date seam -------------------------------------------------
+
+
+@pytest.mark.parametrize("attr", ["_utc_today", "_EMPTY_FALLBACK_FLAG_EXPIRES", "_EMPTY_FALLBACK_FLAG_OWNER"])
+def test_bd294_ac7_no_date_seam_attributes(attr):
+    assert not hasattr(p6, attr), f"phase_6_review.{attr} must be removed (no dated rollout)"
 
 
 # --- AC10: r2 MAJOR cells (enforce) ------------------------------------------
