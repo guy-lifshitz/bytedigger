@@ -754,15 +754,19 @@ FLAGS: dict[str, dict] = {
         "kind": "gate",
         "default": "1",
         "module": "workflows/phase_5_implement.py",
-        "description": "Kill-switch: HAL_FLAG_UNREGISTERED_GATE=0 disables the GH529 GREEN-time flag-registration lint.",
+        "description": "Kill-switch: HAL_FLAG_UNREGISTERED_GATE=0 disables the GREEN-time unregistered-flag warning (the check only warns, it never stops a lot).",
     },
-    "HAL_FLAG_UNREGISTERED_ENFORCE": {
-        "kind": "flag",
-        "default": "0",
-        "module": "workflows/phase_5_implement.py",
-        "description": "GH529 warn-only rollout: =1 makes unregistered HAL_* tokens a recoverable E_FLAG_UNREGISTERED gate failure. flip-by:2026-07-24 issue #529.",
-        "owner": "guy-lifshitz",
-        "provenance": "introduced: #529 - unregistered HAL_* tokens (GH529 warn-only rollout) - stays default-OFF; rollout not yet decided",
+    "HAL_SECURITY_RULES_PATH": {
+        "kind": "path",
+        "default": None,
+        "module": "workflows/phase_05_inject.py",
+        "description": "Override path for the secure-codegen rules file injected into the GREEN prompt.",
+    },
+    "HAL_STATUS_PROBE_URL": {
+        "kind": "str",
+        "default": "https://status.claude.com/api/v2/status.json",
+        "module": "lib/reference_backends/agent_sdk.py",
+        "description": "URL of the status page the fail-open outage probe queries.",
     },
     "HAL_BASELINE_DELTA_GATE": {
         "kind": "gate",

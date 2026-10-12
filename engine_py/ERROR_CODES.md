@@ -73,11 +73,6 @@
 - `E_FIX_UNCOMMITTED_CHANGES` — phase_6_fix_integrity: fix cycle left dirty uncommitted changes in the tree
 - `E_FIX_WRITE_FAILED` — phase_6_review: writing the fix artifact/doc to disk failed
 
-## E_FLAG
-
-- `E_FLAG_UNREGISTERED` — phase_5_implement: GREEN diff reads a HAL_* flag with no flags_catalog entry (GH529)
-- `E_FLAG_UNREGISTERED_CAP2` — phase_5_implement: flag-registration gate retry cap exhausted (GH529)
-
 ## E_FRESHNESS
 
 - `E_FRESHNESS_UNKNOWN` — lib/corpus_parity: base freshness could not be determined — merge-base/ancestry check failed or is unavailable (GH1338)

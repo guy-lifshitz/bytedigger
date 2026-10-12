@@ -5841,48 +5841,16 @@ def _verify_green_lint_rules(ctx, prev) -> StepResult:
             )
         resolved_paths.append(str(resolved))
 
-    # GH529 flag-registration gate — warn-only rollout, flip-by:2026-07-24 (issue #529)
+    # Permanent warning (never a stop): the check compares whole files with this
+    # catalog, so it would false-stop host projects that read their own HAL_* variables.
     flag_unregistered_warnings: list[str] = []
     if get_config().gate_enabled("HAL_FLAG_UNREGISTERED_GATE"):  # kill switch, default ON
         unregistered = flags_catalog.unregistered_tokens_in_files(resolved_paths)
         if unregistered:
-            if get_config().flag("HAL_FLAG_UNREGISTERED_ENFORCE"):   # default OFF
-                _fu_cycle = int(prev.data.get("cycle_count", 1)) if isinstance(prev.data, dict) else 1
-                _fu_build_class = (ctx.org_config or {}).get("complexity", "SIMPLE").upper()
-                _fu_fwd: dict = {
-                    "red_commit_sha": red_sha,
-                    "spec_path": prev.data.get("spec_path") if isinstance(prev.data, dict) else None,
-                    "red_log_path": prev.data.get("red_log_path") if isinstance(prev.data, dict) else None,
-                    "validation_doc_path": prev.data.get("validation_doc_path") if isinstance(prev.data, dict) else None,
-                    "unregistered_flags": unregistered,
-                }
-                # GH625 §2.3a: _fu_fwd is hand-built (no **prev.data spread),
-                # thread gate_attempts through explicitly or the gate never
-                # sees prior spend.
-                if isinstance(prev.data, dict) and isinstance(prev.data.get("gate_attempts"), dict):
-                    _fu_fwd["gate_attempts"] = prev.data["gate_attempts"]
-                # GH1626 part D: same hand-built-dict amputation as the findings
-                # leg below — carry the GREEN manifest/resume keys.
-                _carry_green_manifest_keys(prev.data, _fu_fwd)
-                return RecoverableGateMixin.gated_step_result(
-                    build_class=_fu_build_class,
-                    gate="green_lint",
-                    cycle=_fu_cycle,
-                    retry_from_step_idx=1,
-                    error_code="E_FLAG_UNREGISTERED",
-                    error_msg=(
-                        "unregistered HAL_* flags found in GREEN diff (no flags_catalog entry): "
-                        + ", ".join(unregistered)
-                    ),
-                    step_name=step,
-                    forwarded_data=_fu_fwd,
-                    terminal_error_code="E_FLAG_UNREGISTERED_CAP2",
-                )
-            else:
-                _emit_safe("flag_unregistered_warn", {"step": step, "tokens": unregistered})
-                flag_unregistered_warnings = [
-                    f"unregistered HAL flag: {t} (no flags_catalog entry)" for t in unregistered
-                ]
+            _emit_safe("flag_unregistered_warn", {"step": step, "tokens": unregistered})
+            flag_unregistered_warnings = [
+                f"unregistered HAL flag: {t} (no flags_catalog entry)" for t in unregistered
+            ]
     else:
         _emit_safe("gate_disabled", {"gate": "HAL_FLAG_UNREGISTERED_GATE", "step": step, "reason": "env_kill_switch"})
 
