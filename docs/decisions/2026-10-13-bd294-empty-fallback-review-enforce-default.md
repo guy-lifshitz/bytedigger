@@ -55,6 +55,12 @@ Reading:
 - The check has never executed in any available run: there is no shadow event because there is no
   phase-6 review write after the ship date in these logs. "No false positives" is true but is the
   absence of data, not a clean sample. The spec says so; it does not claim more.
+- Base rate: 7 217 of 7 228 writes (99.85%) take the `aggregated_content` branch, which never reaches
+  the check; only the 11 `stdout` fallbacks (0.15%) can. "0 events" therefore says little about the
+  path itself. Of those 11, the 3 SUSPECT episodes (27%) are the ones that would likely have gone
+  terminal had the check been on. Zero post-ship writes in 9 days is observed in the available logs;
+  it is not shown that the logged engines contained the check. No reproducing command is recorded
+  beyond the file scope above.
 - The only population the check would have touched are the 3 pre-ship SUSPECT episodes. Their review
   bodies were not retained (those run directories hold only the state documents, no
   `build-review.md`), so whether any was a real review wrongly called empty can be neither shown nor
@@ -115,8 +121,9 @@ default they pinned is the thing being decided:
 Not changed: AC1/1b/4/4b/7/10 enforce cells (they already assert the terminal, now reached with no
 environment), AC2/2b/3/4-keep/5 guards (run in all three modes), AC6 error-code and registry cells.
 Static check of siblings: 25 phase-6 test files that call the review writer or the fallback path
-(list in the PR body) pass 616/616 both with the variable unset and with it set to `1` on the base
-tree; the full suite is CI's.
+(list in the PR body) pass 616/616 with the variable set to `1` on the base tree (the unset run on base is shadow
+mode and is recorded only as a no-regression run, it proves nothing about enforce; the post-GREEN
+run with it unset is the one that counts); the full suite is CI's.
 
 ## 5. Acceptance criteria
 
