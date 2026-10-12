@@ -1,6 +1,6 @@
 """bd#128 RED: $CONSTITUTION_BLOCK / $QUALITY_GATE_BLOCK are defined in one plugin document.
 
-Spec: docs/decisions/2026-10-12-bd128-injection-blocks-defined.md (AC1-AC8).
+Spec: docs/decisions/2026-10-12-bd128-injection-blocks-defined.md (AC1-AC8, r2).
 Reads the real repo files; no mocks, no engine import.
 
     test_ac1_*  test_ac2_*  test_ac3_*  test_ac4_*  test_ac5_*  test_ac6_*  test_ac8_*  red
@@ -27,13 +27,27 @@ def _plugin_md():
 
 
 def _headings(text: str):
-    return [ln for ln in text.splitlines() if re.match(r"^#{1,6}\s", ln)]
+    out, fenced = [], False
+    for ln in text.splitlines():
+        if ln.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"^#{1,6}\s", ln):
+            out.append(ln)
+    return out
 
 
 def _section(text: str, var: str) -> str:
-    m = re.search(r"^#{1,6}\s+" + re.escape(var) + r"\b.*?(?=^#{1,6}\s|\Z)", text, re.S | re.M)
-    assert m, f"no section for {var}"
-    return m.group(0)
+    lines, out, inside, fenced = text.splitlines(), [], False, False
+    for ln in lines:
+        if ln.lstrip().startswith("```"):
+            fenced = not fenced
+        is_head = not fenced and re.match(r"^#{1,6}\s", ln) is not None
+        if is_head:
+            inside = var in ln
+        if inside:
+            out.append(ln)
+    assert out, f"no section for {var}"
+    return "\n".join(out)
 
 
 def test_ac1_doc_has_one_heading_per_variable():
@@ -58,14 +72,24 @@ def test_ac4_quality_gate_section_has_boy_scout_and_test_integrity():
     sec = _section(_read(DOC), "$QUALITY_GATE_BLOCK")
     assert "Boy Scout" in sec and "TEST INTEGRITY" in sec
     assert re.search(r"never\s+(adjust|modify|change)[^.\n]*assertion", sec, re.I), sec
+    assert re.search(r"orchestrator[^.\n]*(add|append)|(add|append)[^.\n]*orchestrator", sec, re.I), sec
+    assert not re.search(r"engine[^.\n]*writes[^.\n]*TEST INTEGRITY", sec, re.I), sec
 
 
 def test_ac5_every_phase5_mention_points_to_the_definition():
     lines = [ln for ln in _read("phases/phase-5-implement.md").splitlines()
              if any(v in ln for v in VARS)]
     assert lines, "phase-5 no longer mentions the blocks"
-    bad = [ln for ln in lines if DOC not in ln]
+    bad = [ln for ln in lines if DOC not in re.sub(r'"[^"]*"', "", ln)]
     assert not bad, bad
+
+
+def test_ac5b_assembly_and_default_are_stated():
+    text = _read(DOC)
+    for tok in ("RED", "Gherkin", "GREEN", "./constitution.md"):
+        assert tok in text, tok
+    assert text.index("$CONSTITUTION_BLOCK") < text.index("$QUALITY_GATE_BLOCK")
+    assert re.search(r"order|then", text, re.I)
 
 
 def test_ac6_no_undefined_block_token_in_plugin_docs():
