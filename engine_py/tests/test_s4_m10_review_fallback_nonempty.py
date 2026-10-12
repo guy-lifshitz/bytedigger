@@ -44,8 +44,6 @@ from __future__ import annotations
 import ast
 import json
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -61,9 +59,6 @@ NEW_EVENT = "review_empty_fallback"
 REJECTED_NAME = "build-review.rejected.md"
 FLAG = "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE"
 ALIAS_NAMES = ("BD_REVIEW_EMPTY_FALLBACK_ENFORCE", "BYTEDIGGER_REVIEW_EMPTY_FALLBACK_ENFORCE")
-REPO_ROOT = Path(__file__).resolve().parents[2]
-FLIP_HORIZON = REPO_ROOT / "scripts" / "flip_horizon.py"
-FLIP_LEDGER = REPO_ROOT / "scripts" / "flip_horizon_ledger.json"
 
 
 @pytest.fixture(autouse=True)
@@ -529,64 +524,6 @@ def test_ac8_shadow_does_not_overwrite_existing_rejected_file(tmp_path, sink, sh
     assert flag.get("name") == FLAG
     assert flag.get("switched_off") is True, f"kill-switch run must be marked switched_off: {flag!r}"
     assert _rejected(doc_path).read_text(encoding="utf-8") == "OLDER EVIDENCE\n"
-
-
-# --- bd#294 AC11: explicit "1" enforces --------------------------------------
-
-
-def test_bd294_ac11_flag_one_enforces(tmp_path, sink, monkeypatch):
-    monkeypatch.setenv(FLAG, "1")
-    raw = "Looks good to me."
-    prev, doc_path = _fallback_prev(tmp_path, raw)
-    result = p6._write_review_artifact(None, prev)
-    _assert_closed(result, sink, "no_findings_parsed")
-    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
-
-
-# --- bd#294 AC4: BD_ / BYTEDIGGER_ aliases -----------------------------------
-
-
-@pytest.mark.parametrize("alias", ALIAS_NAMES)
-def test_bd294_ac4_alias_zero_switches_check_off(tmp_path, sink, monkeypatch, alias):
-    monkeypatch.setenv(alias, "0")  # HAL_ name stays unset
-    raw = "Looks good to me."
-    prev, doc_path = _fallback_prev(tmp_path, raw)
-    result = p6._write_review_artifact(None, prev)
-    _assert_shadow(result, sink, doc_path, raw, "no_findings_parsed")
-
-
-@pytest.mark.parametrize("alias", ALIAS_NAMES)
-def test_bd294_ac4_hal_name_wins_over_alias(tmp_path, sink, monkeypatch, alias):
-    monkeypatch.setenv(FLAG, "1")
-    monkeypatch.setenv(alias, "0")
-    raw = "Looks good to me."
-    prev, doc_path = _fallback_prev(tmp_path, raw)
-    result = p6._write_review_artifact(None, prev)
-    _assert_closed(result, sink, "no_findings_parsed")
-    _assert_evidence_not_impersonating(tmp_path, doc_path, raw.encode("utf-8"))
-
-
-# --- bd#294 AC6: the dated horizon is gone (no flip_horizon finding) ---------
-
-
-@pytest.mark.parametrize("today", ["2026-10-18", "2026-11-04"])
-def test_bd294_ac6_flip_horizon_does_not_name_flag(today):
-    proc = subprocess.run(
-        [sys.executable, str(FLIP_HORIZON), "--check", "--today", today],
-        capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=120,
-    )
-    out = proc.stdout + proc.stderr
-    assert FLAG not in out, f"flip_horizon --today {today} still names {FLAG}:\n{out}"
-    # The ledger must not carry an entry for the flag either (folded in: bare ledger check alone passes today).
-    assert FLAG not in FLIP_LEDGER.read_text(encoding="utf-8")
-
-
-# --- bd#294 AC7: no date seam -------------------------------------------------
-
-
-@pytest.mark.parametrize("attr", ["_utc_today", "_EMPTY_FALLBACK_FLAG_EXPIRES", "_EMPTY_FALLBACK_FLAG_OWNER"])
-def test_bd294_ac7_no_date_seam_attributes(attr):
-    assert not hasattr(p6, attr), f"phase_6_review.{attr} must be removed (no dated rollout)"
 
 
 # --- AC10: r2 MAJOR cells (enforce) ------------------------------------------

@@ -1,9 +1,10 @@
 ---
 red_tests:
-  - engine_py/tests/test_s4_m10_review_fallback_nonempty.py
+  - engine_py/tests/test_bd294_empty_fallback_default_on.py
 red_pins:
-  - tests/test_bd89_p3d_flag_owner_lint.py
+  - engine_py/tests/test_s4_m10_review_fallback_nonempty.py
 sibling_tests:
+  - engine_py/tests/test_s4_m10_review_fallback_nonempty.py
   - engine_py/tests/test_bd_flip_horizon_guard.py
   - tests/test_bd89_p3d_flag_owner_lint.py
   - engine_py/tests/test_GH1399_advisory_format_terminal.py
@@ -147,8 +148,9 @@ tree; the full suite is CI's.
 
 ## 6. Test plan
 
-Edit `engine_py/tests/test_s4_m10_review_fallback_nonempty.py` per section 4 and add AC4, AC6, AC7,
-AC11 cells there (real step, no mock of the unit under test; the existing `_Sink` event-log harness
+Edit `engine_py/tests/test_s4_m10_review_fallback_nonempty.py` per section 4 (it is a pinned sibling:
+its edited cells fail until GREEN) and put the new AC1, AC2, AC4, AC6, AC7, AC11 cells in the new
+all-red file `engine_py/tests/test_bd294_empty_fallback_default_on.py` (real step, no mock of the unit under test; the existing `_Sink` event-log harness
 and the `_resolve_backend` pin are kept). AC6 shells out to `scripts/flip_horizon.py` with
 `sys.executable`, no import at module load. Local runs are targeted (this file and the siblings in
 the front matter); the full suite and base-to-HEAD delta are CI's.
