@@ -26,7 +26,7 @@ paths:
 
 New `templates/injection-blocks.md` with two sections, each headed by the variable name:
 
-1. `## $CONSTITUTION_BLOCK`: the contents of the file named by `constitution_path` in `bytedigger.json` (default `./constitution.md`), verbatim. Phase 0.5 of the engine writes it to `injection/constitution.md` in the scratchpad; with no constitution found that file is the sentinel `## Constitution` / `No project constitution found.` (two lines, as the engine writes it).
+1. `## $CONSTITUTION_BLOCK`: the contents of the file named by `constitution_path` in `bytedigger.json` (default `./constitution.md`), verbatim. Phase 0.5 of the engine writes it to `injection/constitution.md` in the scratchpad; with no constitution found that file is the sentinel `## Constitution` / `No project constitution found.` (heading, blank line, text, as the engine writes it).
 2. `## $QUALITY_GATE_BLOCK`: two parts, stated as such. (a) The engine part: the content of `injection/quality-gate.md`, i.e. the "Quality Gate — Zero Corner-Cutting" rules including the Boy Scout Rule (engine `QUALITY_GATE_TEXT`). (b) The orchestrator part, which the engine does NOT write: the TEST INTEGRITY RULE as it stands in `phases/phase-5-implement.md` (code is fixed, never test assertions; the only valid reason to change a test is a changed spec), appended after (a). The document says plainly that (b) is added by the orchestrator.
 
 Plus one "Assembly" paragraph: order is `$CONSTITUTION_BLOCK`, then `$QUALITY_GATE_BLOCK`, then the purpose statement; used by RED, Gherkin, Opus validator and GREEN.
