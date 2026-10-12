@@ -286,6 +286,40 @@ text.
 | `not_utf8` | strict UTF-8 decoding fails (a UTF-16 file with a byte order mark fails here; a BOM-less UTF-16 file fails as `contains_nul`) |
 | `contains_nul` | any NUL byte in the file |
 | `empty` | zero length, or only whitespace |
+| `core_unavailable` | the core skill `skills/bytedigger/SKILL.md` under `$CLAUDE_PLUGIN_ROOT` (else the repo root) is missing, unreadable, or has no usable `metadata.overridable` set; the bound cannot be checked, so the step fails closed (an install without that file fails every template) |
+| `frontmatter_not_allowed` | the text starts with a frontmatter block (`---` ... `---`) |
+| `section_required` | no H2 section, and the core declares more than one overridable section |
+| `text_outside_section` | non-blank text before the first H2 |
+| `section_not_overridable` | an H2 whose slug is not in the core's `metadata.overridable` (the message names the slug) |
+| `forbidden_markup` | a line with `<!--` or `-->` |
+| `unclosed_fence` | a code fence that is never closed |
+| `heading_level_invalid` | an H1 after an H2 (a plain text that starts with an H1 counts) |
+| `setext_heading` | a setext heading (a text line over `===` or `---`) |
+| `invalid_section_title` | an H2 whose title has no letter or digit |
+| `duplicate_section` | two H2 sections with the same slug |
+| `empty_section` | an H2 with no body |
+| `pin_drift` | the file's bytes differ from the bytes first read in this run |
+
+Content rules (bd#125). The template may only say what the core lets a host extend: it is
+either H2 sections whose slugs are all in the core's `metadata.overridable` (today
+`project-conventions`), or a plain text with no H2, which is read as the body of the single
+overridable section (when the core declares exactly one). The structural rules are the
+bd#116 companion rules: no frontmatter, no comments, no open fence, no H1 after an H2, no
+setext headings, no empty or duplicate section. The first violation in the order of the
+table is the reason; the message ends with `; +N more` when there are others. The message
+names the key, the reason, the path and at most one slug, never template text.
+
+Per-run pin. The first successful read in a run records the file's sha256; every later read
+in the same run (including the gate prompts) must see the same bytes, or the step fails with
+`pin_drift`. The pin is per run id and per path, covers at most 64 runs (the least recently
+read run is dropped), and is skipped when there is no current run. A first read that fails a
+check records no pin.
+
+Resume hash. With `role_template_path` set, the step resume hash folds in the sha256 of the
+template bytes (`!<reason>` when the file cannot be read), and a context with only a template
+now gets a resume hash. A rewritten template therefore re-executes the step on resume. With
+the key unset the hash is unchanged. Hashes of contexts that set the key change once on
+deploy.
 
 Steps that read the template: phase 4.5 spec and review, phase 5 red, validation,
 green and integrity, phase 6 review, fix, fix-integrity and satisfaction.

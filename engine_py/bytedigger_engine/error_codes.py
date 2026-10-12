@@ -209,7 +209,7 @@ ERROR_CODES: dict[str, str] = {
     "E_REVIEW_FIX_FEED_DIVERGENCE": "phase_6_review: fix feed does not cover the review's aggregated findings",
     "E_REVIEW_UNPARSEABLE": "phase_45_spec: review verdict output could not be parsed",
     "E_REVIEW_WRITE_FAILED": "phase_6_review: writing the review artifact to disk failed",
-    "E_ROLE_TEMPLATE_INVALID": "role_template: configured org_config.role_template_path is missing, not a regular file, unreadable, oversized, not UTF-8, NUL-bearing, empty or not a string (bd#119)",
+    "E_ROLE_TEMPLATE_INVALID": "role_template: configured org_config.role_template_path is missing, not a regular file, unreadable, oversized, not UTF-8, NUL-bearing, empty or not a string, or its text is outside the core's overridable sections, malformed, or changed during the run (bd#119, bd#125)",
     "E_RUNNER": "run.py: the phase runner itself raised an unhandled error",
     "E_SATISFACTION_AC_CHECKLIST": "phase_6_review: satisfaction AC-checklist cross-check failed",
     "E_SATISFACTION_BELOW_THRESHOLD": "phase_6_review: satisfaction score fell below the configured threshold",

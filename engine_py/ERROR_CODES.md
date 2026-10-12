@@ -324,7 +324,7 @@
 
 ## E_ROLE
 
-- `E_ROLE_TEMPLATE_INVALID` — role_template: configured org_config.role_template_path is missing, not a regular file, unreadable, oversized, not UTF-8, NUL-bearing, empty or not a string (bd#119)
+- `E_ROLE_TEMPLATE_INVALID` — role_template: configured org_config.role_template_path is missing, not a regular file, unreadable, oversized, not UTF-8, NUL-bearing, empty or not a string, or its text is outside the core's overridable sections, malformed, or changed during the run (bd#119, bd#125)
 
 ## E_RUN
 

@@ -117,7 +117,7 @@ def test_ac3_non_overridable_section_rejected(tmp_path):
     f = _tpl(tmp_path, f"## output-schema\n{CANARY_A}\n")
     exc = _err(f)
     assert exc.reason == "section_not_overridable"
-    assert exc.code == CODE
+    assert exc.error_code == CODE
     assert isinstance(exc, CodedStepError)
     msg = str(exc)
     assert "output-schema" in msg
@@ -149,7 +149,7 @@ def test_ac5_structural_rules_each_own_reason(reason, body, tmp_path):
     """AC5: each structural violation yields its matching reason."""
     exc = _err(_tpl(tmp_path, body))
     assert exc.reason == reason
-    assert exc.code == CODE
+    assert exc.error_code == CODE
     assert "\n" not in str(exc)
 
 
