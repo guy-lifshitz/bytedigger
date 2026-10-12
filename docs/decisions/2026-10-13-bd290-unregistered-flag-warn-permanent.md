@@ -1,3 +1,21 @@
+---
+red_tests:
+  - engine_py/tests/test_bd290_flag_unregistered_warn.py
+red_pins:
+  - tests/test_bd89_p3d_flag_owner_lint.py
+sibling_tests:
+  - engine_py/tests/test_bd_flip_horizon_guard.py
+  - tests/test_bd89_p3d_flag_owner_lint.py
+  - engine_py/tests/test_gh1179_red_write_boundary.py
+paths:
+  - engine_py/bytedigger_engine/workflows/phase_5_implement.py
+  - engine_py/bytedigger_engine/flags_catalog.py
+  - engine_py/bytedigger_engine/error_codes.py
+  - engine_py/ERROR_CODES.md
+  - engine_py/bytedigger_engine/ERROR_CODES.md
+  - scripts/flip_horizon_ledger.json
+  - CHANGELOG.md
+---
 # bd#290: unregistered-flag check becomes a permanent warning; HAL_FLAG_UNREGISTERED_ENFORCE is retired
 
 Slice of #89. Refs #290, #89. Base: origin/main @ 74bed46.
