@@ -512,7 +512,7 @@ def test_both_prompts_list_read_first_paths(tmp_path):
 def test_role_template_prepended_to_both_prompts(tmp_path):
     scratchpad = tmp_path / "scratch"
     role = tmp_path / "role.md"
-    role.write_text("# Read-only role\n- no destructive ops\n")
+    role.write_text("Read-only role\n- no destructive ops\n")
 
     _register_stub(_passthrough_spec_stub())
     eng = WorkflowEngine()
@@ -524,8 +524,8 @@ def test_role_template_prepended_to_both_prompts(tmp_path):
 
     spec = (scratchpad / SPEC_DOC_RELPATH).read_text()
     review = (scratchpad / REVIEW_DOC_RELPATH).read_text()
-    assert "# Read-only role" in spec
-    assert "# Read-only role" in review
+    assert "Read-only role" in spec
+    assert "Read-only role" in review
 
 
 # ─── verdict parsing ──────────────────────────────────────────────────────────

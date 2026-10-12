@@ -74,6 +74,12 @@ def compute_ctx_hash(context) -> "str | None":
     either field; part-3 scenarios always set at least one). This gate is
     unchanged by GH1050.
 
+    bd#125: when ``org_config["role_template_path"]`` is set, the gate also passes
+    for a context with only a template, and ``b"\\0" + role_template_digest(cfg)``
+    (sha256 of the template bytes, or ``"!<reason>"``) is appended to the hashed
+    bytes, so a rewritten template re-keys the sentinel. Key unset: byte-identical
+    to before.
+
     GH1050: after the gate, folds in ``ctx_cfg_sha8({"org_config": cfg,
     "task_description": task})`` — the SAME §1g single-source config-hash
     producer used by ``phase_sentinel.phase_key``/DBOS workflow_uuid keying —
@@ -89,8 +95,12 @@ def compute_ctx_hash(context) -> "str | None":
     cfg = getattr(context, "org_config", None) or {}
     task = str(cfg.get("task_description") or "")
     doc = cfg.get("decision_doc")
-    if not task and not doc:
+    from bytedigger_engine.role_template import role_template_digest  # lazy: avoid an import cycle
+
+    tpl = role_template_digest(cfg)
+    if not task and not doc and tpl is None:
         return None
+    tpl_bytes = b"" if tpl is None else b"\0" + tpl.encode()
     question = getattr(context, "question", "") or ""
     doc_bytes = b""
     if doc:
@@ -103,9 +113,11 @@ def compute_ctx_hash(context) -> "str | None":
     try:
         cfg_sha = ctx_cfg_sha8({"org_config": cfg, "task_description": task})
     except TypeError:
-        return hashlib.sha256(question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes).hexdigest()[:12]
+        return hashlib.sha256(
+            question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes + tpl_bytes
+        ).hexdigest()[:12]
     return hashlib.sha256(
-        question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes + b"\0" + cfg_sha.encode()
+        question.encode() + b"\0" + task.encode() + b"\0" + doc_bytes + b"\0" + cfg_sha.encode() + tpl_bytes
     ).hexdigest()[:12]
 
 

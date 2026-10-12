@@ -474,7 +474,7 @@ def test_role_template_prepended(tmp_path):
     seed_repo_with_test_diff(repo)
     scratchpad = tmp_path / "scratch"
     role = tmp_path / "role.md"
-    role.write_text("# Read-only role\n")
+    role.write_text("Read-only role\n")
 
     eng = WorkflowEngine()
     eng.register("p5i", phase_5_integrity_workflow())
@@ -484,7 +484,7 @@ def test_role_template_prepended(tmp_path):
     )
 
     review = (scratchpad / REVIEW_DOC_RELPATH).read_text()
-    assert "# Read-only role" in review
+    assert "Read-only role" in review
 
 
 # ─── verdict parsing (last-marker-wins) ───────────────────────────────────────
