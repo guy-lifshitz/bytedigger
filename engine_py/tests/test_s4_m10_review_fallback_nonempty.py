@@ -525,6 +525,9 @@ def test_ac8_shadow_does_not_overwrite_existing_rejected_file(tmp_path, sink, sh
     assert result.status == "ok", f"{result.error_code}: {result.error}"
     ev = sink.named(NEW_EVENT)
     assert len(ev) == 1 and ev[0].get("mode") == "shadow"
+    flag = ev[0].get("flag") or {}
+    assert flag.get("name") == FLAG
+    assert flag.get("switched_off") is True, f"kill-switch run must be marked switched_off: {flag!r}"
     assert _rejected(doc_path).read_text(encoding="utf-8") == "OLDER EVIDENCE\n"
 
 
@@ -574,9 +577,7 @@ def test_bd294_ac6_flip_horizon_does_not_name_flag(today):
     )
     out = proc.stdout + proc.stderr
     assert FLAG not in out, f"flip_horizon --today {today} still names {FLAG}:\n{out}"
-
-
-def test_bd294_ac6_ledger_has_no_entry_for_flag():
+    # The ledger must not carry an entry for the flag either (folded in: bare ledger check alone passes today).
     assert FLAG not in FLIP_LEDGER.read_text(encoding="utf-8")
 
 
