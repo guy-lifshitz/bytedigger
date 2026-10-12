@@ -46,7 +46,9 @@ scope.
    (`{"step", "tokens"}`), set `flag_unregistered_warnings`, continue. The `get_config().flag(...)`
    read, the `RecoverableGateMixin.gated_step_result(...)` return and the `_fu_*` locals are removed.
    The `gate_disabled` branch for `HAL_FLAG_UNREGISTERED_GATE=0` is unchanged. The "warn-only rollout
-   flip-by" comment is replaced by a comment saying the check is a permanent warning and why.
+   flip-by" comment is replaced by a comment saying the check is a permanent warning and why. Neither
+   that comment nor any other text in a `.py` file under `engine_py/bytedigger_engine` may contain the
+   strings `E_FLAG_UNREGISTERED` or `HAL_FLAG_UNREGISTERED_ENFORCE` (AC8 scans for them).
 2. `error_codes.py`: remove `E_FLAG_UNREGISTERED` and `E_FLAG_UNREGISTERED_CAP2` (unreachable after 1).
    Remove the same two lines from `engine_py/ERROR_CODES.md` and
    `engine_py/bytedigger_engine/ERROR_CODES.md`.
@@ -54,7 +56,8 @@ scope.
    `HAL_SECURITY_RULES_PATH` (kind `path`, default `None`, module `workflows/phase_05_inject.py`) and
    `HAL_STATUS_PROBE_URL` (kind `str`, default `https://status.claude.com/api/v2/status.json`, module
    `lib/reference_backends/agent_sdk.py`), each with a one-sentence description and no `flip-by`
-   token. Update the `HAL_FLAG_UNREGISTERED_GATE` description: it now disables the warning.
+   token. Update the `HAL_FLAG_UNREGISTERED_GATE` description: it now disables the warning. The new
+   description must not contain the two strings above either.
 4. `scripts/flip_horizon_ledger.json`: delete the `HAL_FLAG_UNREGISTERED_ENFORCE` entry.
 5. `tests/test_bd89_p3d_flag_owner_lint.py`: delete the `HAL_FLAG_UNREGISTERED_ENFORCE` line of
    `PINNED_DEFAULTS`.
@@ -91,6 +94,7 @@ Out of scope: the other overdue flags in the ledger, `baseline_delta_gate.py`,
 ## 4. Test plan
 
 One new file `engine_py/tests/test_bd290_flag_unregistered_warn.py` (AC1-AC8, AC3-AC5 through the real
-step, no mocks of the unit under test). AC9 is the one-line edit of the existing test. Local runs are
+step, no mocks of the unit under test; only the subprocess boundary is stubbed: `shutil.which` for semgrep
+and `bounded_run`, because the CI pytest job has no semgrep). AC9 is the one-line edit of the existing test. Local runs are
 targeted (this file, `test_bd89_p3d_flag_owner_lint.py`, `test_bd_flip_horizon_guard.py`, the
 error-code registry tests); the full suite and the base-to-HEAD delta are CI's.
