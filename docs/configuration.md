@@ -287,7 +287,7 @@ text.
 | `contains_nul` | any NUL byte in the file |
 | `empty` | zero length, or only whitespace |
 | `core_unavailable` | the core skill `skills/bytedigger/SKILL.md` under `$CLAUDE_PLUGIN_ROOT` (else the repo root) is missing, unreadable, or has no usable `metadata.overridable` set; the bound cannot be checked, so the step fails closed (an install without that file fails every template) |
-| `frontmatter_not_allowed` | the text starts with a frontmatter block (`---` ... `---`) |
+| `frontmatter_not_allowed` | the text starts with a frontmatter block (`---` ... `---`), or its first line is `---` (even with no closing `---`) |
 | `section_required` | no H2 section, and the core declares more than one overridable section |
 | `text_outside_section` | non-blank text before the first H2 |
 | `section_not_overridable` | an H2 whose slug is not in the core's `metadata.overridable` (the message names the slug) |

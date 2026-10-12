@@ -348,6 +348,8 @@ def test_ac23_core_without_overridable_metadata_is_unavailable(tmp_path, monkeyp
 _AC24_CASES = [
     ("heading_level_invalid", "# Read-only role\nbody text\n"),
     ("frontmatter_not_allowed", "---\nk: v\n---\nbody text\n"),
+    ("frontmatter_not_allowed", "---\nSome role text\n"),
+    ("frontmatter_not_allowed", "---\n## project-conventions\nbody\n"),
     ("forbidden_markup", "body text <!-- x -->\n"),
 ]
 

@@ -167,8 +167,9 @@ def _check_content(text: str, value: str) -> None:
 
     overridable = _core_overridable(value)
     found: list[tuple[str, str]] = []
+    unbom = text[len(BOM):] if text.startswith(BOM) else text
     try:
-        if parse_frontmatter(text) is not None:
+        if parse_frontmatter(text) is not None or unbom.split("\n", 1)[0].rstrip() == "---":
             found.append(("frontmatter_not_allowed", ""))
     except FrontmatterError:
         found.append(("frontmatter_not_allowed", ""))
