@@ -1,15 +1,15 @@
 """bd#125 -- the role template is bounded by the bd#116 contract, pinned per run, hashed by its bytes.
 
-RED tests for docs/decisions/2026-10-12-bd125-role-template-content-pin.md (AC1-AC20).
+RED tests for docs/decisions/2026-10-12-bd125-role-template-content-pin.md (AC1-AC24).
 The module under test (`bytedigger_engine.role_template`) is reached only through
 `_rt()` inside test bodies, so a missing API fails the test, never collection; the new
 symbol `role_template_digest` is imported lazily inside the tests that need it.
 
 RED-signal contract:
-- Fail by assertion on today's tree: AC3-AC5, AC6, AC7 (non-core cases), AC8, AC11, AC12,
-  AC13 (AttributeError on `.sha256`), AC14, AC15, AC17, AC18, AC19 (AttributeError), AC20.
-- PRE-PASSING GUARDS (correctness guards that protect post-GREEN behavior): AC1, AC2, AC9,
-  AC10, AC16.
+- Fail by assertion on today's tree: AC3-AC5, AC6, AC7 (non-core cases), AC8, AC9, AC10,
+  AC11, AC12, AC13 (AttributeError on `.sha256`), AC14, AC15, AC17, AC18, AC19
+  (AttributeError), AC20, AC21-AC24.
+- PRE-PASSING GUARDS (correctness guards that protect post-GREEN behavior): AC1, AC2, AC16.
 
 Pin cases (AC8-AC12, AC14) set a run via telemetry_ctx with a unique uuid run id per test
 (the module's pin map is private and process-wide) and always clear it in teardown.
@@ -194,6 +194,30 @@ def test_ac8_rewrite_within_run_is_pin_drift(tmp_path):
     assert "\n" not in msg
 
 
+def test_ac9_other_run_has_its_own_pin(tmp_path):
+    """AC9: r1 read, rewrite, r1 read raises pin_drift; then run r2 reads the rewritten file."""
+    f = _tpl(tmp_path, VALID_A)
+    rt_mod = _rt()
+    _set_run("bd125-ac9-r1-" + uuid.uuid4().hex)
+    rt_mod.load_role_template({KEY: str(f)})
+    f.write_text(VALID_B, encoding="utf-8")
+    assert _err(f).reason == "pin_drift"
+    _set_run("bd125-ac9-r2-" + uuid.uuid4().hex)
+    assert CANARY_B in rt_mod.load_role_template({KEY: str(f)}).content
+
+
+def test_ac10_no_run_means_no_pin(tmp_path):
+    """AC10: r1 read, rewrite, r1 read raises pin_drift; then no current run reads OK."""
+    f = _tpl(tmp_path, VALID_A)
+    rt_mod = _rt()
+    _set_run("bd125-ac10-r1-" + uuid.uuid4().hex)
+    rt_mod.load_role_template({KEY: str(f)})
+    f.write_text(VALID_B, encoding="utf-8")
+    assert _err(f).reason == "pin_drift"
+    telemetry_ctx.clear_current_run()
+    assert CANARY_B in rt_mod.load_role_template({KEY: str(f)}).content
+
+
 def test_ac11_pin_is_checked_before_content(tmp_path):
     """AC11: pinned, then rewritten to a content-invalid file -> pin_drift, not a content reason."""
     f = _tpl(tmp_path, VALID_A)
@@ -284,6 +308,54 @@ def test_ac19_role_template_digest_contract(tmp_path):
     assert d == hashlib.sha256(f.read_bytes()).hexdigest()
     assert role_template_digest({KEY: str(tmp_path / "nope.md")}) == "!missing"
     assert role_template_digest({KEY: 5}) == "!bad_value_type"
+
+
+_AC21_CASES = [
+    ("frontmatter_not_allowed",
+     "---\nk: v\n---\n## project-conventions\n```\ncode\n"),
+    ("forbidden_markup",
+     "## project-conventions\none <!-- x -->\n\n## project-conventions\ntwo\n"),
+]
+
+
+@pytest.mark.parametrize("first,body", _AC21_CASES, ids=[c[0] for c in _AC21_CASES])
+def test_ac21_two_violations_first_in_order_plus_one_more(first, body, tmp_path):
+    """AC21: two violations -> the first in documented order is the reason; "; +1 more"."""
+    exc = _err(_tpl(tmp_path, body))
+    assert exc.reason == first
+    msg = str(exc)
+    assert "; +1 more" in msg
+    assert "\n" not in msg
+
+
+def test_ac22_empty_slug_title_rejected(tmp_path):
+    """AC22: `## !!!` (empty slug) -> invalid_section_title."""
+    assert _err(_tpl(tmp_path, "## !!!\nbody\n")).reason == "invalid_section_title"
+
+
+def test_ac23_core_without_overridable_metadata_is_unavailable(tmp_path, monkeypatch):
+    """AC23: tmp plugin whose core has no `overridable` metadata -> core_unavailable."""
+    plugin = tmp_path / "plugin_nometa"
+    _write(
+        plugin / "skills" / "bytedigger" / "SKILL.md",
+        "---\nname: ByteDigger\n---\n\n# ByteDigger\n\n## project-conventions\n\ncore text\n",
+    )
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(plugin))
+    f = _tpl(tmp_path, "## project-conventions\nbody\n")
+    assert _err(f).reason == "core_unavailable"
+
+
+_AC24_CASES = [
+    ("heading_level_invalid", "# Read-only role\nbody text\n"),
+    ("frontmatter_not_allowed", "---\nk: v\n---\nbody text\n"),
+    ("forbidden_markup", "body text <!-- x -->\n"),
+]
+
+
+@pytest.mark.parametrize("reason,body", _AC24_CASES, ids=[c[0] for c in _AC24_CASES])
+def test_ac24_plain_text_is_not_exempt_from_structural_rules(reason, body, tmp_path):
+    """AC24: plain text (no H2) with a leading H1 / `---` / `<!-- -->` is rejected."""
+    assert _err(_tpl(tmp_path, body)).reason == reason
 
 
 def test_ac20_reason_tokens_old_then_new_in_order():

@@ -460,7 +460,7 @@ def test_cap_constant_is_65536():
 def test_reason_tokens_and_constants():
     """Spec 3 / 5.2: exactly the nine reason tokens, in order, and the public constants."""
     rt = _rt()
-    assert rt.ROLE_TEMPLATE_REASONS == REASONS
+    assert tuple(rt.ROLE_TEMPLATE_REASONS[: len(REASONS)]) == REASONS  # bd#125 appends 13 more
     assert rt.ROLE_TEMPLATE_KEY == KEY
     assert rt.ERROR_CODE == CODE
 
@@ -729,17 +729,31 @@ def test_role_template_module_contract():
     assert isinstance(first, ast.ImportFrom) and first.module == "__future__", ast.dump(first)
     assert [a.name for a in first.names] == ["annotations"]
 
+    # bd#125: role_template additionally lazily imports exactly these engine modules.
+    allowed_rel = {"contracts", "skill_companion", "lib.frontmatter", "telemetry_ctx"}
+    allowed_abs = _ALLOWED_ENGINE_IMPORTS | {
+        "bytedigger_engine.skill_companion",
+        "bytedigger_engine.lib.frontmatter",
+        "bytedigger_engine.telemetry_ctx",
+    }
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                assert alias.name.split(".")[0] in sys.stdlib_module_names, alias.name
+                assert (
+                    alias.name.split(".")[0] in sys.stdlib_module_names
+                    or alias.name in allowed_abs
+                ), alias.name
         elif isinstance(node, ast.ImportFrom):
             if node.level:
-                assert node.module == "contracts", (node.level, node.module)
+                if node.module is None:  # `from . import telemetry_ctx`
+                    assert all(a.name in allowed_rel for a in node.names), (
+                        node.level, [a.name for a in node.names])
+                else:
+                    assert node.module in allowed_rel, (node.level, node.module)
             else:
                 assert (
                     node.module.split(".")[0] in sys.stdlib_module_names
-                    or node.module in _ALLOWED_ENGINE_IMPORTS
+                    or node.module in allowed_abs
                 ), node.module
     for literal in _FORBIDDEN_CORE_LITERALS:
         assert literal not in source, literal
