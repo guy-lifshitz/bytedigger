@@ -157,6 +157,7 @@ _BACKEND_ENV_VAR = "HAL_RUNNER_BACKEND"
 _GATE_FLOOR_ENV_VAR = "HAL_GATE_MODEL_FLOOR"
 _IN_SESSION_ENFORCES_TOOLS_ENV_VAR = "HAL_IN_SESSION_ENFORCES_TOOLS"
 _IN_SESSION_APPLIES_EFFORT_ENV_VAR = "HAL_IN_SESSION_APPLIES_EFFORT"
+_IN_SESSION_OBSERVED_TOOLS_ENV_VAR = "HAL_IN_SESSION_OBSERVED_TOOLS"
 _ROLES = ("judge", "worker")
 # bd#82: "no effort was passed" — a handler called directly resolves it itself.
 _EFFORT_UNSET = object()
@@ -1041,6 +1042,22 @@ def _invoke_in_session(
         # chokepoint's adjudication and kept warning instead of failing.
         "observed_model": result_obj.get("dispatched_model"),
     }
+    # bd#291: the servicer's reported tool heads reach the capability escape
+    # check through `observed_tools`; read from `.res.json` only, before the
+    # extra_data merge (the dispatcher strips the reserved key from extra_data).
+    if (
+        "observed_tools" in result_obj
+        and config_provider.get_config().gate_enabled(_IN_SESSION_OBSERVED_TOOLS_ENV_VAR)
+    ):
+        _obs_tools = result_obj["observed_tools"]
+        if isinstance(_obs_tools, list) and all(isinstance(t, str) for t in _obs_tools):
+            data["observed_tools"] = list(_obs_tools)
+        elif run_ctx is not None and run_ctx.event_log is not None:
+            _emit_safe(run_ctx.event_log, "in_session_observed_tools_dropped", {
+                "backend": "claude-in-session",
+                "reason": "not_list_of_strings",
+                "value_type": type(_obs_tools).__name__,
+            }, run_id=run_ctx.run_id)
     if extra_data:
         data.update(extra_data)
 

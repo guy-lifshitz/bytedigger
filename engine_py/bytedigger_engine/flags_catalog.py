@@ -156,6 +156,14 @@ FLAGS: dict[str, dict] = {
         "module": "llm_subprocess.py",
         "description": "bd#82: the claude-in-session servicer declares it applies each request's effort; exactly '1' grants the effort capability, so in-session hard gates under a gate effort pin are dispatched instead of refused.",
     },
+    "HAL_IN_SESSION_OBSERVED_TOOLS": {
+        "kind": "gate",
+        "default": "1",
+        "module": "llm_subprocess.py",
+        "description": "bd#291: the claude-in-session result's observed_tools (a list of strings the servicer reports it called) is read into the result, so the capability escape check and the attestation see it. On unless exactly '0'; the switch is for one release (retire-by:2026-11-10). BD_/BYTEDIGGER_ aliases honoured.",
+        "owner": "guy-lifshitz",
+        "provenance": "introduced: bd#291 - the claude-in-session result carried no observed_tools, so the capability escape check never ran on that path - read on by default, =0 restores the old behaviour",
+    },
     "HAL_RUNNER_BACKEND_JUDGE": {
         "kind": "str",
         "default": None,
