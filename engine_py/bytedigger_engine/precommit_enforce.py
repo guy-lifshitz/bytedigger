@@ -430,7 +430,15 @@ def _range_plan_inputs(root, base, tip):
     if merged.returncode != 0 or not merge_base:
         return None, "no merge-base between {!r} and HEAD".format(base)
     listed = _git(
-        ["diff", "--name-only", "--diff-filter=ACMR", base_sha + "...HEAD"], root
+        [
+            "-c",
+            "core.quotepath=off",
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            base_sha + "...HEAD",
+        ],
+        root,
     )
     if listed.returncode != 0:
         return None, "git diff failed for {!r}...HEAD".format(base)
@@ -469,7 +477,8 @@ def main(argv=None) -> int:
 
     baseline_ref = "HEAD"
     if range_mode:
-        assert parsed is not None
+        if parsed is None:
+            return _range_error("internal: range not parsed")
         inputs, reason = _range_plan_inputs(root, parsed[0], parsed[1])
         if inputs is None:
             return _range_error(reason)

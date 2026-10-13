@@ -282,6 +282,25 @@ def test_ac1_range_with_an_added_offending_test_is_refused_and_the_clean_twin_pa
     _accepted(_range(twin, env, twin_base))
 
 
+def test_ac1_non_ascii_test_file_name_is_refused_under_default_quotepath(tmp_path):
+    env = _hermetic_env(tmp_path)
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    rel = "test_café_probe.py"
+    repo = _init_repo(tmp_path, env, "unicode")
+    base = _commit_files(repo, env, {"test_base.py": _CONTROL_ONLY})
+    _commit_files(repo, env, {rel: _ONE_FINDING})
+    # Default core.quotepath: git would list the name as an escaped, quoted path.
+    assert _git(["config", "--get", "core.quotepath"], repo, env).stdout.strip() == ""
+    listed = _git_ok(["diff", "--name-only", f"{base}...HEAD"], repo, env)
+    assert listed.startswith('"') and "\\" in listed, f"quotepath must be in force: {listed!r}"
+
+    refused = _range(repo, env, base)
+
+    _refused_with(refused, rel, now=1, head=0)
+    assert _expected_line(rel, _ONE_FINDING) in refused.stdout.splitlines(), refused.stdout
+
+
 def test_ac1_three_dot_range_means_the_same_merge_base(tmp_path):
     env = _hermetic_env(tmp_path)
     repo, base, _tip = _offending_repo(tmp_path, env)
