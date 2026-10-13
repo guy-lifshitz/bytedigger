@@ -51,25 +51,35 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
         argv += ["--base-sha", base_sha, "--cache-dir", cache_dir]
     try:
         proc = subprocess.run(argv, cwd=git_cwd, capture_output=True, text=True, timeout=60)
-    except (subprocess.TimeoutExpired, OSError):
-        emit("baseline_delta_gate_skipped", {"reason": "exec_error"})
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        emit("baseline_delta_gate_skipped", {"reason": "exec_error", "detail": str(exc)})
         return {"skipped": "exec_error", "would_block": enforced}
 
+    def _skip_payload(reason):
+        return {
+            "reason": reason,
+            "returncode": proc.returncode,
+            "stderr": (proc.stderr or "")[-_STDERR_TAIL_CHARS:],
+            "stdout_tail": (proc.stdout or "")[-_STDERR_TAIL_CHARS:],
+        }
+
     if proc.returncode == 2:
-        emit("baseline_delta_gate_skipped", {
-            "reason": "driver_error", "stderr": (proc.stderr or "")[-_STDERR_TAIL_CHARS:],
-        })
+        emit("baseline_delta_gate_skipped", _skip_payload("driver_error"))
         return {"skipped": "driver_error", "would_block": enforced}
 
-    lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
     verdict_json = None
-    if lines:
-        try:
-            verdict_json = json.loads(lines[-1])
-        except (json.JSONDecodeError, ValueError):
+    if proc.returncode in (0, 4, 5):
+        lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+        if lines:
+            try:
+                verdict_json = json.loads(lines[-1])
+            except (json.JSONDecodeError, ValueError):
+                verdict_json = None
+        if not isinstance(verdict_json, dict):
             verdict_json = None
 
     if verdict_json is None:
+        emit("baseline_delta_gate_skipped", _skip_payload("parse_error"))
         return {"skipped": "parse_error", "would_block": enforced}
 
     verdict = verdict_json.get("verdict")

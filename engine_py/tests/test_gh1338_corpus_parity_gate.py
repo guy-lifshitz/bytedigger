@@ -173,7 +173,7 @@ def _gate_json(proc):
 
 def _clean_env(**overrides):
     env = dict(os.environ)
-    env.pop("HAL_BASELINE_DELTA_GATE_ENFORCE", None)
+    env.pop("HAL_BASELINE_DELTA_ENFORCE", None)
     env.pop("HAL_CORPUS_PARITY_ENFORCE", None)
     env.pop("HAL_BASELINE_DELTA_GATE", None)
     env.pop("HAL_CORPUS_ALLOW_REMOVED", None)
@@ -1282,7 +1282,7 @@ def test_ac27_phase5_reachability_whitelist_only_stdout_path_condition() -> None
 
 def test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence(tmp_path) -> None:
     """§2.2 ladder (rev2-N2, AMENDED rev4 MAJOR-4): (a) delta FAIL +
-    HAL_BASELINE_DELTA_GATE_ENFORCE=1 + corpus divergence -> exit 4, verdict
+    HAL_BASELINE_DELTA_ENFORCE=1 + corpus divergence -> exit 4, verdict
     BLOCKED in stdout (known regression takes priority over 'don't know');
     (b) divergence only + HAL_CORPUS_PARITY_ENFORCE=1 (no delta-enforce) ->
     exit 5. (a)/(b) share ONE real fixture: b.test.ts deleted uncommitted on
@@ -1354,8 +1354,8 @@ def test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence(tmp_path) -> N
         "--require-corpus-parity", "--base-ref", base_sha, "--head-ref", head_sha,
     ]
 
-    # (a) delta FAIL + HAL_BASELINE_DELTA_GATE_ENFORCE=1 + divergence -> exit 4
-    env_a = _clean_env(HAL_BASELINE_DELTA_GATE_ENFORCE="1")
+    # (a) delta FAIL + HAL_BASELINE_DELTA_ENFORCE=1 + divergence -> exit 4
+    env_a = _clean_env(HAL_BASELINE_DELTA_ENFORCE="1")
     proc_a = _run_gate(base_args, cwd=head_wt, env=env_a)
     data_a = _gate_json(proc_a)
     assert data_a.get("delta_verdict") == "FAIL", f"got {data_a!r}"
@@ -2276,7 +2276,7 @@ def test_ac37_run_evidence_and_corpus_scope_present_on_real_bun_run(tmp_path) ->
 
 
 def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) -> None:
-    """§10 MAJOR-4 ladder: (1) delta FAIL + HAL_BASELINE_DELTA_GATE_ENFORCE=1 ->
+    """§10 MAJOR-4 ladder: (1) delta FAIL + HAL_BASELINE_DELTA_ENFORCE=1 ->
     4; (2) else BLOCKED -> 5 REGARDLESS of HAL_CORPUS_PARITY_ENFORCE; (3) else
     -> 0. 'BLOCKED and exit 0' must be impossible under ANY flag combination.
     """
@@ -2302,7 +2302,7 @@ def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) 
         f"stdout={proc_none.stdout!r} stderr={proc_none.stderr!r}"
     )
 
-    # ── leg 1: delta FAIL + HAL_BASELINE_DELTA_GATE_ENFORCE=1 (+ same divergence) -> 4 ──
+    # ── leg 1: delta FAIL + HAL_BASELINE_DELTA_ENFORCE=1 (+ same divergence) -> 4 ──
     (head_wt / "a.test.ts").write_text(
         'import { test, expect } from "bun:test";\n'
         'test("shared alpha", () => { expect(1).toBe(1); });\n'
@@ -2315,7 +2315,7 @@ def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) 
         f"expected the injected head-only red in the real bun output, "
         f"got {head_out.read_text()!r}"
     )
-    proc_delta = _run_gate(base_args, cwd=head_wt, env=_clean_env(HAL_BASELINE_DELTA_GATE_ENFORCE="1"))
+    proc_delta = _run_gate(base_args, cwd=head_wt, env=_clean_env(HAL_BASELINE_DELTA_ENFORCE="1"))
     data_delta = _gate_json(proc_delta)
     assert data_delta.get("delta_verdict") == "FAIL", f"got {data_delta!r}"
     assert proc_delta.returncode == 4, (

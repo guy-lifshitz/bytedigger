@@ -470,10 +470,10 @@ def main(argv) -> int:
         sys.stderr.write(f"baseline_delta_gate: {format_inactive(report, kill_by_enforce)}\n")
 
     # rollout: 27428E6F-AD5C-4EAA-92B5-0C62A84CFFAC flip-by:2026-08-07 (warn-only until then)
-    enforce = os.environ.get("HAL_BASELINE_DELTA_GATE_ENFORCE") == "1"
+    enforce = os.environ.get("HAL_BASELINE_DELTA_ENFORCE") == "1"
 
     # §10 MAJOR-4 exit ladder (supersedes §2.2 rev2-N2 / rev4 rewrite):
-    #   1. delta_verdict == "FAIL" and HAL_BASELINE_DELTA_GATE_ENFORCE=1 -> 4
+    #   1. delta_verdict == "FAIL" and HAL_BASELINE_DELTA_ENFORCE=1 -> 4
     #      (a known regression takes priority over "don't know").
     #   2. else verdict == "BLOCKED" -> 5 ALWAYS, regardless of
     #      HAL_CORPUS_PARITY_ENFORCE (that flag now governs ONLY the
