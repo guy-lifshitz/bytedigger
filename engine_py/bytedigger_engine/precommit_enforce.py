@@ -42,6 +42,11 @@ LINT_NOT_FED = "BD66-LINT-NOT-FED"
 SPEC_LINTS_OFF_ENV = "BD_SPEC_LINTS_OFF"
 CRASH_IS_VIOLATION_ENV = "BD_LINT_CRASH_IS_VIOLATION"
 
+# bd#311: range mode (server-side). `BD_PRECOMMIT_CI=off` (exactly) switches it off.
+CI_OFF = "BD66-CI-OFF"
+CI_RANGE_ERROR = "BD66-CI-RANGE-ERROR"
+CI_OFF_ENV = "BD_PRECOMMIT_CI"
+
 #: Reported as `rc=` when the driver could not be executed at all.
 EXEC_FAILURE_RC = 127
 
@@ -199,17 +204,17 @@ def _count_lines(stdout_bytes):
     return sum(1 for line in text.splitlines() if line.strip())
 
 
-def _head_findings(command, root):
-    """bd#308: findings of the HEAD version of `command["file"]`.
+def _head_findings(command, root, ref="HEAD"):
+    """bd#308: findings of the `ref` version of `command["file"]`.
 
     Returns (count, error line or None). An unborn HEAD or a path absent from
-    HEAD is a baseline of 0. A blob the driver cannot scan is a driver error,
-    never a baseline of 0.
+    `ref` is a baseline of 0. A blob the driver cannot scan is a driver error,
+    never a baseline of 0. bd#311: range mode passes the merge-base as `ref`.
     """
     name = command["lint"]
     path = command["file"]
     shown = subprocess.run(
-        ["git", "show", "HEAD:" + path], cwd=root, capture_output=True
+        ["git", "show", ref + ":" + path], cwd=root, capture_output=True
     )
     if shown.returncode != 0:
         return 0, None
@@ -226,9 +231,9 @@ def _head_findings(command, root):
     except Exception as exc:  # noqa: BLE001 — never swallow a failed exec
         return 0, (
             "{token}: lint={name} file={file} rc={rc} baseline run on "
-            "HEAD:{file} could not be executed ({exc})".format(
+            "{ref}:{file} could not be executed ({exc})".format(
                 token=REFUSE_DRIVER_ERROR, name=name, file=path,
-                rc=EXEC_FAILURE_RC, exc=exc,
+                rc=EXEC_FAILURE_RC, exc=exc, ref=ref,
             )
         )
     finally:
@@ -239,14 +244,14 @@ def _head_findings(command, root):
     if rc == 1 and not _has_traceback(proc.stderr or b""):
         return _count_lines(proc.stdout or b""), None
     return 0, (
-        "{token}: lint={name} file={file} rc={rc} baseline run on HEAD:{file} "
+        "{token}: lint={name} file={file} rc={rc} baseline run on {ref}:{file} "
         "failed (driver error, not a baseline of 0)".format(
-            token=REFUSE_DRIVER_ERROR, name=name, file=path, rc=rc
+            token=REFUSE_DRIVER_ERROR, name=name, file=path, rc=rc, ref=ref
         )
     )
 
 
-def run_plan(commands, present, root):
+def run_plan(commands, present, root, ref="HEAD"):
     """Execute the plan sequentially, in build_lint_commands order (§2.1).
 
     Outcome 0 (skip), outcome 2 (violation), outcome 3 (driver error).
@@ -257,6 +262,8 @@ def run_plan(commands, present, root):
     has more findings than its version in HEAD; the per-lint switch sits
     between `BD_SPEC_LINTS_OFF` and NOT-FED. A ratcheted exit 1 with no
     finding lines on stdout is never passed; it refuses as a plain violation.
+    bd#311: `ref` is the ratchet baseline revision; range mode passes the
+    merge-base.
     """
     violations = []
     off = _spec_lints_off()
@@ -329,7 +336,7 @@ def run_plan(commands, present, root):
             )
         elif rc == 1 and ratcheted and _count_lines(stdout_bytes) > 0:
             now = _count_lines(stdout_bytes)
-            base, base_error = _head_findings(command, root)
+            base, base_error = _head_findings(command, root, ref)
             if base_error is not None:
                 violations.append(base_error)
             elif now > base:
@@ -367,7 +374,86 @@ def _report(violations):
     sys.stdout.flush()
 
 
+def _range_error(reason):
+    print("{token}: {reason}".format(token=CI_RANGE_ERROR, reason=reason))
+    sys.stdout.flush()
+    return 2
+
+
+def _parse_range_args(args):
+    """bd#311: return ((base, tip), None) or (None, reason). Fail closed."""
+    value = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg != "--range":
+            return None, "unknown argument {!r}".format(arg)
+        if value is not None:
+            return None, "--range given more than once"
+        if i + 1 >= len(args):
+            return None, "--range needs a value BASE..HEAD"
+        value = args[i + 1]
+        i += 2
+    if value is None:
+        return None, "no --range given"
+    sep = "..." if "..." in value else (".." if ".." in value else None)
+    if sep is None:
+        return None, "range {!r} has no '..'".format(value)
+    base, tip = value.split(sep, 1)
+    if not base or not tip:
+        return None, "range {!r} has an empty side".format(value)
+    return (base, tip), None
+
+
+def _resolve_commit(root, ref):
+    result = _git(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], root)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _range_plan_inputs(root, base, tip):
+    """bd#311: resolve the range; return ((paths, merge_base), None) or (None, reason)."""
+    base_sha = _resolve_commit(root, base)
+    if base_sha is None:
+        return None, "cannot resolve {!r} to a commit".format(base)
+    tip_sha = _resolve_commit(root, tip)
+    if tip_sha is None:
+        return None, "cannot resolve {!r} to a commit".format(tip)
+    head_sha = _resolve_commit(root, "HEAD")
+    if head_sha is None:
+        return None, "cannot resolve HEAD to a commit"
+    if tip_sha != head_sha:
+        return None, "range tip {!r} is not the checked-out HEAD".format(tip)
+    merged = _git(["merge-base", base_sha, head_sha], root)
+    merge_base = merged.stdout.strip()
+    if merged.returncode != 0 or not merge_base:
+        return None, "no merge-base between {!r} and HEAD".format(base)
+    listed = _git(
+        ["diff", "--name-only", "--diff-filter=ACMR", base_sha + "...HEAD"], root
+    )
+    if listed.returncode != 0:
+        return None, "git diff failed for {!r}...HEAD".format(base)
+    paths = [line for line in listed.stdout.splitlines() if line.strip()]
+    return (paths, merge_base), None
+
+
 def main(argv=None) -> int:
+    args = list(argv) if argv else []
+    range_mode = bool(args)
+
+    # bd#311: range mode only. Before anything else: no git, no pre-pass.
+    if range_mode and os.environ.get(CI_OFF_ENV) == "off":
+        print(CI_OFF)
+        sys.stdout.flush()
+        return 0
+
+    parsed = None
+    if range_mode:
+        parsed, reason = _parse_range_args(args)
+        if parsed is None:
+            return _range_error(reason)
+
     lint_dir = resolve_lint_dir()
 
     present, prepass_violations = registry_prepass(lint_dir)
@@ -377,17 +463,28 @@ def main(argv=None) -> int:
 
     root = repo_root()
     if root is None:
+        if range_mode:
+            return _range_error("not inside a git repository")
         return 0
 
-    staged = staged_paths(root)
+    baseline_ref = "HEAD"
+    if range_mode:
+        assert parsed is not None
+        inputs, reason = _range_plan_inputs(root, parsed[0], parsed[1])
+        if inputs is None:
+            return _range_error(reason)
+        staged, baseline_ref = inputs
+    else:
+        staged = staged_paths(root)
 
-    # bd#243: GREEN-entry guard. After the registry pre-pass and repo_root(),
-    # BEFORE nothing_to_lint, so a commit staging only binary/unclassified
-    # source still reaches it.
-    refusals = green_entry_guard.check(root, staged, os.environ)
-    if refusals:
-        _report(refusals)
-        return 1
+        # bd#243: GREEN-entry guard. After the registry pre-pass and repo_root(),
+        # BEFORE nothing_to_lint, so a commit staging only binary/unclassified
+        # source still reaches it. A commit-time check on staged paths: not run
+        # in range mode (bd#311).
+        refusals = green_entry_guard.check(root, staged, os.environ)
+        if refusals:
+            _report(refusals)
+            return 1
 
     classified = precommit_lints.classify_staged(staged)
     if precommit_lints.nothing_to_lint(classified):
@@ -404,7 +501,7 @@ def main(argv=None) -> int:
         # this layer removes, one step further along.
         texts=classified["texts"],
     )
-    violations = run_plan(commands, present, root)
+    violations = run_plan(commands, present, root, baseline_ref)
     if violations:
         _report(violations)
         return 1

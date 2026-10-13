@@ -9,6 +9,7 @@ paths:
   - engine_py/bytedigger_engine/precommit_enforce.py
   - scripts/precommit_enforce_cli.py
   - .github/workflows/ci.yml
+  - engine_py/bytedigger_engine/conformance/tree_scan_inventory.json
   - CHANGELOG.md
 ---
 # bd#311: server-side mirror of the pre-commit lint layer (range mode + one CI job)

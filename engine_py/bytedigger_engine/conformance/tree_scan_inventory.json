@@ -66,6 +66,7 @@
     "lib/corpus_parity.py::_collect_corpus_worktree::git-ls-files#0": {"class": "not-a-gate", "note": "Untracked test files for the corpus parity comparison; nothing is staged or hashed."},
     "lib/authored_boundary.py::scan_boundary::git-diff-names#0": {"class": "not-a-gate", "note": "Scans added content of changed files for forbidden tokens; a boundary check, not a commit or hash set. Not wired by bd#94."},
     "precommit_enforce.py::staged_paths::git-diff-names#0": {"class": "not-a-gate", "note": "Staged paths in the pre-commit hook; the user's staging choice."},
+    "precommit_enforce.py::_range_plan_inputs::git-diff-names#0": {"class": "not-a-gate", "note": "PR file set for the CI range mode (bd#311); the pull request's own diff."},
     "scripts/lib/citation_verifier.py::_segment_walk_resolve::git-ls-files#0": {"class": "not-a-gate", "note": "Tracked file list used to resolve a cited path; read-only."},
     "verification_registry.py::_tree_snapshot::git-add#0": {"class": "filters", "note": "Stages into a temporary index to hash the tree; the argv carries engine_owned_pathspecs() so engine state cannot change the snapshot (bd#94 row 11)."},
     "verification_registry.py::head_registry_tampered::git-diff-names#0": {"class": "not-a-gate", "note": "Diffs the registry spec paths against HEAD to detect tampering; bounded by explicit pathspecs."},

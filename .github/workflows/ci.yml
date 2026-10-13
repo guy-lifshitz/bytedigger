@@ -213,6 +213,29 @@ jobs:
           fi
           python3 scripts/commit_subject_lint.py --subjects "${subjects[@]}"
 
+  # bd#311: the pre-commit lint layer is opt-in per clone and `--no-verify`
+  # bypasses it, so CI is the only enforcement that is live on merge. Stock
+  # python3, no install step -- the shim sets its own path. The default PR
+  # merge ref is checked out (no `ref:`): HEAD is the merge commit, base.sha
+  # is its first parent, and the tree on disk is the merged tree the drivers
+  # read.
+  precommit-lints:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A depth-1 checkout has no base to diff against, and an empty
+          # corpus would pass vacuously.
+          fetch-depth: 0
+
+      - name: pre-commit lints over the pull request range (bd#311)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BD_PRECOMMIT_CI: ${{ vars.BD_PRECOMMIT_CI }}
+        run: python3 scripts/precommit_enforce_cli.py --range "$BASE_SHA..HEAD"
+
   manifests:
     runs-on: ubuntu-latest
     timeout-minutes: 5
