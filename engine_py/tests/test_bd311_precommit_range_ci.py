@@ -247,8 +247,9 @@ def _offending_repo(tmp_path: Path, env: dict, name: str = "off"):
     return repo, base, tip
 
 
-def test_fixtures_carry_the_findings_claimed_by_the_scanner():
-    """Non-vacuity guard: the scanner itself, not the author, fixes the counts."""
+def _assert_fixture_counts():
+    """Non-vacuity guard: the scanner itself, not the author, fixes the counts.
+    Called inside the AC1 and AC3 tests, never as a standalone test."""
     assert len(_findings(_ONE_FINDING)) == 1
     assert len(_findings(_WITH_DENOMINATOR)) == 0
     assert len(_findings(_CONTROL_ONLY)) == 0
@@ -265,6 +266,7 @@ def test_fixtures_carry_the_findings_claimed_by_the_scanner():
 
 
 def test_ac1_range_with_an_added_offending_test_is_refused_and_the_clean_twin_passes(tmp_path):
+    _assert_fixture_counts()
     env = _hermetic_env(tmp_path)
     repo, base, _tip = _offending_repo(tmp_path, env)
 
@@ -312,6 +314,7 @@ def test_ac2_legacy_finding_edited_without_adding_one_is_accepted(tmp_path):
 
 
 def test_ac3_ratchet_baseline_is_the_merge_base_not_the_tip(tmp_path):
+    _assert_fixture_counts()
     env = _hermetic_env(tmp_path)
     repo = _init_repo(tmp_path, env, "baseline")
     base = _commit_files(repo, env, {"test_legacy.py": _LEGACY_TWO})
