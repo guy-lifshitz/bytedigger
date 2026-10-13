@@ -454,10 +454,6 @@
 - `E_VALIDATION_FAILED` — phase pipeline: structured verdict validation failed for this step's output
 - `E_VALIDATION_RETRY` — phase pipeline/dbos_setup: structured verdict validation triggered a retry
 
-## E_VERDICT
-
-- `E_VERDICT_GATE_LINT` — phase_5/audit-gate hook: deterministic verdict-gate lint contradicts an APPROVED verdict (enforce mode)
-
 ## E_VERIFICATION
 
 - `E_VERIFICATION_REGISTRY_TAMPERED` — phase_5_implement: a verifying SKILL.md registered at HEAD was modified or deleted in the work tree before verify_registered_skills ran (bd#115)

@@ -7,8 +7,7 @@ carries ``scan_boundary``/``compute_red_test_hashes`` from an earlier port).
 
 Part 2: catalog-parity asserts for ``ERROR_CODES`` (error_codes.py) and
 ``FLAGS`` (flags_catalog.py) — the bd catalogs are missing the GH891/GH892
-schema-smoke/fixture-drift error codes and the corresponding flag entries,
-plus the GH807-style flip-by retarget on HAL_VERDICT_GATE_LINT_ENFORCE.
+schema-smoke/fixture-drift error codes and the corresponding flag entries.
 
 Conventions (§1q / D1CF5FDF collectability guard, 81F97F3D no module-level
 sys.path mutation): ``lib.authored_boundary`` already exists in this repo so
@@ -186,11 +185,3 @@ class TestBD65FlagsCatalogPort:
         assert entry.get("kind") == "flag"
         assert entry.get("default") == "0"
         assert entry.get("module") == "workflows/phase_5_implement.py"
-
-    def test_hal_verdict_gate_lint_enforce_flip_by_retargeted(self) -> None:
-        entry = FLAGS.get("HAL_VERDICT_GATE_LINT_ENFORCE")
-        assert entry is not None, "HAL_VERDICT_GATE_LINT_ENFORCE missing from FLAGS"
-        desc = entry.get("description", "")
-        assert "flip-by:2026-08-01" in desc, (
-            f"Expected retargeted flip-by:2026-08-01 in description, got: {desc!r}"
-        )
