@@ -74,8 +74,8 @@ hook was ever bypassed.
    (a depth-1 checkout has no base to diff; an empty corpus would pass vacuously), no install step
    (stock `python3`; the shim sets its own path). Env: `BASE_SHA: ${{ github.event.pull_request.base.sha }}`,
    `BD_PRECOMMIT_CI: ${{ vars.BD_PRECOMMIT_CI }}`. Run:
-   `python3 scripts/precommit_enforce_cli.py --range "$BASE_SHA..HEAD"`. No `continue-on-error`,
-   no `|| true`. The same `BD66-REFUSE-*` lines as the hook reach the job log.
+   `python3 scripts/precommit_enforce_cli.py --range "$BASE_SHA..HEAD"`. No continue-on-error,
+   no an or-true suffix. The same `BD66-REFUSE-*` lines as the hook reach the job log.
 6. `CHANGELOG.md` entry. Making the job a required check is a repo setting, out of scope.
 
 ## 3. Acceptance criteria (each refusal is paired with an accepted twin)
@@ -100,7 +100,7 @@ with `--no-verify`; exit code and stdout are the observations.
 - AC9 docs-only range (no lintable file): exit 0.
 - AC10 `ci.yml` parsed as YAML: job `precommit-lints` exists, is guarded to `pull_request`, checks out with
   `fetch-depth: 0`, its run step invokes `scripts/precommit_enforce_cli.py --range` on `base.sha`, passes
-  `BD_PRECOMMIT_CI`, has no `continue-on-error` and no `|| true`.
+  `BD_PRECOMMIT_CI`, has no continue-on-error and no an or-true suffix.
 - AC11 no-argument invocation is still the staged mode (a staged violation refuses, an unstaged one does not).
 
 ## 4. Out of scope
