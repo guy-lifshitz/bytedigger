@@ -60,12 +60,16 @@ _LEAVING = [
     "closure-evidence-lint",
     "mutation-two-sidedness-lint",
 ]
-_HELD = ["spec-cite-lint", "spec-coverage-lint", "token-consistency-lint"]
-_ALL_NINE = _LEAVING + _HELD
+# bd#305: spec-coverage left the held group (the layer feeds it a spec with an
+# AC table); two names stay held.
+_HELD = ["spec-cite-lint", "token-consistency-lint"]
+# The lints the layer runs: the six of #304 plus spec-coverage (#305).
+_LAYER = _LEAVING + ["spec-coverage-lint"]
+_ALL_NINE = _LAYER + _HELD
 # Held names that DO have a dormant driver file at the repo root (unmapped).
-_DORMANT = ["spec-coverage-lint", "token-consistency-lint"]
+_DORMANT = ["token-consistency-lint"]
 # The eight drivers this lot ships (spec-cite has none).
-_SHIPPED = _LEAVING + _DORMANT
+_SHIPPED = _LEAVING + ["spec-coverage-lint"] + _DORMANT
 
 _NAME_CHAR = r"[0-9A-Za-z_\-]"
 
@@ -468,7 +472,7 @@ def _text_line_matches(stdout: str, pattern: str) -> bool:
 # ------------------------------------------------------------------------ AC1
 
 
-@pytest.mark.parametrize("name", _LEAVING)
+@pytest.mark.parametrize("name", _LAYER)
 def test_ac1_violating_staged_spec_is_refused_by_a_real_commit_and_its_twin_is_accepted(
     tmp_path, name
 ):
@@ -509,8 +513,6 @@ _HELD_STAGED = {
     "spec-cite-lint": (_build(create_decl=False), 1, None),
     # token_consistency: emit_foo vs emit.foo -> exit 1.
     "token-consistency-lint": (_build(problem_extra=[_TOKEN_LINE]), 1, None),
-    # spec_coverage.check_ac_table: no AC table -> exit 2 'no AC table found'.
-    "spec-coverage-lint": (_build(table=False), 2, "no AC table found"),
 }
 
 
@@ -524,11 +526,12 @@ def test_ac2_held_lint_flags_the_spec_directly_but_the_layer_does_not_run_it(
     repo = _real_clone(tmp_path, env)
     _stage(repo, env, "x_spec.md", spec_text)
 
-    # The six others left DECLARED_ABSENT, so the held set is exactly three.
+    # The seven others left DECLARED_ABSENT (bd#305), so the held set is two.
     assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
-        f"DECLARED_ABSENT must be exactly the three held names, got "
+        f"DECLARED_ABSENT must be exactly the two held names, got "
         f"{precommit_lints.DECLARED_ABSENT!r}"
     )
+    assert len(precommit_lints.DECLARED_ABSENT) == 2, precommit_lints.DECLARED_ABSENT
 
     if name in _DORMANT:
         assert driver.is_file(), f"the held driver {driver} must exist on disk"
@@ -570,10 +573,33 @@ def test_ac2_held_lint_flags_the_spec_directly_but_the_layer_does_not_run_it(
     assert present.get(name) is False, f"{name} must be marked not present: {present.get(name)!r}"
 
 
+def test_ac2_spec_coverage_is_run_by_the_layer_on_a_spec_with_an_ac_table_only(tmp_path):
+    # bd#305: moved here from the held group. The layer feeds the lint only a
+    # spec with an AC table: a table-less spec is accepted with a NOT-FED line,
+    # a spec with an uncovered op is refused.
+    env = _hermetic_env(tmp_path)
+    repo = _real_clone(tmp_path, env, "coverage-no-table")
+    _stage(repo, env, "x_spec.md", _build(table=False))
+    rc, output = _commit(repo, env)
+    assert rc == 0, f"a table-less spec must be accepted; output={output!r}"
+    assert _has_head(repo, env), "the commit must exist"
+    assert "BD66-LINT-NOT-FED" in output, f"missing NOT-FED line: {output!r}"
+    assert _lint_token(output, "spec-coverage-lint"), f"lint not named: {output!r}"
+
+    case = _CASES["spec-coverage-lint"]
+    repo = _real_clone(tmp_path, env, "coverage-uncovered")
+    _stage(repo, env, "x_spec.md", case["dirty"])
+    rc, output = _commit(repo, env)
+    assert rc != 0, f"an uncovered op must be refused; output={output!r}"
+    assert not _has_head(repo, env), f"no commit object may exist; output={output!r}"
+    assert REFUSE_VIOLATION in output and _lint_token(output, "spec-coverage-lint"), output
+    assert re.search(rf"^{case['text_re']}$", output, re.MULTILINE), output
+
+
 # ------------------------------------------------------------------------ AC3
 
 
-def test_ac3_clean_staged_spec_commits_and_exactly_the_six_are_planned_with_a_driver(tmp_path):
+def test_ac3_clean_staged_spec_commits_and_exactly_the_seven_are_planned_with_a_driver(tmp_path):
     env = _hermetic_env(tmp_path)
     repo = _real_clone(tmp_path, env)
     _stage(repo, env, "x_spec.md", _build())
@@ -590,7 +616,7 @@ def test_ac3_clean_staged_spec_commits_and_exactly_the_six_are_planned_with_a_dr
     by_lint = {c["lint"]: c for c in commands}
     for name in _ALL_NINE:
         assert name in by_lint, f"no planned command for {name}: {commands!r}"
-    for name in _LEAVING:
+    for name in _LAYER:
         argv0 = Path(by_lint[name]["argv"][0])
         assert argv0.is_file(), f"argv[0] for {name} must exist, got {argv0}"
         assert os.access(argv0, os.X_OK), f"argv[0] for {name} must be executable"
@@ -601,20 +627,20 @@ def test_ac3_clean_staged_spec_commits_and_exactly_the_six_are_planned_with_a_dr
     present, violations = precommit_enforce.registry_prepass(precommit_lints.DEFAULT_LINT_DIR)
     assert violations == [], f"the live registry must pre-pass clean: {violations!r}"
     marked = {n for n in precommit_lints.SPEC_LINTS if present.get(n) is True}
-    assert marked == set(_LEAVING), f"pre-pass must mark exactly the six present, got {sorted(marked)!r}"
+    assert marked == set(_LAYER), f"pre-pass must mark exactly the seven present, got {sorted(marked)!r}"
 
 
 # ------------------------------------------------------------------------ AC4
 
 
-def test_ac4_registry_declares_the_three_held_and_maps_the_six(tmp_path):
+def test_ac4_registry_declares_the_two_held_and_maps_the_seven(tmp_path):
     assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
-        f"DECLARED_ABSENT must be exactly the three held names, got "
+        f"DECLARED_ABSENT must be exactly the two held names, got "
         f"{precommit_lints.DECLARED_ABSENT!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 3, precommit_lints.DECLARED_ABSENT
+    assert len(precommit_lints.DECLARED_ABSENT) == 2, precommit_lints.DECLARED_ABSENT
     root = os.path.realpath(str(_REPO_ROOT))
-    for name in _LEAVING:
+    for name in _LAYER:
         mapped = precommit_lints.LINT_DRIVER_DIRS.get(name)
         assert mapped is not None and os.path.realpath(mapped) == root, (
             f"LINT_DRIVER_DIRS[{name!r}] must be the repo root, got {mapped!r}"
@@ -629,7 +655,7 @@ def test_ac4_registry_declares_the_three_held_and_maps_the_six(tmp_path):
     assert len(denominator) == 12, f"registry denominator must stay 12: {denominator!r}"
 
 
-@pytest.mark.parametrize("name", _LEAVING)
+@pytest.mark.parametrize("name", _LAYER)
 def test_ac4_a_deleted_leaving_driver_that_is_not_declared_is_a_missing_driver_refusal(
     tmp_path, name
 ):
@@ -688,7 +714,7 @@ def test_ac5_driver_placement_shebang_and_modes(name):
     first = path.read_text(encoding="utf-8").splitlines()[0]
     assert first == "#!/usr/bin/env python3", f"first line must be the shebang: {first!r}"
     assert os.stat(path).st_mode & 0o111, "working tree exec bit must be set"
-    if name in _LEAVING:
+    if name in _LAYER:
         resolved = precommit_lints.driver_path(name, "/nonexistent-lint-dir-bd304")
         assert os.path.realpath(resolved) == os.path.realpath(str(path)), (
             f"driver_path must resolve a mapped name to the repo root, got {resolved!r}"
@@ -773,7 +799,7 @@ def test_ac6_spec_coverage_without_an_ac_table_exits_2_with_a_message(tmp_path):
 # ------------------------------------------------------------------------ AC7
 
 
-@pytest.mark.parametrize("name", _LEAVING)
+@pytest.mark.parametrize("name", _LAYER)
 def test_ac7_rollback_needs_mapping_removal_together_with_declaration(tmp_path, name):
     env = _hermetic_env(tmp_path)
     case = _CASES[name]
@@ -1015,11 +1041,14 @@ def test_ac9_measurement_pin_six_are_clean_on_the_corpus_and_each_held_lint_stil
             f"{name} must exit 0 on every spec in the corpus (measured 0 hits); "
             f"a hit means it must not leave DECLARED_ABSENT: {failing!r}"
         )
-    for name in _DORMANT:
+    # bd#305: spec-coverage is run directly here (the layer does not feed it a
+    # spec without an AC table); token-consistency is still held.
+    for name in ["spec-coverage-lint"] + _DORMANT:
         results = rcs(name)
         assert any(rc != 0 for rc in results.values()), (
             f"{name} is now clean on the whole corpus ({len(corpus)} specs): the "
-            f"measurement that held it back is stale, so #305 can flip it"
+            f"measurement that held it back is stale, so #305 can flip it for "
+            f"the two still held"
         )
 
     # spec-cite has no driver; the call its driver would make is the library one.
