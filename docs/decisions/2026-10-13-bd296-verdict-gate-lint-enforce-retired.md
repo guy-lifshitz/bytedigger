@@ -5,6 +5,7 @@ red_pins:
   - tests/test_bd89_p3d_flag_owner_lint.py
   - engine_py/tests/test_bd65_window_d_port.py
 sibling_tests:
+  - engine_py/tests/test_bd296_verdict_gate_lint_fences.py
   - engine_py/tests/test_bd_flip_horizon_guard.py
   - tests/test_bd89_p3d_flag_owner_lint.py
   - engine_py/tests/test_bd65_window_d_port.py
@@ -179,7 +180,10 @@ Out of scope: the other overdue flags, what the lint checks, the host-side hook,
 
 ## 6. Test plan
 
-One new file `engine_py/tests/test_bd296_verdict_gate_lint_permanent_warn.py` (AC1-AC10); AC2-AC6
-go through the real step with a recording event log; only `run_gate` is replaced in AC6, to force the
-driver-error branch. The two existing-test edits of §4.6 are the only other test changes. Local runs
+Two new files (AC1-AC10). `engine_py/tests/test_bd296_verdict_gate_lint_permanent_warn.py` holds the
+seven tests that fail today (AC1, AC3, AC6 with the flag set, AC7-AC10). The four fences that pass
+before and after (AC2, AC4, AC5, AC6 with the flag unset) live in
+`engine_py/tests/test_bd296_verdict_gate_lint_fences.py`, listed under `sibling_tests`: the
+lot-preflight "scoped" step rejects any passing test in a RED file. AC2-AC6 go through the real step
+with a recording event log; only `run_gate` is replaced in AC6, to force the driver-error branch. The two existing-test edits of §4.6 are the only other test changes. Local runs
 are targeted; the full suite is the "full run" stage.
