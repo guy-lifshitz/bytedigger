@@ -65,7 +65,7 @@ Classification:
   blocking phase-4.5 cite gate (`phase_45_spec._verify_spec_cite_lint`, executes the root file by path
   with `--spec P --repo-root R --json`) is NOT switched on by this lot. Stated as its own line in the PR.
 - **token-consistency: real findings, stays held** (5 findings in 2 specs):
-  `ORACLE_SPEC.md:417` `engine.py` vs `engine_py` (a file and a directory, one cluster by the rule);
+  `ORACLE_SPEC.md:417` the engine module file name vs the directory `engine_py` (a file and a directory, one cluster by the rule);
   `:952` `TIMEOUT_S` vs `timeout_s` (a constant and a parameter); `QUANT_LINT_SPEC.md:657`
   `Audit_Case` vs `audit_case`, `:833` `Audit_Field` vs `audit_field`, `:975` `Path.Read_Text` vs
   `Path.read_text` (deliberate case-mismatch examples in a spec about case folding). Fixing them is a
@@ -122,13 +122,13 @@ Classification:
    restores the old reading of a crash. Neither has a code edit as its way back. Re-registering a held
    lint stays "map + undeclare in one change" (#304 2.4).
 9. **Existing tests edited in the RED phase only, without removing, relaxing or widening an assertion:**
-   `test_bd304_spec_lint_drivers.py` (the held set is two names, `len == 2`; `_DORMANT` is only
+   `engine_py/tests/test_bd304_spec_lint_drivers.py` (the held set is two names, `len == 2`; `_DORMANT` is only
    token-consistency; the spec-coverage case moves from the held group to the layer group: the real
    layer on a table-less spec accepts with a NOT-FED line, on a table spec with an uncovered op
    refuses; AC3's command/pre-pass counts: seven present, two not; AC9's "held driver exits non-zero on
    at least one existing file" stays for spec-coverage when run directly, and its failing message keeps
    saying a held lint going clean means #305 can flip it for the two still held),
-   `test_bd302_test_lint_drivers.py` AC4 (`DECLARED_ABSENT` the two names), `test_bd66_precommit_enforcement.py`
+   `engine_py/tests/test_bd302_test_lint_drivers.py` AC4 (`DECLARED_ABSENT` the two names), `engine_py/tests/test_bd66_precommit_enforcement.py`
    AC7 (`on_disk` ten names, `declared` the other two, denominator 12). The RED agent greps
    `engine_py/tests` for the nine names and `DECLARED_ABSENT` and reports any other edit.
 10. `CHANGELOG.md`: one entry under Unreleased: spec-coverage on, two held with the list, text format,
@@ -137,11 +137,11 @@ Classification:
 ## 3. Acceptance
 
 Real-CLI ACs run the real `scripts/precommit_enforce_cli.py` and real drivers in a temporary git clone
-with the hermetic environment of `test_bd304_spec_lint_drivers.py` (same harness, same `_package_copy`
+with the hermetic environment of `engine_py/tests/test_bd304_spec_lint_drivers.py` (same harness, same `_package_copy`
 pattern for package-copy cases), a refusal being a real `git commit` side effect. Env switches are set
 only in the child environment of the case.
 
-RED file `test_bd305_spec_lint_feed.py` (each fails today):
+RED file `engine_py/tests/test_bd305_spec_lint_feed.py` (each fails today):
 
 - AC1 (F4 text, driver run directly). Taxonomy fixture (AC table, a new `E_...` code without OWN/DEFER),
   `--taxonomy` text: exit 1, stdout has `TAXONOMY-MISSING-DISPOSITION line <N>: token=<code>` with the
@@ -158,9 +158,9 @@ RED file `test_bd305_spec_lint_feed.py` (each fails today):
   `*_SPEC.md`, one commit each: accepted rc 0, i.e. the issue's case (b).
 - AC4 (the two held lints stay held, real CLI). A staged spec with token drift: accepted, no
   `lint=token-consistency-lint`; `set(DECLARED_ABSENT)` equals the two names; no `spec-cite-lint.py` at
-  the repo root and the path `phase_45_spec` computes for it is not a file; the root `*-lint.py` set is
+  the repo root and the path `phase_45_spec` computes for it is not a file; the set of lint drivers at the root is
   unchanged. Closed both ways in a package copy: removing either name from the copy's `DECLARED_ABSENT`
-  -> exit 1 `BD66-REFUSE-MISSING-DRIVER` naming it; deleting `spec-coverage-lint.py` from the copy root
+  -> exit 1 `BD66-REFUSE-MISSING-DRIVER` naming it; deleting the spec-coverage driver file from the copy root
   with the name not declared -> the same refusal for it.
 - AC5 (switch 1, both ways). `BD_SPEC_LINTS_OFF=spec-coverage-lint`: the AC3(b) spec is accepted rc 0
   and output has `BD66-LINT-OFF: lint=spec-coverage-lint`. Unset, empty and whitespace-only: refused as
@@ -188,19 +188,19 @@ RED file `test_bd305_spec_lint_feed.py` (each fails today):
   the layer feeds `spec-coverage-lint` to none of them. Failing message: a held lint going clean here
   means #305's remainder can flip it.
 
-Sibling file `test_bd305_spec_lint_feed_fences.py` (passes before and after):
+Sibling file `engine_py/tests/test_bd305_spec_lint_feed_fences.py` (passes before and after):
 - F1. Real clone, staged clean `test_x.py`: accepted rc 0; staged `test_x.py` with the forbidden dynamic
   import refused with `lint=forbidden-import-lint`.
 - F2. Registry list names and order, and the other ten `LINT_DRIVER_DIRS` mappings, unchanged.
 - F3. A staged spec violating scope-inverse is refused with `lint=scope-inverse-lint` (the six #304 lints
   still run, with no switch set).
 
-`test_bd304_spec_coverage_flags.py` (JSON mode, #304) must keep passing.
+`engine_py/tests/test_bd304_spec_coverage_flags.py` (JSON mode, #304) must keep passing.
 
 ## 4. Test plan
 
-Local runs are targeted: the two new files, the three edited files, `test_bd304_spec_coverage_flags.py`,
-`test_bd81_registry_driver_resolution.py`, `test_bd166_one_sided_predicate.py`,
+Local runs are targeted: the two new files, the three edited files, `engine_py/tests/test_bd304_spec_coverage_flags.py`,
+`engine_py/tests/test_bd81_registry_driver_resolution.py`, `engine_py/tests/test_bd166_one_sided_predicate.py`,
 `tests/test_bd79_english_only_tree.py` and `python3 cyrillic-prose-lint.py`. The full suite is read from
 CI on the PR. GREEN is `spec-coverage-lint.py`, the two registry-side edits (`precommit_lints.py`,
 `precommit_enforce.py`) and the CHANGELOG entry; nothing else under `engine_py/bytedigger_engine`.
