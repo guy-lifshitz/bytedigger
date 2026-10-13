@@ -119,8 +119,17 @@ validator prompt, both out of scope. It is recorded as a follow-up finding in th
 dormant by construction).
 
 `E_VERDICT_GATE_LINT` is raised in exactly one place in this repo, the branch being deleted. The
-host-side audit-gate hook sets its own block flag and never raises the code (read:
-`engine-py-audit-gate.py`, outside this repo). The code is removed from the registry.
+code is removed from the registry.
+
+Scope of "retired" (gate r1, MAJOR 1): the retirement covers the engine's phase 5 acceptance seam
+only. The host-side audit-gate hook (`SYSTEM/cli/build/engine-py-audit-gate.py`, outside this repo,
+lines ~404-438) reads `HAL_VERDICT_GATE_LINT_ENFORCE` itself, sets its own block flag when it is `1`
+and also blocks on a hook error under it; it never raises `E_VERDICT_GATE_LINT`. That read is not
+changed here: it is a different component, owned outside this tree, with its own host-copy tests
+(`test_34E0B77B_verdict_gate_wiring.py`, `test_gh2341*`, `test_gh2334*`). It is an explicit
+follow-up, named in the PR; this lot's catalog text must not claim the hook only warns. After this
+lot the variable has no entry in this repo's flag catalog, so the hook seam is the one place it
+still has meaning, undocumented here.
 
 ## 4. Change
 
@@ -131,11 +140,15 @@ host-side audit-gate hook sets its own block flag and never raises the code (rea
    return are deleted. The stale `34E0B77B flip-by:2026-08-01` text is removed and the comment says the
    check is a permanent warning and why. No `.py` under `engine_py/bytedigger_engine` may contain
    `E_VERDICT_GATE_LINT`, `HAL_VERDICT_GATE_LINT_ENFORCE`, or a `flip-by:2026-08-01` token on a line that also names `34E0B77B` or `VERDICT_GATE` (the unrelated `flip-by:2026-08-01` at the RED scope allowlist, refs #569, is not this lot's and stays).
-2. `error_codes.py`: remove `E_VERDICT_GATE_LINT`; remove the same line from `engine_py/ERROR_CODES.md`
-   and `engine_py/bytedigger_engine/ERROR_CODES.md`.
+2. `error_codes.py`: remove `E_VERDICT_GATE_LINT`; remove the whole `## E_VERDICT` section (its only member) from
+   `engine_py/ERROR_CODES.md` and `engine_py/bytedigger_engine/ERROR_CODES.md`; both files are
+   byte-compared to `error_codes.render_markdown()` (`test_GH1674_injection_missing.py`,
+   `test_gh1626d`), so they are regenerated, not hand-trimmed.
 3. `flags_catalog.py`: delete the `HAL_VERDICT_GATE_LINT_ENFORCE` entry. Update the
-   `HAL_VERDICT_GATE_LINT` description: the lint only warns, never stops; `=0` disables it at the
-   phase 5 acceptance seam and in the hook. The new text must not contain the strings above.
+   `HAL_VERDICT_GATE_LINT` description: at the engine's phase 5 acceptance seam the lint only
+   warns (event `verdict_gate_lint_warn`) and never stops; `=0` disables it there and in the host
+   audit-gate hook, which keeps its own enforce switch outside this repo. The new text must not
+   contain the strings above and must not say the lint never stops anywhere.
 4. `scripts/flip_horizon_ledger.json`: delete the `HAL_VERDICT_GATE_LINT_ENFORCE` entry (12 -> 11).
 5. `CHANGELOG.md`: one line under Unreleased/Changed, English, no internal ids beyond `bd#296`.
 6. Existing tests that name the flag, changed deliberately (listed, nothing else is touched):
@@ -169,12 +182,17 @@ Out of scope: the other overdue flags, what the lint checks, the host-side hook,
 - AC6. `run_gate` raising an exception: `status == "ok"` and one `verdict_gate_lint_warn` with
   `result == "DRIVER_ERROR"` and `rc == 2`, once with `HAL_VERDICT_GATE_LINT_ENFORCE` unset
   (fence) and once with it set (RED).
-- AC7. `ERROR_CODES` has no `E_VERDICT_GATE_LINT`; neither `ERROR_CODES.md` mentions it;
+- AC7. `ERROR_CODES` has no `E_VERDICT_GATE_LINT`; neither `ERROR_CODES.md` mentions it or has an
+  `## E_VERDICT` heading; each equals `error_codes.render_markdown()` byte for byte;
   `error_codes.check(root)` reports no unregistered and no dead codes.
-- AC8. The ledger has no `HAL_VERDICT_GATE_LINT_ENFORCE` key and `python3 scripts/flip_horizon.py
-  --check --today 2026-11-04` does not name it; the ledger has 11 entries and its `until` dates are
-  all unchanged from base (no extension).
+- AC8. The ledger has no `HAL_VERDICT_GATE_LINT_ENFORCE` key; `python3 scripts/flip_horizon.py
+  --check --today 2026-11-04` does not name it and exits 0 or 1; no remaining entry has an `until`
+  later than `2026-11-03` (no extension). Not pinned: the entry count, the exact key set, or
+  non-empty output: the other 11 flags are retired in their own slices and this test must stay green
+  as they leave (gate r1, MAJOR 2). The 12 -> 11 count is checked once, at GREEN, by hand.
 - AC9. None of the strings of §4.1 (as scoped there) appears in any `.py` under `engine_py/bytedigger_engine`.
+- AC11. `CHANGELOG.md` has a line mentioning `bd#296` under Unreleased that states the lint is a
+  warning at the phase 5 seam. (Checked at GREEN review, no test: wording is not pinnable.)
 - AC10. `HAL_VERDICT_GATE_LINT_ENFORCE` is not read anywhere in `engine_py/bytedigger_engine`
   (no `flag(`/`gate_enabled(`/`os.environ` access with that name; same scan as AC9 covers the name).
 
