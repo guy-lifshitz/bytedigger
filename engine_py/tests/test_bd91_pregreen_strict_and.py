@@ -74,8 +74,6 @@ def log(tmp_path, monkeypatch):
         "HAL_AC_DSL_GATE",
     ):
         monkeypatch.delenv(name, raising=False)
-    # unrelated advisory lint: keep the PASS path deterministic and side-effect free
-    monkeypatch.setenv("HAL_VERDICT_GATE_LINT", "0")
     cap = _CaptureLog(tmp_path / "reject-reasons.jsonl")
     monkeypatch.setenv("HAL_REJECT_LOG", str(cap.reject_path))
     telemetry_ctx.clear_current_run()

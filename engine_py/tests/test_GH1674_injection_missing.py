@@ -1157,14 +1157,8 @@ def test_ac24_pass_validation_still_passes_when_injection_is_absent(tmp_path, mo
 
     PASSES TODAY (there is no classifier at all yet); it is a regression fence
     on post-GREEN behaviour, exactly like AC4 and AC21.
-
-    HAL_VERDICT_GATE_LINT is pinned off so the fence measures the GATE's branch
-    order and not the verdict-gate lint subprocess (which is fail-open anyway,
-    but would make this arm depend on the surrounding tree).
     """
     from bytedigger_engine.workflows import phase_5_implement as p5
-
-    monkeypatch.setenv("HAL_VERDICT_GATE_LINT", "0")
 
     sp = tmp_path / "ac24_pass_scratch"
     sp.mkdir()
