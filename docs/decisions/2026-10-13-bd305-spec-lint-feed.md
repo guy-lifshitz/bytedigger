@@ -117,7 +117,7 @@ Classification:
    classification. The layer calls the driver with `--spec` only; `--taxonomy`/`--finalize` stay
    opt-in for direct use.
 7. **Not touched:** every checking module, `workflows/phase_45_spec.py`, the other seven drivers
-   (their only change is the new AC7 test), the `spec-cite-lint.py` file (absent), the existing specs.
+   (their only change is the new F4 test), the `spec-cite-lint.py` file (absent), the existing specs.
 8. **Switches summary.** `BD_SPEC_LINTS_OFF` turns a lint off per name; `BD_LINT_CRASH_IS_VIOLATION=1`
    restores the old reading of a crash. Neither has a code edit as its way back. Re-registering a held
    lint stays "map + undeclare in one change" (#304 2.4).

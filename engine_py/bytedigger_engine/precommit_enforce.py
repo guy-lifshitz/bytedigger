@@ -33,6 +33,12 @@ from bytedigger_engine import green_entry_guard, precommit_lints
 REFUSE_VIOLATION = "BD66-REFUSE-VIOLATION"
 REFUSE_MISSING_DRIVER = "BD66-REFUSE-MISSING-DRIVER"
 REFUSE_DRIVER_ERROR = "BD66-REFUSE-DRIVER-ERROR"
+LINT_OFF = "BD66-LINT-OFF"
+LINT_OFF_UNKNOWN = "BD66-LINT-OFF-UNKNOWN"
+LINT_NOT_FED = "BD66-LINT-NOT-FED"
+
+SPEC_LINTS_OFF_ENV = "BD_SPEC_LINTS_OFF"
+CRASH_IS_VIOLATION_ENV = "BD_LINT_CRASH_IS_VIOLATION"
 
 #: Reported as `rc=` when the driver could not be executed at all.
 EXEC_FAILURE_RC = 127
@@ -158,21 +164,81 @@ def staged_paths(root):
     return [line for line in listed.stdout.splitlines() if line.strip()]
 
 
+def _spec_lints_off():
+    """Names switched off by `BD_SPEC_LINTS_OFF` (bd#305 switch 1).
+
+    Comma-separated, whitespace stripped, empties dropped, case-sensitive. A
+    name outside `SPEC_LINTS` disables nothing and is reported once per run.
+    """
+    raw = os.environ.get(SPEC_LINTS_OFF_ENV, "")
+    off = set()
+    for part in raw.split(","):
+        name = part.strip()
+        if not name:
+            continue
+        if name in precommit_lints.SPEC_LINTS:
+            off.add(name)
+        else:
+            print("{token}: name={name}".format(token=LINT_OFF_UNKNOWN, name=name))
+    sys.stdout.flush()
+    return off
+
+
+def _has_traceback(stderr_bytes):
+    text = stderr_bytes.decode("utf-8", errors="replace")
+    return any(
+        line.startswith("Traceback (most recent call last):")
+        for line in text.splitlines()
+    )
+
+
 def run_plan(commands, present, root):
     """Execute the plan sequentially, in build_lint_commands order (§2.1).
 
     Outcome 0 (skip), outcome 2 (violation), outcome 3 (driver error).
+    bd#305, per command: absent -> OFF -> NOT-FED -> run; a skip is not a
+    refusal. A driver exiting 1 with a traceback on stderr crashed (outcome 3)
+    unless `BD_LINT_CRASH_IS_VIOLATION=1`.
     """
     violations = []
+    off = _spec_lints_off()
+    crash_is_violation = os.environ.get(CRASH_IS_VIOLATION_ENV) == "1"
     for command in commands:
         name = command["lint"]
         if not present.get(name, False):
             # Outcome 0: the driver was absent at pre-pass time, and the
             # pre-pass already established the name is licensed to be absent.
             continue
+        if name in off:
+            print("{token}: lint={name} file={file}".format(
+                token=LINT_OFF, name=name, file=command["file"]))
+            sys.stdout.flush()
+            continue
+        reason = precommit_lints.feed_skip_reason(
+            name, os.path.join(root, command["file"])
+        )
+        if reason is not None:
+            print("{token}: lint={name} file={file} reason={reason}".format(
+                token=LINT_NOT_FED, name=name, file=command["file"], reason=reason))
+            sys.stdout.flush()
+            continue
         sys.stdout.flush()
         try:
-            rc = subprocess.call(list(command["argv"]), cwd=root)
+            proc = subprocess.run(
+                list(command["argv"]), cwd=root, stderr=subprocess.PIPE
+            )
+            rc = proc.returncode
+            stderr_bytes = proc.stderr or b""
+            # Unchanged, after the driver exits: the traceback still reaches the user.
+            if stderr_bytes:
+                sys.stderr.flush()
+                out = getattr(sys.stderr, "buffer", None)
+                if out is not None:
+                    out.write(stderr_bytes)
+                    out.flush()
+                else:
+                    sys.stderr.write(stderr_bytes.decode("utf-8", errors="replace"))
+                    sys.stderr.flush()
         except Exception as exc:  # noqa: BLE001 — never swallow a failed exec
             violations.append(
                 "{token}: lint={name} file={file} rc={rc} could not be "
@@ -187,7 +253,14 @@ def run_plan(commands, present, root):
             continue
         if rc == 0:
             continue
-        if rc == 1:
+        if rc == 1 and not crash_is_violation and _has_traceback(stderr_bytes):
+            violations.append(
+                "{token}: lint={name} file={file} rc={rc} driver crashed "
+                "(uncaught exception, traceback on stderr)".format(
+                    token=REFUSE_DRIVER_ERROR, name=name, file=command["file"], rc=rc
+                )
+            )
+        elif rc == 1:
             violations.append(
                 "{token}: lint={name} file={file} rc={rc}".format(
                     token=REFUSE_VIOLATION, name=name, file=command["file"], rc=rc
