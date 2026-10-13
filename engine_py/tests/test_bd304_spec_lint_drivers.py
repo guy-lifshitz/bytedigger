@@ -221,6 +221,7 @@ def _package_copy(tmp_path: Path, env: dict, name: str) -> Path:
     for older in (
         "cyrillic-prose-lint", "one-sided-predicate-lint",
         "forbidden-import-lint", "stub-passability-lint",
+        "empty-input-assert-lint",  # bd#308: mapped by the copied registry
     ):
         _exit_stand_in(clone, older, 0)
     _install_hook(clone, scripts / "precommit_enforce_cli.py")
@@ -652,7 +653,7 @@ def test_ac4_registry_declares_the_two_held_and_maps_the_seven(tmp_path):
         + list(precommit_lints.TEST_LINTS)
         + list(precommit_lints.TS_TEST_LINTS)
     )
-    assert len(denominator) == 12, f"registry denominator must stay 12: {denominator!r}"
+    assert len(denominator) == 13, f"registry denominator must be 13 (bd#308): {denominator!r}"
 
 
 @pytest.mark.parametrize("name", _LAYER)
@@ -981,8 +982,9 @@ def test_ac8_driver_is_portable_and_only_a_thin_cli_over_its_checking_module(nam
 
 
 _EXISTING_ROOT_DRIVERS = {
-    "core-boundary-lint.py", "cyrillic-prose-lint.py", "fixture-schema-lint.py",
-    "forbidden-import-lint.py", "one-sided-predicate-lint.py", "stub-passability-lint.py",
+    "core-boundary-lint.py", "cyrillic-prose-lint.py", "empty-input-assert-lint.py",
+    "fixture-schema-lint.py", "forbidden-import-lint.py", "one-sided-predicate-lint.py",
+    "stub-passability-lint.py",
 }
 
 

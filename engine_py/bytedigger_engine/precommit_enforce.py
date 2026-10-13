@@ -25,8 +25,10 @@ Outcomes (spec §2.1):
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 from bytedigger_engine import green_entry_guard, precommit_lints
 
@@ -192,6 +194,58 @@ def _has_traceback(stderr_bytes):
     )
 
 
+def _count_lines(stdout_bytes):
+    text = stdout_bytes.decode("utf-8", errors="replace")
+    return sum(1 for line in text.splitlines() if line.strip())
+
+
+def _head_findings(command, root):
+    """bd#308: findings of the HEAD version of `command["file"]`.
+
+    Returns (count, error line or None). An unborn HEAD or a path absent from
+    HEAD is a baseline of 0. A blob the driver cannot scan is a driver error,
+    never a baseline of 0.
+    """
+    name = command["lint"]
+    path = command["file"]
+    shown = subprocess.run(
+        ["git", "show", "HEAD:" + path], cwd=root, capture_output=True
+    )
+    if shown.returncode != 0:
+        return 0, None
+    tmp = tempfile.mkdtemp(prefix="bd308-head-")
+    try:
+        blob = os.path.join(tmp, os.path.basename(path))
+        with open(blob, "wb") as fh:
+            fh.write(shown.stdout)
+        argv = list(command["argv"])
+        argv[-1] = blob
+        proc = subprocess.run(
+            argv, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+    except Exception as exc:  # noqa: BLE001 — never swallow a failed exec
+        return 0, (
+            "{token}: lint={name} file={file} rc={rc} baseline run on "
+            "HEAD:{file} could not be executed ({exc})".format(
+                token=REFUSE_DRIVER_ERROR, name=name, file=path,
+                rc=EXEC_FAILURE_RC, exc=exc,
+            )
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    rc = proc.returncode
+    if rc == 0:
+        return 0, None
+    if rc == 1 and not _has_traceback(proc.stderr or b""):
+        return _count_lines(proc.stdout or b""), None
+    return 0, (
+        "{token}: lint={name} file={file} rc={rc} baseline run on HEAD:{file} "
+        "failed (driver error, not a baseline of 0)".format(
+            token=REFUSE_DRIVER_ERROR, name=name, file=path, rc=rc
+        )
+    )
+
+
 def run_plan(commands, present, root):
     """Execute the plan sequentially, in build_lint_commands order (§2.1).
 
@@ -199,6 +253,10 @@ def run_plan(commands, present, root):
     bd#305, per command: absent -> OFF -> NOT-FED -> run; a skip is not a
     refusal. A driver exiting 1 with a traceback on stderr crashed (outcome 3)
     unless `BD_LINT_CRASH_IS_VIOLATION=1`.
+    bd#308: a name in `RATCHETED_NAMES` refuses on exit 1 only when the file
+    has more findings than its version in HEAD; the per-lint switch sits
+    between `BD_SPEC_LINTS_OFF` and NOT-FED. A ratcheted exit 1 with no
+    finding lines on stdout is never passed; it refuses as a plain violation.
     """
     violations = []
     off = _spec_lints_off()
@@ -214,6 +272,12 @@ def run_plan(commands, present, root):
                 token=LINT_OFF, name=name, file=command["file"]))
             sys.stdout.flush()
             continue
+        off_env = precommit_lints.LINT_OFF_ENVS.get(name)
+        if off_env is not None and os.environ.get(off_env) == "off":
+            print("{token}: lint={name} file={file}".format(
+                token=LINT_OFF, name=name, file=command["file"]))
+            sys.stdout.flush()
+            continue
         reason = precommit_lints.feed_skip_reason(
             name, os.path.join(root, command["file"])
         )
@@ -223,12 +287,15 @@ def run_plan(commands, present, root):
             sys.stdout.flush()
             continue
         sys.stdout.flush()
+        ratcheted = name in precommit_lints.RATCHETED_NAMES
         try:
             proc = subprocess.run(
-                list(command["argv"]), cwd=root, stderr=subprocess.PIPE
+                list(command["argv"]), cwd=root, stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE if ratcheted else None,
             )
             rc = proc.returncode
             stderr_bytes = proc.stderr or b""
+            stdout_bytes = proc.stdout or b""
             # Unchanged, after the driver exits: the traceback still reaches the user.
             if stderr_bytes:
                 sys.stderr.flush()
@@ -260,6 +327,21 @@ def run_plan(commands, present, root):
                     token=REFUSE_DRIVER_ERROR, name=name, file=command["file"], rc=rc
                 )
             )
+        elif rc == 1 and ratcheted and _count_lines(stdout_bytes) > 0:
+            now = _count_lines(stdout_bytes)
+            base, base_error = _head_findings(command, root)
+            if base_error is not None:
+                violations.append(base_error)
+            elif now > base:
+                sys.stdout.write(stdout_bytes.decode("utf-8", errors="replace"))
+                sys.stdout.flush()
+                violations.append(
+                    "{token}: lint={name} file={file} rc={rc} findings={now} "
+                    "head={base}".format(
+                        token=REFUSE_VIOLATION, name=name, file=command["file"],
+                        rc=rc, now=now, base=base,
+                    )
+                )
         elif rc == 1:
             violations.append(
                 "{token}: lint={name} file={file} rc={rc}".format(

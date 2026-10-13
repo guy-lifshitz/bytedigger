@@ -185,6 +185,8 @@ def _package_copy(tmp_path: Path, env: dict, name: str) -> Path:
         "mutation-two-sidedness-lint",
         # bd#305: spec-coverage is mapped too once the layer feeds it.
         "spec-coverage-lint",
+        # bd#308: the third test lint is mapped by the copied registry too.
+        "empty-input-assert-lint",
     ):
         _exit_stand_in(clone, older, 0)
     _install_hook(clone, scripts / "precommit_enforce_cli.py")
@@ -381,7 +383,7 @@ def test_ac4_declared_absent_is_the_two_held_spec_lints_and_the_registry_stays_c
         + list(precommit_lints.TEST_LINTS)
         + list(precommit_lints.TS_TEST_LINTS)
     )
-    assert len(denominator) == 12, f"registry denominator must stay 12: {denominator!r}"
+    assert len(denominator) == 13, f"registry denominator must be 13 (bd#308): {denominator!r}"
 
     # Closed the other way: driver gone and not declared -> MISSING-DRIVER.
     env = _hermetic_env(tmp_path)

@@ -117,6 +117,7 @@ def test_f3_registry_lists_and_the_four_older_mappings_are_unchanged():
     for name in (
         "cyrillic-prose-lint", "one-sided-predicate-lint",
         "forbidden-import-lint", "stub-passability-lint",
+        "empty-input-assert-lint",
     ):
         assert name in mapping, f"{name} must stay in LINT_DRIVER_DIRS"
         assert os.path.realpath(mapping[name]) == root
@@ -129,6 +130,8 @@ def test_f3_registry_lists_and_the_four_older_mappings_are_unchanged():
         "format-conversion-lint", "closure-evidence-lint",
         "mutation-two-sidedness-lint",
     ]
-    assert precommit_lints.TEST_LINTS == ["forbidden-import-lint", "stub-passability-lint"]
+    assert precommit_lints.TEST_LINTS == [
+        "forbidden-import-lint", "stub-passability-lint", "empty-input-assert-lint",
+    ]
     assert precommit_lints.TS_TEST_LINTS == ["one-sided-predicate-lint"]
     assert precommit_lints.TEXT_LINTS == ["cyrillic-prose-lint"]

@@ -2,7 +2,12 @@ from __future__ import annotations
 import os
 
 SPEC_LINTS = ["scope-inverse-lint", "helper-extraction-lint", "spec-cite-lint", "spec-coverage-lint", "token-consistency-lint", "presence-triad-lint", "format-conversion-lint", "closure-evidence-lint", "mutation-two-sidedness-lint"]
-TEST_LINTS = ["forbidden-import-lint", "stub-passability-lint"]
+TEST_LINTS = ["forbidden-import-lint", "stub-passability-lint", "empty-input-assert-lint"]
+# bd#308: names the layer ratchets against HEAD (refuse only a file with MORE
+# findings than its HEAD version) and the per-lint off switch of each. Not named
+# `*_LINTS`: registry_names() sweeps every attribute with that suffix.
+RATCHETED_NAMES = ("empty-input-assert-lint",)
+LINT_OFF_ENVS = {"empty-input-assert-lint": "BD_EMPTY_INPUT_ASSERT_LINT"}
 TS_TEST_LINTS = ["one-sided-predicate-lint"]
 # bd#79: runs over any staged text file, not only specs and tests.
 TEXT_LINTS = ["cyrillic-prose-lint"]
@@ -53,6 +58,8 @@ LINT_DRIVER_DIRS = {
     "mutation-two-sidedness-lint": _REPO_ROOT,
     # bd#305: spec-coverage, fed only a spec that carries an AC table.
     "spec-coverage-lint": _REPO_ROOT,
+    # bd#308: the empty-input-assert test lint, ratcheted against HEAD.
+    "empty-input-assert-lint": _REPO_ROOT,
 }
 
 
