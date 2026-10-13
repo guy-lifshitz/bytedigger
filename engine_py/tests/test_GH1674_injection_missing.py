@@ -1160,7 +1160,7 @@ def test_ac24_pass_validation_still_passes_when_injection_is_absent(tmp_path, mo
     """
     from bytedigger_engine.workflows import phase_5_implement as p5
 
-    sp =tmp_path / "ac24_pass_scratch"
+    sp = tmp_path / "ac24_pass_scratch"
     sp.mkdir()
     assert not (sp / "injection").exists(), (
         "§1W-3 precondition: injection/ absent (phase_8_post_deploy.py:122's routine state)"
