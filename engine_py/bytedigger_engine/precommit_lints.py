@@ -26,8 +26,6 @@ DECLARED_ABSENT = [
     "format-conversion-lint",
     "closure-evidence-lint",
     "mutation-two-sidedness-lint",
-    "forbidden-import-lint",
-    "stub-passability-lint",
 ]
 
 _TS_TEST_SUFFIXES = (".test.ts", ".test.js", ".spec.ts", ".spec.js")
@@ -39,7 +37,13 @@ _TS_TEST_SUFFIXES = (".test.ts", ".test.js", ".spec.ts", ".spec.js")
 # a caller resolves the path instead of guessing it -- a registry name whose
 # driver cannot be executed is exactly the defect bd#66 is about.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-LINT_DRIVER_DIRS = {"cyrillic-prose-lint": _REPO_ROOT, "one-sided-predicate-lint": _REPO_ROOT}
+LINT_DRIVER_DIRS = {
+    "cyrillic-prose-lint": _REPO_ROOT,
+    "one-sided-predicate-lint": _REPO_ROOT,
+    # bd#302: the two test lints; drivers sit at the repo root.
+    "forbidden-import-lint": _REPO_ROOT,
+    "stub-passability-lint": _REPO_ROOT,
+}
 
 
 def driver_path(name: str, build_dir: str) -> str:
