@@ -19,6 +19,8 @@ the argv it would spawn (nothing is spawned), and CI pins the same version.
 
 The suite is hermetic -- no network, no dbos, no API keys needed. If a test wants any of those, that's a bug.
 
+Once per clone, run `python3 scripts/install_git_hooks.py --install` to enable the versioned pre-commit hooks (it sets `core.hooksPath=githooks`; `--check` verifies the installation).
+
 There's also a small TypeScript side (gate scripts). If you touch it:
 
 ```bash
