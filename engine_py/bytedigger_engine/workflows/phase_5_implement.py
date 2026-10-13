@@ -151,7 +151,6 @@ except ImportError:  # pragma: no cover — bare fallback for sys.path-rooted te
 from bytedigger_engine.lib.plugins.checklist_convergence.impl_delta_retry_prompt import build_impl_delta_retry_prompt  # noqa: E402  GH496
 from bytedigger_engine.lib.recoverable_gate import RecoverableGateMixin  # noqa: E402  E843349F
 from bytedigger_engine.lib.verdict_parse import last_line_anchored_marker  # noqa: E402
-from bytedigger_engine.verdict_gate import run_gate as _run_verdict_gate  # noqa: E402  GH517 34E0B77B
 from bytedigger_engine.lib.worktree_root import resolve_worktree_root as _resolve_worktree_root  # noqa: E402
 from bytedigger_engine.lib.git_cwd import resolve_git_cwd, resolve_git_cwd_with_source, is_ambient_git_cwd  # noqa: E402  GH381/GH449/GH1220
 from bytedigger_engine.lib.directed_repair import (  # noqa: E402  457DC7DC GH371 §2.2
@@ -7763,31 +7762,6 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
             error_code="E_VALIDATION_FAILED",
             recoverable=False,
         )
-    # GH517 (34E0B77B) — deterministic verdict-gate lint at the phase_5
-    # acceptance seam, fires only on the passed=True (APPROVED) path.
-    # Permanent warning (bd#296): validator docs here carry `Verdict: PASS|FAIL`,
-    # and the lint contradicted 70 of 83 APPROVED gate docs without any shown wrong.
-    # Kill-switch HAL_VERDICT_GATE_LINT=0.
-    if get_config().gate_enabled("HAL_VERDICT_GATE_LINT"):
-        try:
-            gate_rc, gate_report = _run_verdict_gate(
-                prev.data["validation_doc_path"], os.getcwd(), os.environ
-            )
-        except Exception as exc:  # noqa: BLE001 — driver error, fail-OPEN
-            gate_rc, gate_report = 2, {"result": "DRIVER_ERROR", "error": str(exc)}
-        if gate_rc != 0:
-            _emit_safe(
-                "verdict_gate_lint_warn",
-                {
-                    "doc": prev.data["validation_doc_path"],
-                    "result": gate_report.get("result"),
-                    "rc": gate_rc,
-                    "cycle": cycle,
-                    "phase": 5,
-                },
-                severity="warning",
-            )
-
     return StepResult(
         status="ok",
         data={

@@ -196,6 +196,7 @@ the Python engine and refers to the original bash plugin (see Pre-history).
 
 ### Changed
 
+- **The dead verdict-gate lint seam is removed from phase 5 acceptance (bd#297, Closes #297, Refs #89).** After bd#296 the seam only emitted `verdict_gate_lint_warn` and always continued, so the call and its event are gone from `_gate_on_validation`; the step result is unchanged. The lint module `verdict_gate.py` and the host audit-gate hook are untouched, and `HAL_VERDICT_GATE_LINT=0` still disables the lint there.
 - **The verdict-gate lint contradiction at the phase 5 acceptance seam is now a permanent warning (bd#296, Refs #89).** `HAL_VERDICT_GATE_LINT_ENFORCE` and its `E_VERDICT_GATE_LINT` error code are removed from the engine: the step always emits `verdict_gate_lint_warn` and continues, and `HAL_VERDICT_GATE_LINT=0` is the only switch. The host audit-gate hook's own enforce read is unchanged.
 - **Corpus parity is now a permanent warning (bd#299, Refs #89, #299).** `HAL_CORPUS_PARITY_ENFORCE` is retired: the baseline-delta wiring still computes and reports the corpus-parity verdict but never promotes it to a block. Not measured: no file oracle in `-q` logs.
 - **The empty-fallback review check is now on by default (bd#294).** A findingless stdout-fallback review in phase 6 is a terminal `E_REVIEW_EMPTY_FALLBACK` unless `HAL_REVIEW_EMPTY_FALLBACK_ENFORCE=0` (permanent off-switch, `BD_` / `BYTEDIGGER_` aliases); the date-based expiry is gone and the event flag payload is `{name, switched_off}`.

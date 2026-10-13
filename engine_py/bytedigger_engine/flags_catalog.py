@@ -740,7 +740,7 @@ FLAGS: dict[str, dict] = {
         "kind": "gate",
         "default": "1",
         "module": "verdict_gate.py",
-        "description": "Kill-switch: at the phase_5 acceptance seam the verdict-gate lint only warns (event verdict_gate_lint_warn); HAL_VERDICT_GATE_LINT=0 disables it there and in the host audit-gate hook, which keeps its own enforce switch outside this repo.",
+        "description": "Kill-switch: HAL_VERDICT_GATE_LINT=0 disables the verdict-gate lint in verdict_gate.run_gate (used by the host audit-gate hook, which keeps its own enforce switch outside this repo; the engine's phase 5 no longer calls it).",
     },
     "HAL_FLAG_UNREGISTERED_GATE": {
         "kind": "gate",
