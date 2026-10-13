@@ -7765,13 +7765,15 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
         )
     # GH517 (34E0B77B) — deterministic verdict-gate lint at the phase_5
     # acceptance seam, fires only on the passed=True (APPROVED) path.
-    # Kill-switch HAL_VERDICT_GATE_LINT=0. 34E0B77B flip-by:2026-08-01
+    # Permanent warning (bd#296): validator docs here carry `Verdict: PASS|FAIL`,
+    # and the lint contradicted 70 of 83 APPROVED gate docs without any shown wrong.
+    # Kill-switch HAL_VERDICT_GATE_LINT=0.
     if get_config().gate_enabled("HAL_VERDICT_GATE_LINT"):
         try:
             gate_rc, gate_report = _run_verdict_gate(
                 prev.data["validation_doc_path"], os.getcwd(), os.environ
             )
-        except Exception as exc:  # noqa: BLE001 — driver error, fail-OPEN unless enforce
+        except Exception as exc:  # noqa: BLE001 — driver error, fail-OPEN
             gate_rc, gate_report = 2, {"result": "DRIVER_ERROR", "error": str(exc)}
         if gate_rc != 0:
             _emit_safe(
@@ -7785,20 +7787,6 @@ def _gate_on_validation(_ctx, prev) -> StepResult:
                 },
                 severity="warning",
             )
-            if get_config().flag("HAL_VERDICT_GATE_LINT_ENFORCE"):
-                return StepResult(
-                    status="error",
-                    data={
-                        "verdict": gate_verdict,
-                        "validation_doc_path": prev.data["validation_doc_path"],
-                        "gate_report": gate_report,
-                    },
-                    duration_ms=0,
-                    step_name="gate_on_validation",
-                    error=f"verdict gate lint blocked APPROVED verdict: {gate_report.get('result')}",
-                    error_code="E_VERDICT_GATE_LINT",
-                    recoverable=False,
-                )
 
     return StepResult(
         status="ok",

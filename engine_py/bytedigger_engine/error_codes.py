@@ -273,7 +273,6 @@ ERROR_CODES: dict[str, str] = {
     "E_VALIDATION_EXEC_RETRY": "phase pipeline: validator self-reported non-execution — bounded fresh-subprocess retry",
     "E_VALIDATION_FAILED": "phase pipeline: structured verdict validation failed for this step's output",
     "E_VALIDATION_RETRY": "phase pipeline/dbos_setup: structured verdict validation triggered a retry",
-    "E_VERDICT_GATE_LINT": "phase_5/audit-gate hook: deterministic verdict-gate lint contradicts an APPROVED verdict (enforce mode)",
     "E_VERIFICATION_REGISTRY_TAMPERED": "phase_5_implement: a verifying SKILL.md registered at HEAD was modified or deleted in the work tree before verify_registered_skills ran (bd#115)",
     "E_VERIFICATION_SKILL_FAILED": "phase_5_implement: a registered verification skill failed, timed out, could not start or mutated the tree (bd#115)",
     "E_VERIFY_READ_FAILED":"anti_hallucination helper: reading the artifact to verify failed",

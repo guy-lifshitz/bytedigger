@@ -740,15 +740,7 @@ FLAGS: dict[str, dict] = {
         "kind": "gate",
         "default": "1",
         "module": "verdict_gate.py",
-        "description": "Kill-switch: HAL_VERDICT_GATE_LINT=0 disables the full verdict-gate lint at both seams (hook + phase_5 acceptance).",
-    },
-    "HAL_VERDICT_GATE_LINT_ENFORCE": {
-        "kind": "gate",
-        "default": "0",
-        "module": "engine-py-audit-gate.py + workflows/phase_5_implement.py",
-        "description": "=1 flips verdict-gate lint warn→block at both seams. 34E0B77B flip-by:2026-08-01.",
-        "owner": "guy-lifshitz",
-        "provenance": "introduced: 34E0B77B - verdict-gate lint running warn-only (warn to block flip) - stays default-OFF; rollout not yet decided",
+        "description": "Kill-switch: at the phase_5 acceptance seam the verdict-gate lint only warns (event verdict_gate_lint_warn); HAL_VERDICT_GATE_LINT=0 disables it there and in the host audit-gate hook, which keeps its own enforce switch outside this repo.",
     },
     "HAL_FLAG_UNREGISTERED_GATE": {
         "kind": "gate",
