@@ -28,4 +28,5 @@ if _ENGINE_ROOT not in sys.path:
 from bytedigger_engine.precommit_enforce import main  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # bd#311: `--range BASE..HEAD` selects the server-side range mode.
+    sys.exit(main(sys.argv[1:]))
