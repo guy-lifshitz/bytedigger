@@ -3,7 +3,6 @@ red_tests:
   - engine_py/tests/test_bd302_test_lint_drivers.py
 sibling_tests:
   - engine_py/tests/test_bd302_test_lint_drivers_fences.py
-  - engine_py/tests/test_bd66_precommit_enforcement.py
   - engine_py/tests/test_bd81_registry_driver_resolution.py
   - engine_py/tests/test_bd166_one_sided_predicate.py
 paths:
@@ -134,7 +133,9 @@ rejects passing tests in the RED file):
   registry list names and their order (`SPEC_LINTS`, `TEST_LINTS`, `TS_TEST_LINTS`, `TEXT_LINTS`)
   are unchanged.
 
-Existing files `test_bd66_precommit_enforcement.py`, `test_bd81_registry_driver_resolution.py`,
+`test_bd66_precommit_enforcement.py` is deliberately not in `sibling_tests`: preflight requires siblings
+to pass today and its four edited ACs (5, 7, 8, 11) are red until GREEN by construction; they flip
+green with the drivers and the gate reads that diff. Existing files `test_bd66_precommit_enforcement.py`, `test_bd81_registry_driver_resolution.py`,
 `test_bd166_one_sided_predicate.py` must pass after GREEN (bd66 after the edits of §2.5).
 
 ## 4. Test plan
