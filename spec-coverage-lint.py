@@ -9,21 +9,21 @@ Exit codes:
     1  - at least one finding
     2  - the spec could not be read, the spec has no AC table, or a usage error
 
-Text output (one line per finding):
+Text output (one line per finding, `<N>` is the 1-based line, `?` when none):
     UNCOVERED-OP line <N>: op=<repr of op> - <reason>
-    The opt-in findings (--taxonomy, --finalize) go through this same line format.
+    TAXONOMY-MISSING-DISPOSITION line <N>: token=<token> - <reason>
+    FINALIZE-BRANCH-UNCOVERED line <N>: group=<group> - <reason>
+    FINALIZE-AC-UNANCHORED line <N>: group=<group> - <reason>
+    FINDING line <N>: rule=<rule> - <reason>      (any other rule)
 
 JSON output (--json):
     {"findings": [{op, line, reason}]}   (opt-in findings are appended to the list)
 
-Known upstream limitation, tracked in #305: text mode indexes f['op'], which
-taxonomy/finalize findings lack; use --json with those flags.
-
 ONE rule, ONE carrier: imports `bytedigger_engine.spec_coverage`; no copy of the
 rule lives here. The driver sits at the repo root beside
 `one-sided-predicate-lint.py` because a hyphenated module inside the package
-would break the import smoke. Dormant: not mapped in the registry, so the
-pre-commit layer does not run it (tracked in #305).
+would break the import smoke. The pre-commit layer feeds it `--spec` only, and
+only a spec that carries an AC table (`precommit_lints.feed_skip_reason`).
 """
 from __future__ import annotations
 
@@ -41,6 +41,22 @@ from bytedigger_engine.spec_coverage import (  # noqa: E402
     scan_finalize_coverage,
     scan_spec_coverage,
 )
+
+
+def _text_line(f: dict) -> str:
+    line = f.get("line")
+    where = "?" if line is None else str(line)
+    reason = f.get("reason", "")
+    rule = f.get("rule")
+    if rule is None:
+        return f"UNCOVERED-OP line {where}: op={f.get('op')!r} - {reason}"
+    if rule == "spec_taxonomy_missing_disposition":
+        return f"TAXONOMY-MISSING-DISPOSITION line {where}: token={f.get('token')} - {reason}"
+    if rule == "spec_finalize_branch_uncovered":
+        return f"FINALIZE-BRANCH-UNCOVERED line {where}: group={f.get('group')} - {reason}"
+    if rule == "spec_finalize_ac_unanchored":
+        return f"FINALIZE-AC-UNANCHORED line {where}: group={f.get('group')} - {reason}"
+    return f"FINDING line {where}: rule={rule} - {reason}"
 
 
 def main() -> int:
@@ -84,7 +100,7 @@ def main() -> int:
         print(json.dumps({"findings": findings}))
     else:
         for f in findings:
-            print(f"UNCOVERED-OP line {f['line']}: op={f['op']!r} - {f['reason']}")
+            print(_text_line(f))
 
     return 1 if findings else 0
 

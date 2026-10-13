@@ -18,13 +18,14 @@ DEFAULT_LINT_DIR = os.path.dirname(os.path.realpath(__file__))
 # that IS present. An entry matching no registry name is itself a refusal.
 #
 # bd#304: six spec lints left this list (drivers at the repo root, mapped in
-# LINT_DRIVER_DIRS). The three below are held, tracked in #305: spec-cite has no
-# driver file (a live consumer would turn it into a blocking gate), and the
-# spec-coverage / token-consistency drivers sit on disk, unmapped, because the
-# existing specs have findings.
+# LINT_DRIVER_DIRS); bd#305: spec-coverage left it too (fed only a spec with an
+# AC table, see feed_skip_reason). The two below are held, tracked in #305: the
+# measurement found real defects after narrowing. spec-cite has no driver file
+# (a live consumer, phase_45_spec, would turn it into a blocking gate); the
+# token-consistency driver sits on disk, unmapped, because the findings are
+# inside the existing specs' text.
 DECLARED_ABSENT = [
     "spec-cite-lint",
-    "spec-coverage-lint",
     "token-consistency-lint",
 ]
 
@@ -50,11 +51,37 @@ LINT_DRIVER_DIRS = {
     "format-conversion-lint": _REPO_ROOT,
     "closure-evidence-lint": _REPO_ROOT,
     "mutation-two-sidedness-lint": _REPO_ROOT,
+    # bd#305: spec-coverage, fed only a spec that carries an AC table.
+    "spec-coverage-lint": _REPO_ROOT,
 }
 
 
 def driver_path(name: str, build_dir: str) -> str:
     return os.path.join(LINT_DRIVER_DIRS.get(name, build_dir), name + ".py")
+
+
+def feed_skip_reason(name: str, path: str):  # -> str | None
+    """bd#305: why the layer should not feed `path` to lint `name`, or None.
+
+    spec-coverage-lint is fed only a spec that carries an AC table; the check
+    is the rule's own module (`spec_coverage.check_ac_table`), not a copy. An
+    unreadable or undecodable file returns None: the driver runs and reports
+    exit 2 itself.
+    """
+    if name != "spec-coverage-lint":
+        return None
+    from bytedigger_engine import spec_coverage
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    try:
+        spec_coverage.check_ac_table(text)
+    except spec_coverage.NoACTableError:
+        return "no AC table"
+    return None
 
 
 # Text files the lint has nothing to say about: their bytes are not prose.

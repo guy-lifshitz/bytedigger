@@ -183,6 +183,8 @@ def _package_copy(tmp_path: Path, env: dict, name: str) -> Path:
         "scope-inverse-lint", "helper-extraction-lint", "presence-triad-lint",
         "format-conversion-lint", "closure-evidence-lint",
         "mutation-two-sidedness-lint",
+        # bd#305: spec-coverage is mapped too once the layer feeds it.
+        "spec-coverage-lint",
     ):
         _exit_stand_in(clone, older, 0)
     _install_hook(clone, scripts / "precommit_enforce_cli.py")
@@ -361,15 +363,15 @@ def test_ac3_clean_staged_test_commits_and_both_lints_are_reported_as_run(tmp_pa
 # ------------------------------------------------------------------------ AC4
 
 
-def test_ac4_declared_absent_is_the_three_held_spec_lints_and_the_registry_stays_closed(tmp_path):
-    # bd#304: six spec lints gained drivers; exactly three stay declared absent.
-    held = {"spec-cite-lint", "spec-coverage-lint", "token-consistency-lint"}
+def test_ac4_declared_absent_is_the_two_held_spec_lints_and_the_registry_stays_closed(tmp_path):
+    # bd#304/#305: seven spec lints gained drivers; exactly two stay declared absent.
+    held = {"spec-cite-lint", "token-consistency-lint"}
     assert set(precommit_lints.DECLARED_ABSENT) == held, (
-        f"DECLARED_ABSENT must be exactly the three held spec lints, got "
+        f"DECLARED_ABSENT must be exactly the two held spec lints, got "
         f"{precommit_lints.DECLARED_ABSENT!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 3, (
-        f"DECLARED_ABSENT must hold exactly three entries (no duplicates), got "
+    assert len(precommit_lints.DECLARED_ABSENT) == 2, (
+        f"DECLARED_ABSENT must hold exactly two entries (no duplicates), got "
         f"{precommit_lints.DECLARED_ABSENT!r}"
     )
     for name in (_FI_NAME, _SP_NAME):

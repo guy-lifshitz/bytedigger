@@ -916,8 +916,9 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     exactly {"forbidden-import-lint", "one-sided-predicate-lint",
     "stub-passability-lint"} (bd#302, bd#166) plus the six bd#304 spec lints
     (scope-inverse, helper-extraction, presence-triad, format-conversion,
-    closure-evidence, mutation-two-sidedness), and DECLARED_ABSENT is the
-    other 3 — must leave the repository committable: with `test_x.py` staged
+    closure-evidence, mutation-two-sidedness) plus spec-coverage (bd#305),
+    and DECLARED_ABSENT is the
+    other 2 — must leave the repository committable: with `test_x.py` staged
     the layer returns 0.
 
     The denominator is asserted explicitly (12), so the AC cannot silently
@@ -959,13 +960,15 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         "format-conversion-lint",
         "closure-evidence-lint",
         "mutation-two-sidedness-lint",
+        # bd#305: spec-coverage is mapped; the layer feeds it a spec with a table.
+        "spec-coverage-lint",
     }
     assert on_disk == sorted(with_drivers), (
         f"bd#66 AC7: the drivers on disk must be exactly {sorted(with_drivers)!r} "
-        f"(bd#302, bd#166, bd#304), got {on_disk!r}."
+        f"(bd#302, bd#166, bd#304, bd#305), got {on_disk!r}."
     )
     assert sorted(declared) == sorted(set(names) - with_drivers), (
-        f"bd#66 AC7: DECLARED_ABSENT must be the other 3 registry names, "
+        f"bd#66 AC7: DECLARED_ABSENT must be the other 2 registry names, "
         f"got {len(declared)}: {declared!r}."
     )
 
@@ -986,7 +989,7 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     output = "".join(capsys.readouterr())
 
     assert rc == 0, (
-        f"bd#66 AC7: with 3 names declared absent and 9 drivers on disk the repository must stay "
+        f"bd#66 AC7: with 2 names declared absent and 10 drivers on disk the repository must stay "
         f"committable — expected rc=0, got {rc!r}. output={output!r}"
     )
 
