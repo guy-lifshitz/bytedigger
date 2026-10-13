@@ -173,7 +173,7 @@ def _gate_json(proc):
 
 def _clean_env(**overrides):
     env = dict(os.environ)
-    env.pop("HAL_BASELINE_DELTA_GATE_ENFORCE", None)
+    env.pop("HAL_BASELINE_DELTA_ENFORCE", None)
     env.pop("HAL_CORPUS_PARITY_ENFORCE", None)
     env.pop("HAL_BASELINE_DELTA_GATE", None)
     env.pop("HAL_CORPUS_ALLOW_REMOVED", None)
@@ -651,7 +651,6 @@ def test_ac15_baseline_delta_wiring_passes_flag_and_sets_parity_block(tmp_path, 
     # name-selective per §2.1 amendment (gate M6) — NOT "True for everything"
     cfg = _NamedFlagsCfg({
         "HAL_BASELINE_DELTA_ENFORCE": True,
-        "HAL_CORPUS_PARITY_ENFORCE": True,
     })
 
     events = []
@@ -670,12 +669,13 @@ def test_ac15_baseline_delta_wiring_passes_flag_and_sets_parity_block(tmp_path, 
         f"expected --require-corpus-parity to ALWAYS be passed in argv per §2.3, "
         f"got argv={captured.get('argv')!r}"
     )
-    assert result.get("parity_block") is True, (
-        f"expected parity_block True when verdict BLOCKED and enforce flag True, "
-        f"got {result!r}"
+    # bd#299 S4: HAL_CORPUS_PARITY_ENFORCE is retired; parity is a permanent
+    # warning and never promoted to a block (old flag-OFF behaviour).
+    assert not result.get("parity_block"), (
+        f"expected no parity_block now that the flag is retired, got {result!r}"
     )
-    assert result.get("would_block") is True, (
-        f"expected would_block True (parity_block ORs into would_block), got {result!r}"
+    assert result.get("would_block") is False, (
+        f"expected would_block False (delta PASS, parity never promoted), got {result!r}"
     )
     assert result.get("blocked_by") == ["E_CORPUS_DIVERGENCE"], f"got {result!r}"
     verdict_events = [e for e in events if e[0] == "baseline_delta_gate_verdict"]
@@ -694,8 +694,8 @@ def test_ac16_error_code_flag_and_phase5_mapping_registered() -> None:
         f"expected E_CORPUS_PARITY registered, got sample="
         f"{[k for k in error_codes.ERROR_CODES if 'CORPUS' in k]!r}"
     )
-    assert "HAL_CORPUS_PARITY_ENFORCE" in flags_catalog.FLAGS, (
-        f"expected HAL_CORPUS_PARITY_ENFORCE registered, got sample="
+    assert "HAL_CORPUS_PARITY_ENFORCE" not in flags_catalog.FLAGS, (
+        f"bd#299 S4: HAL_CORPUS_PARITY_ENFORCE must be retired, got sample="
         f"{[k for k in flags_catalog.FLAGS if 'CORPUS' in k]!r}"
     )
     assert "HAL_CORPUS_ALLOW_REMOVED" in flags_catalog.FLAGS, (
@@ -807,7 +807,7 @@ def test_ac19_would_block_not_masked_and_fails_closed_on_missing_delta_verdict(
 
     monkeypatch.setattr(bd_mod.subprocess, "run", fake_run_a)
     cfg_a = _NamedFlagsCfg({
-        "HAL_BASELINE_DELTA_ENFORCE": True, "HAL_CORPUS_PARITY_ENFORCE": False,
+        "HAL_BASELINE_DELTA_ENFORCE": True,
     })
     out_a = tmp_path / "out_a.txt"
     out_a.write_text("collected 1 item\n")
@@ -831,7 +831,7 @@ def test_ac19_would_block_not_masked_and_fails_closed_on_missing_delta_verdict(
 
     monkeypatch.setattr(bd_mod.subprocess, "run", fake_run_b)
     cfg_b = _NamedFlagsCfg({
-        "HAL_BASELINE_DELTA_ENFORCE": True, "HAL_CORPUS_PARITY_ENFORCE": False,
+        "HAL_BASELINE_DELTA_ENFORCE": True,
     })
     out_b = tmp_path / "out_b.txt"
     out_b.write_text("collected 1 item\n")
@@ -928,6 +928,8 @@ def test_ac21_parity_block_is_name_selective_both_directions(tmp_path, monkeypat
 
     monkeypatch.setattr(bd_mod.subprocess, "run", fake_run)
 
+    # bd#299 S4: the retired flag is not consulted even if a stub still offers
+    # it; BLOCKED + delta-enforce=0 never yields parity_block.
     cfg_parity_on = _NamedFlagsCfg({
         "HAL_CORPUS_PARITY_ENFORCE": True, "HAL_BASELINE_DELTA_ENFORCE": False,
     })
@@ -936,24 +938,22 @@ def test_ac21_parity_block_is_name_selective_both_directions(tmp_path, monkeypat
     result1 = bd_mod.run_baseline_delta_gate(
         str(out1), "bun", str(tmp_path), 5, "s", lambda *a, **k: None, cfg=cfg_parity_on,
     )
-    assert result1.get("parity_block") is True, (
-        f"HAL_CORPUS_PARITY_ENFORCE=1 (with delta-enforce=0) on a BLOCKED verdict "
-        f"must give parity_block True; a GREEN keyed on the wrong env name would "
-        f"invert this, got {result1!r}"
+    assert not result1.get("parity_block"), (
+        f"retired HAL_CORPUS_PARITY_ENFORCE must not drive parity_block, "
+        f"got {result1!r}"
     )
 
     cfg_parity_off = _NamedFlagsCfg({
-        "HAL_CORPUS_PARITY_ENFORCE": False, "HAL_BASELINE_DELTA_ENFORCE": True,
+        "HAL_BASELINE_DELTA_ENFORCE": True,
     })
     out2 = tmp_path / "out2.txt"
     out2.write_text("collected 1 item\n")
     result2 = bd_mod.run_baseline_delta_gate(
         str(out2), "bun", str(tmp_path), 5, "s", lambda *a, **k: None, cfg=cfg_parity_off,
     )
-    assert result2.get("parity_block") is False, (
-        f"HAL_CORPUS_PARITY_ENFORCE=0 (with delta-enforce=1) on a BLOCKED verdict "
-        f"must give parity_block False; a GREEN keyed on the wrong env name would "
-        f"invert this, got {result2!r}"
+    assert not result2.get("parity_block"), (
+        f"delta-enforce=1 on a BLOCKED verdict must give no parity_block, "
+        f"got {result2!r}"
     )
     assert result2.get("would_block") is False, (
         f"rev2-N4: parity_block False and delta_verdict PASS must NOT over-block — "
@@ -1282,7 +1282,7 @@ def test_ac27_phase5_reachability_whitelist_only_stdout_path_condition() -> None
 
 def test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence(tmp_path) -> None:
     """§2.2 ladder (rev2-N2, AMENDED rev4 MAJOR-4): (a) delta FAIL +
-    HAL_BASELINE_DELTA_GATE_ENFORCE=1 + corpus divergence -> exit 4, verdict
+    HAL_BASELINE_DELTA_ENFORCE=1 + corpus divergence -> exit 4, verdict
     BLOCKED in stdout (known regression takes priority over 'don't know');
     (b) divergence only + HAL_CORPUS_PARITY_ENFORCE=1 (no delta-enforce) ->
     exit 5. (a)/(b) share ONE real fixture: b.test.ts deleted uncommitted on
@@ -1354,8 +1354,8 @@ def test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence(tmp_path) -> N
         "--require-corpus-parity", "--base-ref", base_sha, "--head-ref", head_sha,
     ]
 
-    # (a) delta FAIL + HAL_BASELINE_DELTA_GATE_ENFORCE=1 + divergence -> exit 4
-    env_a = _clean_env(HAL_BASELINE_DELTA_GATE_ENFORCE="1")
+    # (a) delta FAIL + HAL_BASELINE_DELTA_ENFORCE=1 + divergence -> exit 4
+    env_a = _clean_env(HAL_BASELINE_DELTA_ENFORCE="1")
     proc_a = _run_gate(base_args, cwd=head_wt, env=env_a)
     data_a = _gate_json(proc_a)
     assert data_a.get("delta_verdict") == "FAIL", f"got {data_a!r}"
@@ -1506,7 +1506,7 @@ def test_ac19a_verdict_event_carries_only_in_base_and_declared_removal_count(
 
     monkeypatch.setattr(bd_mod.subprocess, "run", fake_run)
     cfg = _NamedFlagsCfg({
-        "HAL_BASELINE_DELTA_ENFORCE": True, "HAL_CORPUS_PARITY_ENFORCE": True,
+        "HAL_BASELINE_DELTA_ENFORCE": True,
     })
 
     events = []
@@ -2276,7 +2276,7 @@ def test_ac37_run_evidence_and_corpus_scope_present_on_real_bun_run(tmp_path) ->
 
 
 def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) -> None:
-    """§10 MAJOR-4 ladder: (1) delta FAIL + HAL_BASELINE_DELTA_GATE_ENFORCE=1 ->
+    """§10 MAJOR-4 ladder: (1) delta FAIL + HAL_BASELINE_DELTA_ENFORCE=1 ->
     4; (2) else BLOCKED -> 5 REGARDLESS of HAL_CORPUS_PARITY_ENFORCE; (3) else
     -> 0. 'BLOCKED and exit 0' must be impossible under ANY flag combination.
     """
@@ -2302,7 +2302,7 @@ def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) 
         f"stdout={proc_none.stdout!r} stderr={proc_none.stderr!r}"
     )
 
-    # ── leg 1: delta FAIL + HAL_BASELINE_DELTA_GATE_ENFORCE=1 (+ same divergence) -> 4 ──
+    # ── leg 1: delta FAIL + HAL_BASELINE_DELTA_ENFORCE=1 (+ same divergence) -> 4 ──
     (head_wt / "a.test.ts").write_text(
         'import { test, expect } from "bun:test";\n'
         'test("shared alpha", () => { expect(1).toBe(1); });\n'
@@ -2315,7 +2315,7 @@ def test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it(tmp_path) 
         f"expected the injected head-only red in the real bun output, "
         f"got {head_out.read_text()!r}"
     )
-    proc_delta = _run_gate(base_args, cwd=head_wt, env=_clean_env(HAL_BASELINE_DELTA_GATE_ENFORCE="1"))
+    proc_delta = _run_gate(base_args, cwd=head_wt, env=_clean_env(HAL_BASELINE_DELTA_ENFORCE="1"))
     data_delta = _gate_json(proc_delta)
     assert data_delta.get("delta_verdict") == "FAIL", f"got {data_delta!r}"
     assert proc_delta.returncode == 4, (

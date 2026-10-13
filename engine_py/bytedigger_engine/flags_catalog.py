@@ -780,14 +780,6 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/_baseline_delta.py",
         "description": "Env seam: HAL_BASELINE_DELTA_BIN overrides the baseline_delta_gate.py script path (GH561).",
     },
-    "HAL_CORPUS_PARITY_ENFORCE": {
-        "kind": "flag",
-        "default": "0",
-        "module": "workflows/_baseline_delta.py",
-        "description": "GH1338 warn-only rollout: =1 makes a corpus-parity BLOCKED verdict a recoverable E_CORPUS_PARITY gate failure in phase_5. flip-by:2026-08-13 Refs #1338.",
-        "owner": "guy-lifshitz",
-        "provenance": "introduced: #1338 - corpus-parity BLOCKED verdicts (GH1338 warn-only rollout) - stays default-OFF; rollout not yet decided",
-    },
     "HAL_REVIEW_EMPTY_FALLBACK_ENFORCE": {
         "kind": "gate",
         "default": "1",
