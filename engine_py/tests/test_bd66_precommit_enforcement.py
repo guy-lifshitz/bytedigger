@@ -269,10 +269,31 @@ def _init_repo(tmp_path: Path, env: dict, name: str = "repo") -> Path:
     return repo
 
 
-def _stage_test_file(repo: Path, env: dict, name: str = "test_x.py") -> Path:
+#: bd#302: a staged test that mocks its own unit under test. The real
+#: stub-passability driver exits 1 on it. Used where an AC used to plant a
+#: stand-in driver under that name: the name is now resolved through
+#: `precommit_lints.LINT_DRIVER_DIRS`, so a stand-in in BD66_LINT_DIR is never run.
+_MOCKS_UUT_SOURCE = (
+    "from unittest import mock\n"
+    "from mymod import my_func\n"
+    "\n"
+    "def test_x():\n"
+    "    with mock.patch('mymod.my_func'):\n"
+    "        assert my_func() is not None\n"
+)
+
+#: bd#302: a staged test the real stub-passability driver cannot parse (exit 2).
+_SYNTAX_ERROR_SOURCE = "def test_x(:\n    assert True\n"
+
+
+def _stage_test_file(
+    repo: Path, env: dict, name: str = "test_x.py", content: str | None = None
+) -> Path:
     """Stage a `test_*.py` path — the corpus TEST_LINTS/`is_test_file` matches."""
     target = repo / name
-    target.write_text("def test_placeholder():\n    assert True\n")
+    target.write_text(
+        content if content is not None else "def test_placeholder():\n    assert True\n"
+    )
     assert _git(["add", name], repo, env).returncode == 0
     return target
 
@@ -701,8 +722,10 @@ def test_ac5_real_git_commit_is_refused_and_no_commit_object_exists(tmp_path):
     """
     repo, env, driver_dir = _guarded_repo(tmp_path)
     _assert_hook_is_executable("AC5")
-    _exit_driver(driver_dir, "stub-passability-lint", 1)
-    _stage_test_file(repo, env)
+    # bd#302: the real stub-passability driver is resolved through the registry
+    # (BD66_LINT_DIR is ignored for it), so the violation is a real input: a
+    # staged test that mocks its own unit under test.
+    _stage_test_file(repo, env, content=_MOCKS_UUT_SOURCE)
 
     result = _commit(repo, env)
     output = result.stdout + result.stderr
@@ -720,6 +743,10 @@ def test_ac5_real_git_commit_is_refused_and_no_commit_object_exists(tmp_path):
     assert REFUSE_VIOLATION in output, (
         f"bd#66 AC5: expected the {REFUSE_VIOLATION} token in the commit "
         f"output, got {output!r}."
+    )
+    assert _output_names_lint(output, "stub-passability-lint"), (
+        f"bd#66 AC5 (bd#302): the refusal must come from the real "
+        f"stub-passability driver, got {output!r}."
     )
 
 
@@ -886,8 +913,9 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
 ):
     """AC7: the repository's OWN registry — 12 names, each with EXACTLY one of
     {a driver on disk, an entry in DECLARED_ABSENT}; the drivers on disk are
-    exactly {"one-sided-predicate-lint"} (bd#166) and DECLARED_ABSENT is the
-    other 11 — must leave the repository committable: with `test_x.py` staged
+    exactly {"forbidden-import-lint", "one-sided-predicate-lint",
+    "stub-passability-lint"} (bd#302, bd#166) and DECLARED_ABSENT is the
+    other 9 — must leave the repository committable: with `test_x.py` staged
     the layer returns 0.
 
     The denominator is asserted explicitly (12), so the AC cannot silently
@@ -918,12 +946,17 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
             f"a DECLARED_ABSENT entry (declared={name in declared}, "
             f"on_disk={name in on_disk})."
         )
-    assert on_disk == ["one-sided-predicate-lint"], (
-        f"bd#66 AC7: the drivers on disk must be exactly "
-        f"['one-sided-predicate-lint'] (bd#166), got {on_disk!r}."
+    with_drivers = {
+        "forbidden-import-lint",
+        "one-sided-predicate-lint",
+        "stub-passability-lint",
+    }
+    assert on_disk == sorted(with_drivers), (
+        f"bd#66 AC7: the drivers on disk must be exactly {sorted(with_drivers)!r} "
+        f"(bd#302, bd#166), got {on_disk!r}."
     )
-    assert sorted(declared) == sorted(set(names) - {"one-sided-predicate-lint"}), (
-        f"bd#66 AC7: DECLARED_ABSENT must be the other 11 registry names, "
+    assert sorted(declared) == sorted(set(names) - with_drivers), (
+        f"bd#66 AC7: DECLARED_ABSENT must be the other 9 registry names, "
         f"got {len(declared)}: {declared!r}."
     )
 
@@ -944,7 +977,7 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     output = "".join(capsys.readouterr())
 
     assert rc == 0, (
-        f"bd#66 AC7: with 11 names declared absent and 1 driver on disk the repository must stay "
+        f"bd#66 AC7: with 9 names declared absent and 3 drivers on disk the repository must stay "
         f"committable — expected rc=0, got {rc!r}. output={output!r}"
     )
 
@@ -974,10 +1007,13 @@ def test_ac8_driver_exiting_two_refuses(tmp_path, monkeypatch, capsys):
 
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
-    _stage_test_file(repo, env)
 
+    # bd#302: the real stub-passability driver exits 2 on an unparseable file.
+    # (A stand-in in BD66_LINT_DIR would be ignored: the name is resolved
+    # through LINT_DRIVER_DIRS.) The staged file is rewritten with that input.
+    _stage_test_file(repo, env, content=_SYNTAX_ERROR_SOURCE)
     driver_dir = tmp_path / "drivers"
-    _exit_driver(driver_dir, "stub-passability-lint", 2)
+    driver_dir.mkdir()
 
     _apply_git_env(monkeypatch, env)
     monkeypatch.setenv("BD66_LINT_DIR", str(driver_dir))
@@ -1114,7 +1150,8 @@ def test_ac10_real_git_commit_succeeds_when_drivers_are_clean(tmp_path):
     guarded repo the AC is about cannot even be arranged.
     """
     repo, env, driver_dir = _guarded_repo(tmp_path)
-    _exit_driver(driver_dir, "stub-passability-lint", 0)
+    # bd#302: the real drivers run on this clean staged test and exit 0; no
+    # stand-in is planted (one under BD66_LINT_DIR would be ignored).
     _stage_test_file(repo, env)
 
     result = _commit(repo, env)
@@ -1141,9 +1178,10 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     the environment; the package is materialised as a COPY under tmp_path
     (precommit_lints.py + precommit_enforce.py — the real package directory is
     never symlinked here, because this AC plants a driver next to the registry
-    and must not write into the real tree); the copied registry drops
-    `stub-passability-lint` from DECLARED_ABSENT and gets a driver of that name,
-    exiting 1, sitting beside it — i.e. inside DEFAULT_LINT_DIR.
+    and must not write into the real tree); the copied registry gains an
+    UNMAPPED, undeclared 13th test lint, `phantom-canon-lint`, whose driver
+    exiting 1 sits in the package copy directory (the copy's DEFAULT_LINT_DIR).
+    Only `resolve_lint_dir()` falling back to DEFAULT_LINT_DIR can find it.
 
     Expected: rc=1 and `BD66-REFUSE-VIOLATION`. The implementation
     `if not os.environ.get("BD66_LINT_DIR"): return 0` passes AC12 and dies
@@ -1178,16 +1216,21 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     clone = _init_repo(tmp_path, env, name="clone")
     pkg = _materialize_package_copy(clone)
 
-    # Format-independent edit of the COPY: rebind DECLARED_ABSENT after the
-    # original definition so the name we are about to give a driver to is no
-    # longer licensed to be missing.
+    # bd#302: the stand-in must be an UNMAPPED, undeclared name, so that only
+    # `resolve_lint_dir()` falling back to DEFAULT_LINT_DIR (the package copy
+    # directory) can locate it. A name in LINT_DRIVER_DIRS would resolve through
+    # the mapping and never consult the lint directory at all. As in AC6c, a
+    # 13th name is appended to the COPY of the registry; its exit-1 driver is
+    # written next to that copy. No DECLARED_ABSENT rebind is involved.
     with (pkg / "precommit_lints.py").open("a") as fh:
-        fh.write(
-            "\nDECLARED_ABSENT = [n for n in DECLARED_ABSENT "
-            'if n != "stub-passability-lint"]\n'
-        )
-
-    _exit_driver(pkg, "stub-passability-lint", 1)
+        fh.write('\nTEST_LINTS = list(TEST_LINTS) + ["phantom-canon-lint"]\n')
+    assert "phantom-canon-lint" not in getattr(
+        precommit_lints, "LINT_DRIVER_DIRS", {}
+    ), "bd#66 AC11 arrange: 'phantom-canon-lint' must be unmapped."
+    assert "phantom-canon-lint" not in list(
+        getattr(precommit_lints, "DECLARED_ABSENT", [])
+    ), "bd#66 AC11 arrange: 'phantom-canon-lint' must not be declared absent."
+    _exit_driver(pkg, "phantom-canon-lint", 1)
     _stage_test_file(clone, env)
 
     result = subprocess.run(
@@ -1212,6 +1255,10 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     )
     assert REFUSE_VIOLATION in output, (
         f"bd#66 AC11: expected {REFUSE_VIOLATION} in the output, got {output!r}."
+    )
+    assert _output_names_lint(output, "phantom-canon-lint"), (
+        f"bd#66 AC11: the refusal must name 'phantom-canon-lint' as a whole "
+        f"token, got {output!r}."
     )
 
 
@@ -1334,7 +1381,7 @@ def test_ac13_declared_absent_entry_matching_no_registry_name_refuses(
         f"bd#66 AC13: the refusal must name the orphaned declaration "
         f"'stale-renamed-lint' as a whole token, got {output!r}."
     )
-    innocent = "forbidden-import-lint"
+    innocent = "scope-inverse-lint"  # bd#302: still declared absent
     assert innocent in ALL_REGISTRY_NAMES, (
         f"bd#66 AC13 arrange: {innocent!r} must be a real, properly declared "
         f"registry name for the negative assertion to mean anything."
