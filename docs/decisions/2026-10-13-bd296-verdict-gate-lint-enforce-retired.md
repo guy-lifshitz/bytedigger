@@ -129,7 +129,7 @@ host-side audit-gate hook sets its own block flag and never raises the code (rea
    `get_config().flag("HAL_VERDICT_GATE_LINT_ENFORCE")` read and the `StepResult(... E_VERDICT_GATE_LINT ...)`
    return are deleted. The stale `34E0B77B flip-by:2026-08-01` text is removed and the comment says the
    check is a permanent warning and why. No `.py` under `engine_py/bytedigger_engine` may contain
-   `E_VERDICT_GATE_LINT`, `HAL_VERDICT_GATE_LINT_ENFORCE` or `flip-by:2026-08-01`.
+   `E_VERDICT_GATE_LINT`, `HAL_VERDICT_GATE_LINT_ENFORCE`, or a `flip-by:2026-08-01` token on a line that also names `34E0B77B` or `VERDICT_GATE` (the unrelated `flip-by:2026-08-01` at the RED scope allowlist, refs #569, is not this lot's and stays).
 2. `error_codes.py`: remove `E_VERDICT_GATE_LINT`; remove the same line from `engine_py/ERROR_CODES.md`
    and `engine_py/bytedigger_engine/ERROR_CODES.md`.
 3. `flags_catalog.py`: delete the `HAL_VERDICT_GATE_LINT_ENFORCE` entry. Update the
@@ -173,7 +173,7 @@ Out of scope: the other overdue flags, what the lint checks, the host-side hook,
 - AC8. The ledger has no `HAL_VERDICT_GATE_LINT_ENFORCE` key and `python3 scripts/flip_horizon.py
   --check --today 2026-11-04` does not name it; the ledger has 11 entries and its `until` dates are
   all unchanged from base (no extension).
-- AC9. None of the three strings of §4.1 appears in any `.py` under `engine_py/bytedigger_engine`.
+- AC9. None of the strings of §4.1 (as scoped there) appears in any `.py` under `engine_py/bytedigger_engine`.
 - AC10. `HAL_VERDICT_GATE_LINT_ENFORCE` is not read anywhere in `engine_py/bytedigger_engine`
   (no `flag(`/`gate_enabled(`/`os.environ` access with that name; same scan as AC9 covers the name).
 
