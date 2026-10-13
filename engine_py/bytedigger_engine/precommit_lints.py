@@ -16,16 +16,16 @@ DEFAULT_LINT_DIR = os.path.dirname(os.path.realpath(__file__))
 # is: every registry name must have either a driver in the lint directory or an
 # entry here. A declaration licenses an absence; it does not suppress a driver
 # that IS present. An entry matching no registry name is itself a refusal.
+#
+# bd#304: six spec lints left this list (drivers at the repo root, mapped in
+# LINT_DRIVER_DIRS). The three below are held, tracked in #305: spec-cite has no
+# driver file (a live consumer would turn it into a blocking gate), and the
+# spec-coverage / token-consistency drivers sit on disk, unmapped, because the
+# existing specs have findings.
 DECLARED_ABSENT = [
-    "scope-inverse-lint",
-    "helper-extraction-lint",
     "spec-cite-lint",
     "spec-coverage-lint",
     "token-consistency-lint",
-    "presence-triad-lint",
-    "format-conversion-lint",
-    "closure-evidence-lint",
-    "mutation-two-sidedness-lint",
 ]
 
 _TS_TEST_SUFFIXES = (".test.ts", ".test.js", ".spec.ts", ".spec.js")
@@ -43,6 +43,13 @@ LINT_DRIVER_DIRS = {
     # bd#302: the two test lints; drivers sit at the repo root.
     "forbidden-import-lint": _REPO_ROOT,
     "stub-passability-lint": _REPO_ROOT,
+    # bd#304: the six spec lints that left DECLARED_ABSENT.
+    "scope-inverse-lint": _REPO_ROOT,
+    "helper-extraction-lint": _REPO_ROOT,
+    "presence-triad-lint": _REPO_ROOT,
+    "format-conversion-lint": _REPO_ROOT,
+    "closure-evidence-lint": _REPO_ROOT,
+    "mutation-two-sidedness-lint": _REPO_ROOT,
 }
 
 
