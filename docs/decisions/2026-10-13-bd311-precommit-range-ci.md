@@ -69,13 +69,24 @@ hook was ever bypassed.
 4. **Fail closed.** A malformed `--range` (missing value, no `..`, empty side), an unknown
    argument, an unresolvable ref, a tip that is not `HEAD`, no merge-base, or a failing `git diff`:
    print `BD66-CI-RANGE-ERROR: <reason>` and return 2. Never 0. An empty range (BASE == HEAD) -> 0.
+   Range mode outside a git repository (no top level) is the same error, not the staged mode's
+   silent 0. A right side spelled as another ref name that resolves to the `HEAD` commit is accepted.
+   Order in range mode: kill switch, argument parsing (exit 2), registry pre-pass (exit 1), then git
+   (exit 2 / plan). So a malformed range with a phantom registry name exits 2; an empty range still
+   runs the pre-pass.
+   Renames: `ACMR` yields the new path, which has no version at the merge-base, so its baseline is 0
+   and a renamed legacy file with inherited findings is refused, exactly as in the hook. Accepted and
+   documented here; resolving rename sources would be new logic and is out of scope.
 5. **CI job** `precommit-lints` in `.github/workflows/ci.yml`: `if: github.event_name == 'pull_request'`,
    `runs-on: ubuntu-latest`, `timeout-minutes: 10`, `actions/checkout@v4` with `fetch-depth: 0`
    (a depth-1 checkout has no base to diff; an empty corpus would pass vacuously), no install step
-   (stock `python3`; the shim sets its own path). Env: `BASE_SHA: ${{ github.event.pull_request.base.sha }}`,
+   (stock `python3`; the shim sets its own path). The checkout is the default PR merge ref, so `HEAD`
+   is the merge commit, `base.sha` is its first parent and the tree on disk is the merged tree; the
+   job deliberately does not use `head.sha` (the `language` job reads commit subjects, this one reads
+   bytes). No `ref:` override on the checkout. Env: `BASE_SHA: ${{ github.event.pull_request.base.sha }}`,
    `BD_PRECOMMIT_CI: ${{ vars.BD_PRECOMMIT_CI }}`. Run:
    `python3 scripts/precommit_enforce_cli.py --range "$BASE_SHA..HEAD"`. No continue-on-error,
-   no an or-true suffix. The same `BD66-REFUSE-*` lines as the hook reach the job log.
+   no or-true suffix. The same `BD66-REFUSE-*` lines as the hook reach the job log.
 6. `CHANGELOG.md` entry. Making the job a required check is a repo setting, out of scope.
 
 ## 3. Acceptance criteria (each refusal is paired with an accepted twin)
@@ -100,7 +111,19 @@ with `--no-verify`; exit code and stdout are the observations.
 - AC9 docs-only range (no lintable file): exit 0.
 - AC10 `ci.yml` parsed as YAML: job `precommit-lints` exists, is guarded to `pull_request`, checks out with
   `fetch-depth: 0`, its run step invokes `scripts/precommit_enforce_cli.py --range` on `base.sha`, passes
-  `BD_PRECOMMIT_CI`, has no continue-on-error and no an or-true suffix.
+  `BD_PRECOMMIT_CI`, the run line contains `$BASE_SHA..HEAD`, the checkout step has no `ref`, `pull_request` is in
+  `on:`, has no continue-on-error and no or-true suffix.
+- AC12 diverged history (merge-base != BASE): main advances after the fork and changes a legacy file; the
+  branch edits it. File set is the branch-only changes (a file touched only on main is NOT linted);
+  the baseline is the fork-point version (`head=` equals the fork-point count).
+- AC13 no merge-base (unrelated/orphan history): exit 2, `BD66-CI-RANGE-ERROR`. Outside a git
+  repository: exit 2, same token.
+- AC14 merge-commit tip: HEAD is a merge commit of the PR branch into BASE; the range
+  `BASE..HEAD` refuses an offending file added on the branch and accepts the clean twin.
+- AC15 ordering: malformed range plus phantom registry name -> exit 2; empty range plus phantom name ->
+  exit 1 (`BD66-REFUSE-MISSING-DRIVER`). A right side that is another ref name at the HEAD commit
+  is accepted.
+- AC16 rename of a legacy file with inherited findings is refused (base 0), documented behaviour.
 - AC11 no-argument invocation is still the staged mode (a staged violation refuses, an unstaged one does not).
 
 ## 4. Out of scope
