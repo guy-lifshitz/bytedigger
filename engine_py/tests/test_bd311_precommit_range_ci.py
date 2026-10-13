@@ -561,6 +561,11 @@ def test_ac10_ci_yml_declares_the_precommit_lints_job():
     checkouts = [s for s in steps if _as_text(s.get("uses")).startswith("actions/checkout@v4")]
     assert len(checkouts) == 1, f"exactly one actions/checkout@v4 step: {steps!r}"
     assert (checkouts[0].get("with") or {}).get("fetch-depth") == 0, checkouts[0]
+    assert "ref" not in (checkouts[0].get("with") or {}), (
+        f"the default PR merge ref must be checked out, no `ref:` override: {checkouts[0]!r}"
+    )
+    triggers = doc.get("on", doc.get(True))
+    assert triggers is not None and "pull_request" in triggers, f"on: {triggers!r}"
 
     for step in steps:
         assert "continue-on-error" not in step, f"step may not continue on error: {step!r}"
@@ -575,7 +580,8 @@ def test_ac10_ci_yml_declares_the_precommit_lints_job():
     runner = runners[0]
     run_text = _as_text(runner.get("run"))
     assert "--range" in run_text, run_text
-    assert "BASE_SHA" in run_text, f"range base must come from BASE_SHA: {run_text!r}"
+    assert "$BASE_SHA..HEAD" in run_text, f"range must be $BASE_SHA..HEAD: {run_text!r}"
+    assert "head.sha" not in run_text and "HEAD_SHA" not in run_text, run_text
     assert "python3" in run_text, run_text
 
     env_block = dict(job.get("env") or {})
@@ -583,6 +589,157 @@ def test_ac10_ci_yml_declares_the_precommit_lints_job():
     assert "github.event.pull_request.base.sha" in _as_text(env_block.get("BASE_SHA")), env_block
     assert "BD_PRECOMMIT_CI" in env_block, f"BD_PRECOMMIT_CI must be passed: {env_block!r}"
     assert "BD_PRECOMMIT_CI" in _as_text(env_block["BD_PRECOMMIT_CI"]), env_block
+
+
+# ----------------------------------------------------------------------- AC12
+
+
+def test_ac12_diverged_history_lints_branch_only_changes_against_the_fork_point(tmp_path):
+    env = _hermetic_env(tmp_path)
+    repo = _init_repo(tmp_path, env, "diverged")
+    fork = _commit_files(repo, env, {
+        "test_legacy.py": _LEGACY_TWO,
+        "test_mainonly.py": _CONTROL_ONLY,
+    })
+    # main advances after the fork: the legacy file drops to one finding (a
+    # baseline taken from BASE would say head=1) and a main-only file turns
+    # offending (it must never be named).
+    base = _commit_files(repo, env, {
+        "test_legacy.py": _ONE_FINDING,
+        "test_mainonly.py": _ONE_FINDING,
+    })
+    assert len(_findings(_ONE_FINDING)) == 1 and len(_findings(_LEGACY_TWO)) == 2
+    assert len(_findings(_LEGACY_THREE)) == 3
+
+    _git_ok(["checkout", "-q", "-b", "feature-bad", fork], repo, env)
+    _commit_files(repo, env, {"test_legacy.py": _LEGACY_THREE})
+    refused = _range(repo, env, base)
+
+    _refused_with(refused, "test_legacy.py", now=3, head=2)
+    assert "test_mainonly" not in refused.stdout, refused.stdout
+
+    # Accepted twin: the branch edits the legacy file without adding a finding.
+    _git_ok(["checkout", "-q", "-b", "feature-ok", fork], repo, env)
+    _commit_files(repo, env, {"test_legacy.py": "# touched\n" + _LEGACY_TWO})
+    ok = _range(repo, env, base)
+    _accepted(ok)
+    assert "test_mainonly" not in ok.stdout
+
+
+# ----------------------------------------------------------------------- AC13
+
+
+def test_ac13_no_merge_base_and_no_repository_fail_closed(tmp_path):
+    env = _hermetic_env(tmp_path)
+    repo = _init_repo(tmp_path, env, "orphan")
+    main_tip = _commit_files(repo, env, {"test_base.py": _CONTROL_ONLY})
+    _commit_files(repo, env, {"test_new.py": _WITH_DENOMINATOR})
+    _accepted(_range(repo, env, main_tip))
+
+    _git_ok(["checkout", "-q", "--orphan", "unrelated"], repo, env)
+    _git_ok(["rm", "-rf", "-q", "--ignore-unmatch", "."], repo, env)
+    _commit_files(repo, env, {"test_orphan.py": _ONE_FINDING})
+    assert _git(["merge-base", main_tip, "HEAD"], repo, env).returncode != 0
+
+    orphan = _range(repo, env, main_tip)
+
+    assert orphan.returncode == 2, f"{orphan.stdout!r} {orphan.stderr!r}"
+    assert CI_RANGE_ERROR in orphan.stdout, orphan.stdout
+
+    plain = tmp_path / "plain-dir"
+    plain.mkdir()
+    outside_env = dict(env)
+    outside_env["GIT_CEILING_DIRECTORIES"] = str(tmp_path)
+    outside = subprocess.run(
+        [sys.executable, str(_ENFORCE_CLI), "--range", "a..b"],
+        cwd=str(plain), env=outside_env, capture_output=True, text=True,
+        timeout=60, stdin=subprocess.DEVNULL,
+    )
+    assert outside.returncode == 2, f"{outside.stdout!r} {outside.stderr!r}"
+    assert CI_RANGE_ERROR in outside.stdout, outside.stdout
+
+
+# ----------------------------------------------------------------------- AC14
+
+
+def _merge_repo(tmp_path: Path, env: dict, name: str, branch_files: dict):
+    repo = _init_repo(tmp_path, env, name)
+    fork = _commit_files(repo, env, {"test_base.py": _CONTROL_ONLY})
+    _git_ok(["checkout", "-q", "-b", "pr-branch", fork], repo, env)
+    _commit_files(repo, env, branch_files, message="bd311 pr change")
+    _git_ok(["checkout", "-q", "main"], repo, env)
+    base = _commit_files(repo, env, {"README_main.md": _DOCS}, message="bd311 main moves on")
+    _git_ok(["merge", "-q", "--no-ff", "-m", "bd311 merge pr", "pr-branch"], repo, env)
+    parents = _git_ok(["rev-list", "--parents", "-n", "1", "HEAD"], repo, env).split()
+    assert len(parents) == 3 and parents[1] == base, f"HEAD must be a merge of the PR: {parents!r}"
+    return repo, base
+
+
+def test_ac14_merge_commit_tip_refuses_the_branch_offender_and_accepts_the_twin(tmp_path):
+    env = _hermetic_env(tmp_path)
+    repo, base = _merge_repo(tmp_path, env, "merge-bad", {"test_new.py": _ONE_FINDING})
+
+    _refused_with(_range(repo, env, base), "test_new.py", now=1, head=0)
+
+    twin, twin_base = _merge_repo(tmp_path, env, "merge-ok", {"test_new.py": _WITH_DENOMINATOR})
+    _accepted(_range(twin, env, twin_base))
+
+
+# ----------------------------------------------------------------------- AC15
+
+
+def test_ac15_ordering_parse_before_prepass_before_git_and_alias_tip_is_accepted(tmp_path):
+    env = _hermetic_env(tmp_path)
+    repo, base, _tip = _offending_repo(tmp_path, env)
+    phantom = _phantom_registry_env(tmp_path, env)
+
+    # Parsing precedes the pre-pass: a malformed range wins over the phantom name.
+    malformed = _cli(repo, phantom, ["--range", "HEAD"])
+    assert malformed.returncode == 2, f"{malformed.stdout!r} {malformed.stderr!r}"
+    assert CI_RANGE_ERROR in malformed.stdout, malformed.stdout
+    assert REFUSE_MISSING_DRIVER not in malformed.stdout
+
+    # An empty range still runs the pre-pass.
+    empty = _cli(repo, phantom, ["--range", "HEAD..HEAD"])
+    assert empty.returncode == 1, f"{empty.stdout!r} {empty.stderr!r}"
+    assert REFUSE_MISSING_DRIVER in empty.stdout and _names_lint(empty.stdout, "phantom-lint")
+
+    # A right side spelled as another ref name at the HEAD commit is accepted
+    # (judged by the lint verdict, not by a range error), on both sides.
+    _git_ok(["branch", "alias", "HEAD"], repo, env)
+    refused = _range(repo, env, base, tip="alias")
+    _refused_with(refused, "test_new.py", now=1, head=0)
+    assert CI_RANGE_ERROR not in refused.stdout
+
+    twin = _init_repo(tmp_path, env, "alias-clean")
+    twin_base = _commit_files(twin, env, {"test_base.py": _CONTROL_ONLY})
+    _commit_files(twin, env, {"test_new.py": _WITH_DENOMINATOR})
+    _git_ok(["branch", "alias", "HEAD"], twin, env)
+    _accepted(_range(twin, env, twin_base, tip="alias"))
+    # And the offending alias range really is the one that was refused above.
+    assert _range(repo, env, base).returncode == 1
+
+
+# ----------------------------------------------------------------------- AC16
+
+
+def test_ac16_rename_of_a_legacy_file_with_findings_is_refused_at_base_zero(tmp_path):
+    env = _hermetic_env(tmp_path)
+    repo = _init_repo(tmp_path, env, "rename")
+    base = _commit_files(repo, env, {
+        "test_clean_old.py": _CONTROL_ONLY,
+        "test_old.py": _ONE_FINDING,
+    })
+    _git_ok(["mv", "test_clean_old.py", "test_clean_new.py"], repo, env)
+    _git_ok(["commit", "-q", "--no-verify", "-m", "bd311 rename clean"], repo, env)
+    clean_tip = _git_ok(["rev-parse", "--verify", "HEAD"], repo, env)
+    _git_ok(["mv", "test_old.py", "test_renamed.py"], repo, env)
+    _git_ok(["commit", "-q", "--no-verify", "-m", "bd311 rename legacy"], repo, env)
+
+    _refused_with(_range(repo, env, base), "test_renamed.py", now=1, head=0)
+
+    _checkout(repo, env, clean_tip)
+    _accepted(_range(repo, env, base))
 
 
 # ----------------------------------------------------------------------- AC11
