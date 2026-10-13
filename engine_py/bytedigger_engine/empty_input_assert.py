@@ -31,12 +31,11 @@ The codey test (`is_codey`, `identifier_tokens`) is imported from Rule P
 HAL. It used to be duplicated here as a declared defect pending the Rule P port;
 bd#166 landed the port and moved the helper.
 
-NO ENFORCEMENT LAYER EXISTS FOR THIS MODULE IN BYTEDIGGER. The registry
-`precommit_lints.py` names three lint drivers, zero of which exist on disk, and
-nothing in the engine calls `build_lint_commands`. This scanner is callable from
-tests and from its own CLI; it is not wired into any pre-commit hook, and adding
-its name to that registry would create the appearance of a gate without the
-gate. bd#66 tracks the missing layer.
+ENFORCEMENT: the driver `empty-input-assert-lint.py` at the repo root is
+registered in `TEST_LINTS` and ratcheted against HEAD by the pre-commit layer
+(`precommit_enforce.run_plan`): a staged test file is refused only when it has
+more findings than its version in HEAD (bd#308). The scanner is also callable
+from tests and from its own CLI.
 
 Frozen forms (2026-08-04)
 --------------------------

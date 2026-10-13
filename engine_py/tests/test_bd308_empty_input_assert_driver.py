@@ -775,3 +775,29 @@ def test_ac6_ratchet_head_run_that_errors_is_a_driver_error_not_a_zero_baseline(
     assert len(result) == 1, result
     assert result[0].startswith(f"{REFUSE_DRIVER_ERROR}: lint={_NAME} file=test_x.py"), result
     assert REFUSE_VIOLATION not in result[0], "an erroring HEAD run is not baseline 0"
+
+
+def test_ac6_ratcheted_crash_with_crash_is_violation_is_refused_not_accepted(
+    tmp_path, monkeypatch
+):
+    from bytedigger_engine import precommit_enforce  # noqa: PLC0415
+
+    env = _hermetic_env(tmp_path)
+    _apply_env(monkeypatch, env)
+    monkeypatch.setenv("BD_LINT_CRASH_IS_VIOLATION", "1")
+    repo = _init_repo(tmp_path, env, "unit-crash-violation")
+    (repo / "test_ok.py").write_text(_CONTROL_ONLY, encoding="utf-8")
+    present, violations = precommit_enforce.registry_prepass(precommit_lints.DEFAULT_LINT_DIR)
+    assert violations == []
+
+    commands = _plan(["test_ok.py"])
+    assert len(commands) == 1, f"the lint must be planned for a test file: {commands!r}"
+    # A driver that crashes: exit 1, a traceback on stderr, nothing on stdout.
+    crashing = dict(commands[0])
+    crashing["argv"] = [sys.executable, "-c", "raise RuntimeError('scanner exploded')"]
+
+    result = precommit_enforce.run_plan([crashing], present, str(repo))
+
+    assert len(result) == 1, f"a ratcheted crash under CRASH_IS_VIOLATION must refuse: {result!r}"
+    assert result[0].startswith(f"{REFUSE_VIOLATION}: lint={_NAME} file=test_ok.py"), result
+    assert REFUSE_DRIVER_ERROR not in result[0], result

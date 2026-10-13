@@ -52,8 +52,9 @@ _LEAVING = [
 ]
 _SHIPPED = _LEAVING + [_COVERAGE, "token-consistency-lint"]
 _EXISTING_ROOT_DRIVERS = {
-    "core-boundary-lint.py", "cyrillic-prose-lint.py", "fixture-schema-lint.py",
-    "forbidden-import-lint.py", "one-sided-predicate-lint.py", "stub-passability-lint.py",
+    "core-boundary-lint.py", "cyrillic-prose-lint.py", "empty-input-assert-lint.py",
+    "fixture-schema-lint.py", "forbidden-import-lint.py", "one-sided-predicate-lint.py",
+    "stub-passability-lint.py",
 }
 _EXISTING_SPECS = [
     "AUTHORSHIP_SPEC.md", "CONTRACTS_SPEC.md", "EMISSIONS_SPEC.md",
@@ -219,6 +220,7 @@ def _package_copy(tmp_path: Path, env: dict, name: str) -> Path:
     for older in (
         "cyrillic-prose-lint", "one-sided-predicate-lint",
         "forbidden-import-lint", "stub-passability-lint",
+        "empty-input-assert-lint",  # bd#308: mapped by the copied registry
     ):
         _exit_stand_in(clone, older, 0)
     _install_hook(clone, scripts / "precommit_enforce_cli.py")

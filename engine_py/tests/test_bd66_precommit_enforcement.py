@@ -930,9 +930,9 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     disk, so the on_disk pin fails.
     """
     names = ALL_REGISTRY_NAMES
-    assert len(names) == 12, (
-        f"bd#66 AC7: the live registry denominator must be 12 names "
-        f"(SPEC 9 + TEST 2 + TS 1), got {len(names)}: {names!r}."
+    assert len(names) == 13, (
+        f"bd#66 AC7: the live registry denominator must be 13 names "
+        f"(SPEC 9 + TEST 3 + TS 1), got {len(names)}: {names!r}."
     )
 
     declared = list(getattr(precommit_lints, "DECLARED_ABSENT", []))
@@ -962,6 +962,8 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         "mutation-two-sidedness-lint",
         # bd#305: spec-coverage is mapped; the layer feeds it a spec with a table.
         "spec-coverage-lint",
+        # bd#308: the third test lint, ratcheted against HEAD.
+        "empty-input-assert-lint",
     }
     assert on_disk == sorted(with_drivers), (
         f"bd#66 AC7: the drivers on disk must be exactly {sorted(with_drivers)!r} "

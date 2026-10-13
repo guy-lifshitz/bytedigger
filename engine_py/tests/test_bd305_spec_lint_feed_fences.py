@@ -142,7 +142,9 @@ def test_f2_registry_lists_names_order_and_the_other_ten_mappings_are_unchanged(
         "format-conversion-lint", "closure-evidence-lint",
         "mutation-two-sidedness-lint",
     ]
-    assert precommit_lints.TEST_LINTS == ["forbidden-import-lint", "stub-passability-lint"]
+    assert precommit_lints.TEST_LINTS == [
+        "forbidden-import-lint", "stub-passability-lint", "empty-input-assert-lint",
+    ]
     assert precommit_lints.TS_TEST_LINTS == ["one-sided-predicate-lint"]
     assert precommit_lints.TEXT_LINTS == ["cyrillic-prose-lint"]
 
