@@ -60,11 +60,16 @@ drivers are missing. Upstream HAL has them as `forbidden-import-lint.py` (69 lin
    `forbidden-import-lint`, `one-sided-predicate-lint`, `stub-passability-lint`; `declared` is the
    other nine; denominator 12 unchanged; docstring updated) and every place that uses
    `stub-passability-lint` as a stand-in driver written into `BD66_LINT_DIR` or the package copy
-   (ACs around lines 704, 980, 1117, 1190): those names are now resolved through
+   (AC5, AC8, AC10, AC11 of that file): those names are now resolved through
    `LINT_DRIVER_DIRS`, so the stand-in must be written where the registry says the driver lives (in
    a package copy that is `<clone>/`, the copied registry recomputes its root), or the test must drive
    the real driver with a real violating input. The AC11 `DECLARED_ABSENT` rebind of that name
-   becomes a no-op and is dropped. No other file under `engine_py/tests` is expected to change; the
+   becomes a no-op and is dropped, and AC11 keeps its discriminating power on the canonical lint
+   directory: its stand-in is an UNMAPPED, undeclared name (`phantom-canon-lint` appended to the copied
+   `TEST_LINTS`, driver written into the package copy, `BD66_LINT_DIR` deleted), so only
+   `resolve_lint_dir()` falling back to `DEFAULT_LINT_DIR` can produce the refusal. AC13's named
+   innocent changes from `forbidden-import-lint` (now a present driver) to `scope-inverse-lint` (still
+   declared absent). No other file under `engine_py/tests` is expected to change; the
    RED agent greps for the two names and reports any other use it changes.
 6. `CHANGELOG.md`: one entry under Unreleased, same style as the bd#296 entry, naming the rollback.
 7. Not touched: the nine `SPEC_LINTS` drivers, the hook installer, `empty-input-assert-lint`
@@ -96,7 +101,7 @@ RED file `test_bd302_test_lint_drivers.py` (each fails today):
   reported both lints as run, i.e. `registry_prepass(DEFAULT_LINT_DIR)` marks both names present,
   and `build_lint_commands([], [test_x.py], DEFAULT_LINT_DIR)` has, for each of the two names,
   an `argv[0]` that is an existing executable file. (Pre-GREEN both are absent: this fails.)
-- AC4 (case 4). `DECLARED_ABSENT` equals `SPEC_LINTS` as a set; neither name is in it; registry
+- AC4 (case 4; case 5 is the closing paragraph below: the three existing files stay green). `DECLARED_ABSENT` equals `SPEC_LINTS` as a set and has length 9; neither name is in it; registry
   denominator is still 12; closed the other way: in a package copy (the copied registry resolves its
   repo root to the clone) with `forbidden-import-lint.py` deleted from the clone and the name NOT in
   `DECLARED_ABSENT`, the CLI exits 1 with `BD66-REFUSE-MISSING-DRIVER` naming the lint.
@@ -110,7 +115,8 @@ RED file `test_bd302_test_lint_drivers.py` (each fails today):
   `--json` shapes as in §2.3 with the key sets asserted exactly; `--uut NAME` makes
   stub-passability flag a patched symbol that the import heuristic alone would not flag (the file
   is clean without `--uut`, exit 0, and dirty with it, exit 1); forbidden-import skips a violating
-  file whose basename is not a test name (exit 0, no output).
+  file whose basename is not a test name (exit 0, no output); one call with a violating file plus an unreadable file (and, for
+  stub-passability, plus a syntax-error file) exits 2, not 1.
 - AC7 (rollback claim, both halves). In a package copy: (a) driver present AND name added to
   `DECLARED_ABSENT` -> the violating staged file is still refused (declaration does not suppress a
   present driver); (b) driver file deleted AND name added to `DECLARED_ABSENT` -> the same staged

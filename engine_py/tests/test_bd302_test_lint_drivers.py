@@ -358,6 +358,10 @@ def test_ac4_declared_absent_is_the_nine_spec_lints_and_the_registry_stays_close
         f"DECLARED_ABSENT must be exactly SPEC_LINTS, got "
         f"{precommit_lints.DECLARED_ABSENT!r}"
     )
+    assert len(precommit_lints.DECLARED_ABSENT) == 9, (
+        f"DECLARED_ABSENT must hold exactly nine entries (no duplicates), got "
+        f"{precommit_lints.DECLARED_ABSENT!r}"
+    )
     for name in (_FI_NAME, _SP_NAME):
         assert name not in precommit_lints.DECLARED_ABSENT, f"{name} still declared absent"
     denominator = (
@@ -471,6 +475,13 @@ def test_ac6_forbidden_import_driver_contract(tmp_path):
     mixed = _run_driver(_FI_DRIVER, ["test_clean.py", "test_dirty.py"], tmp_path, env)
     assert mixed.returncode == 1, "one dirty file among several must exit 1"
 
+    # Exit-code precedence: an unreadable file wins over a violation.
+    mixed_missing = _run_driver(_FI_DRIVER, ["test_dirty.py", "test_missing.py"], tmp_path, env)
+    assert mixed_missing.returncode == 2, (
+        f"violating + unreadable file must exit 2, not 1: {mixed_missing.stdout!r} "
+        f"{mixed_missing.stderr!r}"
+    )
+
 
 def test_ac6_stub_passability_driver_contract(tmp_path):
     assert _SP_DRIVER.is_file(), f"driver {_SP_DRIVER} does not exist"
@@ -554,6 +565,22 @@ def test_ac6_stub_passability_driver_contract(tmp_path):
         _SP_DRIVER, ["test_uut.py", "--uut", "other_fn,target_fn"], tmp_path, env
     )
     assert listed.returncode == 1, "--uut takes a comma list"
+
+    # Exit-code precedence: an error anywhere in the call wins over a violation.
+    mixed_missing = _run_driver(
+        _SP_DRIVER, ["test_dirty.py", "test_missing.py"], tmp_path, env
+    )
+    assert mixed_missing.returncode == 2, (
+        f"violating + unreadable file must exit 2, not 1: {mixed_missing.stdout!r} "
+        f"{mixed_missing.stderr!r}"
+    )
+    mixed_syntax = _run_driver(
+        _SP_DRIVER, ["test_dirty.py", "test_syn.py"], tmp_path, env
+    )
+    assert mixed_syntax.returncode == 2, (
+        f"violating + syntax-error file must exit 2, not 1: {mixed_syntax.stdout!r} "
+        f"{mixed_syntax.stderr!r}"
+    )
 
 
 # ------------------------------------------------------------------------ AC7
@@ -650,7 +677,27 @@ def test_ac8_driver_is_portable_and_only_a_thin_cli_over_the_engine_module(drive
         f"exactly one sys.path.insert allowed, got {[ast.unparse(m) for m in mutations]!r}"
     )
     rendered = ast.unparse(mutations[0])
-    assert "__file__" in rendered or "__file__" in text, "engine_py must derive from __file__"
+    insert_arg_names = {
+        sub.id
+        for arg in mutations[0].args
+        for sub in ast.walk(arg)
+        if isinstance(sub, ast.Name)
+    }
+    assert "__file__" in insert_arg_names, (
+        f"engine_py must derive from __file__ inside the sys.path.insert "
+        f"arguments, got {rendered!r}"
+    )
+    absolute_literals = sorted(
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.startswith("/")
+    )
+    assert absolute_literals == [], (
+        f"the driver must not carry an absolute-path string literal, got "
+        f"{absolute_literals!r}"
+    )
     guarded = any(
         isinstance(node, ast.If)
         and any(

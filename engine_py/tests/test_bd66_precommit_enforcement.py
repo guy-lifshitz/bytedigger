@@ -1007,7 +1007,6 @@ def test_ac8_driver_exiting_two_refuses(tmp_path, monkeypatch, capsys):
 
     env = _hermetic_git_env(tmp_path)
     repo = _init_repo(tmp_path, env)
-    _stage_test_file(repo, env)
 
     # bd#302: the real stub-passability driver exits 2 on an unparseable file.
     # (A stand-in in BD66_LINT_DIR would be ignored: the name is resolved
@@ -1179,9 +1178,10 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     the environment; the package is materialised as a COPY under tmp_path
     (precommit_lints.py + precommit_enforce.py — the real package directory is
     never symlinked here, because this AC plants a driver next to the registry
-    and must not write into the real tree); the copied registry drops
-    `stub-passability-lint` is given a driver exiting 1 where the copied
-    registry says it lives (bd#302: LINT_DRIVER_DIRS, the clone root).
+    and must not write into the real tree); the copied registry gains an
+    UNMAPPED, undeclared 13th test lint, `phantom-canon-lint`, whose driver
+    exiting 1 sits in the package copy directory (the copy's DEFAULT_LINT_DIR).
+    Only `resolve_lint_dir()` falling back to DEFAULT_LINT_DIR can find it.
 
     Expected: rc=1 and `BD66-REFUSE-VIOLATION`. The implementation
     `if not os.environ.get("BD66_LINT_DIR"): return 0` passes AC12 and dies
@@ -1216,12 +1216,21 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     clone = _init_repo(tmp_path, env, name="clone")
     pkg = _materialize_package_copy(clone)
 
-    # bd#302: `stub-passability-lint` is resolved through LINT_DRIVER_DIRS, and
-    # the copied registry recomputes its repo root as `clone`. The violating
-    # stand-in therefore goes where the registry says the driver lives (the
-    # clone root), overwriting the exit-0 stand-in the fixture materialised
-    # there. The name is no longer declared absent, so no rebind is needed.
-    _exit_driver(clone, "stub-passability-lint", 1)
+    # bd#302: the stand-in must be an UNMAPPED, undeclared name, so that only
+    # `resolve_lint_dir()` falling back to DEFAULT_LINT_DIR (the package copy
+    # directory) can locate it. A name in LINT_DRIVER_DIRS would resolve through
+    # the mapping and never consult the lint directory at all. As in AC6c, a
+    # 13th name is appended to the COPY of the registry; its exit-1 driver is
+    # written next to that copy. No DECLARED_ABSENT rebind is involved.
+    with (pkg / "precommit_lints.py").open("a") as fh:
+        fh.write('\nTEST_LINTS = list(TEST_LINTS) + ["phantom-canon-lint"]\n')
+    assert "phantom-canon-lint" not in getattr(
+        precommit_lints, "LINT_DRIVER_DIRS", {}
+    ), "bd#66 AC11 arrange: 'phantom-canon-lint' must be unmapped."
+    assert "phantom-canon-lint" not in list(
+        getattr(precommit_lints, "DECLARED_ABSENT", [])
+    ), "bd#66 AC11 arrange: 'phantom-canon-lint' must not be declared absent."
+    _exit_driver(pkg, "phantom-canon-lint", 1)
     _stage_test_file(clone, env)
 
     result = subprocess.run(
@@ -1246,6 +1255,10 @@ def test_ac11_refuses_with_env_override_deleted_using_default_lint_dir(
     )
     assert REFUSE_VIOLATION in output, (
         f"bd#66 AC11: expected {REFUSE_VIOLATION} in the output, got {output!r}."
+    )
+    assert _output_names_lint(output, "phantom-canon-lint"), (
+        f"bd#66 AC11: the refusal must name 'phantom-canon-lint' as a whole "
+        f"token, got {output!r}."
     )
 
 
