@@ -114,7 +114,6 @@ def _empty_baseline(tmp_path, name="baseline.txt"):
 def _clean_env(**overrides):
     env = dict(os.environ)
     env.pop("HAL_BASELINE_DELTA_ENFORCE", None)
-    env.pop("HAL_CORPUS_PARITY_ENFORCE", None)
     env.pop("HAL_BASELINE_DELTA_GATE", None)
     env.pop("HAL_CORPUS_ALLOW_REMOVED", None)
     env.pop("HAL_KNOWN_REDS_TODAY", None)

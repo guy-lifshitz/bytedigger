@@ -1,11 +1,13 @@
 ---
 red_tests:
-  - tests/test_bd299_baseline_delta_driver.py
+  - tests/test_bd299_corpus_parity_retired.py
   - engine_py/tests/test_gh1338_corpus_parity_gate.py::test_ac26_exit_code_ladder_delta_fail_beats_corpus_divergence
   - engine_py/tests/test_gh1338_corpus_parity_gate.py::test_ac38_exit_ladder_blocked_always_nonzero_delta_still_beats_it
 sibling_tests:
+  - tests/test_bd299_baseline_delta_driver.py
   - engine_py/tests/test_gh1740_corpus_scope_derived.py
   - tests/test_bd299_wiring_shield.py
+  - tests/test_bd299_corpus_parity_guards.py
 paths:
   - baseline_delta_gate.py
   - engine_py/bytedigger_engine/workflows/_baseline_delta.py
@@ -61,6 +63,19 @@ with no network (assert the driver argv contains `--base-ref HEAD` by default, e
 or a fake `git` on PATH that fails on `ls-remote`).
 Pure function `summarize(rows)` importable (module has `main(argv)` and
 `if __name__ == "__main__"`).
+
+## S4. Retire HAL_CORPUS_PARITY_ENFORCE (mgr decision, 2026-10-13; precedent bd#296/#298, bd#294/#295)
+Replay data cannot measure corpus parity (`corpus_scope_reason=no_file_oracle` on every row, no seeded parity mismatch), so the
+flag is removed and the check stays a permanent warning. Not measured: no file oracle in `-q` logs.
+- `HAL_CORPUS_PARITY_ENFORCE` is no longer in `flags_catalog.py` CATALOG/FLAGS, `scripts/flip_horizon_ledger.json`, nor read
+  anywhere (`_baseline_delta.py` no longer calls `cfg.flag("HAL_CORPUS_PARITY_ENFORCE")`); no alias.
+- Behavior with the flag gone = behavior of the old flag-OFF default: the corpus-parity result is still computed and reported
+  in the event/warning, never promoted to a block by that flag. The driver's exit ladder is unchanged (BLOCKED -> 5 regardless).
+- `HAL_BASELINE_DELTA_ENFORCE` is NOT touched (stays registered, shadow, ledger expiry unchanged).
+- Tests that referenced the retired flag (gh1338, gh1740, bd89 p3d owner-lint fixtures) are updated to the new state;
+  `scripts/flip_horizon.py --check` stays clean; CHANGELOG gets one line. Follow the bd#296 commit 1c5531c for shape.
+- No tracked non-test, non-decision file contains `HAL_CORPUS_PARITY_ENFORCE` after the change, except where it documents the retirement
+  (CHANGELOG line, retired-flag history in docs/decisions).
 
 ## RED tests (new file `tests/test_bd299_baseline_delta_driver.py`, plus the migrated old tests)
 1. S1 old-name-dead / new-name-exit-4 (subprocess on the driver with a synthetic pytest output file that has one

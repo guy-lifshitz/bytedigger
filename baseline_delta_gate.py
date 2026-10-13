@@ -476,8 +476,8 @@ def main(argv) -> int:
     #   1. delta_verdict == "FAIL" and HAL_BASELINE_DELTA_ENFORCE=1 -> 4
     #      (a known regression takes priority over "don't know").
     #   2. else verdict == "BLOCKED" -> 5 ALWAYS, regardless of
-    #      HAL_CORPUS_PARITY_ENFORCE (that flag now governs ONLY the
-    #      engine-level parity_block/E_CORPUS_PARITY branch, §2.3).
+    #      any flag (corpus parity is a permanent warning at the
+    #      engine level; bd#299).
     #   3. else -> 0.
     # "verdict BLOCKED and exit 0" is impossible under any flag combination.
     exit_code = 0

@@ -39,8 +39,8 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
 
     enforced = bool(cfg.flag("HAL_BASELINE_DELTA_ENFORCE"))
     # GH1338 §2.3: the parity precondition is activated UNCONDITIONALLY from
-    # this wiring — never left to the human argv (M5).
-    parity_enforced = bool(cfg.flag("HAL_CORPUS_PARITY_ENFORCE"))
+    # this wiring — never left to the human argv (M5). bd#299: corpus parity
+    # is a permanent warning (reported, never promoted to a block).
 
     argv = [
         sys.executable, str(script), "--results", stdout_path, "--suite", suite,
@@ -111,7 +111,7 @@ def run_baseline_delta_gate(stdout_path, suite, git_cwd, phase, step, emit, cfg=
     else:
         delta_fail = enforced
 
-    parity_block = parity_enforced and verdict == "BLOCKED"
+    parity_block = False
     would_block = delta_fail or parity_block
 
     emit("baseline_delta_gate_verdict", {
