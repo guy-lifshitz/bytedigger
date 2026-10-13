@@ -914,8 +914,10 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     """AC7: the repository's OWN registry — 12 names, each with EXACTLY one of
     {a driver on disk, an entry in DECLARED_ABSENT}; the drivers on disk are
     exactly {"forbidden-import-lint", "one-sided-predicate-lint",
-    "stub-passability-lint"} (bd#302, bd#166) and DECLARED_ABSENT is the
-    other 9 — must leave the repository committable: with `test_x.py` staged
+    "stub-passability-lint"} (bd#302, bd#166) plus the six bd#304 spec lints
+    (scope-inverse, helper-extraction, presence-triad, format-conversion,
+    closure-evidence, mutation-two-sidedness), and DECLARED_ABSENT is the
+    other 3 — must leave the repository committable: with `test_x.py` staged
     the layer returns 0.
 
     The denominator is asserted explicitly (12), so the AC cannot silently
@@ -950,13 +952,20 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         "forbidden-import-lint",
         "one-sided-predicate-lint",
         "stub-passability-lint",
+        # bd#304: the six spec lints that left DECLARED_ABSENT.
+        "scope-inverse-lint",
+        "helper-extraction-lint",
+        "presence-triad-lint",
+        "format-conversion-lint",
+        "closure-evidence-lint",
+        "mutation-two-sidedness-lint",
     }
     assert on_disk == sorted(with_drivers), (
         f"bd#66 AC7: the drivers on disk must be exactly {sorted(with_drivers)!r} "
-        f"(bd#302, bd#166), got {on_disk!r}."
+        f"(bd#302, bd#166, bd#304), got {on_disk!r}."
     )
     assert sorted(declared) == sorted(set(names) - with_drivers), (
-        f"bd#66 AC7: DECLARED_ABSENT must be the other 9 registry names, "
+        f"bd#66 AC7: DECLARED_ABSENT must be the other 3 registry names, "
         f"got {len(declared)}: {declared!r}."
     )
 
@@ -977,7 +986,7 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
     output = "".join(capsys.readouterr())
 
     assert rc == 0, (
-        f"bd#66 AC7: with 9 names declared absent and 3 drivers on disk the repository must stay "
+        f"bd#66 AC7: with 3 names declared absent and 9 drivers on disk the repository must stay "
         f"committable — expected rc=0, got {rc!r}. output={output!r}"
     )
 
@@ -1381,7 +1390,7 @@ def test_ac13_declared_absent_entry_matching_no_registry_name_refuses(
         f"bd#66 AC13: the refusal must name the orphaned declaration "
         f"'stale-renamed-lint' as a whole token, got {output!r}."
     )
-    innocent = "scope-inverse-lint"  # bd#302: still declared absent
+    innocent = "spec-cite-lint"  # bd#304: still declared absent
     assert innocent in ALL_REGISTRY_NAMES, (
         f"bd#66 AC13 arrange: {innocent!r} must be a real, properly declared "
         f"registry name for the negative assertion to mean anything."
