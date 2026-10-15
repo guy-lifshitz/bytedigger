@@ -96,10 +96,26 @@ Rules for every optional operation:
      otherwise `indeterminate` and the probe call is not made; the controls
      judge digests only.
   4. Shadow: the outcome is reported as `shadow:<outcome>` and never counts
-     toward a level.
-  5. `adapter_ops="shadow" | "off"` (default "shadow"); "off" records every
-     optional operation as `not_executed` and never calls it. Anything else
-     raises ValueError. CLI: `--adapter-ops {shadow,off}`.
+     toward a level. Count: the outcome is reported as is, with no prefix, and
+     only `defended` counts toward a level.
+  5. `adapter_ops="shadow" | "off" | "count"` (default "shadow"); "off" records
+     every optional operation as `not_executed` and never calls it. Anything
+     else raises ValueError. CLI: `--adapter-ops {shadow,off,count}`. The mode
+     is a parameter only and is not written into the attestation.
+     Levels document, sections 6 and 9.1: the adapter has two required
+     operations (`freeze`, `evaluate`) and optional operations, one per
+     adversary group: `lint_vacuity` (ADV-3), `record_oracle_step` (ADV-4),
+     `record_gate_step` (ADV-5), `admit_ledger_row` (ADV-6), `attest_step`
+     (ADV-7 and ADV-10), `attribute_block` (ADV-8). An omitted operation is
+     `not_executed` and the level stops below that adversary. A host
+     attestation counts the optional operations only when the harness is run
+     with `--adapter-ops count`; by default they are reported as
+     `shadow:<outcome>` and the attestation tops out at BD-L1. The default is
+     `shadow` until real host attestations have run in shadow and the owner
+     decides otherwise.
+     Trust boundary: under count the optional adversaries are judged on the
+     adapter's own reports; the harness counts what the host reports and does
+     not prove the host's implementation is real.
   6. `adapter=None` is untouched.
 """
 from typing import TYPE_CHECKING as _TYPE_CHECKING
@@ -686,27 +702,28 @@ _ADAPTER_OPS = {
     "ADV-10": ("attest_step", _probe_tool_set),
 }
 
-_ADAPTER_OPS_MODES = ("shadow", "off")
+_ADAPTER_OPS_MODES = ("shadow", "off", "count")
 
 
 def _optional_op(adapter, name: str, adapter_ops: str, timeout_s: float) -> str:
     """Apply rules 1-5 for the optional operation of adversary `name`."""
     if adapter_ops == "off":
         return _tokens.ADVERSARY_NOT_EXECUTED
+    prefix = "" if adapter_ops == "count" else "shadow:"
     method_name, probe = _ADAPTER_OPS[name]
     try:
         method = getattr(adapter, method_name, None)
     except Exception:  # noqa: BLE001 — a failing attribute read is indeterminate
-        return "shadow:" + OUTCOME_INDETERMINATE
+        return prefix + OUTCOME_INDETERMINATE
     if method is None:
         return _tokens.ADVERSARY_NOT_EXECUTED
     if not callable(method):
-        return "shadow:" + OUTCOME_INDETERMINATE
+        return prefix + OUTCOME_INDETERMINATE
     try:
         outcome = probe(method, timeout_s)
     except Exception:  # noqa: BLE001 — under an adapter a failure is indeterminate
         outcome = OUTCOME_INDETERMINATE
-    return "shadow:" + outcome
+    return prefix + outcome
 
 
 def adapter_identity(adapter) -> "dict[str, str]":
@@ -750,7 +767,11 @@ def run_adversaries(
     With `adapter`, only ADV-1 and ADV-2 run (through the adapter); every other
     name is `not_executed` and the adapter is not called for it, except the
     optional operations (`_ADAPTER_OPS`), reported as `shadow:<outcome>`
-    unless `adapter_ops="off"`. `adapter_ops` must be "shadow" or "off".
+    unless `adapter_ops="off"` (not called) or `adapter_ops="count"` (outcome
+    reported without the prefix, so `defended` counts toward a level).
+    `adapter_ops` must be "shadow", "off" or "count"; anything else raises
+    ValueError. Under "count" the optional adversaries are judged on the
+    adapter's own reports.
     """
     if not isinstance(adapter_ops, str) or adapter_ops not in _ADAPTER_OPS_MODES:
         raise ValueError(
