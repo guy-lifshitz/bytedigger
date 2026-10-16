@@ -240,13 +240,11 @@ Threshold: >=85%
 Dimensions: Spec compliance, Test quality, Code quality, Completeness, Boy Scout compliance
 Threshold: >=90%
 
-1. Launch 1 Opus agents in parallel.
+1. Launch 1 Opus agent.
+2. It returns: Score (0-100%), Verdict (PASS/FAIL), Top concerns
+3. Final verdict and score: the evaluator's own (no voting).
+4. Threshold: the threshold of the tier above.
 <!-- END GENERATED phase6-satisfaction-steps -->
-2. Each returns: Score (0-100%), Verdict (PASS/FAIL), Top concerns
-3. Final verdict: **Majority vote** (the majority of the evaluators PASS = PASS)
-4. Final score: the **median** score of the evaluators
-5. Split decisions: log ALL concerns, use strictest interpretation
-6. Threshold: the threshold in the table above
 
 Thresholds are configurable via `bytedigger.json` → `satisfaction_thresholds`.
 

@@ -172,8 +172,23 @@ def _render_steps(claims: dict) -> list[str]:
         lines.append(f"Dimensions: {', '.join(dims)}")
         lines.append(f"Threshold: >={claims['satisfaction_thresholds'][tier]}%")
         lines.append("")
-        if tier == "COMPLEX":
-            lines.append(f"1. Launch {n} {model} agents in parallel.")
+    n = max(claims["tier_policy"][t]["evaluators"] for t in TIERS)
+    if n == 1:
+        lines += [
+            f"1. Launch 1 {model} agent.",
+            "2. It returns: Score (0-100%), Verdict (PASS/FAIL), Top concerns",
+            "3. Final verdict and score: the evaluator's own (no voting).",
+            "4. Threshold: the threshold of the tier above.",
+        ]
+    else:
+        lines += [
+            f"1. Launch {n} {model} agents in parallel.",
+            "2. Each returns: Score (0-100%), Verdict (PASS/FAIL), Top concerns",
+            "3. Final verdict: Majority vote (the majority of the evaluators PASS = PASS)",
+            "4. Final score: the median score of the evaluators",
+            "5. Split decisions: log ALL concerns, use strictest interpretation",
+            "6. Threshold: the threshold of the tier above.",
+        ]
     return lines
 
 
