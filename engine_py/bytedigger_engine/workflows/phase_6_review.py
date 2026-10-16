@@ -3589,10 +3589,17 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
             status="error", data={**common_data, "invalidate_cycle_sentinels_on_fail": True}, duration_ms=0,
             step_name="write_satisfaction_doc",
             error=error_msg,
-            error_code=("E_SATISFACTION_AC_CHECKLIST" if reason_code == "ac_checklist_fail"
-                        else "E_SATISFACTION_BELOW_THRESHOLD"),
+            error_code="E_SATISFACTION_BELOW_THRESHOLD",
             recoverable=False,
         )
+        if reason_code == "ac_checklist_fail":
+            failed = StepResult(
+                status="error", data={**common_data, "invalidate_cycle_sentinels_on_fail": True}, duration_ms=0,
+                step_name="write_satisfaction_doc",
+                error=error_msg,
+                error_code="E_SATISFACTION_AC_CHECKLIST",
+                recoverable=False,
+            )
         # A missing AC checklist is an evaluator-format failure, not failing ACs.
         if reason_code not in _SATISFACTION_FIX_LOOP_REASONS or (
                 reason_code == "ac_checklist_fail" and not ac_detail.get("failed")):
