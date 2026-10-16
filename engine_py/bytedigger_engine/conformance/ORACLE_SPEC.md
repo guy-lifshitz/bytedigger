@@ -55,7 +55,7 @@ governing: SHARED/memory/Decisions/2026-07-26_bytedigger_conformance_levels.md (
 
 BD-L1 is the level at which the acceptance criteria stop being editable by the actor they
 judge. The engine already produces the two halves separately — the oracle-authoring phase
-(`phase_45_spec` / `phase_45_spec_lite`) and the implementing phase (`phase_5_implement`) are distinct `run.py`
+(`phase_45_spec` / `phase_45_spec_lite`) and the implementing phase (`phase_5_implement`) are distinct runner
 invocations, and each phase writes its documents into its own run-scoped scratchpad. (v1-v4 said
 here that `phase_artifacts` "already records which files each phase wrote"; G9 measured that this
 is false for the oracle documents — see `[bd8:1]` and `[bd8:2a]`.) What is missing is the binding
@@ -81,7 +81,7 @@ the engine already records". **The engine does not record it.** `self._written` 
 exactly one place — the git delta of `org_config["git_cwd"]` (engine.py:493; the
 `worker_written_paths` manifest below it at :497-508 only NARROWS that set, and DEFERs to the
 delta when absent) — while both spec workflows write their documents under
-`org_config["scratchpad_dir"]` (`_resolve_scratchpad`, phase_45_spec.py:372-376, used at
+`org_config["scratchpad_dir"]` (`_resolve_scratchpad`, workflows/phase_45_spec.py:372-376, used at
 :1005-1007; phase_45_spec_lite.py:373-374). Those are different trees under both measured
 drivers. A first source is not a second source, so §1g does not forbid this listing — it
 requires it.
@@ -288,8 +288,8 @@ source and a mutable one — the exact property BD-L1 exists to remove.
 **`[bd8:8a]` The key is the LOG, with `run_id` as a fail-closed cross-check — measured, not
 assumed** (resolves G2). `run.py --run-id` is caller-supplied and defaults to *fresh random
 hex per invocation* (run.py:14,116). Stability across phases is a property of the driver, not
-of the engine: HAL's `run-phase.ts` inherits one `HAL_BUILD_RUN_ID` per batch item
-(run-phase.ts:57-63) and the dogfood driver threads one `--run-id` across phases
+of the engine: HAL's batch driver inherits one `HAL_BUILD_RUN_ID` per batch item
+and the dogfood driver threads one `--run-id` across phases
 (dogfood/README.md:10) — but a driverless two-phase run gives the two phases *different* ids.
 Keying the lookup on `run_id` alone would therefore make the freeze unfindable in exactly the
 driverless case and turn a real mutation into `E_ORACLE_UNFROZEN`-shaped noise. Keying on the
@@ -539,7 +539,7 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   not an engine guarantee, so the lookup is log-scoped with `run_id` as a fail-closed
   cross-check rather than as the key.
 - **G3 — RESOLVED by measurement.** The registry names are `phase_45_spec`,
-  `phase_45_spec_lite`, `phase_5_implement` (workflows/__init__.py:34-36) and
+  `phase_45_spec_lite`, `phase_5_implement` (the workflows package registry) and
   `phase_artifacts.phase` carries them verbatim (engine.py:792-793). The hyphen forms do not
   exist; `run.py --workflow` does not normalise. Underscores are normative throughout.
 - **G4 — RESOLVED by rule, with the cost measured.** Fail-closed; see AC-15 for the rule and the
@@ -557,12 +557,12 @@ adversaries CL §8 requires to have actually run before the level may be claimed
   (engine.py:493 as the sole producer, with the `worker_written_paths` manifest at :497-508 only
   NARROWING it and DEFERring when absent; engine.py:1146-1167 for the delta itself), while both
   spec workflows write their documents under `org_config["scratchpad_dir"]`
-  (phase_45_spec.py:372-376,1005-1007; phase_45_spec_lite.py:373-374). Under both measured drivers
+  (workflows/phase_45_spec.py:372-376,1005-1007; phase_45_spec_lite.py:373-374). Under both measured drivers
   those are different trees (`run_oss_driver.py:113,185`) or a gitignored subtree
   (`driver-template.sh` + `.gitignore`). MEASURED on this engine and pasted into `[bd8:2a]`:
   `written: []` with `write_tracking: "git-delta"` while both documents exist in the scratchpad.
   The `<run_id>/` sub-namespace initially proposed for the re-cut was REJECTED by measurement —
-  `_resolve_scratchpad` returns `scratchpad_dir` verbatim and `run_oss_driver.py:185` interposes
+  `_resolve_scratchpad` returns `scratchpad_dir` verbatim and the OSS run driver interposes
   no run component — so the namespace is `scratchpad_dir` itself, which
   lib/project_root.py:24-31 documents as already run-scoped (`[bd8:1a]`). The proper long-term
   fix (the `worker_written_paths` manifest as a SOURCE rather than a filter, which would restore
@@ -582,7 +582,7 @@ adversaries CL §8 requires to have actually run before the level may be claimed
 new test file. Nothing else.
 
 **Explicitly NOT in scope (§1v).** `engine.py` — in particular `_emit_phase_artifacts` and its
-`finally`; the workflow modules under `engine_py/workflows/`; `attest.py` and the rest of the
+`finally`; the workflow modules under `engine_py/workflows/`; `conformance/attest.py` and the rest of the
 conformance package. A diff touching any of them is out of contract and should be rejected
 without reading further: it means the freeze migrated back into the phase it is meant to bound.
 
@@ -598,7 +598,7 @@ satisfiable by registering the codes early — which is the shape a GREEN natura
 and are named so the GREEN cannot claim a clean scoped pass without them:
 `test_engine_path_closure.py` (a new module in the import closure is exactly what it measures),
 `test_bd22_contracts.py` (the package's no-I/O-at-import invariant, which `[bd8:5]` binds), and
-`test_gh1067_ignored_dir_exclusion.py` (its `test_ac5_real_error_codes_check_exits_0_ok` is the
+`engine_py/tests/test_gh1067_ignored_dir_exclusion.py` (its `test_ac5_real_error_codes_check_exits_0_ok` is the
 INDEPENDENT enforcement of `error_codes.py --check == 0` on the real tree, and therefore the
 corroboration for AC-11's `[bd8:11]` half — AC-11 cannot reach its own `--check` assertion
 pre-GREEN, because the membership half fails first).
@@ -771,7 +771,7 @@ live. **That conclusion was re-derived here rather than inherited**, and it repr
 
 | Site (this base) | Thread | Daemon |
 |---|---|---|
-| `llm_subprocess.py:609` | `llm-straggler-watchdog` | `daemon=True` |
+| removed since this base (was l.609) | `llm-straggler-watchdog` | `daemon=True` |
 | `llm_subprocess.py:2515` | `llm-stream-feeder` | `daemon=True` |
 | `llm_subprocess.py:2518` | `llm-stream-reader` | `daemon=True` |
 | `lib/reference_backends/pydantic_anthropic.py:174` | anonymous | `daemon=True` |
@@ -1050,7 +1050,7 @@ thread that false-fails `AC-E10` (§1.3), and it would be self-inflicted.
 - **normalisation** — none is relied upon, deliberately.
 
 Because the resolution-moment hole cannot be closed by patching alone, the decisive assertion is
-**source-level and exact**: an AST parse of `oracle.py` asserting it imports `signal` in no form —
+**source-level and exact**: an AST parse of `conformance/oracle.py` asserting it imports `signal` in no form —
 neither `import signal` nor `from signal import ...`. That admits no resolution-moment or
 normalisation ambiguity, and it can fail (a signal-based GREEN fails it).
 
@@ -1276,7 +1276,7 @@ the deferred-import idiom achieves clean collection without one.
 1c. **Four adversarial edges survive the RED and are closed by GREEN's choices, not by the fixtures**
    (§8.3): `timeout_s = 0.0` must be tested with `is not None` and never for truthiness; `state` must
    be passed through; the keyword-only `*` must be kept; and `signal` must stay out of every module
-   `conformance.oracle` imports, not only out of `oracle.py`. GREEN does all four; no assertion
+   `conformance.oracle` imports, not only out of `conformance/oracle.py`. GREEN does all four; no assertion
    enforces the first three.
 1d. **A pooled guard is inadmissible even when its workers are daemon.**
    `concurrent.futures.thread` registers `_python_exit`, which **joins** its workers at interpreter
@@ -1306,8 +1306,8 @@ python3 -m pytest tests/ -q -p no:cacheprovider --timeout=120
 ```
 
 **`4227 passed, 6 skipped, 0 failed`** in 292.28 s (6 warnings, all pre-existing:
-3 × `PytestCollectionWarning` on `lib/plugins/disk_truth/test_runner.py:27`, 3 × `SyntaxWarning` on an
-invalid escape in `tests/test_phase_6_FEB64BA8_backtick_strip.py:282`).
+3 × PytestCollectionWarning on `lib/plugins/disk_truth/test_runner.py:27`, 3 × `SyntaxWarning` on an
+invalid escape in `engine_py/tests/test_phase_6_FEB64BA8_backtick_strip.py:282`).
 
 Contention control (hal#1353), matched on command **prefix**, both sides of the run:
 
@@ -1532,7 +1532,7 @@ entirely under contention and one starting clean, both produced exactly `4264 pa
 ### 9.2 The warning-count delta, measured rather than waved through
 
 The baseline recorded **6** warnings; every run since records **5**. The missing one is exactly the
-direct `SyntaxWarning` at `tests/test_phase_6_FEB64BA8_backtick_strip.py:282`; the three
+direct `SyntaxWarning` at `engine_py/tests/test_phase_6_FEB64BA8_backtick_strip.py:282`; the three
 `PytestCollectionWarning`s and the two `<unknown>:282` runtime-`compile()` warnings are unchanged.
 
 Diagnosed by experiment, not by argument:

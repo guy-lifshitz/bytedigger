@@ -26,11 +26,10 @@ DEFAULT_LINT_DIR = os.path.dirname(os.path.realpath(__file__))
 # LINT_DRIVER_DIRS); bd#305: spec-coverage left it too (fed only a spec with an
 # AC table, see feed_skip_reason); bd#315: token-consistency left it after the
 # scanner stopped reporting file names and case-only drift. The one below is
-# held, tracked in #305: spec-cite has no driver file (a live consumer,
-# phase_45_spec, would turn it into a blocking gate).
-DECLARED_ABSENT = [
-    "spec-cite-lint",
-]
+# bd#323: spec-cite left it last, once the spec set was clean under the union
+# rule (spec_cite.lint_spec_union). The list is now empty: every registry name
+# has a driver.
+DECLARED_ABSENT = []
 
 _TS_TEST_SUFFIXES = (".test.ts", ".test.js", ".spec.ts", ".spec.js")
 
@@ -60,6 +59,8 @@ LINT_DRIVER_DIRS = {
     "empty-input-assert-lint": _REPO_ROOT,
     # bd#315: token-consistency left DECLARED_ABSENT.
     "token-consistency-lint": _REPO_ROOT,
+    # bd#323: spec-cite left DECLARED_ABSENT.
+    "spec-cite-lint": _REPO_ROOT,
 }
 
 

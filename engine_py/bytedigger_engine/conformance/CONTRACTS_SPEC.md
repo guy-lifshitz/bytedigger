@@ -248,7 +248,7 @@ potential lint failure.
   and `open` is a primitive **pytest itself runs on**: assertion rewriting, traceback source reading, capture, and
   the cache provider all call it. So the first failure broke pytest's own teardown, `monkeypatch`'s undo never
   completed, the patch **leaked permanently**, every later test errored in setup, and pytest died in
-  `pytest_sessionfinish` (`_pytest/cacheprovider.py:221` reaching the raiser). Measured: **1 passed, 19 errors,
+  `pytest_sessionfinish` (pytest's cacheprovider plugin, line 221, reaching the raiser). Measured: **1 passed, 19 errors,
   session crash** — not the nine clean failures intended, and in the full suite it would have poisoned every test
   that ran after it.
   Required form: wrap each seam so it **records the call and then delegates to the real implementation**, returning

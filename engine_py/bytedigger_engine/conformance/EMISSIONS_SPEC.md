@@ -287,7 +287,7 @@ Every change is **additive**. No existing payload key changes meaning, type, or 
   - **Partial delta failure ⇒ `"not-observed"`**: `_git_changes_vs_head` returns `None` on timeout or missing git
     (`engine.py:1082`), so an `any()`-shaped implementation publishes `"git-delta"` when only *some* step was
     scanned. **Quantified over the steps of a phase**, asserted non-uniformly through the **`lib.git_port`**
-    seam (§0.6; `git_port.py:145-157` resolves through `get_git_read()` at call time, so a factory injection
+    seam (§0.6; `lib/git_port.py:145-157` resolves through `get_git_read()` at call time, so a factory injection
     reaches `engine.py:1076`/`:1079`).
     `[G18:1]` **BOTH orderings are required, and the positive control must span ≥2 steps.** Round 1 asserted
     only the fail-**late** ordering (step 1 succeeds, step 2 fails) with a **one-step** positive control. That

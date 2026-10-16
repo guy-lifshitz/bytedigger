@@ -964,6 +964,8 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         "spec-coverage-lint",
         # bd#315: token-consistency is mapped too.
         "token-consistency-lint",
+        # bd#323: spec-cite left DECLARED_ABSENT; its driver is at the repo root.
+        "spec-cite-lint",
         # bd#308: the third test lint, ratcheted against HEAD.
         "empty-input-assert-lint",
     }
@@ -972,7 +974,7 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         f"(bd#302, bd#166, bd#304, bd#305), got {on_disk!r}."
     )
     assert sorted(declared) == sorted(set(names) - with_drivers), (
-        f"bd#66 AC7: DECLARED_ABSENT must be the other 1 registry name, "
+        f"bd#66 AC7: DECLARED_ABSENT must be the other 0 registry names (bd#323), "
         f"got {len(declared)}: {declared!r}."
     )
 
@@ -1397,7 +1399,7 @@ def test_ac13_declared_absent_entry_matching_no_registry_name_refuses(
         f"bd#66 AC13: the refusal must name the orphaned declaration "
         f"'stale-renamed-lint' as a whole token, got {output!r}."
     )
-    innocent = "spec-cite-lint"  # bd#304: still declared absent
+    innocent = "spec-cite-lint"  # patched above into the declared set (bd#323: its driver exists)
     assert innocent in ALL_REGISTRY_NAMES, (
         f"bd#66 AC13 arrange: {innocent!r} must be a real, properly declared "
         f"registry name for the negative assertion to mean anything."

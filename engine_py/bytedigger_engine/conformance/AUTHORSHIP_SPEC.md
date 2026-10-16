@@ -423,7 +423,7 @@ Asserted on AC-I3's and AC-I7's existing fixtures, beside their `len(adapter.cal
 migrate a real site without mutating it.** Found by the author while measuring AC-I5's blast radius
 and, independently, by the round-1 gate.
 
-`workflows/phase_2_explore.py:22` documents `role_template_path` as **"Prepended to prompt"** and
+The removed explore workflow's docstring documents `role_template_path` as **"Prepended to prompt"** and
 `:294-297` implements it — the role template is the first thing the model reads. v3's AC-I1 pinned
 `assemble` to **append** blocks after the caller's prompt. Migrating that site therefore moved ~3 KB
 of role framing from the head of a live production prompt to its tail, behind the output schema and
@@ -592,7 +592,7 @@ while `data["prompt"]` still hashes to the recorded `prompt_sha256`. A record fo
   `error_codes.py --check` exits 0 on the real tree — the existing drift gate
   (`tests/test_gh1067_ignored_dir_exclusion.py:120`) is the enforcement, and this AC pins that the
   lot does not break it.
-- **AC-I5** `phase_2_explore`'s role-template inlining (`workflows/phase_2_explore.py:180,294`)
+- **AC-I5** `phase_2_explore`'s role-template inlining
   routes through `injections` with `source_id` equal to the **resolved role-template path**, so the
   attributed channel is load-bearing on a real phase. Exactly one phase is migrated; the rest carry
   the re-open criterion above. Asserted end-to-end: the emitted event's `injections` carries that
@@ -770,7 +770,7 @@ Normative for this lot:
 - **AC-C6** **Declared limit of v1, and it is in the attestation, not only here.** Only the tool
   **head** is observable — the adapter derives `observed_tools` from each `tool_use` block's `name`,
   and the operand never leaves the adapter; an argument-level escape *within* an
-  allowed head (a `Bash` call outside `graphify-shim.sh` under the declaration above) is **NOT
+  allowed head (a `Bash` call outside the declared graphify shim under the declaration above) is **NOT
   detected by v1**. Asserted as a characterisation test so the boundary is recorded rather than
   discovered, and labelled in the report. **Re-open criterion:** an adapter interface that surfaces
   the tool operand alongside the head.

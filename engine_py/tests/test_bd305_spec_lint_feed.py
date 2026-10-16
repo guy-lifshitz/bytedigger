@@ -45,12 +45,13 @@ LINT_OFF_UNKNOWN = "BD66-LINT-OFF-UNKNOWN"
 LINT_NOT_FED = "BD66-LINT-NOT-FED"
 
 _COVERAGE = "spec-coverage-lint"
-_HELD = ["spec-cite-lint"]  # bd#315: token-consistency left the held set
+_HELD: list[str] = []  # bd#323: spec-cite-lint left the held set; nothing is held
+_CITE = "spec-cite-lint"
 _LEAVING = [
     "scope-inverse-lint", "helper-extraction-lint", "presence-triad-lint",
     "format-conversion-lint", "closure-evidence-lint", "mutation-two-sidedness-lint",
 ]
-_SHIPPED = _LEAVING + [_COVERAGE, "token-consistency-lint"]
+_SHIPPED = _LEAVING + [_COVERAGE, "token-consistency-lint", _CITE]
 _EXISTING_ROOT_DRIVERS = {
     "core-boundary-lint.py", "cyrillic-prose-lint.py", "empty-input-assert-lint.py",
     "fixture-schema-lint.py", "forbidden-import-lint.py", "one-sided-predicate-lint.py",
@@ -436,30 +437,36 @@ def test_ac3_the_layer_feeds_spec_coverage_only_a_spec_with_an_ac_table(tmp_path
         text = (_CONFORMANCE / name).read_text(encoding="utf-8")
         _stage(repo, env, name, text)
         rc, output = _commit(repo, env)
-        assert rc == 0, f"{name} must be accepted by the layer: {output!r}"
-        assert "BD66-REFUSE" not in output, f"{name}: {output!r}"
+        # bd#323: a flat clone has no `__init__.py` chain and no package files, so the
+        # cite lint resolves against the real repo root only (no union): it may refuse
+        # here. Cleanliness under the union is pinned by test_ac9 below and by bd#323
+        # AC1. Every OTHER lint must still accept each of the five specs.
+        refusals = [ln for ln in output.splitlines() if REFUSE_VIOLATION in ln and name in ln]
+        assert all(f"lint={_CITE} " in ln for ln in refusals), f"{name}: {output!r}"
+        assert rc == 0 or refusals, f"{name} must be accepted by the layer: {output!r}"
+        if rc != 0:
+            _git(["reset", "-q"], repo, env)
 
 
 # ------------------------------------------------------------------------ AC4
 
 
-def test_ac4_the_one_held_lint_stays_held_and_the_registry_stays_closed(tmp_path):
-    assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
-        f"DECLARED_ABSENT must be exactly {_HELD!r}, got {precommit_lints.DECLARED_ABSENT!r}"
+def test_ac4_nothing_is_held_and_the_registry_stays_closed(tmp_path):
+    assert precommit_lints.DECLARED_ABSENT == [], (
+        f"DECLARED_ABSENT must be empty, got {precommit_lints.DECLARED_ABSENT!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 1, precommit_lints.DECLARED_ABSENT
 
     # bd#315: token drift is flagged by the layer: the lint is live.
     rc, output, head = _scenario(tmp_path, "ac4drift", _build(problem_extra=[_TOKEN_LINE]))
     assert rc != 0 and not head, f"token drift must be refused: {output!r}"
     assert len(_lines_with(output, REFUSE_VIOLATION, "token-consistency-lint")) == 1, output
 
-    # No cite driver at the root; the path phase_45_spec computes is not a file.
+    # bd#323: the cite driver exists at the root; the path phase_45_spec computes is a file.
     from bytedigger_engine.workflows import phase_45_spec  # noqa: PLC0415
 
     computed = Path(phase_45_spec.__file__).parent.parent.parent.parent / "spec-cite-lint.py"
-    assert not computed.is_file(), f"{computed} would switch on a blocking /build gate"
-    assert not (_REPO_ROOT / "spec-cite-lint.py").exists()
+    assert computed.is_file(), f"{computed} must exist: the blocking /build gate is live"
+    assert (_REPO_ROOT / "spec-cite-lint.py").is_file()
     on_disk = {p.name for p in _REPO_ROOT.glob("*-lint.py")}
     expected = _EXISTING_ROOT_DRIVERS | {f"{n}.py" for n in _SHIPPED}
     assert on_disk == expected, (
@@ -469,22 +476,13 @@ def test_ac4_the_one_held_lint_stays_held_and_the_registry_stays_closed(tmp_path
 
     # Closed both ways, in a package copy.
     env = _hermetic_env(tmp_path)
-    for name in _HELD:
-        clone = _package_copy(tmp_path, env, f"ac4-undeclare-{name}")
-        _append_registry(
-            clone, f'DECLARED_ABSENT = [n for n in DECLARED_ABSENT if n != "{name}"]'
-        )
+    for name in (_COVERAGE, _CITE):
+        clone = _package_copy(tmp_path, env, f"ac4-deleted-{name}")
+        (clone / f"{name}.py").unlink()
         proc = _run_cli(clone, env)
         output = proc.stdout + proc.stderr
         assert proc.returncode == 1, f"{name}: rc={proc.returncode} {output!r}"
         assert REFUSE_MISSING_DRIVER in output and _lint_token(output, name), output
-
-    clone = _package_copy(tmp_path, env, "ac4-deleted-coverage")
-    (clone / f"{_COVERAGE}.py").unlink()
-    proc = _run_cli(clone, env)
-    output = proc.stdout + proc.stderr
-    assert proc.returncode == 1, f"rc={proc.returncode} {output!r}"
-    assert REFUSE_MISSING_DRIVER in output and _lint_token(output, _COVERAGE), output
 
 
 # ------------------------------------------------------------------------ AC5
@@ -691,7 +689,7 @@ def _package_root(path: Path) -> Path:
     return top
 
 
-def test_ac9_measurement_pin_the_held_lints_still_have_findings_and_coverage_is_not_fed():
+def test_ac9_measurement_pin_the_five_specs_are_clean_under_union_and_coverage_is_not_fed():
     from bytedigger_engine import spec_cite, token_consistency  # noqa: PLC0415
 
     specs = sorted(_CONFORMANCE.glob("*_SPEC.md"))
@@ -704,16 +702,18 @@ def test_ac9_measurement_pin_the_held_lints_still_have_findings_and_coverage_is_
         f"token-consistency must have zero findings on the five existing specs: {drift!r}"
     )
 
-    blocking_both = []
+    # bd#323: the five specs are clean under the union rule (spec_cite.lint_spec_union).
+    blocking = {}
     for p in specs:
-        code_repo, _ = spec_cite.lint_spec(p, _REPO_ROOT)
-        code_pkg, _ = spec_cite.lint_spec(p, _package_root(p))
-        if code_repo != 0 and code_pkg != 0:
-            blocking_both.append(p.name)
-    assert blocking_both, (
-        "spec-cite is now clean on the five existing specs under repo-root and "
-        "package-root resolution: the measurement that held it back is stale, "
-        "so #305's remainder can flip it"
+        code, found = spec_cite.lint_spec_union(p, _REPO_ROOT)
+        if code != 0:
+            blocking[p.name] = [
+                (f.file, f.symbol, f.status) for f in found
+                if f.status in spec_cite.BLOCKING_STATUSES
+            ]
+    assert blocking == {}, (
+        f"spec-cite must be clean (exit 0) on the five existing specs under the "
+        f"union rule: {blocking!r}"
     )
 
     feed_skip_reason = getattr(precommit_lints, "feed_skip_reason", None)
