@@ -5,7 +5,7 @@ paths: [engine_py/bytedigger_engine/workflows/phase_6_review.py, engine_py/byted
 ---
 # bd#317 (slice of bd#89): COMPLEX satisfaction uses the single evaluator path
 
-**Status: DRAFT r1 (pre-gate)** · **Tier:** 2 (engine prod `.py` + md, gate `hal-gate-agent-lite`) · **Class:** PROCESS (dead redundancy removal: three identical calls of one model with a vote cost 3x and add no independent view; the md layer describes behaviour the code never had) ·
+**Status: FROZEN r1 (gate r1 PASS, hal-gate-agent-lite)** · **Tier:** 2 (engine prod `.py` + md, gate `hal-gate-agent-lite`) · **Class:** PROCESS (dead redundancy removal: three identical calls of one model with a vote cost 3x and add no independent view; the md layer describes behaviour the code never had) ·
 **Chokepoint:** `_invoke_satisfaction_llm` (`engine_py/bytedigger_engine/workflows/phase_6_review.py:3411`). The `if cfg.get("complexity") != "COMPLEX"` fork at `:3433` is the only place that routes COMPLEX to `_run_satisfaction_evaluators_parallel` (`:3209`, only caller `:3453`). The result of that fork is consumed at one point, `_write_satisfaction_doc` (`:3637-3646`), which branches on `is_multi_evaluator` to `_write_satisfaction_doc_multi` (`:3977`, only caller `:3646`). Removing the fork at the producer and the branch at the consumer leaves exactly one satisfaction path for every tier.
 **Side of the seam (decision 2026-07-26 §7.1):** engine, `ERROR_CODES.md` (both copies), `phases/phase-6-review.md`, `phases/phase-0-classify.md`, `templates/dynamic-context.md`, CHANGELOG. No `bytedigger.json` change, no TS.
 **Base:** `origin/main` `e027c49`. **Source:** issue #317 (owner decision 2026-10-16: three identical calls, keep one).
