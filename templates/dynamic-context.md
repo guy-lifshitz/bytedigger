@@ -12,7 +12,7 @@
 | 5.2b Validate | Opus | Opus | Opus |
 | 5.3 Green | Sonnet | Sonnet | Sonnet |
 | 6 Review | 1x composite reviewer | 1x composite reviewer | 1x composite reviewer |
-| 6 Satisfaction | Opus (3D) | Opus (5D) | 3x Opus (5D) |
+| 6 Satisfaction | Opus (3D) | Opus (5D) | Opus (5D) |
 | 7 Synthesize | Haiku | Haiku | Haiku |
 
 Models are configurable via `bytedigger.json`.
@@ -27,7 +27,7 @@ Phase 6 runs one composite reviewer for every tier (details: `phases/phase-6-rev
 |-----------|----------|-----------|-----------|
 | SIMPLE | 1x Opus | spec compliance, test quality, code quality | >=80% |
 | FEATURE | 1x Opus | + completeness, Boy Scout | >=85% |
-| COMPLEX | 3x Opus (parallel) | same as FEATURE, majority vote, median | >=90% |
+| COMPLEX | 1x Opus | same as FEATURE | >=90% |
 
 Each returns: Verdict (PASS/FAIL) + Score (0-100%) + Top concerns
 

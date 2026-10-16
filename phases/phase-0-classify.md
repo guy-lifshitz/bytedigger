@@ -287,7 +287,7 @@ At EVERY phase transition: update `current_phase`, append to `completed_phases`,
 | 5.2 Validate | Opus | Opus | Opus |
 | 5.3 Green | Sonnet | Sonnet | Sonnet |
 | 6 Review | 1x composite reviewer | 1x composite reviewer | 1x composite reviewer |
-| 6 Satisfaction | Opus (3 dim) | Opus (5 dim) | 3x Opus voting (5 dim) |
+| 6 Satisfaction | Opus (3 dim) | Opus (5 dim) | Opus (5 dim) |
 | 7 Synthesize | Haiku | Haiku | Haiku |
 
 Models are configurable via `bytedigger.json`.

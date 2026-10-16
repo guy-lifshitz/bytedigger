@@ -74,8 +74,8 @@ If either is missing → STOP, Phase 5 is incomplete.
 | SIMPLE + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 3 dim, >=80% |
 | FEATURE | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=85% |
 | FEATURE + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=85% |
-| COMPLEX | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
-| COMPLEX + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
+| COMPLEX | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=90% |
+| COMPLEX + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=90% |
 
 Thresholds are configurable via `bytedigger.json`.
 
@@ -232,17 +232,10 @@ Threshold: >=80%
 Dimensions: Spec compliance, Test quality, Code quality, Completeness, Boy Scout compliance
 Threshold: >=85%
 
-### COMPLEX — 3-Agent Majority Vote (5 dimensions)
+### COMPLEX — Single Opus Evaluator (5 dimensions)
 
-1. Launch 3 Opus agents in parallel, each with different focus:
-   - **Evaluator A**: spec compliance + completeness
-   - **Evaluator B**: test quality + edge case coverage
-   - **Evaluator C**: code quality + maintainability + Boy Scout
-2. Each returns: Score (0-100%), Verdict (PASS/FAIL), Top concerns
-3. Final verdict: **Majority vote** (2/3 PASS = PASS)
-4. Final score: **Median** of 3 scores
-5. Split decisions: log ALL concerns, use strictest interpretation
-6. Threshold: >=90%
+Dimensions: Spec compliance, Test quality, Code quality, Completeness, Boy Scout compliance
+Threshold: >=90%
 
 Thresholds are configurable via `bytedigger.json` → `satisfaction_thresholds`.
 
