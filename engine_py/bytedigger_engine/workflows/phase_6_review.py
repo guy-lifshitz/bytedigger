@@ -16,10 +16,8 @@ phase-6-review.md describes additional patterns still DEFERRED:
    iteration (mirrors phase-5 GREEN improvement C') replaces workflow-level
    retry. ``write_fix_artifact`` parses ``FIX COMPLETE`` / ``FIX BLOCKED``
    / ``FIX SKIPPED`` markers and routes to ``E_FIX_BLOCKED`` on failure.
-2. **Multi-evaluator satisfaction vote** — single Opus evaluator for
-   SIMPLE/FEATURE; N parallel Opus evaluators (SATISFACTION_TIER_POLICY["COMPLEX"]["evaluators"]) with majority-PASS + median-SCORE
-   aggregation (degraded to ≥2 survivors; single-eval semantics on 0–1 survivors)
-   for COMPLEX. Threshold check in ``write_satisfaction_doc``
+2. **Single-evaluator satisfaction gate** — one Opus evaluator for every
+   tier (SIMPLE/FEATURE/COMPLEX). Threshold check in ``write_satisfaction_doc``
    (HARD GATE — ``never_skip_opus_satisfaction_gate``
    mirrors ``never_skip_opus_validation_gate`` from phase-5).
 
@@ -95,13 +93,11 @@ Outputs:
 """
 from __future__ import annotations
 
-import concurrent.futures
 import functools
 import json
 import logging
 import os
 import re
-import statistics
 import subprocess
 import sys
 import time
@@ -196,7 +192,7 @@ SATISFACTION_TIER_POLICY = {
     },
     "COMPLEX": {
         "reviewers": 1,
-        "evaluators": 3,
+        "evaluators": 1,
         "dimensions": (
             "Spec compliance", "Test quality", "Code quality",
             "Completeness", "Boy Scout compliance",
@@ -3231,53 +3227,6 @@ def _build_satisfaction_prompt(ctx, prev) -> StepResult:
     )
 
 
-# ─── Multi-evaluator satisfaction helpers (021D8FAE) ─────────────────────────
-
-
-def _run_satisfaction_evaluators_parallel(
-    prompt: str,
-    model: str,
-    timeout_sec: int,
-    extra_data: dict,
-    n: "int | None" = None,
-    stable_prefix: str = "",
-    injections: tuple = (),
-) -> "list[StepResult]":
-    """Dispatch n identical invoke_llm_subprocess calls concurrently via ThreadPoolExecutor.
-
-    Spec §1 (021D8FAE): MUST use concurrent.futures.ThreadPoolExecutor(max_workers=n),
-    not a serial loop. Returns list[StepResult] in submission/index order.
-    25e75663: command param replaced by model:str.
-    GH705: stable_prefix threaded through the shipped {prompt, stable_prefix}
-    caching seam — prompt stays full/byte-identical.
-    """
-    if n is None:  # bd#319: read at call time, not a def-time default
-        n = SATISFACTION_TIER_POLICY["COMPLEX"]["evaluators"]
-    # bd#82 (HAL #1898): pool workers do not inherit the parent's thread-local
-    # step context — capture it here and carry it across explicitly.
-    parent_ctx = telemetry_ctx.get_current_run()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=n) as executor:
-        futures = [
-            executor.submit(
-                telemetry_ctx.run_with_current_run,
-                parent_ctx,
-                invoke_llm_subprocess,
-                prompt=prompt,
-                model=model,
-                timeout_sec=timeout_sec,
-                step_name="invoke_satisfaction_llm",
-                extra_data=extra_data,
-                hard_gate=True,
-                gate_label="satisfaction",
-                allowed_tools=["Read"],
-                stable_prefix=stable_prefix,
-                injections=injections,  # bd#141 4(d): every pooled call declares the same block
-            )
-            for _ in range(n)
-        ]
-    return [f.result() for f in futures]
-
-
 def _decide_satisfaction_passed(
     structured: "SatisfactionVerdict | None",
     score: "int | None",
@@ -3355,86 +3304,6 @@ def _deterministic_satisfaction_override(
     return passed, reason_code
 
 
-def _aggregate_satisfaction(evals: "list[dict]", threshold: int) -> dict:
-    """Aggregate multi-evaluator satisfaction results: majority vote + median score.
-
-    Args:
-        evals: list of dicts with keys:
-            index: int
-            score: int | None
-            structured: SatisfactionVerdict | None
-            status: "ok" | "error"
-            error_code: str | None
-        threshold: int  satisfaction_threshold
-
-    Returns dict with keys:
-        n_valid, n_attempted, per_eval, median_score, majority_passed,
-        passed_count, agreement, degraded, fixes_required
-    """
-    valid = [
-        e for e in evals
-        if e["status"] == "ok" and (e["score"] is not None or e["structured"] is not None)
-    ]
-    n_valid = len(valid)
-    per_eval_list = []
-    for e in valid:
-        passed, reason_code = _decide_satisfaction_passed(e["structured"], e["score"], threshold)
-        per_eval_list.append({
-            "index": e["index"],
-            "status": e["status"],
-            "score": e["score"],
-            "structured_ok": e["structured"] is not None,
-            "satisfied": (bool(e["structured"].satisfied) if e["structured"] is not None else None),
-            "passed": passed,
-            "reason_code": reason_code,
-        })
-    per_eval = per_eval_list
-    # Emit per-evaluator drift events (single source of truth — parse-loop emit removed)
-    for pe in per_eval:
-        if pe["reason_code"].startswith("drift_"):
-            e = next(ev for ev in valid if ev["index"] == pe["index"])
-            _emit_safe(
-                "satisfaction_verdict_drift",
-                {
-                    "score": pe["score"],
-                    "threshold": threshold,
-                    "structured_satisfied": bool(e["structured"].satisfied),
-                    "gate_decision": "fail-closed",
-                    "evaluator_index": pe["index"],
-                    "phase": 6,
-                },
-            )
-    eff = [e["score"] for e in valid if e["score"] is not None]
-    passed_count = sum(1 for p in per_eval if p["passed"])
-    median_score = int(round(statistics.median(eff))) if eff else None
-    majority_passed = passed_count * 2 > n_valid  # strict — 1-1 tie ⇒ False (fail-closed)
-    if n_valid == 1:
-        agreement = "single"
-    elif passed_count in (0, n_valid):
-        agreement = "unanimous"
-    elif n_valid == 2:
-        agreement = "split"  # 1-1
-    else:
-        agreement = "2-1"  # n_valid==3, passed_count in {1,2}
-    fixes_required = [
-        f
-        for e in valid
-        if e["structured"] is not None
-        for f in e["structured"].fixes_required
-    ]
-    return {
-        "n_valid": n_valid,
-        "n_attempted": len(evals),
-        "per_eval": per_eval,
-        "median_score": median_score,
-        "majority_passed": majority_passed,
-        "passed_count": passed_count,
-        "agreement": agreement,
-        "degraded": n_valid < 2,
-        "fixes_required": fixes_required,
-    }
-
-
 # ─── Step 9: invoke satisfaction LLM ─────────────────────────────────────────
 
 
@@ -3458,67 +3327,21 @@ def _invoke_satisfaction_llm(ctx, prev) -> StepResult:
         "fix_commit_sha": prev.data.get("fix_commit_sha"),
     }
 
-    # AC15: read cfg.get("complexity") directly — never call _resolve_complexity
-    # (avoids double complexity_default_used emit; no new ValueError path).
-    if cfg.get("complexity") != "COMPLEX":
-        # SIMPLE / FEATURE / unset: single evaluator
-        # Unlink stale doc_path before dispatch (mirror _invoke_fix_llm :2167).
-        try:
-            Path(prev.data["doc_path"]).unlink()
-        except (FileNotFoundError, OSError):
-            pass
-        return invoke_llm_subprocess(
-            prompt=prev.data["prompt"],
-            model=sat_model,
-            timeout_sec=timeout_sec,
-            step_name="invoke_satisfaction_llm",
-            extra_data=extra_data,
-            hard_gate=True,
-            gate_label="satisfaction",
-            allowed_tools=["Read", "Write"],
-            injections=_declared_injections(prev.data),  # bd#141 4(d)
-        )
-
-    # COMPLEX: parallel evaluators via ThreadPoolExecutor (spec §1, 021D8FAE);
-    # count from SATISFACTION_TIER_POLICY at call time (bd#319)
-    results: list[StepResult] = _run_satisfaction_evaluators_parallel(
-        prev.data["prompt"], sat_model, timeout_sec, extra_data,
-        n=SATISFACTION_TIER_POLICY["COMPLEX"]["evaluators"],
-        stable_prefix=prev.data.get("stable_prefix", ""),
-        injections=_declared_injections(prev.data),  # bd#141 4(d)
-    )
-    ok_results = [r for r in results if r.status == "ok"]
-    if not ok_results:
-        # All 3 subprocesses errored → return first error as-is (AC13)
-        # error_code is the LLM error (e.g. E_LLM_TIMEOUT), NOT E_SATISFACTION_BELOW_THRESHOLD
-        return results[0]
-
-    return StepResult(
-        status="ok",
+    # Unlink stale doc_path before dispatch (mirror _invoke_fix_llm :2167).
+    try:
+        Path(prev.data["doc_path"]).unlink()
+    except (FileNotFoundError, OSError):
+        pass
+    return invoke_llm_subprocess(
+        prompt=prev.data["prompt"],
+        model=sat_model,
+        timeout_sec=timeout_sec,
         step_name="invoke_satisfaction_llm",
-        duration_ms=0,
-        data={
-            # backward-compat: _write_satisfaction_doc's last_findings + non-multi fallback read this
-            "raw_response": ok_results[0].data["raw_response"],
-            "is_multi_evaluator": True,
-            "evaluator_responses": [
-                {
-                    "index": i,
-                    "status": r.status,
-                    "raw_response": (r.data["raw_response"] if r.status == "ok" else ""),
-                    "error_code": (None if r.status == "ok" else r.error_code),
-                    # bd#206 M1: the evaluator's attestation id (None when unattested)
-                    "invocation_id": (
-                        r.data.get("invocation_id") if isinstance(r.data, dict) else None
-                    ),
-                }
-                for i, r in enumerate(results)
-            ],
-            "doc_path": prev.data["doc_path"],
-            "spec_path": prev.data["spec_path"],
-            "review_doc_path": prev.data["review_doc_path"],
-            "fix_doc_path": prev.data["fix_doc_path"],
-        },
+        extra_data=extra_data,
+        hard_gate=True,
+        gate_label="satisfaction",
+        allowed_tools=["Read", "Write"],
+        injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
 
 
@@ -3653,10 +3476,6 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
     on failure (mirrors phase-5 write_validation_doc + gate_on_validation
     sequencing — but inlined here since the satisfaction gate has no
     downstream steps that need the verdict on success).
-
-    Multi-evaluator branch (021D8FAE): if prev.data has is_multi_evaluator=True
-    and evaluator_responses (list, len>1), dispatches the 3-evaluator aggregation
-    path. Otherwise falls through to the existing single-evaluator body.
     """
     if not isinstance(prev, StepResult) or not isinstance(prev.data, dict):
         return StepResult(
@@ -3666,18 +3485,7 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
             error_code="E_MISSING_PREV_DATA",
         )
 
-    # ── multi-evaluator path (COMPLEX, 021D8FAE) ─────────────────────────────
-    evaluator_responses = prev.data.get("evaluator_responses")
-    is_multi = (
-        bool(prev.data.get("is_multi_evaluator"))
-        and isinstance(evaluator_responses, list)
-        and len(evaluator_responses) > 1
-    )
-
-    if is_multi:
-        return _write_satisfaction_doc_multi(ctx, prev, evaluator_responses)  # type: ignore[arg-type]
-
-    # ── single-evaluator path (SIMPLE / FEATURE / unset) ─────────────────────
+    # ── single-evaluator path (all tiers) ────────────────────────────────────
     raw = prev.data["raw_response"]
     doc_path = Path(prev.data["doc_path"])
     doc_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3748,7 +3556,6 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
         passed, reason_code = False, "ac_checklist_fail"
 
     # Drift event: only when both signals present and disagree (reason_code.startswith("drift_"))
-    # Note 5: single-eval drift emit has no evaluator_index (implicit-None preserved)
     if reason_code.startswith("drift_"):
         _emit_safe(
             "satisfaction_verdict_drift",
@@ -3810,10 +3617,17 @@ def _write_satisfaction_doc(ctx, prev) -> StepResult:
             status="error", data={**common_data, "invalidate_cycle_sentinels_on_fail": True}, duration_ms=0,
             step_name="write_satisfaction_doc",
             error=error_msg,
-            error_code=("E_SATISFACTION_AC_CHECKLIST" if reason_code == "ac_checklist_fail"
-                        else "E_SATISFACTION_BELOW_THRESHOLD"),
+            error_code="E_SATISFACTION_BELOW_THRESHOLD",
             recoverable=False,
         )
+        if reason_code == "ac_checklist_fail":
+            failed = StepResult(
+                status="error", data={**common_data, "invalidate_cycle_sentinels_on_fail": True}, duration_ms=0,
+                step_name="write_satisfaction_doc",
+                error=error_msg,
+                error_code="E_SATISFACTION_AC_CHECKLIST",
+                recoverable=False,
+            )
         # A missing AC checklist is an evaluator-format failure, not failing ACs.
         if reason_code not in _SATISFACTION_FIX_LOOP_REASONS or (
                 reason_code == "ac_checklist_fail" and not ac_detail.get("failed")):
@@ -3857,18 +3671,6 @@ def _render_satisfaction_findings(fixes: list, fallback: str) -> str:
 
 
 _INVOCATION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-
-
-def _multi_findings_groups(evals: list) -> list:
-    """bd#206 M1: (invocation_id, fixes) per contributing evaluator, in the order
-    _aggregate_satisfaction concatenates them."""
-    return [
-        (e.get("invocation_id"), e["structured"].fixes_required)
-        for e in evals
-        if e["status"] == "ok"
-        and (e["score"] is not None or e["structured"] is not None)
-        and e["structured"] is not None
-    ]
 
 
 def _satisfaction_findings_blocks(groups: "list | None") -> "list[dict] | None":
@@ -3953,7 +3755,6 @@ def _satisfaction_fix_loop(
 def _persist_satisfaction_last_findings(ctx, prev, score, threshold: int) -> None:
     """Persist reviews/last_findings.json for the satisfaction FAIL path.
 
-    Reused by both single-eval and multi-eval FAIL paths (C834481A).
     Wrapped in try/except — swallows all errors to avoid masking the
     satisfaction gate result itself.
     """
@@ -4004,365 +3805,6 @@ def _persist_satisfaction_last_findings(ctx, prev, score, threshold: int) -> Non
         )
     except Exception:  # noqa: BLE001
         logger.warning("C834481A: failed to write last_findings.json", exc_info=True)
-
-
-def _write_satisfaction_doc_multi(ctx, prev, evaluator_responses: list) -> StepResult:
-    """Multi-evaluator satisfaction gate (COMPLEX path, 021D8FAE).
-
-    Parses each evaluator's raw response, aggregates via majority vote +
-    median score, writes a composite doc, emits telemetry, applies gate.
-    """
-    cfg = ctx.org_config or {}
-    threshold = int(cfg.get("satisfaction_threshold") or DEFAULT_SATISFACTION_THRESHOLD)
-    doc_path = Path(prev.data["doc_path"])
-
-    # GH388: read spec text once for the per-AC checklist cross-check (same try/except
-    # shape as the single-eval path — unreadable spec -> "" -> skip(no_spec_acs)).
-    spec_text = ""
-    try:
-        spec_text = Path(prev.data["spec_path"]).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError, KeyError, TypeError):
-        pass
-    try:
-        _sat_spec_sha = file_sha256(prev.data["spec_path"])
-    except (OSError, ValueError, KeyError, TypeError):
-        _sat_spec_sha = None
-
-    # Parse each evaluator response
-    evals: list[dict] = []
-    for entry in evaluator_responses:
-        i = entry["index"]
-        status = entry.get("status", "error")
-        if status == "ok":
-            raw_i: str = entry.get("raw_response", "")
-            score_i = _parse_satisfaction_score(raw_i)
-            structured_i, sv_reason_i = _parse_satisfaction_structured(raw_i)
-            # Per-evaluator structured/drift telemetry (spec §3 step 1)
-            if structured_i is not None:
-                _emit_safe(
-                    "satisfaction_structured_ok",
-                    {"satisfied": structured_i.satisfied, "phase": 6, "evaluator_index": i},
-                )
-            else:
-                _emit_safe(
-                    "satisfaction_structured_missing",
-                    {"reason": sv_reason_i, "phase": 6, "evaluator_index": i},
-                )
-            # GH388: per-evaluator AC-checklist cross-check
-            ac_verdict_i, ac_detail_i = _verify_ac_checklist(spec_text, raw_i)
-            _emit_safe("satisfaction_ac_checklist", {
-                "verdict": ac_verdict_i, "reason": ac_detail_i.get("reason"),
-                "spec_ac_count": ac_detail_i.get("spec_ac_count", 0),
-                "missing_count": len(ac_detail_i.get("missing", [])),
-                "failed_count": len(ac_detail_i.get("failed", [])), "phase": 6,
-                "evaluator_index": i,
-                "spec_sha": _sat_spec_sha,
-            })
-        else:
-            score_i = None
-            structured_i = None
-            ac_verdict_i = None
-            ac_detail_i = {}
-
-        evals.append({
-            "index": i,
-            "score": score_i,
-            "structured": structured_i,
-            "status": status,
-            "error_code": entry.get("error_code"),
-            "invocation_id": entry.get("invocation_id"),  # bd#206 M1
-            "ac_verdict": ac_verdict_i,
-            "ac_failed": list(ac_detail_i.get("failed", [])),
-        })
-
-    # GH388: majority checklist-fail over valid (status=="ok") evaluators. Skip verdicts
-    # (None from errored evaluators) count as neither pass nor fail.
-    _ac_valid_verdicts = [e["ac_verdict"] for e in evals if e["status"] == "ok"]
-    _ac_n_valid = len(_ac_valid_verdicts)
-    _ac_n_fail = sum(1 for v in _ac_valid_verdicts if v == "fail")
-    ac_majority_fail = _ac_n_valid > 0 and (_ac_n_fail * 2 > _ac_n_valid)
-    ac_checklist_summary = ", ".join(
-        (e["ac_verdict"] if e["status"] == "ok" and e["ac_verdict"] is not None else "skip")
-        for e in evals
-    )
-
-    agg = _aggregate_satisfaction(evals, threshold)
-    n_valid = agg["n_valid"]
-    n_attempted = agg["n_attempted"]
-
-    # Build composite doc (spec §3 step 3) — ALWAYS written (overwrites)
-    # Table header: 1-indexed evaluator numbers
-    table_rows = []
-    for entry in evaluator_responses:
-        i = entry["index"]
-        status = entry.get("status", "error")
-        # find the parsed eval
-        ev = next((e for e in evals if e["index"] == i), None)
-        if status == "ok" and ev is not None:
-            score_disp = str(ev["score"]) if ev["score"] is not None else "—"
-            # passed according to per_eval
-            pe = next((p for p in agg["per_eval"] if p["index"] == i), None)
-            verdict_disp = ("PASS" if pe["passed"] else "FAIL") if pe is not None else "FAIL"
-            struct_disp = "ok" if (ev["structured"] is not None) else "absent"
-        else:
-            score_disp = "—"
-            verdict_disp = "—"
-            struct_disp = "—"
-        table_rows.append(
-            f"| {i + 1} | {status} | {score_disp} | {verdict_disp} | {struct_disp} |"
-        )
-
-    table_str = "\n".join(table_rows)
-    majority_verdict = "PASS" if agg["majority_passed"] else "FAIL"
-    gate_result = "PASS" if (
-        (n_valid >= 2 and agg["majority_passed"])
-        or (n_valid == 1 and (
-            next((e for e in evals if e["status"] == "ok" and
-                  (e["score"] is not None or e["structured"] is not None)), None) is not None
-            and _single_eval_passed(evals, threshold)
-        ))
-    ) else "FAIL"
-
-    # Section per evaluator
-    evaluator_sections = []
-    for entry in evaluator_responses:
-        i = entry["index"]
-        status = entry.get("status", "error")
-        if status == "ok":
-            raw_i = entry.get("raw_response", "")
-            evaluator_sections.append(f"## Evaluator {i + 1}\n{raw_i}")
-        else:
-            ec = entry.get("error_code", "unknown")
-            evaluator_sections.append(f"## Evaluator {i + 1} — ERRORED ({ec})")
-
-    composite_text = (
-        f"# Multi-Evaluator Satisfaction Review (COMPLEX — {n_attempted} evaluators)\n\n"
-        f"## Aggregation Summary\n"
-        f"| Evaluator | Status | Score | Verdict | Structured |\n"
-        f"|---|---|---|---|---|\n"
-        f"{table_str}\n\n"
-        f"- Valid evaluators: {n_valid} / {n_attempted}\n"
-        f"- Median score: {agg['median_score']}  (threshold: {threshold})\n"
-        f"- Majority verdict: {majority_verdict}  (agreement: {agg['agreement']})\n"
-        f"- Gate result: {gate_result}\n"
-        f"- AC checklist: {ac_checklist_summary}\n\n"
-        "---\n" + "\n---\n".join(evaluator_sections) + "\n"
-    )
-
-    doc_path.parent.mkdir(parents=True, exist_ok=True)
-    doc_path.write_text(composite_text, encoding="utf-8")
-    satisfaction_bytes_written = len(composite_text.encode("utf-8"))
-
-    # Telemetry
-    if n_valid >= 2:
-        _emit_safe(
-            "satisfaction_multi_evaluator",
-            {
-                "phase": 6,
-                "n_attempted": n_attempted,
-                "n_valid": n_valid,
-                "evaluators": [
-                    {
-                        "index": p["index"],
-                        "status": p["status"],
-                        "score": p["score"],
-                        "structured_ok": p["structured_ok"],
-                        "satisfied": p["satisfied"],
-                        "passed": p["passed"],
-                    }
-                    for p in agg["per_eval"]
-                ],
-                "median_score": agg["median_score"],
-                "majority_passed": agg["majority_passed"],
-                "passed_count": agg["passed_count"],
-                "agreement": agg["agreement"],
-                "threshold": threshold,
-                "degraded": False,
-            },
-        )
-    else:
-        reason = "no_valid_evaluators" if n_valid == 0 else "only_one_valid_evaluator"
-        _emit_safe(
-            "satisfaction_multi_evaluator_degraded",
-            {
-                "phase": 6,
-                "n_attempted": len(evals),
-                "n_valid": n_valid,
-                "reason": reason,
-            },
-        )
-
-    # Gate decision
-    if n_valid >= 2:
-        passed = agg["majority_passed"]
-        score_out = agg["median_score"]
-        fixes = agg["fixes_required"]
-    elif n_valid == 1:
-        # single-eval semantics on the surviving valid evaluator (9702B73F: use helper)
-        survivor = next(
-            e for e in evals
-            if e["status"] == "ok" and (e["score"] is not None or e["structured"] is not None)
-        )
-        structured_s = survivor["structured"]
-        score_s = survivor["score"]
-        passed, reason_code_s = _decide_satisfaction_passed(structured_s, score_s, threshold)
-        fixes = structured_s.fixes_required if structured_s is not None else []
-        score_out = score_s
-        # Emit drift event for surviving evaluator if drift detected
-        if reason_code_s.startswith("drift_"):
-            _emit_safe(
-                "satisfaction_verdict_drift",
-                {
-                    "score": score_s,
-                    "threshold": threshold,
-                    "structured_satisfied": structured_s.satisfied,  # type: ignore[union-attr]
-                    "gate_decision": "fail-closed",
-                    "evaluator_index": survivor["index"],
-                    "phase": 6,
-                },
-            )
-    else:
-        # n_valid == 0: fail-closed
-        passed = False
-        score_out = None
-        fixes = []
-
-    # GH388: majority checklist-fail forces the REAL gate decision to error — only
-    # downgrades a would-be PASS (non-masking invariant, mirrors the single-eval path).
-    ac_checklist_override = False
-    if ac_majority_fail and passed:
-        passed = False
-        ac_checklist_override = True
-
-    common_data: dict = {
-        "satisfaction_doc_path": str(doc_path),
-        "spec_path": prev.data["spec_path"],
-        "review_doc_path": prev.data["review_doc_path"],
-        "fix_doc_path": prev.data["fix_doc_path"],
-        "satisfaction_bytes_written": satisfaction_bytes_written,
-        "score": score_out,
-        "threshold": threshold,
-        "structured_verdict": None,
-        "multi_evaluator": {
-            "n_valid": agg["n_valid"],
-            "median_score": agg["median_score"],
-            "majority_passed": agg["majority_passed"],
-            "agreement": agg["agreement"],
-            "degraded": agg["degraded"],
-            "passed_count": agg["passed_count"],
-        },
-    }
-
-    # F81D5EF7: fail-loud when multi-eval is structurally degraded (n_valid < 2).
-    # Closes issue #73 — verdict status="ok" silently masked degraded reviews.
-    if agg["degraded"]:
-        _degrade_reason = "no_valid_evaluators" if agg["n_valid"] == 0 else "only_one_valid_evaluator"
-        return StepResult(
-            status="error",
-            data=common_data,
-            duration_ms=0,
-            step_name="write_satisfaction_doc",
-            error=f"review degraded: {_degrade_reason} (n_valid={agg['n_valid']}, n_attempted={agg.get('n_attempted', len(evals))})",
-            error_code="E_REVIEW_DEGRADED",
-            recoverable=False,
-        )
-
-    if not passed:
-        _persist_satisfaction_last_findings(ctx, prev, score_out, threshold)
-        # GH388: majority checklist-fail on a would-be PASS gate — own error branch,
-        # bypasses the score-based message ladder below (record_satisfaction_reject
-        # scoped to this new flip branch only per §2.3 advisory 6).
-        if ac_checklist_override:
-            error_msg = (
-                f"AC checklist gate failed — {_ac_n_fail}/{_ac_n_valid} valid evaluators "
-                f"missing or failing the AC checklist (majority)"
-            )
-            record_satisfaction_reject("ac_checklist_fail", error_msg, score_out, threshold, axes_text=composite_text)
-            failed = StepResult(
-                status="error",
-                data={**common_data, "invalidate_cycle_sentinels_on_fail": True},
-                duration_ms=0,
-                step_name="write_satisfaction_doc",
-                error=error_msg,
-                error_code="E_SATISFACTION_AC_CHECKLIST",
-                recoverable=False,
-            )
-            ac_failed = sorted({ac for e in evals for ac in e["ac_failed"]})
-            if not ac_failed:
-                return failed  # every failing evaluator left out the checklist: format
-            return _satisfaction_fix_loop(ctx, prev, failed, _render_satisfaction_findings(
-                fixes, error_msg + f"; failing ACs: {', '.join(ac_failed)}"),
-                _multi_findings_groups(evals))
-        # Build descriptive error message
-        if n_valid >= 2:
-            error_msg = (
-                f"satisfaction multi-evaluator FAIL — median score {score_out} "
-                f"(threshold {threshold}), agreement={agg['agreement']}, "
-                f"majority_passed=False"
-            )
-        elif n_valid == 1:
-            # Mirror single-eval error branches (9702B73F Note 4)
-            if reason_code_s.startswith("drift_"):
-                error_msg = (
-                    f"satisfaction verdict drift — score {score_out} vs threshold {threshold}, "
-                    f"structured.satisfied={structured_s.satisfied} "  # type: ignore[union-attr]
-                    f"({len(structured_s.fixes_required)} fix(es) listed); fail-closed"  # type: ignore[union-attr]
-                )
-            elif reason_code_s == "structured_only_no_score":
-                error_msg = (
-                    f"satisfaction evaluator omitted SCORE — structured.satisfied="
-                    f"{structured_s.satisfied} cannot override missing numeric verification; fail-closed"  # type: ignore[union-attr]
-                )
-            elif reason_code_s == "concurring_fail":
-                error_msg = f"satisfaction not satisfied — {len(structured_s.fixes_required)} fix(es) required"  # type: ignore[union-attr]
-            elif reason_code_s == "no_signals":
-                error_msg = "satisfaction evaluator omitted SCORE and structured verdict — invalid evaluation"
-            else:
-                error_msg = f"satisfaction score {score_out} < threshold {threshold}"
-        else:
-            error_msg = (
-                "satisfaction evaluator omitted SCORE and structured verdict — invalid evaluation"
-            )
-        failed = StepResult(
-            status="error",
-            data={**common_data, "invalidate_cycle_sentinels_on_fail": True},
-            duration_ms=0,
-            step_name="write_satisfaction_doc",
-            error=error_msg,
-            error_code="E_SATISFACTION_BELOW_THRESHOLD",
-            recoverable=False,
-        )
-        # Only a majority FAIL that names fixes is work for a fix worker; one
-        # valid evaluator is degraded (E_REVIEW_DEGRADED above), and a FAIL with
-        # no fixes listed is an evaluator-format failure.
-        if n_valid < 2 or not fixes:
-            return failed
-        return _satisfaction_fix_loop(
-            ctx, prev, failed, _render_satisfaction_findings(fixes, error_msg),
-            _multi_findings_groups(evals))
-    return StepResult(
-        status="ok",
-        data=common_data,
-        duration_ms=0,
-        step_name="write_satisfaction_doc",
-    )
-
-
-def _single_eval_passed(evals: list, threshold: int) -> bool:
-    """Helper: check if the single surviving valid evaluator passes.
-
-    Used only for the composite doc gate_result string display.
-    """
-    survivor = next(
-        (e for e in evals if e["status"] == "ok" and
-         (e["score"] is not None or e["structured"] is not None)),
-        None,
-    )
-    if survivor is None:
-        return False
-    if survivor["structured"] is not None:
-        return bool(survivor["structured"].satisfied)
-    return survivor["score"] is not None and survivor["score"] >= threshold
 
 
 # ─── Step 12: CONTROL gate — mass-UNVERIFIED detector (agreement 5F9817F6) ───

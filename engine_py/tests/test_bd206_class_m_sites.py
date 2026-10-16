@@ -27,7 +27,8 @@ attestation is read back from the log FILE (workflows.md 1l). Expected digests c
 telemetry slot are singletons: pre-staged to a known baseline and restored by the autouse
 fixture; nothing here depends on timing (workflows.md 1i). Thread-pool completion order of the
 COMPLEX evaluators is never relied on: evaluator i is mapped to its log event through
-`output_sha256 == sha256(evaluator_responses[i]["raw_response"])`.
+`output_sha256 == sha256(evaluator_responses[i]["raw_response"])`. (bd#317: COMPLEX now runs the
+single evaluator; the AC2 cases assert the single-evaluator shape.)
 
 `lib/findings_provenance.py` does not exist on the base; it is imported INSIDE test bodies so
 the file collects and each test fails at assert time. No `sys.path` mutation, no conftest import.
@@ -38,8 +39,8 @@ AC -> test map
 --------------
 AC1  test_ac1_single_evaluator_fix_declares_satisfaction_block
      test_ac1_marker_retry_declares_same_block
-AC2  test_ac2_complex_declares_one_block_per_contributing_evaluator
-AC2b test_ac2b_partial_evaluator_ids_forward_nothing_and_do_not_refuse   (gate r3 m-3)
+AC2  (moved to test_bd317_satisfaction_retargets.py: test_ac2_complex_declares_one_block_for_the_single_evaluator)
+AC2b (moved to test_bd317_satisfaction_retargets.py: test_ac2b_missing_evaluator_id_forwards_nothing_and_does_not_refuse)
 AC3  test_ac3a_no_fixes_fallback_text_is_not_declared
      test_ac3b_forged_findings_blocks_not_declared_not_refused
      test_ac3c_no_event_log_forwards_no_findings_blocks
@@ -241,7 +242,6 @@ def _lines(fixes: list) -> str:
 
 FIXES_SINGLE = [{"file": "a.py", "issue": "BD206 issue one"}, {"file": "b.py", "issue": "BD206 issue two"}]
 FIXES_A = [{"file": "a1.py", "issue": "A issue one"}, {"file": "a2.py", "issue": "A issue two"}]
-FIXES_C = [{"file": "c1.py", "issue": "C issue one"}]
 
 
 class _Sat:
@@ -346,79 +346,6 @@ def test_ac1_marker_retry_declares_same_block(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 # AC2 - M1 COMPLEX
 # ---------------------------------------------------------------------------
-
-def _complex_raws():
-    raw_a = _sat_raw(FIXES_A, "evaluator A")
-    raw_b = _sat_raw([], "evaluator B")
-    raw_c = _sat_raw(FIXES_C, "evaluator C")
-    lines_of = {raw_a: _lines(FIXES_A), raw_b: "", raw_c: _lines(FIXES_C)}
-    return [raw_a, raw_b, raw_c], lines_of
-
-
-def _expected_groups(s: _Sat, lines_of: dict) -> list:
-    """[(source_id, lines)] per evaluator WITH fixes, in evaluator index order, ids mapped
-    through output_sha256 (thread-pool completion order is never relied on)."""
-    ids_by_out = {p["output_sha256"]: p["invocation_id"] for p in _attests(s.log, "invoke_satisfaction_llm")}
-    out = []
-    for entry in s.sat.data["evaluator_responses"]:
-        raw = entry["raw_response"]
-        if lines_of[raw]:
-            out.append(("invocation:invoke_satisfaction_llm:" + ids_by_out[sha256_of(raw)], lines_of[raw]))
-    return out
-
-
-def test_ac2_complex_declares_one_block_per_contributing_evaluator(tmp_path) -> None:
-    """AC2: A(2 fixes), B(0), C(1) -> two blocks, index order, each naming its own
-    evaluator's logged id and covering only its own lines; evaluator_responses carry ids."""
-    raws, lines_of = _complex_raws()
-    s = _drive_sat(tmp_path, raws, complex_=True)
-    evs = _attests(s.log, "invoke_satisfaction_llm")
-    assert len(evs) == 3, f"fixture precondition: three evaluator attestations, got {len(evs)}"
-    ids_by_out = {p["output_sha256"]: p["invocation_id"] for p in evs}
-    assert [e.get("invocation_id") for e in s.sat.data["evaluator_responses"]] == [
-        ids_by_out[sha256_of(e["raw_response"])] for e in s.sat.data["evaluator_responses"]
-    ], "AC2: evaluator_responses[i]['invocation_id'] must equal the i-th evaluator's logged id"
-    groups = _expected_groups(s, lines_of)
-    assert len(groups) == 2
-    built, fixed = _fix_from(s, s.r.data)
-    assert fixed.status == "ok"
-    fix_ev = _attests(s.log, "invoke_fix_llm")
-    assert len(fix_ev) == 1
-    assert _class_m(fix_ev[0]) == [{"source_id": sid, "sha256": sha256_of(text)} for sid, text in groups], (
-        f"AC2: one block per contributing evaluator in index order; got {fix_ev[0].get('injections')!r}")
-    assert s.r.data["findings"] == "\n".join(text for _, text in groups), (
-        "AC2: the full findings string stays the in-order join of the groups")
-
-
-def test_ac2b_partial_evaluator_ids_forward_nothing_and_do_not_refuse(tmp_path) -> None:
-    """AC2b (gate r3 m-3): if one group with fixes has no valid id, no findings_blocks is
-    forwarded, no class-M block is declared and the dispatch is not refused."""
-    raws, lines_of = _complex_raws()
-    s = _drive_sat(tmp_path, raws, complex_=True)
-    groups = _expected_groups(s, lines_of)
-    # Positive control: with all ids present the blocks are forwarded and declared.
-    control_blocks = s.r.data.get("findings_blocks")
-    assert isinstance(control_blocks, list) and len(control_blocks) == 2, (
-        f"AC2b control: complete ids must forward two findings_blocks; got {control_blocks!r}")
-    _, fixed_control = _fix_from(s, s.r.data)
-    assert fixed_control.status == "ok"
-    assert len(_class_m(_attests(s.log, "invoke_fix_llm")[0])) == 2
-    # Strip the id of the evaluator whose group is C's (one with fixes).
-    er = [dict(e) for e in s.sat.data["evaluator_responses"]]
-    c_idx = next(i for i, e in enumerate(er) if lines_of[e["raw_response"]] == _lines(FIXES_C))
-    er[c_idx]["invocation_id"] = None
-    partial = StepResult(status="ok", duration_ms=0, step_name="invoke_satisfaction_llm",
-                         data={**s.sat.data, "evaluator_responses": er})
-    r2 = _p6()._write_satisfaction_doc(s.ctx, partial)
-    assert r2.recoverable is True and "findings_blocks" not in r2.data, (
-        f"AC2b: a partial id set must forward no findings_blocks; got {r2.data.get('findings_blocks')!r}")
-    _, fixed = _fix_from(s, r2.data)
-    assert fixed.status == "ok" and fixed.error_code != "E_INJECT_UNATTRIBUTED", (
-        f"AC2b: the dispatch must not be refused; got {fixed.error_code!r}")
-    second = _attests(s.log, "invoke_fix_llm")[1]
-    assert _class_m(second) == [], f"AC2b: no class-M block; got {second.get('injections')!r}"
-    assert len(groups) == 2
-
 
 # ---------------------------------------------------------------------------
 # AC3 - M1 guards (each with a positive control that is red until GREEN)

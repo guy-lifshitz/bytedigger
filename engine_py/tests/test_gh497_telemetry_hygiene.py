@@ -353,13 +353,10 @@ def test_ac13_satisfaction_reject_call_sites_pass_axes_text():
     source = phase6_py.read_text(encoding="utf-8")
 
     single_start = source.find("def _write_satisfaction_doc(")
-    multi_start = source.find("def _write_satisfaction_doc_multi(")
     assert single_start != -1, "expected _write_satisfaction_doc definition"
-    assert multi_start != -1, "expected _write_satisfaction_doc_multi definition"
-    assert single_start < multi_start
-
-    single_body = source[single_start:multi_start]
-    multi_body = source[multi_start:]
+    # bd#317: the multi writer is gone; the single writer is the only call site.
+    next_def = source.find("\ndef ", single_start + 1)
+    single_body = source[single_start:next_def if next_def != -1 else len(source)]
 
     single_call_idx = single_body.find("record_satisfaction_reject(")
     assert single_call_idx != -1, "expected a record_satisfaction_reject( call in _write_satisfaction_doc"
@@ -368,13 +365,4 @@ def test_ac13_satisfaction_reject_call_sites_pass_axes_text():
     assert "axes_text=body" in single_call_text, (
         "expected _write_satisfaction_doc's record_satisfaction_reject call "
         "to pass axes_text=body"
-    )
-
-    multi_call_idx = multi_body.find("record_satisfaction_reject(")
-    assert multi_call_idx != -1, "expected a record_satisfaction_reject( call in _write_satisfaction_doc_multi"
-    multi_call_end = multi_body.find(")", multi_call_idx)
-    multi_call_text = multi_body[multi_call_idx:multi_call_end]
-    assert "axes_text=composite_text" in multi_call_text, (
-        "expected _write_satisfaction_doc_multi's record_satisfaction_reject "
-        "call to pass axes_text=composite_text"
     )

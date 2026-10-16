@@ -75,8 +75,8 @@ If either is missing → STOP, Phase 5 is incomplete.
 | SIMPLE + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 3 dim, >=80% |
 | FEATURE | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=85% |
 | FEATURE + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=85% |
-| COMPLEX | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
-| COMPLEX + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
+| COMPLEX | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=90% |
+| COMPLEX + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=90% |
 <!-- END GENERATED phase6-tier-policy -->
 
 Thresholds are configurable via `bytedigger.json`.
@@ -235,12 +235,12 @@ Threshold: >=80%
 Dimensions: Spec compliance, Test quality, Code quality, Completeness, Boy Scout compliance
 Threshold: >=85%
 
-### COMPLEX — 3-Agent Majority Vote (5 dimensions)
+### COMPLEX — Single Opus Evaluator (5 dimensions)
 
 Dimensions: Spec compliance, Test quality, Code quality, Completeness, Boy Scout compliance
 Threshold: >=90%
 
-1. Launch 3 Opus agents in parallel.
+1. Launch 1 Opus agents in parallel.
 <!-- END GENERATED phase6-satisfaction-steps -->
 2. Each returns: Score (0-100%), Verdict (PASS/FAIL), Top concerns
 3. Final verdict: **Majority vote** (the majority of the evaluators PASS = PASS)

@@ -141,7 +141,7 @@ def test_ac1_load_claims_on_repo_matches_sources():
         for k in ("reviewers", "evaluators"):
             assert got[t][k] == expected[t][k]
         assert tuple(got[t]["dimensions"]) == tuple(expected[t]["dimensions"])
-    assert expected["COMPLEX"]["evaluators"] == 3 and len(expected["COMPLEX"]["dimensions"]) == 5
+    assert expected["COMPLEX"]["evaluators"] == 1 and len(expected["COMPLEX"]["dimensions"]) == 5
 
 
 def test_ac1_min_repo_control_loads(tmp_path):
@@ -532,7 +532,7 @@ def _satisfaction_calls(tmp_path: Path, monkeypatch, complexity: str) -> int:
     monkeypatch.setattr(p6, "invoke_llm_subprocess", _stub)
     policy = copy.deepcopy(p6.SATISFACTION_TIER_POLICY) if hasattr(p6, "SATISFACTION_TIER_POLICY") else None
     assert policy is not None, "SATISFACTION_TIER_POLICY missing in phase_6_review"
-    policy["COMPLEX"]["evaluators"] = 2
+    policy["COMPLEX"]["evaluators"] = 1  # bd#317: COMPLEX uses the single evaluator path
     monkeypatch.setattr(p6, "SATISFACTION_TIER_POLICY", policy)
     telemetry_ctx.clear_current_run()
     ctx = WorkflowContext(
@@ -556,7 +556,7 @@ def _satisfaction_calls(tmp_path: Path, monkeypatch, complexity: str) -> int:
 
 
 def test_ac9_complex_dispatch_count_follows_policy_literal(tmp_path, monkeypatch):
-    assert _satisfaction_calls(tmp_path, monkeypatch, "COMPLEX") == 2
+    assert _satisfaction_calls(tmp_path, monkeypatch, "COMPLEX") == 1
 
 
 @pytest.mark.parametrize("tier", ["SIMPLE", "FEATURE"])
