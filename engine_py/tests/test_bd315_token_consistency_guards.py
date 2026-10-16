@@ -218,17 +218,25 @@ def test_ac7_each_existing_spec_is_accepted_by_the_layer(tmp_path):
     for spec in _five_specs():
         _stage(repo, env, spec.name, spec.read_text(encoding="utf-8"))
         rc, output = _commit(repo, env)
-        assert rc == 0, f"{spec.name} must be accepted by the layer: {output!r}"
-        assert "BD66-REFUSE" not in output, f"{spec.name}: {output!r}"
+        # bd#323: a flat clone has no `__init__.py` chain, so the cite lint (no union
+        # there) may refuse; its cleanliness is pinned by bd#323 AC1. Every other
+        # lint must still accept each spec.
+        refusals = [
+            ln for ln in output.splitlines() if "BD66-REFUSE-VIOLATION" in ln and spec.name in ln
+        ]
+        assert all("lint=spec-cite-lint " in ln for ln in refusals), f"{spec.name}: {output!r}"
+        assert rc == 0 or refusals, f"{spec.name} must be accepted by the layer: {output!r}"
+        if rc != 0:
+            _git(["reset", "-q"], repo, env)
 
 
 # ------------------------------------------------------------------------ AC9
 
 
-def test_ac9_spec_cite_stays_held(tmp_path):
-    assert _CITE in precommit_lints.DECLARED_ABSENT, precommit_lints.DECLARED_ABSENT
-    assert not (_REPO_ROOT / f"{_CITE}.py").exists(), "spec-cite driver must stay withheld"
+def test_ac9_spec_cite_is_live(tmp_path):
+    assert _CITE not in precommit_lints.DECLARED_ABSENT, precommit_lints.DECLARED_ABSENT
+    assert (_REPO_ROOT / f"{_CITE}.py").is_file(), "spec-cite driver must exist at the repo root"
 
     rc, output, head = _scenario(tmp_path, "ac9", _build())
     assert rc == 0 and head, f"a clean staged spec must commit: {output!r}"
-    assert not _lint_token(output, _CITE), f"spec-cite must not run: {output!r}"
+    assert "BD66-REFUSE" not in output, f"a clean spec must not be refused: {output!r}"

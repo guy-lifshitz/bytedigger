@@ -733,6 +733,34 @@ def lint_spec(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
     return lint_spec_text(spec_path.read_text(encoding="utf-8", errors="replace"), repo_root)
 
 
+def lint_spec_union(spec_path: Path, repo_root: Path) -> tuple[int, list[Finding]]:
+    """bd#323: `lint_spec` under repo-root resolution, loosened by the package root.
+
+    A spec inside a package (its directory holds an ``__init__.py``) cites paths
+    relative to either the repo root or the package root (top of the unbroken
+    ``__init__.py`` chain above the spec). A repo-root finding with a blocking
+    status is kept only if the same (file, symbol) is blocking under package-root
+    resolution too; the others are dropped. Outside a package this equals
+    `lint_spec`. exit_code is recomputed from the kept findings."""
+    spec_path = Path(spec_path).resolve()
+    code, findings = lint_spec(spec_path, repo_root)
+    if not (spec_path.parent / "__init__.py").is_file():
+        return code, findings
+    top = spec_path.parent
+    current = spec_path.parent
+    while (current / "__init__.py").is_file():
+        top = current
+        current = current.parent
+    _pkg_code, pkg_findings = lint_spec(spec_path, top)
+    pkg_blocking = {(f.file, f.symbol) for f in pkg_findings if f.status in BLOCKING_STATUSES}
+    kept = [
+        f for f in findings
+        if f.status not in BLOCKING_STATUSES or (f.file, f.symbol) in pkg_blocking
+    ]
+    exit_code = 1 if any(f.status in BLOCKING_STATUSES for f in kept) else 0
+    return exit_code, kept
+
+
 def lint_spec_text(spec_text: str, repo_root: Path) -> tuple[int, list[Finding]]:
     """`lint_spec` on spec text instead of a file (bd#86: the reality gate lints a rewritten text)."""
     citations = scan_citations(spec_text)
