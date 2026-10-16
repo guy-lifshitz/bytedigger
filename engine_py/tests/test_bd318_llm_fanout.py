@@ -25,7 +25,7 @@ AC9  test_ac9_switch_off_returns_no_findings
      test_ac9_main_switch_off_prints_exactly_the_check_set
      test_ac9_main_switch_on_prints_check_then_fanout
      test_ac9_main_clean_inventory_returns_0
-AC10 test_ac10_real_tree_findings_pin_the_317_site_or_none
+AC10 test_ac10_real_tree_has_no_fanout_findings
 AC11 test_ac11_flag_registered_gate_default_on
      test_ac11_flag_owner_lint_passes
 AC12 test_ac12_workers_really_run_concurrently
@@ -42,10 +42,8 @@ after (workflows.md 1i). Modules are imported lazily so a missing module reddens
 """
 from __future__ import annotations
 
-import ast
 import importlib
 import os
-import re
 import subprocess
 import sys
 import threading
@@ -547,23 +545,9 @@ def test_ac9_main_clean_inventory_returns_0(tmp_path, monkeypatch, capsys) -> No
 # AC10: real tree
 # ---------------------------------------------------------------------------
 
-def test_ac10_real_tree_findings_pin_the_317_site_or_none() -> None:
-    """AC10: locate _run_satisfaction_evaluators_parallel by AST. Present -> exactly one finding on the
-    real tree, inside its line range. Absent (after lot #317) -> no findings at all."""
-    lint = _lint()
-    findings = lint.fanout_findings(_engine_root())
-    path = _engine_root() / "workflows" / "phase_6_review.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    fn = next((n for n in ast.walk(tree)
-               if isinstance(n, ast.FunctionDef) and n.name == "_run_satisfaction_evaluators_parallel"), None)
-    if fn is None:
-        assert findings == [], findings
-        return
-    assert len(findings) == 1, findings
-    m = re.match(r"(?P<rel>[^:]+):(?P<line>\d+):", findings[0])
-    assert m is not None, findings
-    assert m["rel"] == "workflows/phase_6_review.py", findings
-    assert fn.lineno <= int(m["line"]) <= fn.end_lineno, (findings, fn.lineno, fn.end_lineno)
+def test_ac10_real_tree_has_no_fanout_findings() -> None:
+    """AC10: the real engine tree has no pooled model call bypassing lib/llm_fanout (lot #317 removed the last one)."""
+    assert _lint().fanout_findings(_engine_root()) == []
 
 
 # ---------------------------------------------------------------------------
