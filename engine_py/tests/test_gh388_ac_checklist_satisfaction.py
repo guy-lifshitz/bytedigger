@@ -4,7 +4,7 @@ Spec: SHARED/memory/Decisions/2026-07-07_GH388_ac_checklist_satisfaction_spec.md
 Class: SYSTEMATIC. Tier: Option-D (modifies existing engine_py prod phase_6_review.py).
 
 New symbols under test (`_parse_spec_ac_ids`, `_parse_ac_checklist`, `_verify_ac_checklist`,
-the `_write_satisfaction_doc`/`_write_satisfaction_doc_multi` AC-checklist wiring, and the
+the `_write_satisfaction_doc` AC-checklist wiring, and the
 `_build_satisfaction_prompt` "## AC Checklist" section) DO NOT EXIST YET in production. Per
 §1q extension D1CF5FDF, the new-symbol lookups are deferred to inside test bodies via
 `getattr(p6, "...", None)` so the file COLLECTS cleanly and FAILS at assert time, never at
@@ -109,33 +109,6 @@ def _make_prev_single(tmp_path: Path, *, raw_response: str, with_acs: bool) -> S
         status="ok",
         data={
             "raw_response": raw_response,
-            "doc_path": str(sat_doc),
-            "spec_path": str(spec_path),
-            "review_doc_path": str(review_doc),
-            "fix_doc_path": str(fix_doc),
-        },
-        duration_ms=0,
-        step_name="invoke_satisfaction_llm",
-    )
-
-
-def _make_prev_multi(tmp_path: Path, evaluator_responses: list, *, with_acs: bool) -> StepResult:
-    scratch = tmp_path / "scratch"
-    reviews_dir = scratch / "reviews"
-    reviews_dir.mkdir(parents=True, exist_ok=True)
-    sat_doc = reviews_dir / "build-satisfaction.md"
-    review_doc = reviews_dir / "build-review.md"
-    review_doc.write_text("# Review\nVERDICT: FAIL\n", encoding="utf-8")
-    fix_doc = reviews_dir / "build-fix.md"
-    fix_doc.write_text("FIX SKIPPED\n", encoding="utf-8")
-    spec_path = _write_spec(tmp_path, with_acs=with_acs)
-    ok_raws = [e["raw_response"] for e in evaluator_responses if e.get("status") == "ok" and e.get("raw_response")]
-    return StepResult(
-        status="ok",
-        data={
-            "raw_response": ok_raws[0] if ok_raws else "",
-            "is_multi_evaluator": True,
-            "evaluator_responses": evaluator_responses,
             "doc_path": str(sat_doc),
             "spec_path": str(spec_path),
             "review_doc_path": str(review_doc),
@@ -453,10 +426,11 @@ def test_ac10_backcompat_skip_when_spec_has_no_ac_section(tmp_path: Path, monkey
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# AC11 — multi-eval: majority missing checklist (2 of 3, spec has ACs) fails gate
+# AC11 — COMPLEX (single evaluator since bd#317): missing checklist (spec has ACs)
+#         fails the gate; the one event carries no evaluator_index
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_ac11_multi_eval_majority_missing_checklist_fails_gate(tmp_path: Path, monkeypatch) -> None:
+def test_ac11_complex_missing_checklist_fails_gate(tmp_path: Path, monkeypatch) -> None:
     captured = _capture_emit(monkeypatch)
     reject_calls: list = []
     monkeypatch.setattr(
@@ -464,32 +438,25 @@ def test_ac11_multi_eval_majority_missing_checklist_fails_gate(tmp_path: Path, m
         lambda *a, **kw: reject_calls.append(a),
     )
     ctx = _make_ctx(tmp_path, threshold=70, complexity="COMPLEX")
-    evaluator_responses = [
-        {"index": 0, "status": "ok", "raw_response": _raw_pass_no_checklist(95), "error_code": None},
-        {"index": 1, "status": "ok", "raw_response": _raw_pass_no_checklist(92), "error_code": None},
-        {"index": 2, "status": "ok", "raw_response": _raw_pass_with_checklist(90), "error_code": None},
-    ]
-    prev = _make_prev_multi(tmp_path, evaluator_responses, with_acs=True)
+    prev = _make_prev_single(tmp_path, raw_response=_raw_pass_no_checklist(95), with_acs=True)
 
     result = p6._write_satisfaction_doc(ctx, prev)
 
     assert result.status == "error", (
-        f"GH388 AC11 FAIL: 2-of-3 evaluators missing '## AC Checklist' (spec has ACs) is a "
-        f"majority checklist-fail and must flip a score-PASS gate to error; got "
-        f"status={result.status!r}"
+        f"GH388 AC11 FAIL: missing '## AC Checklist' (spec has ACs) must flip a score-PASS "
+        f"COMPLEX gate to error; got status={result.status!r}"
     )
     assert getattr(result, "error_code", None) == "E_SATISFACTION_AC_CHECKLIST", (
         f"GH388 AC11 FAIL: expected error_code='E_SATISFACTION_AC_CHECKLIST'; "
         f"got {getattr(result, 'error_code', None)!r}"
     )
     ac_events = _events_of_type(captured, "satisfaction_ac_checklist")
-    assert len(ac_events) == 3, (
-        f"GH388 AC11 FAIL: expected 3 per-evaluator satisfaction_ac_checklist events; "
+    assert len(ac_events) == 1, (
+        f"GH388 AC11 FAIL: expected 1 satisfaction_ac_checklist event; "
         f"got {len(ac_events)}: {ac_events!r}"
     )
-    indices = sorted(p.get("evaluator_index") for p in ac_events)
-    assert indices == [0, 1, 2], (
-        f"GH388 AC11 FAIL: each event must carry a distinct evaluator_index 0,1,2; got {indices!r}"
+    assert "evaluator_index" not in ac_events[0], (
+        f"GH388 AC11 FAIL: single-path event must carry no evaluator_index; got {ac_events[0]!r}"
     )
     assert len(reject_calls) == 1, (
         f"GH388 AC11 FAIL: expected record_satisfaction_reject called once on the flipped "

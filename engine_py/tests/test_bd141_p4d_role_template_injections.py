@@ -23,10 +23,9 @@ AC4b test_ac4b_restricted_writer_does_not_inherit_role_template (guard: green to
      test_ac4b_cycle2_reviewer_inherits_role_template_like_cycle1 (bd#89 P3a)
 AC5  test_ac5_every_dispatch_declares_injections
      test_ac5_dispatch_call_count_is_pinned                    (guard: green today)
-     test_ac5_dispatch_hidden_behind_executor_submit_declares  (the COMPLEX
-       satisfaction pool path hands `invoke_llm_subprocess` to `executor.submit`:
-       it is the 20th dispatch, counted separately from the 19 direct calls)
-AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<12 cases>]
+     test_ac5_dispatch_hidden_behind_executor_submit_declares  (guard against a
+       dispatch handed to `executor.submit`; the COMPLEX pool was removed by bd#317)
+AC5b test_ac5b_dispatch_declares_role_template_behaviourally[<10 cases>]
        (real producer output -> real invoke step -> module-attribute spy; covers
        the pool path with every submitted call, both phase_45_spec review
        dispatches, and phase_2's existing one as a guard; the
@@ -586,8 +585,9 @@ def test_ac5_dispatch_call_count_is_pinned() -> None:
 
 def test_ac5_dispatch_hidden_behind_executor_submit_declares() -> None:
     """A dispatch handed to `executor.submit(telemetry_ctx.run_with_current_run,
-    ctx, invoke_llm_subprocess, prompt=..., ...)` is still a dispatch (the COMPLEX
-    satisfaction fan-out, phase_6_review `_run_satisfaction_evaluators_parallel`)."""
+    ctx, invoke_llm_subprocess, prompt=..., ...)` is still a dispatch. (The COMPLEX
+    satisfaction pool that used this shape was removed by bd#317; the scan stays as a
+    guard against any workflow reintroducing a hidden dispatch.)"""
     offenders = []
     for path in sorted(_workflows_dir().glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -673,13 +673,6 @@ def test_ac4b_cycle2_reviewer_inherits_role_template_like_cycle1(tmp_path, monke
 # producer and real invoke step; only `invoke_llm_subprocess` (the module
 # attribute the step resolves at call time) is replaced by a recording spy.
 
-def _d_satisfaction_complex(env):
-    return _mod("phase_6_review")._build_satisfaction_prompt(
-        env.ctx(complexity="COMPLEX"),
-        _prev(spec_path=env.path("spec.md"), review_doc_path=env.path("review.md"),
-              fix_doc_path=env.path("fix.md")))
-
-
 _SHIP = "## Verdict\n\nSHIP\n"
 _REVISE = "## Verdict\n\nREVISE\n"
 
@@ -735,7 +728,6 @@ _MATRIX = {
     "phase_6_review:1119": (_d_review, "phase_6_review", "_invoke_review_llm", {}, "x", 1, False, (_F1,)),
     "phase_6_review:2550": (_d_fix, "phase_6_review", "_invoke_fix_llm", {}, "x", 1, False, ()),
     "phase_6_review:3249": (_d_satisfaction, "phase_6_review", "_invoke_satisfaction_llm", {}, "x", 1, False, (_F1,)),
-    "phase_6_review:3044-pool": (_d_satisfaction_complex, "phase_6_review", "_invoke_satisfaction_llm", {"complexity": "COMPLEX"}, "x", 3, False, (_F1,)),
     "phase_6_fix_integrity:600": (_d_fix_integrity, "phase_6_fix_integrity", "_invoke_fix_integrity_llm", {}, "x", 1, False, (_F1,)),
 }
 

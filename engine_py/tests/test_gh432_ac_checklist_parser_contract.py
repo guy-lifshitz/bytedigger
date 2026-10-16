@@ -146,33 +146,6 @@ def _make_prompt_prev(tmp_path: Path) -> StepResult:
     )
 
 
-def _make_prev_multi(tmp_path: Path, evaluator_responses: list) -> StepResult:
-    scratch = tmp_path / "scratch"
-    reviews_dir = scratch / "reviews"
-    reviews_dir.mkdir(parents=True, exist_ok=True)
-    sat_doc = reviews_dir / "build-satisfaction.md"
-    review_doc = reviews_dir / "build-review.md"
-    review_doc.write_text("# Review\nVERDICT: FAIL\n", encoding="utf-8")
-    fix_doc = reviews_dir / "build-fix.md"
-    fix_doc.write_text("FIX SKIPPED\n", encoding="utf-8")
-    spec_path = _write_spec(tmp_path)
-    ok_raws = [e["raw_response"] for e in evaluator_responses if e.get("status") == "ok" and e.get("raw_response")]
-    return StepResult(
-        status="ok",
-        data={
-            "raw_response": ok_raws[0] if ok_raws else "",
-            "is_multi_evaluator": True,
-            "evaluator_responses": evaluator_responses,
-            "doc_path": str(sat_doc),
-            "spec_path": str(spec_path),
-            "review_doc_path": str(review_doc),
-            "fix_doc_path": str(fix_doc),
-        },
-        duration_ms=0,
-        step_name="invoke_satisfaction_llm",
-    )
-
-
 def _capture_emit(monkeypatch) -> list:
     captured: list = []
     monkeypatch.setattr(
@@ -416,11 +389,11 @@ def test_ac8_strictness_preserved_invalid_verdict_and_non_bullet_absent(tmp_path
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# AC9 — multi-eval regression pin: majority missing-checklist over raw_i still
-#        fails the gate (GH388 AC11 semantics unchanged by the single-eval fix).
+# AC9 — COMPLEX (single evaluator since bd#317): a response missing the
+#        '## AC Checklist' still fails the gate (GH388 semantics on the one path).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_ac9_multi_eval_majority_missing_checklist_still_fails_gate(
+def test_ac9_complex_missing_checklist_still_fails_gate(
     tmp_path: Path, monkeypatch
 ) -> None:
     captured = _capture_emit(monkeypatch)
@@ -430,30 +403,25 @@ def test_ac9_multi_eval_majority_missing_checklist_still_fails_gate(
         lambda *a, **kw: reject_calls.append(a),
     )
     ctx = _make_ctx(tmp_path, threshold=70, complexity="COMPLEX")
-    with_checklist = (
-        _control_signals_only_no_checklist(90)
-        + "\n## AC Checklist\n- AC1: PASS — foo.py:1 ev\n- AC2: PASS — foo.py:2 ev\n"
+    prev = _make_prev_single(
+        tmp_path,
+        raw_response=_control_signals_only_no_checklist(95),
+        prewrite_doc_body=None,
     )
-    evaluator_responses = [
-        {"index": 0, "status": "ok", "raw_response": _control_signals_only_no_checklist(95), "error_code": None},
-        {"index": 1, "status": "ok", "raw_response": _control_signals_only_no_checklist(92), "error_code": None},
-        {"index": 2, "status": "ok", "raw_response": with_checklist, "error_code": None},
-    ]
-    prev = _make_prev_multi(tmp_path, evaluator_responses)
 
     result = p6._write_satisfaction_doc(ctx, prev)
 
     assert result.status == "error", (
-        f"GH432 AC9 FAIL: 2-of-3 evaluators missing '## AC Checklist' in raw_i must still "
-        f"flip the gate to error; got status={result.status!r}"
+        f"GH432 AC9 FAIL: missing '## AC Checklist' must flip the COMPLEX gate to error; "
+        f"got status={result.status!r}"
     )
     assert getattr(result, "error_code", None) == "E_SATISFACTION_AC_CHECKLIST", (
         f"GH432 AC9 FAIL: expected E_SATISFACTION_AC_CHECKLIST; got "
         f"{getattr(result, 'error_code', None)!r}"
     )
     ac_events = _events_of_type(captured, "satisfaction_ac_checklist")
-    assert len(ac_events) == 3, (
-        f"GH432 AC9 FAIL: expected 3 per-evaluator satisfaction_ac_checklist events; "
+    assert len(ac_events) == 1, (
+        f"GH432 AC9 FAIL: expected 1 satisfaction_ac_checklist event; "
         f"got {len(ac_events)}: {ac_events!r}"
     )
     assert len(reject_calls) == 1, (

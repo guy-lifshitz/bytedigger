@@ -25,7 +25,7 @@ AC mapping (GUARD = green before GREEN):
     test_ac8_docs_do_not_name_legacy_keys_outside_removal_note   -> AC8
     test_ac8_plugin_md_mentions_composite_reviewer               -> AC8
     test_ac10_guard_no_decorrelated_verifier_text                -> AC10 (GUARD)
-    test_ac11_guard_satisfaction_step_untouched                  -> AC11 (GUARD)
+    test_ac11_satisfaction_step_is_single_evaluator              -> AC11 (bd#317 flip; moved to engine_py/tests/test_bd317_satisfaction_retargets.py)
 AC9 lives in tests/build-gate.bats (bash half) and post-review-gate.test.ts P6-F10-08 (TS half).
 """
 from __future__ import annotations
@@ -238,9 +238,3 @@ def test_ac10_guard_no_decorrelated_verifier_text():
 
 # ─── AC11 (GUARD) ────────────────────────────────────────────────────────────
 
-def test_ac11_guard_satisfaction_step_untouched():
-    text = _read("phases/phase-6-review.md")
-    assert "3-Agent Majority Vote" in text
-    assert "Launch 3 Opus agents in parallel" in text
-    thresholds = json.loads(_read("bytedigger.json"))["satisfaction_thresholds"]
-    assert (thresholds["SIMPLE"], thresholds["FEATURE"], thresholds["COMPLEX"]) == (80, 85, 90)

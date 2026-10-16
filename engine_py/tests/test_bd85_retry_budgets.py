@@ -406,18 +406,6 @@ def test_ac9d_ac_checklist_fail_also_retries(tmp_path: Path, monkeypatch, _clean
     assert r.data["findings"], "the failing AC must reach the fix worker"
 
 
-def test_ac9e_multi_evaluator_fail_retries(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
-    monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **k: None)
-    scratch = tmp_path / "scratch"
-    evals = [{"index": i, "status": "ok", "raw_response": _RAW_FAIL} for i in range(3)]
-    prev = _sat_prev(scratch, is_multi_evaluator=True, evaluator_responses=evals)
-    _under_cycle(1)
-    r = phase_6_review._write_satisfaction_doc(_ctx(scratch, satisfaction_threshold=85), prev)
-    assert r.error_code == "E_SATISFACTION_BELOW_THRESHOLD", r
-    assert r.recoverable is True, r
-    assert "SAT_ISSUE_MARKER" in r.data["findings"], r.data
-
-
 def test_ac9f_workflow_without_fix_step_stays_terminal(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
     # bd#89 P2b: re-pointed from the dropped SIMPLE fast path. The kept behavior is
     # "outside a workflow that has a fix step the satisfaction gate fails closed";
@@ -447,18 +435,6 @@ def test_ac9g_evaluator_format_failure_stays_terminal(tmp_path: Path, monkeypatc
     assert r.status == "error" and r.recoverable is False, r
 
 
-@pytest.mark.parametrize("n_ok", [0, 1])
-def test_ac9h_review_degraded_stays_terminal(tmp_path: Path, monkeypatch, _clean_run_ctx, n_ok) -> None:
-    monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **k: None)
-    scratch = tmp_path / "scratch"
-    evals = [{"index": i, "status": "ok" if i < n_ok else "error",
-              "raw_response": _RAW_FAIL if i < n_ok else ""} for i in range(3)]
-    prev = _sat_prev(scratch, is_multi_evaluator=True, evaluator_responses=evals)
-    _under_cycle(1)
-    r = phase_6_review._write_satisfaction_doc(_ctx(scratch, satisfaction_threshold=85), prev)
-    assert r.error_code == "E_REVIEW_DEGRADED" and r.recoverable is False, r
-
-
 def test_ac9i_missing_ac_checklist_is_format_not_work(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
     monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **k: None)
     scratch = tmp_path / "scratch"
@@ -472,17 +448,6 @@ def test_ac9i_missing_ac_checklist_is_format_not_work(tmp_path: Path, monkeypatc
     _under_cycle(1)
     r = phase_6_review._write_satisfaction_doc(_ctx(scratch, satisfaction_threshold=85), _sat_prev(scratch, raw))
     assert r.error_code == "E_SATISFACTION_AC_CHECKLIST" and r.recoverable is False, r
-
-
-def test_ac9j_multi_fail_without_fixes_stays_terminal(tmp_path: Path, monkeypatch, _clean_run_ctx) -> None:
-    monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **k: None)
-    scratch = tmp_path / "scratch"
-    evals = [{"index": i, "status": "ok", "raw_response": "## Evaluation\nSCORE: 40\nVERDICT: FAIL\n"}
-             for i in range(3)]
-    prev = _sat_prev(scratch, is_multi_evaluator=True, evaluator_responses=evals)
-    _under_cycle(1)
-    r = phase_6_review._write_satisfaction_doc(_ctx(scratch, satisfaction_threshold=85), prev)
-    assert r.error_code == "E_SATISFACTION_BELOW_THRESHOLD" and r.recoverable is False, r
 
 
 def test_ac10_fix_prompt_accepts_retry_dict_and_carries_satisfaction(tmp_path: Path) -> None:

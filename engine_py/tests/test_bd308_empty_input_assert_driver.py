@@ -103,7 +103,7 @@ _OTHER_DRIVERS = (
     "cyrillic-prose-lint", "one-sided-predicate-lint", "forbidden-import-lint",
     "stub-passability-lint", "scope-inverse-lint", "helper-extraction-lint",
     "presence-triad-lint", "format-conversion-lint", "closure-evidence-lint",
-    "mutation-two-sidedness-lint", "spec-coverage-lint",
+    "mutation-two-sidedness-lint", "spec-coverage-lint", "token-consistency-lint",
 )
 
 
@@ -404,7 +404,8 @@ def test_ac2_registry_lists_the_driver_and_the_denominator_is_13():
                if not present.get(n) and n not in precommit_lints.DECLARED_ABSENT]
     assert missing == [], f"names without a driver: {missing!r}"
     assert present.get(_NAME) is True
-    assert len(precommit_lints.DECLARED_ABSENT) == 2, "DECLARED_ABSENT stays two held names"
+    assert precommit_lints.DECLARED_ABSENT == ["spec-cite-lint"], (
+        "only spec-cite-lint stays held in DECLARED_ABSENT")
 
 
 def test_ac2_ratchet_and_switch_tables_are_declared():

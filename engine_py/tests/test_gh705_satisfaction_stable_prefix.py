@@ -35,7 +35,6 @@ The UUTs (`_build_satisfaction_prompt`, `_run_satisfaction_evaluators_parallel`,
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 from bytedigger_engine.workflows import phase_6_review as _p6
 
@@ -207,101 +206,6 @@ def test_AC1_AC2_stable_prefix_build_independent_across_different_inputs(tmp_pat
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# AC6 — fan-out helper threads stable_prefix into every invoke_llm_subprocess call
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def test_AC6_run_satisfaction_evaluators_parallel_threads_stable_prefix_to_all_calls():
-    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess") as mock_invoke:
-        from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
-
-        mock_invoke.return_value = StepResult(
-            status="ok", data={}, duration_ms=0, step_name="invoke_satisfaction_llm",
-        )
-        # TypeError here (stable_prefix not yet a param) is the expected pre-GREEN
-        # RED failure — asserted at call time, inside the test body.
-        results = _p6._run_satisfaction_evaluators_parallel(
-            prompt="P",
-            model="m",
-            timeout_sec=1,
-            extra_data={},
-            n=3,
-            stable_prefix="SP",
-        )
-
-    assert len(results) == 3, f"AC6: expected 3 results, got {len(results)}"
-    assert mock_invoke.call_count == 3, (
-        f"AC6: invoke_llm_subprocess must be called exactly n=3 times; "
-        f"got {mock_invoke.call_count}"
-    )
-    for call in mock_invoke.call_args_list:
-        assert call.kwargs.get("stable_prefix") == "SP", (
-            f"AC6: every invoke_llm_subprocess call must carry stable_prefix='SP'; "
-            f"got {call.kwargs.get('stable_prefix')!r}"
-        )
-        assert call.kwargs.get("prompt") == "P", (
-            f"AC6: prompt must stay full/unchanged in every call; "
-            f"got {call.kwargs.get('prompt')!r}"
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# AC8 — fallback: stable_prefix="" still issues n calls, full prompt, no crash
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def test_AC8_run_satisfaction_evaluators_parallel_fallback_empty_stable_prefix():
-    with patch("bytedigger_engine.workflows.phase_6_review.invoke_llm_subprocess") as mock_invoke:
-        from bytedigger_engine.contracts import StepResult  # noqa: PLC0415
-
-        mock_invoke.return_value = StepResult(
-            status="ok", data={}, duration_ms=0, step_name="invoke_satisfaction_llm",
-        )
-        results = _p6._run_satisfaction_evaluators_parallel(
-            prompt="P",
-            model="m",
-            timeout_sec=1,
-            extra_data={},
-            n=3,
-            stable_prefix="",
-        )
-
-    assert len(results) == 3, f"AC8: expected 3 results, got {len(results)}"
-    assert mock_invoke.call_count == 3, (
-        f"AC8: fallback path must still issue n=3 calls; got {mock_invoke.call_count}"
-    )
-    for call in mock_invoke.call_args_list:
-        assert call.kwargs.get("prompt") == "P", (
-            "AC8: fallback must keep prompt full/byte-identical-to-today"
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# AC7 — end-to-end call-site (:2830) passes prev.data.get("stable_prefix", "")
-# into the fan-out helper. Covered lightly via source-body inspection (mirrors
-# the sibling test file's _isolate_fn_body pattern) rather than a full
-# ThreadPoolExecutor dispatch, since exercising the COMPLEX branch end-to-end
-# requires mocking multiple downstream parse/enforce helpers unrelated to this
-# AC. Full end-to-end wiring is re-verified by the orchestrator via full
-# pytest per the spec's own note ("cover it lightly... SKIP if not cheaply
-# reachable").
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def test_AC7_invoke_satisfaction_llm_callsite_wired_to_stable_prefix():
-    import inspect
-
-    src_path = Path(inspect.getsourcefile(_p6))
-    src = src_path.read_text(encoding="utf-8")
-    start = src.index("def _invoke_satisfaction_llm(")
-    end = src.index("\ndef ", start + 1)
-    body = src[start:end]
-    assert '_run_satisfaction_evaluators_parallel(' in body, (
-        "AC7 precondition: _invoke_satisfaction_llm must call "
-        "_run_satisfaction_evaluators_parallel"
-    )
-    assert 'prev.data.get("stable_prefix"' in body, (
-        "AC7: _invoke_satisfaction_llm must pass "
-        'prev.data.get("stable_prefix", ...) into _run_satisfaction_evaluators_parallel'
-    )
+# bd#317: AC6, AC7, AC8 (the fan-out helper `_run_satisfaction_evaluators_parallel`
+# and the COMPLEX call-site wiring of stable_prefix) were removed with the helper.
+# The builder ACs above stay: the builder still emits data["stable_prefix"].
