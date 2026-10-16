@@ -16,7 +16,7 @@ SCRATCHPAD=$(grep '^scratchpad_dir:' build-state.yaml | sed 's/^scratchpad_dir:[
 
 Deep review using one composite reviewer and Opus satisfaction scoring.
 
-**LAUNCH RULE (applies to EVERY Agent / Task call in this phase — the reviewer, first fix agent, subsequent fresh fix agent for remaining findings, COMPLEX 3-Opus evaluators, SIMPLE/FEATURE single Opus satisfaction):** Pass `run_in_background: true`. No exceptions, including sequential launches. Orchestrator never pauses on "end-your-response" from a bg agent — it continues with next non-overlapping work (state update, scratchpad write, next-agent spawn). Gate hard-blocks still stop the pipeline; anti-pause only forbids wrongful waits.
+**LAUNCH RULE (applies to EVERY Agent / Task call in this phase — the reviewer, first fix agent, subsequent fresh fix agent for remaining findings, the COMPLEX evaluators, SIMPLE/FEATURE single Opus satisfaction):** Pass `run_in_background: true`. No exceptions, including sequential launches. Orchestrator never pauses on "end-your-response" from a bg agent — it continues with next non-overlapping work (state update, scratchpad write, next-agent spawn). Gate hard-blocks still stop the pipeline; anti-pause only forbids wrongful waits.
 
 **WORKER AGENT CONSTRAINTS (include in every fix-agent prompt):**
 - You are a fix worker inside /build pipeline. Use Edit/Write/Bash directly.
@@ -49,7 +49,7 @@ Deep review using one composite reviewer and Opus satisfaction scoring.
 - **Confidence threshold >=80** — only report findings with confidence >=80 on a 0-100 scale:
   - 0 = false positive, 25 = maybe, 50 = real but minor, 75 = verified important, 100 = certain
   - Below 80 → do NOT report. This eliminates noise and ensures every finding matters.
-- **Scope: bugs and logic, NOT cosmetic cleanup.** Dead imports, stale comments, naming, formatting — these are Boy Scout Rule items handled by Phase 5 GREEN worker (free — context already loaded). Phase 6 reviewers focus on what workers CANNOT see from inside: cross-file logic errors, security vulnerabilities, coverage gaps, spec violations, silent failures. Do NOT report LOW/COSMETIC findings that a worker could have fixed inline.
+- **Scope: bugs and logic, NOT cosmetic cleanup.** Dead imports, stale comments, naming, formatting — these are Boy Scout Rule items handled by Phase 5 GREEN worker (free — context already loaded). The reviewers of this phase focus on what workers CANNOT see from inside: cross-file logic errors, security vulnerabilities, coverage gaps, spec violations, silent failures. Do NOT report LOW/COSMETIC findings that a worker could have fixed inline.
 - **Purpose statement** (orchestrator adds one line): "This review will determine if code meets quality standards — focus on bugs and logic errors, swallowed errors, test adequacy, type safety, needless complexity and stale comments; on HIGH security also exploitable vulnerabilities (auth bypass, injection, data exposure)."
 
 **Output Schema:** End your report with: `Scope:` / `Result:` / `Key files:` / `Files changed:` / `Issues:`, then end with `VERDICT: PASS/FAIL/PARTIAL` as the absolute final line. Do NOT emit text between tool calls — work silently, report once at the end.
@@ -68,6 +68,7 @@ If either is missing → STOP, Phase 5 is incomplete.
 
 ## Review Agent Policy by Complexity
 
+<!-- BEGIN GENERATED phase6-tier-policy -->
 | Complexity | Reviewer | Satisfaction |
 |-----------|---------------|-------------|
 | SIMPLE | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 3 dim, >=80% |
@@ -76,6 +77,7 @@ If either is missing → STOP, Phase 5 is incomplete.
 | FEATURE + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 1x Opus, 5 dim, >=85% |
 | COMPLEX | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
 | COMPLEX + HIGH security | 1: composite reviewer (correctness, silent failures, test adequacy, types, simplification, comments; security pass on HIGH) | 3x Opus voting, 5 dim, >=90% |
+<!-- END GENERATED phase6-tier-policy -->
 
 Thresholds are configurable via `bytedigger.json`.
 
@@ -146,7 +148,7 @@ VERDICT: PARTIAL
 - Every `### Check:` MUST have evidence: `**Command run:**` (runtime) or `**Tool used:**` (static)
 - `**Result: PASS/FAIL**` per check
 - Final line MUST be exactly `VERDICT: PASS`, `VERDICT: FAIL`, or `VERDICT: PARTIAL`
-- PASS = zero MEDIUM+ findings. PARTIAL = MEDIUM findings only (no CRITICAL/HIGH). FAIL = any CRITICAL or HIGH finding. Note: LOW/COSMETIC are not reported by Phase 6 reviewers.
+- PASS = zero MEDIUM+ findings. PARTIAL = MEDIUM findings only (no CRITICAL/HIGH). FAIL = any CRITICAL or HIGH finding. Note: LOW/COSMETIC are not reported by the reviewers of this phase.
 
 **On pipeline resume** (`/build continue` / Phase 6 restart), if `reviews/role-composite.md` exists, do not re-run the reviewer. Old-format scratchpads that hold several other `reviews/*.md` files are ignored, not an error.
 
@@ -177,7 +179,7 @@ security_review_enabled: <true|false>
 | "3 minor notes (acceptable)" | Nothing is "acceptable" — fix it |
 | "pre-existing issue, not from this PR" | **Boy Scout Rule** — you touched the file, you fix it. You also fix issues in code you didn't write but found during review. |
 | "low severity, skip" | If it passed confidence >=80 and reviewer reported it, fix it. |
-| "cosmetic only" | Phase 6 reviewers don't report cosmetics (Phase 5 Boy Scout handles those). If it's here, it's MEDIUM+. |
+| "cosmetic only" | The reviewers of this phase don't report cosmetics (Phase 5 Boy Scout handles those). If it's here, it's MEDIUM+. |
 | "will address in follow-up" | No. Fix now. There is no follow-up. |
 | "not related to this change" | If you see it, you fix it. Boy Scout Rule applies to ALL code you encounter. |
 
@@ -222,6 +224,7 @@ Verify `phase_6_findings_skipped == 0` in `build-state.yaml`.
 
 ## Step 3: Satisfaction Scoring (Opus — HARD GATE)
 
+<!-- BEGIN GENERATED phase6-satisfaction-steps -->
 ### SIMPLE — Single Opus Evaluator (3 dimensions)
 
 Dimensions: Spec compliance, Test quality, Code quality
@@ -234,15 +237,16 @@ Threshold: >=85%
 
 ### COMPLEX — 3-Agent Majority Vote (5 dimensions)
 
-1. Launch 3 Opus agents in parallel, each with different focus:
-   - **Evaluator A**: spec compliance + completeness
-   - **Evaluator B**: test quality + edge case coverage
-   - **Evaluator C**: code quality + maintainability + Boy Scout
+Dimensions: Spec compliance, Test quality, Code quality, Completeness, Boy Scout compliance
+Threshold: >=90%
+
+1. Launch 3 Opus agents in parallel.
+<!-- END GENERATED phase6-satisfaction-steps -->
 2. Each returns: Score (0-100%), Verdict (PASS/FAIL), Top concerns
-3. Final verdict: **Majority vote** (2/3 PASS = PASS)
-4. Final score: **Median** of 3 scores
+3. Final verdict: **Majority vote** (the majority of the evaluators PASS = PASS)
+4. Final score: the **median** score of the evaluators
 5. Split decisions: log ALL concerns, use strictest interpretation
-6. Threshold: >=90%
+6. Threshold: the threshold in the table above
 
 Thresholds are configurable via `bytedigger.json` → `satisfaction_thresholds`.
 
