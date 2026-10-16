@@ -61,17 +61,22 @@ _LEAVING = [
     "mutation-two-sidedness-lint",
 ]
 # bd#305: spec-coverage left the held group (the layer feeds it a spec with an
-# AC table); bd#315: token-consistency left it too. One name stays held.
-_HELD = ["spec-cite-lint"]
-# The lints the layer runs: the six of #304, spec-coverage (#305) and
-# token-consistency (#315).
-_LAYER = _LEAVING + ["spec-coverage-lint", "token-consistency-lint"]
+# AC table); bd#315: token-consistency left it too; bd#323: spec-cite left it
+# last. Nothing is held.
+_CITE = "spec-cite-lint"
+_HELD: list[str] = []
+# The lints the layer runs: the six of #304, spec-coverage (#305),
+# token-consistency (#315) and spec-cite (#323).
+_LAYER = _LEAVING + ["spec-coverage-lint", "token-consistency-lint", _CITE]
 _ALL_NINE = _LAYER + _HELD
 # Held names that DO have a dormant driver file at the repo root (unmapped):
 # none since bd#315.
 _DORMANT: list[str] = []
-# The eight drivers this lot ships (spec-cite has none).
+# The eight drivers with the strict thin-CLI contract of this lot (spec-cite's
+# own driver contract lives in test_bd323_spec_cite_driver.py).
 _SHIPPED = _LEAVING + ["spec-coverage-lint", "token-consistency-lint"]
+# Every driver file at the repo root that these tests copy / enumerate (bd#323).
+_COPIED = _SHIPPED + [_CITE]
 
 _NAME_CHAR = r"[0-9A-Za-z_\-]"
 
@@ -197,7 +202,7 @@ def _package_copy(tmp_path: Path, env: dict, name: str) -> Path:
     are not what this lot is about. The clone's hook execs the CLI copy, so a
     refusal is a real `git commit` side effect.
     """
-    for lint in _SHIPPED:
+    for lint in _COPIED:
         assert _driver(lint).is_file(), f"bd#304: the driver {_driver(lint)} does not exist yet"
     clone = _init_repo(tmp_path, env, name)
     pkg = clone / "engine_py" / "bytedigger_engine"
@@ -218,7 +223,7 @@ def _package_copy(tmp_path: Path, env: dict, name: str) -> Path:
     scripts = clone / "scripts"
     scripts.mkdir()
     shutil.copy2(_ENFORCE_CLI, scripts / "precommit_enforce_cli.py")
-    for lint in _SHIPPED:
+    for lint in _COPIED:
         shutil.copy2(_driver(lint), clone / f"{lint}.py")
     for older in (
         "cyrillic-prose-lint", "one-sided-predicate-lint",
@@ -441,6 +446,18 @@ def _cases() -> dict:
         json_prefix={}, json_contains={},
     )
 
+    # spec-cite (bd#323): the cited file is neither on disk nor declared by a
+    # CREATE line -> missing_file, a blocking status; the driver prints
+    # `SPEC-CITE <status> <file> <symbol>`. Used by the layer ACs only (the
+    # driver's own contract is in test_bd323_spec_cite_driver.py).
+    dirty = _build(create_decl=False)
+    n = _line_of(dirty, "build_widget")
+    cases["spec-cite-lint"] = dict(
+        dirty=dirty, clean=_build(), line=n,
+        text_re=r"SPEC-CITE missing_file \S*src/widget\.py build_widget",
+        json_exact={}, json_prefix={}, json_contains={},
+    )
+
     # spec-coverage (held): spec_coverage.scan_spec_coverage flags a bold op in
     # a section-2 list that no AC table cell names.
     dirty = _build(sec2_extra=[_UNCOVERED_OP])
@@ -510,68 +527,40 @@ def test_ac1_violating_staged_spec_is_refused_by_a_real_commit_and_its_twin_is_a
 # ------------------------------------------------------------------------ AC2
 
 
-_HELD_STAGED = {
-    # spec_cite.lint_spec (no driver): the cited file is neither on disk nor
-    # declared by a CREATE line -> missing_file, a blocking status -> non-zero.
-    "spec-cite-lint": (_build(create_decl=False), 1, None),
-}
-
-
-@pytest.mark.parametrize("name", _HELD)
-def test_ac2_held_lint_flags_the_spec_directly_but_the_layer_does_not_run_it(
-    tmp_path, name
+def test_ac2_spec_cite_is_no_longer_held_the_driver_flags_the_spec_and_the_layer_runs_it(
+    tmp_path
 ):
-    spec_text, direct_rc, direct_err = _HELD_STAGED[name]
+    # bd#323: spec-cite left DECLARED_ABSENT; the driver exists at the repo root
+    # and the layer runs it (it was held, unrun, before).
+    name = _CITE
     driver = _driver(name)
     env = _hermetic_env(tmp_path)
     repo = _real_clone(tmp_path, env)
-    _stage(repo, env, "x_spec.md", spec_text)
+    _stage(repo, env, "x_spec.md", _build(create_decl=False))
 
-    # The eight others left DECLARED_ABSENT (bd#305, bd#315): one name is held.
-    assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
-        f"DECLARED_ABSENT must be exactly the one held name, got "
-        f"{precommit_lints.DECLARED_ABSENT!r}"
+    assert precommit_lints.DECLARED_ABSENT == [], precommit_lints.DECLARED_ABSENT
+
+    assert driver.is_file(), f"the cite driver {driver} must exist at the repo root"
+    assert os.access(driver, os.X_OK), f"{driver} must be executable"
+    direct = _run_driver(driver, ["--spec", "x_spec.md"], repo, env)
+    assert direct.returncode == 1, (
+        f"run directly the driver must exit 1: {direct.stdout!r} {direct.stderr!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 1, precommit_lints.DECLARED_ABSENT
-
-    if name in _DORMANT:
-        assert driver.is_file(), f"the held driver {driver} must exist on disk"
-        assert os.access(driver, os.X_OK), f"{driver} must be executable"
-        direct = _run_driver(driver, ["--spec", "x_spec.md"], repo, env)
-        assert direct.returncode == direct_rc, (
-            f"run directly the driver must exit {direct_rc}: {direct.stdout!r} {direct.stderr!r}"
-        )
-        if direct_err:
-            assert direct_err in direct.stderr, f"stderr: {direct.stderr!r}"
-    else:
-        # spec-cite: no driver file; the lint is shown through the library call
-        # the (withheld) driver would make.
-        assert not driver.exists(), f"bd#304 withholds the cite driver, found {driver}"
-        from bytedigger_engine import spec_cite  # noqa: PLC0415
-
-        code, findings = spec_cite.lint_spec(repo / "x_spec.md", repo)
-        assert code != 0 and any(
-            getattr(f, "status", None) == "missing_file" for f in findings
-        ), (
-            f"spec_cite.lint_spec must flag a cite of a missing file: {code!r} {findings!r}"
-        )
 
     rc, output = _commit(repo, env)
-    assert rc == 0, f"a held lint must not be run by the layer; output={output!r}"
-    assert _has_head(repo, env), "the commit must exist"
-    assert not _lint_token(output, name), f"lint={name} must not appear: {output!r}"
+    assert rc != 0, f"the layer must run the cite lint and refuse; output={output!r}"
+    assert not _has_head(repo, env), "no commit object may exist after the refusal"
+    assert REFUSE_VIOLATION in output and _lint_token(output, name), output
 
     from bytedigger_engine import precommit_enforce  # noqa: PLC0415
 
-    assert name in precommit_lints.DECLARED_ABSENT, f"{name} must stay declared absent"
     resolved = precommit_lints.driver_path(name, precommit_lints.DEFAULT_LINT_DIR)
-    assert not os.path.isfile(resolved), (
-        f"driver_path must resolve a held name to the package dir where no file "
-        f"exists, got {resolved!r}"
-    )
+    assert os.path.realpath(resolved) == os.path.realpath(str(driver)), resolved
+    assert os.path.isfile(resolved), f"driver_path must resolve to a file, got {resolved!r}"
     present, violations = precommit_enforce.registry_prepass(precommit_lints.DEFAULT_LINT_DIR)
+    assert len(present) > 0, "registry pre-pass must report at least one lint"
     assert violations == [], f"the live registry must pre-pass clean: {violations!r}"
-    assert present.get(name) is False, f"{name} must be marked not present: {present.get(name)!r}"
+    assert present.get(name) is True, f"{name} must be marked present: {present.get(name)!r}"
 
 
 def test_ac2_spec_coverage_is_run_by_the_layer_on_a_spec_with_an_ac_table_only(tmp_path):
@@ -600,7 +589,7 @@ def test_ac2_spec_coverage_is_run_by_the_layer_on_a_spec_with_an_ac_table_only(t
 # ------------------------------------------------------------------------ AC3
 
 
-def test_ac3_clean_staged_spec_commits_and_exactly_the_seven_are_planned_with_a_driver(tmp_path):
+def test_ac3_clean_staged_spec_commits_and_exactly_the_nine_are_planned_with_a_driver(tmp_path):
     env = _hermetic_env(tmp_path)
     repo = _real_clone(tmp_path, env)
     _stage(repo, env, "x_spec.md", _build())
@@ -626,20 +615,20 @@ def test_ac3_clean_staged_spec_commits_and_exactly_the_seven_are_planned_with_a_
         assert not argv0.is_file(), f"argv[0] for held {name} must not exist, got {argv0}"
 
     present, violations = precommit_enforce.registry_prepass(precommit_lints.DEFAULT_LINT_DIR)
+
+    assert len(present) > 0, "registry pre-pass must report at least one lint"
     assert violations == [], f"the live registry must pre-pass clean: {violations!r}"
     marked = {n for n in precommit_lints.SPEC_LINTS if present.get(n) is True}
-    assert marked == set(_LAYER), f"pre-pass must mark exactly the seven present, got {sorted(marked)!r}"
+    assert marked == set(_LAYER), f"pre-pass must mark exactly the nine present, got {sorted(marked)!r}"
 
 
 # ------------------------------------------------------------------------ AC4
 
 
-def test_ac4_registry_declares_the_one_held_and_maps_the_eight(tmp_path):
-    assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
-        f"DECLARED_ABSENT must be exactly the one held name, got "
-        f"{precommit_lints.DECLARED_ABSENT!r}"
+def test_ac4_registry_declares_nothing_absent_and_maps_the_nine(tmp_path):
+    assert precommit_lints.DECLARED_ABSENT == [], (
+        f"DECLARED_ABSENT must be empty (bd#323), got {precommit_lints.DECLARED_ABSENT!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 1, precommit_lints.DECLARED_ABSENT
     root = os.path.realpath(str(_REPO_ROOT))
     for name in _LAYER:
         mapped = precommit_lints.LINT_DRIVER_DIRS.get(name)
@@ -671,35 +660,6 @@ def test_ac4_a_deleted_leaving_driver_that_is_not_declared_is_a_missing_driver_r
     assert proc.returncode == 1, f"expected rc=1, got {proc.returncode}: {output!r}"
     assert REFUSE_MISSING_DRIVER in output, f"missing token: {output!r}"
     assert _lint_token(output, name), f"lint not named as a whole token: {output!r}"
-    for other in _ALL_NINE:
-        if other != name:
-            assert not _names_lint(output, other), f"innocent {other} named: {output!r}"
-
-
-@pytest.mark.parametrize("name", _HELD)
-def test_ac4_a_held_name_removed_from_declared_absent_is_a_missing_driver_refusal(
-    tmp_path, name
-):
-    env = _hermetic_env(tmp_path)
-    clone = _package_copy(tmp_path, env, "closed-held-copy")
-    if name in _DORMANT:
-        assert (clone / f"{name}.py").is_file(), "the dormant driver file must sit at the clone root"
-    else:
-        assert not (clone / f"{name}.py").exists(), "spec-cite has no driver file"
-        assert not _driver(name).exists(), f"bd#304 must not ship {_driver(name)}"
-    _append_registry(
-        clone,
-        f'DECLARED_ABSENT = [n for n in DECLARED_ABSENT if n != "{name}"]',
-    )
-
-    proc = _run_cli(clone, env)
-    output = proc.stdout + proc.stderr
-
-    assert proc.returncode == 1, f"expected rc=1, got {proc.returncode}: {output!r}"
-    assert REFUSE_MISSING_DRIVER in output, f"missing token: {output!r}"
-    assert _lint_token(output, name), (
-        f"the unmapped dormant file must not be resolved; {name} must be named: {output!r}"
-    )
     for other in _ALL_NINE:
         if other != name:
             assert not _names_lint(output, other), f"innocent {other} named: {output!r}"
@@ -988,18 +948,18 @@ _EXISTING_ROOT_DRIVERS = {
 }
 
 
-def test_ac10_consumer_guard_the_cite_driver_stays_withheld_and_the_root_driver_set_is_exact():
+def test_ac10_consumer_guard_the_cite_driver_exists_and_the_root_driver_set_is_exact():
     from bytedigger_engine.workflows import phase_45_spec  # noqa: PLC0415
 
     computed = Path(phase_45_spec.__file__).parent.parent.parent.parent / "spec-cite-lint.py"
-    assert not computed.is_file(), (
-        f"phase_45_spec execs {computed} by path; shipping it would switch on a "
-        f"blocking /build gate (spec 2.7) -- it belongs to #305"
+    assert computed.is_file(), (
+        f"phase_45_spec execs {computed} by path; bd#323 ships it, the blocking "
+        f"/build gate is live"
     )
-    assert not _driver("spec-cite-lint").exists(), "spec-cite-lint.py must be absent at the repo root"
+    assert _driver("spec-cite-lint").is_file(), "spec-cite-lint.py must exist at the repo root"
 
     on_disk = {p.name for p in _REPO_ROOT.glob("*-lint.py")}
-    expected = _EXISTING_ROOT_DRIVERS | {f"{n}.py" for n in _SHIPPED}
+    expected = _EXISTING_ROOT_DRIVERS | {f"{n}.py" for n in _COPIED}
     assert on_disk == expected, (
         f"repo-root *-lint.py set must be the existing six plus the eight new ones; "
         f"extra={sorted(on_disk - expected)!r} missing={sorted(expected - on_disk)!r}"
@@ -1057,13 +1017,10 @@ def test_ac9_measurement_pin_six_are_clean_on_the_corpus_and_each_held_lint_stil
         f"token-consistency-lint must exit 0 on every spec in the corpus: {failing!r}"
     )
 
-    # spec-cite has no driver; the call its driver would make is the library one.
-    from bytedigger_engine import spec_cite  # noqa: PLC0415
-
-    cite_codes = {
-        str(p.relative_to(_REPO_ROOT)): spec_cite.lint_spec(p, _REPO_ROOT)[0] for p in corpus
-    }
-    assert any(code != 0 for code in cite_codes.values()), (
-        f"spec-cite-lint is now clean on the whole corpus ({len(corpus)} specs): the "
-        f"measurement that held it back is stale, so #305 can flip it"
+    # bd#323: spec-cite left DECLARED_ABSENT; its driver (union rule) measures
+    # zero findings on the corpus (a hit here is a regression of the flip).
+    assert _driver(_CITE).is_file(), f"driver {_driver(_CITE)} does not exist"
+    failing = {p: rc for p, rc in rcs(_CITE).items() if rc != 0}
+    assert failing == {}, (
+        f"spec-cite-lint must exit 0 on every spec in the corpus: {failing!r}"
     )

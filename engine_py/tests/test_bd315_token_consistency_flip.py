@@ -241,7 +241,7 @@ def test_ac3_r2_a_case_only_difference_is_not_drift():
 
 
 def test_ac5_registry_flip_declared_absent_is_spec_cite_only_and_token_is_mapped():
-    assert precommit_lints.DECLARED_ABSENT == [_CITE], precommit_lints.DECLARED_ABSENT
+    assert precommit_lints.DECLARED_ABSENT == [], precommit_lints.DECLARED_ABSENT
 
     mapped = precommit_lints.LINT_DRIVER_DIRS.get(_TOKEN)
     assert mapped is not None and os.path.realpath(mapped) == os.path.realpath(str(_REPO_ROOT)), (
@@ -255,7 +255,7 @@ def test_ac5_registry_flip_declared_absent_is_spec_cite_only_and_token_is_mapped
     assert len(present) > 0, "registry_prepass scanned no lints"
     assert violations == [], f"the live registry must pre-pass clean: {violations!r}"
     assert present.get(_TOKEN) is True, present.get(_TOKEN)
-    assert present.get(_CITE) is False, present.get(_CITE)
+    assert present.get(_CITE) is True, present.get(_CITE)
 
 
 # ------------------------------------------------------------------------ AC6

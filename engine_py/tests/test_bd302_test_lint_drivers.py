@@ -187,6 +187,8 @@ def _package_copy(tmp_path: Path, env: dict, name: str) -> Path:
         "spec-coverage-lint",
         # bd#315: token-consistency is mapped too.
         "token-consistency-lint",
+        # bd#323: spec-cite is mapped too (it left DECLARED_ABSENT).
+        "spec-cite-lint",
         # bd#308: the third test lint is mapped by the copied registry too.
         "empty-input-assert-lint",
     ):
@@ -367,16 +369,10 @@ def test_ac3_clean_staged_test_commits_and_both_lints_are_reported_as_run(tmp_pa
 # ------------------------------------------------------------------------ AC4
 
 
-def test_ac4_declared_absent_is_the_one_held_spec_lint_and_the_registry_stays_closed(tmp_path):
-    # bd#304/#305/#315: eight spec lints gained drivers; exactly one stays declared absent.
-    held = {"spec-cite-lint"}
-    assert set(precommit_lints.DECLARED_ABSENT) == held, (
-        f"DECLARED_ABSENT must be exactly the one held spec lint, got "
-        f"{precommit_lints.DECLARED_ABSENT!r}"
-    )
-    assert len(precommit_lints.DECLARED_ABSENT) == 1, (
-        f"DECLARED_ABSENT must hold exactly one entry (no duplicates), got "
-        f"{precommit_lints.DECLARED_ABSENT!r}"
+def test_ac4_declared_absent_is_empty_and_the_registry_stays_closed(tmp_path):
+    # bd#304/#305/#315/#323: all nine spec lints gained drivers; nothing stays declared absent.
+    assert precommit_lints.DECLARED_ABSENT == [], (
+        f"DECLARED_ABSENT must be empty, got {precommit_lints.DECLARED_ABSENT!r}"
     )
     for name in (_FI_NAME, _SP_NAME):
         assert name not in precommit_lints.DECLARED_ABSENT, f"{name} still declared absent"

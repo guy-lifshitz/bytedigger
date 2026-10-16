@@ -104,6 +104,7 @@ _OTHER_DRIVERS = (
     "stub-passability-lint", "scope-inverse-lint", "helper-extraction-lint",
     "presence-triad-lint", "format-conversion-lint", "closure-evidence-lint",
     "mutation-two-sidedness-lint", "spec-coverage-lint", "token-consistency-lint",
+    "spec-cite-lint",  # bd#323
 )
 
 
@@ -114,7 +115,7 @@ def _installed_clone(tmp_path: Path, env: dict, name: str = "clone",
     real package so the CLI resolves the real repo root and the real drivers.
 
     `engine_copy=True`: the package is COPIED, so the copied registry maps every
-    driver at the clone root; the eleven other drivers are exit-0 stand-ins and
+    driver at the clone root; the twelve other drivers are exit-0 stand-ins and
     the driver under test is NOT put there (the caller decides)."""
     for needed in (_INSTALLER, _ENFORCE_CLI, _GITHOOKS / "pre-commit"):
         assert needed.is_file(), f"missing {needed}"
@@ -404,8 +405,8 @@ def test_ac2_registry_lists_the_driver_and_the_denominator_is_13():
                if not present.get(n) and n not in precommit_lints.DECLARED_ABSENT]
     assert missing == [], f"names without a driver: {missing!r}"
     assert present.get(_NAME) is True
-    assert precommit_lints.DECLARED_ABSENT == ["spec-cite-lint"], (
-        "only spec-cite-lint stays held in DECLARED_ABSENT")
+    assert precommit_lints.DECLARED_ABSENT == [], (
+        "nothing stays held in DECLARED_ABSENT (bd#323)")
 
 
 def test_ac2_ratchet_and_switch_tables_are_declared():
