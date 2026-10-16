@@ -458,6 +458,8 @@ def test_ac7_direct_calls_and_non_model_pool_are_clean(tmp_path, monkeypatch) ->
     """AC7: single/loop/retry direct calls and a pooled non-model function -> 0 findings, main -> 0."""
     lint = _lint()
     root = _tree(tmp_path, _SRC_CLEAN)
+    scanned_files = list((root / "workflows").glob("*.py"))
+    assert len(scanned_files) > 0, "denominator: the scanned tree holds the file with the direct calls"
     assert lint.fanout_findings(root) == []
     assert _run_main(lint, root, monkeypatch) == 0
 
@@ -547,7 +549,11 @@ def test_ac9_main_clean_inventory_returns_0(tmp_path, monkeypatch, capsys) -> No
 
 def test_ac10_real_tree_has_no_fanout_findings() -> None:
     """AC10: the real engine tree has no pooled model call bypassing lib/llm_fanout (lot #317 removed the last one)."""
-    assert _lint().fanout_findings(_engine_root()) == []
+    engine_root = _engine_root()
+    scanned_files = list(engine_root.rglob("*.py"))
+    assert len(scanned_files) > 10, "denominator: the real engine tree is non-trivially populated"
+    assert (engine_root / "workflows" / "phase_6_review.py").is_file()
+    assert _lint().fanout_findings(engine_root) == []
 
 
 # ---------------------------------------------------------------------------
