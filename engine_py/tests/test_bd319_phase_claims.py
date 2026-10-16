@@ -335,9 +335,17 @@ def scan_prose(name: str, text: str) -> list[tuple[str, int, str]]:
 
 
 def test_ac6_no_typed_claims_outside_generated_blocks():
+    files = sorted((REPO / "phases").glob("*.md"))
+    names = {f.name for f in files}
+    assert files, "no phases/*.md files found to scan"
+    assert {"phase-6-review.md", "phase-0-classify.md"} <= names
     hits = []
-    for f in sorted((REPO / "phases").glob("*.md")):
-        hits += scan_prose(f.name, f.read_text(encoding="utf-8"))
+    scanned_lines = 0
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        scanned_lines += sum(1 for ln in text.split("\n") if ln.strip())
+        hits += scan_prose(f.name, text)
+    assert scanned_lines > 0, "scan saw no non-blank lines"
     assert hits == [], "typed claims outside generated blocks:\n" + "\n".join(map(str, hits))
 
 
