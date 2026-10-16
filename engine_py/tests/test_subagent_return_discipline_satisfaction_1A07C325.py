@@ -17,10 +17,10 @@ Tests that FAIL today (genuine fail-today):
   AC10 — satisfaction_bytes_written computed from raw today (len(raw)), not file body.
 
 Tests that MAY PASS today (regression guards):
-  AC2  — COMPLEX parallel evaluators already pass allowed_tools=["Read"] (no Write).
+  AC2  — (bd#317 retarget) COMPLEX makes one call with allowed_tools=["Read", "Write"].
   AC5  — COMPLEX prompt still contains echo directive (unchanged today).
   AC6  — both prompts already contain ## Composite, SCORE: <0-100>, Set satisfied=true, ## satisfaction-output.
-  AC11 — multi-eval path routes to _write_satisfaction_doc_multi and writes composite doc (existing behavior).
+  (AC11, the multi-eval composite-doc route, was removed by bd#317 with the multi path.)
 
 §1q extension (D1CF5FDF): _resolve_satisfaction_source does NOT exist at import time.
   Access via getattr INSIDE test bodies; never import at top level.
@@ -233,15 +233,13 @@ def test_ac1_invoke_satisfaction_llm_single_branch_passes_write_in_allowed_tools
     )
 
 
-# ─── AC2: COMPLEX parallel evaluators still pass allowed_tools=["Read"] ────────
+# ─── AC2: COMPLEX takes the single path: one call, Read + Write (bd#317) ────────
 
 
-def test_ac2_complex_evaluators_still_pass_read_only_allowed_tools(tmp_path, monkeypatch):
-    """AC2: COMPLEX parallel evaluators must still pass allowed_tools=["Read"]
-    (regression guard — multi eval unchanged per §2.2).
-
-    MAY PASS today (regression guard: current code already uses ["Read"] for COMPLEX).
-    Must keep passing post-GREEN.
+def test_ac2_complex_single_evaluator_passes_read_write_allowed_tools(tmp_path, monkeypatch):
+    """AC2 (retargeted by bd#317): COMPLEX runs the single evaluator path: exactly one
+    invoke_llm_subprocess call with allowed_tools == ["Read", "Write"], like SIMPLE/FEATURE.
+    (Before bd#317 COMPLEX fanned out to three Read-only evaluators.)
     """
     scratchpad = tmp_path / "scratch"
     scratchpad.mkdir()
@@ -272,16 +270,14 @@ def test_ac2_complex_evaluators_still_pass_read_only_allowed_tools(tmp_path, mon
 
     _invoke_satisfaction_llm(ctx, prev)
 
-    # COMPLEX branch spawns 3 parallel evaluators
-    assert len(captured_calls) >= 1, (
-        "COMPLEX branch must call invoke_llm_subprocess at least once (via parallel evaluators)"
+    assert len(captured_calls) == 1, (
+        f"COMPLEX must make exactly one invoke_llm_subprocess call, got {len(captured_calls)}"
     )
-    for i, call in enumerate(captured_calls):
-        actual_tools = call["allowed_tools"]
-        assert actual_tools == ["Read"], (
-            f"AC2 regression guard: COMPLEX evaluator {i} must pass allowed_tools=['Read'] "
-            f"(no Write — they have no Write tool, §2.2 preserved). Got {actual_tools!r}"
-        )
+    actual_tools = captured_calls[0]["allowed_tools"]
+    assert actual_tools == ["Read", "Write"], (
+        f"AC2: COMPLEX evaluator must pass allowed_tools=['Read', 'Write'] "
+        f"(single path, bd#317). Got {actual_tools!r}"
+    )
 
 
 # ─── AC3: non-COMPLEX _invoke_satisfaction_llm unlinks doc_path before dispatch ─
@@ -834,88 +830,6 @@ def test_ac10_satisfaction_bytes_written_equals_file_body_bytes(tmp_path, monkey
         f"(disk-truth = file body, not raw). "
         f"Today it equals len(raw.encode()) = {len(raw.encode('utf-8'))} (line 2859). "
         f"Got {actual_bytes!r}."
-    )
-
-
-# ─── AC11: multi-eval COMPLEX end-to-end still routes to _write_satisfaction_doc_multi ─
-
-
-def test_ac11_multi_eval_complex_routes_to_composite_path(tmp_path, monkeypatch):
-    """AC11: a 3-evaluator is_multi_evaluator prev still routes to
-    _write_satisfaction_doc_multi and writes a composite doc.
-
-    Regression guard: this tests CURRENT behavior that must be preserved post-GREEN.
-    Multi-eval path is UNCHANGED (deferred to slice-6d, §4).
-    MAY PASS today AND must pass post-GREEN (regression guard — asserts current behavior).
-    """
-    scratchpad = tmp_path / "scratch"
-    scratchpad.mkdir()
-
-    sat_doc_path = scratchpad / SATISFACTION_DOC_RELPATH
-    sat_doc_path.parent.mkdir(parents=True, exist_ok=True)
-
-    spec_path = scratchpad / SPEC_DOC_RELPATH
-    spec_path.parent.mkdir(parents=True, exist_ok=True)
-    spec_path.write_text("## US1\nAdd foo\n", encoding="utf-8")
-
-    review_doc = scratchpad / REVIEW_DOC_RELPATH
-    review_doc.parent.mkdir(parents=True, exist_ok=True)
-    review_doc.write_text("# Review\n\nVERDICT: PASS\n", encoding="utf-8")
-
-    fix_doc = scratchpad / FIX_DOC_RELPATH
-    fix_doc.parent.mkdir(parents=True, exist_ok=True)
-    fix_doc.write_text("FIX COMPLETE.\n", encoding="utf-8")
-
-    captured = _patch_emit(monkeypatch)
-
-    # Stub _persist_satisfaction_last_findings to avoid needing real review structured data.
-    monkeypatch.setattr(
-        phase_6_review,
-        "_persist_satisfaction_last_findings",
-        lambda ctx, prev, score, threshold: None,
-        raising=False,
-    )
-
-    eval_raw = _valid_raw_response(90)
-
-    # Build a multi-evaluator prev (3 evaluators all passing).
-    prev = StepResult(
-        status="ok",
-        data={
-            "raw_response": eval_raw,
-            "doc_path": str(sat_doc_path),
-            "spec_path": str(spec_path),
-            "review_doc_path": str(review_doc),
-            "fix_doc_path": str(fix_doc),
-            "is_multi_evaluator": True,
-            "evaluator_responses": [
-                {"index": 0, "status": "ok", "raw_response": eval_raw, "error_code": None},
-                {"index": 1, "status": "ok", "raw_response": eval_raw, "error_code": None},
-                {"index": 2, "status": "ok", "raw_response": eval_raw, "error_code": None},
-            ],
-        },
-        duration_ms=0,
-        step_name="invoke_satisfaction_llm",
-    )
-
-    ctx = _make_ctx(scratchpad)
-    result = _write_satisfaction_doc(ctx, prev)
-
-    # Composite doc must be written.
-    assert sat_doc_path.exists(), (
-        "AC11 regression guard: _write_satisfaction_doc must write a composite doc "
-        "for multi-evaluator prev (routes to _write_satisfaction_doc_multi)."
-    )
-    composite = sat_doc_path.read_text(encoding="utf-8")
-    assert "Multi-Evaluator Satisfaction Review" in composite, (
-        f"AC11 regression guard: composite doc must contain 'Multi-Evaluator Satisfaction Review'. "
-        f"Composite head: {composite[:200]!r}"
-    )
-
-    # Result must be ok (3 valid evaluators all passing → majority_passed=True).
-    assert result.status == "ok", (
-        f"AC11 regression guard: 3 passing evaluators must yield status='ok'. "
-        f"Got status={result.status!r}, error={result.error!r}"
     )
 
 

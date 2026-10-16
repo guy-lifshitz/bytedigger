@@ -5,8 +5,7 @@ Spec: `docs/decisions/2026-09-26-bd82-pr2-fresh-sessions-thread-ctx.md`.
 
 Fresh sessions drive the REAL agent-sdk backend through the chokepoint; only the
 SDK's `query` is replaced, and it records the `resume` each call asked for.
-Thread context drives real pool threads, the real satisfaction pool, and a real
-EventLog.
+Thread context drives real pool threads and a real EventLog.
 """
 from __future__ import annotations
 
@@ -386,46 +385,6 @@ def test_t7_two_concurrent_runs_stay_isolated():
     assert seen == {"A": ["run-A"] * 3, "B": ["run-B"] * 3}
 
 
-# ─── the satisfaction pool ────────────────────────────────────────────────────
-
-
-def test_t6_satisfaction_workers_carry_the_step_context(tmp_path):
-    from bytedigger_engine.workflows.phase_6_review import (  # noqa: PLC0415
-        _run_satisfaction_evaluators_parallel,
-    )
-
-    log = EventLog(tmp_path / "e.jsonl")
-    _parent(log, run_id="run-sat", step_name="satisfaction", cycle=2)
-    seen: list = []
-    lock = threading.Lock()
-
-    def _spy(**kwargs):
-        ctx = kwargs["run_ctx"]
-        assert "fresh_session" not in kwargs, "capability-gated, not signature-sniffed"
-        with lock:
-            seen.append((kwargs["step_name"], ctx.run_id if ctx else None,
-                         ctx.phase if ctx else None, ctx.cycle if ctx else None,
-                         ctx.step_name if ctx else None))
-        return StepResult(status="ok", data={"text": "ok"}, duration_ms=1,
-                          step_name=kwargs["step_name"])
-
-    register_backend("claude-subprocess", _spy, manifest_source="harness_tool_record",
-                     capabilities={"manifest", "tool_allowlist"}, overwrite=True)
-
-    results = _run_satisfaction_evaluators_parallel("p", "opus", 5, {}, n=3)
-
-    assert [r.status for r in results] == ["ok"] * 3
-    # One registered step name for every evaluator: gates are fresh, so a
-    # per-worker name would isolate nothing and would split the step's name.
-    assert {r.step_name for r in results} == {"invoke_satisfaction_llm"}
-    # the slot keeps the parent's step name
-    assert seen == [("invoke_satisfaction_llm", "run-sat", "review", 2, "satisfaction")] * 3
-    resolved = [e for e in log.read_all() if e["event_type"] == "runner_backend_resolved"]
-    assert len(resolved) == 3, "each worker emits into the parent's run"
-    assert {e["run_id"] for e in resolved} == {"run-sat"}
-    assert telemetry_ctx.get_current_run().run_id == "run-sat", "parent context untouched"
-
-
 # ─── enforcement pin ──────────────────────────────────────────────────────────
 
 
@@ -456,5 +415,6 @@ def test_t9_every_pool_dispatch_in_workflows_goes_through_the_wrapper():
                 word in ast.unparse(func.value).lower() for word in ("executor", "pool"))
             if pool_map or name in ("Thread", "Timer", "run_in_executor", "to_thread"):
                 offenders.append(f"{path.name}:{node.lineno} {name} bypasses the wrapper")
-    assert submits >= 1, "the scan must see the satisfaction pool"
+    # bd#317: the satisfaction pool is gone, so zero submits is expected; the scan
+    # stays as a guard that no pool dispatch bypasses the wrapper.
     assert offenders == []

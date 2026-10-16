@@ -285,30 +285,6 @@ def _make_single_prev(tmp_path: Path, raw_response: str) -> StepResult:
     )
 
 
-def _make_multi_prev(tmp_path: Path, evaluator_responses: list) -> StepResult:
-    scratch = tmp_path / "scratch"
-    reviews_dir = scratch / "reviews"
-    reviews_dir.mkdir(parents=True, exist_ok=True)
-    sat_doc = reviews_dir / "build-satisfaction.md"
-    review_doc = reviews_dir / "build-review.md"
-    review_doc.write_text("# Review\nVERDICT: FAIL\n", encoding="utf-8")
-    ok_raws = [e["raw_response"] for e in evaluator_responses if e.get("status") == "ok" and e.get("raw_response")]
-    return StepResult(
-        status="ok",
-        data={
-            "raw_response": ok_raws[0] if ok_raws else "",
-            "is_multi_evaluator": True,
-            "evaluator_responses": evaluator_responses,
-            "doc_path": str(sat_doc),
-            "spec_path": str(scratch / "specs" / "build-spec.md"),
-            "review_doc_path": str(review_doc),
-            "fix_doc_path": str(reviews_dir / "build-fix.md"),
-        },
-        duration_ms=0,
-        step_name="invoke_satisfaction_llm",
-    )
-
-
 def _raw_score_fail(score: int) -> str:
     return "\n".join(["## Composite", f"SCORE: {score}", "VERDICT: FAIL", ""])
 
@@ -353,11 +329,9 @@ def test_ac6_single_eval_fail_declares_invalidation_flag(tmp_path, monkeypatch):
     assert result.data.get("satisfaction_doc_path"), "common_data keys must survive alongside the new flag"
 
 
-def test_ac7_multi_eval_both_fail_sites_declare_flag_ok_does_not(tmp_path, monkeypatch):
-    """AC7: multi-eval majority-FAIL and AC-checklist-FAIL StepResults both
-    carry the flag; a multi-eval PASS result does NOT.
-
-    At RED: the flag is absent on the FAIL result -> first assertion fails.
+def test_ac7_single_eval_checklist_fail_declares_flag_ok_does_not(tmp_path, monkeypatch):
+    """AC7 (bd#317: single path for every tier): the AC-checklist-FAIL and the
+    structured-FAIL StepResults both carry the flag; a PASS result does NOT.
     """
     from bytedigger_engine.workflows import phase_6_review
     from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc
@@ -367,61 +341,32 @@ def test_ac7_multi_eval_both_fail_sites_declare_flag_ok_does_not(tmp_path, monke
 
     ctx = _make_sat_ctx(tmp_path, satisfaction_threshold=80)
 
-    # majority FAIL: 2 of 3 evaluators fail
-    fail_evals = [
-        {"index": 0, "status": "ok", "raw_response": _raw_score_pass(85), "error_code": None},
-        {"index": 1, "status": "ok", "raw_response": _raw_score_fail_structured(60), "error_code": None},
-        {"index": 2, "status": "ok", "raw_response": _raw_score_fail_structured(55), "error_code": None},
-    ]
-    prev_fail = _make_multi_prev(tmp_path, fail_evals)
+    # structured FAIL
+    prev_fail = _make_single_prev(tmp_path, _raw_score_fail_structured(60))
     result_fail = _write_satisfaction_doc(ctx, prev_fail)
-    assert result_fail.status == "error", f"expected majority FAIL, got {result_fail.status!r}"
+    assert result_fail.status == "error", f"expected FAIL, got {result_fail.status!r}"
     assert result_fail.data.get("invalidate_cycle_sentinels_on_fail") is True, (
-        f"expected flag on multi-eval majority FAIL, got data={result_fail.data!r}"
+        f"expected flag on structured FAIL, got data={result_fail.data!r}"
     )
 
-    # unanimous PASS: flag must be absent
-    pass_evals = [
-        {"index": 0, "status": "ok", "raw_response": _raw_score_pass(95), "error_code": None},
-        {"index": 1, "status": "ok", "raw_response": _raw_score_pass(92), "error_code": None},
-        {"index": 2, "status": "ok", "raw_response": _raw_score_pass(88), "error_code": None},
-    ]
-    prev_pass = _make_multi_prev(tmp_path, pass_evals)
+    # AC-checklist FAIL: spec has ACs, the response carries no checklist
+    spec = tmp_path / "scratch" / "specs" / "build-spec.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("## Acceptance Criteria\n1. does X\n", encoding="utf-8")
+    prev_ac = _make_single_prev(tmp_path, _raw_score_pass(95))
+    result_ac = _write_satisfaction_doc(ctx, prev_ac)
+    assert result_ac.error_code == "E_SATISFACTION_AC_CHECKLIST", result_ac
+    assert result_ac.data.get("invalidate_cycle_sentinels_on_fail") is True, (
+        f"expected flag on AC-checklist FAIL, got data={result_ac.data!r}"
+    )
+    spec.unlink()
+
+    # PASS: flag must be absent
+    prev_pass = _make_single_prev(tmp_path, _raw_score_pass(95))
     result_pass = _write_satisfaction_doc(ctx, prev_pass)
-    assert result_pass.status == "ok", f"expected unanimous PASS, got {result_pass.status!r}"
+    assert result_pass.status == "ok", f"expected PASS, got {result_pass.status!r}"
     assert "invalidate_cycle_sentinels_on_fail" not in (result_pass.data or {}), (
         "PASS result must not carry the invalidation flag"
-    )
-
-
-def test_ac8_review_degraded_does_not_declare_flag(tmp_path, monkeypatch):
-    """AC8: E_REVIEW_DEGRADED (n_valid<2, structural degradation, not a
-    stale-tree verdict) must NOT carry the flag (§1n DEFER).
-
-    This may already pass today (key doesn't exist anywhere pre-GREEN, so
-    'not in data' is trivially true) — kept as the DEFER-classification
-    regression guard per spec §2.3; paired with AC6/AC7 which DO fail today.
-    """
-    from bytedigger_engine.workflows import phase_6_review
-    from bytedigger_engine.workflows.phase_6_review import _write_satisfaction_doc
-
-    captured: list = []
-    monkeypatch.setattr(phase_6_review, "_emit_safe", lambda et, p, **kw: captured.append((et, p, kw)))
-
-    ctx = _make_sat_ctx(tmp_path, satisfaction_threshold=80)
-    prose = "## Evaluation\nNo score, no structured block here."
-    degraded_evals = [
-        {"index": 0, "status": "ok", "raw_response": prose, "error_code": None},
-        {"index": 1, "status": "ok", "raw_response": prose, "error_code": None},
-        {"index": 2, "status": "ok", "raw_response": prose, "error_code": None},
-    ]
-    prev = _make_multi_prev(tmp_path, degraded_evals)
-    result = _write_satisfaction_doc(ctx, prev)
-
-    assert result.status == "error"
-    assert result.error_code == "E_REVIEW_DEGRADED", f"expected E_REVIEW_DEGRADED, got {result.error_code!r}"
-    assert "invalidate_cycle_sentinels_on_fail" not in (result.data or {}), (
-        f"E_REVIEW_DEGRADED must not carry the invalidation flag (DEFER), got data={result.data!r}"
     )
 
 

@@ -481,7 +481,6 @@ def test_ac7_removed_error_code_not_in_any_engine_source(code):
 
 def test_ac7_guard_kept_error_codes():
     assert "E_MISSING_SCRATCHPAD" in error_codes.ERROR_CODES
-    assert "E_REVIEW_DEGRADED" in error_codes.ERROR_CODES
 
 
 def test_ac7_no_role_files_is_ok_with_none_content(tmp_path):
