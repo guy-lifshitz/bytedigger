@@ -117,6 +117,7 @@
     "workflows/phase_45_spec.py::_collect_spec_gate_findings::bounded_run#0": {"class": "E", "note": "spec-lint stdout parsed into findings strings carried as retry findings (class-E fields)"},
     "workflows/phase_45_spec.py::_collect_spec_gate_findings::bounded_run#1": {"class": "E", "note": "cite-lint stdout parsed into findings carried as retry findings (class-E fields)"},
     "workflows/phase_45_spec.py::_decision_doc_inline::read_text#0": {"class": "I-declared", "note": "decision doc inlined in the spec prompt; declared in the scaffold record"},
+    "workflows/phase_45_spec.py::_invoke_spec_llm::read_text#0": {"class": "not-prompt", "note": "bd#109: canonical spec read only for a blank check before the byte-exact prior-spec snapshot; boolean only, never rendered"},
     "workflows/phase_45_spec.py::_prior_ship_base_inline::read_text#0": {"class": "I-declared", "note": "S10c prior SHIP base spec inlined in the prompt; declared in the scaffold record"},
     "workflows/phase_45_spec.py::_read_ship_sidecar::read_text#0": {"class": "not-prompt", "note": "ship sidecar JSON parsed for a hash comparison"},
     "workflows/phase_45_spec.py::_resolve_spec_source::read_text#0": {"class": "M", "note": "model-written spec doc re-read to choose the final spec text; model output, not repo bytes"},

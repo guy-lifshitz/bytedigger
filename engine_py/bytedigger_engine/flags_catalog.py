@@ -248,6 +248,12 @@ FLAGS: dict[str, dict] = {
         "module": "workflows/phase_45_spec.py",
         "description": "Kill-switch: HAL_SPEC_DELTA_RETRY=0 restores legacy cycle>=2 scaffold assembly.",
     },
+    "HAL_SPEC_SHRINK_GUARD": {
+        "kind": "gate",
+        "default": "1",
+        "module": "workflows/phase_45_spec.py",
+        "description": "Kill-switch: HAL_SPEC_SHRINK_GUARD=0 stops the cycle>=2 spec writer output being refused when it is under half the prior spec's bytes (bd#109).",
+    },
     "HAL_SPEC_HIGH_BINDING_PARITY": {
         "kind": "gate",
         "default": "1",
