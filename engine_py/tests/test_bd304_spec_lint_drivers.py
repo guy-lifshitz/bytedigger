@@ -61,15 +61,17 @@ _LEAVING = [
     "mutation-two-sidedness-lint",
 ]
 # bd#305: spec-coverage left the held group (the layer feeds it a spec with an
-# AC table); two names stay held.
-_HELD = ["spec-cite-lint", "token-consistency-lint"]
-# The lints the layer runs: the six of #304 plus spec-coverage (#305).
-_LAYER = _LEAVING + ["spec-coverage-lint"]
+# AC table); bd#315: token-consistency left it too. One name stays held.
+_HELD = ["spec-cite-lint"]
+# The lints the layer runs: the six of #304, spec-coverage (#305) and
+# token-consistency (#315).
+_LAYER = _LEAVING + ["spec-coverage-lint", "token-consistency-lint"]
 _ALL_NINE = _LAYER + _HELD
-# Held names that DO have a dormant driver file at the repo root (unmapped).
-_DORMANT = ["token-consistency-lint"]
+# Held names that DO have a dormant driver file at the repo root (unmapped):
+# none since bd#315.
+_DORMANT: list[str] = []
 # The eight drivers this lot ships (spec-cite has none).
-_SHIPPED = _LEAVING + ["spec-coverage-lint"] + _DORMANT
+_SHIPPED = _LEAVING + ["spec-coverage-lint", "token-consistency-lint"]
 
 _NAME_CHAR = r"[0-9A-Za-z_\-]"
 
@@ -512,8 +514,6 @@ _HELD_STAGED = {
     # spec_cite.lint_spec (no driver): the cited file is neither on disk nor
     # declared by a CREATE line -> missing_file, a blocking status -> non-zero.
     "spec-cite-lint": (_build(create_decl=False), 1, None),
-    # token_consistency: emit_foo vs emit.foo -> exit 1.
-    "token-consistency-lint": (_build(problem_extra=[_TOKEN_LINE]), 1, None),
 }
 
 
@@ -527,12 +527,12 @@ def test_ac2_held_lint_flags_the_spec_directly_but_the_layer_does_not_run_it(
     repo = _real_clone(tmp_path, env)
     _stage(repo, env, "x_spec.md", spec_text)
 
-    # The seven others left DECLARED_ABSENT (bd#305), so the held set is two.
+    # The eight others left DECLARED_ABSENT (bd#305, bd#315): one name is held.
     assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
-        f"DECLARED_ABSENT must be exactly the two held names, got "
+        f"DECLARED_ABSENT must be exactly the one held name, got "
         f"{precommit_lints.DECLARED_ABSENT!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 2, precommit_lints.DECLARED_ABSENT
+    assert len(precommit_lints.DECLARED_ABSENT) == 1, precommit_lints.DECLARED_ABSENT
 
     if name in _DORMANT:
         assert driver.is_file(), f"the held driver {driver} must exist on disk"
@@ -634,12 +634,12 @@ def test_ac3_clean_staged_spec_commits_and_exactly_the_seven_are_planned_with_a_
 # ------------------------------------------------------------------------ AC4
 
 
-def test_ac4_registry_declares_the_two_held_and_maps_the_seven(tmp_path):
+def test_ac4_registry_declares_the_one_held_and_maps_the_eight(tmp_path):
     assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
-        f"DECLARED_ABSENT must be exactly the two held names, got "
+        f"DECLARED_ABSENT must be exactly the one held name, got "
         f"{precommit_lints.DECLARED_ABSENT!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 2, precommit_lints.DECLARED_ABSENT
+    assert len(precommit_lints.DECLARED_ABSENT) == 1, precommit_lints.DECLARED_ABSENT
     root = os.path.realpath(str(_REPO_ROOT))
     for name in _LAYER:
         mapped = precommit_lints.LINT_DRIVER_DIRS.get(name)
@@ -1044,14 +1044,18 @@ def test_ac9_measurement_pin_six_are_clean_on_the_corpus_and_each_held_lint_stil
             f"a hit means it must not leave DECLARED_ABSENT: {failing!r}"
         )
     # bd#305: spec-coverage is run directly here (the layer does not feed it a
-    # spec without an AC table); token-consistency is still held.
-    for name in ["spec-coverage-lint"] + _DORMANT:
-        results = rcs(name)
-        assert any(rc != 0 for rc in results.values()), (
-            f"{name} is now clean on the whole corpus ({len(corpus)} specs): the "
-            f"measurement that held it back is stale, so #305 can flip it for "
-            f"the two still held"
-        )
+    # spec without an AC table); its measurement pin keeps a hit.
+    results = rcs("spec-coverage-lint")
+    assert any(rc != 0 for rc in results.values()), (
+        f"spec-coverage-lint is now clean on the whole corpus ({len(corpus)} specs): "
+        f"the measurement that held it back is stale"
+    )
+    # bd#315: token-consistency left DECLARED_ABSENT; its scanner measures zero
+    # findings on the corpus (a hit here is a regression of the flip).
+    failing = {p: rc for p, rc in rcs("token-consistency-lint").items() if rc != 0}
+    assert failing == {}, (
+        f"token-consistency-lint must exit 0 on every spec in the corpus: {failing!r}"
+    )
 
     # spec-cite has no driver; the call its driver would make is the library one.
     from bytedigger_engine import spec_cite  # noqa: PLC0415

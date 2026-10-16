@@ -18,8 +18,7 @@ JSON output (--json):
 ONE rule, ONE carrier: imports `bytedigger_engine.token_consistency`; no copy of
 the rule lives here. The driver sits at the repo root beside
 `one-sided-predicate-lint.py` because a hyphenated module inside the package
-would break the import smoke. Dormant: not mapped in the registry, so the
-pre-commit layer does not run it (tracked in #305).
+would break the import smoke.
 """
 from __future__ import annotations
 
