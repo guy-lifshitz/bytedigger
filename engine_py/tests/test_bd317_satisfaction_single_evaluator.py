@@ -5,12 +5,14 @@ Spec: docs/decisions/2026-10-16-bd317-satisfaction-single-evaluator.md (section 
 AC1  COMPLEX: one LLM call, allowed_tools == [Read, Write], no multi keys
 AC2  COMPLEX SCORE 90 @ threshold 90 passes, no `multi_evaluator` key
 AC3  COMPLEX SCORE 89 @ threshold 90 fails with E_SATISFACTION_BELOW_THRESHOLD
-AC4  GUARD: SIMPLE / FEATURE / unset -> one call, [Read, Write]
-AC5  registry: multi machinery gone, single machinery kept
+AC5  registry: multi machinery gone
 AC6  phase_6_review.py source has none of the multi markers
-AC7  E_REVIEW_DEGRADED removed from error_codes + both ERROR_CODES.md; --check exits 0
-AC8  phase-6 md / dynamic-context template / bytedigger.json thresholds
-AC9  class_i_lint exits 0 and the inventory has no `_write_satisfaction_doc_multi` key
+AC7  E_REVIEW_DEGRADED removed from error_codes + both ERROR_CODES.md
+AC8  phase-6 / phase-0 md and dynamic-context template carry no "3x Opus"
+AC9  the inventory has no `_write_satisfaction_doc_multi` key
+
+Guards (AC4, AC5 kept-set, AC7 --check, AC8 thresholds, AC9 lint exit) live in
+test_bd317_satisfaction_guards.py because they pass before GREEN.
 
 Only the LLM subprocess boundary (`invoke_llm_subprocess`) and the telemetry sink are
 stubbed (workflows.md 1l). No singleton/time-dependent resource (1i). No sys.path
@@ -19,9 +21,6 @@ mutation, no conftest import (1q).
 from __future__ import annotations
 
 import importlib
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -146,40 +145,17 @@ def test_ac3_complex_score_below_threshold_fails(tmp_path, monkeypatch):
     assert written.data["threshold"] == 90
 
 
-# --- AC4 (GUARD) ------------------------------------------------------------
-
-
-@pytest.mark.parametrize("complexity", ["SIMPLE", "FEATURE", None])
-def test_ac4_guard_non_complex_single_call_read_write(tmp_path, monkeypatch, complexity):
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
-    calls = _install_stub(monkeypatch, 95)
-    p6._invoke_satisfaction_llm(_ctx(scratch, complexity, None), _prev(scratch))
-    assert len(calls) == 1
-    assert calls[0]["allowed_tools"] == ["Read", "Write"]
-
-
 # --- AC5 --------------------------------------------------------------------
 
 _REMOVED = (
     "_run_satisfaction_evaluators_parallel", "_aggregate_satisfaction",
     "_write_satisfaction_doc_multi", "_single_eval_passed", "_multi_findings_groups",
 )
-_KEPT = (
-    "_decide_satisfaction_passed", "_deterministic_satisfaction_override",
-    "_satisfaction_findings_blocks", "_persist_satisfaction_last_findings",
-    "_write_satisfaction_doc", "_invoke_satisfaction_llm",
-)
 
 
 @pytest.mark.parametrize("name", _REMOVED)
 def test_ac5_multi_machinery_removed(name):
     assert not hasattr(p6, name), f"phase_6_review.{name} must be removed"
-
-
-@pytest.mark.parametrize("name", _KEPT)
-def test_ac5_single_machinery_kept(name):
-    assert callable(getattr(p6, name, None)), f"phase_6_review.{name} must survive"
 
 
 # --- AC6 --------------------------------------------------------------------
@@ -208,14 +184,6 @@ def test_ac7_review_degraded_not_in_error_codes_md(rel):
     assert "E_REVIEW_DEGRADED" not in (REPO_ROOT / rel).read_text(encoding="utf-8")
 
 
-def test_ac7_error_codes_check_exits_zero():
-    proc = subprocess.run(
-        [sys.executable, "-m", "bytedigger_engine.error_codes", "--check"],
-        cwd=str(ENGINE_ROOT), capture_output=True, text=True, timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-
-
 # --- AC8 --------------------------------------------------------------------
 
 
@@ -238,20 +206,7 @@ def test_ac8_phase_0_classify_has_no_3x_opus():
     assert "3x Opus" not in md
 
 
-def test_ac8_guard_satisfaction_thresholds_unchanged():
-    cfg = json.loads((REPO_ROOT / "bytedigger.json").read_text(encoding="utf-8"))
-    assert cfg["satisfaction_thresholds"] == {"SIMPLE": 80, "FEATURE": 85, "COMPLEX": 90}
-
-
 # --- AC9 --------------------------------------------------------------------
-
-
-def test_ac9_guard_class_i_lint_exits_zero():
-    proc = subprocess.run(
-        [sys.executable, "-m", "bytedigger_engine.conformance.class_i_lint"],
-        cwd=str(ENGINE_ROOT), capture_output=True, text=True, timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_ac9_inventory_has_no_write_satisfaction_doc_multi_key():
