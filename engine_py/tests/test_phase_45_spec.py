@@ -68,6 +68,13 @@ def _reset_backends_and_telemetry(monkeypatch):
     reset_backends()
 
 
+@pytest.fixture(autouse=True)
+def _disable_shrink_guard(monkeypatch):
+    # legacy cycle-2 rewrite stubs are smaller than the echoed cycle-1 spec;
+    # bd#109 guard is tested in test_bd109_build_failure_classes.py
+    monkeypatch.setenv("HAL_SPEC_SHRINK_GUARD", "0")
+
+
 # ─── Stub backend base + helpers ──────────────────────────────────────────────
 
 _VALID_SPEC_LINES = (

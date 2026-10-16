@@ -67,6 +67,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -331,6 +332,11 @@ REVIEW_DOC_RELPATH = "specs/build-plan-review.md"
 # Cap matches Phase 5 validation pattern. Hard-coded
 # for v1; configurable in v2 once telemetry data exists.
 MAX_REVIEW_CYCLES = 2
+
+# bd#109: a cycle>=2 writer output below this fraction of the prior spec's bytes is refused.
+SPEC_SHRINK_RATIO = 0.5
+SPEC_SHRINK_GUARD_FLAG = "HAL_SPEC_SHRINK_GUARD"
+SPEC_PRIOR_NAME = ".build-spec.prior.md"
 
 # VERDICT_SHIP / VERDICT_REVISE / VERDICT_UNKNOWN imported from lib.spec_retry_cycle above.
 
@@ -1314,6 +1320,19 @@ def _invoke_spec_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
         )
     cfg = ctx.org_config or {}
     _doc = prev.data.get("doc_path")
+    # bd#109: keep the finished spec before the unlink below, so _write_spec_doc can
+    # refuse a writer output that collapsed to a fraction of it. Cycle 1 snapshots nothing.
+    prior_spec_path: str | None = None
+    if _doc and int(prev.data.get("cycle", 1)) >= 2 and get_config().gate_enabled(SPEC_SHRINK_GUARD_FLAG):
+        try:
+            if Path(_doc).read_text(encoding="utf-8", errors="replace").strip():
+                _prior = Path(_doc).parent / SPEC_PRIOR_NAME
+                _prior_tmp = _prior.with_suffix(_prior.suffix + ".tmp")
+                shutil.copyfile(_doc, _prior_tmp)  # byte-exact copy
+                os.replace(_prior_tmp, _prior)
+                prior_spec_path = str(_prior)
+        except OSError:
+            logger.warning("phase_45_spec: prior-spec snapshot failed", exc_info=True)
     if _doc:
         try:
             Path(_doc).unlink()
@@ -1330,6 +1349,8 @@ def _invoke_spec_llm(ctx: WorkflowContext, prev: Any) -> StepResult:
         "cycle": prev.data.get("cycle", 1),
         **_frozen_fwd,
     }
+    if prior_spec_path:
+        extra_data["prior_spec_path"] = prior_spec_path
     allowed_tools = ["Read", "Write", "Glob"]
     return invoke_llm_subprocess(
         prompt=prev.data["prompt"],
@@ -1529,6 +1550,44 @@ def _write_spec_doc(_ctx: WorkflowContext, prev: Any) -> StepResult:
     cycle = int(prev.data.get("cycle", 1))
     canonical = Path(prev.data["doc_path"])
     canonical.parent.mkdir(parents=True, exist_ok=True)
+
+    # bd#109: shrink guard. new_bytes is measured on the resolved text, before autoprefix.
+    _prior_ref = prev.data.get("prior_spec_path")
+    if _prior_ref and get_config().gate_enabled(SPEC_SHRINK_GUARD_FLAG):
+        try:
+            prior_size: int | None = Path(_prior_ref).stat().st_size
+        except (OSError, TypeError):
+            prior_size = None  # missing/unreadable prior: fail open to the write
+        new_bytes = len(raw.encode("utf-8"))
+        if prior_size is not None and new_bytes < SPEC_SHRINK_RATIO * prior_size:
+            prior_bytes = prior_size
+            _restore_tmp = canonical.with_suffix(canonical.suffix + ".tmp")
+            shutil.copyfile(_prior_ref, _restore_tmp)
+            os.replace(_restore_tmp, canonical)  # byte-exact, atomic; no per-cycle copy
+            _emit_safe("spec_shrink_blocked", {
+                "cycle": cycle, "prior_bytes": prior_bytes, "new_bytes": new_bytes,
+            })
+            shrink_findings = (
+                f"The spec writer output is {new_bytes} bytes, below half of the previous "
+                f"spec's {prior_bytes} bytes; the previous spec was restored. "
+                "REWRITE the FULL spec body — do not produce a stub, changelog or summary of revisions. "
+                f"Include all required sections starting with '{REQUIRED_FIRST_SECTION}'."
+            )
+            return cast(StepResult, _spec_gate_retry(
+                findings=shrink_findings,
+                build_class=(_ctx.org_config or {}).get("complexity", "SIMPLE").upper(),
+                cycle=cycle,
+                retry_from_step_idx=0,
+                error_code="E_SPEC_INCOMPLETE",
+                error_msg=f"spec writer output shrank to {new_bytes} bytes from {prior_bytes}",
+                step_name="write_spec_doc",
+                forwarded_data={
+                    **prev.data,
+                    "findings_text": shrink_findings,
+                    "findings": shrink_findings,
+                },
+                terminal_error_code="E_SPEC_INCOMPLETE_FATAL",
+            ))
 
     # D02C615D: rewrite bare citations to repo-rooted paths before persist.
     git_cwd = Path(resolve_git_cwd(_ctx.org_config or {}))
@@ -4849,6 +4908,9 @@ def _gate_on_review(_ctx: WorkflowContext, prev: Any) -> StepResult:
             "review_path": prev.data["review_path"],
             "cycle_count": cycle,
         }
+        # bd#109: name the spec the review gave up on, so the terminal result points at it.
+        if prev.data.get("spec_path"):
+            terminal_data["spec_path"] = prev.data["spec_path"]
         # GH625: thread gate_attempts through the terminal path too.
         if isinstance(_rf_ga, dict):
             terminal_data["gate_attempts"] = _rf_ga
