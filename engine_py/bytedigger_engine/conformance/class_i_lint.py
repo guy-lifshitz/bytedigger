@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import ast
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -249,3 +251,82 @@ def check(root: Path, inventory: dict[str, Any]) -> list[str]:
     for key in sorted(set(sites) - set(found)):
         problems.append(f"stale inventory key (no call site): {key}")
     return problems
+
+
+# bd#318: a model call handed to a pool/thread dispatcher outside lib/llm_fanout.
+_DISPATCHERS = frozenset({
+    "submit",
+    "map",
+    "starmap",
+    "apply_async",
+    "run_in_executor",
+    "to_thread",
+    "Thread",
+    "Process",
+    "run_with_current_run",
+})
+
+_MODEL_CALL = "invoke_llm_subprocess"
+_FANOUT_HELPER_REL = "lib/llm_fanout.py"
+
+
+def _references_model_call(node: ast.AST, bindings: dict[str, str]) -> bool:
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name):
+            if n.id == _MODEL_CALL or bindings.get(n.id, "").rsplit(".", 1)[-1] == _MODEL_CALL:
+                return True
+        elif isinstance(n, ast.Attribute) and n.attr == _MODEL_CALL:
+            return True
+    return False
+
+
+def fanout_findings(root: Path) -> list[str]:
+    """bd#318: one finding per dispatcher call whose arguments reference the model call."""
+    if os.environ.get("HAL_LLM_FANOUT_LINT") == "0":
+        return []
+    root = Path(root)
+    out: list[str] = []
+    for sub in _SCAN_DIRS:
+        base = root / sub
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*.py")):
+            rel = path.relative_to(root).as_posix()
+            if rel == _FANOUT_HELPER_REL:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            bindings = _collect_bindings(tree)
+            file_found: list[tuple[int, int, str]] = []
+            for n in ast.walk(tree):
+                if not isinstance(n, ast.Call):
+                    continue
+                if isinstance(n.func, ast.Attribute):
+                    last = n.func.attr
+                elif isinstance(n.func, ast.Name):
+                    last = n.func.id
+                else:
+                    continue
+                if last not in _DISPATCHERS:
+                    continue
+                parts: list[ast.AST] = [*n.args, *(kw.value for kw in n.keywords)]
+                if any(_references_model_call(p, bindings) for p in parts):
+                    file_found.append((n.lineno, n.col_offset, last))
+            for line, _col, last in sorted(file_found):
+                out.append(
+                    f"{rel}:{line}: pooled model call bypasses lib/llm_fanout: "
+                    f"{_MODEL_CALL} via {last}"
+                )
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    root = Path(args[0]) if args else Path(__file__).resolve().parent.parent
+    lines = check(root, load_inventory()) + fanout_findings(root)
+    for line in lines:
+        print(line)
+    return 1 if lines else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
