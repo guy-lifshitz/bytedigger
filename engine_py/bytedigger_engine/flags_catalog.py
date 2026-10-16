@@ -338,6 +338,12 @@ FLAGS: dict[str, dict] = {
         "module": "lib/reference_backends/agent_sdk.py",
         "description": "Kill-switch: HAL_OUTAGE_PROBE=0 disables the status-page external-outage probe on agent-sdk error paths.",
     },
+    "HAL_LLM_FANOUT_LINT": {
+        "kind": "gate",
+        "default": "1",
+        "module": "conformance/class_i_lint.py",
+        "description": "Kill-switch: HAL_LLM_FANOUT_LINT=0 (exact value) disables the bd#318 rule that flags a model call (invoke_llm_subprocess) handed to a pool/thread dispatcher outside lib/llm_fanout.",
+    },
     "HAL_STUB_PASSABILITY_GATE": {
         "kind": "gate",
         "default": "1",
