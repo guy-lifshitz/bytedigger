@@ -15,36 +15,25 @@ Origin of each test:
   test_ac2b_missing_evaluator_id_forwards_nothing_and_does_not_refuse
       <- engine_py/tests/test_bd206_class_m_sites.py (AC2b)
 
-Helpers are reused from the original files via importlib.util.spec_from_file_location (no
+Helpers are reused from the original files via plain sibling-module imports (no
 sys.path mutation here, no conftest import). Autouse fixtures do not carry over via import, so
 the bd206 isolation fixture is redefined below.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
+import test_bd206_class_m_sites as _b206
+import test_subagent_return_discipline_satisfaction_1A07C325 as _1a07
 from bytedigger_engine import llm_subprocess, telemetry_ctx
 from bytedigger_engine.contracts import StepResult
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 
-
-def _load(name: str, filename: str):
-    spec = importlib.util.spec_from_file_location(name, HERE / filename)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_b206 = _load("_bd317_b206_helpers", "test_bd206_class_m_sites.py")
-_1a07 = _load("_bd317_1a07_helpers", "test_subagent_return_discipline_satisfaction_1A07C325.py")
 
 _drive_sat = _b206._drive_sat
 _sat_raw = _b206._sat_raw

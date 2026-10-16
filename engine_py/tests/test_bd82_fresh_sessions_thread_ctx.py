@@ -396,11 +396,15 @@ def _is_wrapper(node):
 def test_t9_every_pool_dispatch_in_workflows_goes_through_the_wrapper():
     offenders: list[str] = []
     submits = 0
+    scanned_files: list[str] = []
+    calls_visited = 0
     for path in sorted(WORKFLOWS.glob("*.py")):
         tree = ast.parse(path.read_text())
+        scanned_files.append(path.name)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
+            calls_visited += 1
             func = node.func
             name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
             if name == "submit":
@@ -417,4 +421,6 @@ def test_t9_every_pool_dispatch_in_workflows_goes_through_the_wrapper():
                 offenders.append(f"{path.name}:{node.lineno} {name} bypasses the wrapper")
     # bd#317: the satisfaction pool is gone, so zero submits is expected; the scan
     # stays as a guard that no pool dispatch bypasses the wrapper.
+    assert scanned_files, "no workflows/*.py files were parsed"
+    assert calls_visited > 0, "no ast.Call nodes were visited"
     assert offenders == []
