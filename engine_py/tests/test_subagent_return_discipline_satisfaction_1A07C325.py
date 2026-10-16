@@ -17,7 +17,7 @@ Tests that FAIL today (genuine fail-today):
   AC10 — satisfaction_bytes_written computed from raw today (len(raw)), not file body.
 
 Tests that MAY PASS today (regression guards):
-  AC2  — (bd#317 retarget) COMPLEX makes one call with allowed_tools=["Read", "Write"].
+  AC2  — (bd#317 retarget) moved to test_bd317_satisfaction_retargets.py (COMPLEX: one call, Read + Write).
   AC5  — COMPLEX prompt still contains echo directive (unchanged today).
   AC6  — both prompts already contain ## Composite, SCORE: <0-100>, Set satisfied=true, ## satisfaction-output.
   (AC11, the multi-eval composite-doc route, was removed by bd#317 with the multi path.)
@@ -234,50 +234,6 @@ def test_ac1_invoke_satisfaction_llm_single_branch_passes_write_in_allowed_tools
 
 
 # ─── AC2: COMPLEX takes the single path: one call, Read + Write (bd#317) ────────
-
-
-def test_ac2_complex_single_evaluator_passes_read_write_allowed_tools(tmp_path, monkeypatch):
-    """AC2 (retargeted by bd#317): COMPLEX runs the single evaluator path: exactly one
-    invoke_llm_subprocess call with allowed_tools == ["Read", "Write"], like SIMPLE/FEATURE.
-    (Before bd#317 COMPLEX fanned out to three Read-only evaluators.)
-    """
-    scratchpad = tmp_path / "scratch"
-    scratchpad.mkdir()
-
-    captured_calls: list[dict] = []
-
-    def _fake_invoke(**kwargs):
-        captured_calls.append({"allowed_tools": kwargs.get("allowed_tools")})
-        return StepResult(
-            status="ok",
-            data={
-                "raw_response": _valid_raw_response(95),
-                "doc_path": "",
-                "spec_path": "",
-                "review_doc_path": "",
-                "fix_doc_path": "",
-            },
-            duration_ms=0,
-            step_name="invoke_satisfaction_llm",
-        )
-
-    monkeypatch.setattr(phase_6_review, "invoke_llm_subprocess", _fake_invoke)
-    monkeypatch.setattr(phase_6_review, "_emit_safe", lambda *a, **kw: None)
-
-    # complexity=COMPLEX → parallel evaluators path
-    ctx = _make_ctx(scratchpad, complexity="COMPLEX")
-    prev = _make_invoke_sat_prev(scratchpad)
-
-    _invoke_satisfaction_llm(ctx, prev)
-
-    assert len(captured_calls) == 1, (
-        f"COMPLEX must make exactly one invoke_llm_subprocess call, got {len(captured_calls)}"
-    )
-    actual_tools = captured_calls[0]["allowed_tools"]
-    assert actual_tools == ["Read", "Write"], (
-        f"AC2: COMPLEX evaluator must pass allowed_tools=['Read', 'Write'] "
-        f"(single path, bd#317). Got {actual_tools!r}"
-    )
 
 
 # ─── AC3: non-COMPLEX _invoke_satisfaction_llm unlinks doc_path before dispatch ─
