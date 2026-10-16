@@ -24,14 +24,12 @@ DEFAULT_LINT_DIR = os.path.dirname(os.path.realpath(__file__))
 #
 # bd#304: six spec lints left this list (drivers at the repo root, mapped in
 # LINT_DRIVER_DIRS); bd#305: spec-coverage left it too (fed only a spec with an
-# AC table, see feed_skip_reason). The two below are held, tracked in #305: the
-# measurement found real defects after narrowing. spec-cite has no driver file
-# (a live consumer, phase_45_spec, would turn it into a blocking gate); the
-# token-consistency driver sits on disk, unmapped, because the findings are
-# inside the existing specs' text.
+# AC table, see feed_skip_reason); bd#315: token-consistency left it after the
+# scanner stopped reporting file names and case-only drift. The one below is
+# held, tracked in #305: spec-cite has no driver file (a live consumer,
+# phase_45_spec, would turn it into a blocking gate).
 DECLARED_ABSENT = [
     "spec-cite-lint",
-    "token-consistency-lint",
 ]
 
 _TS_TEST_SUFFIXES = (".test.ts", ".test.js", ".spec.ts", ".spec.js")
@@ -60,6 +58,8 @@ LINT_DRIVER_DIRS = {
     "spec-coverage-lint": _REPO_ROOT,
     # bd#308: the empty-input-assert test lint, ratcheted against HEAD.
     "empty-input-assert-lint": _REPO_ROOT,
+    # bd#315: token-consistency left DECLARED_ABSENT.
+    "token-consistency-lint": _REPO_ROOT,
 }
 
 

@@ -962,6 +962,8 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         "mutation-two-sidedness-lint",
         # bd#305: spec-coverage is mapped; the layer feeds it a spec with a table.
         "spec-coverage-lint",
+        # bd#315: token-consistency is mapped too.
+        "token-consistency-lint",
         # bd#308: the third test lint, ratcheted against HEAD.
         "empty-input-assert-lint",
     }
@@ -970,7 +972,7 @@ def test_ac7_real_registry_twelve_declared_absent_returns_zero(
         f"(bd#302, bd#166, bd#304, bd#305), got {on_disk!r}."
     )
     assert sorted(declared) == sorted(set(names) - with_drivers), (
-        f"bd#66 AC7: DECLARED_ABSENT must be the other 2 registry names, "
+        f"bd#66 AC7: DECLARED_ABSENT must be the other 1 registry name, "
         f"got {len(declared)}: {declared!r}."
     )
 

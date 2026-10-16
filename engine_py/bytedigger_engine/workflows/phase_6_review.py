@@ -173,6 +173,34 @@ from bytedigger_engine.config_provider import timeout_policy_path, state_dir_pre
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
 
 
+# bd#319: doc-facing tier policy. Literals only (str/int/tuple/dict) so
+# bytedigger_engine.phase_claims can read it via ast.literal_eval without
+# importing this module; phases/*.md render their claims from it.
+SATISFACTION_TIER_POLICY = {
+    "SIMPLE": {
+        "reviewers": 1,
+        "evaluators": 1,
+        "dimensions": ("Spec compliance", "Test quality", "Code quality"),
+    },
+    "FEATURE": {
+        "reviewers": 1,
+        "evaluators": 1,
+        "dimensions": (
+            "Spec compliance", "Test quality", "Code quality",
+            "Completeness", "Boy Scout compliance",
+        ),
+    },
+    "COMPLEX": {
+        "reviewers": 1,
+        "evaluators": 1,
+        "dimensions": (
+            "Spec compliance", "Test quality", "Code quality",
+            "Completeness", "Boy Scout compliance",
+        ),
+    },
+}
+
+
 def _timeout_policy() -> dict:
     return cached_policy(str(timeout_policy_path()))
 
