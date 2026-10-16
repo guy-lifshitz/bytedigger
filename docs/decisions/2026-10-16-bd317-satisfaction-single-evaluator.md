@@ -1,5 +1,5 @@
 ---
-red_tests: [engine_py/tests/test_bd317_satisfaction_single_evaluator.py]
+red_tests: [engine_py/tests/test_bd317_satisfaction_single_evaluator.py, engine_py/tests/test_bd317_satisfaction_retargets.py]
 sibling_tests: [tests/test_bd89_p3b1c_single_reviewer_md_gates.py, engine_py/tests/test_bd89_p3b1_single_reviewer_only.py, engine_py/tests/test_phase_6_satisfaction_gate_strict_and_9702b73f.py, engine_py/tests/test_bd85_retry_budgets.py, engine_py/tests/test_gh751_satisfaction_spec_anchor.py, engine_py/tests/test_gh432_ac_checklist_parser_contract.py, engine_py/tests/test_gh388_ac_checklist_satisfaction.py, engine_py/tests/test_gh925_terminal_fail_sentinel_invalidation.py, engine_py/tests/test_bd141_p4d_role_template_injections.py, engine_py/tests/test_bd82_fresh_sessions_thread_ctx.py, engine_py/tests/test_gh705_satisfaction_stable_prefix.py, engine_py/tests/test_subagent_return_discipline_satisfaction_1A07C325.py, engine_py/tests/test_bd206_class_m_sites.py, engine_py/tests/test_gh497_telemetry_hygiene.py]
 paths: [engine_py/bytedigger_engine/workflows/phase_6_review.py, engine_py/bytedigger_engine/error_codes.py, engine_py/ERROR_CODES.md, engine_py/bytedigger_engine/ERROR_CODES.md, engine_py/bytedigger_engine/conformance/class_i_inventory.json, phases/phase-6-review.md, phases/phase-0-classify.md, templates/dynamic-context.md, CHANGELOG.md]
 ---
