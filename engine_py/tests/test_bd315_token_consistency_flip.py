@@ -252,6 +252,7 @@ def test_ac5_registry_flip_declared_absent_is_spec_cite_only_and_token_is_mapped
     assert os.path.isfile(resolved), f"resolved driver is not a file: {resolved!r}"
 
     present, violations = precommit_enforce.registry_prepass(precommit_lints.DEFAULT_LINT_DIR)
+    assert len(present) > 0, "registry_prepass scanned no lints"
     assert violations == [], f"the live registry must pre-pass clean: {violations!r}"
     assert present.get(_TOKEN) is True, present.get(_TOKEN)
     assert present.get(_CITE) is False, present.get(_CITE)
