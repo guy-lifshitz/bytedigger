@@ -17,7 +17,7 @@ phase-6-review.md describes additional patterns still DEFERRED:
    retry. ``write_fix_artifact`` parses ``FIX COMPLETE`` / ``FIX BLOCKED``
    / ``FIX SKIPPED`` markers and routes to ``E_FIX_BLOCKED`` on failure.
 2. **Multi-evaluator satisfaction vote** — single Opus evaluator for
-   SIMPLE/FEATURE; 3 parallel Opus evaluators with majority-PASS + median-SCORE
+   SIMPLE/FEATURE; N parallel Opus evaluators (SATISFACTION_TIER_POLICY["COMPLEX"]["evaluators"]) with majority-PASS + median-SCORE
    aggregation (degraded to ≥2 survivors; single-eval semantics on 0–1 survivors)
    for COMPLEX. Threshold check in ``write_satisfaction_doc``
    (HARD GATE — ``never_skip_opus_satisfaction_gate``
@@ -175,6 +175,34 @@ from bytedigger_engine.lib.mypy_baseline import mypy_base_argv as _mypy_base_arg
 from bytedigger_engine.lib.baseline_tree import baseline_tree  # noqa: E402  GH1612-B — canonical worktree-baseline provider (D1/D3)
 from bytedigger_engine.config_provider import timeout_policy_path, state_dir_prefix  # noqa: E402  GH285 C2
 from bytedigger_engine.lib.timeout_policy import DEFAULT_POLICY, cached_policy, resolve_timeout_sec  # noqa: E402  GH285 C2
+
+
+# bd#319: doc-facing tier policy. Literals only (str/int/tuple/dict) so
+# bytedigger_engine.phase_claims can read it via ast.literal_eval without
+# importing this module; phases/*.md render their claims from it.
+SATISFACTION_TIER_POLICY = {
+    "SIMPLE": {
+        "reviewers": 1,
+        "evaluators": 1,
+        "dimensions": ("Spec compliance", "Test quality", "Code quality"),
+    },
+    "FEATURE": {
+        "reviewers": 1,
+        "evaluators": 1,
+        "dimensions": (
+            "Spec compliance", "Test quality", "Code quality",
+            "Completeness", "Boy Scout compliance",
+        ),
+    },
+    "COMPLEX": {
+        "reviewers": 1,
+        "evaluators": 3,
+        "dimensions": (
+            "Spec compliance", "Test quality", "Code quality",
+            "Completeness", "Boy Scout compliance",
+        ),
+    },
+}
 
 
 def _timeout_policy() -> dict:
@@ -3211,7 +3239,7 @@ def _run_satisfaction_evaluators_parallel(
     model: str,
     timeout_sec: int,
     extra_data: dict,
-    n: int = 3,
+    n: "int | None" = None,
     stable_prefix: str = "",
     injections: tuple = (),
 ) -> "list[StepResult]":
@@ -3223,6 +3251,8 @@ def _run_satisfaction_evaluators_parallel(
     GH705: stable_prefix threaded through the shipped {prompt, stable_prefix}
     caching seam — prompt stays full/byte-identical.
     """
+    if n is None:  # bd#319: read at call time, not a def-time default
+        n = SATISFACTION_TIER_POLICY["COMPLEX"]["evaluators"]
     # bd#82 (HAL #1898): pool workers do not inherit the parent's thread-local
     # step context — capture it here and carry it across explicitly.
     parent_ctx = telemetry_ctx.get_current_run()
@@ -3449,9 +3479,11 @@ def _invoke_satisfaction_llm(ctx, prev) -> StepResult:
             injections=_declared_injections(prev.data),  # bd#141 4(d)
         )
 
-    # COMPLEX: 3 parallel evaluators via ThreadPoolExecutor (spec §1, 021D8FAE)
+    # COMPLEX: parallel evaluators via ThreadPoolExecutor (spec §1, 021D8FAE);
+    # count from SATISFACTION_TIER_POLICY at call time (bd#319)
     results: list[StepResult] = _run_satisfaction_evaluators_parallel(
-        prev.data["prompt"], sat_model, timeout_sec, extra_data, n=3,
+        prev.data["prompt"], sat_model, timeout_sec, extra_data,
+        n=SATISFACTION_TIER_POLICY["COMPLEX"]["evaluators"],
         stable_prefix=prev.data.get("stable_prefix", ""),
         injections=_declared_injections(prev.data),  # bd#141 4(d)
     )
