@@ -45,7 +45,7 @@ LINT_OFF_UNKNOWN = "BD66-LINT-OFF-UNKNOWN"
 LINT_NOT_FED = "BD66-LINT-NOT-FED"
 
 _COVERAGE = "spec-coverage-lint"
-_HELD = ["spec-cite-lint", "token-consistency-lint"]
+_HELD = ["spec-cite-lint"]  # bd#315: token-consistency left the held set
 _LEAVING = [
     "scope-inverse-lint", "helper-extraction-lint", "presence-triad-lint",
     "format-conversion-lint", "closure-evidence-lint", "mutation-two-sidedness-lint",
@@ -443,16 +443,16 @@ def test_ac3_the_layer_feeds_spec_coverage_only_a_spec_with_an_ac_table(tmp_path
 # ------------------------------------------------------------------------ AC4
 
 
-def test_ac4_the_two_held_lints_stay_held_and_the_registry_stays_closed(tmp_path):
+def test_ac4_the_one_held_lint_stays_held_and_the_registry_stays_closed(tmp_path):
     assert set(precommit_lints.DECLARED_ABSENT) == set(_HELD), (
         f"DECLARED_ABSENT must be exactly {_HELD!r}, got {precommit_lints.DECLARED_ABSENT!r}"
     )
-    assert len(precommit_lints.DECLARED_ABSENT) == 2, precommit_lints.DECLARED_ABSENT
+    assert len(precommit_lints.DECLARED_ABSENT) == 1, precommit_lints.DECLARED_ABSENT
 
-    # Token drift is not flagged by the layer: the lint is held.
+    # bd#315: token drift is flagged by the layer: the lint is live.
     rc, output, head = _scenario(tmp_path, "ac4drift", _build(problem_extra=[_TOKEN_LINE]))
-    assert rc == 0 and head, f"token drift must be accepted: {output!r}"
-    assert not _lint_token(output, "token-consistency-lint"), output
+    assert rc != 0 and not head, f"token drift must be refused: {output!r}"
+    assert len(_lines_with(output, REFUSE_VIOLATION, "token-consistency-lint")) == 1, output
 
     # No cite driver at the root; the path phase_45_spec computes is not a file.
     from bytedigger_engine.workflows import phase_45_spec  # noqa: PLC0415
@@ -698,10 +698,10 @@ def test_ac9_measurement_pin_the_held_lints_still_have_findings_and_coverage_is_
     assert [p.name for p in specs] == _EXISTING_SPECS, f"existing specs: {specs!r}"
     texts = {p: p.read_text(encoding="utf-8") for p in specs}
 
+    # bd#315: the token half flipped; the scanner measures zero findings.
     drift = {p.name: token_consistency.scan_token_consistency(t) for p, t in texts.items()}
-    assert any(drift.values()), (
-        "token-consistency is now clean on the five existing specs: the "
-        "measurement that held it back is stale, so #305's remainder can flip it"
+    assert {name: found for name, found in drift.items() if found} == {}, (
+        f"token-consistency must have zero findings on the five existing specs: {drift!r}"
     )
 
     blocking_both = []
